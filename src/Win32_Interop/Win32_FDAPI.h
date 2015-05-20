@@ -33,13 +33,8 @@
 
 typedef unsigned long nfds_t;
 
-#if defined(_WIN64)
-typedef __int64 ssize_t;
-#else
-typedef _W64 long ssize_t;
-#endif
-
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
+#include "win32_types.h"
 #include <WinSock2.h>
 #undef FD_ISSET
 #include <fcntl.h>
@@ -174,7 +169,7 @@ typedef ssize_t (*redis_write)(int fd, const void *buf, size_t count);
 typedef int (*redis_fsync)(int fd);
 typedef int (*_redis_fstat)(int fd, struct __stat64 *buffer);
 typedef int (*redis_listen)(int sockfd, int backlog);
-typedef int (*redis_ftruncate)(int fd, long long length);
+typedef int (*redis_ftruncate)(int fd, PORT_LONGLONG length);
 typedef int (*redis_bind)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 typedef int (*redis_shutdown)(int sockfd, int how); 
 typedef u_short (*redis_htons)(u_short hostshort);

@@ -810,7 +810,7 @@ static int mp_unpack_full(lua_State *L, int limit, int offset) {
         /* c->left is the remaining size of the input buffer.
          * subtract the entire buffer size from the unprocessed size
          * to get our next start offset */
-        int offset = len - c.left;
+        int offset = (int)(len - c.left);                                       /* UPSTREAM_ISSUE: missing (int) cast */
         /* Return offset -1 when we have have processed the entire buffer. */
         lua_pushinteger(L, c.left == 0 ? -1 : offset);
         /* Results are returned with the arg elements still

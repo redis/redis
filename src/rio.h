@@ -134,7 +134,7 @@ void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);
-size_t rioWriteBulkLongLong(rio *r, long long l);
+size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l);
 size_t rioWriteBulkDouble(rio *r, double d);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);

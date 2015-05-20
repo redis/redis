@@ -29,6 +29,7 @@
  */
 
 #ifdef _WIN32
+#include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
 #endif
 
@@ -207,7 +208,7 @@ int anetTcpKeepAlive(char *err, int fd)
 
 /* Set the socket send timeout (SO_SNDTIMEO socket option) to the specified
  * number of milliseconds, or disable it if the 'ms' argument is zero. */
-int anetSendTimeout(char *err, int fd, long long ms) {
+int anetSendTimeout(char *err, int fd, PORT_LONGLONG ms) {
     struct timeval tv;
 
     tv.tv_sec = ms/1000;
@@ -461,7 +462,7 @@ int anetRead(int fd, char *buf, int count)
 {
     int nread, totlen = 0;
     while(totlen != count) {
-        nread = read(fd,buf,count-totlen);
+        nread = (int)read(fd,buf,count-totlen);                                 /* UPSTREAM_ISSUE: missing (int) cast */
         if (nread == 0) return totlen;
         if (nread == -1) return -1;
         totlen += nread;
@@ -476,7 +477,7 @@ int anetWrite(int fd, char *buf, int count)
 {
     int nwritten, totlen = 0;
     while(totlen != count) {
-        nwritten = write(fd,buf,count-totlen);
+        nwritten = (int)write(fd,buf,count-totlen);                             /* UPSTREAM_ISSUE: missing (int) cast */
         if (nwritten == 0) return totlen;
         if (nwritten == -1) return -1;
         totlen += nwritten;
@@ -535,11 +536,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
             continue;
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
-#ifdef _WIN32
-        if (anetSetExclusiveAddr(err,s) == ANET_ERR) goto error;
-#else
-        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
-#endif
+        if (IF_WIN32(anetSetExclusiveAddr,anetSetReuseAddr)(err,s) == ANET_ERR) goto error;
         if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;
         goto end;
     }

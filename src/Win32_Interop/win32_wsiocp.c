@@ -267,7 +267,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     if (sockstate == NULL ||
         (sockstate->masks & SOCKET_ATTACHED) == 0 ||
         proc == NULL) {
-        result = write(fd, buf, len);
+		result = (int)write(fd, buf, len);					                    /* UPSTREAM_ISSUE: missing (int) cast */
         if (result == SOCKET_ERROR) {
             errno = WSAGetLastError();
         }
@@ -467,9 +467,9 @@ int aeWinSocketAttach(int fd) {
 
 void aeShutdown(int fd) {
     char rbuf[100];
-    long long waitmsecs = 50;      /* wait up to 50 millisecs */
-    long long endms;
-    long long nowms;
+    PORT_LONGLONG waitmsecs = 50;      /* wait up to 50 millisecs */
+    PORT_LONGLONG endms;
+    PORT_LONGLONG nowms;
 
     /* wait for last item to complete up to tosecs seconds*/
     endms = GetHighResRelativeTime(1000) + waitmsecs;

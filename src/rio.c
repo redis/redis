@@ -255,7 +255,7 @@ static off_t rioFdsetTell(rio *r) {
 static int rioFdsetFlush(rio *r) {
     /* Our flush is implemented by the write method, that recognizes a
      * buffer set to NULL with a count of zero as a flush request. */
-    return rioFdsetWrite(r,NULL,0);
+    return (int)rioFdsetWrite(r,NULL,0);                                        /* UPSTREAM_ISSUE: missing (int) cast */
 }
 
 static const rio rioFdsetIO = {
@@ -338,8 +338,8 @@ size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     return nwritten+len+2;
 }
 
-/* Write a long long value in format: "$<count>\r\n<payload>\r\n". */
-size_t rioWriteBulkLongLong(rio *r, long long l) {
+/* Write a PORT_LONGLONG value in format: "$<count>\r\n<payload>\r\n". */
+size_t rioWriteBulkLongLong(rio *r, PORT_LONGLONG l) {
     char lbuf[32];
     unsigned int llen;
 

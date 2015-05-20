@@ -319,8 +319,8 @@ static unsigned int zipRawEntryLength(unsigned char *p) {
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
  * Stores the integer value in 'v' and its encoding in 'encoding'. */
-static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
-    long long value;
+static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, PORT_LONGLONG *v, unsigned char *encoding) {
+    PORT_LONGLONG value;
 
     if (entrylen >= 32 || entrylen == 0) return 0;
     if (string2ll((char*)entry,entrylen,&value)) {
@@ -585,7 +585,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     size_t offset;
     int nextdiff = 0;
     unsigned char encoding = 0;
-    long long value = 123456789; /* initialized to avoid warning. Using a value
+    PORT_LONGLONG value = 123456789; /* initialized to avoid warning. Using a value
                                     that is easy to see if for some reason
                                     we use it uninitialized. */
     zlentry tail;
@@ -747,7 +747,7 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
  * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
-unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, PORT_LONGLONG *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
     if (sstr) *sstr = NULL;
@@ -797,7 +797,7 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigne
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
     unsigned char sencoding;
-    long long zval, sval;
+    PORT_LONGLONG zval, sval;
     if (p[0] == ZIP_END) return 0;
 
     entry = zipEntry(p);
@@ -824,7 +824,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
 unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
     int skipcnt = 0;
     unsigned char vencoding = 0;
-    long long vll = 0;
+    PORT_LONGLONG vll = 0;
 
     while (p[0] != ZIP_END) {
         unsigned int prevlensize, encoding, lensize, len;
@@ -859,7 +859,7 @@ unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int v
                  * if vencoding != UCHAR_MAX because if there is no encoding
                  * possible for the field it can't be a valid integer. */
                 if (vencoding != UCHAR_MAX) {
-                    long long ll = zipLoadInteger(q, encoding);
+                    PORT_LONGLONG ll = zipLoadInteger(q, encoding);
                     if (ll == vll) {
                         return p;
                     }
@@ -920,7 +920,7 @@ void ziplistRepr(unsigned char *zl) {
         entry = zipEntry(p);
         printf(
             "{"
-                "addr 0x%08lx, "
+                "addr 0x%08lx, "    /* BUGBUG */
                 "index %2d, "
                 "offset %5ld, "
                 "rl: %5u, "
@@ -929,9 +929,9 @@ void ziplistRepr(unsigned char *zl) {
                 "pls: %2u, "
                 "payload %5u"
             "} ",
-            (long unsigned)p,
+            (PORT_ULONG) p,
             index,
-            (unsigned long) (p-zl),
+            (PORT_ULONG)(p - zl),
             entry.headersize+entry.len,
             entry.headersize,
             entry.prevrawlen,
@@ -947,7 +947,7 @@ void ziplistRepr(unsigned char *zl) {
                     fwrite(p,entry.len,1,stdout) == 0) perror("fwrite");
             }
         } else {
-            printf("%lld", (long long) zipLoadInteger(p,entry.encoding));
+            printf("%lld", (PORT_LONGLONG) zipLoadInteger(p,entry.encoding));
         }
         printf("\n");
         p += entry.len;
@@ -991,13 +991,13 @@ unsigned char *createIntList() {
     return zl;
 }
 
-long long usec(void) {
+PORT_LONGLONG usec(void) {
 #ifdef _WIN32
     return GetHighResRelativeTime(1000000);
 #else
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
 #endif
 }
 
@@ -1005,7 +1005,7 @@ void stress(int pos, int num, int maxsize, int dnum) {
     int i,j,k;
     unsigned char *zl;
     char posstr[2][5] = { "HEAD", "TAIL" };
-    long long start;
+    PORT_LONGLONG start;
     for (i = 0; i < maxsize; i+=dnum) {
         zl = ziplistNew();
         for (j = 0; j < i; j++) {
@@ -1027,7 +1027,7 @@ void stress(int pos, int num, int maxsize, int dnum) {
 void pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
-    long long vlong;
+    PORT_LONGLONG vlong;
 
     p = ziplistIndex(zl,where == ZIPLIST_HEAD ? 0 : -1);
     if (ziplistGet(p,&vstr,&vlen,&vlong)) {
@@ -1095,7 +1095,7 @@ int main(int argc, char **argv) {
     unsigned char *zl, *p;
     unsigned char *entry;
     unsigned int elen;
-    long long value;
+    PORT_LONGLONG value;
 
     /* If an argument is given, use it as the random seed. */
     if (argc == 2)
@@ -1467,7 +1467,7 @@ int main(int argc, char **argv) {
         /* Hold temp vars from ziplist */
         unsigned char *sstr;
         unsigned int slen;
-        long long sval;
+        PORT_LONGLONG sval;
 
         for (i = 0; i < 20000; i++) {
             zl = ziplistNew();

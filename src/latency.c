@@ -42,7 +42,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
 }
 
 unsigned int dictStringHash(const void *key) {
-    return dictGenHashFunction(key, strlen(key));
+    return dictGenHashFunction(key, (int)strlen(key));                          /* UPSTREAM_ISSUE: missing (int) cast */
 }
 
 void dictVanillaFree(void *privdata, void *val);
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:");              /* UPSTREAM_ISSUE: missing (int) cast */
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -264,10 +264,10 @@ sds createLatencyReport(void) {
             "%d. %s: %d latency spikes (average %lums, mean deviation %lums, period %.2f sec). Worst all time event %lums.",
             eventnum, event,
             ls.samples,
-            (unsigned long) ls.avg,
-            (unsigned long) ls.mad,
+            (PORT_ULONG) ls.avg,
+            (PORT_ULONG) ls.mad,
             (double) ls.period/ls.samples,
-            (unsigned long) ts->max);
+            (PORT_ULONG) ts->max);
 
         /* Fork */
         if (!strcasecmp(event,"fork")) {
@@ -394,11 +394,11 @@ sds createLatencyReport(void) {
 
         /* Slow log. */
         if (advise_slowlog_enabled) {
-            report = sdscatprintf(report,"- There are latency issues with potentially slow commands you are using. Try to enable the Slow Log Redis feature using the command 'CONFIG SET slowlog-log-slower-than %llu'. If the Slow log is disabled Redis is not able to log slow commands execution for you.\n", (unsigned long long)server.latency_monitor_threshold*1000);
+            report = sdscatprintf(report,"- There are latency issues with potentially slow commands you are using. Try to enable the Slow Log Redis feature using the command 'CONFIG SET slowlog-log-slower-than %llu'. If the Slow log is disabled Redis is not able to log slow commands execution for you.\n", (PORT_ULONGLONG)server.latency_monitor_threshold*1000);
         }
 
         if (advise_slowlog_tuning) {
-            report = sdscatprintf(report,"- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (unsigned long long)server.latency_monitor_threshold*1000);
+            report = sdscatprintf(report,"- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (PORT_ULONGLONG)server.latency_monitor_threshold*1000);
         }
 
         if (advise_slowlog_inspect) {
@@ -537,8 +537,8 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     }
 
     graph = sdscatprintf(graph,
-        "%s - high %lu ms, low %lu ms (all time high %lu ms)\n", event,
-        (unsigned long) max, (unsigned long) min, (unsigned long) ts->max);
+        "%s - high %Iu ms, low %Iu ms (all time high %Iu ms)\n", event,         /* PORTABILITY FIX %ld -> %Id, %lu -> %Iu */
+        (PORT_ULONG) max, (PORT_ULONG) min, (PORT_ULONG) ts->max);
     for (j = 0; j < LATENCY_GRAPH_COLS; j++)
         graph = sdscatlen(graph,"-",1);
     graph = sdscatlen(graph,"\n",1);

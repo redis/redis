@@ -329,7 +329,7 @@ void pubsubCommand(redisClient *c) {
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
         dictIterator *di = dictGetIterator(server.pubsub_channels);
         dictEntry *de;
-        long mblen = 0;
+        PORT_LONG mblen = 0;
         void *replylen;
 
         replylen = addDeferredMultiBulkLength(c);

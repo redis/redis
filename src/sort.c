@@ -28,12 +28,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include "redis.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, PORT_ULONG rank);
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
@@ -190,7 +189,7 @@ void sortCommand(redisClient *c) {
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
-    long limit_start = 0, limit_count = -1, start, end;
+    PORT_LONG limit_start = 0, limit_count = -1, start, end;
     int j, dontsort = 0, vectorlen;
     int getop = 0; /* GET operation counter */
     int int_convertion_error = 0;
@@ -286,8 +285,8 @@ void sortCommand(redisClient *c) {
 
     /* Objtain the length of the object to sort. */
     switch(sortval->type) {
-    case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
-    case REDIS_SET: vectorlen =  setTypeSize(sortval); break;
+    case REDIS_LIST: vectorlen = (int)listTypeLength(sortval); break;           /* UPSTREAM_ISSUE: missing (int) cast */
+    case REDIS_SET: vectorlen =  (int)setTypeSize(sortval); break;              /* UPSTREAM_ISSUE: missing (int) cast */
     case REDIS_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
@@ -315,7 +314,7 @@ void sortCommand(redisClient *c) {
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
-        vectorlen = end-start+1;
+        vectorlen = (int)(end-start+1);                                         /* UPSTREAM_ISSUE: missing (int) cast */
     }
 
     /* Load the sorting vector with all the objects to sort */
@@ -358,7 +357,7 @@ void sortCommand(redisClient *c) {
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
-            long zsetlen = (long)dictSize(((zset*)sortval->ptr)->dict);
+            PORT_LONG zsetlen = (PORT_LONG) dictSize(((zset*)sortval->ptr)->dict);
 
             ln = zsl->tail;
             if (start > 0)
@@ -430,7 +429,7 @@ void sortCommand(redisClient *c) {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
                      * far. We can just cast it */
-                    vector[j].u.score = (long)byval->ptr;
+                    vector[j].u.score = (PORT_LONG) byval->ptr;
                 } else {
                     redisAssertWithInfo(c,sortval,1 != 1);
                 }

@@ -26,6 +26,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32_types.h"
+#endif
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -45,12 +49,13 @@
 #endif
 #include "config.h"
 
-#if (ULONG_MAX == 4294967295UL)
+
+#if (PORT_ULONG_MAX == 4294967295UL)
 #define MEMTEST_32BIT
-#elif (ULONG_MAX == 18446744073709551615ULL)
+#elif (PORT_ULONG_MAX == 18446744073709551615ULL)
 #define MEMTEST_64BIT
 #else
-#error "ULONG_MAX value not supported."
+#error "PORT_ULONG_MAX value not supported."
 #endif
 
 #ifdef MEMTEST_32BIT
@@ -93,7 +98,7 @@ void memtest_progress_end(void) {
 }
 
 void memtest_progress_step(size_t curr, size_t size, char c) {
-    size_t chars = ((unsigned long long)curr*progress_full)/size, j;
+    size_t chars = ((PORT_ULONGLONG)curr*progress_full)/size, j;
 
     for (j = 0; j < chars-progress_printed; j++) printf("%c",c);
     progress_printed = chars;
@@ -103,21 +108,21 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
 /* Test that addressing is fine. Every location is populated with its own
  * address, and finally verified. This test is very fast but may detect
  * ASAP big issues with the memory subsystem. */
-void memtest_addressing(unsigned long *l, size_t bytes) {
-    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long));
-    unsigned long j, *p;
+void memtest_addressing(PORT_ULONG *l, size_t bytes) {
+    PORT_ULONG words = (PORT_ULONG)(bytes / sizeof(PORT_ULONG));
+    PORT_ULONG j,*p;
 
     /* Fill */
     p = l;
     for (j = 0; j < words; j++) {
-        *p = (unsigned long)p;
+        *p = (PORT_ULONG)p;
         p++;
         if ((j & 0xffff) == 0) memtest_progress_step(j,words*2,'A');
     }
     /* Test */
     p = l;
     for (j = 0; j < words; j++) {
-        if (*p != (unsigned long)p) {
+        if (*p != (PORT_ULONG)p) {
             printf("\n*** MEMORY ADDRESSING ERROR: %p contains %lu\n",
                 (void*) p, *p);
             exit(1);
@@ -131,11 +136,11 @@ void memtest_addressing(unsigned long *l, size_t bytes) {
  * touch all the pages in the smallest amount of time reducing the
  * effectiveness of caches, and making it hard for the OS to transfer
  * pages on the swap. */
-void memtest_fill_random(unsigned long *l, size_t bytes) {
-    unsigned long step = (unsigned long)(4096/sizeof(unsigned long));
-    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
-    unsigned long iwords = words/step;  /* words per iteration */
-    unsigned long off, w, *l1, *l2;
+void memtest_fill_random(PORT_ULONG *l, size_t bytes) {
+    PORT_ULONG step = (PORT_ULONG)(4096 / sizeof(PORT_ULONG));
+    PORT_ULONG words = (PORT_ULONG)(bytes / sizeof(PORT_ULONG) / 2);
+    PORT_ULONG iwords = words / step;  /* words per iteration */
+    PORT_ULONG off,w,*l1,*l2;
 
     assert((bytes & 4095) == 0);
     for (off = 0; off < step; off++) {
@@ -143,13 +148,13 @@ void memtest_fill_random(unsigned long *l, size_t bytes) {
         l2 = l1+words;
         for (w = 0; w < iwords; w++) {
 #ifdef MEMTEST_32BIT
-            *l1 = *l2 = ((unsigned long)     (rand()&0xffff)) |
-                        (((unsigned long)    (rand()&0xffff)) << 16);
+            *l1 = *l2 = ((PORT_ULONG)(rand() & 0xffff)) |
+                        (((PORT_ULONG)    (rand()&0xffff)) << 16);
 #else
-            *l1 = *l2 = ((unsigned long)     (rand()&0xffff)) |
-                        (((unsigned long)    (rand()&0xffff)) << 16) |
-                        (((unsigned long)    (rand()&0xffff)) << 32) |
-                        (((unsigned long)    (rand()&0xffff)) << 48);
+            *l1 = *l2 = ((PORT_ULONG)     (rand()&0xffff)) |
+                        (((PORT_ULONG)    (rand()&0xffff)) << 16) |
+                        (((PORT_ULONG)    (rand()&0xffff)) << 32) |
+                        (((PORT_ULONG)    (rand()&0xffff)) << 48);
 #endif
             l1 += step;
             l2 += step;
@@ -161,13 +166,13 @@ void memtest_fill_random(unsigned long *l, size_t bytes) {
 
 /* Like memtest_fill_random() but uses the two specified values to fill
  * memory, in an alternated way (v1|v2|v1|v2|...) */
-void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
-                        unsigned long v2, char sym)
+void memtest_fill_value(PORT_ULONG *l,size_t bytes,PORT_ULONG v1,
+                        PORT_ULONG v2, char sym)
 {
-    unsigned long step = (unsigned long)(4096/sizeof(unsigned long));
-    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
-    unsigned long iwords = words/step;  /* words per iteration */
-    unsigned long off, w, *l1, *l2, v;
+    PORT_ULONG step = (PORT_ULONG)(4096/sizeof(PORT_ULONG));
+    PORT_ULONG words = (PORT_ULONG)(bytes/sizeof(PORT_ULONG)/2);
+    PORT_ULONG iwords = words/step;  /* words per iteration */
+    PORT_ULONG off, w, *l1, *l2, v;
 
     assert((bytes & 4095) == 0);
     for (off = 0; off < step; off++) {
@@ -176,13 +181,13 @@ void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
         v = (off & 1) ? v2 : v1;
         for (w = 0; w < iwords; w++) {
 #ifdef MEMTEST_32BIT
-            *l1 = *l2 = ((unsigned long)     v) |
-                        (((unsigned long)    v) << 16);
+            *l1 = *l2 = ((PORT_ULONG)     v) |
+                        (((PORT_ULONG)    v) << 16);
 #else
-            *l1 = *l2 = ((unsigned long)     v) |
-                        (((unsigned long)    v) << 16) |
-                        (((unsigned long)    v) << 32) |
-                        (((unsigned long)    v) << 48);
+            *l1 = *l2 = ((PORT_ULONG)     v) |
+                        (((PORT_ULONG)    v) << 16) |
+                        (((PORT_ULONG)    v) << 32) |
+                        (((PORT_ULONG)    v) << 48);
 #endif
             l1 += step;
             l2 += step;
@@ -192,9 +197,9 @@ void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
     }
 }
 
-void memtest_compare(unsigned long *l, size_t bytes) {
-    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
-    unsigned long w, *l1, *l2;
+void memtest_compare(PORT_ULONG *l, size_t bytes) {
+    PORT_ULONG words = (PORT_ULONG)(bytes/sizeof(PORT_ULONG)/2);
+    PORT_ULONG w, *l1, *l2;
 
     assert((bytes & 4095) == 0);
     l1 = l;
@@ -211,7 +216,7 @@ void memtest_compare(unsigned long *l, size_t bytes) {
     }
 }
 
-void memtest_compare_times(unsigned long *m, size_t bytes, int pass, int times) {
+void memtest_compare_times(PORT_ULONG *m, size_t bytes, int pass, int times) {
     int j;
 
     for (j = 0; j < times; j++) {
@@ -222,18 +227,13 @@ void memtest_compare_times(unsigned long *m, size_t bytes, int pass, int times) 
 }
 
 void memtest_test(size_t megabytes, int passes) {
-    size_t bytes = megabytes*1024*1024;
-    unsigned long *m = malloc(bytes);
+    size_t bytes = megabytes * 1024 * 1024;
+    PORT_ULONG *m = malloc(bytes);
     int pass = 0;
 
     if (m == NULL) {
-#ifdef _WIN32
-        fprintf(stderr,"Unable to allocate %llu megabytes: %s",
-            (long long)megabytes, strerror(errno));
-#else
-        fprintf(stderr,"Unable to allocate %zu megabytes: %s",
-            megabytes, strerror(errno));
-#endif
+        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  
+            megabytes,strerror(errno));                                         WIN_PORT_FIX /* %zu -> %Iu */
         exit(1);
     }
     while (pass != passes) {
@@ -249,7 +249,7 @@ void memtest_test(size_t megabytes, int passes) {
         memtest_compare_times(m,bytes,pass,4);
 
         memtest_progress_start("Solid fill",pass);
-        memtest_fill_value(m,bytes,0,(unsigned long)-1,'S');
+        memtest_fill_value(m,bytes,0,(PORT_ULONG)-1,'S');
         memtest_progress_end();
         memtest_compare_times(m,bytes,pass,4);
 
@@ -262,8 +262,8 @@ void memtest_test(size_t megabytes, int passes) {
 }
 
 void memtest_non_destructive_invert(void *addr, size_t size) {
-    volatile unsigned long *p = addr;
-    size_t words = size / sizeof(unsigned long);
+    volatile PORT_ULONG *p = addr;
+    size_t words = size / sizeof(PORT_ULONG);
     size_t j;
 
     /* Invert */
@@ -272,13 +272,13 @@ void memtest_non_destructive_invert(void *addr, size_t size) {
 }
 
 void memtest_non_destructive_swap(void *addr, size_t size) {
-    volatile unsigned long *p = addr;
-    size_t words = size / sizeof(unsigned long);
+    volatile PORT_ULONG *p = addr;
+    size_t words = size / sizeof(PORT_ULONG);
     size_t j;
 
     /* Swap */
     for (j = 0; j < words; j += 2) {
-        unsigned long a, b;
+        PORT_ULONG a,b;
 
         a = p[j];
         b = p[j+1];

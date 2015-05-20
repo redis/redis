@@ -301,10 +301,10 @@ void ok(void) {
     printf("OK\n");
 }
 
-long long usec(void) {
+PORT_LONGLONG usec(void) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+    return (((PORT_LONGLONG)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
 #define assert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
@@ -453,9 +453,9 @@ int main(int argc, char **argv) {
     }
 
     printf("Stress lookups: "); {
-        long num = 100000, size = 10000;
+        PORT_LONG num = 100000, size = 10000;
         int i, bits = 20;
-        long long start;
+        PORT_LONGLONG start;
         is = createSet(bits,size);
         checkConsistency(is);
 

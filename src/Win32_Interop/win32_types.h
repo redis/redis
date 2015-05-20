@@ -30,14 +30,46 @@
  * _off_t is also defined #ifndef _OFF_T_DEFINED, so we need to define it here.
  * It is used by the CRT internally (but not by Redis), so we leave it as 32-bit.
  */
- 
-typedef __int64 off_t;
-typedef long _off_t;
+
+typedef __int64             off_t;
+typedef long                _off_t;
 
 #ifndef _OFF_T_DEFINED
 #define _OFF_T_DEFINED
 #endif
 
+/* On 64-bit *nix and Windows use different data type models: LP64 and LLP64 respectively.
+ * The main difference is that 'long' is 64-bit on 64-bit *nix and 32-bit on 64-bit Windows. 
+ * The Posix version of Redis makes many assumptions about long being 64-bit and the same size
+ * as pointers.
+ * To deal with this issue, we replace all occurrences of 'long' in antirez code with our own typedefs,
+ * and make those definitions 64-bit to match antirez' assumptions.
+ * This enables us to have merge check script to verify that no new instances of 'long' go unnoticed.
+ */
+
+typedef __int64                 PORT_LONGLONG;
+typedef unsigned __int64        PORT_ULONGLONG;
+typedef double                  PORT_LONGDOUBLE;
+
+#if defined(_WIN64)
+  typedef __int64               ssize_t;
+  typedef __int64               PORT_LONG;
+  typedef unsigned __int64      PORT_ULONG;
+#else
+  typedef _W64 long             ssize_t;
+  typedef _W64 long             PORT_LONG;
+  typedef _W64 unsigned long    PORT_ULONG;
+#endif
+
+#if defined(_WIN64)
+  #define PORT_LONG_MAX     _I64_MAX
+  #define PORT_LONG_MIN     _I64_MIN
+  #define PORT_ULONG_MAX    _UI64_MAX
+#else
+  #define PORT_LONG_MAX     LONG_MAX
+  #define PORT_LONG_MIN     LONG_MIN
+  #define PORT_ULONG_MAX    ULONG_MAX
+#endif
 
 /* The maximum possible size_t value has all bits set */
 #define MAX_SIZE_T           (~(size_t)0)

@@ -27,7 +27,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32_types.h"
+#endif
 
 #include <stdlib.h>
 #include "adlist.h"
@@ -57,7 +60,7 @@ list *listCreate(void)
  * This function can't fail. */
 void listRelease(list *list)
 {
-    unsigned long len;
+    PORT_ULONG len;
     listNode *current, *next;
 
     current = list->head;
@@ -310,7 +313,7 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative integers are used in order to count
  * from the tail, -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
-listNode *listIndex(list *list, long index) {
+listNode *listIndex(list *list, PORT_LONG index) {
     listNode *n;
 
     if (index < 0) {

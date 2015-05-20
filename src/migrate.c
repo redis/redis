@@ -84,7 +84,7 @@ void dumpCommand(redisClient *c) {
 
 /* RESTORE key ttl serialized-value */
 void restoreCommand(redisClient *c) {
-    long long ttl;
+    PORT_LONGLONG ttl;
     rio payload;
     int type;
     robj *obj;
@@ -129,9 +129,9 @@ void restoreCommand(redisClient *c) {
 /* MIGRATE host port key dbid timeout */
 void migrateCommand(redisClient *c) {
     int fd;
-    long timeout;
-    long dbid;
-    long long ttl = 0, expireat;
+    PORT_LONG timeout;
+    PORT_LONG dbid;
+    PORT_LONGLONG ttl = 0, expireat;
     robj *o;
     rio cmd, payload;
 
@@ -202,7 +202,7 @@ void migrateCommand(redisClient *c) {
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
             while (nwritten != (signed)towrite) {
-                nwritten = syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
+                nwritten = (int)syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
                 if (nwritten != (signed)towrite) {
                     DWORD err = GetLastError();
                     if (err == WSAEWOULDBLOCK) {

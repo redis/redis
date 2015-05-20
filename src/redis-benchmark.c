@@ -73,9 +73,9 @@ static struct config {
     int randomkeys_keyspacelen;
     int keepalive;
     int pipeline;
-    long long start;
-    long long totlatency;
-    long long *latency;
+    PORT_LONGLONG start;
+    PORT_LONGLONG totlatency;
+    PORT_LONGLONG *latency;
     const char *title;
     list *clients;
     int quiet;
@@ -95,8 +95,8 @@ typedef struct _client {
     size_t randlen;         /* Number of pointers in client->randptr */
     size_t randfree;        /* Number of unused pointers in client->randptr */
     unsigned int written;   /* Bytes of 'obuf' already written */
-    long long start;        /* Start time of a request */
-    long long latency;      /* Request latency */
+    PORT_LONGLONG start;        /* Start time of a request */
+    PORT_LONGLONG latency;      /* Request latency */
     int pending;            /* Number of pending requests (replies to consume) */
     int prefix_pending;     /* If non-zero, number of pending prefix commands. Commands
                                such as auth and select are prefixed to the pipeline of
@@ -110,29 +110,29 @@ static void createMissingClients(client c);
 
 
 /* Implementation */
-static long long ustime(void) {
+static PORT_LONGLONG ustime(void) {
 #ifdef _WIN32
     return GetHighResRelativeTime(1000000);
 #else
     struct timeval tv;
-    long long ust;
+    PORT_LONGLONG ust;
 
     gettimeofday(&tv, NULL);
-    ust = ((long)tv.tv_sec)*1000000;
+    ust = ((PORT_LONG)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
 #endif
 }
 
-static long long mstime(void) {
+static PORT_LONGLONG mstime(void) {
 #ifdef _WIN32
     return GetHighResRelativeTime(1000);
 #else
     struct timeval tv;
-    long long mst;
+    PORT_LONGLONG mst;
 
     gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
+    mst = ((PORT_LONGLONG)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
 #endif
@@ -426,7 +426,7 @@ static client createClient(char *cmd, size_t len, client from) {
             (int)sdslen(config.dbnumstr),config.dbnumstr);
         c->prefix_pending++;
     }
-    c->prefixlen = sdslen(c->obuf);
+    c->prefixlen = (int)sdslen(c->obuf);                                        /* UPSTREAM_ISSUE: missing (int) cast */
     /* Append the request itself. */
     if (from) {
         c->obuf = sdscatlen(c->obuf,
@@ -493,7 +493,7 @@ static void createMissingClients(client c) {
 }
 
 static int compareLatency(const void *a, const void *b) {
-    return (int)((*(long long*)a)-(*(long long*)b));
+    return (int)((*(PORT_LONGLONG*)a)-(*(PORT_LONGLONG*)b));
 }
 
 static void showLatencyReport(void) {
@@ -510,7 +510,7 @@ static void showLatencyReport(void) {
         printf("  keep alive: %d\n", config.keepalive);
         printf("\n");
 
-        qsort(config.latency,config.requests,sizeof(long long),compareLatency);
+        qsort(config.latency,config.requests,sizeof(PORT_LONGLONG),compareLatency);
         for (i = 0; i < config.requests; i++) {
             if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
                 curlat = (int)config.latency[i]/1000;
@@ -673,7 +673,7 @@ usage:
     exit(exit_status);
 }
 
-int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData) {
     float dt;
     float rps;
     REDIS_NOTUSED(eventLoop);
@@ -753,7 +753,7 @@ int main(int argc, const char **argv) {
     argc -= i;
     argv += i;
 
-    config.latency = zmalloc(sizeof(long long)*config.requests);
+    config.latency = zmalloc(sizeof(PORT_LONGLONG)*config.requests);
 
     if (config.keepalive == 0) {
         printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");

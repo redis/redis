@@ -29,6 +29,7 @@
  */
 
 #ifdef _WIN32
+#include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
 #endif
 
@@ -56,7 +57,7 @@ void zlibc_free(void *ptr) {
 #define PREFIX_SIZE (0)
 #else
 #if defined(__sun) || defined(__sparc) || defined(__sparc__)
-#define PREFIX_SIZE (sizeof(long long))
+#define PREFIX_SIZE (sizeof(PORT_LONGLONG))
 #else
 #define PREFIX_SIZE (sizeof(size_t))
 #endif
@@ -103,7 +104,7 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+    if (_n&(sizeof(PORT_LONG)-1)) _n += sizeof(PORT_LONG)-(_n&(sizeof(PORT_LONG)-1)); \
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_add(_n); \
     } else { \
@@ -113,7 +114,7 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+    if (_n&(sizeof(PORT_LONG)-1)) _n += sizeof(PORT_LONG)-(_n&(sizeof(PORT_LONG)-1)); \
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_sub(_n); \
     } else { \
@@ -130,13 +131,8 @@ pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 static void zmalloc_default_oom(size_t size) {
-#ifdef _WIN32
-    fprintf(stderr, "zmalloc: Out of memory trying to allocate %llu bytes\n",
-        (unsigned long long)size);
-#else
-    fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
-        size);
-#endif
+    fprintf(stderr, "zmalloc: Out of memory trying to allocate %Iu bytes\n",
+        size);                                                                  WIN_PORT_FIX /* %zu -> %Iu */
     fflush(stderr);
     abort();
 }
@@ -207,9 +203,9 @@ void *zrealloc(void *ptr, size_t size) {
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
-    /* Assume at least that all the allocations are padded at sizeof(long) by
+    /* Assume at least that all the allocations are padded at sizeof(PORT_LONG) by
      * the underlying allocator. */
-    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
+    if (size&(sizeof(PORT_LONG)-1)) size += sizeof(PORT_LONG)-(size&(sizeof(PORT_LONG)-1));
     return size+PREFIX_SIZE;
 }
 #endif

@@ -301,9 +301,9 @@ sds sdscpy(sds s, const char *t) {
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
 #define SDS_LLSTR_SIZE 21
-int sdsll2str(char *s, long long value) {
+int sdsll2str(char *s, PORT_LONGLONG value) {
     char *p, aux;
-    unsigned long long v;
+    PORT_ULONGLONG v;
     size_t l;
 
     /* Generate the string representation, this method produces
@@ -332,8 +332,8 @@ int sdsll2str(char *s, long long value) {
     return (int)l;
 }
 
-/* Identical sdsll2str(), but for unsigned long long type. */
-int sdsull2str(char *s, unsigned long long v) {
+/* Identical sdsll2str(), but for PORT_ULONGLONG type. */
+int sdsull2str(char *s, PORT_ULONGLONG v) {
     char *p, aux;
     size_t l;
 
@@ -365,7 +365,7 @@ int sdsull2str(char *s, unsigned long long v) {
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
-sds sdsfromlonglong(long long value) {
+sds sdsfromlonglong(PORT_LONGLONG value) {
     char buf[SDS_LLSTR_SIZE];
     int len = sdsll2str(buf,value);
 
@@ -459,9 +459,9 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %s - C String
  * %S - SDS string
  * %i - signed int
- * %I - 64 bit signed integer (long long, int64_t)
+ * %I - 64 bit signed integer (PORT_LONGLONG, int64_t)
  * %u - unsigned int
- * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
+ * %U - 64 bit unsigned integer (PORT_ULONGLONG, uint64_t)
  * %% - Verbatim "%" character.
  */
 sds sdscatfmt(sds s, char const *fmt, ...) {
@@ -477,8 +477,8 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     while(*f) {
         char next, *str;
         unsigned int l;
-        long long num;
-        unsigned long long unum;
+        PORT_LONGLONG num;
+        PORT_ULONGLONG unum;
 
         /* Make sure there is always space for at least 1 char. */
         if (sh->free == 0) {
@@ -509,7 +509,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (next == 'i')
                     num = va_arg(ap,int);
                 else
-                    num = va_arg(ap,long long);
+                    num = va_arg(ap,PORT_LONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsll2str(buf,num);
@@ -528,7 +528,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (next == 'u')
                     unum = va_arg(ap,unsigned int);
                 else
-                    unum = va_arg(ap,unsigned long long);
+                    unum = va_arg(ap,PORT_ULONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsull2str(buf,unum);

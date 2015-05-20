@@ -45,7 +45,7 @@ robj *setTypeCreate(robj *value) {
 }
 
 int setTypeAdd(robj *subject, robj *value) {
-    long long llval;
+    PORT_LONGLONG llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
         if (dictAdd(subject->ptr,value,NULL) == DICT_OK) {
             incrRefCount(value);
@@ -79,7 +79,7 @@ int setTypeAdd(robj *subject, robj *value) {
 }
 
 int setTypeRemove(robj *setobj, robj *value) {
-    long long llval;
+    PORT_LONGLONG llval;
     if (setobj->encoding == REDIS_ENCODING_HT) {
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
             if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
@@ -98,7 +98,7 @@ int setTypeRemove(robj *setobj, robj *value) {
 }
 
 int setTypeIsMember(robj *subject, robj *value) {
-    long long llval;
+    PORT_LONGLONG llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
         return dictFind((dict*)subject->ptr,value) != NULL;
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
@@ -205,11 +205,11 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
     return setobj->encoding;
 }
 
-unsigned long setTypeSize(robj *subject) {
+PORT_ULONG setTypeSize(robj *subject) {
     if (subject->encoding == REDIS_ENCODING_HT) {
-        return (unsigned long)dictSize((dict*)subject->ptr);
+        return (PORT_ULONG) dictSize((dict*) subject->ptr);
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        return intsetLen((intset*)subject->ptr);
+        return intsetLen((intset*) subject->ptr);
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -419,8 +419,8 @@ void spopCommand(redisClient *c) {
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
 void srandmemberWithCountCommand(redisClient *c) {
-    long l;
-    unsigned long count, size;
+    PORT_LONG l;
+    PORT_ULONG count, size;
     int uniq = 1;
     robj *set, *ele;
     int64_t llele;
@@ -499,7 +499,7 @@ void srandmemberWithCountCommand(redisClient *c) {
                 retval = dictAdd(d,dupStringObject(ele),NULL);
             } else if (ele->encoding == REDIS_ENCODING_INT) {
                 retval = dictAdd(d,
-                    createStringObjectFromLongLong((long long)ele->ptr),NULL);
+                    createStringObjectFromLongLong((PORT_LONG)ele->ptr),NULL);
             }
             redisAssert(retval == DICT_OK);
         }
@@ -521,7 +521,7 @@ void srandmemberWithCountCommand(redisClient *c) {
      * to the temporary set, trying to eventually get enough unique elements
      * to reach the specified count. */
     else {
-        unsigned long added = 0;
+        PORT_ULONG added = 0;
 
         while(added < count) {
             encoding = setTypeRandomElement(set,&ele,&llele);
@@ -530,7 +530,7 @@ void srandmemberWithCountCommand(redisClient *c) {
             } else if (ele->encoding == REDIS_ENCODING_RAW) {
                 ele = dupStringObject(ele);
             } else if (ele->encoding == REDIS_ENCODING_INT) {
-                ele = createStringObjectFromLongLong((long long)ele->ptr);
+                ele = createStringObjectFromLongLong((PORT_LONG)ele->ptr);
             }
             /* Try to add the object to the dictionary. If it already exists
              * free it, otherwise increment the number of objects we have
@@ -592,13 +592,13 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
 }
 
-void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
+void sinterGenericCommand(redisClient *c, robj **setkeys, PORT_ULONG setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *eleobj, *dstset = NULL;
     int64_t intobj;
     void *replylen = NULL;
-    unsigned long j, cardinality = 0;
+    PORT_ULONG j, cardinality = 0;
     int encoding;
 
     for (j = 0; j < setnum; j++) {
@@ -671,7 +671,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
                  * a much faster path. */
                 if (eleobj->encoding == REDIS_ENCODING_INT &&
                     sets[j]->encoding == REDIS_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,(long long)eleobj->ptr))
+                    !intsetFind((intset*)sets[j]->ptr,(PORT_LONG) eleobj->ptr))
                 {
                     break;
                 /* else... object to object check is easy as we use the
@@ -771,7 +771,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
      *
      * We compute what is the best bet with the current input here. */
     if (op == REDIS_OP_DIFF && sets[0]) {
-        long long algo_one_work = 0, algo_two_work = 0;
+        PORT_LONGLONG algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
             if (sets[j] == NULL) continue;
@@ -915,7 +915,7 @@ void sdiffstoreCommand(redisClient *c) {
 
 void sscanCommand(redisClient *c) {
     robj *set;
-    unsigned long cursor;
+    PORT_ULONG cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||

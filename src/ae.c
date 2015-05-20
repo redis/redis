@@ -193,15 +193,15 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     return fe->mask;
 }
 
-static void aeGetTime(long *seconds, long *milliseconds)
+static void aeGetTime(PORT_LONG *seconds, PORT_LONG *milliseconds)
 {
 #ifdef _WIN32
     struct _timeb tb;
 
-    memset(&tb,0,sizeof(struct _timeb));
+    memset(&tb, 0, sizeof(struct _timeb));
     _ftime_s(&tb);
-    (*seconds) = (long)tb.time;
-    (*milliseconds) = (long)tb.millitm;
+    (*seconds) = tb.time;
+    (*milliseconds) = tb.millitm;
 #else
     struct timeval tv;
 
@@ -211,11 +211,11 @@ static void aeGetTime(long *seconds, long *milliseconds)
 #endif
 }
 
-static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
-    long cur_sec, cur_ms, when_sec, when_ms;
+static void aeAddMillisecondsToNow(PORT_LONGLONG milliseconds, PORT_LONG *sec, PORT_LONG *ms) {
+    PORT_LONG cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = (long)(cur_sec + milliseconds/1000);
+    when_sec = (PORT_LONG) (cur_sec + milliseconds / 1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -225,11 +225,11 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
+PORT_LONGLONG aeCreateTimeEvent(aeEventLoop *eventLoop, PORT_LONGLONG milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
-    long long id = eventLoop->timeEventNextId++;
+    PORT_LONGLONG id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
     te = zmalloc(sizeof(*te));
@@ -244,7 +244,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, PORT_LONGLONG id)
 {
     aeTimeEvent *te, *prev = NULL;
 
@@ -296,7 +296,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
-    long long maxId;
+    PORT_LONGLONG maxId;
     time_t now = time(NULL);
 
     /* If the system clock is moved to the future, and then set back to the
@@ -319,8 +319,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
-        long now_sec, now_ms;
-        long long id;
+        PORT_LONG now_sec, now_ms;
+        PORT_LONGLONG id;
 
         if (te->id > maxId) {
             te = te->next;
@@ -399,7 +399,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
-            long now_sec, now_ms;
+            PORT_LONG now_sec, now_ms;
 
             /* Calculate the time missing for the nearest
              * timer to fire. */
@@ -459,7 +459,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
-int aeWait(int fd, int mask, long long milliseconds) {
+int aeWait(int fd, int mask, PORT_LONGLONG milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
 

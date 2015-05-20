@@ -336,11 +336,11 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
  * 'p' is an array of unsigned bytes. */
 #define HLL_DENSE_GET_REGISTER(target,p,regnum) do { \
     uint8_t *_p = (uint8_t*) p; \
-    unsigned long _byte = regnum*HLL_BITS/8; \
-    unsigned long _fb = regnum*HLL_BITS&7; \
-    unsigned long _fb8 = 8 - _fb; \
-    unsigned long b0 = _p[_byte]; \
-    unsigned long b1 = _p[_byte+1]; \
+    PORT_ULONG _byte = regnum*HLL_BITS/8; \
+    PORT_ULONG _fb = regnum*HLL_BITS&7; \
+    PORT_ULONG _fb8 = 8 - _fb; \
+    PORT_ULONG b0 = _p[_byte]; \
+    PORT_ULONG b1 = _p[_byte+1]; \
     target = ((b0 >> _fb) | (b1 << _fb8)) & HLL_REGISTER_MAX; \
 } while(0)
 
@@ -348,10 +348,10 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
  * 'p' is an array of unsigned bytes. */
 #define HLL_DENSE_SET_REGISTER(p,regnum,val) do { \
     uint8_t *_p = (uint8_t*) p; \
-    unsigned long _byte = regnum*HLL_BITS/8; \
-    unsigned long _fb = regnum*HLL_BITS&7; \
-    unsigned long _fb8 = 8 - _fb; \
-    unsigned long _v = val; \
+    PORT_ULONG _byte = regnum*HLL_BITS/8; \
+    PORT_ULONG _fb = regnum*HLL_BITS&7; \
+    PORT_ULONG _fb8 = 8 - _fb; \
+    PORT_ULONG _v = val; \
     _p[_byte] &= ~(HLL_REGISTER_MAX << _fb); \
     _p[_byte] |= _v << _fb; \
     _p[_byte+1] &= ~(HLL_REGISTER_MAX >> _fb8); \
@@ -441,7 +441,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
 /* Given a string element to add to the HyperLogLog, returns the length
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
-int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
+int hllPatLen(unsigned char *ele, size_t elesize, PORT_LONG *regp) {
     uint64_t hash, bit, index;
     int count;
 
@@ -484,7 +484,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
  * is returned. */
 int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
     uint8_t oldcount, count;
-    long index;
+    PORT_LONG index;
 
     /* Update the register if this element produced a longer run of zeroes. */
     count = hllPatLen(ele,elesize,&index);
@@ -510,7 +510,7 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
      * we take a faster path with unrolled loops. */
     if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
         uint8_t *r = registers;
-        unsigned long r0, r1, r2, r3, r4, r5, r6, r7, r8, r9,
+        PORT_ULONG r0, r1, r2, r3, r4, r5, r6, r7, r8, r9,
                       r10, r11, r12, r13, r14, r15;
         for (j = 0; j < 1024; j++) {
             /* Handle 16 registers per iteration. */
@@ -541,7 +541,7 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
         }
     } else {
         for (j = 0; j < HLL_REGISTERS; j++) {
-            unsigned long reg;
+            PORT_ULONG reg;
 
             HLL_DENSE_GET_REGISTER(reg,registers,j);
             if (reg == 0) {
@@ -638,8 +638,8 @@ int hllSparseToDense(robj *o) {
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     struct hllhdr *hdr;
     uint8_t oldcount, count, *sparse, *end, *p, *prev, *next;
-    long index, first, span;
-    long is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
+    PORT_LONG index, first, span;
+    PORT_LONG is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
 
     /* Update the register if this element produced a longer run of zeroes. */
     count = hllPatLen(ele,elesize,&index);
@@ -665,7 +665,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
-        long oplen;
+        PORT_LONG oplen;
 
         /* Set span to the number of registers covered by this opcode.
          *
@@ -1054,7 +1054,7 @@ int hllMerge(uint8_t *max, robj *hll) {
         }
     } else {
         uint8_t *p = hll->ptr, *end = p + sdslen(hll->ptr);
-        long runlen, regval;
+        PORT_LONG runlen, regval;
 
         p += HLL_HDR_SIZE;
         i = 0;
@@ -1422,7 +1422,7 @@ void pfselftestCommand(redisClient *c) {
         /* Check error. */
         if (j == checkpoint) {
             int64_t abserr = checkpoint - (int64_t)hllCount(hdr,NULL);
-            uint64_t maxerr = ceil(relerr*6*checkpoint);
+            uint64_t maxerr = (uint64_t)ceil(relerr*6*checkpoint);              /* UPSTREAM_ISSUE: missing (uint64_t) cast */
 
             /* Adjust the max error we expect for cardinality 10
              * since from time to time it is statistically likely to get
@@ -1434,8 +1434,8 @@ void pfselftestCommand(redisClient *c) {
             if (abserr > (int64_t)maxerr) {
                 addReplyErrorFormat(c,
                     "TESTFAILED Too big error. card:%llu abserr:%llu",
-                    (unsigned long long) checkpoint,
-                    (unsigned long long) abserr);
+                    (PORT_ULONGLONG) checkpoint,
+                    (PORT_ULONGLONG) abserr);
                 goto cleanup;
             }
             checkpoint *= 10;

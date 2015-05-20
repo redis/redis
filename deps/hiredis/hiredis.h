@@ -107,7 +107,7 @@ extern "C" {
 /* This is the reply object returned by redisCommand() */
 typedef struct redisReply {
     int type; /* REDIS_REPLY_* */
-    long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
+    PORT_LONGLONG integer; /* The integer when type is REDIS_REPLY_INTEGER */
     int len; /* Length of string */
     char *str; /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
     size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
@@ -126,7 +126,7 @@ typedef struct redisReadTask {
 typedef struct redisReplyObjectFunctions {
     void *(*createString)(const redisReadTask*, char*, size_t);
     void *(*createArray)(const redisReadTask*, int);
-    void *(*createInteger)(const redisReadTask*, long long);
+    void *(*createInteger)(const redisReadTask*, PORT_LONGLONG);
     void *(*createNil)(const redisReadTask*);
     void (*freeObject)(void*);
 } redisReplyObjectFunctions;
@@ -198,7 +198,7 @@ int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
 #ifdef _WIN32
 redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *sa);
-int redisBufferReadDone(redisContext *c, char *buf, int nread);
+int redisBufferReadDone(redisContext *c, char *buf, ssize_t nread);
 int redisBufferWriteDone(redisContext *c, int nwritten, int *done);
 #endif
 

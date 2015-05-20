@@ -56,7 +56,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifdef _WIN32
+#include "win32_Interop\win32_util.h"
+#endif
 
 #include "redis.h"
 #include "bio.h"
@@ -74,7 +76,7 @@ static list *bio_jobs[REDIS_BIO_NUM_OPS];
  * objects shared with the background thread. The main thread will just wait
  * that there are no longer jobs of this type to be executed before performing
  * the sensible operation. This data is also useful for reporting. */
-static unsigned long long bio_pending[REDIS_BIO_NUM_OPS];
+static PORT_ULONGLONG bio_pending[REDIS_BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
@@ -117,7 +119,7 @@ void bioInit(void) {
      * function accepts in order to pass the job ID the thread is
      * responsible of. */
     for (j = 0; j < REDIS_BIO_NUM_OPS; j++) {
-        void *arg = (void*)(unsigned long) j;
+        void *arg = (void*) (PORT_ULONG) j;
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
             redisLog(REDIS_WARNING,"Fatal: Can't initialize Background Jobs.");
             exit(1);
@@ -142,11 +144,7 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
-#ifdef _WIN32
-    size_t type = (size_t) arg;
-#else
-    unsigned long type = (unsigned long) arg;
-#endif
+    PORT_ULONG type = (PORT_ULONG)arg;
     sigset_t sigset;
 
     /* Make the thread killable at any time, so that bioKillThreads()
@@ -185,9 +183,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == REDIS_BIO_CLOSE_FILE) {
-            close((long)job->arg1);
+            close((PORT_LONG) job->arg1);
         } else if (type == REDIS_BIO_AOF_FSYNC) {
-            aof_fsync((long)job->arg1);
+            aof_fsync((PORT_LONG) job->arg1);
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
@@ -202,8 +200,8 @@ void *bioProcessBackgroundJobs(void *arg) {
 }
 
 /* Return the number of pending jobs of the specified type. */
-unsigned long long bioPendingJobsOfType(int type) {
-    unsigned long long val;
+PORT_ULONGLONG bioPendingJobsOfType(int type) {
+    PORT_ULONGLONG val;
     pthread_mutex_lock(&bio_mutex[type]);
     val = bio_pending[type];
     pthread_mutex_unlock(&bio_mutex[type]);

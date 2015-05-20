@@ -210,7 +210,7 @@ static int redisSetTcpNoDelay(redisContext *c) {
 
 static int redisContextWaitReady(redisContext *c, const struct timeval *timeout) {
     struct pollfd   wfd[1];
-    long msec;
+    PORT_LONG msec;
 
     msec          = -1;
     wfd[0].fd     = c->fd;

@@ -51,7 +51,7 @@
 #define ERROR(...) { \
     char __buf[1024]; \
     sprintf(__buf, __VA_ARGS__); \
-    sprintf(error, "0x%16llx: %s", (long long)epos, __buf); \
+    sprintf(error, "0x%16llx: %s", (PORT_LONGLONG)epos, __buf); \
 }
 
 static char error[1024];
@@ -65,7 +65,7 @@ int consumeNewline(char *buf) {
     return 1;
 }
 
-int readLong(FILE *fp, char prefix, long *target) {
+int readLong(FILE *fp, char prefix, PORT_LONG *target) {
     char buf[128], *eptr;
     epos = ftello(fp);
     if (fgets(buf,sizeof(buf),fp) == NULL) {
@@ -79,19 +79,19 @@ int readLong(FILE *fp, char prefix, long *target) {
     return consumeNewline(eptr);
 }
 
-int readBytes(FILE *fp, char *target, long length) {
-    long real;
+int readBytes(FILE *fp, char *target, PORT_LONG length) {
+    PORT_LONG real;
     epos = ftello(fp);
-    real = (long)fread(target,1,length,fp);
+    real = (PORT_LONG) fread(target, 1, length, fp);
     if (real != length) {
-        ERROR("Expected to read %ld bytes, got %ld bytes",length,real);
+        ERROR("Expected to read %ld bytes, got %ld bytes", length, real); /* BUGBUG */
         return 0;
     }
     return 1;
 }
 
 int readString(FILE *fp, char** target) {
-    long len;
+    PORT_LONG len;
     *target = NULL;
     if (!readLong(fp,'$',&len)) {
         return 0;
@@ -110,12 +110,12 @@ int readString(FILE *fp, char** target) {
     return 1;
 }
 
-int readArgc(FILE *fp, long *target) {
+int readArgc(FILE *fp, PORT_LONG *target) {
     return readLong(fp,'*',target);
 }
 
 off_t process(FILE *fp) {
-    long argc;
+    PORT_LONG argc;
     off_t pos = 0;
     int i, multi = 0;
     char *str;
@@ -214,11 +214,11 @@ int main(int argc, char **argv) {
     pos = process(fp);
     diff = size-pos;
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
-        (long long) size, (long long) pos, (long long) diff);
+        (PORT_LONGLONG) size, (PORT_LONGLONG) pos, (PORT_LONGLONG) diff);
     if (diff > 0) {
         if (fix) {
             char buf[2];
-            printf("This will shrink the AOF from %lld bytes, with %lld bytes, to %lld bytes\n",(long long)size,(long long)diff,(long long)pos);
+            printf("This will shrink the AOF from %lld bytes, with %lld bytes, to %lld bytes\n",(PORT_LONGLONG)size,(PORT_LONGLONG)diff,(PORT_LONGLONG)pos);
             printf("Continue? [y/N]: ");
             if (fgets(buf,sizeof(buf),stdin) == NULL ||
                 strncasecmp(buf,"y",1) != 0) {

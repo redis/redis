@@ -169,7 +169,7 @@ static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, uns
     return k;
 }
 
-static unsigned long zipmapRequiredLength(unsigned int klen, unsigned int vlen) {
+static PORT_ULONG zipmapRequiredLength(unsigned int klen, unsigned int vlen) {
     unsigned int l;
 
     l = klen+vlen+3;

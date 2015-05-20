@@ -734,7 +734,7 @@ int redis_listen_impl(int sockfd, int backlog) {
     return -1;
 }
 
-int redis_ftruncate_impl(int fd, long long length) {
+int redis_ftruncate_impl(int fd, PORT_LONGLONG length) {
     try
     {
         LARGE_INTEGER l, o;

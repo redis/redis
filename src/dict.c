@@ -32,6 +32,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "win32_Interop\win32_util.h"
+#endif
 
 #include "fmacros.h"
 
@@ -66,11 +69,7 @@ static unsigned int dict_force_resize_ratio = 5;
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *ht);
-#ifdef _WIN32
-static size_t _dictNextPower(size_t size);
-#else
-static unsigned long _dictNextPower(unsigned long size);
-#endif
+static PORT_ULONG _dictNextPower(PORT_ULONG size);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
@@ -217,12 +216,11 @@ int dictResize(dict *d)
     return dictExpand(d, minimal);
 }
 
-#ifdef _WIN32
 /* Expand or create the hash table */
-int dictExpand(dict *d, size_t size)
+int dictExpand(dict *d,PORT_ULONG size)
 {
     dictht n; /* the new hash table */
-    size_t realsize = _dictNextPower(size);
+    PORT_ULONG realsize = _dictNextPower(size);
 
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
@@ -246,40 +244,8 @@ int dictExpand(dict *d, size_t size)
     d->ht[1] = n;
     d->rehashidx = 0;
 
-/* Expand or create the hash table */
     return DICT_OK;
 }
-#else
-/* Expand or create the hash table */
-int dictExpand(dict *d, unsigned long size)
-{
-    dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
-
-    /* the size is invalid if it is smaller than the number of
-     * elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht[0].used > size)
-        return DICT_ERR;
-
-    /* Allocate the new hash table and initialize all pointers to NULL */
-    n.size = realsize;
-    n.sizemask = realsize-1;
-    n.table = zcalloc(realsize*sizeof(dictEntry*));
-    n.used = 0;
-
-    /* Is this the first initialization? If so it's not really a rehashing
-     * we just set the first hash table so that it can accept keys. */
-    if (d->ht[0].table == NULL) {
-        d->ht[0] = n;
-        return DICT_OK;
-    }
-
-    /* Prepare a second hash table for incremental rehashing */
-    d->ht[1] = n;
-    d->rehashidx = 0;
-    return DICT_OK;
-}
-#endif
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
@@ -302,7 +268,7 @@ int dictRehash(dict *d, int n) {
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
-        assert(d->ht[0].size > (unsigned long)d->rehashidx);
+        assert(d->ht[0].size > (PORT_ULONG)d->rehashidx);
         while(d->ht[0].table[d->rehashidx] == NULL) d->rehashidx++;
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
@@ -324,20 +290,20 @@ int dictRehash(dict *d, int n) {
     return 1;
 }
 
-long long timeInMilliseconds(void) {
+PORT_LONGLONG timeInMilliseconds(void) {
 #ifdef _WIN32
     return GetHighResRelativeTime(1000);
 #else
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
+    return (((PORT_LONGLONG)tv.tv_sec)*1000)+(tv.tv_usec/1000);
 #endif
 }
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int dictRehashMilliseconds(dict *d, int ms) {
-    long long start = timeInMilliseconds();
+    PORT_LONGLONG start = timeInMilliseconds();
     int rehashes = 0;
 
     while(dictRehash(d,100)) {
@@ -494,11 +460,7 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
-#ifdef _WIN32
-    size_t i;
-#else
-    unsigned long i;
-#endif
+    PORT_ULONG i;
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
@@ -565,14 +527,14 @@ void *dictFetchValue(dict *d, const void *key) {
  * the fingerprint again when the iterator is released.
  * If the two fingerprints are different it means that the user of the iterator
  * performed forbidden operations against the dictionary while iterating. */
-long long dictFingerprint(dict *d) {
-    long long integers[6], hash = 0;
+PORT_LONGLONG dictFingerprint(dict *d) {
+    PORT_LONGLONG integers[6], hash = 0;
     int j;
 
-    integers[0] = (long long) d->ht[0].table;
+    integers[0] = (PORT_LONG) d->ht[0].table;
     integers[1] = d->ht[0].size;
     integers[2] = d->ht[0].used;
-    integers[3] = (long long) d->ht[1].table;
+    integers[3] = (PORT_LONG) d->ht[1].table;
     integers[4] = d->ht[1].size;
     integers[5] = d->ht[1].used;
 
@@ -629,7 +591,7 @@ dictEntry *dictNext(dictIterator *iter)
                     iter->fingerprint = dictFingerprint(iter->d);
             }
             iter->index++;
-            if (iter->index >= (long) ht->size) {
+            if (iter->index >= (PORT_LONG) ht->size) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
                     iter->table++;
                     iter->index = 0;
@@ -704,9 +666,9 @@ dictEntry *dictGetRandomKey(dict *d)
 
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
-static unsigned long rev(unsigned long v) {
-    unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
-    unsigned long mask = ~0;
+static PORT_ULONG rev(PORT_ULONG v) {
+    PORT_ULONG s = 8 * sizeof(v); // bit size; must be power of 2
+    PORT_ULONG mask = ~0;
     while ((s >>= 1) > 0) {
         mask ^= (mask << s);
         v = ((v >> s) & mask) | ((v << s) & ~mask);
@@ -798,20 +760,20 @@ static unsigned long rev(unsigned long v) {
  * 3) The reverse cursor is somewhat hard to understand at first, but this
  *    comment is supposed to help.
  */
-unsigned long dictScan(dict *d,
-                       unsigned long v,
+PORT_ULONG dictScan(dict *d,
+                       PORT_ULONG v,
                        dictScanFunction *fn,
                        void *privdata)
 {
     dictht *t0, *t1;
     const dictEntry *de;
-    unsigned long m0, m1;
+    PORT_ULONG m0, m1;
 
     if (dictSize(d) == 0) return 0;
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
-        m0 = (unsigned long)t0->sizemask;
+        m0 = (PORT_ULONG)t0->sizemask;
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -830,8 +792,8 @@ unsigned long dictScan(dict *d,
             t1 = &d->ht[0];
         }
 
-        m0 = (unsigned long)t0->sizemask;
-        m1 = (unsigned long)t1->sizemask;
+        m0 = (PORT_ULONG)t0->sizemask;
+        m1 = (PORT_ULONG)t1->sizemask;
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -893,13 +855,12 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
-#ifdef _WIN32
 /* Our hash table capability is a power of two */
-static size_t _dictNextPower(size_t size)
+static PORT_ULONG _dictNextPower(PORT_ULONG size)
 {
-    size_t i = DICT_HT_INITIAL_SIZE;
+    PORT_ULONG i = DICT_HT_INITIAL_SIZE;
 
-    if (size >= LONG_MAX) return LONG_MAX;
+    if (size >= PORT_LONG_MAX) return PORT_LONG_MAX;
 
     while(1) {
         if (i >= size)
@@ -907,20 +868,6 @@ static size_t _dictNextPower(size_t size)
         i *= 2;
     }
 }
-#else
-/* Our hash table capability is a power of two */
-static unsigned long _dictNextPower(unsigned long size)
-{
-    unsigned long i = DICT_HT_INITIAL_SIZE;
-
-    if (size >= LONG_MAX) return LONG_MAX;
-    while(1) {
-        if (i >= size)
-            return i;
-        i *= 2;
-    }
-}
-#endif
 
 /* Returns the index of a free slot that can be populated with
  * a hash entry for the given 'key'.
@@ -976,9 +923,9 @@ of the library. */
 
 #define DICT_STATS_VECTLEN 50
 static void _dictPrintStatsHt(dictht *ht) {
-    unsigned long i, slots = 0, chainlen, maxchainlen = 0;
-    unsigned long totchainlen = 0;
-    unsigned long clvector[DICT_STATS_VECTLEN];
+    PORT_ULONG i, slots = 0, chainlen, maxchainlen = 0;
+    PORT_ULONG totchainlen = 0;
+    PORT_ULONG clvector[DICT_STATS_VECTLEN];
 
     if (ht->used == 0) {
         printf("No stats available for empty dictionaries\n");

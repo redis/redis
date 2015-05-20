@@ -458,7 +458,7 @@ void InitTimeFunctions()
     InitHighResAbsoluteTime();
 }
 
-unsigned long long GetHighResRelativeTime(double scale) {
+uint64_t GetHighResRelativeTime(double scale) {
   LARGE_INTEGER counter;
 
   if (highResTimeInterval <= 0) {
@@ -480,7 +480,7 @@ unsigned long long GetHighResRelativeTime(double scale) {
    * performance counter interval, integer math could cause this computation
    * to overflow. Therefore we resort to floating point math.
    */
-  return (unsigned long long) ((double)counter.QuadPart * highResTimeInterval * scale);
+  return (uint64_t) ((double)counter.QuadPart * highResTimeInterval * scale);
 }
 
 time_t gettimeofdaysecs(unsigned int *usec)
@@ -673,7 +673,7 @@ char *ctime_r(const time_t *clock, char *buf)  {
     return buf;
 }
 
-int truncate(const char *path, long long length) {
+int truncate(const char *path, PORT_LONGLONG length) {
     LARGE_INTEGER newSize;
     HANDLE toTruncate;
     toTruncate = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);

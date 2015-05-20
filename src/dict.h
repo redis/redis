@@ -34,6 +34,9 @@
  */
 
 #include <stdint.h>
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
 
 #ifndef __DICT_H
 #define __DICT_H
@@ -66,27 +69,19 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
-#ifdef _WIN32
 typedef struct dictht {
     dictEntry **table;
-    size_t size;
-    size_t sizemask;
-    size_t used;
+    PORT_ULONG size;
+    PORT_ULONG sizemask;
+    PORT_ULONG used;
 } dictht;
-#else
-typedef struct dictht {
-    dictEntry **table;
-    unsigned long size;
-    unsigned long sizemask;
-    unsigned long used;
-} dictht;
-#endif
+
 
 typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    PORT_LONG rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int iterators; /* number of iterators currently running */
 } dict;
 
@@ -96,11 +91,11 @@ typedef struct dict {
  * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    long index;
+    PORT_LONG index;
     int table, safe;
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
-    long long fingerprint;
+    PORT_LONGLONG fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
@@ -157,11 +152,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
-#ifdef _WIN32
-int dictExpand(dict *d, size_t size);
-#else
-int dictExpand(dict *d, unsigned long size);
-#endif
+int dictExpand(dict *d,PORT_ULONG size);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
@@ -187,7 +178,7 @@ int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 int dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
-unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
+PORT_ULONG dictScan(dict *d,PORT_ULONG v,dictScanFunction *fn,void *privdata);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;

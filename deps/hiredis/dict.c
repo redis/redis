@@ -32,6 +32,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "../../src/win32_Interop/win32_types.h"
+#include "../../src/win32_Interop/win32_util.h"
+#endif
 
 #include "fmacros.h"
 #include <stdlib.h>
@@ -42,11 +46,7 @@
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *ht);
-#ifdef _WIN32
-static size_t _dictNextPower(size_t size);
-#else
-static unsigned long _dictNextPower(unsigned long size);
-#endif
+static PORT_ULONG _dictNextPower(PORT_ULONG);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
@@ -89,10 +89,9 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr) {
 }
 
 /* Expand or create the hashtable */
-#ifdef _WIN32
-static int dictExpand(dict *ht, size_t size) {
+static int dictExpand(dict *ht, PORT_ULONG size) {
     dict n; /* the new hashtable */
-    size_t realsize = _dictNextPower(size), i;
+    PORT_ULONG realsize = _dictNextPower(size), i;
 
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hashtable */
@@ -135,53 +134,6 @@ static int dictExpand(dict *ht, size_t size) {
     *ht = n;
     return DICT_OK;
 }
-#else
-static int dictExpand(dict *ht, unsigned long size) {
-    dict n; /* the new hashtable */
-    unsigned long realsize = _dictNextPower(size), i;
-
-    /* the size is invalid if it is smaller than the number of
-     * elements already inside the hashtable */
-    if (ht->used > size)
-        return DICT_ERR;
-
-    _dictInit(&n, ht->type, ht->privdata);
-    n.size = realsize;
-    n.sizemask = realsize-1;
-    n.table = calloc(realsize,sizeof(dictEntry*));
-
-    /* Copy all the elements from the old to the new table:
-     * note that if the old hash table is empty ht->size is zero,
-     * so dictExpand just creates an hash table. */
-    n.used = ht->used;
-    for (i = 0; i < ht->size && ht->used > 0; i++) {
-        dictEntry *he, *nextHe;
-
-        if (ht->table[i] == NULL) continue;
-
-        /* For each hash entry on this slot... */
-        he = ht->table[i];
-        while(he) {
-            unsigned int h;
-
-            nextHe = he->next;
-            /* Get the new element index */
-            h = dictHashKey(ht, he->key) & n.sizemask;
-            he->next = n.table[h];
-            n.table[h] = he;
-            ht->used--;
-            /* Pass to the next element */
-            he = nextHe;
-        }
-    }
-    assert(ht->used == 0);
-    free(ht->table);
-
-    /* Remap the new hashtable in the old */
-    *ht = n;
-    return DICT_OK;
-}
-#endif
 
 /* Add an element to the target hash table */
 static int dictAdd(dict *ht, void *key, void *val) {
@@ -263,7 +215,7 @@ static int dictDelete(dict *ht, const void *key) {
 
 /* Destroy an entire hash table */
 static int _dictClear(dict *ht) {
-    unsigned long i;
+    PORT_ULONG i;
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
@@ -355,29 +307,16 @@ static int _dictExpandIfNeeded(dict *ht) {
 }
 
 /* Our hash table capability is a power of two */
-#ifdef _WIN32
-static size_t _dictNextPower(size_t size) {
-    size_t i = DICT_HT_INITIAL_SIZE;
+static PORT_ULONG _dictNextPower(PORT_ULONG size) {
+    PORT_ULONG i = DICT_HT_INITIAL_SIZE;
 
-    if (size >= LONG_MAX) return LONG_MAX;
+    if (size >= PORT_LONG_MAX) return PORT_LONG_MAX;
     while(1) {
         if (i >= size)
             return i;
         i *= 2;
     }
 }
-#else
-static unsigned long _dictNextPower(unsigned long size) {
-    unsigned long i = DICT_HT_INITIAL_SIZE;
-
-    if (size >= LONG_MAX) return LONG_MAX;
-    while(1) {
-        if (i >= size)
-            return i;
-        i *= 2;
-    }
-}
-#endif
 
 /* Returns the index of a free slot that can be populated with
  * an hash entry for the given 'key'.

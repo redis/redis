@@ -182,11 +182,7 @@ typedef DWORD pid_t;
 
 #ifndef _SIGSET_T_
 #define _SIGSET_T_
-#ifdef _WIN64
-typedef unsigned long long _sigset_t;
-#else
-typedef unsigned long _sigset_t;
-#endif
+typedef size_t _sigset_t;
 # define sigset_t _sigset_t
 #endif /* _SIGSET_T_ */
 
@@ -269,7 +265,7 @@ void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset
 int munmap(void *start, size_t length);
 
 void InitTimeFunctions();
-unsigned long long GetHighResRelativeTime(double scale);
+uint64_t GetHighResRelativeTime(double scale);
 int gettimeofday_fast(struct timeval *tv, struct timezone *tz);
 int gettimeofday_highres(struct timeval *tv, struct timezone *tz);
 time_t gettimeofdaysecs(unsigned int *usec);
@@ -333,7 +329,7 @@ typedef struct {
 } siginfo_t;
 #endif
 
-int truncate(const char *path, long long length);
+int truncate(const char *path, PORT_LONGLONG length);
 
 #define lseek lseek64
 

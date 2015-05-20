@@ -46,15 +46,15 @@
  * done within 'timeout' milliseconds the operation succeeds and 'size' is
  * returned. Otherwise the operation fails, -1 is returned, and an unspecified
  * partial write could be performed against the file descriptor. */
-ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
+ssize_t syncWrite(int fd, char *ptr, ssize_t size, PORT_LONGLONG timeout) {
     ssize_t nwritten, ret = size;
-    long long start = mstime();
-    long long remaining = timeout;
+    PORT_LONGLONG start = mstime();
+    PORT_LONGLONG remaining = timeout;
 
     while(1) {
-        long long wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
+        PORT_LONGLONG wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
                           remaining : REDIS_SYNCIO_RESOLUTION;
-        long long elapsed;
+        PORT_LONGLONG elapsed;
 
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
@@ -82,16 +82,16 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
  * data could be read from the file descriptor. */
-ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
+ssize_t syncRead(int fd, char *ptr, ssize_t size, PORT_LONGLONG timeout) {
     ssize_t nread, totread = 0;
-    long long start = mstime();
-    long long remaining = timeout;
+    PORT_LONGLONG start = mstime();
+    PORT_LONGLONG remaining = timeout;
 
     if (size == 0) return 0;
     while(1) {
-        long long wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
+        PORT_LONGLONG wait = (remaining > REDIS_SYNCIO_RESOLUTION) ?
                           remaining : REDIS_SYNCIO_RESOLUTION;
-        long long elapsed;
+        PORT_LONGLONG elapsed;
 
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
@@ -128,7 +128,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
  *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
-ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
+ssize_t syncReadLine(int fd, char *ptr, ssize_t size, PORT_LONGLONG timeout) {
     ssize_t nread = 0;
 
     size--;

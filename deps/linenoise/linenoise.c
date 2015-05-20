@@ -539,7 +539,7 @@ static int completeLine(struct linenoiseState *ls) {
                 refreshLine(ls);
             }
 
-            nread = read(ls->ifd,&c,1);
+            nread = (int)read(ls->ifd,&c,1);                                    /* UPSTREAM_ISSUE: missing (int) cast */
             if (nread <= 0) {
                 freeCompletions(&lc);
                 return -1;
@@ -1084,7 +1084,7 @@ void linenoisePrintKeyCodes(void) {
         char c;
         int nread;
 
-        nread = read(STDIN_FILENO,&c,1);
+        nread = (int)read(STDIN_FILENO,&c,1);                                   /* UPSTREAM_ISSUE: missing (int) cast */
         if (nread <= 0) continue;
         memmove(quit,quit+1,sizeof(quit)-1); /* shift string to left. */
         quit[sizeof(quit)-1] = c; /* Insert current char on the right. */

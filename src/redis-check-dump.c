@@ -200,7 +200,7 @@ int checkType(unsigned char t) {
 }
 
 /* when number of bytes to read is negative, do a peek */
-int readBytes(void *target, long num) {
+int readBytes(void *target, PORT_LONG num) {
     pos p;
     char peek = (num < 0) ? 1 : 0;
     num = (num < 0) ? -num : num;
@@ -307,7 +307,7 @@ uint32_t loadLength(int *isencoded) {
 char *loadIntegerObject(int enctype) {
     uint32_t offset = CURR_OFFSET;
     unsigned char enc[4];
-    long long val;
+    PORT_LONGLONG val;
     char *buf;
 
     if (enctype == REDIS_RDB_ENC_INT8) {
@@ -395,7 +395,7 @@ char* loadStringObject() {
 }
 
 int processStringObject(char** store) {
-    unsigned long offset = CURR_OFFSET;
+    PORT_ULONG offset = CURR_OFFSET;
     char *key = loadStringObject();
     if (key == NULL) {
         SHIFT_ERROR(offset, "Error reading string object");
@@ -435,7 +435,7 @@ double* loadDoubleValue() {
 }
 
 int processDoubleValue(double** store) {
-    unsigned long offset = CURR_OFFSET;
+    PORT_ULONG offset = CURR_OFFSET;
     double *val = loadDoubleValue();
     if (val == NULL) {
         SHIFT_ERROR(offset, "Error reading double value");
@@ -605,14 +605,14 @@ void printCentered(int indent, int width, char* body) {
 void printValid(uint64_t ops, uint64_t bytes) {
     char body[80];
     sprintf(body, "Processed %llu valid opcodes (in %llu bytes)",
-        (unsigned long long) ops, (unsigned long long) bytes);
+        (PORT_ULONGLONG) ops, (PORT_ULONGLONG) bytes);
     printCentered(4, 80, body);
 }
 
 void printSkipped(uint64_t bytes, uint64_t offset) {
     char body[80];
     sprintf(body, "Skipped %llu bytes (resuming at 0x%08llx)",
-        (unsigned long long) bytes, (unsigned long long) offset);
+        (PORT_ULONGLONG) bytes, (PORT_ULONGLONG) offset);
     printCentered(4, 80, body);
 }
 
@@ -647,7 +647,7 @@ void printErrorStack(entry *e) {
     /* display error stack */
     for (i = 0; i < errors.level; i++) {
         printf("0x%08lx - %s\n",
-            (unsigned long) errors.offset[i], errors.error[i]);
+            (PORT_ULONG) errors.offset[i], errors.error[i]);    /* BUGBUG: fix %08lx*/
     }
 }
 
@@ -754,7 +754,7 @@ void process(void) {
     if (num_errors) {
         printf("\n");
         printf("Total unprocessable opcodes: %llu\n",
-            (unsigned long long) num_errors);
+            (PORT_ULONGLONG) num_errors);
     }
 }
 
