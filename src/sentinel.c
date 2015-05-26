@@ -605,6 +605,10 @@ void sentinelGenerateInitialMonitorEvents(void) {
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         sentinelEvent(REDIS_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
+        if (ri->monitor_mode == SENTINEL_MONITOR_RELAY_MASTER && 
+            ri->candidate_slave != NULL ) {
+            sentinelEvent(REDIS_WARNING,"+relay-slave",ri->candidate_slave,"%@");
+        }
     }
     dictReleaseIterator(di);
 }
@@ -1022,7 +1026,6 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
         ri->monitor_mode = SENTINEL_MONITOR_RELAY_MASTER;
         master->monitor_mode = SENTINEL_MONITOR_RELAY_MASTER;
         sentinelPropagateMonitorMode(master);
-        sentinelEvent(REDIS_WARNING,"+relay-slave",ri,"%@");
     }
 
     /* Add into the right table. */
@@ -1314,13 +1317,14 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
         {
             slave = createSentinelRedisInstance(NULL,SRI_RELAY_SLAVE,slaves[j]->ip,
                         slaves[j]->port, master->quorum, master);
+            if (slave) sentinelEvent(REDIS_WARNING,"+relay-slave",slave,"%@");
         } else
         {
             slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slaves[j]->ip,
                         slaves[j]->port, master->quorum, master);
+            if (slave) sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
 	}
         releaseSentinelAddr(slaves[j]);
-        if (slave) sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
     }
     zfree(slaves);
 
@@ -3000,13 +3004,15 @@ void sentinelCommand(redisClient *c) {
         }
 
         /* Parameters are valid. Try to create the candidate relay slave. */
-        if ((slave = createSentinelRedisInstance(NULL,SRI_RELAY_SLAVE,c->argv[3]->ptr,
-                     port, ri->quorum, ri)) == NULL)
+        slave = createSentinelRedisInstance(NULL,SRI_RELAY_SLAVE,c->argv[3]->ptr,
+                     port, ri->quorum, ri);
+        if (slave == NULL)
         {
             addReplyError(c,"Wrong hostname or port for slave.");
             return;
         } else {
             sentinelFlushConfig();
+            sentinelEvent(REDIS_WARNING,"+relay-slave",slave,"%@");
             addReply(c, shared.ok);
         }  
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
