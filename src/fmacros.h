@@ -58,8 +58,4 @@
 #define _LARGEFILE_SOURCE
 #define _FILE_OFFSET_BITS 64
 
-#ifdef _WIN32
-#define off off_t
-#endif
-
 #endif

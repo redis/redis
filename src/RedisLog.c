@@ -20,6 +20,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 
 #include "redisLog.h"
 #include <stdio.h>

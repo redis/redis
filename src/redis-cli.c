@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include "fmacros.h"
 #include "version.h"
 
@@ -1164,11 +1168,7 @@ static void slaveMode(void) {
     /* Discard the payload. */
     while(payload) {
         ssize_t nread;
-#ifdef _WIN32
-        nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : (unsigned int)payload);
-#else
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
-#endif
         if (nread <= 0) {
             fprintf(stderr,"Error reading RDB payload while SYNCing\n");
             exit(1);

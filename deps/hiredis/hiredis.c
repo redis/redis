@@ -1197,7 +1197,7 @@ int redisBufferRead(redisContext *c) {
  *
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
-int redisBufferReadDone(redisContext *c, char *buf, int nread) {
+int redisBufferReadDone(redisContext *c, char *buf, ssize_t nread) {
     if (nread == -1) {
         if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
             /* Try again later */

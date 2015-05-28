@@ -33,8 +33,10 @@
 
 typedef unsigned long nfds_t;
 
-#if !defined(ssize_t)
-typedef int ssize_t;
+#if defined(_WIN64)
+typedef __int64 ssize_t;
+#else
+typedef _W64 long ssize_t;
 #endif
 
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.

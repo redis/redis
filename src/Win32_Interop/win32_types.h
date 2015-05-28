@@ -20,45 +20,21 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "win32_types.h"
+#pragma once
 
-#include "Win32_variadicFunctor.h"
+/* The Posix version of Redis defines off_t as 64-bit integers, so we do the same.
+ * On Windows, these types are defined as 32-bit in sys/types.h under and #ifndef _OFF_T_DEFINED
+ * So we define _OFF_T_DEFINED at the project level, to make sure that that definition is never included.
+ * If you get an error about re-definition, make sure to include this file before sys/types.h, or any other
+ * file that include it (eg wchar.h).
+ * _off_t is also defined #ifndef _OFF_T_DEFINED, so we need to define it here.
+ * It is used by the CRT internally (but not by Redis), so we leave it as 32-bit.
+ */
+ 
+typedef __int64 off_t;
+typedef long _off_t;
 
-#include <windows.h>
-#include <stdexcept>
-#include <map>
-using namespace std;
+#ifndef _OFF_T_DEFINED
+#define _OFF_T_DEFINED
+#endif
 
-DLLMap& DLLMap::getInstance() {
-	static DLLMap    instance; // Instantiated on first use. Guaranteed to be destroyed.
-	return instance;
-}
-
-DLLMap::DLLMap() { };
-
-LPVOID DLLMap::getProcAddress(string dll, string functionName)
-{
-	if (find(dll) == end()) {
-		HMODULE mod = LoadLibraryA(dll.c_str());
-		if (mod == NULL) {
-			throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
-		}
-		(*this)[dll] = mod;
-	}
-
-	HMODULE mod = (*this)[dll];
-	LPVOID fp = GetProcAddress(mod, functionName.c_str());
-	if (fp == nullptr) {
-		throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
-	}
-
-	return fp;
-}
-
-DLLMap::~DLLMap()
-{
-	for each(auto modPair in (*this))
-	{
-		FreeLibrary(modPair.second);
-	}
-}

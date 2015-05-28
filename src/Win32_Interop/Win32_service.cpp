@@ -54,6 +54,8 @@ this should preceed the other arguments passed to redis. For instance:
     redis-server --service-install --service-name testServiceName redis.windows.conf --loglevel verbose 
 */
 
+#include "win32_types.h"
+
 #include <windows.h>
 #include <windowsx.h>
 #include <shlobj.h>

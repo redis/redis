@@ -27,6 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include "redis.h"
 #include "slowlog.h"
 #include "bio.h"

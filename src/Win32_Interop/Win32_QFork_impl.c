@@ -58,6 +58,8 @@ int do_aofSave(char* filename)
     return REDIS_OK;
 }
 
+int rdbSaveRioWithEOFMark(rio *rdb, int *error);
+
 // This function is meant to be an exact replica of the fork() child path in rdbSaveToSlavesSockets
 int do_socketSave2(int *fds, int numfds, uint64_t *clientids)
 {

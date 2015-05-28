@@ -44,6 +44,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "win32_interop/win32_types.h"
 
 #include "fmacros.h"
 #include <string.h>

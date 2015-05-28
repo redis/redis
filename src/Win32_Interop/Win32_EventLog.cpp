@@ -20,6 +20,8 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include "win32_types.h"
+
 #include <Windows.h>
 #include <string>
 #include <iostream>

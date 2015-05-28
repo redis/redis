@@ -477,7 +477,7 @@ void aeShutdown(int fd) {
     if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
         /* read data until no more or error to ensure shutdown completed */
         while (1) {
-            int rc = read(fd, rbuf, 100);
+            ssize_t rc = read(fd, rbuf, 100);
             if (rc == 0 || rc == SOCKET_ERROR)
                 break;
             else {

@@ -210,7 +210,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
 #ifdef WIN32_IOCP
-    int nread;
+    ssize_t nread;
     char buf[1024*16];
 #endif
     REDIS_NOTUSED(el);

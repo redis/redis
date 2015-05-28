@@ -29,6 +29,10 @@
  */
 
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #ifndef _WIN32
@@ -52,7 +56,7 @@
 
 /* File maping used in redis-check-dump */
 /* mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0); */
-void *mmap(void *start, size_t length, int prot, int flags, int fd, off offset) {
+void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset) {
 	HANDLE h;
 	void *data;
 
@@ -759,12 +763,11 @@ void process(void) {
 #endif
 int main(int argc, char **argv) {
     int fd;
-#ifdef _WIN32
-    off size;
-	struct _stat64 stat;
-#else
     off_t size;
-	struct stat stat;
+#ifdef _WIN32
+    struct _stat64 stat;
+#else
+    struct stat stat;
 #endif
     void *data;
 

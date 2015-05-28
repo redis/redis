@@ -28,6 +28,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
 
 #include "redis.h"
 
@@ -969,13 +972,8 @@ void replicationEmptyDbCallback(void *privdata) {
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
-#ifdef _WIN64
-    int64_t nread, readlen;
-    int64_t left;
-#else
     ssize_t nread, readlen;
     off_t left;
-#endif
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);

@@ -21,6 +21,8 @@
  */
 
 
+#include "win32_types.h"
+
 #include "win32_rfdmap.h"
 
 RFDMap& RFDMap::getInstance() {
