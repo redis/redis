@@ -31,6 +31,7 @@
 #include "redis.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "bio.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -299,7 +300,8 @@ int clusterSaveConfig(int do_fsync) {
     size_t content_size;
     struct stat sb;
     int fd;
-
+    mstime_t latency;
+	
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_SAVE_CONFIG;
 
     /* Get the nodes description and concatenate our "vars" directive to
@@ -320,11 +322,14 @@ int clusterSaveConfig(int do_fsync) {
             memset(ci+content_size,'\n',sb.st_size-content_size);
         }
     }
+	latencyStartMonitor(latency);
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
-        fsync(fd);
+        bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
     }
+	latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("cluster-write-pending-fsync",latency);
 
     /* Truncate the file if needed to remove the final \n padding that
      * is just garbage. */
