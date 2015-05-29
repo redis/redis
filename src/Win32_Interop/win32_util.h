@@ -27,6 +27,45 @@ extern "C"
 {
 #endif
 
+
+/* Sometimes in the Windows port we make changes from:
+        antirez_redis_statement();
+    to:
+        #ifdef _WIN32
+            windows_redis_statement();
+        #else
+            antirez_redis_statement();
+        #endif
+
+    If subsequently antirez changed that code, we might not detect the change during the next merge.
+    The INDUCE_MERGE_CONFLICT macro expands to nothing, but it is used to make sure that the original line
+    is modified with respect to the antirez version, so that any subsequent modifications will trigger a conflict
+    during the next merge.
+
+    Sample usage:
+        #ifdef _WIN32
+            windows_redis_statement();
+        #else
+            antirez_redis_statement();          INDUCE_MERGE_CONFLICT
+        #endif
+
+    Don't use any parenthesis or semi-colon after INDUCE_MERGE_CONFLICT.
+    Use it at the end of a line to preserve the original indentation.
+*/
+
+#define INDUCE_MERGE_CONFLICT
+
+#ifdef _WIN32
+#define IF_WIN32(x, y) x
+#define WIN32_ONLY(x) x
+#define POSIX_ONLY(x)
+#else
+#define IF_WIN32(x, y) y
+#define WIN32_ONLY(x)
+#define POSIX_ONLY(x) x
+#endif
+
+
 /* Converts error codes returned by GetLastError/WSAGetLastError to errno codes */
 int translate_sys_error(int sys_error);
 
