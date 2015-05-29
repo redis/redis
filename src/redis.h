@@ -521,11 +521,10 @@ typedef struct redisClient {
 #ifdef _WIN32
     char replFileCopy[_MAX_PATH];   
     long long repldboff;        /* replication DB file offset */
-    long long repldbsize;       /* replication DB file size */
 #else
-    long repldboff;         /* replication DB file offset */
-    off_t repldbsize;       /* replication DB file size */
+    long repldboff;         /* replication DB file offset */    INDUCE_MERGE_CONFLICT
 #endif
+    off_t repldbsize;       /* replication DB file size */
     sds replpreamble;       /* replication DB preamble. */
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
@@ -663,13 +662,8 @@ struct redisServer {
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
-#ifdef _WIN32
-    long long loading_total_bytes;
-    long long loading_loaded_bytes;
-#else
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
-#endif
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
@@ -720,15 +714,9 @@ struct redisServer {
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
-#ifdef _WIN32
-    long long aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
-    long long aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    long long aof_current_size;         /* AOF current size. */
-#else
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
-#endif
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
@@ -798,15 +786,9 @@ struct redisServer {
     redisClient *cached_master; /* Cached master to be reused for PSYNC. */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
-#ifdef _WIN64
-    int64_t repl_transfer_size; /* Size of RDB to read from master during sync. */
-    int64_t repl_transfer_read; /* Amount of RDB read from master during sync. */
-    int64_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
-#else
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
-#endif
     int repl_transfer_s;     /* Slave -> Master SYNC socket */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */

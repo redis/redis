@@ -1125,13 +1125,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (server.repl_transfer_read >=
         server.repl_transfer_last_fsync_off + REPL_MAX_WRITTEN_BEFORE_FSYNC)
     {
-#ifdef _WIN64
-        int64_t sync_size = server.repl_transfer_read -
-            server.repl_transfer_last_fsync_off;
-#else
         off_t sync_size = server.repl_transfer_read -
                           server.repl_transfer_last_fsync_off;
-#endif
         rdb_fsync_range(server.repl_transfer_fd,
             server.repl_transfer_last_fsync_off, sync_size);
         server.repl_transfer_last_fsync_off += sync_size;

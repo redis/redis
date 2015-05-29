@@ -55,11 +55,7 @@
 }
 
 static char error[1024];
-#ifdef _WIN32
-long long epos;
-#else
 static off_t epos;
-#endif
 
 int consumeNewline(char *buf) {
     if (strncmp(buf,"\r\n",2) != 0) {
@@ -167,19 +163,14 @@ int main(int argc, char **argv) {
     int fix = 0;
     FILE *fp;
     struct redis_stat sb;
+    off_t size;
+    off_t pos;
+    off_t diff;
 #ifdef _WIN32
-    long long size;
-    long long pos;
-    long long diff;
-
     _fmode = _O_BINARY;
     setmode(_fileno(stdin), _O_BINARY);
     setmode(_fileno(stdout), _O_BINARY);
     setmode(_fileno(stderr), _O_BINARY);
-#else
-    off_t size;
-    off_t pos;
-    off_t diff;
 #endif
 
     if (argc < 2) {
