@@ -1175,7 +1175,7 @@ void zsetConvert(robj *zobj, int encoding) {
 #define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
 #define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
-#define ZADD_RETCH (1<<3)   /* Return the number of elements added or updated.*/
+#define ZADD_CH (1<<3)      /* Return num of elements added or updated. */
 void zaddGenericCommand(redisClient *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
@@ -1200,7 +1200,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
         char *opt = c->argv[scoreidx]->ptr;
         if (!strcasecmp(opt,"nx")) flags |= ZADD_NX;
         else if (!strcasecmp(opt,"xx")) flags |= ZADD_XX;
-        else if (!strcasecmp(opt,"retch")) flags |= ZADD_RETCH;
+        else if (!strcasecmp(opt,"ch")) flags |= ZADD_CH;
         else if (!strcasecmp(opt,"incr")) flags |= ZADD_INCR;
         else break;
         scoreidx++;
@@ -1210,7 +1210,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
     int incr = (flags & ZADD_INCR) != 0;
     int nx = (flags & ZADD_NX) != 0;
     int xx = (flags & ZADD_XX) != 0;
-    int retch = (flags & ZADD_RETCH) != 0;
+    int ch = (flags & ZADD_CH) != 0;
 
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
@@ -1356,7 +1356,7 @@ reply_to_client:
         else
             addReply(c,shared.nullbulk);
     } else { /* ZADD. */
-        addReplyLongLong(c,retch ? added+updated : added);
+        addReplyLongLong(c,ch ? added+updated : added);
     }
 
 cleanup:
