@@ -100,6 +100,20 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp b] == 200}
         }
 
+        test "ZADD INCR works like ZINCRBY" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd ztmp INCR 15 x
+            assert {[r zscore ztmp x] == 25}
+        }
+
+        test "ZADD INCR works with a single score-elemenet pair" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            catch {r zadd ztmp INCR 15 x 10 y} err
+            set err
+        } {ERR*}
+
         test "ZINCRBY calls leading to NaN result in error" {
             r zincrby myzset +inf abc
             assert_error "*NaN*" {r zincrby myzset -inf abc}
