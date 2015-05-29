@@ -1073,6 +1073,7 @@ int rewriteAppendOnlyFile(char *filename) {
             }
         }
         dictReleaseIterator(di);
+        di = NULL;
     }
 
     /* Make sure data will not remain on the OS's output buffers */

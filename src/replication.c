@@ -857,6 +857,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * is technically online now. */
                 slave->replstate = REDIS_REPL_ONLINE;
                 slave->repl_put_online_on_ack = 1;
+                slave->repl_ack_time = server.unixtime;
             } else {
                 if (bgsaveerr != REDIS_OK) {
                     freeClient(slave);
@@ -1606,12 +1607,38 @@ int cancelReplicationHandshake(void) {
     return 1;
 }
 
+/* Mass-unblock clients because something changed in the instance that makes
+ * blocking no longer safe. For example clients blocked in list operations
+ * in an instance which turns from master to slave is unsafe, so this function
+ * is called when a master turns into a slave.
+ *
+ * The semantics is to send an -UNBLOCKED error to the client, disconnecting
+ * it at the same time. */
+void disconnectAllBlockedClients(void) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.clients,&li);
+    while((ln = listNext(&li))) {
+        redisClient *c = listNodeValue(ln);
+
+        if (c->flags & REDIS_BLOCKED) {
+            addReplySds(c,sdsnew(
+                "-UNBLOCKED force unblock from blocking operation, "
+                "instance state changed (master -> slave?)\r\n"));
+            unblockClientWaitingData(c);
+            c->flags |= REDIS_CLOSE_AFTER_REPLY;
+        }
+    }
+}
+
 /* Set replication to the specified master address and port. */
 void replicationSetMaster(char *ip, int port) {
     sdsfree(server.masterhost);
     server.masterhost = sdsdup(ip);
     server.masterport = port;
     if (server.master) freeClient(server.master);
+    disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
     replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */

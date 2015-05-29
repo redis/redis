@@ -58,7 +58,7 @@ ifeq ($(uname_S),SunOS)
 	# SunOS
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
-	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread
+	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin (nothing to do)
@@ -251,4 +251,4 @@ install: all
 	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CHECK_DUMP_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CHECK_AOF_NAME) $(INSTALL_BIN)
-	@ln -sf $(INSTALL_BIN)/$(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SENTINEL_NAME)
+	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SENTINEL_NAME)
