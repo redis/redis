@@ -1183,7 +1183,14 @@ void zaddGenericCommand(redisClient *c, int flags) {
     robj *curobj;
     double score = 0, *scores = NULL, curscore = 0.0;
     int j, elements;
-    int added = 0, updated = 0, scoreidx = 0;
+    int scoreidx = 0;
+    /* The following vars are used in order to track what the command actually
+     * did during the execution, to reply to the client and to trigger the
+     * notification of keyspace change. */
+    int added = 0;      /* Number of new elements added. */
+    int updated = 0;    /* Number of elements with updated score. */
+    int processed = 0;  /* Number of elements processed, may remain zero with
+                           options like XX. */
 
     /* Parse options. At the end 'scoreidx' is set to the argument position
      * of the score of the first score-element pair. */
@@ -1236,6 +1243,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
     /* Lookup the key and create the sorted set if does not exist. */
     zobj = lookupKeyWrite(c->db,key);
     if (zobj == NULL) {
+        if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         if (server.zset_max_ziplist_entries == 0 ||
             server.zset_max_ziplist_value < sdslen(c->argv[3]->ptr))
         {
@@ -1260,6 +1268,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
             /* Prefer non-encoded element when dealing with ziplists. */
             ele = c->argv[scoreidx+1+j*2];
             if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
+                if (nx) continue;
                 if (incr) {
                     score += curscore;
                     if (isnan(score)) {
@@ -1275,7 +1284,8 @@ void zaddGenericCommand(redisClient *c, int flags) {
                     server.dirty++;
                     updated++;
                 }
-            } else {
+                processed++;
+            } else if (!xx) {
                 /* Optimize: check if the element is too large or the list
                  * becomes too long *before* executing zzlInsert. */
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
@@ -1285,6 +1295,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
                     zsetConvert(zobj,REDIS_ENCODING_SKIPLIST);
                 server.dirty++;
                 added++;
+                processed++;
             }
         } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
@@ -1295,6 +1306,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
                 tryObjectEncoding(c->argv[scoreidx+1+j*2]);
             de = dictFind(zs->dict,ele);
             if (de != NULL) {
+                if (nx) continue;
                 curobj = dictGetKey(de);
                 curscore = *(double*)dictGetVal(de);
 
@@ -1319,22 +1331,30 @@ void zaddGenericCommand(redisClient *c, int flags) {
                     server.dirty++;
                     updated++;
                 }
-            } else {
+                processed++;
+            } else if (!xx) {
                 znode = zslInsert(zs->zsl,score,ele);
                 incrRefCount(ele); /* Inserted in skiplist. */
                 redisAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
                 incrRefCount(ele); /* Added to dictionary. */
                 server.dirty++;
                 added++;
+                processed++;
             }
         } else {
             redisPanic("Unknown sorted set encoding");
         }
     }
-    if (incr) /* ZINCRBY */
-        addReplyDouble(c,score);
-    else /* ZADD */
+
+reply_to_client:
+    if (incr) { /* ZINCRBY or INCR option. */
+        if (processed)
+            addReplyDouble(c,score);
+        else
+            addReply(c,shared.nullbulk);
+    } else { /* ZADD. */
         addReplyLongLong(c,added);
+    }
 
 cleanup:
     zfree(scores);
