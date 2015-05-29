@@ -114,6 +114,13 @@ start_server {tags {"zset"}} {
             set err
         } {ERR*}
 
+        test "ZADD CH option changes return value to all changed elements" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            assert {[r zadd ztmp 11 x 21 y 30 z] == 0}
+            assert {[r zadd ztmp ch 12 x 22 y 30 z] == 2}
+        }
+
         test "ZINCRBY calls leading to NaN result in error" {
             r zincrby myzset +inf abc
             assert_error "*NaN*" {r zincrby myzset -inf abc}
