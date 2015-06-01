@@ -33,6 +33,8 @@
 
 #ifndef _WIN32
 #include <arpa/inet.h>
+#else
+#include "win32_interop/win32_util.h"
 #endif
 #include <signal.h>
 
@@ -258,7 +260,7 @@ void debugCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
-        void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
+        void *ptr = zmalloc(MAX_SIZE_T); /* Should trigger an out of memory. */ WIN_PORT_FIX
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {

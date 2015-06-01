@@ -28,7 +28,7 @@ extern "C"
 #endif
 
 
-/* Sometimes in the Windows port we make changes from:
+/*  Sometimes in the Windows port we make changes from:
         antirez_redis_statement();
     to:
         #ifdef _WIN32
@@ -52,8 +52,14 @@ extern "C"
     Don't use any parenthesis or semi-colon after INDUCE_MERGE_CONFLICT.
     Use it at the end of a line to preserve the original indentation.
 */
-
 #define INDUCE_MERGE_CONFLICT
+
+/*  Use WIN_PORT_FIX at the end of a line to mark places where we make changes to the code
+    without using #ifdefs. Useful to keep the code more legible. Mainly intended for replacing
+    the use of long (which is 64-bit on 64-bit Unix and 32-bit on 64-bit Windows) to portable types.
+    In order to be eligible for an inline fix (without #ifdef), the change should be portable back to the Posix version.
+*/
+#define WIN_PORT_FIX
 
 #ifdef _WIN32
 #define IF_WIN32(x, y) x

@@ -610,9 +610,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #include <sys/types.h>  /* For size_t */
 #endif  /* LACKS_SYS_TYPES_H */
 
-/* The maximum possible size_t value has all bits set */
-#define MAX_SIZE_T           (~(size_t)0)
-
 #define USE_LOCKS 1
 
 #ifndef USE_LOCKS /* ensure true if spin or recursive locks set */

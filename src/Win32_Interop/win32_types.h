@@ -38,3 +38,8 @@ typedef long _off_t;
 #define _OFF_T_DEFINED
 #endif
 
+
+/* The maximum possible size_t value has all bits set */
+#define MAX_SIZE_T           (~(size_t)0)
+
+
