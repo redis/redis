@@ -363,30 +363,34 @@ void pubsubCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
-	} else if (!strcasecmp(c->argv[1]->ptr,"memsub") && c->argc >= 2) {
-		/* PUBSUB MEMSUB [Channel_1 ... Channel_N] */
-		int j;
+        } else if (!strcasecmp(c->argv[1]->ptr,"subscriber") && c->argc >= 2) {
+                /* PUBSUB SUBSCRIBER [Channel_1 ... Channel_N] */
+                int j;
 
-		addReplyMultiBulkLen(c,(c->argc-2)*2);
-		for (j = 2; j < c->argc; j++) {
-			dictEntry *de = dictFind(server.pubsub_channels, c->argv[j]);
+                addReplyMultiBulkLen(c,(c->argc-2)*2);
+                for (j = 2; j < c->argc; j++) {
+                        dictEntry *de = dictFind(server.pubsub_channels, c->argv[j]);
 
-			addReplyBulk(c,c->argv[j]);
-			if (de) {
-				list *list = dictGetVal(de);
-				listNode *ln;
-				listIter li;
+                        addReplyBulk(c,c->argv[j]);
+                        if (de) {
+                                list *list = dictGetVal(de);
+                                listNode *ln;
+                                listIter li;
 
-				listRewind(list,&li);
-				addReplyMultiBulkLen(c,listLength(list));
-				while ((ln = listNext(&li)) != NULL) {
-					redisClient *rc = ln->value;
-					addReplyBulkSds(c, sdsnew(getClientPeerId(rc)));
-				}
-			}
-			else
-				addReplyBulkLongLong(c, 0);
-		}
+                                listRewind(list,&li);
+                                addReplyMultiBulkLen(c,listLength(list));
+                                while ((ln = listNext(&li)) != NULL) {
+                                        redisClient *rc = ln->value;
+                                        sds cinfo = sdscatfmt(sdsempty(), "id=%U, name=%s, addr=%s",
+                                                                 rc->id,
+                                                                 rc->name ? (char*)rc->name->ptr : "",
+                                                                 getClientPeerId(rc));
+                                        addReplyBulkSds(c, cinfo);
+                                }
+                        }
+                        else
+                                addReplyBulkLongLong(c, 0);
+                }
     } else {
         addReplyErrorFormat(c,
             "Unknown PUBSUB subcommand or wrong number of arguments for '%s'",
