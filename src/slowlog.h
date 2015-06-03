@@ -34,14 +34,14 @@
 typedef struct slowlogEntry {
     robj **argv;
     int argc;
-    long long id;       /* Unique entry identifier. */
-    long long duration; /* Time spent by the query, in nanoseconds. */
+    PORT_LONGLONG id;       /* Unique entry identifier. */
+    PORT_LONGLONG duration; /* Time spent by the query, in nanoseconds. */
     time_t time;        /* Unix time at which the query was executed. */
 } slowlogEntry;
 
 /* Exported API */
 void slowlogInit(void);
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration);
+void slowlogPushEntryIfNeeded(robj **argv, int argc, PORT_LONGLONG duration);
 
 /* Exported commands */
 void slowlogCommand(redisClient *c);

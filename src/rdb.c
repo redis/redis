@@ -27,6 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include "redis.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
@@ -34,16 +38,20 @@
 
 #include <math.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#else
+#include <stdio.h>
+#endif
 #include <sys/stat.h>
 
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
-    return len;
+    return (int)len;
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -65,15 +73,15 @@ time_t rdbLoadTime(rio *rdb) {
     return (time_t)t32;
 }
 
-int rdbSaveMillisecondTime(rio *rdb, long long t) {
+int rdbSaveMillisecondTime(rio *rdb, PORT_LONGLONG t) {
     int64_t t64 = (int64_t) t;
     return rdbWriteRaw(rdb,&t64,8);
 }
 
-long long rdbLoadMillisecondTime(rio *rdb) {
+PORT_LONGLONG rdbLoadMillisecondTime(rio *rdb) {
     int64_t t64;
     if (rioRead(rdb,&t64,8) == 0) return -1;
-    return (long long)t64;
+    return (PORT_LONGLONG)t64;
 }
 
 /* Saves an encoded length. The first two bits in the first byte are used to
@@ -102,7 +110,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
         if (rdbWriteRaw(rdb,&len,4) == -1) return -1;
         nwritten = 1+4;
     }
-    return nwritten;
+    return (int)nwritten;
 }
 
 /* Load an encoded length. The "isencoded" argument is set to 1 if the length
@@ -138,7 +146,7 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
  * for encoded types. If the function successfully encodes the integer, the
  * representation is stored in the buffer pointer to by "enc" and the string
  * length is returned. Otherwise 0 is returned. */
-int rdbEncodeInteger(long long value, unsigned char *enc) {
+int rdbEncodeInteger(PORT_LONGLONG value, unsigned char *enc) {
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_INT8;
         enc[1] = value&0xFF;
@@ -148,7 +156,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
         return 3;
-    } else if (value >= -((long long)1<<31) && value <= ((long long)1<<31)-1) {
+    } else if (value >= -((PORT_LONGLONG)1<<31) && value <= ((PORT_LONGLONG)1<<31)-1) {
         enc[0] = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_INT32;
         enc[1] = value&0xFF;
         enc[2] = (value>>8)&0xFF;
@@ -165,7 +173,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
  * string object, otherwise it always returns a raw string object. */
 robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
     unsigned char enc[4];
-    long long val;
+    PORT_LONGLONG val;
 
     if (enctype == REDIS_RDB_ENC_INT8) {
         if (rioRead(rdb,enc,1) == 0) return NULL;
@@ -194,7 +202,7 @@ robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
  * range of values that can fit in an 8, 16 or 32 bit signed value can be
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
-    long long value;
+    PORT_LONGLONG value;
     char *endptr, buf[32];
 
     /* Check if it's possible to encode this value as a number */
@@ -219,7 +227,7 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if (len <= 4) return 0;
     outlen = len-4;
     if ((out = zmalloc(outlen+1)) == NULL) return 0;
-    comprlen = lzf_compress(s, len, out, outlen);
+    comprlen = lzf_compress(s, (unsigned int)len, out, (unsigned int)outlen);
     if (comprlen == 0) {
         zfree(out);
         return 0;
@@ -229,10 +237,10 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,comprlen)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,(uint32_t)comprlen)) == -1) goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,len)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) goto writeerr;
     nwritten += n;
 
     if ((n = rdbWriteRaw(rdb,out,comprlen)) == -1) goto writeerr;
@@ -290,17 +298,17 @@ int rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     }
 
     /* Store verbatim */
-    if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
         if (rdbWriteRaw(rdb,s,len) == -1) return -1;
-        nwritten += len;
+        nwritten += (int)len;
     }
     return nwritten;
 }
 
-/* Save a long long value as either an encoded string or a string. */
-int rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
+/* Save a PORT_LONGLONG value as either an encoded string or a string. */
+int rdbSaveLongLongAsStringObject(rio *rdb, PORT_LONGLONG value) {
     unsigned char buf[32];
     int n, nwritten = 0;
     int enclen = rdbEncodeInteger(value,buf);
@@ -323,7 +331,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
      * object is already integer encoded. */
     if (obj->encoding == REDIS_ENCODING_INT) {
-        return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
+        return rdbSaveLongLongAsStringObject(rdb, (PORT_LONG) obj->ptr);
     } else {
         redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
@@ -388,22 +396,22 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
     } else {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
-         * long long. We are assuming that long long is 64 bit here.
+         * PORT_LONGLONG. We are assuming that PORT_LONGLONG is 64 bit here.
          * Also we are assuming that there are no implementations around where
          * double has precision < 52 bit.
          *
          * Under this assumptions we test if a double is inside an interval
-         * where casting to long long is safe. Then using two castings we
+         * where casting to PORT_LONGLONG is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && val == ((double)((long long)val)))
-            ll2string((char*)buf+1,sizeof(buf)-1,(long long)val);
+        if (val > min && val < max && val == ((double)((PORT_LONGLONG)val)))
+            ll2string((char*)buf+1,sizeof(buf)-1,(PORT_LONGLONG)val);
         else
 #endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
-        buf[0] = strlen((char*)buf+1);
+        buf[0] = (unsigned char)strlen((char*)buf+1);
         len = buf[0]+1;
     }
     return rdbWriteRaw(rdb,buf,len);
@@ -413,6 +421,11 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
 int rdbLoadDoubleValue(rio *rdb, double *val) {
     char buf[256];
     unsigned char len;
+#ifdef _WIN32
+    double scannedVal = 0;
+    int assigned = 0;
+    memset(buf, 0, sizeof(buf));
+#endif
 
     if (rioRead(rdb,&len,1) == 0) return -1;
     switch(len) {
@@ -422,8 +435,18 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     default:
         if (rioRead(rdb,buf,len) == 0) return -1;
         buf[len] = '\0';
+#ifdef _WIN32
+        assigned = sscanf_s(buf, "%lg", &scannedVal); /* BUGBUG: check if this can be replaced by IF_WIN32 */
+        if( assigned != 0 ) {
+            (*val) = scannedVal;
+            return 0;
+        } else {
+            return -1;
+        }
+#else
         sscanf(buf, "%lg", val);
         return 0;
+#endif
     }
 }
 
@@ -492,10 +515,10 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
             list *list = o->ptr;
-            listIter li;
             listNode *ln;
+            listIter li;
 
-            if ((n = rdbSaveLen(rdb,listLength(list))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)listLength(list))) == -1) return -1;  /* UPSTREAM_ISSUE: missing (uint32_t) cast */
             nwritten += n;
 
             listRewind(list,&li);
@@ -511,10 +534,10 @@ int rdbSaveObject(rio *rdb, robj *o) {
         /* Save a set value */
         if (o->encoding == REDIS_ENCODING_HT) {
             dict *set = o->ptr;
-            dictIterator *di = dictGetIterator(set);
             dictEntry *de;
+            dictIterator *di = dictGetIterator(set);
 
-            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(set))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -540,10 +563,10 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
             dictEntry *de;
+            dictIterator *di = dictGetIterator(zs->dict);
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(zs->dict))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -571,7 +594,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -602,7 +625,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
 off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
     redisAssertWithInfo(NULL,o,len != -1);
-    return len;
+    return (off_t)len;
 }
 
 /* Save a key-value pair, with expire time, type, key, value.
@@ -610,7 +633,7 @@ off_t rdbSavedObjectLen(robj *o) {
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
-                        long long expiretime, long long now)
+                        PORT_LONGLONG expiretime, PORT_LONGLONG now)
 {
     /* Save the expire time */
     if (expiretime != -1) {
@@ -640,7 +663,7 @@ int rdbSaveRio(rio *rdb, int *error) {
     dictEntry *de;
     char magic[10];
     int j;
-    long long now = mstime();
+    PORT_LONGLONG now = mstime();
     uint64_t cksum;
 
     if (server.rdb_checksum)
@@ -663,7 +686,7 @@ int rdbSaveRio(rio *rdb, int *error) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
-            long long expire;
+            PORT_LONGLONG expire;
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
@@ -723,7 +746,11 @@ int rdbSave(char *filename) {
     int error;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
-    fp = fopen(tmpfile,"w");
+#ifdef _WIN32
+        fp = fopen(tmpfile,"wb");
+#else
+        fp = fopen(tmpfile,"w");
+#endif
     if (!fp) {
         redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
             strerror(errno));
@@ -761,9 +788,27 @@ werr:
     return REDIS_ERR;
 }
 
+#ifdef _WIN32
+int rdbSaveBackground(char *filename) {
+    PORT_LONGLONG start;
+    start = ustime();
+    server.dirty_before_bgsave = server.dirty;
+    if (BeginForkOperation_Rdb(filename, &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
+        server.stat_fork_time = ustime()-start;
+        server.rdb_child_type = REDIS_RDB_CHILD_TYPE_DISK;
+        updateDictResizePolicy();
+        return REDIS_OK;
+    } else  {
+        redisLog(REDIS_WARNING,"Can't save in background: fork: %s", strerror(errno));
+        return REDIS_ERR;
+    }
+}
+
+#else
+
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
-    long long start;
+    PORT_LONGLONG start;
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
 
@@ -808,6 +853,7 @@ int rdbSaveBackground(char *filename) {
     }
     return REDIS_OK; /* unreached */
 }
+#endif
 
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
@@ -851,7 +897,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             if (o->encoding == REDIS_ENCODING_ZIPLIST) {
                 dec = getDecodedObject(ele);
-                o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
+                o->ptr = ziplistPush(o->ptr,dec->ptr,(unsigned int)sdslen(dec->ptr),REDIS_TAIL);
                 decrRefCount(dec);
                 decrRefCount(ele);
             } else {
@@ -876,7 +922,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* Load every single element of the list/set */
         for (i = 0; i < len; i++) {
-            long long llval;
+            PORT_LONGLONG llval;
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
 
@@ -958,8 +1004,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             redisAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL);
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
@@ -1082,7 +1128,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
 void startLoading(FILE *fp) {
-    struct stat sb;
+#ifdef _WIN32
+	struct _stat64 sb;
+#else
+	struct stat sb;
+#endif
 
     /* Load the DB */
     server.loading = 1;
@@ -1121,7 +1171,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         updateCachedTime();
         if (server.masterhost && server.repl_state == REDIS_REPL_TRANSFER)
             replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
+        loadingProgress((off_t)r->processed_bytes);
         processEventsWhileBlocked();
     }
 }
@@ -1131,7 +1181,7 @@ int rdbLoad(char *filename) {
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
-    long long expiretime, now = mstime();
+    PORT_LONGLONG expiretime, now = mstime();
     FILE *fp;
     rio rdb;
 
@@ -1307,7 +1357,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
-            readlen = ok_slaves[0]*sizeof(uint64_t)*2;
+            readlen = (int)(ok_slaves[0]*sizeof(uint64_t)*2);                   /* UPSTREAM_ISSUE: missing (int) cast */
 
             /* Make space for enough elements as specified by the first
              * uint64_t element in the array. */
@@ -1342,7 +1392,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
              * and it must have an error code set to 0 (which means success). */
             for (j = 0; j < ok_slaves[0]; j++) {
                 if (slave->id == ok_slaves[2*j+1]) {
-                    errorcode = ok_slaves[2*j+2];
+                    errorcode = (int)(ok_slaves[2*j+2]);                        /* UPSTREAM_ISSUE: missing (int) cast */
                     break; /* Found in slaves list. */
                 }
             }
@@ -1392,7 +1442,7 @@ int rdbSaveToSlavesSockets(void) {
     listNode *ln;
     listIter li;
     pid_t childpid;
-    long long start;
+    PORT_LONGLONG start;
     int pipefds[2];
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
@@ -1431,6 +1481,8 @@ int rdbSaveToSlavesSockets(void) {
 
     /* Create the child process. */
     start = ustime();
+
+#ifndef _WIN32
     if ((childpid = fork()) == 0) {
         /* Child */
         int retval;
@@ -1497,6 +1549,13 @@ int rdbSaveToSlavesSockets(void) {
         zfree(clientids);
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
+#else // #ifndef _WIN32
+    if (!BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
+        redisLog(REDIS_WARNING,"Can't save in background: fork: %s", strerror(errno));
+        return REDIS_ERR;
+    } else {
+        childpid = server.rdb_child_pid;
+#endif
         /* Parent */
         zfree(clientids); /* Not used by parent. Free ASAP. */
         server.stat_fork_time = ustime()-start;

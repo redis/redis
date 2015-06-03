@@ -33,7 +33,17 @@
 #define __HIREDIS_H
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
+#ifndef _WIN32
 #include <sys/time.h> /* for struct timeval */
+#endif
+#ifdef _WIN32
+    #include "..\..\src\win32_Interop\Win32_FDAPI.h"
+    #include <windows.h>
+
+    #ifndef va_copy
+      #define va_copy(d,s) d = (s)
+    #endif
+#endif
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 11
@@ -97,7 +107,7 @@ extern "C" {
 /* This is the reply object returned by redisCommand() */
 typedef struct redisReply {
     int type; /* REDIS_REPLY_* */
-    long long integer; /* The integer when type is REDIS_REPLY_INTEGER */
+    PORT_LONGLONG integer; /* The integer when type is REDIS_REPLY_INTEGER */
     int len; /* Length of string */
     char *str; /* Used for both REDIS_REPLY_ERROR and REDIS_REPLY_STRING */
     size_t elements; /* number of elements, for REDIS_REPLY_ARRAY */
@@ -116,7 +126,7 @@ typedef struct redisReadTask {
 typedef struct redisReplyObjectFunctions {
     void *(*createString)(const redisReadTask*, char*, size_t);
     void *(*createArray)(const redisReadTask*, int);
-    void *(*createInteger)(const redisReadTask*, long long);
+    void *(*createInteger)(const redisReadTask*, PORT_LONGLONG);
     void *(*createNil)(const redisReadTask*);
     void (*freeObject)(void*);
 } redisReplyObjectFunctions;
@@ -186,6 +196,11 @@ void redisFree(redisContext *c);
 int redisFreeKeepFd(redisContext *c);
 int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
+#ifdef _WIN32
+redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *sa);
+int redisBufferReadDone(redisContext *c, char *buf, ssize_t nread);
+int redisBufferWriteDone(redisContext *c, int nwritten, int *done);
+#endif
 
 /* In a blocking context, this function first checks if there are unconsumed
  * replies to return and returns one if so. Otherwise, it flushes the output

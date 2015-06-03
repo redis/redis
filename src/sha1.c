@@ -25,6 +25,9 @@ A million repetitions of "a"
 #include <string.h>
 #include <stdint.h>
 #include "solarisfixes.h"
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#endif
 #include "sha1.h"
 #include "config.h"
 
@@ -38,7 +41,11 @@ A million repetitions of "a"
 #elif BYTE_ORDER == BIG_ENDIAN
 #define blk0(i) block->l[i]
 #else
+#ifdef _WIN32
+#pragma error "Endianness not defined!"
+#else
 #error "Endianness not defined!"
+#endif
 #endif
 #define blk(i) (block->l[i&15] = rol(block->l[(i+13)&15]^block->l[(i+8)&15] \
     ^block->l[(i+2)&15]^block->l[i&15],1))

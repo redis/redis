@@ -27,6 +27,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#endif
 
 #ifndef __ADLIST_H__
 #define __ADLIST_H__
@@ -50,7 +53,7 @@ typedef struct list {
     void *(*dup)(void *ptr);
     void (*free)(void *ptr);
     int (*match)(void *ptr, void *key);
-    unsigned long len;
+    PORT_ULONG len;
 } list;
 
 /* Functions implemented as macros */
@@ -81,7 +84,7 @@ listNode *listNext(listIter *iter);
 void listReleaseIterator(listIter *iter);
 list *listDup(list *orig);
 listNode *listSearchKey(list *list, void *key);
-listNode *listIndex(list *list, long index);
+listNode *listIndex(list *list, PORT_LONG index);
 void listRewind(list *list, listIter *li);
 void listRewindTail(list *list, listIter *li);
 void listRotate(list *list);

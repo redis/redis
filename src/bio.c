@@ -56,10 +56,15 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifdef _WIN32
+#include "win32_Interop\win32_util.h"
+#endif
 
 #include "redis.h"
 #include "bio.h"
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#endif
 
 static pthread_t bio_threads[REDIS_BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[REDIS_BIO_NUM_OPS];
@@ -71,7 +76,7 @@ static list *bio_jobs[REDIS_BIO_NUM_OPS];
  * objects shared with the background thread. The main thread will just wait
  * that there are no longer jobs of this type to be executed before performing
  * the sensible operation. This data is also useful for reporting. */
-static unsigned long long bio_pending[REDIS_BIO_NUM_OPS];
+static PORT_ULONGLONG bio_pending[REDIS_BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
@@ -108,13 +113,13 @@ void bioInit(void) {
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
-    pthread_attr_setstacksize(&attr, stacksize);
+    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
      * responsible of. */
     for (j = 0; j < REDIS_BIO_NUM_OPS; j++) {
-        void *arg = (void*)(unsigned long) j;
+        void *arg = (void*) (PORT_ULONG) j;
         if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
             redisLog(REDIS_WARNING,"Fatal: Can't initialize Background Jobs.");
             exit(1);
@@ -139,13 +144,18 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
-    unsigned long type = (unsigned long) arg;
+    PORT_ULONG type = (PORT_ULONG)arg;
     sigset_t sigset;
 
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
+#ifndef _WIN32
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+#else
+    // if the ptherad support is important, then the current implementation in win32fixes.h 
+    // needs much rework. Cancellability requires a shared event.
+#endif
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -173,9 +183,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == REDIS_BIO_CLOSE_FILE) {
-            close((long)job->arg1);
+            close((PORT_LONG) job->arg1);
         } else if (type == REDIS_BIO_AOF_FSYNC) {
-            aof_fsync((long)job->arg1);
+            aof_fsync((PORT_LONG) job->arg1);
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
@@ -190,8 +200,8 @@ void *bioProcessBackgroundJobs(void *arg) {
 }
 
 /* Return the number of pending jobs of the specified type. */
-unsigned long long bioPendingJobsOfType(int type) {
-    unsigned long long val;
+PORT_ULONGLONG bioPendingJobsOfType(int type) {
+    PORT_ULONGLONG val;
     pthread_mutex_lock(&bio_mutex[type]);
     val = bio_pending[type];
     pthread_mutex_unlock(&bio_mutex[type]);
@@ -203,6 +213,7 @@ unsigned long long bioPendingJobsOfType(int type) {
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
 void bioKillThreads(void) {
+#ifndef _WIN32
     int err, j;
 
     for (j = 0; j < REDIS_BIO_NUM_OPS; j++) {
@@ -217,4 +228,8 @@ void bioKillThreads(void) {
             }
         }
     }
+#else
+    // pthreads routines in win32fixes needs rework for this to work properly. 
+    // utility of this is questionable on windows.
+#endif
 }

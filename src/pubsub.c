@@ -49,8 +49,8 @@ int listMatchPubsubPattern(void *a, void *b) {
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(redisClient *c) {
-    return dictSize(c->pubsub_channels)+
-           listLength(c->pubsub_patterns);
+    return (int)(dictSize(c->pubsub_channels)+
+           listLength(c->pubsub_patterns));
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
@@ -128,8 +128,8 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
     int retval = 0;
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
-        retval = 1;
         pubsubPattern *pat;
+        retval = 1;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));
@@ -254,9 +254,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             pubsubPattern *pat = ln->value;
 
             if (stringmatchlen((char*)pat->pattern->ptr,
-                                sdslen(pat->pattern->ptr),
+                                (int)sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) {
+                                (int)sdslen(channel->ptr),0)) {
                 addReply(pat->client,shared.mbulkhdr[4]);
                 addReply(pat->client,shared.pmessagebulk);
                 addReplyBulk(pat->client,pat->pattern);
@@ -332,7 +332,7 @@ void pubsubCommand(redisClient *c) {
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
         dictIterator *di = dictGetIterator(server.pubsub_channels);
         dictEntry *de;
-        long mblen = 0;
+        PORT_LONG mblen = 0;
         void *replylen;
 
         replylen = addDeferredMultiBulkLength(c);
@@ -340,8 +340,8 @@ void pubsubCommand(redisClient *c) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 
-            if (!pat || stringmatchlen(pat, sdslen(pat),
-                                       channel, sdslen(channel),0))
+            if (!pat || stringmatchlen(pat, (int)sdslen(pat),
+                                       channel, (int)sdslen(channel),0))
             {
                 addReplyBulk(c,cobj);
                 mblen++;

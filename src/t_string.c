@@ -34,7 +34,7 @@
  * String Commands
  *----------------------------------------------------------------------------*/
 
-static int checkStringLength(redisClient *c, long long size) {
+static int checkStringLength(redisClient *c, PORT_LONGLONG size) {
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
         return REDIS_ERR;
@@ -63,7 +63,7 @@ static int checkStringLength(redisClient *c, long long size) {
 #define REDIS_SET_XX (1<<1)     /* Set if key exists. */
 
 void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
-    long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    PORT_LONGLONG milliseconds = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
@@ -171,7 +171,7 @@ void getsetCommand(redisClient *c) {
 
 void setrangeCommand(redisClient *c) {
     robj *o;
-    long offset;
+    PORT_LONG offset;
     sds value = c->argv[3]->ptr;
 
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != REDIS_OK)
@@ -231,7 +231,7 @@ void setrangeCommand(redisClient *c) {
 
 void getrangeCommand(redisClient *c) {
     robj *o;
-    long long start, end;
+    PORT_LONGLONG start, end;
     char *str, llbuf[32];
     size_t strlen;
 
@@ -244,7 +244,7 @@ void getrangeCommand(redisClient *c) {
 
     if (o->encoding == REDIS_ENCODING_INT) {
         str = llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(PORT_LONG)o->ptr);
     } else {
         str = o->ptr;
         strlen = sdslen(str);
@@ -255,7 +255,7 @@ void getrangeCommand(redisClient *c) {
     if (end < 0) end = strlen+end;
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((unsigned long long)end >= strlen) end = strlen-1;
+    if ((PORT_ULONGLONG)end >= strlen) end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
@@ -322,8 +322,8 @@ void msetnxCommand(redisClient *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(redisClient *c, long long incr) {
-    long long value, oldvalue;
+void incrDecrCommand(redisClient *c, PORT_LONGLONG incr) {
+    PORT_LONGLONG value, oldvalue;
     robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
@@ -369,21 +369,21 @@ void decrCommand(redisClient *c) {
 }
 
 void incrbyCommand(redisClient *c) {
-    long long incr;
+    PORT_LONGLONG incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != REDIS_OK) return;
     incrDecrCommand(c,incr);
 }
 
 void decrbyCommand(redisClient *c) {
-    long long incr;
+    PORT_LONGLONG incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != REDIS_OK) return;
     incrDecrCommand(c,-incr);
 }
 
 void incrbyfloatCommand(redisClient *c) {
-    long double incr, value;
+    PORT_LONGDOUBLE incr, value;
     robj *o, *new, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);

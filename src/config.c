@@ -28,12 +28,20 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include "redis.h"
 #include "cluster.h"
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#ifndef _WIN32
 static struct {
     const char     *name;
     const int       value;
@@ -49,6 +57,7 @@ static struct {
     {"local7",  LOG_LOCAL7},
     {NULL, 0}
 };
+#endif
 
 clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_TYPE_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -85,7 +94,7 @@ void loadServerConfigFromString(char *config) {
     int slaveof_linenum = 0;
     sds *lines;
 
-    lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
+    lines = sdssplitlen(config,(int)strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
         sds *argv;
@@ -175,11 +184,31 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid log level. Must be one of debug, notice, warning";
                 goto loaderr;
             }
+#ifdef _WIN32
+            setLogVerbosityLevel(server.verbosity);
+#endif
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
             zfree(server.logfile);
+#ifdef _WIN32
+            int length = (int)sdslen(argv[1]);
+            if ((argv[1][0] == '\''  &&  argv[1][length-1] == '\'')  ||
+                (argv[1][0] == '\"'  &&  argv[1][length-1] == '\"')) {
+                if (length == 2) {
+                    server.logfile = zstrdup("\0");
+                } else {
+                    size_t l = length - 2 + 1;
+                    char *p = zmalloc(l);
+                    memcpy(p, argv[1]+1, l);
+                    server.logfile = p;
+                }
+            } else {
+                server.logfile = zstrdup(argv[1]);
+            }
+#else
             server.logfile = zstrdup(argv[1]);
+#endif
             if (server.logfile[0] != '\0') {
                 /* Test if we are able to open the file. The server will not
                  * be able to abort just for this problem later... */
@@ -188,17 +217,31 @@ void loadServerConfigFromString(char *config) {
                     err = sdscatprintf(sdsempty(),
                         "Can't open the log file: %s", strerror(errno));
                     goto loaderr;
+                } else {
+#ifdef _WIN32
+                    setLogFile( server.logfile );
+#endif
                 }
+
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
             if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+#ifdef _WIN32
+            setSyslogEnabled(server.syslog_enabled);
+#endif
         } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
+#ifdef _WIN32
+            setSyslogIdent(server.syslog_ident);
+#endif
+        } else if (!strcasecmp(argv[0], "syslog-facility") && argc == 2) {
+#ifdef _WIN32
+            // Skip error - just ignore syslog-facility
+#else
             int i;
 
             for (i = 0; validSyslogFacilities[i].name; i++) {
@@ -212,6 +255,7 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
                 goto loaderr;
             }
+#endif
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
@@ -281,7 +325,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
-            long long size = memtoll(argv[1],NULL);
+            PORT_LONGLONG size = memtoll(argv[1],NULL);
             if (size <= 0) {
                 err = "repl-backlog-size must be 1 or greater.";
                 goto loaderr;
@@ -482,12 +526,12 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = strtoll(argv[1],NULL,10);
+            server.slowlog_max_len = (PORT_ULONG)(strtoll(argv[1],NULL,10));
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
             int class = getClientTypeByName(argv[1]);
-            unsigned long long hard, soft;
+            PORT_ULONGLONG hard, soft;
             int soft_seconds;
 
             if (class == -1) {
@@ -540,7 +584,33 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
-        } else {
+#ifdef _WIN32
+		} else if (!strcasecmp(argv[0],"maxheap")) {
+			// ignore. This is taken care of in the qfork code.
+        } else if (!strcasecmp(argv[0], "heapdir")) {
+            // ignore. This is taken care of in the qfork code.
+        } else if (!strcasecmp(argv[0], "service-name")) {
+			// ignore. This is taken care of in the win32_service code.
+        } else if (!strcasecmp(argv[0], "persistence-available")) {
+            if (strcasecmp(argv[1], "no") == 0) {
+                //remove BGSAVE and BGREWRITEAOF when persistence is disabled
+                int retval;
+                sds bgsave;
+                sds bgrewriteaof;
+
+                bgsave = sdsnew("bgsave");
+                bgrewriteaof = sdsnew("bgrewriteaof");
+
+                retval = dictDelete(server.commands, bgsave);
+                redisAssert(retval == DICT_OK);
+                retval = dictDelete(server.commands, bgrewriteaof);
+                redisAssert(retval == DICT_OK);
+
+                sdsfree(bgsave);
+                sdsfree(bgrewriteaof);
+            }
+#endif
+		} else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
@@ -558,10 +628,17 @@ void loadServerConfigFromString(char *config) {
     return;
 
 loaderr:
+#ifdef _WIN32
+    redisLog(REDIS_WARNING, "\n*** FATAL CONFIG FILE ERROR ***\n");
+    redisLog(REDIS_WARNING, "Reading the configuration file, at line %d\n", linenum);
+    redisLog(REDIS_WARNING, ">>> '%s'\n", lines[i]);
+    redisLog(REDIS_WARNING, "%s\n", err);
+#else
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
     fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
     fprintf(stderr, ">>> '%s'\n", lines[i]);
     fprintf(stderr, "%s\n", err);
+#endif
     exit(1);
 }
 
@@ -583,7 +660,7 @@ void loadServerConfig(char *filename, char *options) {
         if (filename[0] == '-' && filename[1] == '\0') {
             fp = stdin;
         } else {
-            if ((fp = fopen(filename,"r")) == NULL) {
+            if ((fp = fopen(filename,IF_WIN32("rb","r"))) == NULL) {
                 redisLog(REDIS_WARNING,
                     "Fatal error, can't open config file '%s'", filename);
                 exit(1);
@@ -608,7 +685,7 @@ void loadServerConfig(char *filename, char *options) {
 
 void configSetCommand(redisClient *c) {
     robj *o;
-    long long ll;
+    PORT_LONGLONG ll;
     int err;
     redisAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     redisAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
@@ -644,7 +721,7 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 1) goto badfmt;
 
         /* Try to check if the OS is capable of supporting so many FDs. */
-        server.maxclients = ll;
+        server.maxclients = (int)ll;
         if (ll > orig_value) {
             adjustOpenFilesLimit();
             if (server.maxclients != ll) {
@@ -666,7 +743,7 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.hz = ll;
+        server.hz = (int)ll;
         if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
         if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
@@ -688,15 +765,15 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-samples")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
-        server.maxmemory_samples = ll;
+        server.maxmemory_samples = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
-            ll < 0 || ll > LONG_MAX) goto badfmt;
-        server.maxidletime = ll;
+            ll < 0 || ll > PORT_LONG_MAX) goto badfmt;
+        server.maxidletime = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > INT_MAX) goto badfmt;
-        server.tcpkeepalive = ll;
+        server.tcpkeepalive = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
@@ -727,7 +804,7 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.aof_rewrite_perc = ll;
+        server.aof_rewrite_perc = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.aof_rewrite_min_size = ll;
@@ -743,7 +820,7 @@ void configSetCommand(redisClient *c) {
         server.aof_load_truncated = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen(o->ptr,(int)sdslen(o->ptr)," ",1,&vlen);
 
         /* Perform sanity check before setting the new config:
          * - Even number of args
@@ -754,9 +831,9 @@ void configSetCommand(redisClient *c) {
         }
         for (j = 0; j < vlen; j++) {
             char *eptr;
-            long val;
+            PORT_LONG val;
 
-            val = strtoll(v[j], &eptr, 10);
+            val = (PORT_LONG) strtoll(v[j], &eptr, 10);
             if (eptr[0] != '\0' ||
                 ((j & 1) == 0 && val < 1) ||
                 ((j & 1) == 1 && val < 0)) {
@@ -771,7 +848,7 @@ void configSetCommand(redisClient *c) {
             int changes;
 
             seconds = strtoll(v[j],NULL,10);
-            changes = strtoll(v[j+1],NULL,10);
+            changes = (int)strtoll(v[j+1],NULL,10);
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
@@ -843,9 +920,12 @@ void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+#ifdef _WIN32
+        setLogVerbosityLevel(server.verbosity);
+#endif
     } else if (!strcasecmp(c->argv[2]->ptr,"client-output-buffer-limit")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen(o->ptr,(int)sdslen(o->ptr)," ",1,&vlen);
 
         /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
         if (vlen % 4) {
@@ -857,7 +937,7 @@ void configSetCommand(redisClient *c) {
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
         for (j = 0; j < vlen; j++) {
-            long val;
+            PORT_LONG val;
 
             if ((j % 4) == 0) {
                 if (getClientTypeByName(v[j]) == -1) {
@@ -875,13 +955,13 @@ void configSetCommand(redisClient *c) {
         /* Finally set the new config */
         for (j = 0; j < vlen; j += 4) {
             int class;
-            unsigned long long hard, soft;
+            PORT_ULONGLONG hard, soft;
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
             hard = strtoll(v[j+1],NULL,10);
             soft = strtoll(v[j+2],NULL,10);
-            soft_seconds = strtoll(v[j+3],NULL,10);
+            soft_seconds = (int)strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;
@@ -895,10 +975,10 @@ void configSetCommand(redisClient *c) {
         server.stop_writes_on_bgsave_err = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-ping-slave-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
-        server.repl_ping_slave_period = ll;
+        server.repl_ping_slave_period = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
-        server.repl_timeout = ll;
+        server.repl_timeout = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-size")) {
         ll = memtoll(o->ptr,&err);
         if (err || ll < 0) goto badfmt;
@@ -909,7 +989,7 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
-            enableWatchdog(ll);
+            enableWatchdog((int)ll);
         else
             disableWatchdog();
     } else if (!strcasecmp(c->argv[2]->ptr,"rdbcompression")) {
@@ -935,20 +1015,20 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-diskless-sync-delay")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.repl_diskless_sync_delay = ll;
+        server.repl_diskless_sync_delay = (int)ll;                              /* UPSTREAM_ISSUE: missing (int) cast */
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.slave_priority = ll;
+        server.slave_priority = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.repl_min_slaves_to_write = ll;
+        server.repl_min_slaves_to_write = (int)ll;
         refreshGoodSlavesCount();
     } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-max-lag")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.repl_min_slaves_max_lag = ll;
+        server.repl_min_slaves_max_lag = (int)ll;
         refreshGoodSlavesCount();
     } else if (!strcasecmp(c->argv[2]->ptr,"cluster-require-full-coverage")) {
         int yn = yesnotoi(o->ptr);
@@ -1185,7 +1265,7 @@ void configGetCommand(redisClient *c) {
                     getClientTypeName(j),
                     server.client_obuf_limits[j].hard_limit_bytes,
                     server.client_obuf_limits[j].soft_limit_bytes,
-                    (long) server.client_obuf_limits[j].soft_limit_seconds);
+                    (PORT_LONG) server.client_obuf_limits[j].soft_limit_seconds);
             if (j != REDIS_CLIENT_TYPE_COUNT-1)
                 buf = sdscatlen(buf," ",1);
         }
@@ -1293,7 +1373,7 @@ void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds op
         l = listCreate();
         dictAdd(state->option_to_line,sdsdup(option),l);
     }
-    listAddNodeTail(l,(void*)(long)linenum);
+    listAddNodeTail(l, (void*) (PORT_LONG) linenum);
 }
 
 /* Add the specified option to the set of processed options.
@@ -1399,7 +1479,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sd
 
     if (l) {
         listNode *ln = listFirst(l);
-        int linenum = (long) ln->value;
+        int linenum = (PORT_LONG) ln->value;
 
         /* There are still lines in the old configuration file we can reuse
          * for this option. Replace the line with the new one. */
@@ -1419,9 +1499,9 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sd
     sdsfree(o);
 }
 
-/* Write the long long 'bytes' value as a string in a way that is parsable
+/* Write the PORT_LONGLONG 'bytes' value as a string in a way that is parsable
  * inside redis.conf. If possible uses the GB, MB, KB notation. */
-int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes) {
+int rewriteConfigFormatMemory(char *buf, size_t len, PORT_LONGLONG bytes) {
     int gb = 1024*1024*1024;
     int mb = 1024*1024;
     int kb = 1024;
@@ -1438,7 +1518,7 @@ int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes) {
 }
 
 /* Rewrite a simple "option-name <bytes>" configuration option. */
-void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, PORT_LONGLONG value, PORT_LONGLONG defvalue) {
     char buf[64];
     int force = value != defvalue;
     sds line;
@@ -1479,8 +1559,8 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, c
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
-/* Rewrite a numerical (long long range) option. */
-void rewriteConfigNumericalOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+/* Rewrite a numerical (PORT_LONGLONG range) option. */
+void rewriteConfigNumericalOption(struct rewriteConfigState *state, char *option, PORT_LONGLONG value, PORT_LONGLONG defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %lld",option,value);
 
@@ -1521,6 +1601,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+#ifndef _WIN32
 /* Rewrite the syslog-facility option. */
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
@@ -1537,6 +1618,7 @@ void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     line = sdscatprintf(sdsempty(),"%s %s",option,name);
     rewriteConfigRewriteLine(state,option,line,force);
 }
+#endif
 
 /* Rewrite the save option. */
 void rewriteConfigSaveOption(struct rewriteConfigState *state) {
@@ -1548,7 +1630,7 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
      * resulting into no RDB persistence as expected. */
     for (j = 0; j < server.saveparamslen; j++) {
         line = sdscatprintf(sdsempty(),"save %ld %d",
-            (long) server.saveparams[j].seconds, server.saveparams[j].changes);
+            (PORT_LONG) server.saveparams[j].seconds, server.saveparams[j].changes);
         rewriteConfigRewriteLine(state,"save",line,1);
     }
     /* Mark "save" as processed in case server.saveparamslen is zero. */
@@ -1619,7 +1701,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
 
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
                 option, getClientTypeName(j), hard, soft,
-                (long) server.client_obuf_limits[j].soft_limit_seconds);
+                (PORT_LONG) server.client_obuf_limits[j].soft_limit_seconds);
         rewriteConfigRewriteLine(state,option,line,force);
     }
 }
@@ -1699,7 +1781,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
         while(listLength(l)) {
             listNode *ln = listFirst(l);
-            int linenum = (long) ln->value;
+            int linenum = (PORT_LONG) ln->value;
 
             sdsfree(state->lines[linenum]);
             state->lines[linenum] = sdsempty();
@@ -1724,14 +1806,18 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 int rewriteConfigOverwriteFile(char *configfile, sds content) {
     int retval = 0;
     int fd = open(configfile,O_RDWR|O_CREAT,0644);
-    int content_size = sdslen(content), padding = 0;
-    struct stat sb;
+    int content_size = (int)sdslen(content), padding = 0;
+#ifdef _WIN32
+	struct _stat64 sb;  //BUGBUG: won't work on Win32
+#else
+	struct stat sb;
+#endif
     sds content_padded;
 
     /* 1) Open the old file (or create a new one if it does not
      *    exist), get the size. */
     if (fd == -1) return -1; /* errno set by open(). */
-    if (fstat(fd,&sb) == -1) {
+	if (fstat(fd,&sb) == -1) {
         close(fd);
         return -1; /* errno set by fstat(). */
     }
@@ -1741,7 +1827,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     if (content_size < sb.st_size) {
         /* If the old file was bigger, pad the content with
          * a newline plus as many "#" chars as required. */
-        padding = sb.st_size - content_size;
+        padding = (int)(sb.st_size - content_size);
         content_padded = sdsgrowzero(content_padded,sb.st_size);
         content_padded[content_size] = '\n';
         memset(content_padded+content_size+1,'#',padding-1);
@@ -1803,7 +1889,9 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"logfile",server.logfile,REDIS_DEFAULT_LOGFILE);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,REDIS_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,REDIS_DEFAULT_SYSLOG_IDENT);
+#ifndef _WIN32
     rewriteConfigSyslogfacilityOption(state);
+#endif
     rewriteConfigSaveOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,REDIS_DEFAULT_DBNUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);

@@ -136,7 +136,7 @@ static int gettoalign (size_t len, Header *h, int opt, size_t size) {
   if (size == 0 || opt == 'c') return 0;
   if (size > (size_t)h->align)
     size = h->align;  /* respect max. alignment */
-  return (size - (len & (size - 1))) & (size - 1);
+  return (int)((size - (len & (size - 1))) & (size - 1));
 }
 
 
@@ -221,7 +221,7 @@ static int b_pack (lua_State *L) {
     switch (opt) {
       case 'b': case 'B': case 'h': case 'H':
       case 'l': case 'L': case 'T': case 'i': case 'I': {  /* integer types */
-        putinteger(L, &b, arg++, h.endian, size);
+        putinteger(L, &b, arg++, h.endian, (int)size);
         break;
       }
       case 'x': {
@@ -230,13 +230,13 @@ static int b_pack (lua_State *L) {
       }
       case 'f': {
         float f = (float)luaL_checknumber(L, arg++);
-        correctbytes((char *)&f, size, h.endian);
+        correctbytes((char *)&f, (int)size, h.endian);
         luaL_addlstring(&b, (char *)&f, size);
         break;
       }
       case 'd': {
         double d = luaL_checknumber(L, arg++);
-        correctbytes((char *)&d, size, h.endian);
+        correctbytes((char *)&d, (int)size, h.endian);
         luaL_addlstring(&b, (char *)&d, size);
         break;
       }
@@ -306,7 +306,7 @@ static int b_unpack (lua_State *L) {
       case 'b': case 'B': case 'h': case 'H':
       case 'l': case 'L': case 'T': case 'i':  case 'I': {  /* integer types */
         int issigned = islower(opt);
-        lua_Number res = getinteger(data+pos, h.endian, issigned, size);
+        lua_Number res = getinteger(data+pos, h.endian, issigned, (int)size);
         lua_pushnumber(L, res);
         break;
       }

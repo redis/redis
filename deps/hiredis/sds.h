@@ -33,8 +33,15 @@
 
 #define SDS_MAX_PREALLOC (1024*1024)
 
+#ifdef _WIN32
+#include "../../src/win32_Interop/win32_types.h"
+#endif
 #include <sys/types.h>
 #include <stdarg.h>
+
+#ifdef _WIN32
+  #define inline __inline
+#endif
 
 typedef char *sds;
 
@@ -45,12 +52,12 @@ struct sdshdr {
 };
 
 static inline size_t sdslen(const sds s) {
-    struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+    struct sdshdr *sh = (struct sdshdr *)(s-(sizeof(struct sdshdr)));
     return sh->len;
 }
 
 static inline size_t sdsavail(const sds s) {
-    struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+    struct sdshdr *sh = (struct sdshdr *)(s-(sizeof(struct sdshdr)));
     return sh->free;
 }
 
@@ -86,7 +93,7 @@ sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count
 void sdsfreesplitres(sds *tokens, int count);
 void sdstolower(sds s);
 void sdstoupper(sds s);
-sds sdsfromlonglong(long long value);
+sds sdsfromlonglong(PORT_LONGLONG value);
 sds sdscatrepr(sds s, const char *p, size_t len);
 sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);

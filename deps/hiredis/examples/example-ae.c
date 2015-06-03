@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#include "..\..\src\Win32_Interop\win32fixes.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,7 +9,7 @@
 
 #include <hiredis.h>
 #include <async.h>
-#include <adapters/ae.h>
+#include <adapters\ae.h>
 
 /* Put event loop in the global scope, so it can be explicitly stopped */
 static aeEventLoop *loop;
@@ -37,11 +41,17 @@ void disconnectCallback(const redisAsyncContext *c, int status) {
     }
 
     printf("Disconnected...\n");
-    aeStop(loop);
 }
 
 int main (int argc, char **argv) {
-    signal(SIGPIPE, SIG_IGN);
+#ifndef _WIN32
+	signal(SIGPIPE, SIG_IGN);
+#endif
+
+#ifdef _WIN32
+	/* For Win32_IOCP the event loop must be created before the async connect */
+	loop = aeCreateEventLoop(1024 * 10);
+#endif
 
     redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
     if (c->err) {
@@ -50,7 +60,9 @@ int main (int argc, char **argv) {
         return 1;
     }
 
+#ifndef _WIN32
     loop = aeCreateEventLoop(64);
+#endif
     redisAeAttach(loop, c);
     redisAsyncSetConnectCallback(c,connectCallback);
     redisAsyncSetDisconnectCallback(c,disconnectCallback);

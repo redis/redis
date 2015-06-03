@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>redis-64</id>
+    <title>redis-64</title>
+    <version>CurrentRedisVersion</version>
+    <authors>Jonathan Pickett</authors>
+    <owners>Microsoft Open Technologies, Inc.</owners>
+    <summary>Redis is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.</summary>
+    <description>A production-ready Windows port of Redis, including 64-bit support, Chocolatey support, and much more.</description>
+    <projectUrl>https://msopentech.com/opentech-projects/redis/</projectUrl>
+    <tags>Redis nosql cache</tags>
+    <copyright>Copyright Microsoft Open Technologies, Inc.</copyright>
+    <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8/license.txt</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <iconUrl>http://redis.io/images/redis.png</iconUrl>
+    <releaseNotes>Includes the changes from Redis 2.8.12 -> CurrentRedisVersion. Please see the release notes for the UNIX 2.8 branch to understand how this impacts Redis functionality.</releaseNotes>
+  </metadata>
+  <files>
+    <file src="..\signed_binaries\*.*" target=".\" />
+    <file src="..\documentation\*.*" target=".\" />
+  </files>
+</package>

@@ -31,11 +31,18 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <unistd.h>
+#ifndef _WIN32
+  #include <sys/time.h>
+  #include <unistd.h> 
+  #include <poll.h>
+#else
+  #include <sys/types.h> 
+  #include <sys/timeb.h>
+  #include "..\..\src\win32_Interop\Win32_FDAPI.h"
+#include "..\..\src\win32_Interop\Win32_Service.h"
+#endif
 #include <stdlib.h>
-#include <poll.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -46,6 +53,9 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+#ifdef WIN32_IOCP
+#include "ae_wsiocp.c"
+#else
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -58,6 +68,7 @@
         #include "ae_select.c"
         #endif
     #endif
+#endif
 #endif
 
 aeEventLoop *aeCreateEventLoop(int setsize) {
@@ -135,11 +146,14 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    aeFileEvent *fe;
+
+
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -154,8 +168,9 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return;
 
     aeApiDelEvent(eventLoop, fd, mask);
@@ -171,26 +186,36 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return 0;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     return fe->mask;
 }
 
-static void aeGetTime(long *seconds, long *milliseconds)
+static void aeGetTime(PORT_LONG *seconds, PORT_LONG *milliseconds)
 {
+#ifdef _WIN32
+    struct _timeb tb;
+
+    memset(&tb, 0, sizeof(struct _timeb));
+    _ftime_s(&tb);
+    (*seconds) = tb.time;
+    (*milliseconds) = tb.millitm;
+#else
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
+#endif
 }
 
-static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
-    long cur_sec, cur_ms, when_sec, when_ms;
+static void aeAddMillisecondsToNow(PORT_LONGLONG milliseconds, PORT_LONG *sec, PORT_LONG *ms) {
+    PORT_LONG cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
+    when_sec = (PORT_LONG) (cur_sec + milliseconds / 1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -200,11 +225,11 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
-long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
+PORT_LONGLONG aeCreateTimeEvent(aeEventLoop *eventLoop, PORT_LONGLONG milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
 {
-    long long id = eventLoop->timeEventNextId++;
+    PORT_LONGLONG id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
     te = zmalloc(sizeof(*te));
@@ -219,7 +244,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     return id;
 }
 
-int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
+int aeDeleteTimeEvent(aeEventLoop *eventLoop, PORT_LONGLONG id)
 {
     aeTimeEvent *te, *prev = NULL;
 
@@ -271,7 +296,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
-    long long maxId;
+    PORT_LONGLONG maxId;
     time_t now = time(NULL);
 
     /* If the system clock is moved to the future, and then set back to the
@@ -294,8 +319,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
-        long now_sec, now_ms;
-        long long id;
+        PORT_LONG now_sec, now_ms;
+        PORT_LONGLONG id;
 
         if (te->id > maxId) {
             te = te->next;
@@ -353,6 +378,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
+#ifdef _WIN32	
+	if (ServiceStopIssued() == TRUE)
+		aeStop(eventLoop);
+#endif
+
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
@@ -369,7 +399,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
             shortest = aeSearchNearestTimer(eventLoop);
         if (shortest) {
-            long now_sec, now_ms;
+            PORT_LONG now_sec, now_ms;
 
             /* Calculate the time missing for the nearest
              * timer to fire. */
@@ -399,10 +429,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            aeFileEvent *fe;
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
+
+            fe = &eventLoop->events[eventLoop->fired[j].fd];
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
@@ -427,7 +459,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
-int aeWait(int fd, int mask, long long milliseconds) {
+int aeWait(int fd, int mask, PORT_LONGLONG milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
 
@@ -436,7 +468,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
+    if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;

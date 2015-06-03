@@ -50,6 +50,7 @@ proc start_server_and_kill_it {overrides code} {
     kill_server $srv
 }
 
+if { $::tcl_platform(platform) != "windows" } {
 # Make the RDB file unreadable
 file attributes [file join $server_path dump.rdb] -permissions 0222
 
@@ -95,4 +96,5 @@ start_server_and_kill_it [list "dir" $server_path] {
             fail "Server started even if RDB was corrupted!"
         }
     }
+}
 }

@@ -42,7 +42,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
 }
 
 unsigned int dictStringHash(const void *key) {
-    return dictGenHashFunction(key, strlen(key));
+    return dictGenHashFunction(key, (int)strlen(key));                          /* UPSTREAM_ISSUE: missing (int) cast */
 }
 
 void dictVanillaFree(void *privdata, void *val);
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:");              /* UPSTREAM_ISSUE: missing (int) cast */
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -114,13 +114,13 @@ void latencyAddSample(char *event, mstime_t latency) {
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)
-            ts->samples[prev].latency = latency;
+            ts->samples[prev].latency = (int32_t)latency;
         return;
     }
 
-    ts->samples[ts->idx].time = time(NULL);
-    ts->samples[ts->idx].latency = latency;
-    if (latency > ts->max) ts->max = latency;
+    ts->samples[ts->idx].time = (int32_t)time(NULL);
+    ts->samples[ts->idx].latency = (int32_t)latency;
+    if (latency > ts->max) ts->max = (int32_t)latency;
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
@@ -194,7 +194,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
      * the oldest event time. We need to make the first an average and
      * the second a range of seconds. */
     if (ls->samples) {
-        ls->avg = sum / ls->samples;
+        ls->avg = (int32_t)(sum / ls->samples);
         ls->period = time(NULL) - ls->period;
         if (ls->period == 0) ls->period = 1;
     }
@@ -209,7 +209,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
         if (delta < 0) delta = -delta;
         sum += delta;
     }
-    if (ls->samples) ls->mad = sum / ls->samples;
+    if (ls->samples) ls->mad = (int32_t)(sum / ls->samples);
 }
 
 /* Create a human readable report of latency events for this Redis instance. */
@@ -265,10 +265,10 @@ sds createLatencyReport(void) {
             "%d. %s: %d latency spikes (average %lums, mean deviation %lums, period %.2f sec). Worst all time event %lums.",
             eventnum, event,
             ls.samples,
-            (unsigned long) ls.avg,
-            (unsigned long) ls.mad,
+            (PORT_ULONG) ls.avg,
+            (PORT_ULONG) ls.mad,
             (double) ls.period/ls.samples,
-            (unsigned long) ts->max);
+            (PORT_ULONG) ts->max);
 
         /* Fork */
         if (!strcasecmp(event,"fork")) {
@@ -400,11 +400,11 @@ sds createLatencyReport(void) {
 
         /* Slow log. */
         if (advise_slowlog_enabled) {
-            report = sdscatprintf(report,"- There are latency issues with potentially slow commands you are using. Try to enable the Slow Log Redis feature using the command 'CONFIG SET slowlog-log-slower-than %llu'. If the Slow log is disabled Redis is not able to log slow commands execution for you.\n", (unsigned long long)server.latency_monitor_threshold*1000);
+            report = sdscatprintf(report,"- There are latency issues with potentially slow commands you are using. Try to enable the Slow Log Redis feature using the command 'CONFIG SET slowlog-log-slower-than %llu'. If the Slow log is disabled Redis is not able to log slow commands execution for you.\n", (PORT_ULONGLONG)server.latency_monitor_threshold*1000);
         }
 
         if (advise_slowlog_tuning) {
-            report = sdscatprintf(report,"- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (unsigned long long)server.latency_monitor_threshold*1000);
+            report = sdscatprintf(report,"- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (PORT_ULONGLONG)server.latency_monitor_threshold*1000);
         }
 
         if (advise_slowlog_inspect) {
@@ -534,7 +534,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
         }
         /* Use as label the number of seconds / minutes / hours / days
          * ago the event happened. */
-        elapsed = time(NULL) - ts->samples[i].time;
+        elapsed = (int)(time(NULL) - ts->samples[i].time);
         if (elapsed < 60)
             snprintf(buf,sizeof(buf),"%ds",elapsed);
         else if (elapsed < 3600)
@@ -547,8 +547,8 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     }
 
     graph = sdscatprintf(graph,
-        "%s - high %lu ms, low %lu ms (all time high %lu ms)\n", event,
-        (unsigned long) max, (unsigned long) min, (unsigned long) ts->max);
+        "%s - high %Iu ms, low %Iu ms (all time high %Iu ms)\n", event,         /* PORTABILITY FIX %ld -> %Id, %lu -> %Iu */
+        (PORT_ULONG) max, (PORT_ULONG) min, (PORT_ULONG) ts->max);
     for (j = 0; j < LATENCY_GRAPH_COLS; j++)
         graph = sdscatlen(graph,"-",1);
     graph = sdscatlen(graph,"\n",1);
