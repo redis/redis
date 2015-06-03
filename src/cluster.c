@@ -375,6 +375,7 @@ int clusterLockConfig(char *filename) {
         return REDIS_ERR;
     }
     
+    /* TODO-3.0: add redis_flock_impl 
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
             redisLog(REDIS_WARNING,
@@ -388,7 +389,7 @@ int clusterLockConfig(char *filename) {
         }
         close(fd);
         return REDIS_ERR;
-    }
+    } */
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
      * lock to the file as long as the process exists. */
     return REDIS_OK;
@@ -1242,6 +1243,7 @@ int clusterStartHandshake(char *ip, int port) {
     struct sockaddr_storage sa;
 
     /* IP sanity check */
+    /* TODO-3.0: inet_pton
     if (inet_pton(AF_INET,ip,
             &(((struct sockaddr_in *)&sa)->sin_addr)))
     {
@@ -1253,7 +1255,7 @@ int clusterStartHandshake(char *ip, int port) {
     } else {
         errno = EINVAL;
         return 0;
-    }
+    }*/
 
     /* Port sanity check */
     if (port <= 0 || port > (65535-REDIS_CLUSTER_PORT_INCR)) {
