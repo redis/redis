@@ -74,7 +74,7 @@
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
 int getTimeoutFromObjectOrReply(redisClient *c, robj *object, mstime_t *timeout, int unit) {
-    long long tval;
+    PORT_LONGLONG tval;
 
     if (getLongLongFromObjectOrReply(c,object,&tval,
         "timeout is not an integer or out of range") != REDIS_OK)

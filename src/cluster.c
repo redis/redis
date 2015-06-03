@@ -33,13 +33,19 @@
 #include "endianconv.h"
 
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#endif
 #include <fcntl.h>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/socket.h>
+#endif
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/file.h>
+#endif
 #include <math.h>
 
 /* A global reference to myself is handy to make code more clear.
@@ -306,8 +312,8 @@ int clusterSaveConfig(int do_fsync) {
      * save currentEpoch and lastVoteEpoch. */
     ci = clusterGenNodesDescription(REDIS_NODE_HANDSHAKE);
     ci = sdscatprintf(ci,"vars currentEpoch %llu lastVoteEpoch %llu\n",
-        (unsigned long long) server.cluster->currentEpoch,
-        (unsigned long long) server.cluster->lastVoteEpoch);
+        (PORT_ULONGLONG) server.cluster->currentEpoch,
+        (PORT_ULONGLONG) server.cluster->lastVoteEpoch);
     content_size = sdslen(ci);
 
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
@@ -368,7 +374,7 @@ int clusterLockConfig(char *filename) {
             filename, strerror(errno));
         return REDIS_ERR;
     }
-
+    
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
             redisLog(REDIS_WARNING,
@@ -975,7 +981,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
                              CLUSTER_TODO_FSYNC_CONFIG);
         redisLog(REDIS_WARNING,
             "New configEpoch set to %llu",
-            (unsigned long long) myself->configEpoch);
+            (PORT_ULONGLONG) myself->configEpoch);
         return REDIS_OK;
     } else {
         return REDIS_ERR;
@@ -1042,7 +1048,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
         "WARNING: configEpoch collision with node %.40s."
         " configEpoch set to %llu",
         sender->name,
-        (unsigned long long) myself->configEpoch);
+        (PORT_ULONGLONG) myself->configEpoch);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1536,7 +1542,7 @@ int clusterProcessPacket(clusterLink *link) {
 
     server.cluster->stats_bus_messages_received++;
     redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %lu bytes",
-        type, (unsigned long) totlen);
+        type, (PORT_ULONG) totlen);
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
@@ -2467,8 +2473,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         redisLog(REDIS_WARNING,
             "Failover auth denied to %.40s: reqEpoch (%llu) < curEpoch(%llu)",
             node->name,
-            (unsigned long long) requestCurrentEpoch,
-            (unsigned long long) server.cluster->currentEpoch);
+            (PORT_ULONGLONG) requestCurrentEpoch,
+            (PORT_ULONGLONG) server.cluster->currentEpoch);
         return;
     }
 
@@ -2477,7 +2483,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         redisLog(REDIS_WARNING,
                 "Failover auth denied to %.40s: already voted for epoch %llu",
                 node->name,
-                (unsigned long long) server.cluster->currentEpoch);
+                (PORT_ULONGLONG) server.cluster->currentEpoch);
         return;
     }
 
@@ -2512,7 +2518,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
                 "Failover auth denied to %.40s: "
                 "can't vote about this master before %lld milliseconds",
                 node->name,
-                (long long) ((server.cluster_node_timeout*2)-
+                (PORT_LONGLONG) ((server.cluster_node_timeout*2)-
                              (mstime() - node->slaveof->voted_time)));
         return;
     }
@@ -2534,8 +2540,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
                 "Failover auth denied to %.40s: "
                 "slot %d epoch (%llu) > reqEpoch (%llu)",
                 node->name, j,
-                (unsigned long long) server.cluster->slots[j]->configEpoch,
-                (unsigned long long) requestConfigEpoch);
+                (PORT_ULONGLONG) server.cluster->slots[j]->configEpoch,
+                (PORT_ULONGLONG) requestConfigEpoch);
         return;
     }
 
@@ -2544,7 +2550,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = mstime();
     redisLog(REDIS_WARNING, "Failover auth granted to %.40s for epoch %llu",
-        node->name, (unsigned long long) server.cluster->currentEpoch);
+        node->name, (PORT_ULONGLONG) server.cluster->currentEpoch);
 }
 
 /* This function returns the "rank" of this instance, a slave, in the context
@@ -2560,7 +2566,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
  * get voted and replace a failing master. Slaves with better replication
  * offsets are more likely to win. */
 int clusterGetSlaveRank(void) {
-    long long myoffset;
+    PORT_LONGLONG myoffset;
     int j, rank = 0;
     clusterNode *master;
 
@@ -2790,7 +2796,7 @@ void clusterHandleSlaveFailover(void) {
     {
         int newrank = clusterGetSlaveRank();
         if (newrank > server.cluster->failover_auth_rank) {
-            long long added_delay =
+            PORT_LONGLONG added_delay =
                 (newrank - server.cluster->failover_auth_rank) * 1000;
             server.cluster->failover_auth_time += added_delay;
             server.cluster->failover_auth_rank = newrank;
@@ -2817,7 +2823,7 @@ void clusterHandleSlaveFailover(void) {
         server.cluster->currentEpoch++;
         server.cluster->failover_auth_epoch = server.cluster->currentEpoch;
         redisLog(REDIS_WARNING,"Starting a failover election for epoch %llu.",
-            (unsigned long long) server.cluster->currentEpoch);
+            (PORT_ULONGLONG) server.cluster->currentEpoch);
         clusterRequestFailoverAuth();
         server.cluster->failover_auth_sent = 1;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -2838,7 +2844,7 @@ void clusterHandleSlaveFailover(void) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
             redisLog(REDIS_WARNING,
                 "configEpoch set to %llu after successful failover",
-                (unsigned long long) myself->configEpoch);
+                (PORT_ULONGLONG) myself->configEpoch);
         }
 
         /* Take responsability for the cluster slots. */
@@ -3029,7 +3035,7 @@ void clusterCron(void) {
     int this_slaves; /* Number of ok slaves for our master (if we are slave). */
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
-    static unsigned long long iteration = 0;
+    static PORT_ULONGLONG iteration = 0;
     mstime_t handshake_timeout;
 
     iteration++; /* Number of times this function was called so far. */
@@ -3637,9 +3643,9 @@ sds clusterGenNodeDescription(clusterNode *node) {
 
     /* Latency from the POV of this node, config epoch, link status */
     ci = sdscatprintf(ci,"%lld %lld %llu %s",
-        (long long) node->ping_sent,
-        (long long) node->pong_received,
-        (unsigned long long) node->configEpoch,
+        (PORT_LONGLONG) node->ping_sent,
+        (PORT_LONGLONG) node->pong_received,
+        (PORT_ULONGLONG) node->configEpoch,
         (node->link || node->flags & REDIS_NODE_MYSELF) ?
                     "connected" : "disconnected");
 
@@ -3716,7 +3722,7 @@ sds clusterGenNodesDescription(int filter) {
  * -------------------------------------------------------------------------- */
 
 int getSlotOrReply(redisClient *c, robj *o) {
-    long long slot;
+    PORT_LONGLONG slot;
 
     if (getLongLongFromObject(o,&slot) != REDIS_OK ||
         slot < 0 || slot >= REDIS_CLUSTER_SLOTS)
@@ -3804,7 +3810,7 @@ void clusterCommand(redisClient *c) {
     }
 
     if (!strcasecmp(c->argv[1]->ptr,"meet") && c->argc == 4) {
-        long long port;
+        PORT_LONGLONG port;
 
         if (getLongLongFromObject(c->argv[3], &port) != REDIS_OK) {
             addReplyErrorFormat(c,"Invalid TCP port specified: %s",
@@ -4028,13 +4034,13 @@ void clusterCommand(redisClient *c) {
             slots_fail,
             dictSize(server.cluster->nodes),
             server.cluster->size,
-            (unsigned long long) server.cluster->currentEpoch,
-            (unsigned long long) myepoch,
+            (PORT_ULONGLONG) server.cluster->currentEpoch,
+            (PORT_ULONGLONG) myepoch,
             server.cluster->stats_bus_messages_sent,
             server.cluster->stats_bus_messages_received
         );
         addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
-            (unsigned long)sdslen(info)));
+            (PORT_ULONG)sdslen(info)));
         addReplySds(c,info);
         addReply(c,shared.crlf);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
@@ -4052,7 +4058,7 @@ void clusterCommand(redisClient *c) {
         addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
     } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
-        long long slot;
+        PORT_LONGLONG slot;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&slot,NULL) != REDIS_OK)
             return;
@@ -4063,7 +4069,7 @@ void clusterCommand(redisClient *c) {
         addReplyLongLong(c,countKeysInSlot(slot));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
-        long long maxkeys, slot;
+        PORT_LONGLONG maxkeys, slot;
         unsigned int numkeys, j;
         robj **keys;
 
@@ -4236,7 +4242,7 @@ void clusterCommand(redisClient *c) {
          * This happens at cluster creation time to start with a cluster where
          * every node has a different node ID, without to rely on the conflicts
          * resolution system which is too slow when a big cluster is created. */
-        long long epoch;
+        PORT_LONGLONG epoch;
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&epoch,NULL) != REDIS_OK)
             return;
@@ -4252,7 +4258,7 @@ void clusterCommand(redisClient *c) {
             myself->configEpoch = epoch;
             redisLog(REDIS_WARNING,
                 "configEpoch set to %llu via CLUSTER SET-CONFIG-EPOCH",
-                (unsigned long long) myself->configEpoch);
+                (PORT_ULONGLONG) myself->configEpoch);
 
             if (server.cluster->currentEpoch < (uint64_t)epoch)
                 server.cluster->currentEpoch = epoch;
@@ -4378,7 +4384,7 @@ void dumpCommand(redisClient *c) {
 
 /* RESTORE key ttl serialized-value [REPLACE] */
 void restoreCommand(redisClient *c) {
-    long long ttl;
+    PORT_LONGLONG ttl;
     rio payload;
     int j, type, replace = 0;
     robj *obj;
@@ -4444,7 +4450,7 @@ void restoreCommand(redisClient *c) {
 
 typedef struct migrateCachedSocket {
     int fd;
-    long last_dbid;
+    PORT_LONG last_dbid;
     time_t last_use_time;
 } migrateCachedSocket;
 
@@ -4459,7 +4465,7 @@ typedef struct migrateCachedSocket {
  * If the caller detects an error while using the socket, migrateCloseSocket()
  * should be called so that the connection will be created from scratch
  * the next time. */
-migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
+migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, PORT_LONG timeout) {
     int fd;
     sds name = sdsempty();
     migrateCachedSocket *cs;
@@ -4554,9 +4560,9 @@ void migrateCloseTimedoutSockets(void) {
 void migrateCommand(redisClient *c) {
     migrateCachedSocket *cs;
     int copy, replace, j;
-    long timeout;
-    long dbid;
-    long long ttl, expireat;
+    PORT_LONG timeout;
+    PORT_LONG dbid;
+    PORT_LONGLONG ttl, expireat;
     robj *o;
     rio cmd, payload;
     int retry_num = 0;

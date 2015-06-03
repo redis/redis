@@ -188,7 +188,10 @@
     <ClCompile Include="..\src\aof.c" />
     <ClCompile Include="..\src\bio.c" />
     <ClCompile Include="..\src\bitops.c" />
+    <ClCompile Include="..\src\blocked.c" />
+    <ClCompile Include="..\src\cluster.c" />
     <ClCompile Include="..\src\config.c" />
+    <ClCompile Include="..\src\crc16.c" />
     <ClCompile Include="..\src\crc64.c" />
     <ClCompile Include="..\src\db.c" />
     <ClCompile Include="..\src\debug.c" />
@@ -235,6 +238,7 @@
     <ClInclude Include="..\src\ae.h" />
     <ClInclude Include="..\src\anet.h" />
     <ClInclude Include="..\src\bio.h" />
+    <ClInclude Include="..\src\cluster.h" />
     <ClInclude Include="..\src\config.h" />
     <ClInclude Include="..\src\dict.h" />
     <ClInclude Include="..\src\endianconv.h" />
