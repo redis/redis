@@ -440,7 +440,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
      * ZRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
      * ZRANGEBYSCORE zset 1.5 2.5 will instead match min <= x <= max */
     if (min->encoding == REDIS_ENCODING_INT) {
-        spec->min = (long) min->ptr;  /*BUGBUG */
+        spec->min = (PORT_LONG) min->ptr;
     } else {
         if (((char*)min->ptr)[0] == '(') {
             spec->min = strtod((char*)min->ptr+1,&eptr);
@@ -452,7 +452,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         }
     }
     if (max->encoding == REDIS_ENCODING_INT) {
-        spec->max = (long) max->ptr;  /* BUGBUG */
+        spec->max = (PORT_LONG) max->ptr;
     } else {
         if (((char*)max->ptr)[0] == '(') {
             spec->max = strtod((char*)max->ptr+1,&eptr);
