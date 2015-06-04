@@ -22,7 +22,7 @@ Upgrade urgency: HIGH for Redis because of a security issue.
 * [NEW] ZADD support for options: NX, XX, CH. See new doc at redis.io.
         (Salvatore Sanfilippo)
 * [NEW] Senitnel: CKQUORUM and FLUSHCONFIG commands back ported.
-        (Salvatore Sanfilippo)
+        (Salvatore Sanfilippo and Bill Anderson)
 
 --[ Redis 3.0.1 ] Release date: 5 May 2015
 
