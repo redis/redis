@@ -24,7 +24,7 @@ Upgrade urgency: HIGH for Redis because of a security issue.
 * [FIX] Lua cmsgpack lib updated to support str8 type. (Sebastian Waisbrot)
 
 * [NEW] Senitnel: CKQUORUM and FLUSHCONFIG commands back ported.
-        (Salvatore Sanfilippo)
+        (Salvatore Sanfilippo and Bill Anderson)
 
 --[ Redis 2.8.20 ] Release date: 5 May 2015
 
