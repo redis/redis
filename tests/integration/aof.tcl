@@ -88,8 +88,9 @@ tags {"aof"} {
         test "Bad format: Server should have logged an error" {
             set pattern "*Bad file format reading the append only file*"
             set retry 10
+            #WIN_PORT_FIX 'tail -n1' -> 'tail -1'
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -113,8 +114,9 @@ tags {"aof"} {
         test "Unfinished MULTI: Server should have logged an error" {
             set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
+            #WIN_PORT_FIX 'tail -n1' -> 'tail -1'
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -137,8 +139,9 @@ tags {"aof"} {
         test "Short read: Server should have logged an error" {
             set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
+            #WIN_PORT_FIX 'tail -n1' -> 'tail -1'
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
