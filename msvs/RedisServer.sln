@@ -185,11 +185,13 @@ Global
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|Mixed Platforms.ActiveCfg = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|Win32.ActiveCfg = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.ActiveCfg = Release|x64
+		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.Build.0 = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x86.ActiveCfg = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|Mixed Platforms.ActiveCfg = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|Mixed Platforms.Build.0 = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|Win32.ActiveCfg = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x64.ActiveCfg = Release|x64
+		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x64.Build.0 = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
