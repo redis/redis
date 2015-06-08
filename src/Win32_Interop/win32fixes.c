@@ -679,7 +679,7 @@ int truncate(const char *path, PORT_LONGLONG length) {
     toTruncate = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (toTruncate != INVALID_HANDLE_VALUE) {
         newSize.QuadPart = length;
-        if (FALSE == SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN)) {
+        if (FALSE == (SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN) && SetEndOfFile(toTruncate))) {
             errno = ENOENT;
             return -1;
         } else {
