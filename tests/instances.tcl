@@ -59,13 +59,12 @@ proc spawn_instance {type base_port count {conf {}}} {
 
         # Finally exec it and remember the pid for later cleanup.
         if {$type eq "redis"} {
-            set prgname redis-server
+            set pid [exec ../../../src/redis-server $cfgfile &]             ;# WIN_PORT_ISSUE 
         } elseif {$type eq "sentinel"} {
-            set prgname redis-sentinel
+            set pid [exec ../../../src/redis-server $cfgfile --sentinel &]  ;# WIN_PORT_ISSUE 
         } else {
             error "Unknown instance type."
         }
-        set pid [exec ../../../src/${prgname} $cfgfile &]
         lappend ::pids $pid
 
         # Check availability
@@ -396,11 +395,10 @@ proc restart_instance {type id} {
     # Execute the instance with its old setup and append the new pid
     # file for cleanup.
     if {$type eq "redis"} {
-        set prgname redis-server
+        set pid [exec ../../../src/redis-server $cfgfile &]               ;# WIN_PORT_ISSUE
     } else {
-        set prgname redis-sentinel
+        set pid [exec ../../../src/redis-server $cfgfile --sentinel &]    ;# WIN_PORT_ISSUE
     }
-    set pid [exec ../../../src/${prgname} $cfgfile &]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
