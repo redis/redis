@@ -64,3 +64,6 @@ const string cNo = "no";
 const string cDefaultSyslogIdent = "redis";
 const string cDefaultLogfile = "stdout";
 
+/* List of -- command arguments to be passed to redis::main() unaltered */
+const vector<string> cRedisArgsForMainC = {"help", "version", "test-memory"};
+
