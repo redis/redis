@@ -100,7 +100,7 @@ robj *createStringObjectFromLongDouble(PORT_LONGDOUBLE value, int humanfriendly)
          * way that is "non surprising" for the user (that is, most small
          * decimal numbers will be represented in a way that when converted
          * back into a string are exactly the same as what the user typed.) */
-        len = snprintf(buf,sizeof(buf),"%.15Lf",value);                        WIN_PORT_FIX /* %.17 -> %.15 on Windows the magic number is 15 */
+        len = snprintf(buf,sizeof(buf),"%.15Lf",value);                         WIN_PORT_FIX /* %.17 -> %.15 on Windows the magic number is 15 */
         /* Now remove trailing zeroes after the '.' */
         if (strchr(buf,'.') != NULL) {
             char *p = buf+len-1;

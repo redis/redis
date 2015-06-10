@@ -180,7 +180,7 @@ void stopAppendOnly(void) {
     server.aof_state = REDIS_AOF_OFF;
     /* rewrite operation in progress? kill it, wait child exit */
     if (server.aof_child_pid != -1) {
-        redisLog(REDIS_NOTICE, "Killing running AOF rewrite child: %Id",         /* PORTABILITY FIX %ld -> %Id */
+        redisLog(REDIS_NOTICE, "Killing running AOF rewrite child: %Id",        WIN_PORT_FIX /* %ld -> %Id */
             (PORT_LONG) server.aof_child_pid);
 #ifdef _WIN32
         AbortForkOperation();

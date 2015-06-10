@@ -232,8 +232,8 @@ void memtest_test(size_t megabytes, int passes) {
     int pass = 0;
 
     if (m == NULL) {
-        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  
-            megabytes,strerror(errno));                                         WIN_PORT_FIX /* %zu -> %Iu */
+        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  WIN_PORT_FIX /* %zu -> %Iu */
+            megabytes,strerror(errno));
         exit(1);
     }
     while (pass != passes) {

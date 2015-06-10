@@ -283,7 +283,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
 
     for (j = 0; j < argc; j++) {
         if (argv[j]->encoding == REDIS_ENCODING_INT) {
-            cmdrepr = sdscatprintf(cmdrepr, "\"%Id\"", (PORT_LONG) argv[j]->ptr);   /* PORTABILITY FIX %ld -> %Id */
+            cmdrepr = sdscatprintf(cmdrepr, "\"%Id\"", (PORT_LONG) argv[j]->ptr);   WIN_PORT_FIX /* %ld -> %Id */
         } else {
             cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr,
                         sdslen(argv[j]->ptr));

@@ -1087,10 +1087,10 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             redisLog(REDIS_VERBOSE,
-                "%Iu clients connected (%Iu slaves), %Iu bytes in use",
+                "%Iu clients connected (%Iu slaves), %Iu bytes in use",         WIN_PORT_FIX /* %zu -> %Iu */
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
-                zmalloc_used_memory());                                         WIN_PORT_FIX /* %zu -> %Iu */
+                zmalloc_used_memory());
         }
     }
 
@@ -2750,7 +2750,7 @@ sds genRedisInfoString(char *section) {
                 "aof_current_size:%lld\r\n"
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
-                "aof_buffer_length:%Iu\r\n"
+                "aof_buffer_length:%Iu\r\n"                                     WIN_PORT_FIX /* %zu -> %Iu */
                 "aof_rewrite_buffer_length:%lu\r\n"
                 "aof_pending_bio_fsync:%llu\r\n"
                 "aof_delayed_fsync:%lu\r\n",
@@ -2760,7 +2760,7 @@ sds genRedisInfoString(char *section) {
                 sdslen(server.aof_buf),
                 aofRewriteBufferSize(),
                 bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC),
-                server.aof_delayed_fsync);                                      WIN_PORT_FIX /* %zu -> %Iu */
+                server.aof_delayed_fsync);
         }
 
         if (server.loading) {
@@ -3398,8 +3398,8 @@ void loadDataFromDisk(void) {
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
-    redisLog(REDIS_WARNING,"Out Of Memory allocating %Iu bytes!",
-        allocation_size);                                                       WIN_PORT_FIX /* %zu -> %Iu */
+    redisLog(REDIS_WARNING,"Out Of Memory allocating %Iu bytes!",               WIN_PORT_FIX /* %zu -> %Iu */
+        allocation_size);
     redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
