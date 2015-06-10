@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using Microsoft.Deployment.WindowsInstaller;
+using System.ServiceProcess;
 
 namespace RedisMsi.CustomActions
 {
@@ -24,6 +25,28 @@ namespace RedisMsi.CustomActions
             string configFilePath = session.CustomActionData["CONFIG_PATH"];
 
             UpdatePortSetting(port, configFilePath);
+
+            return ActionResult.Success;
+        }
+
+        /// <summary>
+        /// Sets a WiX property to indicate whether the Windows Firewall service is stopped.
+        /// If the firewall service is stopped, the install will not succeed if it attempts
+        /// to add a firewall exception. Note that just setting the state of the 
+        /// firewall to off does not pose a problem.
+        /// </summary>
+        /// <param name="session"></param>
+        /// <returns></returns>
+        [CustomAction]
+        public static ActionResult CheckIfFirewallServiceRunning(Session session)
+        {
+            ServiceController sc = new ServiceController("MpsSvc"); // Windows Firewall service
+            bool isStopped = sc.Status.Equals(ServiceControllerStatus.Stopped) || sc.Status.Equals(ServiceControllerStatus.StopPending);
+
+            if (isStopped)
+            {
+                session["FIREWALL_SERVICE_STOPPED"] = "1";
+            }
 
             return ActionResult.Success;
         }

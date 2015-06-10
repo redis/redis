@@ -2,6 +2,8 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
     <UI>
+      <TextStyle Id="Warning" FaceName="Tahoma" Size="10" Red="255"/>
+      
       <Dialog Id="FirewallDlg" Width="370" Height="270" Title="[ProductName] Setup">
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
         <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
@@ -18,7 +20,12 @@
         <Control Id="PortLabel" Type="Text" X="20" Y="60" Width="290" Height="30" NoPrefix="yes" Text="Port to run Redis on:" />
         <Control Id="PortEdit" Type="Edit" Property="PORT" Height="17" Width="50" X="20" Y="100" />
 
-        <Control Id="FirewallCheckbox" Type="CheckBox" Property="FIREWALL_ON" CheckBoxValue="1" Integer="yes" Text="Add an exception to the Windows Firewall" Height="10" Width="200" X="20" Y="140" />
+        <Control Id="FirewallCheckbox" Type="CheckBox" Property="ADD_FIREWALL_RULE" CheckBoxValue="1" Integer="yes" Text="Add an exception to the Windows Firewall" Height="10" Width="200" X="20" Y="140">
+          <Condition Action="disable"><![CDATA[FIREWALL_SERVICE_STOPPED = 1]]></Condition>
+        </Control>
+        <Control Id="FirewallServiceOffText" Type="Text" Text="{\Warning}The firewall service must be running to add a new exception." Height="34" Width="280" X="20" Y="160" Hidden="yes" NoWrap="no">
+          <Condition Action="show"><![CDATA[FIREWALL_SERVICE_STOPPED = 1]]></Condition>
+        </Control>
       </Dialog>
     </UI>
   </Fragment>

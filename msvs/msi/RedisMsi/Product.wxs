@@ -10,10 +10,10 @@
         msiexec /i Redis-[version].msi 
         
       set port and turn off firewall exception:
-        msiexec /i Redis-[version].msi PORT=1234 FIREWALL_ON=""
+        msiexec /i Redis-[version].msi PORT=1234 ADD_FIREWALL_RULE=""
       
       set port and turn on firewall exception:
-        msiexec /i Redis-[version].msi PORT=1234 FIREWALL_ON=1
+        msiexec /i Redis-[version].msi PORT=1234 ADD_FIREWALL_RULE=1
         
       
   -->
@@ -38,13 +38,17 @@
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/MSOpenTech/redis" />
     <Property Id="PORT" Value="6379" />
-    <Property Id="FIREWALL_ON" Value="1" />
+    <Property Id="ADD_FIREWALL_RULE" Value="1" />
+    <Property Id="FIREWALL_SERVICE_STOPPED" Value="0" />
     
     <!--Link-time variables-->
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf"/>
     <WixVariable Id="WixUIDialogBmp" Value="Images/redis_background.jpg"/>
     <WixVariable Id="WixUIBannerBmp" Value="Images/top_banner.jpg"/>
     <WixVariable Id="DocumentationFolder" Value="..\..\setups\documentation"/>
+    
+    <!--Link in custom actions, referencing one will pull in all-->
+    <CustomActionRef Id="ca_UpdateRedisConfig"/>
 
     <!--Features-->
     <Feature Id="ProductFeature" Title="Redis" Level="1">
