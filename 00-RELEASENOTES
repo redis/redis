@@ -14,6 +14,18 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.21 ] Release date: 4 Jun 2015
+
+Upgrade urgency: HIGH for Redis because of a security issue.
+                 LOW for Sentinel.
+
+* [FIX] Critical security issue fix by Ben Murphy: http://t.co/LpGTyZmfS7
+* [FIX] SMOVE reply fixed when src and dst keys are the same. (Glenn Nethercutt)
+* [FIX] Lua cmsgpack lib updated to support str8 type. (Sebastian Waisbrot)
+
+* [NEW] Senitnel: CKQUORUM and FLUSHCONFIG commands back ported.
+        (Salvatore Sanfilippo and Bill Anderson)
+
 --[ Redis 2.8.20 ] Release date: 5 May 2015
 
 Upgrade urgency: LOW for Redis, MODERATE for Sentinel.
