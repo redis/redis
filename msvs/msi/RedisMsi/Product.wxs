@@ -21,7 +21,7 @@
   <Product Id="*" 
            Name="Redis on Windows" 
            Language="1033" 
-           Version="2.8.19.1" 
+           Version="2.8.21" 
            Manufacturer="MSOpenTech" 
            UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
     <Package InstallerVersion="200" 
@@ -49,6 +49,7 @@
     <!--Features-->
     <Feature Id="ProductFeature" Title="Redis" Level="1">
       <ComponentGroupRef Id="FileComponents" />
+      <ComponentGroupRef Id="SymbolsComponents" />
       <ComponentGroupRef Id="WindowsServiceComponents" />
       <ComponentGroupRef Id="DocumentationComponents" />
     </Feature>

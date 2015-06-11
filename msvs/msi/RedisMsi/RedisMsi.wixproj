@@ -39,6 +39,7 @@
   <ItemGroup>
     <Compile Include="Components\DocumentationComponents.wxs" />
     <Compile Include="Components\FileComponents.wxs" />
+    <Compile Include="Components\SymbolsComponents.wxs" />
     <Compile Include="Components\WindowsServiceComponents.wxs" />
     <Compile Include="Dialogs\CustomInstallDir.wxs" />
     <Compile Include="Dialogs\FirewallDialog.wxs" />
@@ -56,7 +57,7 @@
   </ItemGroup>
   <ItemGroup>
     <WixExtension Include="WixUIExtension">
-      <HintPath>..\..\..\..\Program Files (x86)\WiX Toolset v3.9\bin\WixUIExtension.dll</HintPath>
+      <HintPath>$(WixExtDir)\WixUIExtension.dll</HintPath>
       <Name>WixUIExtension</Name>
     </WixExtension>
     <WixExtension Include="WixFirewallExtension">
