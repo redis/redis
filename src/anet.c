@@ -402,7 +402,7 @@ int anetRead(int fd, char *buf, int count)
     return totlen;
 }
 
-/* Like write(2) but make sure 'count' is read before to return
+/* Like write(2) but make sure 'count' is written before to return
  * (unless error is encountered) */
 int anetWrite(int fd, char *buf, int count)
 {
