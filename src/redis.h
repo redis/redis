@@ -73,7 +73,7 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
 
-#include "redisLog.h" /* moved logging for hiredis and RedisCli usage /*
+#include "Win32_Interop/Win32_RedisLog.h" /* moved logging for hiredis and RedisCli usage /*
 
 /* Error codes */
 #define REDIS_OK                0
@@ -94,7 +94,7 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_SHARED_BULKHDR_LEN 32
 #ifdef _WIN32
-// see redisLog.h
+// see Win32_RedisLog.h
 #else
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #endif
@@ -307,7 +307,7 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #define REDIS_SORTKEY_MAX 1024
 
 #ifdef _WIN32
-// see redisLog.h
+// see Win32_RedisLog.h
 #else
 /* Log levels */
 #define REDIS_DEBUG 0

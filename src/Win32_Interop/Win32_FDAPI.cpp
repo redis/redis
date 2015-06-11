@@ -32,7 +32,7 @@
 #include "Win32_ANSI.h"
 #include "win32_util.h"
 #include <string>
-#include "..\redisLog.h"
+#include "Win32_RedisLog.h"
 using namespace std;
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}

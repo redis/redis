@@ -68,7 +68,7 @@ this should preceed the other arguments passed to redis. For instance:
 #include <sstream>
 #include <vector>
 #include <iostream>
-#include "..\redisLog.h"
+#include "Win32_RedisLog.h"
 #include "Win32_CommandLine.h"
 using namespace std;
 

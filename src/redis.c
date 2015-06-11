@@ -41,7 +41,6 @@
 #ifdef _WIN32
 #include <locale.h>
 #define LOG_LOCAL0 0
-#include "redisLog.h"
 #else
 #include <sys/wait.h>
 #include <arpa/inet.h>

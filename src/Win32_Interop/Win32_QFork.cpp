@@ -21,7 +21,6 @@
  */
 
 #include "win32_types.h"
-
 #include "Win32_FDAPI.h"
 
 #include <Windows.h>
@@ -42,7 +41,7 @@
 #include "Win32_SmartHandle.h"
 #include "Win32_Service.h"
 #include "Win32_CommandLine.h"
-#include "..\redisLog.h"
+#include "Win32_RedisLog.h"
 
 #include <vector>
 #include <map>

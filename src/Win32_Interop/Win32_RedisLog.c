@@ -20,16 +20,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "win32_Interop/win32_types.h"
-#include "redisLog.h"
+#include "Win32_types.h"
+#include "Win32_RedisLog.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <malloc.h>
 #include <string.h>
 #include <process.h>
-#include "redis.h"
-#include "win32_Interop/win32Fixes.h"
-#include "win32_Interop/Win32_EventLog.h"
+#include "../redis.h"
+#include "Win32Fixes.h"
+#include "Win32_EventLog.h"
 #include <time.h>
 #include <assert.h>
 
