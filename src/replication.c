@@ -1377,7 +1377,7 @@ error:
 int connectWithMaster(void) {
     int fd;
 
-    fd = anetTcpNonBlockBindConnect(NULL,
+    fd = anetTcpNonBlockBestEffortBindConnect(NULL,
         server.masterhost,server.masterport,REDIS_BIND_ADDR);
     if (fd == -1) {
         redisLog(REDIS_WARNING,"Unable to connect to MASTER: %s",
