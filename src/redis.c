@@ -241,6 +241,7 @@ struct redisCommand redisCommandTable[] = {
     {"discard",discardCommand,1,"rsF",0,NULL,0,0,0,0,0},
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
+    {"nosync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"arslt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
@@ -1507,6 +1508,7 @@ void initServerConfig(void) {
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.repl_diskless_sync = REDIS_DEFAULT_REPL_DISKLESS_SYNC;
     server.repl_diskless_sync_delay = REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
+    server.repl_nosync = REDIS_DEFAULT_REPL_NOSYNC;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
