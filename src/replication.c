@@ -492,7 +492,27 @@ void syncCommand(redisClient *c) {
      *
      * So the slave knows the new runid and offset to try a PSYNC later
      * if the connection with the master is lost. */
-    if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+    if (!strcasecmp(c->argv[0]->ptr,"nosync")) {
+        char buf[32];
+        int buflen;
+
+        c->flags |= REDIS_SLAVE;
+        c->replstate = REDIS_REPL_ONLINE;
+        c->repl_ack_time = server.unixtime;
+        c->repl_put_online_on_ack = 0;
+        listAddNodeTail(server.slaves,c);
+        server.stat_sync_no_ok++;
+        refreshGoodSlavesCount();
+        if (listLength(server.slaves) == 1 && server.repl_backlog == NULL)
+            createReplicationBacklog();
+        buflen = snprintf(buf,sizeof(buf),"+OK\r\n");
+        if (write(c->fd,buf,buflen) != buflen) {
+            freeClientAsync(c);
+            return;
+        }
+
+        return;
+    } else if (!strcasecmp(c->argv[0]->ptr,"psync")) {
         if (masterTryPartialResynchronization(c) == REDIS_OK) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
@@ -1215,10 +1235,64 @@ int slaveTryPartialResynchronization(int fd) {
     return PSYNC_NOT_SUPPORTED;
 }
 
+#define NOSYNC_OK 0
+#define NOSYNC_NOT_SUPPORTED 1
+int slaveTryNoResynchronization(int fd) {
+    sds reply;
+
+    /* Initially set repl_master_initial_offset to -1 to mark the current
+     * master run_id and offset as not valid. Later if we'll be able to do
+     * a FULL resync using the PSYNC command we'll set the offset at the
+     * right value, so that this information will be propagated to the
+     * client structure representing the master into server.master. */
+    server.repl_master_initial_offset = -1;
+    /* Issue the PSYNC command */
+    reply = sendSynchronousCommand(fd,"NOSYNC", NULL);
+    if (!strncmp(reply,"+OK",3)) {
+        /* Partial resync was accepted, set the replication state accordingly */
+        redisLog(REDIS_NOTICE,
+            "Successful no resynchronization with master.");
+        sdsfree(reply);
+        if (server.cached_master) {
+            redisLog(REDIS_NOTICE,
+                "Cached Master with NOSYNC Replication");
+            replicationResurrectCachedMaster(fd);
+        } else {
+            redisLog(REDIS_NOTICE,
+                "Create New Master with NOSYNC Replication");
+            replicationCreateMasterClient(fd);
+        }
+
+        signalFlushedDb(-1);
+        emptyDb(NULL);
+
+        return REDIS_OK;
+    }
+
+    /* If we reach this point we receied either an error since the master does
+     * not understand PSYNC, or an unexpected reply from the master.
+     * Return PSYNC_NOT_SUPPORTED to the caller in both cases. */
+
+    if (strncmp(reply,"-ERR",4)) {
+        /* If it's not an error, log the unexpected event. */
+        redisLog(REDIS_WARNING,
+            "Unexpected reply to NOSYNC from master: %s", reply);
+    } else {
+        redisLog(REDIS_NOTICE,
+            "Master does not support NOSYNC or is in "
+            "error state (reply: %s)", reply);
+    }
+    sdsfree(reply);
+    replicationDiscardCachedMaster();
+    return NOSYNC_NOT_SUPPORTED;
+}
+
 void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     char tmpfile[256], *err;
     int dfd, maxtries = 5;
-    int sockerr = 0, psync_result;
+    int sockerr = 0;
+    int psync_result;
+    int nosync_result;
     socklen_t errlen = sizeof(sockerr);
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(privdata);
@@ -1317,6 +1391,14 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_NOTICE,"(Non critical) Master does not understand REPLCONF listening-port: %s", err);
         }
         sdsfree(err);
+    }
+
+    if (server.repl_nosync) {
+        nosync_result = slaveTryNoResynchronization(fd);
+        if (nosync_result == NOSYNC_OK) {
+            redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Master accepted No Resynchronization.");
+            return;
+        }
     }
 
     /* Try a partial resynchonization. If we don't have a cached master
