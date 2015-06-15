@@ -571,6 +571,7 @@ LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
     if (c == '\n') c = getc(lf.f);
   }
   if (c == LUA_SIGNATURE[0] && filename) {  /* binary file? */
+    fclose(lf.f);
     lf.f = freopen(filename, "rb", lf.f);  /* reopen in binary mode */
     if (lf.f == NULL) return errfile(L, "reopen", fnameindex);
     /* skip eventual `#!...' */
@@ -586,6 +587,7 @@ LUALIB_API int luaL_loadfile (lua_State *L, const char *filename) {
     return errfile(L, "read", fnameindex);
   }
   lua_remove(L, fnameindex);
+  fclose(lf.f);
   return status;
 }
 
