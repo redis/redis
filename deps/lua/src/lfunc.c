@@ -22,30 +22,36 @@
 
 Closure *luaF_newCclosure (lua_State *L, int nelems, Table *e) {
   Closure *c = cast(Closure *, luaM_malloc(L, sizeCclosure(nelems)));
-  luaC_link(L, obj2gco(c), LUA_TFUNCTION);
-  c->c.isC = 1;
-  c->c.env = e;
-  c->c.nupvalues = cast_byte(nelems);
+  if (c) {
+  	luaC_link(L, obj2gco(c), LUA_TFUNCTION);
+  	c->c.isC = 1;
+  	c->c.env = e;
+  	c->c.nupvalues = cast_byte(nelems);
+  }
   return c;
 }
 
 
 Closure *luaF_newLclosure (lua_State *L, int nelems, Table *e) {
   Closure *c = cast(Closure *, luaM_malloc(L, sizeLclosure(nelems)));
-  luaC_link(L, obj2gco(c), LUA_TFUNCTION);
-  c->l.isC = 0;
-  c->l.env = e;
-  c->l.nupvalues = cast_byte(nelems);
-  while (nelems--) c->l.upvals[nelems] = NULL;
+  if (c) { 
+    luaC_link(L, obj2gco(c), LUA_TFUNCTION);
+    c->l.isC = 0;
+    c->l.env = e;
+    c->l.nupvalues = cast_byte(nelems);
+    while (nelems--) c->l.upvals[nelems] = NULL;
+  }
   return c;
 }
 
 
 UpVal *luaF_newupval (lua_State *L) {
   UpVal *uv = luaM_new(L, UpVal);
-  luaC_link(L, obj2gco(uv), LUA_TUPVAL);
-  uv->v = &uv->u.value;
-  setnilvalue(uv->v);
+  if (uv) {
+    luaC_link(L, obj2gco(uv), LUA_TUPVAL);
+    uv->v = &uv->u.value;
+    setnilvalue(uv->v);
+  }
   return uv;
 }
 
@@ -114,26 +120,28 @@ void luaF_close (lua_State *L, StkId level) {
 
 Proto *luaF_newproto (lua_State *L) {
   Proto *f = luaM_new(L, Proto);
-  luaC_link(L, obj2gco(f), LUA_TPROTO);
-  f->k = NULL;
-  f->sizek = 0;
-  f->p = NULL;
-  f->sizep = 0;
-  f->code = NULL;
-  f->sizecode = 0;
-  f->sizelineinfo = 0;
-  f->sizeupvalues = 0;
-  f->nups = 0;
-  f->upvalues = NULL;
-  f->numparams = 0;
-  f->is_vararg = 0;
-  f->maxstacksize = 0;
-  f->lineinfo = NULL;
-  f->sizelocvars = 0;
-  f->locvars = NULL;
-  f->linedefined = 0;
-  f->lastlinedefined = 0;
-  f->source = NULL;
+  if (f) {
+    luaC_link(L, obj2gco(f), LUA_TPROTO);
+    f->k = NULL;
+    f->sizek = 0;
+    f->p = NULL;
+    f->sizep = 0;
+    f->code = NULL;
+    f->sizecode = 0;
+    f->sizelineinfo = 0;
+    f->sizeupvalues = 0;
+    f->nups = 0;
+    f->upvalues = NULL;
+    f->numparams = 0;
+    f->is_vararg = 0;
+    f->maxstacksize = 0;
+    f->lineinfo = NULL;
+    f->sizelocvars = 0;
+    f->locvars = NULL;
+    f->linedefined = 0;
+    f->lastlinedefined = 0;
+    f->source = NULL;
+  }
   return f;
 }
 

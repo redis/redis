@@ -1145,7 +1145,9 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
             nextFn = ziplistPrev;
             offset_update = -1;
         }
-        iter->zi = nextFn(iter->current->zl, iter->zi);
+        if (nextFn) {
+		iter->zi = nextFn(iter->current->zl, iter->zi);	
+	}
         iter->offset += offset_update;
     }
 

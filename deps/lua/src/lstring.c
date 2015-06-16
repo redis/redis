@@ -54,20 +54,22 @@ static TString *newlstr (lua_State *L, const char *str, size_t l,
   if (l+1 > (MAX_SIZET - sizeof(TString))/sizeof(char))
     luaM_toobig(L);
   ts = cast(TString *, luaM_malloc(L, (l+1)*sizeof(char)+sizeof(TString)));
-  ts->tsv.len = l;
-  ts->tsv.hash = h;
-  ts->tsv.marked = luaC_white(G(L));
-  ts->tsv.tt = LUA_TSTRING;
-  ts->tsv.reserved = 0;
-  memcpy(ts+1, str, l*sizeof(char));
-  ((char *)(ts+1))[l] = '\0';  /* ending 0 */
-  tb = &G(L)->strt;
-  h = lmod(h, tb->size);
-  ts->tsv.next = tb->hash[h];  /* chain new entry */
-  tb->hash[h] = obj2gco(ts);
-  tb->nuse++;
-  if (tb->nuse > cast(lu_int32, tb->size) && tb->size <= MAX_INT/2)
-    luaS_resize(L, tb->size*2);  /* too crowded */
+  if (ts) {
+    ts->tsv.len = l;
+    ts->tsv.hash = h;
+    ts->tsv.marked = luaC_white(G(L));
+    ts->tsv.tt = LUA_TSTRING;
+    ts->tsv.reserved = 0;
+    memcpy(ts+1, str, l*sizeof(char));
+    ((char *)(ts+1))[l] = '\0';  /* ending 0 */
+    tb = &G(L)->strt;
+    h = lmod(h, tb->size);
+    ts->tsv.next = tb->hash[h];  /* chain new entry */
+    tb->hash[h] = obj2gco(ts);
+    tb->nuse++;
+    if (tb->nuse > cast(lu_int32, tb->size) && tb->size <= MAX_INT/2)
+      luaS_resize(L, tb->size*2);  /* too crowded */
+  }
   return ts;
 }
 
@@ -98,14 +100,16 @@ Udata *luaS_newudata (lua_State *L, size_t s, Table *e) {
   if (s > MAX_SIZET - sizeof(Udata))
     luaM_toobig(L);
   u = cast(Udata *, luaM_malloc(L, s + sizeof(Udata)));
-  u->uv.marked = luaC_white(G(L));  /* is not finalized */
-  u->uv.tt = LUA_TUSERDATA;
-  u->uv.len = s;
-  u->uv.metatable = NULL;
-  u->uv.env = e;
-  /* chain it on udata list (after main thread) */
-  u->uv.next = G(L)->mainthread->next;
-  G(L)->mainthread->next = obj2gco(u);
+  if (u) {
+    u->uv.marked = luaC_white(G(L));  /* is not finalized */
+    u->uv.tt = LUA_TUSERDATA;
+    u->uv.len = s;
+    u->uv.metatable = NULL;
+    u->uv.env = e;
+    /* chain it on udata list (after main thread) */
+    u->uv.next = G(L)->mainthread->next;
+    G(L)->mainthread->next = obj2gco(u);
+  }
   return u;
 }
 
