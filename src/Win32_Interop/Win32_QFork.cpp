@@ -42,6 +42,7 @@
 #include "Win32_Service.h"
 #include "Win32_CommandLine.h"
 #include "Win32_RedisLog.h"
+#include "Win32_StackTrace.h"
 
 #include <vector>
 #include <map>
@@ -51,6 +52,7 @@
 #include <exception>
 #include <algorithm>
 #include <memory>
+
 using namespace std;
 
 #ifndef PAGE_REVERT_TO_FILE_MAP
@@ -1318,6 +1320,7 @@ extern "C"
             InitTimeFunctions();
             ParseCommandLineArguments(argc, argv);
             SetupLogging();
+            StackTraceInit();
         } catch (system_error syserr) {
             exit(-1);
         } catch (runtime_error runerr) {

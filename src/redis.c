@@ -2578,12 +2578,14 @@ sds genRedisInfoString(char *section) {
             "os:%s %s %s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
+#ifndef _WIN32
             "gcc_version:%d.%d.%d\r\n"
+#endif
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
             "tcp_port:%d\r\n"
 #ifdef _WIN32
-            "uptime_in_seconds:%lld\r\n"    /* BUGBUG: fix %lld */
+            "uptime_in_seconds:%lld\r\n"
             "uptime_in_days:%lld\r\n"
 #else
             "uptime_in_seconds:%jd\r\n"
@@ -2604,10 +2606,12 @@ sds genRedisInfoString(char *section) {
 #endif
             server.arch_bits,
             aeGetApiName(),
+#ifndef _WIN32
 #ifdef __GNUC__
             __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
             0,0,0,
+#endif
 #endif
             (PORT_LONG) getpid(),
             server.runid,
