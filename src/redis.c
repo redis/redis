@@ -29,6 +29,9 @@
 
 #ifdef _WIN32
 #include "win32_Interop\win32_util.h"
+#include "Win32_Interop\Win32_FDAPI.h"
+#include <locale.h>
+#define LOG_LOCAL0 0
 #endif
 
 #include "redis.h"
@@ -38,10 +41,7 @@
 
 #include <time.h>
 #include <signal.h>
-#ifdef _WIN32
-#include <locale.h>
-#define LOG_LOCAL0 0
-#else
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/resource.h>
@@ -58,10 +58,8 @@
 #include <limits.h>
 #include <float.h>
 #include <math.h>
+#ifndef _WIN32
 #include <locale.h>
-
-#ifdef _WIN32
-#include "Win32_Interop\Win32_FDAPI.h"
 #endif
 
 /* Our shared "common" objects */
@@ -1364,23 +1362,8 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
-#ifdef _WIN32
-    // this is handled before redis_main() in Win32_QFork.cpp:::SetupLogging()
-    /*
-    if (RunningAsService()) {
-        server.syslog_enabled = 1;
-        server.syslog_ident = zstrdup(GetServiceName());
-    } else {
-        server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
-        server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
-    }
-    setSyslogEnabled(server.syslog_enabled);
-    setSyslogIdent(server.syslog_ident);
-    */
-#else
-	server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
+    server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
-#endif
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.aof_state = REDIS_AOF_OFF;
