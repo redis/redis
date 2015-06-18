@@ -187,7 +187,7 @@ void stopAppendOnly(void) {
 #else
         {
             int statloc;
-        if (kill(server.aof_child_pid,SIGUSR1) != -1)
+            if (kill(server.aof_child_pid,SIGUSR1) != -1)
                 wait3(&statloc,0,NULL);
         }
 #endif
