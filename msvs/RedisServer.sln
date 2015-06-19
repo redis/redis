@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
-VisualStudioVersion = 12.0.31101.0
+VisualStudioVersion = 12.0.21005.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisServer", "RedisServer.vcxproj", "{46842776-68A5-EC98-6A09-1859BBFC73AA}"
 	ProjectSection(ProjectDependencies) = postProject
@@ -184,8 +184,8 @@ Global
 		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Release|x86.Build.0 = Release|Win32
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|Mixed Platforms.ActiveCfg = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|Win32.ActiveCfg = Debug|x64
-		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.ActiveCfg = Release|x64
-		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.Build.0 = Release|x64
+		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.ActiveCfg = Debug|x64
+		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x64.Build.0 = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Debug|x86.ActiveCfg = Debug|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|Mixed Platforms.ActiveCfg = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|Mixed Platforms.Build.0 = Release|x64
