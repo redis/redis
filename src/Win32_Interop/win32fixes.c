@@ -20,6 +20,7 @@
 #include <string.h>
 #include <assert.h>
 //#include <io.h>
+#include "Win32_ThreadControl.h"
 
 /* Redefined here to avoid redis.h so it can be used in other projects */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -149,12 +150,16 @@ typedef struct thread_params
 
 /* Proxy function by windows thread requirements */
 static unsigned __stdcall win32_proxy_threadproc(void *arg) {
+    IncrementWorkerThreadCount();
+    __try {
+        thread_params *p = (thread_params *) arg;
+        p->func(p->arg);
 
-    thread_params *p = (thread_params *) arg;
-    p->func(p->arg);
-
-    /* Dealocate params */
-    free(p);
+        /* Dealocate params */
+        free(p);
+    } __finally {
+        DecrementWorkerThreadCount();
+    }
 
     _endthreadex(0);
     return 0;

@@ -30,6 +30,7 @@
 #ifdef _WIN32
 #include "win32_Interop\win32_util.h"
 #include "Win32_Interop\Win32_FDAPI.h"
+#include "Win32_Interop\Win32_ThreadControl.h"
 #include <locale.h>
 #define LOG_LOCAL0 0
 #endif
@@ -1108,19 +1109,23 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
 #ifdef _WIN32
-		if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
-			int exitCode;
-			int bySignal;
-			bySignal = (int)(GetForkOperationStatus() == osFAILED);
-			redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
-			EndForkOperation(&exitCode);
-			if (server.rdb_child_pid != -1) {
-				backgroundSaveDoneHandler(exitCode, bySignal);
-			} else {
-				backgroundRewriteDoneHandler(exitCode, bySignal);
-			}
-			updateDictResizePolicy();
-		}
+        if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
+            RequestSuspension();
+            if (SuspensionCompleted()) {
+                int exitCode;
+                int bySignal;
+                bySignal = (int)(GetForkOperationStatus() == osFAILED);
+                redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
+                EndForkOperation(&exitCode);
+                ResumeFromSuspension();
+                if (server.rdb_child_pid != -1) {
+                    backgroundSaveDoneHandler(exitCode, bySignal);
+                } else {
+                    backgroundRewriteDoneHandler(exitCode, bySignal);
+                }
+                updateDictResizePolicy();
+            }
+        }
 #else
         int statloc;
         pid_t pid;

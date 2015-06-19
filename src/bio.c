@@ -64,6 +64,7 @@
 #include "bio.h"
 #ifdef _WIN32
 #include "win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_ThreadControl.h"
 #endif
 
 static pthread_t bio_threads[REDIS_BIO_NUM_OPS];
@@ -157,7 +158,10 @@ void *bioProcessBackgroundJobs(void *arg) {
     // needs much rework. Cancellability requires a shared event.
 #endif
 
+    WIN32_ONLY(WorkerThread_EnterSafeMode());
     pthread_mutex_lock(&bio_mutex[type]);
+    WIN32_ONLY(WorkerThread_ExitSafeMode());
+
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
     sigemptyset(&sigset);
@@ -171,7 +175,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* The loop always starts with the lock hold. */
         if (listLength(bio_jobs[type]) == 0) {
+            WIN32_ONLY(WorkerThread_EnterSafeMode());
             pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
+            WIN32_ONLY(WorkerThread_ExitSafeMode());
             continue;
         }
         /* Pop the job from the queue. */
@@ -193,7 +199,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
+        WIN32_ONLY(WorkerThread_EnterSafeMode());
         pthread_mutex_lock(&bio_mutex[type]);
+        WIN32_ONLY(WorkerThread_ExitSafeMode());
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
     }

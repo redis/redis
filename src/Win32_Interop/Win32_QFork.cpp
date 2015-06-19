@@ -43,6 +43,7 @@
 #include "Win32_CommandLine.h"
 #include "Win32_RedisLog.h"
 #include "Win32_StackTrace.h"
+#include "Win32_ThreadControl.h"
 
 #include <vector>
 #include <map>
@@ -1321,6 +1322,7 @@ extern "C"
             ParseCommandLineArguments(argc, argv);
             SetupLogging();
             StackTraceInit();
+            InitThreadControl();
         } catch (system_error syserr) {
             exit(-1);
         } catch (runtime_error runerr) {
