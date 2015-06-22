@@ -158,9 +158,7 @@ void *bioProcessBackgroundJobs(void *arg) {
     // needs much rework. Cancellability requires a shared event.
 #endif
 
-    WIN32_ONLY(WorkerThread_EnterSafeMode());
     pthread_mutex_lock(&bio_mutex[type]);
-    WIN32_ONLY(WorkerThread_ExitSafeMode());
 
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
@@ -177,7 +175,9 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (listLength(bio_jobs[type]) == 0) {
             WIN32_ONLY(WorkerThread_EnterSafeMode());
             pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
+            WIN32_ONLY(pthread_mutex_unlock(&bio_mutex[type]));
             WIN32_ONLY(WorkerThread_ExitSafeMode());
+            WIN32_ONLY(pthread_mutex_lock(&bio_mutex[type]));
             continue;
         }
         /* Pop the job from the queue. */
@@ -199,9 +199,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
-        WIN32_ONLY(WorkerThread_EnterSafeMode());
         pthread_mutex_lock(&bio_mutex[type]);
-        WIN32_ONLY(WorkerThread_ExitSafeMode());
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
     }
