@@ -13,7 +13,7 @@ Redis on Windows
 
 - This is a port for Windows based on Redis 2.8.
 - There is support for the 64-bit version. We have dropped official support for the 32-bit version, though you can build it from source if desired.
-- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases "Release page"). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
+- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
 - Signed binaries can be downloaded using Nuget and Chocolatey.
 - There is a replacement for the UNIX fork() API that simulates the copy-on-write behavior using a memory mapped file.
 - Because Redis makes some assumptions about the values of File Descriptors, we have built a virtual file descriptor mapping layer. 
@@ -21,14 +21,14 @@ Redis on Windows
 
 ## Redis 2.8 release notes
 
-- Redis on UNIX release notes: https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES
-- Redis on Windows release notes: https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md
+- Redis on UNIX [release notes](https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES)
+- Redis on Windows [release notes](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)
 
 ## Important: More documentation is available
 
 Vital information about configuring and deploying Redis on Windows:
-https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Redis%20on%20Windows.md
-https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Windows%20Service%20Documentation.md
+- [Redis on Windows](https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Redis%20on%20Windows.md)
+- [Windows Service Documentation]()https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Windows%20Service%20Documentation.md)
 
 ## How to build Redis using Visual Studio
 
