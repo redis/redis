@@ -737,7 +737,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     if( maxmemoryBytes != -1 ) {
         maxheapBytes = (maxheapBytes > maxMemoryPlusHalf) ? maxheapBytes : maxMemoryPlusHalf;
     } else if (!foundSlaveFlag && !foundSentinelMode) {
-        redisLog(REDIS_WARNING, "Warning: The maxmemory flag was not set, this can cause redis-server to crash if an out of memory exeception happens. It is strongly racommanded to set the maxmemory flag.");
+        redisLog(REDIS_WARNING, "Warning: The maxmemory flag was not set, this can cause redis-server to crash if an out-of-memory exception happens. It is strongly recommanded to set the maxmemory flag.");
     }
     if( maxheapBytes == -1 )
     {
