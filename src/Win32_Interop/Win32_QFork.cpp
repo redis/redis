@@ -1119,7 +1119,7 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
             throw std::system_error(
                 GetLastError(),
                 system_category(),
-                "RejoinCOWPages: MapViewOfFileEx failed. Please upgrade your OS to Win8 or newer.");
+                "RejoinCOWPages: MapViewOfFileEx failed.");
         }
     }
 }
