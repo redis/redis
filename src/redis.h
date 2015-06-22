@@ -1240,6 +1240,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
+int zsetScore(robj *zobj, robj *member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
 
 /* Core functions */

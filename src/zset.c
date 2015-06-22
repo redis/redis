@@ -12,30 +12,6 @@ int zslValueLteMax(double value, zrangespec *spec);
  * Direct Redis DB Interaction
  * ==================================================================== */
 
-/* zset access is mostly a copy/paste from zscoreCommand() */
-int zsetScore(robj *zobj, robj *member, double *score) {
-    if (!zobj || !member)
-        return 0;
-
-    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (zzlFind(zobj->ptr, member, score) == NULL)
-            return 0;
-    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        dictEntry *de;
-
-        member = tryObjectEncoding(member);
-        de = dictFind(zs->dict, member);
-        if (de != NULL) {
-            *score = *(double *)dictGetVal(de);
-        } else
-            return 0;
-    } else {
-        return 0;
-    }
-    return 1;
-}
-
 /* Largely extracted from genericZrangebyscoreCommand() in t_zset.c */
 /* The zrangebyscoreCommand expects to only operate on a live redisClient,
  * but we need results returned to us, not sent over an async socket. */
