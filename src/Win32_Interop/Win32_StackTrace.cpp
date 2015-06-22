@@ -147,7 +147,29 @@ void LogStackTrace() {
 void LogStackTrace() {}
 #endif
 
-LONG CALLBACK VectoredSegFaultHandler(PEXCEPTION_POINTERS info) {
+void StackTraceInfo() {
+    if (symbolsInitialized) {
+        redisLog(REDIS_WARNING, "--- STACK TRACE");
+        LogStackTrace();
+    }
+}
+
+void ServerInfo() {
+    redisLog(REDIS_WARNING, "--- INFO OUTPUT");
+    // Call antirez routine to log the info output
+    redisLogRaw(REDIS_WARNING | REDIS_LOG_RAW, genRedisInfoString("all"));
+}
+
+void BugReportEnd(){
+    redisLogRaw(REDIS_WARNING,
+        "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
+        "       Please report the crash by opening an issue on github:\n\n"
+        "           http://github.com/MSOpenTech/redis/issues\n\n"
+        "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
+        );
+}
+
+LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
     if (!processingException) {
         processingException = true;
         if (info->ExceptionRecord == NULL || info->ExceptionRecord->ExceptionCode == NULL) {
@@ -163,21 +185,10 @@ LONG CALLBACK VectoredSegFaultHandler(PEXCEPTION_POINTERS info) {
 
         // Call antirez routine to log the start of the bug report (for asserts in antirez code, the start has already been logged)
         bugReportStart();
-        redisLog(REDIS_WARNING, "Unhandled Exception: %s", exDescription);
-        if (symbolsInitialized) {
-            redisLog(REDIS_WARNING, "--- STACK TRACE");
-            LogStackTrace();
-        }
-        redisLog(REDIS_WARNING, "--- INFO OUTPUT");
-        // Call antirez routine to log the info output
-        redisLogRaw(REDIS_WARNING | REDIS_LOG_RAW, genRedisInfoString("all"));
-
-        redisLogRaw(REDIS_WARNING,
-            "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
-            "       Please report the crash by opening an issue on github:\n\n"
-            "           http://github.com/MSOpenTech/redis/issues\n\n"
-            "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
-            );
+        redisLog(REDIS_WARNING, "--- %s", exDescription);
+        StackTraceInfo();
+        ServerInfo();
+        BugReportEnd();
         processingException = false;
     }
     return EXCEPTION_CONTINUE_SEARCH;
@@ -185,8 +196,10 @@ LONG CALLBACK VectoredSegFaultHandler(PEXCEPTION_POINTERS info) {
 
 /* Handler to trap dlmalloc abort calls */
 extern "C" void AbortHandler(int signal_number) {
-    printf( "********** Abort was called **********\n");
-    LogStackTrace();
+    bugReportStart();
+    redisLog(REDIS_WARNING, "--- ABORT WAS CALLED");
+    StackTraceInfo();
+    BugReportEnd();
 }
 
 void InitSymbols() {
@@ -204,6 +217,6 @@ void InitSymbols() {
 void StackTraceInit(void) {
     process = GetCurrentProcess();
     InitSymbols();
-    LPVOID exceptionHandler = AddVectoredExceptionHandler(1, VectoredSegFaultHandler);
+    SetUnhandledExceptionFilter(UnhandledExceptiontHandler);
     signal(SIGABRT, &AbortHandler);
 }

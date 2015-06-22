@@ -663,6 +663,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
     bool foundSlaveFlag = false;
+    bool foundSentinelMode = checkForSentinelMode(argc, argv);
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
@@ -735,10 +736,12 @@ StartupStatus QForkStartup(int argc, char** argv) {
     int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
     if( maxmemoryBytes != -1 ) {
         maxheapBytes = (maxheapBytes > maxMemoryPlusHalf) ? maxheapBytes : maxMemoryPlusHalf;
+    } else if (!foundSlaveFlag && !foundSentinelMode) {
+        redisLog(REDIS_WARNING, "Warning: The maxmemory flag was not set, this can cause redis-server to crash if an out of memory exeception happens. It is strongly racommanded to set the maxmemory flag.");
     }
     if( maxheapBytes == -1 )
     {
-        if (checkForSentinelMode(argc, argv)) {
+        if (foundSentinelMode) {
             // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
             maxheapBytes = cSentinelHeapSize;
         } else {
