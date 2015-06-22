@@ -27,14 +27,6 @@ start_server {tags {"geo"}} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
 
-    test {GEORADIUSBYMEMBER simple (sorted, json)} {
-        r georadiusbymember nyc "wtc one" 7 km withgeojson
-    } {{{wtc one} {{"type":"Feature","geometry":{"type":"Point","coordinates":[-74.01316255331,40.712667181451]},"properties":{"distance":0,"member":"wtc one","units":"km","set":"nyc"}}}}\
-       {{union square} {{"type":"Feature","geometry":{"type":"Point","coordinates":[-73.990310132504,40.736250227118]},"properties":{"distance":3.2543954573354,"member":"union square","units":"km","set":"nyc"}}}}\
-       {{central park n/q/r} {{"type":"Feature","geometry":{"type":"Point","coordinates":[-73.973347842693,40.764806395699]},"properties":{"distance":6.7000029092796,"member":"central park n\/q\/r","units":"km","set":"nyc"}}}}\
-       {4545 {{"type":"Feature","geometry":{"type":"Point","coordinates":[-73.956412374973,40.748097513816]},"properties":{"distance":6.1975173818008,"member":"4545","units":"km","set":"nyc"}}}}\
-       {{lic market} {{"type":"Feature","geometry":{"type":"Point","coordinates":[-73.945495784283,40.747532270998]},"properties":{"distance":6.8968709532081,"member":"lic market","units":"km","set":"nyc"}}}}}
-
     test {GEORADIUSBYMEMBER withdistance (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
     } {{{wtc one} 0.00} {{union square} 3.25} {{central park n/q/r} 6.70} {4545 6.20} {{lic market} 6.90}}
