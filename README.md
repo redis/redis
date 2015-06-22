@@ -13,7 +13,7 @@ Redis on Windows
 
 - This is a port for Windows based on Redis 2.8.
 - There is support for the 64-bit version. We have dropped official support for the 32-bit version, though you can build it from source if desired.
-- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
+- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases "Release page"). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
 - Signed binaries can be downloaded using Nuget and Chocolatey.
 - There is a replacement for the UNIX fork() API that simulates the copy-on-write behavior using a memory mapped file.
 - Because Redis makes some assumptions about the values of File Descriptors, we have built a virtual file descriptor mapping layer. 
@@ -27,8 +27,8 @@ Redis on Windows
 ## Important: More documentation is available
 
 Vital information about configuring and deploying Redis on Windows:
-- [Redis on Windows](https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Redis%20on%20Windows.md)
-- [Windows Service Documentation]()https://raw.githubusercontent.com/janeasystems/redis-private/2.8/Windows%20Service%20Documentation.md)
+- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/2.8/Redis%20on%20Windows.md "Redis on Windows")
+- [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Windows%20Service%20Documentation.md "Windows Service Documentation")
 
 ## How to build Redis using Visual Studio
 
@@ -54,7 +54,6 @@ To run the Redis test suite requires some manual work:
 - To run the tests you need to have a Unix shell on your machine, or MinGW tools in your path. To execute the tests, run the following command: 
   "tclsh8.5.exe tests/test_helper.tcl --clients N", where N is the number of parallel clients . If a Unix shell is not installed you may see the 
   following error message: "couldn't execute "cat": no such file or directory".
-- By default the test suite launches 16 parallel tests. I will get time out errors on an iCore 7-2620m@2.7Ghz with some of the tests when the number of clients 
-  is greater than 6. 
+- By default the test suite launches 16 parallel tests, but some of the tests may fail when the number of clients is greater than 2. 
   
 
