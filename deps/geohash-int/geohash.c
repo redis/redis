@@ -43,38 +43,23 @@
  *  -----------------
  */
 
-bool geohashGetCoordRange(uint8_t coord_type, GeoHashRange *lat_range,
-                          GeoHashRange *long_range) {
-    switch (coord_type) {
-    case GEO_WGS84_TYPE: {
-        /* These are constraints from EPSG:900913 / EPSG:3785 / OSGEO:41001 */
-        /* We can't geocode at the north/south pole. */
-        lat_range->max = 85.05112878;
-        lat_range->min = -85.05112878;
-        long_range->max = 180.0;
-        long_range->min = -180.0;
-        break;
-    }
-    case GEO_MERCATOR_TYPE: {
-        lat_range->max = 20037726.37;
-        lat_range->min = -20037726.37;
-        long_range->max = 20037726.37;
-        long_range->min = -20037726.37;
-        break;
-    }
-    default: { return false; }
-    }
-    return true;
+void geohashGetCoordRange(GeoHashRange *lat_range, GeoHashRange *long_range) {
+    /* These are constraints from EPSG:900913 / EPSG:3785 / OSGEO:41001 */
+    /* We can't geocode at the north/south pole. */
+    lat_range->max = 85.05112878;
+    lat_range->min = -85.05112878;
+    long_range->max = 180.0;
+    long_range->min = -180.0;
 }
 
-bool geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
-                   double latitude, double longitude, uint8_t step,
-                   GeoHashBits *hash) {
+int geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
+                  double latitude, double longitude, uint8_t step,
+                  GeoHashBits *hash) {
     uint8_t i;
 
     if (NULL == hash || step > 32 || step == 0 || RANGEPISZERO(lat_range) ||
         RANGEPISZERO(long_range)) {
-        return false;
+        return 0;
     }
 
     hash->bits = 0;
@@ -82,7 +67,7 @@ bool geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
 
     if (latitude < lat_range->min || latitude > lat_range->max ||
         longitude < long_range->min || longitude > long_range->max) {
-        return false;
+        return 0;
     }
 
     for (i = 0; i < step; i++) {
@@ -108,38 +93,31 @@ bool geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
         hash->bits <<= 1;
         hash->bits += lat_bit;
     }
-    return true;
+    return 1;
 }
 
-bool geohashEncodeType(uint8_t coord_type, double latitude, double longitude,
-                       uint8_t step, GeoHashBits *hash) {
+int geohashEncodeType(double latitude, double longitude, uint8_t step, GeoHashBits *hash) {
     GeoHashRange r[2] = { { 0 } };
-    geohashGetCoordRange(coord_type, &r[0], &r[1]);
+    geohashGetCoordRange(&r[0], &r[1]);
     return geohashEncode(&r[0], &r[1], latitude, longitude, step, hash);
 }
 
-bool geohashEncodeWGS84(double latitude, double longitude, uint8_t step,
-                        GeoHashBits *hash) {
-    return geohashEncodeType(GEO_WGS84_TYPE, latitude, longitude, step, hash);
-}
-
-bool geohashEncodeMercator(double latitude, double longitude, uint8_t step,
-                           GeoHashBits *hash) {
-    return geohashEncodeType(GEO_MERCATOR_TYPE, latitude, longitude, step,
-                             hash);
+int geohashEncodeWGS84(double latitude, double longitude, uint8_t step,
+                       GeoHashBits *hash) {
+    return geohashEncodeType(latitude, longitude, step, hash);
 }
 
 static inline uint8_t get_bit(uint64_t bits, uint8_t pos) {
     return (bits >> pos) & 0x01;
 }
 
-bool geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
+int geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
                    const GeoHashBits hash, GeoHashArea *area) {
     uint8_t i;
 
     if (HASHISZERO(hash) || NULL == area || RANGEISZERO(lat_range) ||
         RANGEISZERO(long_range)) {
-        return false;
+        return 0;
     }
 
     area->hash = hash;
@@ -168,52 +146,45 @@ bool geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
                 (area->longitude.max + area->longitude.min) / 2;
         }
     }
-    return true;
+    return 1;
 }
 
-bool geohashDecodeType(uint8_t coord_type, const GeoHashBits hash,
-                       GeoHashArea *area) {
+int geohashDecodeType(const GeoHashBits hash, GeoHashArea *area) {
     GeoHashRange r[2] = { { 0 } };
-    geohashGetCoordRange(coord_type, &r[0], &r[1]);
+    geohashGetCoordRange(&r[0], &r[1]);
     return geohashDecode(r[0], r[1], hash, area);
 }
 
-bool geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area) {
-    return geohashDecodeType(GEO_WGS84_TYPE, hash, area);
+int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area) {
+    return geohashDecodeType(hash, area);
 }
 
-bool geohashDecodeMercator(const GeoHashBits hash, GeoHashArea *area) {
-    return geohashDecodeType(GEO_MERCATOR_TYPE, hash, area);
-}
-
-bool geohashDecodeAreaToLatLong(const GeoHashArea *area, double *latlong) {
+int geohashDecodeAreaToLatLong(const GeoHashArea *area, double *latlong) {
     double y, x;
 
-    if (!latlong)
-        return false;
+    if (!latlong) return 0;
 
     y = (area->latitude.min + area->latitude.max) / 2;
     x = (area->longitude.min + area->longitude.max) / 2;
 
     latlong[0] = y;
     latlong[1] = x;
-    return true;
+    return 1;
 }
 
-bool geohashDecodeToLatLongType(uint8_t coord_type, const GeoHashBits hash,
-                                double *latlong) {
+int geohashDecodeToLatLongType(const GeoHashBits hash, double *latlong) {
     GeoHashArea area = { { 0 } };
-    if (!latlong || !geohashDecodeType(coord_type, hash, &area))
-        return false;
+    if (!latlong || !geohashDecodeType(hash, &area))
+        return 0;
     return geohashDecodeAreaToLatLong(&area, latlong);
 }
 
-bool geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong) {
-    return geohashDecodeToLatLongType(GEO_WGS84_TYPE, hash, latlong);
+int geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong) {
+    return geohashDecodeToLatLongType(hash, latlong);
 }
 
-bool geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong) {
-    return geohashDecodeToLatLongType(GEO_MERCATOR_TYPE, hash, latlong);
+int geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong) {
+    return geohashDecodeToLatLongType(hash, latlong);
 }
 
 static void geohash_move_x(GeoHashBits *hash, int8_t d) {

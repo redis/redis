@@ -32,7 +32,6 @@
 #define GEOHASH_HELPER_HPP_
 
 #include <math.h>
-#include <stdbool.h>
 #include "geohash.h"
 
 #define GZERO(s) s.bits = s.step = 0;
@@ -50,9 +49,9 @@ typedef struct {
 
 int GeoHashBitsComparator(const GeoHashBits *a, const GeoHashBits *b);
 uint8_t geohashEstimateStepsByRadius(double range_meters);
-bool geohashBoundingBox(double latitude, double longitude, double radius_meters,
+int geohashBoundingBox(double latitude, double longitude, double radius_meters,
                         double *bounds);
-GeoHashRadius geohashGetAreasByRadius(uint8_t coord_type, double latitude,
+GeoHashRadius geohashGetAreasByRadius(double latitude,
                                       double longitude, double radius_meters);
 GeoHashRadius geohashGetAreasByRadiusWGS84(double latitude, double longitude,
                                            double radius_meters);
@@ -63,16 +62,16 @@ double geohashGetXMercator(double longtitude);
 double geohashGetYMercator(double latitude);
 double geohashGetXWGS84(double x);
 double geohashGetYWGS84(double y);
-bool geohashVerifyCoordinates(uint8_t coord_type, double x, double y);
-bool geohashGetDistanceIfInRadius(uint8_t coord_type, double x1, double y1,
-                                  double x2, double y2, double radius,
-                                  double *distance);
-bool geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
-                                       double y2, double radius,
-                                       double *distance);
-bool geohashGetDistanceSquaredIfInRadiusMercator(double x1, double y1,
-                                                 double x2, double y2,
-                                                 double radius,
-                                                 double *distance);
+int geohashVerifyCoordinates(double x, double y);
+int geohashGetDistanceIfInRadius(double x1, double y1,
+                                 double x2, double y2, double radius,
+                                 double *distance);
+int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
+                                      double y2, double radius,
+                                      double *distance);
+int geohashGetDistanceSquaredIfInRadiusMercator(double x1, double y1,
+                                                double x2, double y2,
+                                                double radius,
+                                                double *distance);
 
 #endif /* GEOHASH_HELPER_HPP_ */

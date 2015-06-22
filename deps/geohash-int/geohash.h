@@ -32,7 +32,7 @@
 #define GEOHASH_H_
 
 #include <stddef.h>
-#include <stdbool.h>
+#include <stdint.h>
 #include <stdint.h>
 
 #if defined(__cplusplus)
@@ -42,9 +42,6 @@ extern "C" {
 #define HASHISZERO(r) (!(r).bits && !(r).step)
 #define RANGEISZERO(r) (!(r).max && !(r).min)
 #define RANGEPISZERO(r) (r == NULL || RANGEISZERO(*r))
-
-#define GEO_WGS84_TYPE 1
-#define GEO_MERCATOR_TYPE 2
 
 #define GEO_STEP_MAX 26
 
@@ -90,28 +87,22 @@ typedef struct {
  * 0:success
  * -1:failed
  */
-bool geohashGetCoordRange(uint8_t coord_type, GeoHashRange *lat_range,
-                          GeoHashRange *long_range);
-bool geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
-                   double latitude, double longitude, uint8_t step,
-                   GeoHashBits *hash);
-bool geohashEncodeType(uint8_t coord_type, double latitude, double longitude,
-                       uint8_t step, GeoHashBits *hash);
-bool geohashEncodeMercator(double latitude, double longitude, uint8_t step,
-                           GeoHashBits *hash);
-bool geohashEncodeWGS84(double latitude, double longitude, uint8_t step,
-                        GeoHashBits *hash);
-bool geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
-                   const GeoHashBits hash, GeoHashArea *area);
-bool geohashDecodeType(uint8_t coord_type, const GeoHashBits hash,
-                       GeoHashArea *area);
-bool geohashDecodeMercator(const GeoHashBits hash, GeoHashArea *area);
-bool geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area);
-bool geohashDecodeAreaToLatLong(const GeoHashArea *area, double *latlong);
-bool geohashDecodeToLatLongType(uint8_t coord_type, const GeoHashBits hash,
-                                double *latlong);
-bool geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong);
-bool geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong);
+void geohashGetCoordRange(GeoHashRange *lat_range, GeoHashRange *long_range);
+int geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
+                  double latitude, double longitude, uint8_t step,
+                  GeoHashBits *hash);
+int geohashEncodeType(double latitude, double longitude,
+                      uint8_t step, GeoHashBits *hash);
+int geohashEncodeWGS84(double latitude, double longitude, uint8_t step,
+                       GeoHashBits *hash);
+int geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
+                  const GeoHashBits hash, GeoHashArea *area);
+int geohashDecodeType(const GeoHashBits hash, GeoHashArea *area);
+int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area);
+int geohashDecodeAreaToLatLong(const GeoHashArea *area, double *latlong);
+int geohashDecodeToLatLongType(const GeoHashBits hash, double *latlong);
+int geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong);
+int geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong);
 void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 
 #if defined(__cplusplus)
