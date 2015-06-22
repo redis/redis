@@ -21,7 +21,7 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUS withdistance (sorted)} {
         r georadius nyc 40.7598464 -73.9798091 3 km withdistance ascending
-    } {{{central park n/q/r} 0.78} {4545 2.37} {{union square} 2.77}}
+    } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697}}
 
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
@@ -29,7 +29,7 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUSBYMEMBER withdistance (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
-    } {{{wtc one} 0.00} {{union square} 3.25} {{central park n/q/r} 6.70} {4545 6.20} {{lic market} 6.90}}
+    } {{{wtc one} 0.0000} {{union square} 3.2544} {{central park n/q/r} 6.7000} {4545 6.1975} {{lic market} 6.8969}}
 
     test {GEOENCODE simple} {
         r geoencode 41.2358883 1.8063239
