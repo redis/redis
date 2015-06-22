@@ -13,13 +13,13 @@ int zslValueLteMax(double value, zrangespec *spec);
  * ==================================================================== */
 
 /* zset access is mostly a copy/paste from zscoreCommand() */
-bool zsetScore(robj *zobj, robj *member, double *score) {
+int zsetScore(robj *zobj, robj *member, double *score) {
     if (!zobj || !member)
-        return false;
+        return 0;
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         if (zzlFind(zobj->ptr, member, score) == NULL)
-            return false;
+            return 0;
     } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         dictEntry *de;
@@ -29,11 +29,11 @@ bool zsetScore(robj *zobj, robj *member, double *score) {
         if (de != NULL) {
             *score = *(double *)dictGetVal(de);
         } else
-            return false;
+            return 0;
     } else {
-        return false;
+        return 0;
     }
-    return true;
+    return 1;
 }
 
 /* Largely extracted from genericZrangebyscoreCommand() in t_zset.c */

@@ -2,7 +2,6 @@
 #define __ZSET_H__
 
 #include "redis.h"
-#include <stdbool.h>
 
 #define ZR_LONG 1
 #define ZR_STRING 2
@@ -17,7 +16,7 @@ struct zipresult {
 };
 
 /* Redis DB Access */
-bool zsetScore(robj *zobj, robj *member, double *score);
+int zsetScore(robj *zobj, robj *member, double *score);
 list *geozrangebyscore(robj *zobj, double min, double max, int limit);
 
 /* New list operation: append one list to another */

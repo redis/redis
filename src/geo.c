@@ -47,36 +47,36 @@
 /* ====================================================================
  * Helpers
  * ==================================================================== */
-static inline bool decodeGeohash(double bits, double *latlong) {
+static inline int decodeGeohash(double bits, double *latlong) {
     GeoHashBits hash = { .bits = (uint64_t)bits, .step = GEO_STEP_MAX };
     return geohashDecodeToLatLongWGS84(hash, latlong);
 }
 
 /* Input Argument Helper */
 /* Take a pointer to the latitude arg then use the next arg for longitude */
-static inline bool extractLatLongOrReply(redisClient *c, robj **argv,
+static inline int extractLatLongOrReply(redisClient *c, robj **argv,
                                          double *latlong) {
     for (int i = 0; i < 2; i++) {
         if (getDoubleFromObjectOrReply(c, argv[i], latlong + i, NULL) !=
             REDIS_OK) {
-            return false;
+            return 0;
         }
     }
-    return true;
+    return 1;
 }
 
 /* Input Argument Helper */
 /* Decode lat/long from a zset member's score */
-static bool latLongFromMember(robj *zobj, robj *member, double *latlong) {
+static int latLongFromMember(robj *zobj, robj *member, double *latlong) {
     double score = 0;
 
     if (!zsetScore(zobj, member, &score))
-        return false;
+        return 0;
 
     if (!decodeGeohash(score, latlong))
-        return false;
+        return 0;
 
-    return true;
+    return 1;
 }
 
 /* Input Argument Helper */
@@ -124,7 +124,7 @@ static void latLongToGeojsonAndReply(redisClient *c, struct geojsonPoint *gp,
 static void decodeGeohashToGeojsonBoundsAndReply(redisClient *c,
                                                  uint64_t hashbits,
                                                  struct geojsonPoint *gp) {
-    GeoHashArea area = { { 0 } };
+    GeoHashArea area = {{0,0},{0,0},{0,0}};
     GeoHashBits hash = { .bits = hashbits, .step = GEO_STEP_MAX };
 
     geohashDecodeWGS84(hash, &area);
@@ -171,6 +171,7 @@ static list *membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double x,
                                    double y, double radius) {
     list *l = NULL;
     GeoHashBits neighbors[9];
+    unsigned int i;
 
     neighbors[0] = n.hash;
     neighbors[1] = n.neighbors.north;
@@ -184,7 +185,7 @@ static list *membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double x,
 
     /* For each neighbor (*and* our own hashbox), get all the matching
      * members and add them to the potential result list. */
-    for (int i = 0; i < sizeof(neighbors) / sizeof(*neighbors); i++) {
+    for (i = 0; i < sizeof(neighbors) / sizeof(*neighbors); i++) {
         list *r;
 
         if (HASHISZERO(neighbors[i]))
@@ -213,7 +214,7 @@ static list *membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double x,
     listRewind(l, &li);
     while ((ln = listNext(&li))) {
         struct zipresult *zr = listNodeValue(ln);
-        GeoHashArea area = { { 0 } };
+        GeoHashArea area = {{0,0},{0,0},{0,0}};
         GeoHashBits hash = { .bits = (uint64_t)zr->score,
                              .step = GEO_STEP_MAX };
 
@@ -433,31 +434,31 @@ static void geoRadiusGeneric(redisClient *c, int type) {
     sds units = c->argv[base_args - 2 + 1]->ptr;
 
     /* Discover and populate all optional parameters. */
-    bool withdist = false, withhash = false, withcoords = false,
-         withgeojson = false, withgeojsonbounds = false,
-         withgeojsoncollection = false, noproperties = false;
+    int withdist = 0, withhash = 0, withcoords = 0,
+         withgeojson = 0, withgeojsonbounds = 0,
+         withgeojsoncollection = 0, noproperties = 0;
     int sort = SORT_NONE;
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
             char *arg = c->argv[base_args + i]->ptr;
             if (!strncasecmp(arg, "withdist", 8))
-                withdist = true;
+                withdist = 1;
             else if (!strcasecmp(arg, "withhash"))
-                withhash = true;
+                withhash = 1;
             else if (!strncasecmp(arg, "withcoord", 9))
-                withcoords = true;
+                withcoords = 1;
             else if (!strncasecmp(arg, "withgeojsonbound", 16))
-                withgeojsonbounds = true;
+                withgeojsonbounds = 1;
             else if (!strncasecmp(arg, "withgeojsoncollection", 21))
-                withgeojsoncollection = true;
+                withgeojsoncollection = 1;
             else if (!strncasecmp(arg, "withgeo", 7) ||
                      !strcasecmp(arg, "geojson") || !strcasecmp(arg, "json") ||
                      !strcasecmp(arg, "withjson"))
-                withgeojson = true;
+                withgeojson = 1;
             else if (!strncasecmp(arg, "noprop", 6) ||
                      !strncasecmp(arg, "withoutprop", 11))
-                noproperties = true;
+                noproperties = 1;
             else if (!strncasecmp(arg, "asc", 3) ||
                      !strncasecmp(arg, "sort", 4))
                 sort = SORT_ASC;
@@ -470,7 +471,7 @@ static void geoRadiusGeneric(redisClient *c, int type) {
         }
     }
 
-    bool withgeo = withgeojsonbounds || withgeojsoncollection || withgeojson;
+    int withgeo = withgeojsonbounds || withgeojsoncollection || withgeojson;
 
     /* Get all neighbor geohash boxes for our radius search */
     GeoHashRadius georadius =
@@ -617,9 +618,9 @@ void geoDecodeCommand(redisClient *c) {
                                      NULL) != REDIS_OK)
         return;
 
-    bool withgeojson = false;
+    int withgeojson = 0;
     if (c->argc == 3)
-        withgeojson = true;
+        withgeojson = 1;
 
     GeoHashArea area;
     geohash.step = GEO_STEP_MAX;
@@ -665,12 +666,12 @@ void geoEncodeCommand(redisClient *c) {
      * - AND / OR -
      * optional: [geojson] */
 
-    bool withgeojson = false;
+    int withgeojson = 0;
     for (int i = 3; i < c->argc; i++) {
         char *arg = c->argv[i]->ptr;
         if (!strncasecmp(arg, "withgeo", 7) || !strcasecmp(arg, "geojson") ||
             !strcasecmp(arg, "json") || !strcasecmp(arg, "withjson")) {
-            withgeojson = true;
+            withgeojson = 1;
             break;
         }
     }
