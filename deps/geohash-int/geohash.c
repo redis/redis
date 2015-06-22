@@ -183,10 +183,6 @@ int geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong) {
     return geohashDecodeToLatLongType(hash, latlong);
 }
 
-int geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong) {
-    return geohashDecodeToLatLongType(hash, latlong);
-}
-
 static void geohash_move_x(GeoHashBits *hash, int8_t d) {
     if (d == 0)
         return;
