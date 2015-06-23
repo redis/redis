@@ -51,7 +51,7 @@ typedef __int64                 PORT_LONGLONG;
 typedef unsigned __int64        PORT_ULONGLONG;
 typedef double                  PORT_LONGDOUBLE;
 
-#if defined(_WIN64)
+#ifdef _WIN64
   typedef __int64               ssize_t;
   typedef __int64               PORT_LONG;
   typedef unsigned __int64      PORT_ULONG;
@@ -61,7 +61,7 @@ typedef double                  PORT_LONGDOUBLE;
   typedef _W64 unsigned long    PORT_ULONG;
 #endif
 
-#if defined(_WIN64)
+#ifdef _WIN64
   #define PORT_LONG_MAX     _I64_MAX
   #define PORT_LONG_MIN     _I64_MIN
   #define PORT_ULONG_MAX    _UI64_MAX
