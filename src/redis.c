@@ -3389,9 +3389,17 @@ void loadDataFromDisk(void) {
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
-    redisLog(REDIS_WARNING,"Out Of Memory allocating %Iu bytes!",               WIN_PORT_FIX /* %zu -> %Iu */
+#ifdef _WIN32
+    bugReportStart();
+    redisLog(REDIS_WARNING, "Out Of Memory allocating %Iu bytes.", /* %zu -> %Iu */
+        allocation_size);
+    // Call abort() instead of forcing an access violation in redisPanic
+    abort();
+#else
+    redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
     redisPanic("Redis aborting for OUT OF MEMORY");
+#endif
 }
 
 void redisSetProcTitle(char *title) {
