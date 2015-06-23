@@ -160,24 +160,19 @@ static inline void addReplyDoubleDistance(redisClient *c, double d) {
  *
  * returns REDIS_OK if the point is included, or REIDS_ERR if it is outside. */
 int geoAppendIfWithinRadius(geoArray *ga, double x, double y, double radius, double score, sds member) {
-    GeoHashArea area = {{0,0},{0,0},{0,0}};
-    GeoHashBits hash = { .bits = (uint64_t)score, .step = GEO_STEP_MAX };
-    double distance;
+    double distance, latlong[2];
 
-    if (!geohashDecodeWGS84(hash, &area)) return REDIS_ERR; /* Can't decode. */
-
-    double neighbor_y = (area.latitude.min + area.latitude.max) / 2;
-    double neighbor_x = (area.longitude.min + area.longitude.max) / 2;
-
-    if (!geohashGetDistanceIfInRadiusWGS84(x, y, neighbor_x, neighbor_y,
-                                           radius, &distance)) {
+    if (!decodeGeohash(score,latlong)) return REDIS_ERR; /* Can't decode. */
+    if (!geohashGetDistanceIfInRadiusWGS84(x,y,latlong[1], latlong[0],
+                                           radius, &distance))
+    {
         return REDIS_ERR;
     }
 
     /* Append the new element. */
     geoPoint *gp = geoArrayAppend(ga);
-    gp->latitude = neighbor_y;
-    gp->longitude = neighbor_x;
+    gp->latitude = latlong[0];
+    gp->longitude = latlong[1];
     gp->dist = distance;
     gp->member = member;
     gp->score = score;
