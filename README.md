@@ -24,9 +24,9 @@ Redis on Windows
 - Redis on UNIX [release notes](https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES)
 - Redis on Windows [release notes](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)
 
-## Important: More documentation is available
+## How to configure and deploy Redis on Windows
 
-Vital information about configuring and deploying Redis on Windows:
+- [Memory Configuration](https://github.com/MSOpenTech/redis/wiki/Memory-Configuration "Memory Configuration")
 - [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/2.8/Redis%20on%20Windows.md "Redis on Windows")
 - [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Windows%20Service%20Documentation.md "Windows Service Documentation")
 
@@ -34,7 +34,7 @@ Vital information about configuring and deploying Redis on Windows:
 
 You can use the free Visual Studio Community edition available at http://www.visualstudio.com/products/visual-studio-community-vs.
 
-- Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (Win32 or x64) then build.
+- Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (x64) then build.
 
     This should create the following executables in the msvs\$(Target)\$(Configuration) folder:
 
