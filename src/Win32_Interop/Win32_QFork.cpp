@@ -192,7 +192,7 @@ QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess;
 DWORD g_systemAllocationGranularity;
-int g_SlaveExitCode = 0; // For slave process
+int g_ChildExitCode = 0; // For child process
 
 bool ReportSpecialSystemErrors(int error) {
     switch (error)
@@ -248,27 +248,27 @@ bool ReportSpecialSystemErrors(int error) {
     }
 }
 
-BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
+BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     try {
         SmartHandle shParent( 
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
         SmartHandle shMMFile(shParent, QForkConrolMemoryMapHandle);
-        SmartFileView<QForkControl> sfvMasterQForkControl( 
+        SmartFileView<QForkControl> sfvParentQForkControl(
             shMMFile, 
             FILE_MAP_COPY, 
-            string("Could not map view of QForkControl in slave. Is system swap file large enough?"));
-        g_pQForkControl = sfvMasterQForkControl;
+            string("Could not map view of QForkControl in child. Is system swap file large enough?"));
+        g_pQForkControl = sfvParentQForkControl;
 
-        // duplicate handles and stuff into control structure (master protected by PAGE_WRITECOPY)
-        SmartHandle dupHeapFileHandle(shParent, sfvMasterQForkControl->heapMemoryMapFile);
+        // duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
+        SmartHandle dupHeapFileHandle(shParent, sfvParentQForkControl->heapMemoryMapFile);
         g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
-        SmartHandle dupForkedProcessReady(shParent,sfvMasterQForkControl->forkedProcessReady);
+        SmartHandle dupForkedProcessReady(shParent, sfvParentQForkControl->forkedProcessReady);
         g_pQForkControl->forkedProcessReady = dupForkedProcessReady;
-        SmartHandle dupOperationComplete(shParent,sfvMasterQForkControl->operationComplete);
+        SmartHandle dupOperationComplete(shParent, sfvParentQForkControl->operationComplete);
         g_pQForkControl->operationComplete = dupOperationComplete;
-        SmartHandle dupOperationFailed(shParent,sfvMasterQForkControl->operationFailed);
+        SmartHandle dupOperationFailed(shParent, sfvParentQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
 
        // create section handle on MM file
@@ -282,7 +282,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
            0,
 #endif
            LODWORD(mmSize),
-           string("Could not open file mapping object in slave"));
+           string("Could not open file mapping object in child"));
        g_pQForkControl->heapMemoryMap = sfmhMapFile;
 
 
@@ -308,9 +308,9 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 
         // execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
-            g_SlaveExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
+            g_ChildExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
-            g_SlaveExitCode = do_aofSave(g_pQForkControl->globalData.filename);
+            g_ChildExitCode = do_aofSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otSocket) {
             LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->globalData.protocolInfo;
             int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->globalData.pipe_write_handle, _O_APPEND);
@@ -323,7 +323,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
                                                                WSA_FLAG_OVERLAPPED);
             }
 
-            g_SlaveExitCode = do_socketSave(g_pQForkControl->globalData.fds,
+            g_ChildExitCode = do_socketSave(g_pQForkControl->globalData.fds,
                                             g_pQForkControl->globalData.numfds,
                                             g_pQForkControl->globalData.clientids,
                                             pipe_write_fd);
@@ -339,7 +339,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     }
     catch(std::system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
-            ::redisLog(REDIS_WARNING, "QForkSlaveInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+            ::redisLog(REDIS_WARNING, "QForkChildInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
             g_pQForkControl = NULL;
             if (g_pQForkControl != NULL) {
                 if (g_pQForkControl->operationFailed != NULL) {
@@ -350,7 +350,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         }
     }
     catch(std::runtime_error runerr) {
-        ::redisLog(REDIS_WARNING, "QForkSlaveInit: runtime error caught. message=%s\n", runerr.what());
+        ::redisLog(REDIS_WARNING, "QForkChildInit: runtime error caught. message=%s\n", runerr.what());
         g_pQForkControl = NULL;
         SetEvent(g_pQForkControl->operationFailed);
         return FALSE;
@@ -411,7 +411,7 @@ string GetWorkingDirectory() {
     return g_MMFDir;
 }
 
-BOOL QForkMasterInit( __int64 maxheapBytes ) {
+BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
         // allocate file map for qfork control so it can be passed to the forked process
         g_hQForkControlFileMap = CreateFileMappingW(
@@ -602,14 +602,14 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
     }
     catch(std::system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
-            ::redisLog(REDIS_WARNING, "QForkMasterInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+            ::redisLog(REDIS_WARNING, "QForkParentInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
     }
     catch(std::runtime_error runerr) {
-        ::redisLog(REDIS_WARNING, "QForkMasterInit: runtime error caught. message=%s\n", runerr.what());
+        ::redisLog(REDIS_WARNING, "QForkParentInit: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
-        ::redisLog(REDIS_WARNING, "QForkMasterInit: other exception caught.\n");
+        ::redisLog(REDIS_WARNING, "QForkParentInit: other exception caught.\n");
     }
     return FALSE;
 }
@@ -662,7 +662,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
-    bool foundSlaveFlag = false;
+    bool foundChildFlag = false;
     bool foundSentinelMode = checkForSentinelMode(argc, argv);
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
@@ -675,8 +675,8 @@ StartupStatus QForkStartup(int argc, char** argv) {
     g_systemAllocationGranularity = si.dwAllocationGranularity;
 
     if (g_argMap.find(cQFork) != g_argMap.end()) {
-        // slave command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
-        foundSlaveFlag = true;
+        // Child command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
+        foundChildFlag = true;
         char* endPtr;
         QForkConrolMemoryMapHandle = (HANDLE)strtoul(g_argMap[cQFork].at(0).at(0).c_str(),&endPtr,10);
         char* end = NULL;
@@ -735,12 +735,12 @@ StartupStatus QForkStartup(int argc, char** argv) {
     */
     int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
     if( maxmemoryBytes != -1 ) {
-        maxheapBytes = (maxheapBytes > maxMemoryPlusHalf) ? maxheapBytes : maxMemoryPlusHalf;
-    } else if (!foundSlaveFlag && !foundSentinelMode) {
-        redisLog(REDIS_WARNING, "Warning: The maxmemory flag was not set, this can cause redis-server to crash if an out-of-memory exception happens. It is strongly recommanded to set the maxmemory flag.");
+        if (maxheapBytes < maxMemoryPlusHalf) {
+            maxheapBytes = maxMemoryPlusHalf;
+        }
     }
-    if( maxheapBytes == -1 )
-    {
+
+    if( maxheapBytes == -1 ) {
         if (foundSentinelMode) {
             // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
             maxheapBytes = cSentinelHeapSize;
@@ -753,16 +753,16 @@ StartupStatus QForkStartup(int argc, char** argv) {
         }
     }
 
-    if (foundSlaveFlag) {
+    if (foundChildFlag) {
         LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );
         StartupStatus retVal = StartupStatus::ssFAILED;
         try {
-            retVal = QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
+            retVal = QForkChildInit(QForkConrolMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
         } catch (...) { }
         RemoveVectoredExceptionHandler(exceptionHandler);       
         return retVal;
     } else {
-        return QForkMasterInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
+        return QForkParentInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
     }
 }
 
@@ -901,7 +901,7 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
         throw system_error( 
             GetLastError(),
             system_category(),
-            "Problem creating slave process" );
+            "Problem creating child process" );
     }
     g_hForkedProcess = pi->hProcess;
 }
@@ -1374,16 +1374,16 @@ extern "C"
 
             if (IsPersistenceAvailable() == TRUE) {
                   StartupStatus status = QForkStartup(argc, argv);
-                  if (status == ssCONTINUE_AS_MASTER) {
+                  if (status == ssCONTINUE_AS_PARENT) {
                       int retval = redis_main(argc, argv);
                       QForkShutdown();
                       return retval;
-                  } else if (status == ssSLAVE_EXIT) {
-                      // slave is done - clean up and exit
+                  } else if (status == ssCHILD_EXIT) {
+                      // child is done - clean up and exit
                       QForkShutdown();
-                      return g_SlaveExitCode;
+                      return g_ChildExitCode;
                   } else if (status == ssFAILED) {
-                      // master or slave failed initialization
+                      // parent or child failed initialization
                       return 1;
                   } else {
                       // unexpected status return

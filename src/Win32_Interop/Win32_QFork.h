@@ -45,8 +45,8 @@ typedef enum operationStatus {
 
 typedef enum startupStatus {
     ssFAILED = 0,                 // Something went wrong, exit program with error.
-    ssCONTINUE_AS_MASTER = 1,     // Master qfork initialization complete, continue as master instance. Call QForkShutdown when exiting.
-    ssSLAVE_EXIT = 2              // Slave completed operation. Call QForkShutdown and exit.
+    ssCONTINUE_AS_PARENT = 1,     // Parent qfork initialization complete, continue as parent instance. Call QForkShutdown when exiting.
+    ssCHILD_EXIT = 2              // Child completed operation. Call QForkShutdown and exit.
 } StartupStatus;
 
 #define MAX_GLOBAL_DATA 10000
@@ -65,7 +65,7 @@ typedef struct QForkBeginInfo {
 StartupStatus QForkStartup(int argc, char** argv);
 BOOL QForkShutdown();
 
-// For master process use only
+// For parent process use only
 BOOL BeginForkOperation_Rdb(
     char* fileName,
     LPVOID globalData,
