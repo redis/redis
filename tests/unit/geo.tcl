@@ -7,6 +7,14 @@ start_server {tags {"geo"}} {
         r geoadd nyc 40.747533 -73.9454966 "lic market"
     } {0}
 
+    test {GEOADD invalid coordinates} {
+        catch {
+            r geoadd nyc 40.747533 -73.9454966 "lic market" \
+                foo bar "luck market"
+        } err
+        set err
+    } {*valid*}
+
     test {GEOADD multi add} {
         r geoadd nyc 40.7648057 -73.9733487 "central park n/q/r" 40.7362513 -73.9903085 "union square" 40.7126674 -74.0131604 "wtc one" 40.6428986 -73.7858139 "jfk" 40.7498929 -73.9375699 "q4" 40.7480973 -73.9564142 4545
     } {6}
