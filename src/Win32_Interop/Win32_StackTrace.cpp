@@ -26,7 +26,6 @@
 #include <signal.h>
 #include <stdio.h>
 
-static HANDLE process;
 static IMAGEHLP_SYMBOL64* pSymbol = (IMAGEHLP_SYMBOL64*) malloc(sizeof(IMAGEHLP_SYMBOL64) + MAX_PATH*sizeof(TCHAR));
 static IMAGEHLP_LINE64 line;
 static BOOLEAN processingException = FALSE;
@@ -80,6 +79,7 @@ int GetFilenameStart(CHAR* path) {
 void LogStackTrace() {
     BOOL            result;
     HANDLE          thread;
+    HANDLE          process;
     CONTEXT         context;
     STACKFRAME64    stack;
     ULONG           frame;
@@ -171,19 +171,18 @@ void BugReportEnd(){
 
 LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
     if (!processingException) {
+        const char* exDescription = "Exception code not available";
         processingException = true;
-        if (info->ExceptionRecord == NULL || info->ExceptionRecord->ExceptionCode == NULL) {
-            redisLog(REDIS_WARNING, "Unhandled Exception: code not available");
-            return EXCEPTION_CONTINUE_SEARCH;
+        if (info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
+            exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
+            // If it's an application exception don't process it, here we don't want to catch
+            // exceptions like the one thrown by the code that processes the command arguments
+            if (strcmp(exDescription, "UNKNOWN EXCEPTION") == 0) {
+                return EXCEPTION_CONTINUE_SEARCH;
+            }
         }
 
-        const char* exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
-        // If it's an application exception don't process it
-        if (strcmp(exDescription, "UNKNOWN EXCEPTION") == 0) {
-            return EXCEPTION_CONTINUE_SEARCH;
-        }
-
-        // Call antirez routine to log the start of the bug report (for asserts in antirez code, the start has already been logged)
+        // Call antirez routine to log the start of the bug report
         bugReportStart();
         redisLog(REDIS_WARNING, "--- %s", exDescription);
         StackTraceInfo();
@@ -194,19 +193,19 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-/* Handler to trap dlmalloc abort calls */
+/* Handler to trap abort() calls */
 extern "C" void AbortHandler(int signal_number) {
     bugReportStart();
-    redisLog(REDIS_WARNING, "--- ABORT WAS CALLED");
+    redisLog(REDIS_WARNING, "--- ABORT");
     StackTraceInfo();
     BugReportEnd();
 }
 
 void InitSymbols() {
-    // Symbols preloading, it's required to print the stacktrace when an OOM exception is raised
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME );
-
+    // Preload symbols so they will be available in case of out-of-memory exception
+    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+    HANDLE process = GetCurrentProcess();
     symbolsInitialized = SymInitialize(process, NULL, TRUE);
     if (!symbolsInitialized) {
         DWORD error = GetLastError();
@@ -215,8 +214,9 @@ void InitSymbols() {
 }
 
 void StackTraceInit(void) {
-    process = GetCurrentProcess();
     InitSymbols();
+    // Global handler for unhandled exceptions
     SetUnhandledExceptionFilter(UnhandledExceptiontHandler);
+    // Handler for abort()
     signal(SIGABRT, &AbortHandler);
 }
