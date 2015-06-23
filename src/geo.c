@@ -560,8 +560,8 @@ void geoDecodeCommand(redisClient *c) {
     geohash.step = GEO_STEP_MAX;
     geohashDecodeWGS84(geohash, &area);
 
-    double y = (area.latitude.min + area.latitude.max) / 2;
-    double x = (area.longitude.min + area.longitude.max) / 2;
+    double lat = (area.latitude.min + area.latitude.max) / 2;
+    double lon = (area.longitude.min + area.longitude.max) / 2;
 
     /* Returning three nested replies */
     addReplyMultiBulkLen(c, 3);
@@ -578,8 +578,8 @@ void geoDecodeCommand(redisClient *c) {
 
     /* Last, the averaged center of this bounding box */
     addReplyMultiBulkLen(c, 2);
-    addReplyDouble(c, y);
-    addReplyDouble(c, x);
+    addReplyDouble(c, lat);
+    addReplyDouble(c, lon);
 }
 
 void geoEncodeCommand(redisClient *c) {
@@ -613,8 +613,8 @@ void geoEncodeCommand(redisClient *c) {
     GeoHashArea area;
     geohashDecodeWGS84(geohash, &area);
 
-    double y = (area.latitude.min + area.latitude.max) / 2;
-    double x = (area.longitude.min + area.longitude.max) / 2;
+    double lat = (area.latitude.min + area.latitude.max) / 2;
+    double lon = (area.longitude.min + area.longitude.max) / 2;
 
     /* Return four nested multibulk replies. */
     addReplyMultiBulkLen(c, 4);
@@ -634,6 +634,6 @@ void geoEncodeCommand(redisClient *c) {
 
     /* Return the averaged center */
     addReplyMultiBulkLen(c, 2);
-    addReplyDouble(c, y);
-    addReplyDouble(c, x);
+    addReplyDouble(c, lat);
+    addReplyDouble(c, lon);
 }
