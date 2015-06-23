@@ -563,7 +563,8 @@ vector<string> incompatibleNoPersistenceCommands{
     "no_append_fsync_on_rewrite",
     "auto_aof_rewrite_percentage",
     "auto_aof_rewrite_on_size",
-    "aof_rewrite_incremental_fsync"
+    "aof_rewrite_incremental_fsync",
+    "save"
 };
 
 void ValidateCommandlineCombinations() {
