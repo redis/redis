@@ -27,7 +27,7 @@ Redis on Windows
 ## How to configure and deploy Redis on Windows
 
 - [Memory Configuration](https://github.com/MSOpenTech/redis/wiki/Memory-Configuration "Memory Configuration")
-- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/2.8/Redis%20on%20Windows.md "Redis on Windows")
+- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows.md "Redis on Windows")
 - [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Windows%20Service%20Documentation.md "Windows Service Documentation")
 
 ## How to build Redis using Visual Studio
