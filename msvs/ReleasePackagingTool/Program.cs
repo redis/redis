@@ -28,10 +28,16 @@ namespace ReleasePackagingTool
 
                 string version;
                 version = p.GetRedisVersion();
-                p.UpdateReleaseNotes(version);
+                // Starting with the 2.8.21 release the Release Notes file has a new format and it doesn't need to be updated
+                //p.UpdateReleaseNotes(version); 
+
                 p.UpdateNuSpecFiles(version);
+                
                 p.BuildReleasePackage(version);
-                p.DocxToMd();
+                
+                // Starting with the 2.8.21 release the .md documents are not anymore generated using the .docx files
+                //p.DocxToMd();
+                
                 Console.Write("Release packaging complete.");
                 Environment.ExitCode = 0;
             }
@@ -154,6 +160,12 @@ namespace ReleasePackagingTool
 
         void BuildReleasePackage(string version)
         {
+            string releasePackageDir = Path.Combine(rootPath, @"bin\Release\");
+            if (Directory.Exists(releasePackageDir) == false)
+            {
+                Directory.CreateDirectory(releasePackageDir);
+            }
+
             string releasePackagePath = Path.Combine(rootPath, @"bin\Release\redis-" + version + ".zip");
             ForceFileErase(releasePackagePath);
 
@@ -164,7 +176,8 @@ namespace ReleasePackagingTool
                 "redis-check-aof.exe",
                 "redis-check-dump.exe",
                 "redis-cli.exe",
-                "redis-server.exe"
+                "redis-server.exe",
+                "redis-server.pdb"
             };
             string documentsRoot = Path.Combine(rootPath, @"msvs\setups\documentation");
             List<string> docuementNames = new List<string>()
