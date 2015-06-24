@@ -213,7 +213,7 @@ static int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
-static int zslValueLteMax(double value, zrangespec *spec) {
+int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
@@ -1166,6 +1166,26 @@ void zsetConvert(robj *zobj, int encoding) {
     }
 }
 
+/* Return (by reference) the score of the specified member of the sorted set
+ * storing it into *score. If the element does not exist REDIS_ERR is returned
+ * otherwise REDIS_OK is returned and *score is correctly populated.
+ * If 'zobj' or 'member' is NULL, REDIS_ERR is returned. */
+int zsetScore(robj *zobj, robj *member, double *score) {
+    if (!zobj || !member) return REDIS_ERR;
+
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        if (zzlFind(zobj->ptr, member, score) == NULL) return REDIS_ERR;
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        dictEntry *de = dictFind(zs->dict, member);
+        if (de == NULL) return REDIS_ERR;
+        *score = *(double*)dictGetVal(de);
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
+    return REDIS_OK;
+}
+
 /*-----------------------------------------------------------------------------
  * Sorted set commands
  *----------------------------------------------------------------------------*/
@@ -1248,7 +1268,7 @@ void zaddGenericCommand(redisClient *c, int flags) {
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         if (server.zset_max_ziplist_entries == 0 ||
-            server.zset_max_ziplist_value < sdslen(c->argv[3]->ptr))
+            server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
         {
             zobj = createZsetObject();
         } else {
@@ -2815,25 +2835,10 @@ void zscoreCommand(redisClient *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
-    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (zzlFind(zobj->ptr,c->argv[2],&score) != NULL)
-            addReplyDouble(c,score);
-        else
-            addReply(c,shared.nullbulk);
-    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        dictEntry *de;
-
-        c->argv[2] = tryObjectEncoding(c->argv[2]);
-        de = dictFind(zs->dict,c->argv[2]);
-        if (de != NULL) {
-            score = *(double*)dictGetVal(de);
-            addReplyDouble(c,score);
-        } else {
-            addReply(c,shared.nullbulk);
-        }
+    if (zsetScore(zobj,c->argv[2],&score) == REDIS_ERR) {
+        addReply(c,shared.nullbulk);
     } else {
-        redisPanic("Unknown sorted set encoding");
+        addReplyDouble(c,score);
     }
 }
 

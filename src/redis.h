@@ -1074,6 +1074,7 @@ sds catClientInfoString(sds s, redisClient *client);
 sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval);
+void replaceClientCommandVector(redisClient *c, int argc, robj **argv);
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
@@ -1240,6 +1241,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
+int zsetScore(robj *zobj, robj *member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
 
 /* Core functions */
@@ -1556,6 +1558,11 @@ void bitcountCommand(redisClient *c);
 void bitposCommand(redisClient *c);
 void replconfCommand(redisClient *c);
 void waitCommand(redisClient *c);
+void geoEncodeCommand(redisClient *c);
+void geoDecodeCommand(redisClient *c);
+void geoRadiusByMemberCommand(redisClient *c);
+void geoRadiusCommand(redisClient *c);
+void geoAddCommand(redisClient *c);
 void pfselftestCommand(redisClient *c);
 void pfaddCommand(redisClient *c);
 void pfcountCommand(redisClient *c);
