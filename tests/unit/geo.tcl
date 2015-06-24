@@ -76,6 +76,13 @@ start_server {tags {"geo"}} {
        {41.235890659964866 1.806328296661377}\
        {41.235889392604285 1.8063256144523621}}
 
+    test {GEOHASH is able to return geohash strings} {
+        # Example from Wikipedia.
+        r del points
+        r geoadd points 42.6 -5.6 test
+        lindex [r geohash points test] 0
+    } {ezs42e44yx0}
+
     test {GEOADD + GEORANGE randomized test} {
         set attempt 10
         while {[incr attempt -1]} {
