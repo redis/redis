@@ -190,7 +190,7 @@ struct QForkControl {
 
 QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
-HANDLE g_hForkedProcess;
+HANDLE g_hForkedProcess = 0;
 DWORD g_systemAllocationGranularity;
 int g_ChildExitCode = 0; // For child process
 
@@ -1030,13 +1030,13 @@ OperationStatus GetForkOperationStatus() {
         return OperationStatus::osFAILED;
     }
 
-    if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, 0) == WAIT_OBJECT_0) {
+    if (g_hForkedProcess && WaitForSingleObject(g_pQForkControl->forkedProcessReady, 0) == WAIT_OBJECT_0) {
         // Verify if the child process is still running
         if (WaitForSingleObject(g_hForkedProcess, 0) == WAIT_OBJECT_0) {
             // The child process is not running, close the handle and report the status
             // setting the operationFailed event
-            g_hForkedProcess = 0;
             CloseHandle(g_hForkedProcess);
+            g_hForkedProcess = 0;
             if (g_pQForkControl->operationFailed != NULL) {
                 SetEvent(g_pQForkControl->operationFailed);
             }
@@ -1060,8 +1060,8 @@ BOOL AbortForkOperation()
                     system_category(),
                     "EndForkOperation: Killing forked process failed.");
             }
-            g_hForkedProcess = 0;
             CloseHandle(g_hForkedProcess);
+            g_hForkedProcess = 0;
         }
 
         return EndForkOperation(NULL);
@@ -1162,7 +1162,7 @@ BOOL EndForkOperation(int * pExitCode) {
             }
 
             if (pExitCode != NULL) {
-            GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
+                GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
             }
 
             CloseHandle(g_hForkedProcess);
