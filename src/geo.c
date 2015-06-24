@@ -635,3 +635,58 @@ void geoEncodeCommand(redisClient *c) {
     addReplyDouble(c, lat);
     addReplyDouble(c, lon);
 }
+
+/* GEOHASH key ele1 ele2 ... eleN
+ *
+ * Returns an array with an 11 characters geohash representation of the
+ * position of the specified elements. */
+void geoHashCommand(redisClient *c) {
+    char *geoalphabet= "0123456789bcdefghjkmnpqrstuvwxyz";
+    int j;
+
+    /* Look up the requested zset */
+    robj *zobj = NULL;
+    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
+        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+
+    /* Geohash elements one after the other, using a null bulk reply for
+     * missing elements. */
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (j = 2; j < c->argc; j++) {
+        double score;
+        if (zsetScore(zobj, c->argv[j], &score) == REDIS_ERR) {
+            addReply(c,shared.nullbulk);
+        } else {
+            /* The internal format we use for geocoding is a bit different
+             * than the standard, since we use as initial latitude range
+             * -85,85, while the normal geohashing algorithm uses -90,90.
+             * So we have to decode our position and re-encode using the
+             * standard ranges in order to output a valid geohash string. */
+
+            /* Decode... */
+            double latlong[2];
+            if (!decodeGeohash(score,latlong)) {
+                addReply(c,shared.nullbulk);
+                continue;
+            }
+
+            /* Re-encode */
+            GeoHashRange r[2];
+            GeoHashBits hash;
+            r[0].min = -90;
+            r[0].max = 90;
+            r[1].min = -180;
+            r[1].max = 180;
+            geohashEncode(&r[0],&r[1],latlong[0],latlong[1],26,&hash);
+
+            char buf[12];
+            int i;
+            for (i = 0; i < 11; i++) {
+                int idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+                buf[i] = geoalphabet[idx];
+            }
+            buf[11] = '\0';
+            addReplyBulkCBuffer(c,buf,11);
+        }
+    }
+}
