@@ -353,7 +353,7 @@ void geoAddCommand(redisClient *c) {
     /* Create the argument vector to call ZADD in order to add all
      * the score,value pairs to the requested zset, where score is actually
      * an encoded version of lat,long. */
-    uint8_t step = geohashEstimateStepsByRadius(radius_meters);
+    uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     int i;
     for (i = 0; i < elements; i++) {
         double latlong[elements * 2];
@@ -598,7 +598,7 @@ void geoEncodeCommand(redisClient *c) {
 
     /* Encode lat/long into our geohash */
     GeoHashBits geohash;
-    uint8_t step = geohashEstimateStepsByRadius(radius_meters);
+    uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     geohashEncodeWGS84(latlong[0], latlong[1], step, &geohash);
 
     /* Align the hash to a valid 52-bit integer based on step size */
