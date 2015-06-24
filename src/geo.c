@@ -269,6 +269,26 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lat, double l
 int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lat, double lon, double radius) {
     GeoHashFix52Bits min, max;
 
+    /* We want to compute the sorted set scores that will include all the
+     * elements inside the specified Geohash 'hash', which has as many
+     * bits as specified by hash.step * 2.
+     *
+     * So if step is, for example, 3, and the hash value in binary
+     * is 101010, since our score is 52 bits we want every element which
+     * is in binary: 101010?????????????????????????????????????????????
+     * Where ? can be 0 or 1.
+     *
+     * To get the min score we just use the initial hash value left
+     * shifted enough to get the 52 bit value. Later we increment the
+     * 6 bit prefis (see the hash.bits++ statement), and get the new
+     * prefix: 101011, which we align again to 52 bits to get the maximum
+     * value (which is excluded from the search). So we get everything
+     * between the two following scores (represented in binary):
+     *
+     * 1010100000000000000000000000000000000000000000000000 (included)
+     * and
+     * 1010110000000000000000000000000000000000000000000000 (excluded).
+     */
     min = geohashAlign52Bits(hash);
     hash.bits++;
     max = geohashAlign52Bits(hash);
