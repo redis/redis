@@ -358,6 +358,11 @@ void clusterSaveConfigOrDie(int do_fsync) {
  * On success REDIS_OK is returned, otherwise an error is logged and
  * the function returns REDIS_ERR to signal a lock was not acquired. */
 int clusterLockConfig(char *filename) {
+/* flock() does not exist on Solaris
+ * and a fcntl-based solution won't help, as we constantly re-open that file,
+ * which will release _all_ locks anyway
+ */
+#if !defined(__sun)
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
@@ -385,6 +390,8 @@ int clusterLockConfig(char *filename) {
     }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
      * lock to the file as long as the process exists. */
+#endif /* __sun */
+
     return REDIS_OK;
 }
 
