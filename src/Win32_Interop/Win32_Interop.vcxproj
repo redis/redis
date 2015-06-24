@@ -174,8 +174,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
     </Link>
     <Lib>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
     <CustomBuild>
       <Command>
@@ -224,8 +223,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
     <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
     <CustomBuild>
       <Command>

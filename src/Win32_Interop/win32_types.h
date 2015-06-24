@@ -56,9 +56,9 @@ typedef double                  PORT_LONGDOUBLE;
   typedef __int64               PORT_LONG;
   typedef unsigned __int64      PORT_ULONG;
 #else
-  typedef _W64 long             ssize_t;
-  typedef _W64 long             PORT_LONG;
-  typedef _W64 unsigned long    PORT_ULONG;
+  typedef long                  ssize_t;
+  typedef long                  PORT_LONG;
+  typedef unsigned long         PORT_ULONG;
 #endif
 
 #ifdef _WIN64

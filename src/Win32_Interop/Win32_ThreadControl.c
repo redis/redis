@@ -72,7 +72,7 @@ void RequestSuspension() {
         if (!ResetEvent(g_hResumeFromSuspension)) {
             exit(GetLastError());
         }
-        InterlockedOr(&g_SuspensionRequested, 1);
+        _InterlockedOr(&g_SuspensionRequested, 1);
     }
 }
 
@@ -80,7 +80,7 @@ void ResumeFromSuspension() {
     // This is meant to be called from the main thread only. 
     assert(g_SuspensionRequested && SuspensionCompleted());
 
-    InterlockedAnd(&g_SuspensionRequested, 0);
+    _InterlockedAnd(&g_SuspensionRequested, 0);
     if (!SetEvent(g_hResumeFromSuspension)) {
         exit(GetLastError());
     }
