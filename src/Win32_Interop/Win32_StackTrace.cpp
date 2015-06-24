@@ -31,6 +31,7 @@ static IMAGEHLP_LINE64 line;
 static BOOLEAN processingException = FALSE;
 static CHAR modulePath[MAX_PATH];
 static BOOL symbolsInitialized = FALSE;
+static LPTOP_LEVEL_EXCEPTION_FILTER defaultTopLevelExceptionHandler = NULL;
 
 static const char* exceptionDescription(const DWORD& code)
 {
@@ -163,9 +164,9 @@ void ServerInfo() {
 void BugReportEnd(){
     redisLogRaw(REDIS_WARNING,
         "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
-        "       Please report the bug following the instructions on:\n\n"
-        "        http://github.com/MSOpenTech/redis/wiki/Submit-Bug\n\n"
-        "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
+        "       Please report this bug by following the instructions at:\n\n"
+        "     http://github.com/MSOpenTech/redis/wiki/Submitting-an-Issue\n\n"
+        "    Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
         );
 }
 
@@ -175,11 +176,6 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
         processingException = true;
         if (info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
             exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
-            // If it's an application exception don't process it, here we don't want to catch
-            // exceptions like the one thrown by the code that processes the command arguments
-            if (strcmp(exDescription, "UNKNOWN EXCEPTION") == 0) {
-                return EXCEPTION_CONTINUE_SEARCH;
-            }
         }
 
         // Call antirez routine to log the start of the bug report
@@ -190,6 +186,11 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
         BugReportEnd();
         processingException = false;
     }
+
+    if (defaultTopLevelExceptionHandler != NULL) {
+        defaultTopLevelExceptionHandler(info);
+    }
+
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -216,7 +217,7 @@ void InitSymbols() {
 void StackTraceInit(void) {
     InitSymbols();
     // Global handler for unhandled exceptions
-    SetUnhandledExceptionFilter(UnhandledExceptiontHandler);
+    defaultTopLevelExceptionHandler = SetUnhandledExceptionFilter(UnhandledExceptiontHandler);
     // Handler for abort()
     signal(SIGABRT, &AbortHandler);
 }

@@ -644,15 +644,24 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
             else
             {
                 DWORD err = GetLastError();
-                ::redisLog(REDIS_WARNING, "MapViewOfFileEx failed with error 0x%08X.\n", err);
+                ::redisLog(REDIS_WARNING, "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+                ::redisLog(REDIS_WARNING, "--- FATAL ERROR MAPPING VIEW OF MAP FILE");
+                ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X.", err);
                 ::redisLog(REDIS_WARNING, "\t startOfMapping 0x%p", startOfMapping);
-                ::redisLog(REDIS_WARNING, "\t heapStart 0x%p\n", heapStart);
-                ::redisLog(REDIS_WARNING, "\t heapEnd 0x%p\n", heapEnd);
-                ::redisLog(REDIS_WARNING, "\t failing access location 0x%p\n", failingMemoryAddress);
-                ::redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%p\n", mmfOffset);
-                ::redisLog(REDIS_WARNING, "\t start of new mapping 0x%p\n", startOfMapping);
+                ::redisLog(REDIS_WARNING, "\t heapStart 0x%p", heapStart);
+                ::redisLog(REDIS_WARNING, "\t heapEnd 0x%p", heapEnd);
+                ::redisLog(REDIS_WARNING, "\t failing access location 0x%p", failingMemoryAddress);
+                ::redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%p", mmfOffset);
+                ::redisLog(REDIS_WARNING, "\t start of new mapping 0x%p", startOfMapping);
                 ::redisLog(REDIS_WARNING, "\t bytes to map 0x%p\n", bytesToMap);
-                ::redisLog(REDIS_WARNING, "\t continuing exception handler search\n");
+                if (err == 0x000005AF) {
+                    ::redisLog(REDIS_WARNING, "The system paging file is too small for this operation to complete.");
+                    ::redisLog(REDIS_WARNING, "See https://github.com/MSOpenTech/redis/wiki/Memory-Configuration");
+                    ::redisLog(REDIS_WARNING, "for more information on configuring the system paging file for Redis.");
+                }
+                ::redisLog(REDIS_WARNING, "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n");
+                // Call exit to avoid executing the Unhandled Exceptiont Handler since we don't need a call stack
+                exit(1);
             }
         }
     }
@@ -1022,7 +1031,19 @@ OperationStatus GetForkOperationStatus() {
     }
 
     if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, 0) == WAIT_OBJECT_0) {
-        return OperationStatus::osINPROGRESS;
+        // Verify if the child process is still running
+        if (WaitForSingleObject(g_hForkedProcess, 0) == WAIT_OBJECT_0) {
+            // The child process is not running, close the handle and report the status
+            // setting the operationFailed event
+            g_hForkedProcess = 0;
+            CloseHandle(g_hForkedProcess);
+            if (g_pQForkControl->operationFailed != NULL) {
+                SetEvent(g_pQForkControl->operationFailed);
+            }
+            return OperationStatus::osFAILED;
+        } else {
+            return OperationStatus::osINPROGRESS;
+        }
     }
     
     return OperationStatus::osUNSTARTED;

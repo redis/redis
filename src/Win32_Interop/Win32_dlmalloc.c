@@ -1702,11 +1702,6 @@ static FORCEINLINE void* win32mmap(size_t size) {
 #else
   void* ptr = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 #endif
-  // Avoid printing on the std out
-  //if( ptr == NULL )
-  //{
-  //    printf( "VirtualAlloc/COWAlloc fail!\n");
-  //}
   return (ptr != 0)? ptr: MFAIL;
 }
 
@@ -1717,11 +1712,6 @@ static FORCEINLINE void* win32direct_mmap(size_t size) {
 #else
   void* ptr = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT|MEM_TOP_DOWN, PAGE_READWRITE);
 #endif
-  // Avoid printing on the std out
-  //if( ptr == NULL )
-  //{
-  //    printf( "VirtualAlloc/COWAlloc fail!\n");
-  //}
   return (ptr != 0)? ptr: MFAIL;
 }
 
