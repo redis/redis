@@ -63,7 +63,12 @@ geoArray *geoArrayCreate(void) {
  * it with data. */
 geoPoint *geoArrayAppend(geoArray *ga) {
     if (ga->used == ga->buckets) {
-        ga->buckets = (ga->buckets == 0) ? 8 : ga->buckets*2;
+        if (ga->buckets == 0)
+            ga->buckets = 8;
+        else if (ga->buckets < GEO_MAX_PREALLOC)
+            ga->buckets *= 2;
+        else
+            ga->buckets += GEO_MAX_PREALLOC;
         ga->array = zrealloc(ga->array,sizeof(geoPoint)*ga->buckets);
     }
     geoPoint *gp = ga->array+ga->used;
@@ -376,7 +381,7 @@ void geoAddCommand(redisClient *c) {
     uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     int i;
     for (i = 0; i < elements; i++) {
-        double latlong[elements * 2];
+        double latlong[2];
 
         if (extractLatLongOrReply(c, (c->argv+2)+(i*3),latlong) == REDIS_ERR) {
             for (i = 0; i < argc; i++)
