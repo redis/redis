@@ -48,7 +48,7 @@ typedef struct {
 } GeoHashRadius;
 
 int GeoHashBitsComparator(const GeoHashBits *a, const GeoHashBits *b);
-uint8_t geohashEstimateStepsByRadius(double range_meters);
+uint8_t geohashEstimateStepsByRadius(double range_meters, double lat);
 int geohashBoundingBox(double latitude, double longitude, double radius_meters,
                         double *bounds);
 GeoHashRadius geohashGetAreasByRadius(double latitude,

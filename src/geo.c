@@ -88,30 +88,37 @@ static inline int decodeGeohash(double bits, double *latlong) {
 }
 
 /* Input Argument Helper */
-/* Take a pointer to the latitude arg then use the next arg for longitude */
+/* Take a pointer to the latitude arg then use the next arg for longitude.
+ * On parse error REDIS_ERR is returned, otherwise REDIS_OK. */
 static inline int extractLatLongOrReply(redisClient *c, robj **argv,
                                          double *latlong) {
     for (int i = 0; i < 2; i++) {
         if (getDoubleFromObjectOrReply(c, argv[i], latlong + i, NULL) !=
             REDIS_OK) {
-            return 0;
+            return REDIS_ERR;
         }
     }
-    return 1;
+    return REDIS_OK;
 }
 
 /* Input Argument Helper */
 /* Decode lat/long from a zset member's score.
- * Returns non-zero on successful decoding. */
+ * Returns REDIS_OK on successful decoding, otherwise REDIS_ERR is returned. */
 static int latLongFromMember(robj *zobj, robj *member, double *latlong) {
     double score = 0;
 
-    if (zsetScore(zobj, member, &score) == REDIS_ERR) return 0;
-    if (!decodeGeohash(score, latlong)) return 0;
-    return 1;
+    if (zsetScore(zobj, member, &score) == REDIS_ERR) return REDIS_ERR;
+    if (!decodeGeohash(score, latlong)) return REDIS_ERR;
+    return REDIS_OK;
 }
 
-/* Input Argument Helper */
+/* Input Argument Helper.
+ * Extract the dinstance from the specified two arguments starting at 'argv'
+ * that shouldbe in the form: <number> <unit> and return the dinstance in the
+ * specified unit on success. *conversino is populated with the coefficient
+ * to use in order to convert meters to the unit.
+ *
+ * On error a value less than zero is returned. */
 static double extractDistanceOrReply(redisClient *c, robj **argv,
                                      double *conversion) {
     double distance;
@@ -262,6 +269,26 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lat, double l
 int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lat, double lon, double radius) {
     GeoHashFix52Bits min, max;
 
+    /* We want to compute the sorted set scores that will include all the
+     * elements inside the specified Geohash 'hash', which has as many
+     * bits as specified by hash.step * 2.
+     *
+     * So if step is, for example, 3, and the hash value in binary
+     * is 101010, since our score is 52 bits we want every element which
+     * is in binary: 101010?????????????????????????????????????????????
+     * Where ? can be 0 or 1.
+     *
+     * To get the min score we just use the initial hash value left
+     * shifted enough to get the 52 bit value. Later we increment the
+     * 6 bit prefis (see the hash.bits++ statement), and get the new
+     * prefix: 101011, which we align again to 52 bits to get the maximum
+     * value (which is excluded from the search). So we get everything
+     * between the two following scores (represented in binary):
+     *
+     * 1010100000000000000000000000000000000000000000000000 (included)
+     * and
+     * 1010110000000000000000000000000000000000000000000000 (excluded).
+     */
     min = geohashAlign52Bits(hash);
     hash.bits++;
     max = geohashAlign52Bits(hash);
@@ -346,12 +373,12 @@ void geoAddCommand(redisClient *c) {
     /* Create the argument vector to call ZADD in order to add all
      * the score,value pairs to the requested zset, where score is actually
      * an encoded version of lat,long. */
-    uint8_t step = geohashEstimateStepsByRadius(radius_meters);
+    uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     int i;
     for (i = 0; i < elements; i++) {
         double latlong[elements * 2];
 
-        if (!extractLatLongOrReply(c, (c->argv+2)+(i*3),latlong)) {
+        if (extractLatLongOrReply(c, (c->argv+2)+(i*3),latlong) == REDIS_ERR) {
             for (i = 0; i < argc; i++)
                 if (argv[i]) decrRefCount(argv[i]);
             zfree(argv);
@@ -405,12 +432,12 @@ static void geoRadiusGeneric(redisClient *c, int type) {
     double latlong[2] = { 0 };
     if (type == RADIUS_COORDS) {
         base_args = 6;
-        if (!extractLatLongOrReply(c, c->argv + 2, latlong))
+        if (extractLatLongOrReply(c, c->argv + 2, latlong) == REDIS_ERR)
             return;
     } else if (type == RADIUS_MEMBER) {
         base_args = 5;
         robj *member = c->argv[2];
-        if (!latLongFromMember(zobj, member, latlong)) {
+        if (latLongFromMember(zobj, member, latlong) == REDIS_ERR) {
             addReplyError(c, "could not decode requested zset member");
             return;
         }
@@ -587,11 +614,11 @@ void geoEncodeCommand(redisClient *c) {
     }
 
     double latlong[2];
-    if (!extractLatLongOrReply(c, c->argv + 1, latlong)) return;
+    if (extractLatLongOrReply(c, c->argv + 1, latlong) == REDIS_ERR) return;
 
     /* Encode lat/long into our geohash */
     GeoHashBits geohash;
-    uint8_t step = geohashEstimateStepsByRadius(radius_meters);
+    uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     geohashEncodeWGS84(latlong[0], latlong[1], step, &geohash);
 
     /* Align the hash to a valid 52-bit integer based on step size */
@@ -627,4 +654,59 @@ void geoEncodeCommand(redisClient *c) {
     addReplyMultiBulkLen(c, 2);
     addReplyDouble(c, lat);
     addReplyDouble(c, lon);
+}
+
+/* GEOHASH key ele1 ele2 ... eleN
+ *
+ * Returns an array with an 11 characters geohash representation of the
+ * position of the specified elements. */
+void geoHashCommand(redisClient *c) {
+    char *geoalphabet= "0123456789bcdefghjkmnpqrstuvwxyz";
+    int j;
+
+    /* Look up the requested zset */
+    robj *zobj = NULL;
+    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
+        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+
+    /* Geohash elements one after the other, using a null bulk reply for
+     * missing elements. */
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (j = 2; j < c->argc; j++) {
+        double score;
+        if (zsetScore(zobj, c->argv[j], &score) == REDIS_ERR) {
+            addReply(c,shared.nullbulk);
+        } else {
+            /* The internal format we use for geocoding is a bit different
+             * than the standard, since we use as initial latitude range
+             * -85,85, while the normal geohashing algorithm uses -90,90.
+             * So we have to decode our position and re-encode using the
+             * standard ranges in order to output a valid geohash string. */
+
+            /* Decode... */
+            double latlong[2];
+            if (!decodeGeohash(score,latlong)) {
+                addReply(c,shared.nullbulk);
+                continue;
+            }
+
+            /* Re-encode */
+            GeoHashRange r[2];
+            GeoHashBits hash;
+            r[0].min = -90;
+            r[0].max = 90;
+            r[1].min = -180;
+            r[1].max = 180;
+            geohashEncode(&r[0],&r[1],latlong[0],latlong[1],26,&hash);
+
+            char buf[12];
+            int i;
+            for (i = 0; i < 11; i++) {
+                int idx = (hash.bits >> (52-((i+1)*5))) & 0x1f;
+                buf[i] = geoalphabet[idx];
+            }
+            buf[11] = '\0';
+            addReplyBulkCBuffer(c,buf,11);
+        }
+    }
 }
