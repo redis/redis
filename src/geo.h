@@ -12,8 +12,8 @@ void geoAddCommand(redisClient *c);
 /* Structures used inside geo.c in order to represent points and array of
  * points on the earth. */
 typedef struct geoPoint {
-    double latitude;
     double longitude;
+    double latitude;
     double dist;
     double score;
     char *member;

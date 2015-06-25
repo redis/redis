@@ -80,13 +80,13 @@ int geohashBitsComparator(const GeoHashBits *a, const GeoHashBits *b) {
     return a->step != b->step ? a->step - b->step : a->bits - b->bits;
 }
 
-int geohashBoundingBox(double latitude, double longitude, double radius_meters,
+int geohashBoundingBox(double longitude, double latitude, double radius_meters,
                        double *bounds) {
     if (!bounds) return 0;
 
-    double latr, lonr;
-    latr = deg_rad(latitude);
+    double lonr, latr;
     lonr = deg_rad(longitude);
+    latr = deg_rad(latitude);
 
     double distance = radius_meters / EARTH_RADIUS_IN_METERS;
     double min_latitude = latr - distance;
@@ -98,37 +98,36 @@ int geohashBoundingBox(double latitude, double longitude, double radius_meters,
     min_longitude = lonr - difference_longitude;
     max_longitude = lonr + difference_longitude;
 
-    bounds[0] = rad_deg(min_latitude);
-    bounds[1] = rad_deg(min_longitude);
-    bounds[2] = rad_deg(max_latitude);
-    bounds[3] = rad_deg(max_longitude);
-
+    bounds[0] = rad_deg(min_longitude);
+    bounds[1] = rad_deg(min_latitude);
+    bounds[2] = rad_deg(max_longitude);
+    bounds[3] = rad_deg(max_latitude);
     return 1;
 }
 
-GeoHashRadius geohashGetAreasByRadius(double latitude, double longitude, double radius_meters) {
-    GeoHashRange lat_range, long_range;
+GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double radius_meters) {
+    GeoHashRange long_range, lat_range;
     GeoHashRadius radius = { { 0 } };
     GeoHashBits hash = { 0 };
     GeoHashNeighbors neighbors = { { 0 } };
     GeoHashArea area = { { 0 } };
-    double min_lat, max_lat, min_lon, max_lon;
+    double min_lon, max_lon, min_lat, max_lat;
     double bounds[4];
     int steps;
 
-    geohashBoundingBox(latitude, longitude, radius_meters, bounds);
-    min_lat = bounds[0];
-    min_lon = bounds[1];
-    max_lat = bounds[2];
-    max_lon = bounds[3];
+    geohashBoundingBox(longitude, latitude, radius_meters, bounds);
+    min_lon = bounds[0];
+    min_lat = bounds[1];
+    max_lon = bounds[2];
+    max_lat = bounds[3];
 
     steps = geohashEstimateStepsByRadius(radius_meters,latitude);
 
-    geohashGetCoordRange(&lat_range, &long_range);
-    geohashEncode(&lat_range, &long_range, latitude, longitude, steps, &hash);
+    geohashGetCoordRange(&long_range, &lat_range);
+    geohashEncode(&long_range, &lat_range, longitude, latitude, steps, &hash);
     geohashNeighbors(&hash, &neighbors);
-    geohashGetCoordRange(&lat_range, &long_range);
-    geohashDecode(lat_range, long_range, hash, &area);
+    geohashGetCoordRange(&long_range, &lat_range);
+    geohashDecode(long_range, lat_range, hash, &area);
 
     if (area.latitude.min < min_lat) {
         GZERO(neighbors.south);
@@ -156,9 +155,9 @@ GeoHashRadius geohashGetAreasByRadius(double latitude, double longitude, double 
     return radius;
 }
 
-GeoHashRadius geohashGetAreasByRadiusWGS84(double latitude, double longitude,
+GeoHashRadius geohashGetAreasByRadiusWGS84(double longitude, double latitude,
                                            double radius_meters) {
-    return geohashGetAreasByRadius(latitude, longitude, radius_meters);
+    return geohashGetAreasByRadius(longitude, latitude, radius_meters);
 }
 
 GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
@@ -167,8 +166,8 @@ GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
     return bits;
 }
 
-/* calculate distance using haversin great circle distance formula */
-double distanceEarth(double lat1d, double lon1d, double lat2d, double lon2d) {
+/* Calculate distance using haversin great circle distance formula. */
+double distanceEarth(double lon1d, double lat1d, double lon2d, double lat2d) {
     double lat1r, lon1r, lat2r, lon2r, u, v;
     lat1r = deg_rad(lat1d);
     lon1r = deg_rad(lon1d);
@@ -183,7 +182,7 @@ double distanceEarth(double lat1d, double lon1d, double lat2d, double lon2d) {
 int geohashGetDistanceIfInRadius(double x1, double y1,
                                  double x2, double y2, double radius,
                                  double *distance) {
-    *distance = distanceEarth(y1, x1, y2, x2);
+    *distance = distanceEarth(x1, y1, x2, y2);
     if (*distance > radius) return 0;
     return 1;
 }
@@ -192,15 +191,4 @@ int geohashGetDistanceIfInRadiusWGS84(double x1, double y1, double x2,
                                       double y2, double radius,
                                       double *distance) {
     return geohashGetDistanceIfInRadius(x1, y1, x2, y2, radius, distance);
-}
-
-int geohashVerifyCoordinates(double x, double y) {
-    GeoHashRange lat_range, long_range;
-    geohashGetCoordRange(&lat_range, &long_range);
-
-    if (x < long_range.min || x > long_range.max || y < lat_range.min ||
-        y > lat_range.max) {
-        return 0;
-    }
-    return 1;
 }

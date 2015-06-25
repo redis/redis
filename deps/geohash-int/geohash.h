@@ -62,14 +62,14 @@ typedef struct {
 } GeoHashBits;
 
 typedef struct {
-    double max;
     double min;
+    double max;
 } GeoHashRange;
 
 typedef struct {
     GeoHashBits hash;
-    GeoHashRange latitude;
     GeoHashRange longitude;
+    GeoHashRange latitude;
 } GeoHashArea;
 
 typedef struct {
@@ -87,22 +87,22 @@ typedef struct {
  * 0:success
  * -1:failed
  */
-void geohashGetCoordRange(GeoHashRange *lat_range, GeoHashRange *long_range);
-int geohashEncode(GeoHashRange *lat_range, GeoHashRange *long_range,
-                  double latitude, double longitude, uint8_t step,
+void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range);
+int geohashEncode(GeoHashRange *long_range, GeoHashRange *lat_range,
+                  double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash);
-int geohashEncodeType(double latitude, double longitude,
+int geohashEncodeType(double longitude, double latitude,
                       uint8_t step, GeoHashBits *hash);
-int geohashEncodeWGS84(double latitude, double longitude, uint8_t step,
+int geohashEncodeWGS84(double longitude, double latitude, uint8_t step,
                        GeoHashBits *hash);
-int geohashDecode(const GeoHashRange lat_range, const GeoHashRange long_range,
+int geohashDecode(const GeoHashRange long_range, const GeoHashRange lat_range,
                   const GeoHashBits hash, GeoHashArea *area);
 int geohashDecodeType(const GeoHashBits hash, GeoHashArea *area);
 int geohashDecodeWGS84(const GeoHashBits hash, GeoHashArea *area);
-int geohashDecodeAreaToLatLong(const GeoHashArea *area, double *latlong);
-int geohashDecodeToLatLongType(const GeoHashBits hash, double *latlong);
-int geohashDecodeToLatLongWGS84(const GeoHashBits hash, double *latlong);
-int geohashDecodeToLatLongMercator(const GeoHashBits hash, double *latlong);
+int geohashDecodeAreaToLongLat(const GeoHashArea *area, double *xy);
+int geohashDecodeToLongLatType(const GeoHashBits hash, double *xy);
+int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy);
+int geohashDecodeToLongLatMercator(const GeoHashBits hash, double *xy);
 void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 
 #if defined(__cplusplus)
