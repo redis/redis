@@ -1,6 +1,8 @@
 #ifndef __GEO_H__
 #define __GEO_H__
 
+#define GEO_MAX_PREALLOC (1024*1024)
+
 #include "redis.h"
 
 void geoEncodeCommand(redisClient *c);
