@@ -483,10 +483,10 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
         main(argc, argv);
 
         for (int a = 0; a < argc; a++) {
-            delete argv[a];
+            delete[] argv[a];
             argv[a] = nullptr;
         }
-        delete argv;
+        delete[] argv;
         argv = nullptr;
 
         SetEvent(g_ServiceStoppedEvent);
