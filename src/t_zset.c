@@ -653,24 +653,6 @@ double zzlGetScore(unsigned char *sptr) {
     return score;
 }
 
-/* Return a ziplist element as a Redis string object.
- * This simple abstraction can be used to simplifies some code at the
- * cost of some performance. */
-robj *ziplistGetObject(unsigned char *sptr) {
-    unsigned char *vstr;
-    unsigned int vlen;
-    long long vlong;
-
-    redisAssert(sptr != NULL);
-    redisAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
-
-    if (vstr) {
-        return createStringObject((char*)vstr,vlen);
-    } else {
-        return createStringObjectFromLongLong(vlong);
-    }
-}
-
 /* Compare element in sorted set with given element. */
 int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int clen) {
     unsigned char *vstr;

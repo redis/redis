@@ -37,6 +37,25 @@ start_server {tags {"hash"}} {
         assert_encoding hashtable bighash
     }
 
+    test {HSET/HELN - Small hash with dictionary encoding creation} {
+        array set smalldict {}
+        for {set i 0} {$i < 8} {incr i} {
+            set key [randstring 1 8 alpha]
+            set val [randstring 65 65 alpha]
+            if {[info exists smalldict($key)]} {
+                incr i -1
+                continue
+            }
+            r hset smalldict $key $val
+            set smalldict($key) $val
+        }
+        list [r hlen smalldict]
+    } {8}
+
+    test {Is the small dictionary hash encoded with a dictionary} {
+        assert_encoding hashtable smalldict
+    }
+
     test {HGET against the small hash} {
         set err {}
         foreach k [array names smallhash *] {
@@ -65,6 +84,113 @@ start_server {tags {"hash"}} {
         lappend rv [r hget bighash __123123123__]
         set _ $rv
     } {{} {}}
+
+    test {HRANDKEY against non existing key} {
+        r hrandkey nonexisting_key
+    } {}
+
+    test {HRANDKEY ziplist} {
+        array set zlkeys {}
+        for {set i 0} {$i < 100} {incr i} {
+            set zlkeys([r hrandkey smallhash]) 1
+        }
+        lsort [array names zlkeys *]
+    } [lsort [array names smallhash *]]
+
+    test {HRANDKEY dictionary} {
+        array set dictkeys {}
+        for {set i 0} {$i < 100} {incr i} {
+            set dictkeys([r hrandkey smalldict]) 1
+        }
+        lsort [array names dictkeys *]
+    } [lsort [array names smalldict *]]
+
+    test {HRANDKEY with <count> against non existing key} {
+        r hrandkey nonexisting_key 100
+    } {}
+
+    foreach {type} {smallhash smalldict} {
+        test "HRANDKEY with <count> - ziplist" {
+            assert_equal [r hrandkey $type 0] {}
+
+            # We'll stress different parts of the code, see the implementation
+            # of HRANDKEY for more information, but basically there are four
+            # different code paths.
+            #
+            # PATH 1: Use negative count.
+            #
+            # 1) Check that it returns repeated elements.
+            set res [r hrandkey $type -100]
+            assert_equal [llength $res] 100
+
+            # 2) Check that all the elements actually belong to the
+            # original set.
+            foreach ele $res {
+                assert {[info exists ${type}($ele)]}
+            }
+
+            # 3) Check that eventually all the elements are returned.
+            unset -nocomplain auxset
+            set iterations 1000
+            while {$iterations != 0} {
+                incr iterations -1
+                set res [r hrandkey $type -10]
+                foreach ele $res {
+                    set auxset($ele) 1
+                }
+                if {[lsort [array names $type]] eq
+                    [lsort [array names auxset]]} {
+                    break;
+                }
+            }
+            assert {$iterations != 0}
+
+            # PATH 2: positive count (unique behavior) with requested size
+            # equal or greater than set size.
+            foreach size {8 16} {
+                set res [r hrandkey $type $size]
+                assert_equal [llength $res] 8
+                assert_equal [lsort $res] [lsort [array names $type]]
+            }
+
+            # PATH 3: Ask almost as many keys as there are in the hash.
+            # In this case the implementation will duplicate the original
+            # set and will remove random elements up to the requested size.
+            #
+            # PATH 4: Ask a number of keys definitely smaller than the set
+            # size.
+            #
+            # We can test both the code paths just changing the size but
+            # using the same code.
+
+            foreach size {6 2} {
+                set res [r hrandkey $type $size]
+                assert_equal [llength $res] $size
+
+                # 1) Check that all the keys actually belong to the original
+                # hash.
+                foreach ele $res {
+                    assert {[info exists ${type}($ele)]}
+                }
+
+                # 2) Check that eventually all the keys are returned.
+                unset -nocomplain auxset
+                set iterations 1000
+                while {$iterations != 0} {
+                    incr iterations -1
+                    set res [r hrandkey $type -10]
+                    foreach ele $res {
+                        set auxset($ele) 1
+                    }
+                    if {[lsort [array names $type]] eq
+                        [lsort [array names auxset]]} {
+                        break;
+                    }
+                }
+                assert {$iterations != 0}
+            }
+        }
+    }
 
     test {HSET in update and insert mode} {
         set rv {}

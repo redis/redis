@@ -716,6 +716,164 @@ void hstrlenCommand(redisClient *c) {
     addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
 }
 
+void hashTypeRandomKey(robj *hashobj, robj **objkey) {
+    if (hashobj->encoding == REDIS_ENCODING_HT) {
+        dictEntry *de = dictGetRandomKey(hashobj->ptr);
+        *objkey = dictGetKey(de);
+        incrRefCount(*objkey);
+    } else if (hashobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned int keys = ziplistLen(hashobj->ptr) / 2;
+        unsigned int index = (random() % keys) * 2;
+        unsigned char *ele = ziplistIndex(hashobj->ptr,index);
+        *objkey = ziplistGetObject(ele);
+    } else {
+        redisPanic("Unknown hash encoding");
+    }
+}
+
+#define HRANDKEY_SUB_STRATEGY_MUL 3
+
+void hrandkeyWithCountCommand(redisClient *c) {
+    long l;
+    unsigned long count, size;
+    int uniq = 1;
+    robj *hash, *key;
+    int encoding;
+
+    dict *d;
+
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != REDIS_OK) return;
+    if (l >= 0) {
+        count = (unsigned) l;
+    } else {
+        /* A negative count means: return the same elements multiple times
+         * (i.e. don't remove the extracted element after every extraction). */
+        count = -l;
+        uniq = 0;
+    }
+
+    if ((hash = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+        == NULL || checkType(c,hash,REDIS_HASH)) return;
+
+    size = hashTypeLength(hash);
+    /* If count is zero, serve it ASAP to avoid special cases later. */
+    if (count == 0) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+
+    /* CASE 1: The count was negative, so the extraction method is just:
+     * "return N random elements" sampling the whole set every time.
+     * This case is trivial and can be served without auxiliary data
+     * structures. */
+    if (!uniq) {
+        addReplyMultiBulkLen(c,count);
+        while(count--) {
+            hashTypeRandomKey(hash,&key);
+            addReplyBulk(c,key);
+            decrRefCount(key);
+        }
+        return;
+    }
+
+    /* CASE 2:
+     * The number of requested elements is greater than the number of
+     * elements inside the set: simply return all of the keys. */
+    if (count >= size) {
+        hkeysCommand(c);
+        return;
+    }
+
+    /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
+    d = dictCreate(&setDictType,NULL);
+
+    /* CASE 3:
+     * The number of elements inside the set is not greater than
+     * HRANDKEY_SUB_STRATEGY_MUL times the number of requested elements.
+     * In this case we create a set from scratch with all the elements, and
+     * subtract random elements to reach the requested number of elements.
+     *
+     * This is done because if the number of requsted elements is just
+     * a bit less than the number of elements in the set, the natural approach
+     * used into CASE 3 is highly inefficient. */
+    if (count*HRANDKEY_SUB_STRATEGY_MUL > size) {
+        hashTypeIterator *hi;
+
+        /* Add all the elements into the temporary dictionary. */
+        hi = hashTypeInitIterator(hash);
+        while((encoding = hashTypeNext(hi)) != REDIS_ERR) {
+            int retval = DICT_ERR;
+
+            key = hashTypeCurrentObject(hi, REDIS_HASH_KEY);
+            key = tryObjectEncoding(key);
+            retval = dictAdd(d, key, NULL);
+            redisAssert(retval == DICT_OK);
+        }
+        hashTypeReleaseIterator(hi);
+        redisAssert(dictSize(d) == size);
+
+        /* Remove random elements to reach the right count. */
+        while(size > count) {
+            dictEntry *de;
+
+            de = dictGetRandomKey(d);
+            dictDelete(d,dictGetKey(de));
+            size--;
+        }
+    }
+
+    /* CASE 4: We have a big set compared to the requested number of elements.
+     * In this case we can simply get random elements from the set and add
+     * to the temporary set, trying to eventually get enough unique elements
+     * to reach the specified count. */
+    else {
+        unsigned long added = 0;
+
+        while(added < count) {
+            hashTypeRandomKey(hash,&key);
+            /* Try to add the object to the dictionary. If it already exists
+             * free it, otherwise increment the number of objects we have
+             * in the result dictionary. */
+            if (dictAdd(d,key,NULL) == DICT_OK)
+                added++;
+            else
+                decrRefCount(key);
+        }
+    }
+
+    /* CASE 3 & 4: send the result to the user. */
+    {
+        dictIterator *di;
+        dictEntry *de;
+
+        addReplyMultiBulkLen(c,count);
+        di = dictGetIterator(d);
+        while((de = dictNext(di)) != NULL)
+            addReplyBulk(c,dictGetKey(de));
+        dictReleaseIterator(di);
+        dictRelease(d);
+    }
+}
+
+void hrandkeyCommand(redisClient *c) {
+    robj *o, *key;
+
+    if (c->argc == 3) {
+        hrandkeyWithCountCommand(c);
+        return;
+    } else if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+
+    hashTypeRandomKey(o,&key);
+    addReplyBulk(c,key);
+    decrRefCount(key);
+}
+
 static void addHashIteratorCursorToReply(redisClient *c, hashTypeIterator *hi, int what) {
     if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;

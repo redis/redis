@@ -194,6 +194,25 @@ robj *createZiplistObject(void) {
     return o;
 }
 
+/* Return a ziplist element as a Redis string object.
+ * This simple abstraction can be used to simplifies some code at the
+ * cost of some performance. */
+robj *ziplistGetObject(unsigned char *sptr) {
+    unsigned char *vstr;
+    unsigned int vlen;
+    long long vlong;
+
+    redisAssert(sptr != NULL);
+    redisAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
+
+    if (vstr) {
+        return createStringObject((char*)vstr,vlen);
+    } else {
+        return createStringObjectFromLongLong(vlong);
+    }
+}
+
+
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(REDIS_SET,d);
