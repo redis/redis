@@ -49,18 +49,18 @@ start_server {tags {"geo"}} {
     } {{wtc one} 1791873972053020 {union square} 1791875485187452 {central park n/q/r} 1791875761332224 4545 1791875796750882 {lic market} 1791875804419201 q4 1791875830079666 jfk 1791895905559723}
 
     test {GEORADIUS simple (sorted)} {
-        r georadius nyc -73.9798091 40.7598464 3 km ascending
+        r georadius nyc -73.9798091 40.7598464 3 km asc
     } {{central park n/q/r} 4545 {union square}}
 
-    test {GEORADIUS withdistance (sorted)} {
-        r georadius nyc -73.9798091 40.7598464 3 km withdistance ascending
+    test {GEORADIUS withdist (sorted)} {
+        r georadius nyc -73.9798091 40.7598464 3 km withdist asc
     } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697}}
 
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
 
-    test {GEORADIUSBYMEMBER withdistance (sorted)} {
+    test {GEORADIUSBYMEMBER withdist (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
     } {{{wtc one} 0.0000} {{union square} 3.2544} {{central park n/q/r} 6.7000} {4545 6.1975} {{lic market} 6.8969}}
 

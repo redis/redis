@@ -413,6 +413,7 @@ void geoAddCommand(redisClient *c) {
 #define RADIUS_MEMBER 2
 
 /* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
+ *           [LIMIT count]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
 static void geoRadiusGeneric(redisClient *c, int type) {
     robj *key = c->argv[1];
@@ -457,17 +458,17 @@ static void geoRadiusGeneric(redisClient *c, int type) {
         int remaining = c->argc - base_args;
         for (int i = 0; i < remaining; i++) {
             char *arg = c->argv[base_args + i]->ptr;
-            if (!strncasecmp(arg, "withdist", 8))
+            if (!strcasecmp(arg, "withdist")) {
                 withdist = 1;
-            else if (!strcasecmp(arg, "withhash"))
+            } else if (!strcasecmp(arg, "withhash")) {
                 withhash = 1;
-            else if (!strncasecmp(arg, "withcoord", 9))
+            } else if (!strcasecmp(arg, "withcoord")) {
                 withcoords = 1;
-            else if (!strncasecmp(arg, "asc", 3))
+            } else if (!strcasecmp(arg, "asc")) {
                 sort = SORT_ASC;
-            else if (!strncasecmp(arg, "desc", 4))
+            } else if (!strcasecmp(arg, "desc")) {
                 sort = SORT_DESC;
-            else {
+            } else {
                 addReply(c, shared.syntaxerr);
                 return;
             }
