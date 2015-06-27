@@ -412,9 +412,9 @@ void geoAddCommand(redisClient *c) {
 #define RADIUS_COORDS 1
 #define RADIUS_MEMBER 2
 
+/* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
+ * GEORADIUSBYMEMBER key member radius unit ... options ... */
 static void geoRadiusGeneric(redisClient *c, int type) {
-    /* type == cords:  [cmd, key, long, lat, radius, units, [optionals]]
-     * type == member: [cmd, key, member,    radius, units, [optionals]] */
     robj *key = c->argv[1];
 
     /* Look up the requested zset */
@@ -451,7 +451,7 @@ static void geoRadiusGeneric(redisClient *c, int type) {
     }
 
     /* Discover and populate all optional parameters. */
-    int withdist = 0, withhash = 0, withcoords = 0, noproperties = 0;
+    int withdist = 0, withhash = 0, withcoords = 0;
     int sort = SORT_NONE;
     if (c->argc > base_args) {
         int remaining = c->argc - base_args;
@@ -463,11 +463,7 @@ static void geoRadiusGeneric(redisClient *c, int type) {
                 withhash = 1;
             else if (!strncasecmp(arg, "withcoord", 9))
                 withcoords = 1;
-            else if (!strncasecmp(arg, "noprop", 6) ||
-                     !strncasecmp(arg, "withoutprop", 11))
-                noproperties = 1;
-            else if (!strncasecmp(arg, "asc", 3) ||
-                     !strncasecmp(arg, "sort", 4))
+            else if (!strncasecmp(arg, "asc", 3))
                 sort = SORT_ASC;
             else if (!strncasecmp(arg, "desc", 4))
                 sort = SORT_DESC;
