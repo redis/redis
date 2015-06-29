@@ -72,6 +72,6 @@ typedef double                  PORT_LONGDOUBLE;
 #endif
 
 /* The maximum possible size_t value has all bits set */
-#define MAX_SIZE_T           (~(size_t)0)
+#define MAX_SIZE_T          (~(size_t)0)
 
-
+typedef int                 pid_t;

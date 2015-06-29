@@ -178,7 +178,6 @@ int getrusage(int who, struct rusage * rusage);
 #endif /*SIG_SETMASK*/
 
 typedef	void (*__p_sig_fn_t)(int);
-typedef DWORD pid_t;
 
 #ifndef _SIGSET_T_
 #define _SIGSET_T_

@@ -340,20 +340,17 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     catch(std::system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
             ::redisLog(REDIS_WARNING, "QForkChildInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
-            g_pQForkControl = NULL;
-            if (g_pQForkControl != NULL) {
-                if (g_pQForkControl->operationFailed != NULL) {
-                    SetEvent(g_pQForkControl->operationFailed);
-                }
-            }
-            return FALSE;
         }
     }
     catch(std::runtime_error runerr) {
         ::redisLog(REDIS_WARNING, "QForkChildInit: runtime error caught. message=%s\n", runerr.what());
+    }
+    
+    if (g_pQForkControl != NULL) {
+        if (g_pQForkControl->operationFailed != NULL) {
+            SetEvent(g_pQForkControl->operationFailed);
+        }
         g_pQForkControl = NULL;
-        SetEvent(g_pQForkControl->operationFailed);
-        return FALSE;
     }
     return FALSE;
 }
@@ -917,12 +914,13 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
 
 typedef void (*CHILD_PID_HOOK)(DWORD pid);
 
-BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile, CHILD_PID_HOOK pidHook = NULL) {
+pid_t BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, uint32_t dictHashSeed, char* logfile, CHILD_PID_HOOK pidHook = NULL) {
     PROCESS_INFORMATION pi;
     try {
         pi.hProcess = INVALID_HANDLE_VALUE;
+        pi.dwProcessId = -1;
 
-        if(pidHook != NULL) {
+        if (pidHook != NULL) {
             CreateChildProcess(&pi, logfile, CREATE_SUSPENDED);
             pidHook(pi.dwProcessId);
             CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
@@ -932,7 +930,6 @@ BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalD
             CreateChildProcess(&pi, logfile, 0);
         }
 
-        *childPID = pi.dwProcessId;
         CloseHandle(pi.hThread);
 
         // wait for "forked" process to map memory
@@ -943,7 +940,7 @@ BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalD
                 "Forked Process did not respond in a timely manner.");
         }
 
-        return TRUE;
+        return pi.dwProcessId;
     }
     catch(std::system_error syserr) {
         ::redisLog(REDIS_WARNING, "BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
@@ -954,34 +951,32 @@ BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalD
     catch(...) {
         ::redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
     }
-    if(pi.hProcess != INVALID_HANDLE_VALUE) {
+    if (pi.hProcess != INVALID_HANDLE_VALUE) {
         TerminateProcess(pi.hProcess, 1);
     }
-    return FALSE;
+    return -1;
 }
 
-BOOL BeginForkOperation_Rdb(
+pid_t BeginForkOperation_Rdb(
     char *filename,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile)
 {
     strcpy_s(g_pQForkControl->globalData.filename, filename);
-    return BeginForkOperation(otRDB, globalData, sizeOfGlobalData, childPID, dictHashSeed, logfile);
+    return BeginForkOperation(otRDB, globalData, sizeOfGlobalData, dictHashSeed, logfile);
 }
 
-BOOL BeginForkOperation_Aof(
+pid_t BeginForkOperation_Aof(
     char *filename,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile)
 {
     strcpy_s(g_pQForkControl->globalData.filename, filename);
-    return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, childPID, dictHashSeed, logfile);
+    return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, dictHashSeed, logfile);
 }
 
 void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
@@ -992,14 +987,13 @@ void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
     }
 }
 
-BOOL BeginForkOperation_Socket(
+pid_t BeginForkOperation_Socket(
     int *fds,
     int numfds,
     uint64_t *clientids,
     int pipe_write_fd,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile)
 {
@@ -1015,7 +1009,6 @@ BOOL BeginForkOperation_Socket(
     return BeginForkOperation(otSocket,
                               globalData,
                               sizeOfGlobalData,
-                              childPID,
                               dictHashSeed,
                               logfile,
                               BeginForkOperation_Socket_PidHook);

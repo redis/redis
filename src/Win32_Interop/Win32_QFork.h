@@ -66,30 +66,27 @@ StartupStatus QForkStartup(int argc, char** argv);
 BOOL QForkShutdown();
 
 // For parent process use only
-BOOL BeginForkOperation_Rdb(
+pid_t BeginForkOperation_Rdb(
     char* fileName,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
-BOOL BeginForkOperation_Aof(
+pid_t BeginForkOperation_Aof(
     char* fileName,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
-BOOL BeginForkOperation_Socket(
+pid_t BeginForkOperation_Socket(
     int *fds,
     int numfds,
     uint64_t *clientids,
     int pipe_write_fd,
     LPVOID globalData,
     int sizeOfGlobalData,
-    DWORD* childPID,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
