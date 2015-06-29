@@ -613,7 +613,7 @@ void geoEncodeCommand(redisClient *c) {
     /* Align the hash to a valid 52-bit integer based on step size */
     GeoHashFix52Bits bits = geohashAlign52Bits(geohash);
 
-/* Decode the hash so we can return its bounding box */
+    /* Decode the hash so we can return its bounding box */
     GeoHashArea area;
     geohashDecodeWGS84(geohash, &area);
 
