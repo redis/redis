@@ -1565,6 +1565,7 @@ void georadiusCommand(redisClient *c);
 void geoaddCommand(redisClient *c);
 void geohashCommand(redisClient *c);
 void geoposCommand(redisClient *c);
+void geodistCommand(redisClient *c);
 void pfselftestCommand(redisClient *c);
 void pfaddCommand(redisClient *c);
 void pfcountCommand(redisClient *c);

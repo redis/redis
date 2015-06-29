@@ -109,6 +109,28 @@ start_server {tags {"geo"}} {
         lindex [r geopos points a x b] 1
     } {}
 
+    test {GEODIST simple & unit} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        set m [r geodist points Palermo Catania]
+        assert {$m > 166274 && $m < 166275}
+        set km [r geodist points Palermo Catania km]
+        assert {$km > 166.2 && $km < 166.3}
+    }
+
+    test {GEODIST missing elements} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        set m [r geodist points Palermo Agrigento]
+        assert {$m eq {}}
+        set m [r geodist points Ragusa Agrigento]
+        assert {$m eq {}}
+        set m [r geodist empty_key Palermo Catania]
+        assert {$m eq {}}
+    }
+
     test {GEOADD + GEORANGE randomized test} {
         set attempt 10
         while {[incr attempt -1]} {

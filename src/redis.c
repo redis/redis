@@ -289,6 +289,7 @@ struct redisCommand redisCommandTable[] = {
     {"geodecode",geodecodeCommand,2,"r",0,NULL,0,0,0,0,0},
     {"geohash",geohashCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"geopos",geoposCommand,-2,"r",0,NULL,0,0,0,0,0},
+    {"geodist",geodistCommand,-4,"r",0,NULL,0,0,0,0,0},
     {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
     {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,1,1,0,0},

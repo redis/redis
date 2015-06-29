@@ -167,7 +167,7 @@ GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
 }
 
 /* Calculate distance using haversin great circle distance formula. */
-double distanceEarth(double lon1d, double lat1d, double lon2d, double lat2d) {
+double geohashGetDistance(double lon1d, double lat1d, double lon2d, double lat2d) {
     double lat1r, lon1r, lat2r, lon2r, u, v;
     lat1r = deg_rad(lat1d);
     lon1r = deg_rad(lon1d);
@@ -182,7 +182,7 @@ double distanceEarth(double lon1d, double lat1d, double lon2d, double lat2d) {
 int geohashGetDistanceIfInRadius(double x1, double y1,
                                  double x2, double y2, double radius,
                                  double *distance) {
-    *distance = distanceEarth(x1, y1, x2, y2);
+    *distance = geohashGetDistance(x1, y1, x2, y2);
     if (*distance > radius) return 0;
     return 1;
 }
