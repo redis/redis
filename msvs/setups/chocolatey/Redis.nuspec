@@ -18,6 +18,5 @@
   </metadata>
   <files>
     <file src="..\signed_binaries\*.*" target=".\" />
-    <file src="..\documentation\*.*" target=".\" />
   </files>
 </package>
