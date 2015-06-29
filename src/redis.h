@@ -1564,6 +1564,7 @@ void geoRadiusByMemberCommand(redisClient *c);
 void geoRadiusCommand(redisClient *c);
 void geoAddCommand(redisClient *c);
 void geoHashCommand(redisClient *c);
+void geoposCommand(redisClient *c);
 void pfselftestCommand(redisClient *c);
 void pfaddCommand(redisClient *c);
 void pfcountCommand(redisClient *c);

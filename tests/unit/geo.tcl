@@ -92,6 +92,23 @@ start_server {tags {"geo"}} {
         lindex [r geohash points test] 0
     } {ezs42e44yx0}
 
+    test {GEOPOS simple} {
+        r del points
+        r geoadd points 10 20 a 30 40 b
+        lassign [lindex [r geopos points a b] 0] x1 y1
+        lassign [lindex [r geopos points a b] 1] x2 y2
+        assert {abs($x1 - 10) < 0.001}
+        assert {abs($y1 - 20) < 0.001}
+        assert {abs($x2 - 30) < 0.001}
+        assert {abs($y2 - 40) < 0.001}
+    }
+
+    test {GEOPOS missing element} {
+        r del points
+        r geoadd points 10 20 a 30 40 b
+        lindex [r geopos points a x b] 1
+    } {}
+
     test {GEOADD + GEORANGE randomized test} {
         set attempt 10
         while {[incr attempt -1]} {

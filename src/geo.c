@@ -709,3 +709,36 @@ void geoHashCommand(redisClient *c) {
         }
     }
 }
+
+/* GEOPOS key ele1 ele2 ... eleN
+ *
+ * Returns an array of two-items arrays representing the x,y position of each
+ * element specified in the arguments. For missing elements NULL is returned. */
+void geoposCommand(redisClient *c) {
+    int j;
+
+    /* Look up the requested zset */
+    robj *zobj = NULL;
+    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
+        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+
+    /* Report elements one after the other, using a null bulk reply for
+     * missing elements. */
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (j = 2; j < c->argc; j++) {
+        double score;
+        if (zsetScore(zobj, c->argv[j], &score) == REDIS_ERR) {
+            addReply(c,shared.nullmultibulk);
+        } else {
+            /* Decode... */
+            double xy[2];
+            if (!decodeGeohash(score,xy)) {
+                addReply(c,shared.nullmultibulk);
+                continue;
+            }
+            addReplyMultiBulkLen(c,2);
+            addReplyDouble(c,xy[0]);
+            addReplyDouble(c,xy[1]);
+        }
+    }
+}
