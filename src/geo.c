@@ -349,7 +349,7 @@ static int sort_gp_desc(const void *a, const void *b) {
  * ==================================================================== */
 
 /* GEOADD key long lat name [long2 lat2 name2 ... longN latN nameN] */
-void geoAddCommand(redisClient *c) {
+void geoaddCommand(redisClient *c) {
     /* Check arguments number for sanity. */
     if ((c->argc - 2) % 3 != 0) {
         /* Need an odd number of arguments if we got this far... */
@@ -405,7 +405,7 @@ void geoAddCommand(redisClient *c) {
 /* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                               [COUNT count]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
-static void geoRadiusGeneric(redisClient *c, int type) {
+static void georadiusGeneric(redisClient *c, int type) {
     robj *key = c->argv[1];
 
     /* Look up the requested zset */
@@ -555,17 +555,17 @@ static void geoRadiusGeneric(redisClient *c, int type) {
 }
 
 /* GEORADIUS wrapper function. */
-void geoRadiusCommand(redisClient *c) {
-    geoRadiusGeneric(c, RADIUS_COORDS);
+void georadiusCommand(redisClient *c) {
+    georadiusGeneric(c, RADIUS_COORDS);
 }
 
 /* GEORADIUSBYMEMBER wrapper function. */
-void geoRadiusByMemberCommand(redisClient *c) {
-    geoRadiusGeneric(c, RADIUS_MEMBER);
+void georadiusByMemberCommand(redisClient *c) {
+    georadiusGeneric(c, RADIUS_MEMBER);
 }
 
 /* GEODECODE long lat */
-void geoDecodeCommand(redisClient *c) {
+void geodecodeCommand(redisClient *c) {
     GeoHashBits geohash;
     if (getLongLongFromObjectOrReply(c, c->argv[1], (long long *)&geohash.bits,
                                      NULL) != REDIS_OK)
@@ -598,7 +598,7 @@ void geoDecodeCommand(redisClient *c) {
 }
 
 /* GEOENCODE long lat [radius unit] */
-void geoEncodeCommand(redisClient *c) {
+void geoencodeCommand(redisClient *c) {
     double radius_meters = 0;
     if (c->argc == 5) {
         if ((radius_meters = extractDistanceOrReply(c, c->argv + 3, NULL)) < 0)
@@ -659,7 +659,7 @@ void geoEncodeCommand(redisClient *c) {
  *
  * Returns an array with an 11 characters geohash representation of the
  * position of the specified elements. */
-void geoHashCommand(redisClient *c) {
+void geohashCommand(redisClient *c) {
     char *geoalphabet= "0123456789bcdefghjkmnpqrstuvwxyz";
     int j;
 

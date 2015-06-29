@@ -3,12 +3,6 @@
 
 #include "redis.h"
 
-void geoEncodeCommand(redisClient *c);
-void geoDecodeCommand(redisClient *c);
-void geoRadiusByMemberCommand(redisClient *c);
-void geoRadiusCommand(redisClient *c);
-void geoAddCommand(redisClient *c);
-
 /* Structures used inside geo.c in order to represent points and array of
  * points on the earth. */
 typedef struct geoPoint {
