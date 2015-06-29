@@ -608,6 +608,11 @@ non-backward compatible changes introduced in the 3.0 release:
   '?' is actually the role of the instance. M for master, S for slave, C
   if this process is a saving child (for RDB/AOF), and X for Sentinel.
 
+* The default maxmemory policy in Redis 3.0 is no longer "volatile-lru" as
+  it used to be in 2.8, but "noeviction". The policies behavior is the same
+  (but LRU eviction is much more precise in 3.0), so only the default value
+  changed. Just make sure to specify in your redis.conf what you mean.
+
 --------------------------------------------------------------------------------
 
 Credits: Where not specified the implementation and design is done by
