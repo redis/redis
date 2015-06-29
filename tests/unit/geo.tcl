@@ -56,6 +56,14 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 3 km withdist asc
     } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697}}
 
+    test {GEORADIUS with COUNT} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
+    } {{central park n/q/r} 4545 {union square}}
+
+    test {GEORADIUS with COUNT DESC} {
+        r georadius nyc -73.9798091 40.7598464 10 km COUNT 2 DESC
+    } {{wtc one} q4}
+
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}
