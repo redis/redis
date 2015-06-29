@@ -341,11 +341,9 @@ static int sort_gp_desc(const void *a, const void *b) {
 /* ====================================================================
  * Commands
  * ==================================================================== */
-void geoAddCommand(redisClient *c) {
-    /* args 0-4: [cmd, key, lng, lat, val]; optional 5-6: [radius, units]
-     * - OR -
-     * args 0-N: [cmd, key, lng, lat, val, lng2, lat2, val2, ...] */
 
+/* GEOADD key long lat name [long2 lat2 name2 ... longN latN nameN] */
+void geoAddCommand(redisClient *c) {
     /* Prepare for the three different forms of the add command. */
     double radius_meters = 0;
     if (c->argc == 7) {
@@ -568,18 +566,17 @@ static void geoRadiusGeneric(redisClient *c, int type) {
     geoArrayFree(ga);
 }
 
+/* GEORADIUS wrapper function. */
 void geoRadiusCommand(redisClient *c) {
-    /* args 0-5: ["georadius", key, long, lat, radius, units];
-     * optionals: [withdist, withcoords, asc|desc] */
     geoRadiusGeneric(c, RADIUS_COORDS);
 }
 
+/* GEORADIUSBYMEMBER wrapper function. */
 void geoRadiusByMemberCommand(redisClient *c) {
-    /* args 0-4: ["georadius", key, compare-against-member, radius, units];
-     * optionals: [withdist, withcoords, asc|desc] */
     geoRadiusGeneric(c, RADIUS_MEMBER);
 }
 
+/* GEODECODE long lat */
 void geoDecodeCommand(redisClient *c) {
     GeoHashBits geohash;
     if (getLongLongFromObjectOrReply(c, c->argv[1], (long long *)&geohash.bits,
@@ -612,10 +609,8 @@ void geoDecodeCommand(redisClient *c) {
     addReplyDouble(c, lat);
 }
 
+/* GEOENCODE long lat [radius unit] */
 void geoEncodeCommand(redisClient *c) {
-    /* args 0-2: ["geoencode", long, lat];
-     * optionals: [radius, units] */
-
     double radius_meters = 0;
     if (c->argc >= 5) {
         if ((radius_meters = extractDistanceOrReply(c, c->argv + 3, NULL)) < 0)
@@ -628,7 +623,7 @@ void geoEncodeCommand(redisClient *c) {
     double xy[2];
     if (extractLongLatOrReply(c, c->argv + 1, xy) == REDIS_ERR) return;
 
-    /* Encode lat/long into our geohash */
+    /* Encode long/lat into our geohash */
     GeoHashBits geohash;
     uint8_t step = geohashEstimateStepsByRadius(radius_meters,0);
     geohashEncodeWGS84(xy[0], xy[1], step, &geohash);
