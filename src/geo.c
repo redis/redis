@@ -263,12 +263,10 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
     return ga->used - origincount;
 }
 
-/* Obtain all members between the min/max of this geohash bounding box.
- * Populate a geoArray of GeoPoints by calling geoGetPointsInRange().
- * Return the number of points added to the array. */
-int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double radius) {
-    GeoHashFix52Bits min, max;
-
+/* Compute the sorted set scores min (inclusive), max (exclusive) we should
+ * query in order to retrieve all the elements inside the specified area
+ * 'hash'. The two scores are returned by reference in *min and *max. */
+void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bits *max) {
     /* We want to compute the sorted set scores that will include all the
      * elements inside the specified Geohash 'hash', which has as many
      * bits as specified by hash.step * 2.
@@ -289,10 +287,18 @@ int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, 
      * and
      * 1010110000000000000000000000000000000000000000000000 (excluded).
      */
-    min = geohashAlign52Bits(hash);
+    *min = geohashAlign52Bits(hash);
     hash.bits++;
-    max = geohashAlign52Bits(hash);
+    *max = geohashAlign52Bits(hash);
+}
 
+/* Obtain all members between the min/max of this geohash bounding box.
+ * Populate a geoArray of GeoPoints by calling geoGetPointsInRange().
+ * Return the number of points added to the array. */
+int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double radius) {
+    GeoHashFix52Bits min, max;
+
+    scoresOfGeoHashBox(hash,&min,&max);
     return geoGetPointsInRange(zobj, min, max, lon, lat, radius, ga);
 }
 
@@ -621,7 +627,7 @@ void geoEncodeCommand(redisClient *c) {
     double lat = (area.latitude.min + area.latitude.max) / 2;
 
     /* Return four nested multibulk replies. */
-    addReplyMultiBulkLen(c, 4);
+    addReplyMultiBulkLen(c, 5);
 
     /* Return the binary geohash we calculated as 52-bit integer */
     addReplyLongLong(c, bits);
@@ -640,6 +646,13 @@ void geoEncodeCommand(redisClient *c) {
     addReplyMultiBulkLen(c, 2);
     addReplyDouble(c, lon);
     addReplyDouble(c, lat);
+
+    /* Return the two scores to query to get the range from the sorted set. */
+    GeoHashFix52Bits min, max;
+    scoresOfGeoHashBox(geohash,&min,&max);
+    addReplyMultiBulkLen(c, 2);
+    addReplyDouble(c, min);
+    addReplyDouble(c, max);
 }
 
 /* GEOHASH key ele1 ele2 ... eleN
