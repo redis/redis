@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
   <metadata>
     <id>redis-64</id>
-    <title>redis-64</title>
+    <title>Redis-64</title>
     <version>CurrentRedisVersion</version>
     <authors>Alexis Campailla, Enrico Giordani, Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
@@ -17,7 +17,9 @@
     <releaseNotes>https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md</releaseNotes>
   </metadata>
   <files>
-    <file src="..\signed_binaries\*.*" target=".\" />
-    <file src="..\documentation\*.*" target=".\" />
+    <file src="..\signed_binaries\*.exe" target=".\" />
+    <file src="..\signed_binaries\*.pdb" target=".\" />
+    <file src="..\signed_binaries\*.conf" target=".\" />
+    <file src="..\signed_binaries\*.docx" target=".\" />
   </files>
 </package>
