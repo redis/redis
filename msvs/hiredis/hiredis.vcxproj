@@ -144,9 +144,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <None Include="ReadMe.txt" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="..\..\deps\hiredis\async.c" />
     <ClCompile Include="..\..\deps\hiredis\dict.c" />
     <ClCompile Include="..\..\deps\hiredis\hiredis.c" />
