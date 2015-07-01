@@ -1138,7 +1138,7 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAdd
     return TRUE;
 }
 
-int StorageSize(SOCKADDR_STORAGE *ss) {
+int StorageSize(const SOCKADDR_STORAGE *ss) {
     switch (ss->ss_family) {
         case AF_INET:
             return sizeof(SOCKADDR_IN);
