@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
   <metadata>
     <id>redis-64</id>
-    <title>redis-64</title>
+    <title>Redis 64</title>
     <version>2.8.21</version>
     <authors>Alexis Campailla, Enrico Giordani, Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
