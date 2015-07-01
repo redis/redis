@@ -30,7 +30,6 @@ static IMAGEHLP_SYMBOL64* pSymbol = (IMAGEHLP_SYMBOL64*) malloc(sizeof(IMAGEHLP_
 static IMAGEHLP_LINE64 line;
 static BOOLEAN processingException = FALSE;
 static CHAR modulePath[MAX_PATH];
-static BOOL symbolsInitialized = FALSE;
 static LPTOP_LEVEL_EXCEPTION_FILTER defaultTopLevelExceptionHandler = NULL;
 
 static const char* exceptionDescription(const DWORD& code)
@@ -149,10 +148,8 @@ void LogStackTrace() {}
 #endif
 
 void StackTraceInfo() {
-    if (symbolsInitialized) {
-        redisLog(REDIS_WARNING, "--- STACK TRACE");
-        LogStackTrace();
-    }
+    redisLog(REDIS_WARNING, "--- STACK TRACE");
+    LogStackTrace();
 }
 
 void ServerInfo() {
@@ -207,11 +204,7 @@ void InitSymbols() {
     SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
     line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
     HANDLE process = GetCurrentProcess();
-    symbolsInitialized = SymInitialize(process, NULL, TRUE);
-    if (!symbolsInitialized) {
-        DWORD error = GetLastError();
-        redisLog(REDIS_WARNING, "Failed to initialize process symbols, error: %d", error);
-    }
+    SymInitialize(process, NULL, TRUE);
 }
 
 void StackTraceInit(void) {
