@@ -669,7 +669,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
     bool foundChildFlag = false;
-    bool foundSentinelMode = checkForSentinelMode(argc, argv);
+    int sentinelMode = checkForSentinelMode(argc, argv);
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
@@ -747,7 +747,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     }
 
     if( maxheapBytes == -1 ) {
-        if (foundSentinelMode) {
+        if (sentinelMode == 1) {
             // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
             maxheapBytes = cSentinelHeapSize;
         } else {
