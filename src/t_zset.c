@@ -2886,7 +2886,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
         dictEntry *de;
         double score;
 
-        ele = c->argv[2] = tryObjectEncoding(c->argv[2]);
+        ele = c->argv[2];
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
             score = *(double*)dictGetVal(de);
