@@ -169,19 +169,22 @@ void BugReportEnd(){
 
 LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
     if (!processingException) {
-        const char* exDescription = "Exception code not available";
-        processingException = true;
-        if (info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
-            exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
-        }
+        try {
+            const char* exDescription = "Exception code not available";
+            processingException = true;
+            if (info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
+                exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
+            }
 
-        // Call antirez routine to log the start of the bug report
-        bugReportStart();
-        redisLog(REDIS_WARNING, "--- %s", exDescription);
-        StackTraceInfo();
-        ServerInfo();
-        BugReportEnd();
-        processingException = false;
+            // Call antirez routine to log the start of the bug report
+            bugReportStart();
+            redisLog(REDIS_WARNING, "--- %s", exDescription);
+            StackTraceInfo();
+            //ServerInfo();
+            BugReportEnd();
+            processingException = false;
+        }
+        catch (...) {};
     }
 
     if (defaultTopLevelExceptionHandler != NULL) {
