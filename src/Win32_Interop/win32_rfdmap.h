@@ -23,15 +23,12 @@
 #pragma once
 
 #include <errno.h>
-
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
 #include <WinSock2.h>
 #include "ws2tcpip.h"
-
-//#include <io.h>
-
 #include <map>
 #include <queue>
+
 using namespace std;
 
 typedef struct {
@@ -69,65 +66,56 @@ public:
 
 private:
     RFDMap();
-    RFDMap(RFDMap const&);	  // Don't implement to guarantee singleton semantics
-    void operator=(RFDMap const&); // Don't implement to guarantee singleton semantics
+    RFDMap(RFDMap const&);          // Don't implement to guarantee singleton semantics
+    void operator=(RFDMap const&);  // Don't implement to guarantee singleton semantics
 
 private:
-	SocketToRFDMapType SocketToRFDMap;
-	SocketToStateMapType SocketToStateMap;
+    SocketToRFDMapType SocketToRFDMap;
+    SocketToStateMapType SocketToStateMap;
     PosixFDToRFDMapType PosixFDToRFDMap;
-	RFDToSocketMapType RFDToSocketMap;
-	RFDToPosixFDMapType RFDToPosixFDMap;
-	RFDRecyclePoolType RFDRecyclePool;
-
-public:
-	const static int minRFD = 3;    // 0, 1 and 2 are reserved for stdin, stdout and stderr
-    RFD maxRFD;
-	const static int invalidRFD = -1;
+    RFDToSocketMapType RFDToSocketMap;
+    RFDToPosixFDMapType RFDToPosixFDMap;
+    RFDRecyclePoolType RFDRecyclePool;
 
 private:
-	/* Gets the next available Redis File Descriptor. Redis File Descriptors are always
-	   non-negative integers, with the first three being reserved for stdin(0),
-	   stdout(1) and stderr(2). */
-	RFD getNextRFDAvailable();
+    const static int minRFD = 3;    // 0, 1 and 2 are reserved for stdin, stdout and stderr
+    RFD maxRFD;
+    CRITICAL_SECTION mutex;
 
 public:
-	/* Adds a socket to the socket map. Returns the redis file descriptor value for
-	   the socket. Returns invalidRFD if the socket is already added to the
-	   collection. */
-	RFD addSocket(SOCKET s);
+    const static int invalidRFD = -1;
 
-	/* Removes a socket from the list of sockets. Also removes the associated 
-	   file descriptor. */
-	void removeSocket(SOCKET s);
+private:
+    /* Gets the next available Redis File Descriptor. Redis File Descriptors are always
+       non-negative integers, with the first three being reserved for stdin(0),
+       stdout(1) and stderr(2). */
+    RFD getNextRFDAvailable();
 
-	/* Adds a posixFD (used with low-level CRT posix file functions) to the posixFD map. Returns
+public:
+    /* Adds a socket to the socket map. Returns the redis file descriptor value for
+       the socket. Returns invalidRFD if the socket is already added to the
+       collection. */
+    RFD addSocket(SOCKET s);
+
+    /* Removes a socket from the list of sockets. Also removes the associated
+       file descriptor. */
+    void removeSocket(SOCKET s);
+
+    /* Adds a posixFD (used with low-level CRT posix file functions) to the posixFD map. Returns
        the redis file descriptor value for the posixFD. Returns invalidRFD if the posicFD is already
        added to the collection. */
-	RFD addPosixFD(int posixFD);
+    RFD addPosixFD(int posixFD);
 
-	/* Removes a socket from the list of sockets. Also removes the associated 
-	   file descriptor. */
-	void removePosixFD(int posixFD);
-
-	/* Returns the socket associated with a file descriptor. */
-	SOCKET lookupSocket(RFD rfd);
+    /* Removes a socket from the list of sockets. Also removes the associated
+       file descriptor. */
+    void removePosixFD(int posixFD);
 
     /* Returns the socket associated with a file descriptor. */
-	int lookupPosixFD(RFD rfd);
+    SOCKET lookupSocket(RFD rfd);
 
-	/* Returns the RFD associated with a socket. */
-	RFD lookupRFD(SOCKET s);
+    /* Returns the socket associated with a file descriptor. */
+    int lookupPosixFD(RFD rfd);
 
-	/* Returns the RFD associated with a posix FD. */
-	RFD lookupRFD(int posixFD);
-
-	/* Returns the smallest RFD available */
-	RFD getMinRFD();
-
-    /* Returns the largest FD allocated so far */
-    RFD getMaxRFD();
-
-    bool SetSocketState( SOCKET s, RedisSocketState state );
-    bool GetSocketState( SOCKET s, RedisSocketState& state );
+    bool SetSocketState(SOCKET s, RedisSocketState state);
+    bool GetSocketState(SOCKET s, RedisSocketState& state);
 };
