@@ -158,14 +158,21 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
  * This function can't fail. */
 void listDelNode(list *list, listNode *node)
 {
-    if (node->prev)
-        node->prev->next = node->next;
-    else
+    if (node == list->head && node == list->tail) {
+        list->head = NULL;
+        list->tail = NULL;
+    } else if (node == list->head && node->next != NULL) {
         list->head = node->next;
-    if (node->next)
-        node->next->prev = node->prev;
-    else
+        list->head->prev = NULL;
+    } else if (node == list->tail && node->prev != NULL) {
         list->tail = node->prev;
+        list->tail->next = NULL;
+    } else {
+        listNode **pp = &node;
+        *pp = node->next;
+        (**pp).prev = node->prev;
+    }
+    
     if (list->free) list->free(node->value);
     zfree(node);
     list->len--;
