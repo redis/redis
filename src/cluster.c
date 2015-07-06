@@ -389,8 +389,6 @@ int clusterLockConfig(char *filename) {
 }
 
 void clusterInit(void) {
-    int saveconf = 0;
-
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
@@ -425,9 +423,8 @@ void clusterInit(void) {
         redisLog(REDIS_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
         clusterAddNode(myself);
-        saveconf = 1;
+        clusterSaveConfigOrDie(1);
     }
-    if (saveconf) clusterSaveConfigOrDie(1);
 
     /* We need a listening TCP port for our cluster messaging needs. */
     server.cfd_count = 0;
@@ -472,7 +469,7 @@ void clusterInit(void) {
 
 /* Reset a node performing a soft or hard reset:
  *
- * 1) All other nodes are forget.
+ * 1) All other nodes are forgotten.
  * 2) All the assigned / open slots are released.
  * 3) If the node is a slave, it turns into a master.
  * 5) Only for hard reset: a new Node ID is generated.
