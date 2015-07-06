@@ -112,19 +112,23 @@ static inline uint64_t deinterleave64(uint64_t interleaved) {
 void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range) {
     /* These are constraints from EPSG:900913 / EPSG:3785 / OSGEO:41001 */
     /* We can't geocode at the north/south pole. */
-    long_range->max = 180.0;
-    long_range->min = -180.0;
-    lat_range->max = 85.05112878;
-    lat_range->min = -85.05112878;
+    long_range->max = GEO_LONG_MAX;
+    long_range->min = GEO_LONG_MIN;
+    lat_range->max = GEO_LAT_MAX;
+    lat_range->min = GEO_LAT_MIN;
 }
 
 int geohashEncode(GeoHashRange *long_range, GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash) {
-    if (NULL == hash || step > 32 || step == 0 || RANGEPISZERO(lat_range) ||
-        RANGEPISZERO(long_range)) {
-        return 0;
-    }
+    /* Check basic arguments sanity. */
+    if (hash == NULL || step > 32 || step == 0 ||
+        RANGEPISZERO(lat_range) || RANGEPISZERO(long_range)) return 0;
+
+    /* Return an error when trying to index outside the supported
+     * constraints. */
+    if (longitude > 180 || longitude < -180 ||
+        latitude > 85.05112878 || latitude < -85.05112878) return 0;
 
     hash->bits = 0;
     hash->step = step;

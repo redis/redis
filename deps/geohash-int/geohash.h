@@ -44,7 +44,13 @@ extern "C" {
 #define RANGEISZERO(r) (!(r).max && !(r).min)
 #define RANGEPISZERO(r) (r == NULL || RANGEISZERO(*r))
 
-#define GEO_STEP_MAX 26
+#define GEO_STEP_MAX 26 /* 26*2 = 52 bits. */
+
+/* Limits from EPSG:900913 / EPSG:3785 / OSGEO:41001 */
+#define GEO_LAT_MIN -85.05112878
+#define GEO_LAT_MAX 85.05112878
+#define GEO_LONG_MIN -180
+#define GEO_LONG_MAX 180
 
 typedef enum {
     GEOHASH_NORTH = 0,
