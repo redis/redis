@@ -504,13 +504,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 "CreateFileW failed.");
         }
 
-        // There is a strange random failure toawrds the end of mapping the heap in the forked process in the VEH if
-        // the underlying MMF is not larger than the MM space we are using. This seems to be some sort of 
-        // memory->file allocation granularity issue. Increasing the size of the file (by 16MB) takes care of the 
-        // issue in all cases.
-        const size_t extraMMF = 64 * cAllocationGranularity;
-
-        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity + extraMMF; 
+        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
         g_pQForkControl->heapMemoryMap = 
             CreateFileMappingW( 
                 g_pQForkControl->heapMemoryMapFile,
@@ -843,7 +837,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
         throw std::system_error(
             GetLastError(),
             system_category(),
-            "BeginForkOperation: VirtualProtect failed");
+            "BeginForkOperation: VirtualProtect failed for the fork control map");
     }
     if (VirtualProtect( 
         g_pQForkControl->heapStart, 
@@ -853,7 +847,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
         throw std::system_error(
             GetLastError(),
             system_category(),
-            "BeginForkOperation: VirtualProtect failed");
+            "BeginForkOperation: VirtualProtect failed for the heap");
     }
 }
 
