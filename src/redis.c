@@ -29,6 +29,10 @@
 
 #ifdef _WIN32
 #include "win32_Interop\win32_util.h"
+#include "Win32_Interop\Win32_FDAPI.h"
+#include "Win32_Interop\Win32_ThreadControl.h"
+#include <locale.h>
+#define LOG_LOCAL0 0
 #endif
 
 #include "redis.h"
@@ -39,11 +43,7 @@
 
 #include <time.h>
 #include <signal.h>
-#ifdef _WIN32
-#include <locale.h>
-#define LOG_LOCAL0 0
-#include "redisLog.h"
-#else
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/resource.h>
@@ -60,10 +60,8 @@
 #include <limits.h>
 #include <float.h>
 #include <math.h>
+#ifndef _WIN32
 #include <locale.h>
-
-#ifdef _WIN32
-#include "Win32_Interop\Win32_FDAPI.h"
 #endif
 
 /* Our shared "common" objects */
@@ -1148,10 +1146,10 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             redisLog(REDIS_VERBOSE,
-                "%Iu clients connected (%Iu slaves), %Iu bytes in use",
+                "%Iu clients connected (%Iu slaves), %Iu bytes in use",         WIN_PORT_FIX /* %zu -> %Iu */
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
-                zmalloc_used_memory());                                         WIN_PORT_FIX /* %zu -> %Iu */
+                zmalloc_used_memory());
         }
     }
 
@@ -1172,19 +1170,23 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
 #ifdef _WIN32
-		if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
-			int exitCode;
-			int bySignal;
-			bySignal = (int)(GetForkOperationStatus() == osFAILED);
-			redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
-			EndForkOperation(&exitCode);
-			if (server.rdb_child_pid != -1) {
-				backgroundSaveDoneHandler(exitCode, bySignal);
-			} else {
-				backgroundRewriteDoneHandler(exitCode, bySignal);
-			}
-			updateDictResizePolicy();
-		}
+        if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
+            RequestSuspension();
+            if (SuspensionCompleted()) {
+                int exitCode;
+                int bySignal;
+                bySignal = (int)(GetForkOperationStatus() == osFAILED);
+                redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
+                EndForkOperation(&exitCode);
+                ResumeFromSuspension();
+                if (server.rdb_child_pid != -1) {
+                    backgroundSaveDoneHandler(exitCode, bySignal);
+                } else {
+                    backgroundRewriteDoneHandler(exitCode, bySignal);
+                }
+                updateDictResizePolicy();
+            }
+        }
 #else
         int statloc;
         pid_t pid;
@@ -1453,23 +1455,8 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
-#ifdef _WIN32
-    // this is handled before redis_main() in Win32_QFork.cpp:::SetupLogging()
-    /*
-    if (RunningAsService()) {
-        server.syslog_enabled = 1;
-        server.syslog_ident = zstrdup(GetServiceName());
-    } else {
-        server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
-        server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
-    }
-    setSyslogEnabled(server.syslog_enabled);
-    setSyslogIdent(server.syslog_ident);
-    */
-#else
-	server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
+    server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
-#endif
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.aof_state = REDIS_AOF_OFF;
@@ -2731,12 +2718,14 @@ sds genRedisInfoString(char *section) {
             "os:%s %s %s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
+#ifndef _WIN32
             "gcc_version:%d.%d.%d\r\n"
+#endif
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
             "tcp_port:%d\r\n"
 #ifdef _WIN32
-            "uptime_in_seconds:%lld\r\n"    /* BUGBUG: fix %lld */
+            "uptime_in_seconds:%lld\r\n"
             "uptime_in_days:%lld\r\n"
 #else
             "uptime_in_seconds:%jd\r\n"
@@ -2757,10 +2746,12 @@ sds genRedisInfoString(char *section) {
 #endif
             server.arch_bits,
             aeGetApiName(),
+#ifndef _WIN32
 #ifdef __GNUC__
             __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
             0,0,0,
+#endif
 #endif
             (PORT_LONG) getpid(),
             server.runid,
@@ -2902,7 +2893,7 @@ sds genRedisInfoString(char *section) {
                 "aof_current_size:%lld\r\n"
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
-                "aof_buffer_length:%Iu\r\n"
+                "aof_buffer_length:%Iu\r\n"                                     WIN_PORT_FIX /* %zu -> %Iu */
                 "aof_rewrite_buffer_length:%lu\r\n"
                 "aof_pending_bio_fsync:%llu\r\n"
                 "aof_delayed_fsync:%lu\r\n",
@@ -2912,7 +2903,7 @@ sds genRedisInfoString(char *section) {
                 sdslen(server.aof_buf),
                 aofRewriteBufferSize(),
                 bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC),
-                server.aof_delayed_fsync);                                      WIN_PORT_FIX /* %zu -> %Iu */
+                server.aof_delayed_fsync);
         }
 
         if (server.loading) {
@@ -3688,9 +3679,17 @@ void loadDataFromDisk(void) {
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
-    redisLog(REDIS_WARNING,"Out Of Memory allocating %Iu bytes!",
-        allocation_size);                                                       WIN_PORT_FIX /* %zu -> %Iu */
+#ifdef _WIN32
+    bugReportStart();
+    redisLog(REDIS_WARNING, "Out Of Memory allocating %Iu bytes.", /* %zu -> %Iu */
+        allocation_size);
+    // Call abort() instead of forcing an access violation in redisPanic
+    abort();
+#else
+    redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
+        allocation_size);
     redisPanic("Redis aborting for OUT OF MEMORY");
+#endif
 }
 
 void redisSetProcTitle(char *title) {

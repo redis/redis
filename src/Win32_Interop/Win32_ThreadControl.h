@@ -19,19 +19,25 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 #pragma once
 
-/* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 
-void redisLog(int level, const char *fmt, ...);
-void redisLogRaw(int level, const char *msg);
-void redisLogFromHandler(int level, const char *msg);
+void InitThreadControl();
+void IncrementWorkerThreadCount();
+void DecrementWorkerThreadCount();
+void RequestSuspension();
+BOOL SuspensionCompleted();
+void ResumeFromSuspension();
 
-void SetVerbosity(int verbosity);
+void WorkerThread_EnterSafeMode();
+void WorkerThread_ExitSafeMode();
+
+
+#ifdef __cplusplus
+}
+#endif

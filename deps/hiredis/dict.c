@@ -34,7 +34,6 @@
  */
 #ifdef _WIN32
 #include "../../src/win32_Interop/win32_types.h"
-#include "../../src/win32_Interop/win32_util.h"
 #endif
 
 #include "fmacros.h"

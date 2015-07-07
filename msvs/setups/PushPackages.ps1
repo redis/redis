@@ -2,6 +2,8 @@ param (
     [string] $Version = $(throw 'Redis version to push is required')
 )
 
+$ErrorActionPreference = "Stop"
+
 Write-Host "Ensure that the api keys have been set for chocolatey and nuget" -foregroundcolor red -backgroundcolor yellow
 Write-Host "  NuGet SetApiKey <your key here> -source http://chocolatey.org/" -foregroundcolor red -backgroundcolor yellow
 Write-Host "  NuGet SetApiKey <your key here>" -foregroundcolor red -backgroundcolor yellow
@@ -9,17 +11,26 @@ Write-Host "  NuGet SetApiKey <your key here>" -foregroundcolor red -backgroundc
 $CurDir = split-path -parent $MyInvocation.MyCommand.Definition
 
 $PackagesDir = $CurDir + "\packages"
-$ChocolateyDir = $PackagesDir + "\Chocolatey"
-$NugetDir = $PackagesDir + "\Nuget"
+$ChocolateyDir = $PackagesDir + "\chocolatey"
+$NugetDir = $PackagesDir + "\nuget"
 
 Set-Location $ChocolateyDir
 $ChocolateyCommand = "chocolatey push Redis-64." + $Version + ".nupkg"
 invoke-expression $ChocolateyCommand
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Chocolatey package pushed successfully." -foregroundcolor black -backgroundcolor green
+} else {
+    Write-Host "FAILED to push the Chocolatey package." -foregroundcolor white -backgroundcolor red
+}
 
 Set-Location $NugetDir
 $NugetCommand = "NuGet push Redis-64." + $Version + ".nupkg"
 invoke-expression $NugetCommand
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "NuGet package pushed successfully" -foregroundcolor black -backgroundcolor green
+} else {
+    Write-Host "FAILED to push the NuGet package." -foregroundcolor white -backgroundcolor red
+}
 
 Set-Location $CurDir
 
-Write-Host "The .nupkg files have been pushed!" -foregroundcolor black -backgroundcolor green

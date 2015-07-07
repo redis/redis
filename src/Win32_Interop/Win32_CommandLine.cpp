@@ -563,7 +563,8 @@ vector<string> incompatibleNoPersistenceCommands{
     "no_append_fsync_on_rewrite",
     "auto_aof_rewrite_percentage",
     "auto_aof_rewrite_on_size",
-    "aof_rewrite_incremental_fsync"
+    "aof_rewrite_incremental_fsync",
+    "save"
 };
 
 void ValidateCommandlineCombinations() {
@@ -595,41 +596,53 @@ void ParseCommandLineArguments(int argc, char** argv) {
             string argument = string(argv[n]).substr(2, argument.length() - 2);
             transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
 
-            if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
-                stringstream err;
-                err << "unknown argument: " << argument;
-                throw invalid_argument(err.str());
-            }
-
-            vector<string> params;
-            if (argument == cSentinel) {
-                try {
-                    vector<string> sentinelSubCommands = g_redisArgMap[argument]->Extract(n, argc, argv);
-                    for (auto p : sentinelSubCommands) {
-                        params.push_back(p);
-                    }
-                } catch (invalid_argument iaerr) {
-                    // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
-                }
-            } else if (argument == cServiceRun ) {
-                // When the service starts the current directory is %systemdir%. This needs to be changed to the 
-                // directory the executable is in so that the .conf file can be loaded.
-                char szFilePath[MAX_PATH];
-                if (GetModuleFileNameA(NULL, szFilePath, MAX_PATH) == 0) {
-                    throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetModuleFileName failed");
-                }
-                string currentDir = szFilePath;
-                auto pos = currentDir.rfind("\\");
-                currentDir.erase(pos);
-
-                if (FALSE == SetCurrentDirectoryA(currentDir.c_str())) {
-                    throw std::system_error(GetLastError(), system_category(), "SetCurrentDirectory failed");
+            // Some -- arguments are passed directly to redis.c::main()
+            if (find(cRedisArgsForMainC.begin(), cRedisArgsForMainC.end(), argument) != cRedisArgsForMainC.end()) {
+                if (strcasecmp(argument.c_str(), "test-memory") == 0) {
+                    // The test-memory argument is followed by a integer value
+                    n++;
                 }
             } else {
-                params = g_redisArgMap[argument]->Extract(n, argc, argv);
+                // -- arguments processed before calling redis.c::main()
+                if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
+                    stringstream err;
+                    err << "unknown argument: " << argument;
+                    throw invalid_argument(err.str());
+                }
+
+                vector<string> params;
+                if (argument == cSentinel) {
+                    try {
+                        vector<string> sentinelSubCommands = g_redisArgMap[argument]->Extract(n, argc, argv);
+                        for (auto p : sentinelSubCommands) {
+                            params.push_back(p);
+                        }
+                    }
+                    catch (invalid_argument iaerr) {
+                        // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
+                    }
+                } else if (argument == cServiceRun) {
+                    // When the service starts the current directory is %systemdir%. This needs to be changed to the 
+                    // directory the executable is in so that the .conf file can be loaded.
+                    char szFilePath[MAX_PATH];
+                    if (GetModuleFileNameA(NULL, szFilePath, MAX_PATH) == 0) {
+                        throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetModuleFileName failed");
+                    }
+                    string currentDir = szFilePath;
+                    auto pos = currentDir.rfind("\\");
+                    currentDir.erase(pos);
+
+                    if (FALSE == SetCurrentDirectoryA(currentDir.c_str())) {
+                        throw std::system_error(GetLastError(), system_category(), "SetCurrentDirectory failed");
+                    }
+                } else {
+                    params = g_redisArgMap[argument]->Extract(n, argc, argv);
+                }
+                g_argMap[argument].push_back(params);
+                n += (int) params.size();
             }
-            g_argMap[argument].push_back(params);
-            n += (int)params.size();
+        } else if (string(argv[n]).substr(0, 1) == "-") {
+            // Do nothing, the - arguments are passed to redis.c::main() as they are
         } else {
             confFile = true;
             confFilePath = argv[n];
@@ -641,7 +654,9 @@ void ParseCommandLineArguments(int argc, char** argv) {
         throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetCurrentDirectoryA failed");
     }
     
-    if (confFile) ParseConfFile(confFilePath, cwd, g_argMap);
+    if (confFile) {
+        ParseConfFile(confFilePath, cwd, g_argMap);
+    }
 
     // grab directory where RDB/AOF/DAT files will be created so that service install can add access allowed ACE to path
     string fileCreationDirectory = ".\\";

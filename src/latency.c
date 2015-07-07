@@ -547,7 +547,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     }
 
     graph = sdscatprintf(graph,
-        "%s - high %Iu ms, low %Iu ms (all time high %Iu ms)\n", event,         /* PORTABILITY FIX %ld -> %Id, %lu -> %Iu */
+        "%s - high %Iu ms, low %Iu ms (all time high %Iu ms)\n", event,         WIN_PORT_FIX /* %ld -> %Id, %lu -> %Iu */
         (PORT_ULONG) max, (PORT_ULONG) min, (PORT_ULONG) ts->max);
     for (j = 0; j < LATENCY_GRAPH_COLS; j++)
         graph = sdscatlen(graph,"-",1);

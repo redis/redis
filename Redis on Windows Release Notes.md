@@ -1,34 +1,61 @@
-MSOpenTech Redis 2.8.20 Release Notes
-=====================================
+MSOpenTech Redis on Windows 2.8 Release Notes
+=============================================
 
-Welcome to the binary release of Redis from Microsoft Open Technologies, Inc.
+--[ Redis on Windows 2.8.21 ] Release date: Jun 24 2015
 
-What is Redis?
---------------
+ - Merged Redis 2.8.21 [https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES]
+ - Fixes for 64-bit portability.
+ - Fixed rejoin pages on COW race condition.
+ - Fixed AOF truncation.
+ - Fixed crash when the 'save' flag is set and the 'persistence-available' flag is set to 'no'.
+ - Logging a BUG REPORT (stack trace and server info) when Redis crashes.
+ - Restored native Redis command arguments: -h, --help, -version, --version, --test-memory.
+ - Install symbols for redis binaries.
+ - Prevent firewall exception from being added if the Windows Firewall Windows service is stopped. (NickMRamirez)
+ - Fix wrong pointer castings for x64 support. (zeliard)
+ - Fix pointer casting for supporting a 64bit case. (zeliard)
+ - Fix wrong memset argument. (zeliard)
 
-Redis is an open source, high performance, key-value store. Values may contain strings, hashes, lists, sets and sorted sets. Redis has been developed primarily for UNIX-like operating systems.
+--[ Redis on Windows 2.8.19.1 ] Release date: May 04 2015
 
-Porting Goals
--------------
+ - Added an MSI installer, in addition to the .zip distribution
+ - Various bug fixes, including:
+     #167
+     #228
 
-Our goal is to provide a version of Redis that runs on Windows with a performance essentially equal to the performance of Redis on an equivalent UNIX machine.
+--[ Redis on Windows 2.8.19 ] Release date: Feb 25 2015
 
-What is new with the 2.8.20 release
------------------------------------
+ - Workaround for getpeername() issue, which affected sentinel failover over ipv6.
+ - Miscellaneous bug fixes.
 
-Our last official release was 2.8.12. We have merged in the changes up to 2.8.20. Please see the [release notes for the UNIX 2.8 branch](http://download.redis.io/redis-stable/00-RELEASENOTES) to understand how this impacts Redis functionality.
+--[ Redis on Windows 2.8.17.4 ] Release date: Feb 02 2015
 
-### Network layer changes
+ - Fix AV in AllocHeapBlock.
 
-There have been significant changes to the networking layer for this version. Likely there will be a few weeks before there is another official (Chocolatey and Nuget) release. Most of these changes target IPv6.
+--[ Redis on Windows 2.8.17.3 ] Release date: Dec 26 2014
 
-### persistence-available flag 
+ - Fix redis-cli pipe mode.
 
-If Redis is to be used as an in-memory-only cache without any kind of persistence, then the fork() mechanism used by the background AOF/RDB persistence is unnecessary. As an optimization, all persistence can be turned off in the Windows version of Redis in this scenario. This will disable the creation of the memory mapped heap file, redirect heap allocations to the system heap allocator, and disable commands that would otherwise cause fork() operations: BGSAVE and BGREWRITEAOF. This flag may not be combined with any of the other flags that configure AOF and RDB operations.
+--[ Redis on Windows 2.8.17.2 ] Release date: Dec 23 2014
 
-persistence-available [(yes)|no]
+ - Moved binaries out of the repository, to the Releases page.
+ - Miscellaneous bug fixes.
 
-How to develop for Redis
-------------------------
+--[ Redis on Windows 2.8.17.1 ] Release date: Dec 16 2014
 
-You will need a client library for accessing Redis. There are a wide variety of client libraries available as listed at <http://redis.io/clients>.
+ - Move release binaries to release page.
+ - Adopting the suggestions at #172.
+ - We no longer commit the binaries into the repo.
+ - Instead, we create periodic releases on the release page.
+
+--[ Redis on Windows 2.8.12 ] Release date: Sep 4 2014
+
+--[ Redis on Windows 2.8.9 ] Release date: Jun 26 2014
+
+--[ Redis on Windows 2.6.14 ] Release date: May 20 2014
+
+--[ Redis on Windows 2.8.4 ] Release date: May 20 2014
+
+--[ Redis on Windows 2.6.8 ] Release date: May 6 2013
+
+--[ Redis on Windows 2.4.6 ] Release date: Feb 10 2012

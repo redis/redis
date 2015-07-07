@@ -1,6 +1,8 @@
 MSOpenTech’s Redis on Windows
 =============================
 
+Redis is an open source, high performance, key-value store. Values may contain strings, hashes, lists, sets and sorted sets. Redis has been developed primarily for UNIX-like operating systems.
+Our goal is to provide a version of Redis that runs on Windows with a performance essentially equal to the performance of Redis on an equivalent UNIX machine.
 We strive to have a stable, functionally equivalent and comparably performing version of Redis on Windows. We have achieved performance nearly identical to the POSIX version running head-to-head on identical hardware across the network. Aside from feature differences that help Redis take advantage of the Windows infrastructure, our version of Redis should work in most situations with the identical setup and configuration that one would use on a POSIX operating system.
 
 How is Redis on Windows implemented?
@@ -105,3 +107,8 @@ Service Account
 ---------------
 
 When using Redis as a Windows service, the default installation configures Redis to run under the system’s NETWORK SERVICE account. There are some environments where another account must be used (perhaps a domain service account). Configuration of this account needs to be done manually at this point with the service control manager. If this is done, it is also important to give read/write/create permission to the folder that the Redis executable is in to this user identity.
+
+How to develop for Redis
+========================
+
+You will need a client library for accessing Redis. There are a wide variety of client libraries available as listed at <http://redis.io/clients>.

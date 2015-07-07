@@ -283,7 +283,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
 
     for (j = 0; j < argc; j++) {
         if (argv[j]->encoding == REDIS_ENCODING_INT) {
-            cmdrepr = sdscatprintf(cmdrepr, "\"%Id\"", (PORT_LONG) argv[j]->ptr);   /* PORTABILITY FIX %ld -> %Id */
+            cmdrepr = sdscatprintf(cmdrepr, "\"%Id\"", (PORT_LONG) argv[j]->ptr);   WIN_PORT_FIX /* %ld -> %Id */
         } else {
             cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr,
                         sdslen(argv[j]->ptr));
@@ -1041,7 +1041,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master");
         } else {
             usemark = 0;
-            server.repl_transfer_size = IF_WIN32(strtoll,strtol)(buf+1,NULL,10);
+            server.repl_transfer_size = IF_WIN32(strtoll,strtol)(buf+1,NULL,10);  /* BUGBUG: verify for 32bit support */
             redisLog(REDIS_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master",
                 (PORT_LONGLONG) server.repl_transfer_size);

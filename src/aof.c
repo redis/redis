@@ -220,14 +220,14 @@ void stopAppendOnly(void) {
     server.aof_state = REDIS_AOF_OFF;
     /* rewrite operation in progress? kill it, wait child exit */
     if (server.aof_child_pid != -1) {
-        redisLog(REDIS_NOTICE, "Killing running AOF rewrite child: %Id",         /* PORTABILITY FIX %ld -> %Id */
+        redisLog(REDIS_NOTICE, "Killing running AOF rewrite child: %Id",        WIN_PORT_FIX /* %ld -> %Id */
             (PORT_LONG) server.aof_child_pid);
 #ifdef _WIN32
         AbortForkOperation();
 #else
         {
             int statloc;
-        if (kill(server.aof_child_pid,SIGUSR1) != -1)
+            if (kill(server.aof_child_pid,SIGUSR1) != -1)
                 wait3(&statloc,0,NULL);
         }
 #endif
@@ -1289,36 +1289,6 @@ void aofClosePipes(void) {
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
  */
-#ifdef _WIN32
-int rewriteAppendOnlyFileBackground(void) {
-    PORT_LONGLONG start;
-    char tmpfile[256];
-
-    if (server.aof_child_pid != -1) return REDIS_ERR;
-    start = ustime();
-
-    snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
-    if (BeginForkOperation_Aof(tmpfile, &server, sizeof(server), &server.aof_child_pid, dictGetHashFunctionSeed(), server.logfile) == FALSE) {
-            redisLog(REDIS_WARNING,
-                "Can't rewrite append only file in background: fork: %s",
-                strerror(errno));
-            return REDIS_ERR;
-    }
-    server.stat_fork_time = ustime()-start;
-
-    redisLog(REDIS_NOTICE,
-        "Background append only file rewriting started by pid %d",server.aof_child_pid);
-    server.aof_rewrite_scheduled = 0;
-    server.aof_rewrite_time_start = time(NULL);
-    updateDictResizePolicy();
-    /* We set appendseldb to -1 in order to force the next call to the
-        * feedAppendOnlyFile() to issue a SELECT command, so the differences
-        * accumulated by the parent into server.aof_rewrite_buf will start
-        * with a SELECT statement and it will be safe to merge. */
-    server.aof_selected_db = -1;
-    return REDIS_OK;
-}
-#else
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
     PORT_LONGLONG start;
@@ -1326,13 +1296,21 @@ int rewriteAppendOnlyFileBackground(void) {
     if (server.aof_child_pid != -1) return REDIS_ERR;
     if (aofCreatePipes() != REDIS_OK) return REDIS_ERR;
     start = ustime();
+
+#ifndef _WIN32
     if ((childpid = fork()) == 0) {
+#endif
         char tmpfile[256];
 
-        /* Child */
+#ifndef _WIN32
+		/* Child */
         closeListeningSockets(0);
         redisSetProcTitle("redis-aof-rewrite");
+#endif
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
+#ifdef _WIN32
+        childpid = BeginForkOperation_Aof(tmpfile, &server, sizeof(server), dictGetHashFunctionSeed(), server.logfile);
+#else
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -1346,6 +1324,7 @@ int rewriteAppendOnlyFileBackground(void) {
             exitFromChild(1);
         }
     } else {
+#endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
@@ -1369,10 +1348,11 @@ int rewriteAppendOnlyFileBackground(void) {
         server.aof_selected_db = -1;
         replicationScriptCacheFlush();
         return REDIS_OK;
+#ifndef _WIN32
     }
+#endif
     return REDIS_OK; /* unreached */
 }
-#endif
 
 void bgrewriteaofCommand(redisClient *c) {
     if (server.aof_child_pid != -1) {

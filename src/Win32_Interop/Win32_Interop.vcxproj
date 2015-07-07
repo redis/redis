@@ -19,7 +19,6 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\RedisLog.c" />
     <ClCompile Include="win32fixes.c" />
     <ClCompile Include="Win32_ANSI.c" />
     <ClCompile Include="Win32_CommandLine.cpp" />
@@ -29,14 +28,16 @@
     <ClCompile Include="Win32_fdapi_crt.cpp" />
     <ClCompile Include="Win32_QFork.cpp" />
     <ClCompile Include="Win32_QFork_impl.c" />
+    <ClCompile Include="Win32_RedisLog.c" />
     <ClCompile Include="win32_rfdmap.cpp" />
     <ClCompile Include="Win32_service.cpp" />
+    <ClCompile Include="Win32_StackTrace.cpp" />
+    <ClCompile Include="Win32_ThreadControl.c" />
     <ClCompile Include="win32_util.c" />
     <ClCompile Include="Win32_variadicFunctor.cpp" />
     <ClCompile Include="win32_wsiocp.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\redisLog.h" />
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_ANSI.h" />
     <ClInclude Include="Win32_CommandLine.h" />
@@ -46,9 +47,13 @@
     <ClInclude Include="Win32_fdapi_crt.h" />
     <ClInclude Include="Win32_QFork.h" />
     <ClInclude Include="Win32_QFork_impl.h" />
+    <ClInclude Include="Win32_RedisLog.h" />
     <ClInclude Include="win32_rfdmap.h" />
     <ClInclude Include="Win32_Service.h" />
     <ClInclude Include="Win32_SmartHandle.h" />
+    <ClInclude Include="Win32_StackTrace.h" />
+    <ClInclude Include="Win32_ThreadControl.h" />
+    <ClInclude Include="win32_types.h" />
     <ClInclude Include="win32_util.h" />
     <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_winapifamily.h" />
@@ -150,8 +155,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
     </Link>
     <Lib>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -170,8 +174,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
     </Link>
     <Lib>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
     <CustomBuild>
       <Command>
@@ -198,8 +201,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
     <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -221,8 +223,7 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
     <Lib>
-      <AdditionalDependencies>
-      </AdditionalDependencies>
+      <AdditionalDependencies>DbgHelp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
     <CustomBuild>
       <Command>

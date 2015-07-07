@@ -776,7 +776,7 @@ void sentinelRunPendingScripts(void) {
                 CloseHandle( pi.hThread );
 
                 sentinel.running_scripts++;
-                sentinelEvent(REDIS_DEBUG, "+script-child", NULL, "%ld", (long) sj->pid); /* BUGBUG: fix %ld */
+                sentinelEvent(REDIS_DEBUG, "+script-child", NULL, "%Id", (PORT_LONG) sj->pid);      WIN_PORT_FIX /* %ld -> %Id */
             } else {
                 sentinelEvent(REDIS_WARNING,"-script-error",NULL,
                               "%s %d %d", sj->argv[0], 99, 0);
@@ -845,8 +845,8 @@ void sentinelCollectTerminatedScripts(void) {
 
         if(WaitForSingleObject(sj->hScriptProcess,0) == WAIT_OBJECT_0) {
             GetExitCodeProcess(sj->hScriptProcess,&exitCode);
-            sentinelEvent(REDIS_DEBUG,"-script-child",NULL,"%ld %d %d",
-                (long) sj->pid, exitCode, 0);    /* BUGBUG: fix %ld */
+            sentinelEvent(REDIS_DEBUG, "-script-child", NULL, "%Id %d %d",      WIN_PORT_FIX /* %ld -> %Id*/
+                (PORT_LONG) sj->pid, exitCode, 0);
 
             /* at this point the process ID may be recycled by Windows */
             CloseHandle(sj->hScriptProcess);
@@ -932,8 +932,8 @@ void sentinelKillTimedoutScripts(void) {
         if (sj->flags & SENTINEL_SCRIPT_RUNNING &&
             (now - sj->start_time) > SENTINEL_SCRIPT_MAX_RUNTIME)
         {
-            sentinelEvent(REDIS_WARNING, "-script-timeout", NULL, "%s %ld",
-                sj->argv[0], (long) sj->pid);  /* BUGBUG */
+            sentinelEvent(REDIS_WARNING, "-script-timeout", NULL, "%s %Id",     WIN_PORT_FIX /* %ld -> %Id*/
+                sj->argv[0], (PORT_LONG) sj->pid);
 #ifdef _WIN32
             TerminateProcess(sj->hScriptProcess,1);
 #else
@@ -1607,16 +1607,16 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         /* sentinel down-after-milliseconds */
         if (master->down_after_period != SENTINEL_DEFAULT_DOWN_AFTER) {
             line = sdscatprintf(sdsempty(),
-                "sentinel down-after-milliseconds %s %ld",
-                master->name, (long) master->down_after_period);    /* BUGBUG */
+                "sentinel down-after-milliseconds %s %Id",                      WIN_PORT_FIX /* %ld -> %Id*/
+                master->name, (PORT_LONG) master->down_after_period);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
         /* sentinel failover-timeout */
         if (master->failover_timeout != SENTINEL_DEFAULT_FAILOVER_TIMEOUT) {
             line = sdscatprintf(sdsempty(),
-                "sentinel failover-timeout %s %ld",
-                master->name, (long) master->failover_timeout);     /* BUGBUG */
+                "sentinel failover-timeout %s %Id",                             WIN_PORT_FIX /* %ld -> %Id*/
+                master->name, (PORT_LONG) master->failover_timeout);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 

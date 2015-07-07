@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <?define RepoDir="$(var.ProjectDir)..\..\..\" ?>
+    <?define BinDir="$(var.RepoDir)msvs\$(var.Platform)\$(var.Configuration)\" ?>
+
+    <Fragment>
+        <!--Symbols to install-->
+        <ComponentGroup Id="SymbolsComponents" Directory="INSTALLFOLDER">
+
+            <Component Id="cmp_redis_severPDB" Guid="*">
+                <File Source="$(var.BinDir)redis-server.pdb" />
+            </Component>
+
+            <Component Id="cmp_redis_cliPDB" Guid="*">
+                <File Source="$(var.BinDir)redis-cli.pdb" />
+            </Component>
+
+            <Component Id="cmp_redis_benchmarkPDB" Guid="*">
+                <File Source="$(var.BinDir)redis-benchmark.pdb" />
+            </Component>
+
+            <Component Id="cmp_redis_check_aofPDB" Guid="*">
+                <File Source="$(var.BinDir)redis-check-aof.pdb" />
+            </Component>
+
+            <Component Id="cmp_redis_check_dumpPDB" Guid="*">
+                <File Source="$(var.BinDir)redis-check-dump.pdb" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

@@ -228,12 +228,21 @@ void memtest_compare_times(PORT_ULONG *m, size_t bytes, int pass, int times) {
 
 void memtest_test(size_t megabytes, int passes) {
     size_t bytes = megabytes * 1024 * 1024;
+#ifdef _WIN32
+    PORT_ULONG *m = VirtualAllocEx(
+        GetCurrentProcess(),
+        NULL,
+        bytes,
+        MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN,
+        PAGE_READWRITE);
+#else
     PORT_ULONG *m = malloc(bytes);
+#endif
     int pass = 0;
 
     if (m == NULL) {
-        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  
-            megabytes,strerror(errno));                                         WIN_PORT_FIX /* %zu -> %Iu */
+        fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  WIN_PORT_FIX /* %zu -> %Iu */
+            megabytes,strerror(errno));
         exit(1);
     }
     while (pass != passes) {

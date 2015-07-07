@@ -58,8 +58,9 @@
 #include "net.h"
 #include "sds.h"
 #ifdef _WIN32
+  #include "../../src/win32_Interop/win32_util.h"
   #include "../../src/win32_Interop/win32fixes.h"
-#include "mstcpip.h"
+  #include "mstcpip.h"
 #endif
 
 /* Defined in hiredis.c */
@@ -234,7 +235,7 @@ static int redisContextWaitReady(redisContext *c, const struct timeval *timeout)
     if (errno == EINPROGRESS) {
         int res;
 
-        if ((res = poll(wfd, 1, msec)) == -1) {
+        if ((res = poll(wfd, 1, (int) msec)) == -1) {                           WIN_PORT_FIX /* cast (int) */
             __redisSetErrorFromErrno(c, REDIS_ERR_IO, "poll(2)");
             redisContextCloseFd(c);
             return REDIS_ERR;

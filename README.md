@@ -17,22 +17,24 @@ Redis on Windows
 - Signed binaries can be downloaded using Nuget and Chocolatey.
 - There is a replacement for the UNIX fork() API that simulates the copy-on-write behavior using a memory mapped file.
 - Because Redis makes some assumptions about the values of File Descriptors, we have built a virtual file descriptor mapping layer. 
-- We are moving towards moving all Windows-specific changes into the Win32_Interop library.
 - Redis can be installed as a Windows Service.
 
-## What's new since 2.8.12
+## Redis 2.8 release notes
 
-- See the Redis release notes: http://download.redis.io/redis-stable/00-RELEASENOTES
+- Redis on UNIX [release notes](https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES)
+- Redis on Windows [release notes](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)
 
-## Important: More documentation is available
+## How to configure and deploy Redis on Windows
 
-Please read the documentation in msvs\setups\documentation. This is the documentation that is bundled with the binaries, and contains vital information about configuring and deploying Redis on Windows.
+- [Memory Configuration](https://github.com/MSOpenTech/redis/wiki/Memory-Configuration "Memory Configuration")
+- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows.md "Redis on Windows")
+- [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Windows%20Service%20Documentation.md "Windows Service Documentation")
 
 ## How to build Redis using Visual Studio
 
 You can use the free Visual Studio Community edition available at http://www.visualstudio.com/products/visual-studio-community-vs.
 
-- Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (Win32 or x64) then build.
+- Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (x64) then build.
 
     This should create the following executables in the msvs\$(Target)\$(Configuration) folder:
 
@@ -52,21 +54,6 @@ To run the Redis test suite requires some manual work:
 - To run the tests you need to have a Unix shell on your machine, or MinGW tools in your path. To execute the tests, run the following command: 
   "tclsh8.5.exe tests/test_helper.tcl --clients N", where N is the number of parallel clients . If a Unix shell is not installed you may see the 
   following error message: "couldn't execute "cat": no such file or directory".
-- By default the test suite launches 16 parallel tests. I will get time out errors on an iCore 7-2620m@2.7Ghz with some of the tests when the number of clients 
-  is greater than 6. 
+- By default the test suite launches 16 parallel tests, but some of the tests may fail when the number of clients is greater than 2. 
   
-## Known issues
-
-Problem:
-On versions of Windows prior to Windows 8/Server 2012, when an AOF or RDB operation is complete and the child process is being rejoined with the parent, it is 
-possible for Redis to unexpectedly terminate.
-
-Cause:
-The PAGE_REVERT_TO_FILE_MAP flag is not usable in VirtualProtect() in earlier versions of the OS. This flag allows for removing copy on write(COW) pages from 
-a memory mapped view without unmapping the view. In prior versions of the OS, the only way to purge COW pages is to unmap and then remap the memory mapped view. 
-Between the unmapping and remapping operations a third party process(e.g., an anti-virus program) could allocate virtual memory occupied by the memory mapped view. 
-As this view is used for the Redis heap, failure to remap is a fatal error. (See RejoinCOWPages() in src\Win32_Interop\Win32_QFork.cpp)
-
-Solution:
-If you encounter this problem, host Redis on Windows 8/Server 2012 or newer.
 

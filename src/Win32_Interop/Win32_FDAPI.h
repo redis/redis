@@ -260,7 +260,7 @@ int FDAPI_UpdateAcceptContext( int fd );
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
-int StorageSize(SOCKADDR_STORAGE *ss);
+int StorageSize(const SOCKADDR_STORAGE *ss);
 
 // macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS

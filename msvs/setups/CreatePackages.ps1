@@ -1,25 +1,36 @@
-$CurDir = split-path -parent $MyInvocation.MyCommand.Definition
+$ErrorActionPreference = "Stop"
 
-$ChocolateyDir = $CurDir + "\chocolatey"
-$NugetDir = $CurDir + "\nuget"
-$PackagesDir = $CurDir + "\packages"
+$CurDir            = split-path -parent $MyInvocation.MyCommand.Definition
+$PackagesDir       = $CurDir + "\packages"
+$ChocolateySrcDir  = $CurDir + "\chocolatey"
+$ChocolateyDestDir = $PackagesDir + "\chocolatey"
+$NugetSrcDir       = $CurDir + "\nuget"
+$NugetDestDir      = $PackagesDir + "\nuget"
 
 If (Test-Path $PackagesDir){
 	Remove-Item $PackagesDir -recurse | Out-Null
 }
-New-Item $PackagesDir -type directory  | Out-Null
-New-Item ($PackagesDir+"\Chocolatey") -type directory  | Out-Null
-New-Item ($PackagesDir+"\NuGet") -type directory  | Out-Null
+New-Item $PackagesDir       -type directory  | Out-Null
+New-Item $ChocolateyDestDir -type directory  | Out-Null
+New-Item $NugetDestDir      -type directory  | Out-Null
 
-Set-Location $ChocolateyDir
+Set-Location $ChocolateySrcDir
 invoke-expression "chocolatey pack Redis.nuspec"
-Copy-Item *.nupkg ..\packages\Chocolatey
+if ($LASTEXITCODE -eq 0) {
+    Copy-Item *.nupkg $ChocolateyDestDir
+    Write-Host "Chocolatey package copied to the destination folder." -foregroundcolor black -backgroundcolor green
+} else {
+    Write-Host "FAILED to create the Chocolatey package." -foregroundcolor white -backgroundcolor red
+}
 
-Set-Location $NugetDir
-invoke-expression "NuGet Pack Redis.nuspec"
-Copy-Item *.nupkg ..\packages\NuGet
+Set-Location $NugetSrcDir
+invoke-expression "nuget pack Redis.nuspec"
+if ($LASTEXITCODE -eq 0) {
+    Copy-Item *.nupkg $NugetDestDir
+    Write-Host "NuGet package copied to the destination folder." -foregroundcolor black -backgroundcolor green
+} else {
+    Write-Host "FAILED to create the NuGet package." -foregroundcolor white -backgroundcolor red
+}
 
+Write-Host "Run PushPackages to push the packages." -foregroundcolor red -backgroundcolor yellow
 Set-Location $CurDir
-
-Write-Host "The .nupkg files are in the 'packages' directory." -foregroundcolor black -backgroundcolor green
-Write-Host "Run PushPackages to push them." -foregroundcolor red -backgroundcolor yellow

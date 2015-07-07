@@ -40,7 +40,7 @@
         The following component creates the firewall exception.
       -->
       <Component Id="cmp_firewall_exception" Guid="{1D39F01C-6C53-4DC1-B189-65F03F7E5E31}" KeyPath="yes">
-        <Condition><![CDATA[FIREWALL_ON = 1]]></Condition>
+        <Condition><![CDATA[ADD_FIREWALL_RULE = 1 AND FIREWALL_SERVICE_STOPPED <> 1]]></Condition>
 
         <fw:FirewallException Id="fw_redis_server"
                               Program="[#file_redis_serverEXE]"
@@ -88,16 +88,5 @@
         <RemoveFile Id="removeLogFile" Directory="LogsFolder" Name="*" On="uninstall" />
       </Component>
     </ComponentGroup>
-
-    <!--
-      Custom actions that update the redis config file during installation
-    -->
-    <Binary Id="RedisCADLL" SourceFile="$(var.RedisMsi.CustomActions.TargetDir)RedisMsi.CustomActions.CA.dll" />
-    <CustomAction Id="ca_UpdateRedisConfig" BinaryKey="RedisCADLL" DllEntry="UpdateRedisConfig" Execute="deferred" Return="check" Impersonate="no" />
-    <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_serviceCONF];PORT=[PORT];" Sequence="execute" Before="ca_UpdateRedisConfig" />
-
-    <InstallExecuteSequence>
-      <Custom Action="ca_UpdateRedisConfig" After="InstallFiles"><![CDATA[NOT Installed]]></Custom>
-    </InstallExecuteSequence>
   </Fragment>
 </Wix>

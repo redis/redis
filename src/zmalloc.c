@@ -131,8 +131,8 @@ pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
 static void zmalloc_default_oom(size_t size) {
-    fprintf(stderr, "zmalloc: Out of memory trying to allocate %Iu bytes\n",
-        size);                                                                  WIN_PORT_FIX /* %zu -> %Iu */
+    fprintf(stderr, "zmalloc: Out of memory trying to allocate %Iu bytes\n",    WIN_PORT_FIX /* %zu -> %Iu */
+        size);
     fflush(stderr);
     abort();
 }

@@ -788,24 +788,6 @@ werr:
     return REDIS_ERR;
 }
 
-#ifdef _WIN32
-int rdbSaveBackground(char *filename) {
-    PORT_LONGLONG start;
-    start = ustime();
-    server.dirty_before_bgsave = server.dirty;
-    if (BeginForkOperation_Rdb(filename, &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
-        server.stat_fork_time = ustime()-start;
-        server.rdb_child_type = REDIS_RDB_CHILD_TYPE_DISK;
-        updateDictResizePolicy();
-        return REDIS_OK;
-    } else  {
-        redisLog(REDIS_WARNING,"Can't save in background: fork: %s", strerror(errno));
-        return REDIS_ERR;
-    }
-}
-
-#else
-
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
     PORT_LONGLONG start;
@@ -816,6 +798,9 @@ int rdbSaveBackground(char *filename) {
     server.lastbgsave_try = time(NULL);
 
     start = ustime();
+#ifdef _WIN32
+    childpid = BeginForkOperation_Rdb(filename, &server, sizeof(server), dictGetHashFunctionSeed(), server.logfile);
+#else
     if ((childpid = fork()) == 0) {
         int retval;
 
@@ -834,6 +819,7 @@ int rdbSaveBackground(char *filename) {
         }
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
+#endif
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
@@ -850,10 +836,11 @@ int rdbSaveBackground(char *filename) {
         server.rdb_child_type = REDIS_RDB_CHILD_TYPE_DISK;
         updateDictResizePolicy();
         return REDIS_OK;
+#ifndef _WIN32
     }
+#endif
     return REDIS_OK; /* unreached */
 }
-#endif
 
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
@@ -1482,7 +1469,9 @@ int rdbSaveToSlavesSockets(void) {
     /* Create the child process. */
     start = ustime();
 
-#ifndef _WIN32
+#ifdef _WIN32
+    childpid = BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), dictGetHashFunctionSeed(), server.logfile);
+#else
     if ((childpid = fork()) == 0) {
         /* Child */
         int retval;
@@ -1549,12 +1538,6 @@ int rdbSaveToSlavesSockets(void) {
         zfree(clientids);
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
-#else // #ifndef _WIN32
-    if (!BeginForkOperation_Socket(fds, numfds, clientids, pipefds[1], &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
-        redisLog(REDIS_WARNING,"Can't save in background: fork: %s", strerror(errno));
-        return REDIS_ERR;
-    } else {
-        childpid = server.rdb_child_pid;
 #endif
         /* Parent */
         zfree(clientids); /* Not used by parent. Free ASAP. */
@@ -1576,7 +1559,9 @@ int rdbSaveToSlavesSockets(void) {
         updateDictResizePolicy();
         zfree(fds);
         return REDIS_OK;
+#ifndef _WIN32
     }
+#endif
     return REDIS_OK; /* unreached */
 }
 

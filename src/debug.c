@@ -481,8 +481,12 @@ void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int l
 void _redisPanic(char *msg, char *file, int line) {
     bugReportStart();
     redisLog(REDIS_WARNING,"------------------------------------------------");
+#ifdef _WIN32
+    redisLog(REDIS_WARNING, "Fatal Error: %s #%s:%d", msg, file, line);
+#else
     redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
     redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
+#endif
 #ifdef HAVE_BACKTRACE
     redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
 #endif
