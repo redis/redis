@@ -413,7 +413,12 @@ int anetRead(int fd, char *buf, int count)
     while(totlen != count) {
         nread = read(fd,buf,count-totlen);
         if (nread == 0) return totlen;
-        if (nread == -1) return -1;
+        if (nread == -1) 
+        {   
+            if(errno==EINTR)
+                continue;
+            return -1;
+        }
         totlen += nread;
         buf += nread;
     }
@@ -428,7 +433,12 @@ int anetWrite(int fd, char *buf, int count)
     while(totlen != count) {
         nwritten = write(fd,buf,count-totlen);
         if (nwritten == 0) return totlen;
-        if (nwritten == -1) return -1;
+        if (nwritten == -1)
+        {
+            if(errno==EINTR)
+                continue;
+            return -1;
+        }
         totlen += nwritten;
         buf += nwritten;
     }
