@@ -29,21 +29,20 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/win32fixes.h"
 #endif
 
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
+POSIX_ONLY(#include <unistd.h>)
 #include <sys/stat.h>
 #include "config.h"
 
 #ifdef _WIN32
-#include "Win32_Interop\win32fixes.h"
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #endif
@@ -84,7 +83,7 @@ int readBytes(FILE *fp, char *target, PORT_LONG length) {
     epos = ftello(fp);
     real = (PORT_LONG) fread(target, 1, length, fp);
     if (real != length) {
-        ERROR("Expected to read %ld bytes, got %ld bytes", length, real); /* BUGBUG */
+        ERROR("Expected to read %ld bytes, got %ld bytes", length, real); /* TODO: verify %ld */
         return 0;
     }
     return 1;
@@ -161,11 +160,6 @@ off_t process(FILE *fp) {
 int main(int argc, char **argv) {
     char *filename;
     int fix = 0;
-    FILE *fp;
-    struct redis_stat sb;
-    off_t size;
-    off_t pos;
-    off_t diff;
 #ifdef _WIN32
     _fmode = _O_BINARY;
     setmode(_fileno(stdin), _O_BINARY);
@@ -190,29 +184,26 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-#ifdef _WIN32
-    fp = fopen(filename,"r+b");
-#else
-    fp = fopen(filename,"r+");
-#endif
+    FILE *fp = fopen(filename,IF_WIN32("r+b","r+"));
     if (fp == NULL) {
         printf("Cannot open file: %s\n", filename);
         exit(1);
     }
 
+    struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s\n", filename);
         exit(1);
     }
 
-    size = sb.st_size;
+    off_t size = sb.st_size;
     if (size == 0) {
         printf("Empty file: %s\n", filename);
         exit(1);
     }
 
-    pos = process(fp);
-    diff = size-pos;
+    off_t pos = process(fp);
+    off_t diff = size-pos;
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
         (PORT_LONGLONG) size, (PORT_LONGLONG) pos, (PORT_LONGLONG) diff);
     if (diff > 0) {

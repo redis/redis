@@ -239,7 +239,7 @@ void setbitCommand(redisClient *c) {
     }
 
     /* Grow sds value to the right length if necessary */
-    byte = (int)(bitoffset >> 3);
+    byte = (int)(bitoffset >> 3);                                               /* UPSTREAM_CAST_MISSING: (int) */
     o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
@@ -289,11 +289,12 @@ void bitopCommand(redisClient *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
     PORT_ULONG op, j, numkeys;
-    robj **objects;                 /* Array of source objects. */
-    unsigned char **src;            /* Array of source strings pointers. */
-    PORT_ULONG *len, maxlen = 0;    /* Array of length of src strings, and max len. */
-    PORT_ULONG minlen = 0;          /* Min len among the input keys. */
-    unsigned char *res = NULL;      /* Resulting string. */
+    robj **objects;      /* Array of source objects. */
+    unsigned char **src; /* Array of source strings pointers. */
+    PORT_ULONG *len, maxlen = 0; /* Array of length of src strings,
+                                    and max len. */
+    PORT_ULONG minlen = 0;     /* Min len among the input keys. */
+    unsigned char *res = NULL; /* Resulting string. */
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -344,7 +345,7 @@ void bitopCommand(redisClient *c) {
         }
         objects[j] = getDecodedObject(o);
         src[j] = objects[j]->ptr;
-        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);
+        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);                           /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
@@ -359,7 +360,7 @@ void bitopCommand(redisClient *c) {
          * can take a fast path that performs much better than the
          * vanilla algorithm. */
         j = 0;
-        if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
+        if (minlen >= sizeof(PORT_ULONG) * 4 && numkeys <= 16) {
             PORT_ULONG *lp[16];
             PORT_ULONG *lres = (PORT_ULONG*) res;
 
@@ -475,7 +476,7 @@ void bitcountCommand(redisClient *c) {
         strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = (PORT_LONG) sdslen(o->ptr);
+        strlen = (PORT_LONG) sdslen(o->ptr);                                    /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
     }
 
     /* Parse start/end range if any. */
@@ -505,7 +506,7 @@ void bitcountCommand(redisClient *c) {
     if (start > end) {
         addReply(c,shared.czero);
     } else {
-        PORT_LONG bytes = end - start + 1;
+        PORT_LONG bytes = end-start+1;
 
         addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
@@ -544,7 +545,7 @@ void bitposCommand(redisClient *c) {
         strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = (PORT_LONG) sdslen(o->ptr);
+        strlen = (PORT_LONG) sdslen(o->ptr);                                    /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
     }
 
     /* Parse start/end range if any. */
@@ -579,8 +580,8 @@ void bitposCommand(redisClient *c) {
     if (start > end) {
         addReplyLongLong(c, -1);
     } else {
-        PORT_LONG bytes = end - start + 1;
-        PORT_LONG pos = redisBitpos(p + start, bytes, bit);
+        PORT_LONG bytes = end-start+1;
+        PORT_LONG pos = redisBitpos(p+start,bytes,bit);
 
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as

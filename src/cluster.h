@@ -93,7 +93,7 @@ typedef struct clusterNode {
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
-    long long repl_offset;      /* Last known repl offset for this node. */
+    PORT_LONGLONG repl_offset;      /* Last known repl offset for this node. */
     char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
@@ -125,15 +125,15 @@ typedef struct clusterState {
     /* Manual failover state of master. */
     clusterNode *mf_slave;      /* Slave performing the manual failover. */
     /* Manual failover state of slave. */
-    long long mf_master_offset; /* Master offset the slave needs to start MF
+    PORT_LONGLONG mf_master_offset; /* Master offset the slave needs to start MF
                                    or zero if stil not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
-    long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
-    long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
+    PORT_LONGLONG stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
+    PORT_LONGLONG stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
 } clusterState;
 
 /* clusterState todo_before_sleep flags. */

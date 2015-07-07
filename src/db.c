@@ -274,7 +274,7 @@ void flushallCommand(redisClient *c) {
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        PORT_LONGLONG saved_dirty = server.dirty;
+        PORT_LONGLONG saved_dirty = server.dirty;                               /* UPSTREAM_FIX: server.dirty is a PORT_LONGLONG not an int */
         rdbSave(server.rdb_filename);
         server.dirty = saved_dirty;
     }
@@ -317,7 +317,7 @@ void selectCommand(redisClient *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
-    if (selectDb(c,(int)id) == REDIS_ERR) {                                     /* UPSTREAM_ISSUE: missing (int) cast */
+    if (selectDb(c,(int)id) == REDIS_ERR) {                                     /* UPSTREAM_CAST_MISSING: (int) */
 
         addReplyError(c,"invalid DB index");
     } else {
@@ -460,7 +460,7 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
-            patlen = (int)sdslen(pat);
+            patlen = (int)sdslen(pat);                                          /* UPSTREAM_CAST_MISSING: (int) */
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
@@ -542,9 +542,9 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
-        int filter = 0;
         robj *kobj = listNodeValue(node);
         nextnode = listNextNode(node);
+        int filter = 0;
 
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
@@ -556,7 +556,7 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
                 int len;
 
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
-                len = ll2string(buf, sizeof(buf), (PORT_LONG) kobj->ptr);
+                len = ll2string(buf,sizeof(buf),(PORT_LONG)kobj->ptr);          /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
         }
@@ -728,7 +728,7 @@ void moveCommand(redisClient *c) {
 
     if (getLongLongFromObject(c->argv[2],&dbid) == REDIS_ERR ||
         dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,(int)dbid) == REDIS_ERR)                                     /* UPSTREAM_ISSUE: missing (int) cast */
+        selectDb(c,(int)dbid) == REDIS_ERR)                                     /* UPSTREAM_CAST_MISSING: (int) */
     {
         addReply(c,shared.outofrangeerr);
         return;

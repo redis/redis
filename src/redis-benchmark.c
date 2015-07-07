@@ -27,26 +27,22 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/win32fixes.h"
+#endif
 
 #include "fmacros.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#ifndef _WIN32
-#include <unistd.h>
-#include <time.h>
-#include <sys/time.h>
-#endif
+POSIX_ONLY(#include <unistd.h>)
 #include <errno.h>
+#include <time.h>
+POSIX_ONLY(#include <sys/time.h>)
 #include <signal.h>
 #include <assert.h>
-
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-int fmode = _O_BINARY;
-#include <time.h>
-#endif
 
 #include "ae.h"
 #include "hiredis.h"
@@ -140,8 +136,8 @@ static PORT_LONGLONG mstime(void) {
 
 static void freeClient(client c) {
     listNode *ln;
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               /* UPSTREAM_CAST_MISSING: (int) */
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               /* UPSTREAM_CAST_MISSING: (int) */
 #ifdef WIN32_IOCP
     aeWinCloseSocket((int)c->context->fd);
     c->context->fd = 0;
@@ -167,9 +163,9 @@ static void freeAllClients(void) {
 }
 
 static void resetClient(client c) {
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
-    aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               /* UPSTREAM_CAST_MISSING: (int) */
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               /* UPSTREAM_CAST_MISSING: (int) */
+    aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);/* UPSTREAM_CAST_MISSING: (int) */
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -220,10 +216,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* Calculate latency only for the first read event. This means that the
      * server already sent the reply and we need to parse it. Parsing overhead
      * is not part of the latency, so calculate it only once, here. */
-	if (c->latency < 0)
-	{
-		c->latency = ustime() - (c->start);
-	}
+    if (c->latency < 0) c->latency = ustime()-(c->start);
 
 #ifdef WIN32_IOCP
     nread = read(c->context->fd,buf,sizeof(buf));
@@ -426,7 +419,7 @@ static client createClient(char *cmd, size_t len, client from) {
             (int)sdslen(config.dbnumstr),config.dbnumstr);
         c->prefix_pending++;
     }
-    c->prefixlen = (int)sdslen(c->obuf);                                        /* UPSTREAM_ISSUE: missing (int) cast */
+    c->prefixlen = (int)sdslen(c->obuf);                                        /* UPSTREAM_CAST_MISSING: (int) */
     /* Append the request itself. */
     if (from) {
         c->obuf = sdscatlen(c->obuf,
@@ -493,7 +486,7 @@ static void createMissingClients(client c) {
 }
 
 static int compareLatency(const void *a, const void *b) {
-    return (int)((*(PORT_LONGLONG*)a)-(*(PORT_LONGLONG*)b));
+    return (int)((*(PORT_LONGLONG*)a)-(*(PORT_LONGLONG*)b));                    /* UPSTREAM_CAST_MISSING: (int) */
 }
 
 static void showLatencyReport(void) {
@@ -513,7 +506,7 @@ static void showLatencyReport(void) {
         qsort(config.latency,config.requests,sizeof(PORT_LONGLONG),compareLatency);
         for (i = 0; i < config.requests; i++) {
             if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
-                curlat = (int)config.latency[i]/1000;
+                curlat = (int)config.latency[i]/1000;                           /* UPSTREAM_CAST_MISSING: (int) */
                 perc = ((float)(i+1)*100)/config.requests;
                 printf("%.2f%% <= %d milliseconds\n", perc, curlat);
             }
@@ -674,8 +667,6 @@ usage:
 }
 
 int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData) {
-    float dt;
-    float rps;
     REDIS_NOTUSED(eventLoop);
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
@@ -690,8 +681,8 @@ int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *client
         fflush(stdout);
 	return 250;
     }
-    dt = (float)((mstime()-config.start)/1000.0);
-    rps = (float)(config.requests_finished/dt);
+    float dt = (float)((float)(mstime()-config.start)/1000.0);              /* UPSTREAM_CAST_MISSING: (float) */
+    float rps = (float)config.requests_finished/dt;
     printf("%s: %.2f\r", config.title, rps);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -701,7 +692,7 @@ int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *client
  * switch, or if all the tests are selected (no -t passed by user). */
 int test_is_selected(char *name) {
     char buf[256];
-    int l = (int)strlen(name);
+    int l = (int)strlen(name);                                                  /* UPSTREAM_CAST_MISSING: (int) */
 
     if (config.tests == NULL) return 1;
     buf[0] = ',';
@@ -722,7 +713,7 @@ int main(int argc, const char **argv) {
     InitTimeFunctions();
 #endif
 
-    srandom((unsigned int)time(NULL));
+    srandom((unsigned int)time(NULL));                                          /* UPSTREAM_CAST_MISSING: (unsigned int) */
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 

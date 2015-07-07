@@ -109,7 +109,7 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
  * address, and finally verified. This test is very fast but may detect
  * ASAP big issues with the memory subsystem. */
 void memtest_addressing(PORT_ULONG *l, size_t bytes) {
-    PORT_ULONG words = (PORT_ULONG)(bytes / sizeof(PORT_ULONG));
+    PORT_ULONG words = (PORT_ULONG)(bytes/sizeof(PORT_ULONG));
     PORT_ULONG j,*p;
 
     /* Fill */
@@ -137,10 +137,10 @@ void memtest_addressing(PORT_ULONG *l, size_t bytes) {
  * effectiveness of caches, and making it hard for the OS to transfer
  * pages on the swap. */
 void memtest_fill_random(PORT_ULONG *l, size_t bytes) {
-    PORT_ULONG step = (PORT_ULONG)(4096 / sizeof(PORT_ULONG));
-    PORT_ULONG words = (PORT_ULONG)(bytes / sizeof(PORT_ULONG) / 2);
-    PORT_ULONG iwords = words / step;  /* words per iteration */
-    PORT_ULONG off,w,*l1,*l2;
+    PORT_ULONG step = (PORT_ULONG)(4096/sizeof(PORT_ULONG));
+    PORT_ULONG words = (PORT_ULONG)(bytes/sizeof(PORT_ULONG)/2);
+    PORT_ULONG iwords = words/step;  /* words per iteration */
+    PORT_ULONG off, w, *l1, *l2;
 
     assert((bytes & 4095) == 0);
     for (off = 0; off < step; off++) {
@@ -148,7 +148,7 @@ void memtest_fill_random(PORT_ULONG *l, size_t bytes) {
         l2 = l1+words;
         for (w = 0; w < iwords; w++) {
 #ifdef MEMTEST_32BIT
-            *l1 = *l2 = ((PORT_ULONG)(rand() & 0xffff)) |
+            *l1 = *l2 = ((PORT_ULONG)     (rand() & 0xffff)) |
                         (((PORT_ULONG)    (rand()&0xffff)) << 16);
 #else
             *l1 = *l2 = ((PORT_ULONG)     (rand()&0xffff)) |
@@ -166,7 +166,7 @@ void memtest_fill_random(PORT_ULONG *l, size_t bytes) {
 
 /* Like memtest_fill_random() but uses the two specified values to fill
  * memory, in an alternated way (v1|v2|v1|v2|...) */
-void memtest_fill_value(PORT_ULONG *l,size_t bytes,PORT_ULONG v1,
+void memtest_fill_value(PORT_ULONG *l, size_t bytes, PORT_ULONG v1,
                         PORT_ULONG v2, char sym)
 {
     PORT_ULONG step = (PORT_ULONG)(4096/sizeof(PORT_ULONG));
@@ -227,7 +227,7 @@ void memtest_compare_times(PORT_ULONG *m, size_t bytes, int pass, int times) {
 }
 
 void memtest_test(size_t megabytes, int passes) {
-    size_t bytes = megabytes * 1024 * 1024;
+    size_t bytes = megabytes*1024*1024;
 #ifdef _WIN32
     PORT_ULONG *m = VirtualAllocEx(
         GetCurrentProcess(),
@@ -242,7 +242,7 @@ void memtest_test(size_t megabytes, int passes) {
 
     if (m == NULL) {
         fprintf(stderr,"Unable to allocate %Iu megabytes: %s",                  WIN_PORT_FIX /* %zu -> %Iu */
-            megabytes,strerror(errno));
+            megabytes, strerror(errno));
         exit(1);
     }
     while (pass != passes) {
@@ -287,7 +287,7 @@ void memtest_non_destructive_swap(void *addr, size_t size) {
 
     /* Swap */
     for (j = 0; j < words; j += 2) {
-        PORT_ULONG a,b;
+        PORT_ULONG a, b;
 
         a = p[j];
         b = p[j+1];

@@ -982,7 +982,7 @@ void clientsCron(void) {
      * in the worst case we process all the clients in 10 seconds.
      * In normal conditions (a reasonable number of clients) we process
      * all the clients in a shorter time. */
-    int numclients = (int)listLength(server.clients);                           /* UPSTREAM_ISSUE: missing (int) cast */
+    int numclients = (int)listLength(server.clients);                           /* UPSTREAM_CAST_MISSING: (int) */
     int iterations = numclients/(server.hz*10);
 
     if (iterations < 50)
@@ -2814,7 +2814,7 @@ sds genRedisInfoString(char *section) {
             );
     }
 
-#ifdef _WIN32                       // BUGBUG: remove ifdef
+#ifdef _WIN32                       // TODO: replace ifdef with IF_WIN32
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
         if (sections++) info = sdscat(info,"\r\n");
@@ -3161,14 +3161,13 @@ sds genRedisInfoString(char *section) {
 }
 
 void infoCommand(redisClient *c) {
-    sds info;
     char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
 
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    info = genRedisInfoString(section);
+    sds info = genRedisInfoString(section);
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
         (PORT_ULONG) sdslen(info)));
     addReplySds(c,info);
@@ -3262,7 +3261,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
-        unsigned long long idle;
+        PORT_ULONGLONG idle;
         sds key;
         robj *o;
         dictEntry *de;
@@ -3314,7 +3313,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
-    int slaves = (int)listLength(server.slaves);                                /* UPSTREAM_ISSUE: missing (int) cast */
+    int slaves = (int)listLength(server.slaves);                                /* UPSTREAM_CAST_MISSING: (int) */
     mstime_t latency, eviction_latency;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
@@ -3535,7 +3534,7 @@ void daemonize(void) {
 }
 
 void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",    /* BUGBUG: fix %llx */
+    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",    /* TODO: verify %llx for 32-bit */
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
@@ -3573,7 +3572,7 @@ void redisAsciiArt(void) {
 
     if (server.syslog_enabled) {
         redisLog(REDIS_NOTICE,
-            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",   /* BUGBUG: fix %ld */
+            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",   /* TODO: verify %ld for 32-bit */
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -3718,7 +3717,7 @@ int main(int argc, char **argv) {
     setlocale(LC_COLLATE,"");
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
-    srand((unsigned int)time(NULL) ^ getpid());
+    srand((unsigned int)time(NULL)^getpid());
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);

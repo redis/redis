@@ -28,13 +28,14 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifdef _WIN32
+#include "../../src/win32_Interop/win32_util.h"
+#include "../../src/win32_Interop/win32fixes.h"
+#endif
 #include "fmacros.h"
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
-#include <strings.h>
-#endif
+POSIX_ONLY(#include <strings.h>)
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -42,9 +43,6 @@
 #include "net.h"
 #include "dict.c"
 #include "sds.h"
-#ifdef _WIN32
-  #include "../../src/win32_Interop/win32fixes.h"
-#endif
 
 #define _EL_ADD_READ(ctx) do { \
         if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \

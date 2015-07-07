@@ -920,7 +920,7 @@ void ziplistRepr(unsigned char *zl) {
         entry = zipEntry(p);
         printf(
             "{"
-                "addr 0x%08lx, "    /* BUGBUG */
+                "addr 0x%08lx, "    /* TODO" verify 0x%08lx */
                 "index %2d, "
                 "offset %5ld, "
                 "rl: %5u, "

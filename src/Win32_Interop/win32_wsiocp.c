@@ -265,7 +265,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     if (sockstate == NULL ||
         (sockstate->masks & SOCKET_ATTACHED) == 0 ||
         proc == NULL) {
-		result = (int)write(fd, buf, len);					                    /* UPSTREAM_ISSUE: missing (int) cast */
+		result = (int)write(fd, buf, len);					                    /* UPSTREAM_CAST_MISSING: (int) */
         if (result == SOCKET_ERROR) {
             errno = WSAGetLastError();
         }

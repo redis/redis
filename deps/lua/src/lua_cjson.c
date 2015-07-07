@@ -1274,7 +1274,7 @@ static int json_decode(lua_State *l)
     /* Ensure the temporary buffer can hold the entire string.
      * This means we no longer need to do length checks since the decoded
      * string must be smaller than the entire json string */
-    json.tmp = strbuf_new((int)json_len);                                       /* UPSTREAM_ISSUE: missing (int) cast */
+    json.tmp = strbuf_new((int)json_len);                                       /* UPSTREAM_CAST_MISSING: (int) */
 
     json_next_token(&json, &token);
     json_process_value(l, &json, &token);

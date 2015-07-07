@@ -31,6 +31,9 @@
 #ifdef _WIN32
 #include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
+#include "win32_Interop/win32fixes.h"
+#define ANET_NOTUSED(V) V
+#include <Mstcpip.h>
 #endif
 
 #include "fmacros.h"
@@ -52,11 +55,6 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#define ANET_NOTUSED(V) V
-#include <Mstcpip.h>
-#endif
 
 #include "anet.h"
 
@@ -309,7 +307,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
+static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_addr, int flags) {
     int rfd;
     SOCKADDR_STORAGE ss;
 
@@ -488,7 +486,7 @@ int anetRead(int fd, char *buf, int count)
 {
     int nread, totlen = 0;
     while(totlen != count) {
-        nread = (int)read(fd,buf,count-totlen);                                 /* UPSTREAM_ISSUE: missing (int) cast */
+        nread = (int)read(fd,buf,count-totlen);                                 /* UPSTREAM_CAST_MISSING: (int) */
         if (nread == 0) return totlen;
         if (nread == -1) return -1;
         totlen += nread;
@@ -503,7 +501,7 @@ int anetWrite(int fd, char *buf, int count)
 {
     int nwritten, totlen = 0;
     while(totlen != count) {
-        nwritten = (int)write(fd,buf,count-totlen);                             /* UPSTREAM_ISSUE: missing (int) cast */
+        nwritten = (int)write(fd,buf,count-totlen);                             /* UPSTREAM_CAST_MISSING: (int) */
         if (nwritten == 0) return totlen;
         if (nwritten == -1) return -1;
         totlen += nwritten;
@@ -563,7 +561,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (IF_WIN32(anetSetExclusiveAddr,anetSetReuseAddr)(err,s) == ANET_ERR) goto error;
-        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;
+        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;  /* UPSTREAM_CAST_MISSING: (socklen_t) */
         goto end;
     }
     if (p == NULL) {

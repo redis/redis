@@ -95,7 +95,7 @@ int clusterBumpConfigEpochWithoutConsensus(void);
  * If the configuration was loaded from the file, REDIS_OK is returned. */
 int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
-    struct stat sb;
+    struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
     char *line;
     int maxline, j;
 
@@ -303,7 +303,7 @@ fmterr:
 int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
-    struct stat sb;
+    struct IF_WIN32(_stat64, stat) sb;                                          // TODO: verify for 32-bit
     int fd;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_SAVE_CONFIG;

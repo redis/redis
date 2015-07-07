@@ -58,14 +58,12 @@
  */
 #ifdef _WIN32
 #include "win32_Interop\win32_util.h"
+#include "win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_ThreadControl.h"
 #endif
 
 #include "redis.h"
 #include "bio.h"
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#include "Win32_Interop/Win32_ThreadControl.h"
-#endif
 
 static pthread_t bio_threads[REDIS_BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[REDIS_BIO_NUM_OPS];
@@ -114,7 +112,7 @@ void bioInit(void) {
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
-    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));
+    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));                     /* UPSTREAM_CAST_MISSING: (ssize_t) */
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
@@ -154,8 +152,8 @@ void *bioProcessBackgroundJobs(void *arg) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 #else
-    // if the ptherad support is important, then the current implementation in win32fixes.h 
-    // needs much rework. Cancellability requires a shared event.
+    // TODO: if the ptherad support is important, then the current implementation 
+    // in win32fixes.h needs much rework. Cancellability requires a shared event.
 #endif
 
     pthread_mutex_lock(&bio_mutex[type]);
@@ -235,7 +233,7 @@ void bioKillThreads(void) {
         }
     }
 #else
-    // pthreads routines in win32fixes needs rework for this to work properly. 
+    // TODO: pthreads routines in win32fixes needs rework for this to work properly. 
     // utility of this is questionable on windows.
 #endif
 }

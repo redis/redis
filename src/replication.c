@@ -617,7 +617,7 @@ void replconfCommand(redisClient *c) {
             if ((getLongFromObjectOrReply(c,c->argv[j+1],
                     &port,NULL) != REDIS_OK))
                 return;
-            c->slave_listening_port = (int) port;                                /* UPSTREAM_ISSUE: missing (int) cast */
+            c->slave_listening_port = (int) port;                               /* UPSTREAM_CAST_MISSING: (int) */
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -1041,7 +1041,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master");
         } else {
             usemark = 0;
-            server.repl_transfer_size = IF_WIN32(strtoll,strtol)(buf+1,NULL,10);  /* BUGBUG: verify for 32bit support */
+            server.repl_transfer_size = IF_WIN32(strtoll,strtol)(buf+1,NULL,10);  /* TODO: verify for 32-bit */
             redisLog(REDIS_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master",
                 (PORT_LONGLONG) server.repl_transfer_size);
@@ -1097,7 +1097,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (nread >= REDIS_RUN_ID_SIZE) {
             memcpy(lastbytes,buf+nread-REDIS_RUN_ID_SIZE,REDIS_RUN_ID_SIZE);
         } else {
-            int rem = (int)(REDIS_RUN_ID_SIZE-nread);                           /* UPSTREAM_ISSUE: missing (int) cast */
+            int rem = (int)(REDIS_RUN_ID_SIZE-nread);                           /* UPSTREAM_CAST_MISSING: (int) */
             memmove(lastbytes,lastbytes+nread,rem);
             memcpy(lastbytes+rem,buf,nread);
         }
@@ -1493,11 +1493,11 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(maxtries--) {
 #ifdef _WIN32
         snprintf(tmpfile,256,
-            "temp-%lld.%lld.rdb", (PORT_LONGLONG) server.unixtime, (PORT_LONGLONG) getpid()); /* BUGBUG: fix it! */
+            "temp-%lld.%lld.rdb", (PORT_LONGLONG) server.unixtime, (PORT_LONGLONG) getpid()); /* TODO: verify %lld for 32-bit */
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL|O_BINARY,_S_IREAD|_S_IWRITE);
 #else
         snprintf(tmpfile,256,
-            "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
+            "temp-%d.%ld.rdb",(int)server.unixtime,(PORT_LONG int)getpid());
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
 #endif
         if (dfd != -1) break;
@@ -1673,7 +1673,7 @@ void slaveofCommand(redisClient *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
-        replicationSetMaster(c->argv[1]->ptr, (int)port);                       /* UPSTREAM_ISSUE: missing (int) cast */
+        replicationSetMaster(c->argv[1]->ptr, (int)port);                       /* UPSTREAM_CAST_MISSING: (int) */
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
     }
@@ -1991,7 +1991,7 @@ void replicationRequestAckFromSlaves(void) {
 
 /* Return the number of slaves that already acknowledged the specified
  * replication offset. */
-int replicationCountAcksByOffset(long long offset) {
+int replicationCountAcksByOffset(PORT_LONGLONG offset) {
     listIter li;
     listNode *ln;
     int count = 0;
@@ -2010,8 +2010,8 @@ int replicationCountAcksByOffset(long long offset) {
  * write command (and all the previous commands). */
 void waitCommand(redisClient *c) {
     mstime_t timeout;
-    long numreplicas, ackreplicas;
-    long long offset = c->woff;
+    PORT_LONG numreplicas, ackreplicas;
+    PORT_LONGLONG offset = c->woff;
 
     /* Argument parsing. */
     if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != REDIS_OK)
@@ -2052,7 +2052,7 @@ void unblockClientWaitingReplicas(redisClient *c) {
 /* Check if there are clients blocked in WAIT that can be unblocked since
  * we received enough ACKs from slaves. */
 void processClientsWaitingReplicas(void) {
-    long long last_offset = 0;
+    PORT_LONGLONG last_offset = 0;
     int last_numreplicas = 0;
 
     listIter li;
@@ -2086,8 +2086,8 @@ void processClientsWaitingReplicas(void) {
 
 /* Return the slave replication offset for this instance, that is
  * the offset for which we already processed the master replication stream. */
-long long replicationGetSlaveOffset(void) {
-    long long offset = 0;
+PORT_LONGLONG replicationGetSlaveOffset(void) {
+    PORT_LONGLONG offset = 0;
 
     if (server.masterhost != NULL) {
         if (server.master) {

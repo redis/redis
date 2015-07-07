@@ -84,7 +84,7 @@ redisClient *createClient(int fd) {
 #ifdef WIN32_IOCP
             aeWinCloseSocket(fd);
 #else
-        close(fd);
+            close(fd);
 #endif
             zfree(c);
             return NULL;
@@ -223,7 +223,7 @@ int _addReplyToBuffer(redisClient *c, char *s, size_t len) {
     if (len > available) return REDIS_ERR;
 
     memcpy(c->buf+c->bufpos,s,len);
-    c->bufpos+=(int)len;
+    c->bufpos+=(int)len;                                                        /* UPSTREAM_CAST_MISSING: (int) */
     return REDIS_OK;
 }
 
@@ -347,8 +347,8 @@ void addReply(redisClient *c, robj *obj) {
             char buf[32];
             int len;
 
-            len = ll2string(buf, sizeof(buf), (PORT_LONG) obj->ptr);
-            if (_addReplyToBuffer(c, buf, len) == REDIS_OK)
+            len = ll2string(buf,sizeof(buf),(PORT_LONG)obj->ptr);
+            if (_addReplyToBuffer(c,buf,len) == REDIS_OK)
                 return;
             /* else... continue with the normal code path, but should never
              * happen actually since we verified there is room. */
@@ -395,9 +395,8 @@ void addReplyError(redisClient *c, char *err) {
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...) {
     size_t l, j;
     va_list ap;
-    sds s;
     va_start(ap,fmt);
-    s = sdscatvprintf(sdsempty(),fmt,ap);
+    sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
     /* Make sure there are no newlines in the string, otherwise invalid protocol
      * is emitted. */
@@ -420,10 +419,9 @@ void addReplyStatus(redisClient *c, char *status) {
 }
 
 void addReplyStatusFormat(redisClient *c, const char *fmt, ...) {
-    sds s;
-    va_list ap;
+        va_list ap;
     va_start(ap,fmt);
-    s = sdscatvprintf(sdsempty(),fmt,ap);
+    sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
     addReplyStatusLength(c,s,sdslen(s));
     sdsfree(s);
@@ -751,11 +749,7 @@ void freeClient(redisClient *c) {
     }
     listRelease(c->reply);
     freeClientArgv(c);
-#ifdef WIN32_IOCP
-    aeWinCloseSocket(c->fd);
-#else
-
-#endif
+    WIN32_ONLY(aeWinCloseSocket(c->fd);)
     /* Remove from the list of clients */
     if (c->fd != -1) {
         ln = listSearchKey(server.clients,c);
@@ -774,7 +768,6 @@ void freeClient(redisClient *c) {
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {
-        list *l;
         if (c->replstate == REDIS_REPL_SEND_BULK) {
 #ifdef _WIN32
             if (c->repldbfd != -1) {
@@ -785,7 +778,7 @@ void freeClient(redisClient *c) {
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
-        l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
+        list *l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         redisAssert(ln != NULL);
         listDelNode(l,ln);
@@ -894,7 +887,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
 
 #ifndef _WIN32
-	if (c->flags & REDIS_MASTER) {
+    if (c->flags & REDIS_MASTER) {
         /* do not send to master */
         c->bufpos = 0;
         c->sentlen = 0;
@@ -964,7 +957,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
              zmalloc_used_memory() < server.maxmemory)) break;
     }
 #ifndef _WIN32
-	if (totwritten > 0) c->lastinteraction = server.unixtime;
+    if (totwritten > 0) c->lastinteraction = server.unixtime;
 #else
     if (totwritten > 0) {
 		/* For clients representing masters we don't count sending data
@@ -1117,7 +1110,7 @@ int processInlineBuffer(redisClient *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,(int)(querylen+2),-1);
+    sdsrange(c->querybuf,(int)(querylen+2),-1);                                 /* UPSTREAM_CAST_MISSING: (int) */
 
     /* Setup argv array on client structure */
     if (argc) {
@@ -1184,13 +1177,13 @@ int processMultibulkBuffer(redisClient *c) {
             return REDIS_ERR;
         }
 
-        pos = (int)((newline-c->querybuf)+2);
+        pos = (int)((newline-c->querybuf)+2);                                   /* UPSTREAM_CAST_MISSING: (int) */
         if (ll <= 0) {
             sdsrange(c->querybuf,pos,-1);
             return REDIS_OK;
         }
 
-        c->multibulklen = (int)ll;
+        c->multibulklen = (int)ll;                                              /* UPSTREAM_CAST_MISSING: (int) */
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
@@ -1231,7 +1224,7 @@ int processMultibulkBuffer(redisClient *c) {
                 return REDIS_ERR;
             }
 
-            pos += (int)(newline-(c->querybuf+pos)+2);
+            pos += (int)(newline-(c->querybuf+pos)+2);                          /* UPSTREAM_CAST_MISSING: (int) */
             if (ll >= REDIS_MBULK_BIG_ARG) {
                 size_t qblen;
 
@@ -1247,7 +1240,7 @@ int processMultibulkBuffer(redisClient *c) {
                 if (qblen < (size_t)ll+2)
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
             }
-            c->bulklen = (PORT_LONG) ll;
+            c->bulklen = (PORT_LONG) ll;                                        /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
         }
 
         /* Read bulk argument */
@@ -1349,7 +1342,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->reqtype == REDIS_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= REDIS_MBULK_BIG_ARG)
     {
-        int remaining = (int)((unsigned)(c->bulklen+2)-sdslen(c->querybuf));
+        int remaining = (int)((unsigned)(c->bulklen+2)-sdslen(c->querybuf));    /* UPSTREAM_CAST_MISSING: (int) */
 
         if (remaining < readlen) readlen = remaining;
     }
@@ -1357,7 +1350,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    nread = (int)read(fd, c->querybuf+qblen, readlen);                          /* UPSTREAM_ISSUE: missing (int) cast */
+    nread = (int)read(fd, c->querybuf+qblen, readlen);                          /* UPSTREAM_CAST_MISSING: (int) */
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;
@@ -1409,7 +1402,7 @@ void getClientsMaxBuffers(PORT_ULONG *longest_output_list,
         c = listNodeValue(ln);
 
         if (listLength(c->reply) > lol) lol = listLength(c->reply);
-        if (sdslen(c->querybuf) > bib) bib = (PORT_ULONG)sdslen(c->querybuf);
+        if (sdslen(c->querybuf) > bib) bib = (PORT_ULONG)sdslen(c->querybuf);   /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
     }
     *longest_output_list = lol;
     *biggest_input_buffer = bib;
@@ -1450,15 +1443,15 @@ int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
     } else {
         /* TCP client. */
         int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
-#ifndef _WIN32
-		formatPeerId(peerid,peerid_len,ip,port);
-#else
+#ifdef _WIN32
         if (retval == -1 && client->flags & REDIS_MASTER) {
             formatPeerId(peerid, peerid_len, "MASTER", 0);
             retval = 0;
         } else {
             formatPeerId(peerid,peerid_len,ip,port);
         }
+#else
+        formatPeerId(peerid,peerid_len,ip,port);
 #endif
         return (retval == -1) ? REDIS_ERR : REDIS_OK;
     }
@@ -1645,7 +1638,7 @@ void clientCommand(redisClient *c) {
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= REDIS_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
-        int j, len = (int)sdslen(c->argv[2]->ptr);
+        int j, len = (int)sdslen(c->argv[2]->ptr);                              /* UPSTREAM_CAST_MISSING: (int) */
         char *p = c->argv[2]->ptr;
 
         /* Setting the client name to an empty string actually removes
@@ -1678,7 +1671,7 @@ void clientCommand(redisClient *c) {
         else
             addReply(c,shared.nullbulk);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
-        long long duration;
+        PORT_LONGLONG duration;
 
         if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,UNIT_MILLISECONDS)
                                         != REDIS_OK) return;
@@ -1751,7 +1744,7 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 PORT_ULONG getClientOutputBufferMemoryUsage(redisClient *c) {
-    PORT_ULONG list_item_size = sizeof(listNode) + sizeof(robj);
+    PORT_ULONG list_item_size = sizeof(listNode)+sizeof(robj);
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
@@ -1836,7 +1829,7 @@ int checkClientOutputBufferLimits(redisClient *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
-    redisAssert(c->reply_bytes < PORT_ULONG_MAX - (1024 * 64));
+    redisAssert(c->reply_bytes < PORT_ULONG_MAX-(1024*64));
     if (c->reply_bytes == 0 || c->flags & REDIS_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);

@@ -463,7 +463,7 @@ typedef struct redisObject {
  * Empty entries have the key pointer set to NULL. */
 #define REDIS_EVICTION_POOL_SIZE 16
 struct evictionPoolEntry {
-    unsigned long long idle;    /* Object idle time. */
+    PORT_ULONGLONG idle;    /* Object idle time. */
     sds key;                    /* Key name. */
 };
 
@@ -510,7 +510,7 @@ typedef struct blockingState {
 
     /* REDIS_BLOCK_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
-    long long reploffset;   /* Replication offset to reach. */
+    PORT_LONGLONG reploffset;   /* Replication offset to reach. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -1190,9 +1190,9 @@ void replicationScriptCacheAdd(sds sha1);
 int replicationScriptCacheExists(sds sha1);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(redisClient *c);
-int replicationCountAcksByOffset(long long offset);
+int replicationCountAcksByOffset(PORT_LONGLONG offset);
 void replicationSendNewlineToMaster(void);
-long long replicationGetSlaveOffset(void);
+PORT_LONGLONG replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(redisClient *c);
 
 /* Generic persistence functions */

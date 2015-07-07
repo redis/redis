@@ -49,7 +49,7 @@ int listMatchPubsubPattern(void *a, void *b) {
 
 /* Return the number of channels + patterns a client is subscribed to. */
 int clientSubscriptionsCount(redisClient *c) {
-    return (int)(dictSize(c->pubsub_channels)+
+    return (int)(dictSize(c->pubsub_channels)+                                  /* UPSTREAM_CAST_MISSING: (int) */
            listLength(c->pubsub_patterns));
 }
 
@@ -128,8 +128,8 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
     int retval = 0;
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
-        pubsubPattern *pat;
         retval = 1;
+        pubsubPattern *pat;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));
@@ -254,9 +254,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             pubsubPattern *pat = ln->value;
 
             if (stringmatchlen((char*)pat->pattern->ptr,
-                                (int)sdslen(pat->pattern->ptr),
+                                (int)sdslen(pat->pattern->ptr),                 /* UPSTREAM_CAST_MISSING: (int) */
                                 (char*)channel->ptr,
-                                (int)sdslen(channel->ptr),0)) {
+                                (int)sdslen(channel->ptr),0)) {                 /* UPSTREAM_CAST_MISSING: (int) */
                 addReply(pat->client,shared.mbulkhdr[4]);
                 addReply(pat->client,shared.pmessagebulk);
                 addReplyBulk(pat->client,pat->pattern);
@@ -340,8 +340,8 @@ void pubsubCommand(redisClient *c) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 
-            if (!pat || stringmatchlen(pat, (int)sdslen(pat),
-                                       channel, (int)sdslen(channel),0))
+            if (!pat || stringmatchlen(pat, (int)sdslen(pat),                   /* UPSTREAM_CAST_MISSING: (int) */
+                                       channel, (int)sdslen(channel),0))        /* UPSTREAM_CAST_MISSING: (int) */
             {
                 addReplyBulk(c,cobj);
                 mblen++;

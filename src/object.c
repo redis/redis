@@ -106,7 +106,7 @@ robj *createStringObjectFromLongLong(PORT_LONGLONG value) {
         if (value >= PORT_LONG_MIN && value <= PORT_LONG_MAX) {
             o = createObject(REDIS_STRING, NULL);
             o->encoding = REDIS_ENCODING_INT;
-            o->ptr = (void*)(value);
+            o->ptr = (void*)(value);                                            /* WIN_PORT_FIX: (long) cast removed */
         } else {
             o = createObject(REDIS_STRING,sdsfromlonglong(value));
         }
@@ -151,7 +151,7 @@ robj *createStringObjectFromLongDouble(PORT_LONGDOUBLE value, int humanfriendly)
             if (*p == '.') len--;
         }
     } else {
-        len = snprintf(buf,sizeof(buf),"%.17Lg", value);    /* BUGBUG: verify if it needs to be changed to %.15 as well*/
+        len = snprintf(buf,sizeof(buf),"%.17Lg", value);    /* TODO: verify if it needs to be changed to %.15 as well*/
     }
     return createStringObject(buf,len);
 }
@@ -457,7 +457,7 @@ robj *getDecodedObject(robj *o) {
     if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_INT) {
         char buf[32];
 
-        ll2string(buf, 32, (PORT_LONG) o->ptr);
+        ll2string(buf,32,(PORT_LONG)o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
@@ -503,7 +503,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
         minlen = (alen < blen) ? alen : blen;
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return (int)(alen-blen);
+        if (cmp == 0) return (int)(alen-blen);                                  /* UPSTREAM_CAST_MISSING: (int) */
         return cmp;
     }
 }
@@ -540,7 +540,7 @@ size_t stringObjectLen(robj *o) {
     } else {
         char buf[32];
 
-        return ll2string(buf, 32, (PORT_LONG) o->ptr);
+        return ll2string(buf,32,(PORT_LONG)o->ptr);
     }
 }
 
@@ -563,7 +563,7 @@ int getDoubleFromObject(robj *o, double *target) {
                 isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (PORT_LONG) o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -596,12 +596,12 @@ int getLongDoubleFromObject(robj *o, PORT_LONGDOUBLE *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = IF_WIN32(wstrtod,strtold)(o->ptr,&eptr);                    // BUGBUG: verify for 32 bits
+            value = IF_WIN32(wstrtod,strtold)(o->ptr,&eptr);                    // TODO: verify for 32-bit
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (PORT_LONG) o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -639,7 +639,7 @@ int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
                 errno == ERANGE)
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (PORT_LONG) o->ptr;
+            value = (PORT_LONG)o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -674,7 +674,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, PORT_LONG *target, const c
         }
         return REDIS_ERR;
     }
-    *target = (PORT_LONG) value;
+    *target = (PORT_LONG)value;                                                 /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
     return REDIS_OK;
 }
 

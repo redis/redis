@@ -306,8 +306,8 @@ void sortCommand(redisClient *c) {
 
     /* Objtain the length of the object to sort. */
     switch(sortval->type) {
-    case REDIS_LIST: vectorlen = (int)listTypeLength(sortval); break;           /* UPSTREAM_ISSUE: missing (int) cast */
-    case REDIS_SET: vectorlen =  (int)setTypeSize(sortval); break;              /* UPSTREAM_ISSUE: missing (int) cast */
+    case REDIS_LIST: vectorlen = (int)listTypeLength(sortval); break;           /* UPSTREAM_CAST_MISSING: (int) */
+    case REDIS_SET: vectorlen =  (int)setTypeSize(sortval); break;              /* UPSTREAM_CAST_MISSING: (int) */
     case REDIS_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
@@ -335,7 +335,7 @@ void sortCommand(redisClient *c) {
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
-        vectorlen = (int)(end-start+1);                                         /* UPSTREAM_ISSUE: missing (int) cast */
+        vectorlen = (int)(end-start+1);                                         /* UPSTREAM_CAST_MISSING: (int) */
     }
 
     /* Load the sorting vector with all the objects to sort */

@@ -423,7 +423,7 @@ void lindexCommand(redisClient *c) {
         unsigned char *vstr;
         unsigned int vlen;
         PORT_LONGLONG vlong;
-        p = ziplistIndex(o->ptr,(int) index);                                    /* UPSTREAM_ISSUE: missing (int) cast */
+        p = ziplistIndex(o->ptr,(int) index);                                   /* UPSTREAM_CAST_MISSING: (int) */
         if (ziplistGet(p,&vstr,&vlen,&vlong)) {
             if (vstr) {
                 value = createStringObject((char*)vstr,vlen);
@@ -460,7 +460,7 @@ void lsetCommand(redisClient *c) {
     listTypeTryConversion(o,value);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p, *zl = o->ptr;
-        p = ziplistIndex(zl, (int) index);                                        /* UPSTREAM_ISSUE: missing (int) cast */
+        p = ziplistIndex(zl, (int) index);                                      /* UPSTREAM_CAST_MISSING: (int) */
         if (p == NULL) {
             addReply(c,shared.outofrangeerr);
         } else {
@@ -474,7 +474,7 @@ void lsetCommand(redisClient *c) {
             server.dirty++;
         }
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-        listNode *ln = listIndex(o->ptr,(int)index);                            /* UPSTREAM_ISSUE: missing (int) cast */
+        listNode *ln = listIndex(o->ptr,(int)index);                            /* UPSTREAM_CAST_MISSING: (int) */
         if (ln == NULL) {
             addReply(c,shared.outofrangeerr);
         } else {
@@ -551,7 +551,7 @@ void lrangeCommand(redisClient *c) {
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c,rangelen);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        unsigned char *p = ziplistIndex(o->ptr,(int)start);                     /* UPSTREAM_ISSUE: missing (int) cast */
+        unsigned char *p = ziplistIndex(o->ptr,(int)start);                     /* UPSTREAM_CAST_MISSING: (int) */
         unsigned char *vstr;
         unsigned int vlen;
         PORT_LONGLONG vlong;
@@ -977,7 +977,7 @@ void handleClientsBlockedOnLists(void) {
                 de = dictFind(rl->db->blocking_keys,rl->key);
                 if (de) {
                     list *clients = dictGetVal(de);
-                    int numclients = (int)listLength(clients);                  /* UPSTREAM_ISSUE: missing (int) cast */
+                    int numclients = (int)listLength(clients);                  /* UPSTREAM_CAST_MISSING: (int) */
 
                     while(numclients--) {
                         listNode *clientnode = listFirst(clients);

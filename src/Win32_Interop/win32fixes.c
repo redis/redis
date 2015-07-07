@@ -6,20 +6,16 @@
 *  - modified rename to retry after failure
 */
 
-#ifdef _WIN32
-
 #include <process.h>
 #include <stdlib.h>
 #include <errno.h>
 #include "win32fixes.h"
-//#include <windows.h>
 #include <signal.h>
 #include <time.h>
 #include <locale.h>
 #include <math.h>
 #include <string.h>
 #include <assert.h>
-//#include <io.h>
 #include "Win32_ThreadControl.h"
 
 /* Redefined here to avoid redis.h so it can be used in other projects */
@@ -101,8 +97,6 @@ pid_t wait3(int *stat_loc, int options, void *rusage) {
 //
 // Since windows parent->child relationships are unreliable (process ids are recycled leading to unexpected PID relationships),
 // the hiredis mechanism of process signaling will have to be changed. It should be using process handles on Windows.
-
-    
 
     return (pid_t) waitpid((intptr_t) -1, 0, WAIT_FLAGS);
 }
@@ -695,7 +689,3 @@ int truncate(const char *path, PORT_LONGLONG length) {
         return -1;
     }
 }
-
-
-
-#endif

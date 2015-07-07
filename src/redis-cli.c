@@ -203,19 +203,11 @@ static sds getHistoryPath() {
         /* if the env is set, return it */
         historyPath = sdscatprintf(sdsempty(), "%s", path);
     } else {
-#ifdef _WIN32
-        char *home = getenv("USERPROFILE");
-#else
-        char *home = getenv("HOME");
-#endif
+        char *home = getenv(IF_WIN32("USERPROFILE","HOME"));
 
         if (home != NULL && *home != '\0') {
             /* otherwise, return the default */
-#ifdef _WIN32
-            historyPath = sdscatprintf(sdsempty(), "%s\\%s", home, REDIS_CLI_HISTFILE_DEFAULT);
-#else
-            historyPath = sdscatprintf(sdsempty(), "%s/%s", home, REDIS_CLI_HISTFILE_DEFAULT);
-#endif
+            historyPath = sdscatprintf(sdsempty(), IF_WIN32("%s\\%s","%s/%s"), home, REDIS_CLI_HISTFILE_DEFAULT);
         }
     }
 
@@ -898,7 +890,7 @@ static sds readArgFromStdin(void) {
     sds arg = sdsempty();
 
     while(1) {
-        int nread = (int)read(fileno(stdin),buf,1024);                          /* UPSTREAM_ISSUE: missing (int) cast */
+        int nread = (int)read(fileno(stdin),buf,1024);                          /* UPSTREAM_CAST_MISSING: (int) */
 
         if (nread == 0) break;
         else if (nread == -1) {
@@ -982,7 +974,7 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
-static int issueCommandRepeat(int argc, char **argv, long repeat) {
+static int issueCommandRepeat(int argc, char **argv, PORT_LONG repeat) {
     while (1) {
         config.cluster_reissue_command = 0;
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
@@ -1218,7 +1210,7 @@ void showLatencyDistSamples(struct distsamples *samples, PORT_LONGLONG tot) {
     printf("\033[38;5;0m"); /* Set foreground color to black. */
     for (j = 0; ; j++) {
         int coloridx =
-            (int)ceil((float) samples[j].count / tot * (spectrum_palette_size-1));  /* UPSTREAM_ISSUE: missing (int) cast */
+            (int)ceil((float) samples[j].count / tot * (spectrum_palette_size-1));  /* UPSTREAM_CAST_MISSING: (int) */
         int color = spectrum_palette[coloridx];
         printf("\033[48;5;%dm%c", (int)color, samples[j].character);
         samples[j].count = 0;
@@ -1376,6 +1368,7 @@ static void slaveMode(void) {
     /* Discard the payload. */
     while(payload) {
         ssize_t nread;
+
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"Error reading RDB payload while SYNCing\n");
@@ -2074,7 +2067,7 @@ PORT_LONGLONG powerLawRand(PORT_LONGLONG min, PORT_LONGLONG max, double alpha) {
     max += 1;
     r = ((double)rand()) / RAND_MAX;
     pl = pow(
-        ((pow((double)max,alpha+1) - pow((double)min,alpha+1))*r + pow((double)min,alpha+1)),   /* UPSTREAM_ISSUE: missing (double) cast */
+        ((pow((double)max,alpha+1) - pow((double)min,alpha+1))*r + pow((double)min,alpha+1)),   /* UPSTREAM_CAST_MISSING: (double) */
         (1.0/(alpha+1)));
     return (max-1-(PORT_LONGLONG)pl)+min;
 }
@@ -2094,7 +2087,7 @@ static void LRUTestMode(void) {
     PORT_LONGLONG start_cycle;
     int j;
 
-    srand((unsigned int)(time(NULL)^getpid()));                                   /* UPSTREAM_ISSUE: missing (unsigned int) cast */
+    srand((unsigned int)(time(NULL)^getpid()));                                   /* UPSTREAM_CAST_MISSING: (unsigned int) */
     while(1) {
         /* Perform cycles of 1 second with 50% writes and 50% reads.
          * We use pipelining batching writes / reads N times per cycle in order

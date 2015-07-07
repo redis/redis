@@ -146,14 +146,11 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
-    aeFileEvent *fe;
-
-
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
-    fe = &eventLoop->events[fd];
+    aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -168,9 +165,8 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
-    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return;
-    fe = &eventLoop->events[fd];
+    aeFileEvent *fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return;
 
     aeApiDelEvent(eventLoop, fd, mask);
@@ -186,9 +182,8 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
-    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return 0;
-    fe = &eventLoop->events[fd];
+    aeFileEvent *fe = &eventLoop->events[fd];
 
     return fe->mask;
 }
@@ -215,7 +210,7 @@ static void aeAddMillisecondsToNow(PORT_LONGLONG milliseconds, PORT_LONG *sec, P
     PORT_LONG cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = (PORT_LONG) (cur_sec + milliseconds / 1000);
+    when_sec = (PORT_LONG) (cur_sec + milliseconds/1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -379,8 +374,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     int processed = 0, numevents;
 
 #ifdef _WIN32	
-	if (ServiceStopIssued() == TRUE)
-		aeStop(eventLoop);
+    if (ServiceStopIssued() == TRUE) {
+        aeStop(eventLoop);
+    }
 #endif
 
     /* Nothing to do? return ASAP */
@@ -429,12 +425,10 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe;
+            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
-
-            fe = &eventLoop->events[eventLoop->fired[j].fd];
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
@@ -468,7 +462,7 @@ int aeWait(int fd, int mask, PORT_LONGLONG milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {
+    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;

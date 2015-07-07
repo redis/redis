@@ -255,7 +255,7 @@ static off_t rioFdsetTell(rio *r) {
 static int rioFdsetFlush(rio *r) {
     /* Our flush is implemented by the write method, that recognizes a
      * buffer set to NULL with a count of zero as a flush request. */
-    return (int)rioFdsetWrite(r,NULL,0);                                        /* UPSTREAM_ISSUE: missing (int) cast */
+    return (int)rioFdsetWrite(r,NULL,0);                                        /* UPSTREAM_CAST_MISSING: (int) */
 }
 
 static const rio rioFdsetIO = {

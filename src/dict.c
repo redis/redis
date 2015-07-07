@@ -33,7 +33,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #ifdef _WIN32
-#include "win32_Interop\win32_util.h"
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32fixes.h"
 #endif
 
 #include "fmacros.h"
@@ -51,9 +52,6 @@
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#endif
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -87,18 +85,10 @@ unsigned int dictIntHashFunction(unsigned int key)
     return key;
 }
 
-#define DICT_HASH_FUNCTION_SEED_UNITIALIZED 5381
+static uint32_t dict_hash_function_seed = 5381;
 
-static uint32_t dict_hash_function_seed = DICT_HASH_FUNCTION_SEED_UNITIALIZED;
-
-int dictSetHashFunctionSeed(uint32_t seed) {
-    if (dict_hash_function_seed == DICT_HASH_FUNCTION_SEED_UNITIALIZED) {
-        dict_hash_function_seed = seed;
-        return 0;
-    } else {
-        errno = E_FAIL;
-        return -1;
-    }
+void dictSetHashFunctionSeed(uint32_t seed) {
+    dict_hash_function_seed = seed;
 }
 
 uint32_t dictGetHashFunctionSeed(void) {
@@ -210,7 +200,7 @@ int dictResize(dict *d)
     int minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = (int)d->ht[0].used;
+    minimal = (int)d->ht[0].used;                                               /* UPSTREAM_CAST_MISSING: (int) */
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictExpand(d, minimal);
@@ -234,7 +224,7 @@ int dictExpand(dict *d,PORT_ULONG size)
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
-    n.used = (size_t) 0;
+    n.used = (size_t) 0;                                                        /* UPSTREAM_CAST_MISSING: (size_t) */
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
@@ -246,7 +236,6 @@ int dictExpand(dict *d,PORT_ULONG size)
     /* Prepare a second hash table for incremental rehashing */
     d->ht[1] = n;
     d->rehashidx = 0;
-
     return DICT_OK;
 }
 
@@ -880,7 +869,7 @@ PORT_ULONG dictScan(dict *d,
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
-        m0 = (PORT_ULONG)t0->sizemask;
+        m0 = (PORT_ULONG)t0->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -899,8 +888,8 @@ PORT_ULONG dictScan(dict *d,
             t1 = &d->ht[0];
         }
 
-        m0 = (PORT_ULONG)t0->sizemask;
-        m1 = (PORT_ULONG)t1->sizemask;
+        m0 = (PORT_ULONG)t0->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
+        m1 = (PORT_ULONG)t1->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -968,7 +957,6 @@ static PORT_ULONG _dictNextPower(PORT_ULONG size)
     PORT_ULONG i = DICT_HT_INITIAL_SIZE;
 
     if (size >= PORT_LONG_MAX) return PORT_LONG_MAX;
-
     while(1) {
         if (i >= size)
             return i;

@@ -29,7 +29,9 @@
  */
 
 #include "redis.h"
-#include "hiredis.h"
+#ifndef _WIN32          // This should not be here in the first place since it's not used by the posix code either
+#include "hiredis.h"    
+#endif
 #include "async.h"
 
 #include <ctype.h>
@@ -2797,7 +2799,7 @@ void sentinelCommand(redisClient *c) {
                                                               != REDIS_OK)
             return;
         ri = getSentinelRedisInstanceByAddrAndRunID(sentinel.masters,
-            c->argv[2]->ptr, (int) port, NULL);                                 /* UPSTREAM_ISSUE: missing (int) cast */
+            c->argv[2]->ptr, (int) port, NULL);                                 /* UPSTREAM_CAST_MISSING: (int) */
 
         /* It exists? Is actually a master? Is subjectively down? It's down.
          * Note: if we are in tilt mode we always reply with "0". */
@@ -2885,7 +2887,7 @@ void sentinelCommand(redisClient *c) {
 
         /* Parameters are valid. Try to create the master instance. */
         ri = createSentinelRedisInstance(c->argv[2]->ptr,SRI_MASTER,
-                c->argv[3]->ptr,(int)port,(int)quorum,NULL);                    /* UPSTREAM_ISSUE: missing (int) cast */
+                c->argv[3]->ptr,(int)port,(int)quorum,NULL);                    /* UPSTREAM_CAST_MISSING: (int) */
         if (ri == NULL) {
             switch(errno) {
             case EBUSY:
@@ -3380,7 +3382,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me. */  /* UPSTREAM_ISSUE: missing (unsigned int) cast */
+    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me. */  /* UPSTREAM_CAST_MISSING: (unsigned int) */
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);

@@ -30,23 +30,19 @@
 
 
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/win32fixes.h"
 #endif
 
 #include <stdlib.h>
 #include <stdio.h>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
+POSIX_ONLY(#include <unistd.h>)
 #include <fcntl.h>
 #include <sys/stat.h>
-#ifdef _WIN32
-#include "Win32_Interop/win32fixes.h"
-#else
-#include <sys/mman.h>
-#include <arpa/inet.h>
-#endif
+POSIX_ONLY(#include <sys/mman.h>)
 #include <string.h>
+POSIX_ONLY(#include <arpa/inet.h>)
 #include <stdint.h>
 #include <limits.h>
 #include "lzf.h"
@@ -157,7 +153,7 @@ typedef struct {
 static unsigned char level = 0;
 static pos positions[16];
 
-#define CURR_OFFSET ((uint32_t)positions[level].offset)
+#define CURR_OFFSET ((uint32_t)positions[level].offset)                         /* UPSTREAM_CAST_MISSING: (uint32_t) */
 
 /* Hold a stack of errors */
 typedef struct {
@@ -202,11 +198,10 @@ int checkType(unsigned char t) {
 
 /* when number of bytes to read is negative, do a peek */
 int readBytes(void *target, PORT_LONG num) {
-    pos p;
     char peek = (num < 0) ? 1 : 0;
     num = (num < 0) ? -num : num;
 
-    p = positions[level];
+    pos p = positions[level];
     if (p.offset + num > p.size) {
         return 0;
     } else {
@@ -309,7 +304,6 @@ char *loadIntegerObject(int enctype) {
     uint32_t offset = CURR_OFFSET;
     unsigned char enc[4];
     PORT_LONGLONG val;
-    char *buf;
 
     if (enctype == REDIS_RDB_ENC_INT8) {
         uint8_t v;
@@ -332,6 +326,7 @@ char *loadIntegerObject(int enctype) {
     }
 
     /* convert val into string */
+    char *buf;
     buf = malloc(sizeof(char) * 128);
     sprintf(buf, "%lld", val);
     return buf;
@@ -365,7 +360,6 @@ char* loadStringObject() {
     uint32_t offset = CURR_OFFSET;
     int isencoded;
     uint32_t len;
-    char *buf;
 
     len = loadLength(&isencoded);
     if (isencoded) {
@@ -385,7 +379,7 @@ char* loadStringObject() {
 
     if (len == REDIS_RDB_LENERR) return NULL;
 
-    buf = malloc(sizeof(char) * (len+1));
+    char *buf = malloc(sizeof(char) * (len+1));
     if (buf == NULL) return NULL;
     buf[len] = '\0';
     if (!readBytes(buf, len)) {
@@ -455,7 +449,6 @@ int processDoubleValue(double** store) {
 int loadPair(entry *e) {
     uint32_t offset = CURR_OFFSET;
     uint32_t i;
-    uint32_t length = 0;
 
     /* read key first */
     char *key;
@@ -466,6 +459,7 @@ int loadPair(entry *e) {
         return 0;
     }
 
+    uint32_t length = 0;
     if (e->type == REDIS_LIST ||
         e->type == REDIS_SET  ||
         e->type == REDIS_ZSET ||
@@ -647,8 +641,8 @@ void printErrorStack(entry *e) {
 
     /* display error stack */
     for (i = 0; i < errors.level; i++) {
-        printf("0x%08lx - %s\n",
-            (PORT_ULONG) errors.offset[i], errors.error[i]);    /* BUGBUG: fix %08lx*/
+        printf("0x%08lx - %s\n",                                /* TODO: verify %08lx */
+            (PORT_ULONG) errors.offset[i], errors.error[i]);
     }
 }
 
@@ -672,8 +666,6 @@ void process(void) {
 
         entry = loadEntry();
         if (!entry.success) {
-            uint64_t offset;
-            int i;
             printValid(num_valid_ops, num_valid_bytes);
             printErrorStack(&entry);
             num_errors++;
@@ -681,11 +673,11 @@ void process(void) {
             num_valid_bytes = 0;
 
             /* search for next valid entry */
-            offset = positions[0].offset + 1;
-            i = 0;
+            uint64_t offset = positions[0].offset + 1;
+            int i = 0;
 
             while (!entry.success && offset < positions[0].size) {
-                positions[1].offset = (size_t)offset;
+                positions[1].offset = (size_t)offset;                           /* UPSTREAM_CAST_MISSING: (size_t) */
 
                 /* find 3 consecutive valid entries */
                 for (i = 0; i < 3; i++) {
@@ -703,7 +695,7 @@ void process(void) {
                 printSkipped(offset - positions[0].offset, offset);
             }
 
-            positions[0].offset = (size_t)offset;
+            positions[0].offset = (size_t)offset;                               /* UPSTREAM_CAST_MISSING: (size_t) */
         } else {
             num_valid_ops++;
             num_valid_bytes += positions[1].offset - positions[0].offset;
@@ -759,31 +751,23 @@ void process(void) {
     }
 }
 
-#ifdef _WIN32
-#pragma warning(disable: 4723)
-#endif
 int main(int argc, char **argv) {
-    int fd;
-    off_t size;
-#ifdef _WIN32
-    struct _stat64 stat;
-#else
-    struct stat stat;
-#endif
-    void *data;
-
     /* expect the first argument to be the dump file */
     if (argc <= 1) {
         printf("Usage: %s <dump.rdb>\n", argv[0]);
         exit(0);
     }
 
+    int fd;
+    off_t size;
+    struct IF_WIN32(_stat64,stat) stat;                                         // TODO: verify for 32-bit
+    void *data;
+
 #ifdef _WIN32
     _fmode = _O_BINARY;
     setmode(_fileno(stdin), _O_BINARY);
     setmode(_fileno(stdout), _O_BINARY);
     setmode(_fileno(stderr), _O_BINARY);
-
     fd = open(argv[1], O_RDONLY|_O_BINARY,0);
 #else
     fd = open(argv[1], O_RDONLY);
@@ -794,7 +778,7 @@ int main(int argc, char **argv) {
     if (fstat(fd, &stat) == -1) {
         ERROR("Cannot stat: %s\n", argv[1]);
     } else {
-        size = (off_t)stat.st_size;
+        size = (off_t)stat.st_size;                                             /* UPSTREAM_CAST_MISSING: (off_t) */
     }
 
     if (sizeof(size_t) == sizeof(int32_t) && size >= INT_MAX) {

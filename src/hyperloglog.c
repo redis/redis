@@ -456,7 +456,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, PORT_LONG *regp) {
      *
      * This may sound like inefficient, but actually in the average case
      * there are high probabilities to find a 1 after a few iterations. */
-    hash = MurmurHash64A(ele,(int)elesize,0xadc83b19ULL);
+    hash = MurmurHash64A(ele,(int)elesize,0xadc83b19ULL);                       /* UPSTREAM_CAST_MISSING: (int) */
     index = hash & HLL_P_MASK; /* Register index. */
     hash |= ((uint64_t)1<<63); /* Make sure the loop terminates. */
     bit = HLL_REGISTERS; /* First bit not used to address the register. */
@@ -811,7 +811,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      *
      * Note that we already allocated space on the sds string
      * calling sdsMakeRoomFor(). */
-     int seqlen = (int)(n-seq);
+     int seqlen = (int)(n-seq);                                                 /* UPSTREAM_CAST_MISSING: (int) */
      int oldlen = is_xzero ? 2 : 1;
      int deltalen = seqlen-oldlen;
 
@@ -987,7 +987,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
         E = hllDenseSum(hdr->registers,PE,&ez);
     } else if (hdr->encoding == HLL_SPARSE) {
         E = hllSparseSum(hdr->registers,
-                         (int)sdslen((sds)hdr)-HLL_HDR_SIZE,PE,&ez,invalid);
+                         (int)sdslen((sds)hdr)-HLL_HDR_SIZE,PE,&ez,invalid);    /* UPSTREAM_CAST_MISSING: (int) */
     } else if (hdr->encoding == HLL_RAW) {
         E = hllRawSum(hdr->registers,PE,&ez);
     } else {
@@ -1071,7 +1071,7 @@ int hllMerge(uint8_t *max, robj *hll) {
                 runlen = HLL_SPARSE_VAL_LEN(p);
                 regval = HLL_SPARSE_VAL_VALUE(p);
                 while(runlen--) {
-                    if (regval > max[i]) max[i] = (uint8_t)regval;
+                    if (regval > max[i]) max[i] = (uint8_t)regval;              /* UPSTREAM_CAST_MISSING: (uint8_t) */
                     i++;
                 }
                 p++;
@@ -1422,7 +1422,7 @@ void pfselftestCommand(redisClient *c) {
         /* Check error. */
         if (j == checkpoint) {
             int64_t abserr = checkpoint - (int64_t)hllCount(hdr,NULL);
-            uint64_t maxerr = (uint64_t)ceil(relerr*6*checkpoint);              /* UPSTREAM_ISSUE: missing (uint64_t) cast */
+            uint64_t maxerr = (uint64_t)ceil(relerr*6*checkpoint);              /* UPSTREAM_CAST_MISSING: (uint64_t) */
 
             /* Adjust the max error we expect for cardinality 10
              * since from time to time it is statistically likely to get
@@ -1490,11 +1490,9 @@ void pfdebugCommand(redisClient *c) {
     }
     /* PFDEBUG DECODE <key> */
     else if (!strcasecmp(cmd,"decode")) {
-        uint8_t *p, *end;
-        if(c->argc != 3) goto arityerr;
+        if (c->argc != 3) goto arityerr;
 
-        p = o->ptr;
-        end = p + sdslen(o->ptr);
+        uint8_t *p = o->ptr, *end = p+sdslen(o->ptr);
         sds decoded = sdsempty();
 
         if (hdr->encoding != HLL_SPARSE) {

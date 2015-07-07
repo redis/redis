@@ -2015,7 +2015,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                      * at the end. */
                     if (sdsEncodedObject(tmp)) {
                         if (sdslen(tmp->ptr) > maxelelen)
-                            maxelelen = (unsigned int)sdslen(tmp->ptr);         /* UPSTREAM_ISSUE: missing (unsigned int) cast */
+                            maxelelen = (unsigned int)sdslen(tmp->ptr);         /* UPSTREAM_CAST_MISSING: (unsigned int) */
                     }
                     /* Add the element with its initial score. */
                     de = dictAddRaw(accumulator,tmp);

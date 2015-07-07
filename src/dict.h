@@ -76,7 +76,6 @@ typedef struct dictht {
     PORT_ULONG used;
 } dictht;
 
-
 typedef struct dict {
     dictType *type;
     void *privdata;
@@ -152,7 +151,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
-int dictExpand(dict *d,PORT_ULONG size);
+int dictExpand(dict *d, PORT_ULONG size);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
@@ -177,9 +176,9 @@ void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
-int dictSetHashFunctionSeed(unsigned int initval);
+void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
-PORT_ULONG dictScan(dict *d,PORT_ULONG v,dictScanFunction *fn,void *privdata);
+PORT_ULONG dictScan(dict *d, PORT_ULONG v, dictScanFunction *fn, void *privdata);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
