@@ -31,7 +31,6 @@
 #include <errno.h>
 #include <assert.h>
 
-
 static void *iocpState;
 static HANDLE iocph;
 static fnGetSockState * aeGetSockState;
@@ -94,7 +93,7 @@ int aeWinQueueAccept(int listenfd) {
         return -1;
     }
 
-    return TRUE;
+    return 0;
 }
 
 /* listen using extension function to get faster accepts */
@@ -126,7 +125,7 @@ int aeWinListen(int rfd, int backlog) {
 /* return the queued accept socket */
 int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     aeSockState *sockstate;
-    int acceptsock;
+    int acceptfd;
     int result;
     SOCKADDR *plocalsa;
     SOCKADDR *premotesa;
@@ -139,7 +138,6 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
         return SOCKET_ERROR;
     }
 
-
     areq = sockstate->reqs;
     if (areq == NULL) {
         errno = EWOULDBLOCK;
@@ -148,9 +146,9 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     sockstate->reqs = areq->next;
 
-    acceptsock = (int)areq->accept;
+    acceptfd = (int)areq->accept;
 
-    result = FDAPI_UpdateAcceptContext(acceptsock);
+    result = FDAPI_UpdateAcceptContext(acceptfd);
     if (result == SOCKET_ERROR) {
         errno = WSAGetLastError();
         return SOCKET_ERROR;
@@ -158,7 +156,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     locallen = *len;
     FDAPI_GetAcceptExSockaddrs(
-                    acceptsock,
+                    acceptfd,
                     areq->buf,
                     0,
                     sizeof(struct sockaddr_storage),
@@ -170,10 +168,10 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     memcpy(sa, premotesa, locallen);
     *len = locallen;
 
-    aeWinSocketAttach(acceptsock);
+    aeWinSocketAttach(acceptfd);
 
     // Save remote address to support aeWinGetPeerName()
-    if ((acceptsockstate = aeGetExistingSockState(iocpState, acceptsock)) == NULL) {
+    if ((acceptsockstate = aeGetExistingSockState(iocpState, acceptfd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -187,7 +185,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
         return SOCKET_ERROR;
     }
 
-    return acceptsock;
+    return acceptfd;
 }
 
 int aeWinGetPeerName(int fd, struct sockaddr *addr, socklen_t * addrlen) {
