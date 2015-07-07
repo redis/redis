@@ -503,7 +503,8 @@ typedef struct blockingState {
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP. Otherwise NULL. */
     robj *target;           /* The key that should receive the element,
-                             * for BRPOPLPUSH. */
+                             * for BRPOPLPUSH, BLPOPRPUSH, BRPOPRPUSH and
+                             * BLPOPLPUSH. */
 
     /* REDIS_BLOCK_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
@@ -1471,6 +1472,9 @@ void flushallCommand(redisClient *c);
 void sortCommand(redisClient *c);
 void lremCommand(redisClient *c);
 void rpoplpushCommand(redisClient *c);
+void lpoprpushCommand(redisClient *c);
+void rpoprpushCommand(redisClient *c);
+void lpoplpushCommand(redisClient *c);
 void infoCommand(redisClient *c);
 void mgetCommand(redisClient *c);
 void monitorCommand(redisClient *c);
@@ -1508,6 +1512,9 @@ void discardCommand(redisClient *c);
 void blpopCommand(redisClient *c);
 void brpopCommand(redisClient *c);
 void brpoplpushCommand(redisClient *c);
+void blpoprpushCommand(redisClient *c);
+void brpoprpushCommand(redisClient *c);
+void blpoplpushCommand(redisClient *c);
 void appendCommand(redisClient *c);
 void strlenCommand(redisClient *c);
 void zrankCommand(redisClient *c);
