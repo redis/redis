@@ -317,7 +317,7 @@ void selectCommand(redisClient *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
-    if (selectDb(c,(int)id) == REDIS_ERR) {                                     /* UPSTREAM_CAST_MISSING: (int) */
+    if (selectDb(c,(int)id) == REDIS_ERR) {                                     WIN_PORT_FIX /* cast (int) */
 
         addReplyError(c,"invalid DB index");
     } else {
@@ -460,7 +460,7 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
-            patlen = (int)sdslen(pat);                                          /* UPSTREAM_CAST_MISSING: (int) */
+            patlen = (int)sdslen(pat);                                          WIN_PORT_FIX /* cast (int) */
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
@@ -556,7 +556,7 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
                 int len;
 
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(PORT_LONG)kobj->ptr);          /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
+                len = ll2string(buf,sizeof(buf),(PORT_LONG)kobj->ptr);          WIN_PORT_FIX /* cast (PORT_LONG) */
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
         }
@@ -728,7 +728,7 @@ void moveCommand(redisClient *c) {
 
     if (getLongLongFromObject(c->argv[2],&dbid) == REDIS_ERR ||
         dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,(int)dbid) == REDIS_ERR)                                     /* UPSTREAM_CAST_MISSING: (int) */
+        selectDb(c,(int)dbid) == REDIS_ERR)                                     WIN_PORT_FIX /* cast (int) */
     {
         addReply(c,shared.outofrangeerr);
         return;

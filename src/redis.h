@@ -31,7 +31,9 @@
 #define __REDIS_H
 
 #ifdef _WIN32
-#include "win32_Interop\win32_util.h"
+#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_RedisLog.h"
 #endif
 
 #include "fmacros.h"
@@ -43,18 +45,12 @@
 #include <string.h>
 #include <time.h>
 #include <limits.h>
-#ifndef _WIN32
-#include <unistd.h>
-#include <inttypes.h>
-#endif
+POSIX_ONLY(#include <unistd.h>)
 #include <errno.h>
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#else
-#include <pthread.h>
-#include <syslog.h>
-#include <netinet/in.h>
-#endif
+POSIX_ONLY(#include <inttypes.h>)
+POSIX_ONLY(#include <pthread.h>)
+POSIX_ONLY(#include <syslog.h>)
+POSIX_ONLY(#include <netinet/in.h>)
 #include <lua.h>
 #include <signal.h>
 
@@ -72,8 +68,6 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
-
-#include "Win32_Interop/Win32_RedisLog.h" /* moved logging for hiredis and RedisCli usage /*
 
 /* Error codes */
 #define REDIS_OK                0
@@ -93,11 +87,7 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #define REDIS_SHARED_SELECT_CMDS 10
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_SHARED_BULKHDR_LEN 32
-#ifdef _WIN32
-// see Win32_RedisLog.h
-#else
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
-#endif
+POSIX_ONLY(#define REDIS_MAX_LOGMSG_LEN    1024) /* Default maximum length of syslog messages */
 #define REDIS_AOF_REWRITE_PERC  100
 #define REDIS_AOF_REWRITE_MIN_SIZE (64*1024*1024)
 #define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
@@ -313,17 +303,13 @@ typedef PORT_LONGLONG mstime_t; /* millisecond time type. */
 #define REDIS_SORT_DESC 2
 #define REDIS_SORTKEY_MAX 1024
 
-#ifdef _WIN32
-// see Win32_RedisLog.h
-#else
 /* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
-#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
-#endif
+POSIX_ONLY(#define REDIS_DEBUG 0)
+POSIX_ONLY(#define REDIS_VERBOSE 1)
+POSIX_ONLY(#define REDIS_NOTICE 2)
+POSIX_ONLY(#define REDIS_WARNING 3)
+POSIX_ONLY(#define REDIS_LOG_RAW(1 << 10)) /* Modifier to log without timestamp */
+POSIX_ONLY(#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE)
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -543,39 +529,37 @@ typedef struct redisClient {
     robj **argv;
     struct redisCommand *cmd, *lastcmd;
     int reqtype;
-    int multibulklen;           /* number of multi bulk arguments left to read */
-    PORT_LONG bulklen;               /* length of bulk argument in multi bulk request */
+    int multibulklen;       /* number of multi bulk arguments left to read */
+    PORT_LONG bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
-    PORT_ULONG reply_bytes;     /* Tot bytes of objects in reply list */
-    int sentlen;                /* Amount of bytes already sent in the current
-                                   buffer or object being sent. */
-    time_t ctime;               /* Client creation time */
-    time_t lastinteraction;     /* time of the last interaction, used for timeout */
+    PORT_ULONG reply_bytes; /* Tot bytes of objects in reply list */
+    int sentlen;            /* Amount of bytes already sent in the current
+                               buffer or object being sent. */
+    time_t ctime;           /* Client creation time */
+    time_t lastinteraction; /* time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    int flags;                  /* REDIS_SLAVE | REDIS_MONITOR | REDIS_MULTI ... */
-    int authenticated;          /* when requirepass is non-NULL */
-    int replstate;              /* replication state if this is a slave */
+    int flags;              /* REDIS_SLAVE | REDIS_MONITOR | REDIS_MULTI ... */
+    int authenticated;      /* when requirepass is non-NULL */
+    int replstate;          /* replication state if this is a slave */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
-    int repldbfd;               /* replication DB file descriptor */
-#ifdef _WIN32
-    char replFileCopy[_MAX_PATH];   
-#endif
-    PORT_LONG repldboff;        /* replication DB file offset */
-    off_t repldbsize;           /* replication DB file size */
-    sds replpreamble;           /* replication DB preamble. */
+    int repldbfd;           /* replication DB file descriptor */
+    off_t repldboff;        /* replication DB file offset */
+    off_t repldbsize;       /* replication DB file size */
+    sds replpreamble;       /* replication DB preamble. */
     PORT_LONGLONG reploff;      /* replication offset if this is our master */
     PORT_LONGLONG repl_ack_off; /* replication ack offset, if this is a slave */
     PORT_LONGLONG repl_ack_time;/* replication ack time, if this is a slave */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
-    int slave_listening_port;   /* As configured with: SLAVECONF listening-port */
-    multiState mstate;          /* MULTI/EXEC state */
+    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if REDIS_BLOCKED. */
     blockingState bpop;     /* blocking state */
     PORT_LONGLONG woff;         /* Last write global replication offset. */
-    list *watched_keys;         /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;      /* channels a client is interested in (SUBSCRIBE) */
-    list *pubsub_patterns;      /* patterns a client is interested in (SUBSCRIBE) */
-    sds peerid;                 /* Cached peer ID. */
+    list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
+    list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    sds peerid;             /* Cached peer ID. */
+    WIN32_ONLY(char replFileCopy[_MAX_PATH];)
 
     /* Response buffer */
     int bufpos;
@@ -814,7 +798,7 @@ struct redisServer {
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
-    int syslog_facility;            /* Syslog facility */
+    POSIX_ONLY(int syslog_facility;)            /* Syslog facility */
     /* Replication (master) */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     PORT_LONGLONG master_repl_offset;   /* Global replication offset */
@@ -1360,7 +1344,6 @@ int verifyClusterConfigWithData(void);
 void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor);
 int parseScanCursorOrReply(redisClient *c, robj *o, PORT_ULONG *cursor);
 
-
 /* API to get key arguments from commands */
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 void getKeysFreeResult(int *result);
@@ -1573,9 +1556,7 @@ void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
-#ifdef HAVE_BACKTRACE
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
-#endif
 sds genRedisInfoString(char *section);
 void enableWatchdog(int period);
 void disableWatchdog(void);

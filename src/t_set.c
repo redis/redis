@@ -207,9 +207,9 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
 
 PORT_ULONG setTypeSize(robj *subject) {
     if (subject->encoding == REDIS_ENCODING_HT) {
-        return (PORT_ULONG) dictSize((dict*) subject->ptr);
+        return (PORT_ULONG) dictSize((dict*)subject->ptr);                     WIN_PORT_FIX /* cast (PORT_ULONG) */
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        return intsetLen((intset*) subject->ptr);
+        return intsetLen((intset*)subject->ptr);
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -576,7 +576,7 @@ void srandmemberCommand(redisClient *c) {
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    return (int)(setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2));
+    return (int)(setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2));            WIN_PORT_FIX /* cast (int) */
 }
 
 /* This is used by SDIFF and in this case we can receive NULL that should
@@ -666,7 +666,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, PORT_ULONG setnum, rob
                  * a much faster path. */
                 if (eleobj->encoding == REDIS_ENCODING_INT &&
                     sets[j]->encoding == REDIS_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,(PORT_LONG) eleobj->ptr))
+                    !intsetFind((intset*)sets[j]->ptr,(PORT_LONG)eleobj->ptr))
                 {
                     break;
                 /* else... object to object check is easy as we use the

@@ -65,7 +65,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,(u_int32_t)len);                                          /* UPSTREAM_CAST_MISSING: (u_int32_t) */
+    SHA1Update(&ctx,s,(u_int32_t)len);                                          WIN_PORT_FIX /* cast (u_int32_t) */
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -364,7 +364,7 @@ void debugCommand(redisClient *c) {
         sdsfree(d);
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
-        PORT_LONGLONG utime = (PORT_LONGLONG)(dtime*1000000);                   /* UPSTREAM_CAST_MISSING: (PORT_LONGLONG) */
+        PORT_LONGLONG utime = (PORT_LONGLONG)(dtime*1000000);                   WIN_PORT_FIX /* cast (PORT_LONGLONG) */
 #ifdef _WIN32
         usleep(utime);
 #else

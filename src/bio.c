@@ -112,7 +112,7 @@ void bioInit(void) {
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
-    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));                     /* UPSTREAM_CAST_MISSING: (ssize_t) */
+    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));                     WIN_PORT_FIX /* cast (ssize_t) */
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is

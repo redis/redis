@@ -58,7 +58,7 @@ void listTypePush(robj *subject, robj *value, int where) {
     if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
         int pos = (where == REDIS_HEAD) ? ZIPLIST_HEAD : ZIPLIST_TAIL;
         value = getDecodedObject(value);
-        subject->ptr = ziplistPush(subject->ptr,value->ptr,(unsigned int)sdslen(value->ptr),pos);
+        subject->ptr = ziplistPush(subject->ptr,value->ptr,(unsigned int)sdslen(value->ptr),pos); WIN_PORT_FIX /* cast (unsigned int) */
         decrRefCount(value);
     } else if (subject->encoding == REDIS_ENCODING_LINKEDLIST) {
         if (where == REDIS_HEAD) {
@@ -208,12 +208,12 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
             /* When we insert after the current element, but the current element
              * is the tail of the list, we need to do a push. */
             if (next == NULL) {
-                subject->ptr = ziplistPush(subject->ptr,value->ptr,(unsigned int)sdslen(value->ptr),REDIS_TAIL);
+                subject->ptr = ziplistPush(subject->ptr,value->ptr,(unsigned int)sdslen(value->ptr),REDIS_TAIL); WIN_PORT_FIX /* cast (unsigned int) */
             } else {
-                subject->ptr = ziplistInsert(subject->ptr,next,value->ptr,(unsigned int)sdslen(value->ptr));
+                subject->ptr = ziplistInsert(subject->ptr,next,value->ptr,(unsigned int)sdslen(value->ptr)); WIN_PORT_FIX /* cast (unsigned int) */
             }
         } else {
-            subject->ptr = ziplistInsert(subject->ptr,entry->zi,value->ptr,(unsigned int)sdslen(value->ptr));
+            subject->ptr = ziplistInsert(subject->ptr,entry->zi,value->ptr,(unsigned int)sdslen(value->ptr)); WIN_PORT_FIX /* cast (unsigned int) */
         }
         decrRefCount(value);
     } else if (entry->li->encoding == REDIS_ENCODING_LINKEDLIST) {
@@ -233,7 +233,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
     listTypeIterator *li = entry->li;
     if (li->encoding == REDIS_ENCODING_ZIPLIST) {
         redisAssertWithInfo(NULL,o,sdsEncodedObject(o));
-        return ziplistCompare(entry->zi,o->ptr,(unsigned int)sdslen(o->ptr));
+        return ziplistCompare(entry->zi,o->ptr,(unsigned int)sdslen(o->ptr));   WIN_PORT_FIX /* cast (unsigned int) */
     } else if (li->encoding == REDIS_ENCODING_LINKEDLIST) {
         return equalStringObjects(o,listNodeValue(entry->ln));
     } else {
@@ -411,9 +411,9 @@ void llenCommand(redisClient *c) {
 
 void lindexCommand(redisClient *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     PORT_LONG index;
     robj *value = NULL;
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
         return;
@@ -423,7 +423,7 @@ void lindexCommand(redisClient *c) {
         unsigned char *vstr;
         unsigned int vlen;
         PORT_LONGLONG vlong;
-        p = ziplistIndex(o->ptr,(int) index);                                   /* UPSTREAM_CAST_MISSING: (int) */
+        p = ziplistIndex(o->ptr,(int) index);                                   WIN_PORT_FIX /* cast (int) */
         if (ziplistGet(p,&vstr,&vlen,&vlong)) {
             if (vstr) {
                 value = createStringObject((char*)vstr,vlen);
@@ -450,9 +450,9 @@ void lindexCommand(redisClient *c) {
 
 void lsetCommand(redisClient *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     PORT_LONG index;
     robj *value = (c->argv[3] = tryObjectEncoding(c->argv[3]));
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
         return;
@@ -460,7 +460,7 @@ void lsetCommand(redisClient *c) {
     listTypeTryConversion(o,value);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p, *zl = o->ptr;
-        p = ziplistIndex(zl, (int) index);                                      /* UPSTREAM_CAST_MISSING: (int) */
+        p = ziplistIndex(zl, (int) index);                                      WIN_PORT_FIX /* cast (int) */
         if (p == NULL) {
             addReply(c,shared.outofrangeerr);
         } else {
@@ -474,7 +474,7 @@ void lsetCommand(redisClient *c) {
             server.dirty++;
         }
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-        listNode *ln = listIndex(o->ptr,(int)index);                            /* UPSTREAM_CAST_MISSING: (int) */
+        listNode *ln = listIndex(o->ptr,(int)index);                            WIN_PORT_FIX /* cast (int) */
         if (ln == NULL) {
             addReply(c,shared.outofrangeerr);
         } else {
@@ -492,11 +492,10 @@ void lsetCommand(redisClient *c) {
 }
 
 void popGenericCommand(redisClient *c, int where) {
-    robj *value;
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
 
-    value = listTypePop(o,where);
+    robj *value = listTypePop(o,where);
     if (value == NULL) {
         addReply(c,shared.nullbulk);
     } else {
@@ -551,7 +550,7 @@ void lrangeCommand(redisClient *c) {
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c,rangelen);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        unsigned char *p = ziplistIndex(o->ptr,(int)start);                     /* UPSTREAM_CAST_MISSING: (int) */
+        unsigned char *p = ziplistIndex(o->ptr,(int)start);                     WIN_PORT_FIX /* cast (int) */
         unsigned char *vstr;
         unsigned int vlen;
         PORT_LONGLONG vlong;
@@ -642,11 +641,10 @@ void ltrimCommand(redisClient *c) {
 
 void lremCommand(redisClient *c) {
     robj *subject, *obj;
+    obj = c->argv[3] = tryObjectEncoding(c->argv[3]);
     PORT_LONG toremove;
     PORT_LONG removed = 0;
     listTypeEntry entry;
-    listTypeIterator *li;
-    obj = c->argv[3] = tryObjectEncoding(c->argv[3]);
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != REDIS_OK))
         return;
@@ -658,6 +656,7 @@ void lremCommand(redisClient *c) {
     if (subject->encoding == REDIS_ENCODING_ZIPLIST)
         obj = getDecodedObject(obj);
 
+    listTypeIterator *li;
     if (toremove < 0) {
         toremove = -toremove;
         li = listTypeInitIterator(subject,-1,REDIS_HEAD);
@@ -958,7 +957,6 @@ void handleClientsBlockedOnLists(void) {
         server.ready_keys = listCreate();
 
         while(listLength(l) != 0) {
-            robj *o;
             listNode *ln = listFirst(l);
             readyList *rl = ln->value;
 
@@ -968,7 +966,7 @@ void handleClientsBlockedOnLists(void) {
 
             /* If the key exists and it's a list, serve blocked clients
              * with data. */
-            o = lookupKeyWrite(rl->db,rl->key);
+            robj *o = lookupKeyWrite(rl->db,rl->key);
             if (o != NULL && o->type == REDIS_LIST) {
                 dictEntry *de;
 
@@ -977,7 +975,7 @@ void handleClientsBlockedOnLists(void) {
                 de = dictFind(rl->db->blocking_keys,rl->key);
                 if (de) {
                     list *clients = dictGetVal(de);
-                    int numclients = (int)listLength(clients);                  /* UPSTREAM_CAST_MISSING: (int) */
+                    int numclients = (int)listLength(clients);                  WIN_PORT_FIX /* cast (int) */
 
                     while(numclients--) {
                         listNode *clientnode = listFirst(clients);
@@ -1093,12 +1091,11 @@ void brpopCommand(redisClient *c) {
 
 void brpoplpushCommand(redisClient *c) {
     mstime_t timeout;
-    robj *key;
 
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
         != REDIS_OK) return;
 
-    key = lookupKeyWrite(c->db, c->argv[1]);
+    robj *key = lookupKeyWrite(c->db, c->argv[1]);
 
     if (key == NULL) {
         if (c->flags & REDIS_MULTI) {

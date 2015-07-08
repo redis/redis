@@ -36,7 +36,7 @@
  * in order to get O(log(N)) INSERT and REMOVE operations into a sorted
  * data structure.
  *
- * The elements are added to an hash table mapping Redis objects to scores.
+ * The elements are added to a hash table mapping Redis objects to scores.
  * At the same time the elements are added to a skip list mapping scores
  * to Redis objects (so objects are sorted by scores in this "view"). */
 
@@ -651,7 +651,7 @@ double zzlGetScore(unsigned char *sptr) {
         buf[vlen] = '\0';
         score = strtod(buf,NULL);
     } else {
-        score = (double)vlong;
+        score = (double)vlong;                                                  WIN_PORT_FIX /* cast (double) */
     }
 
     return score;
@@ -703,7 +703,7 @@ unsigned int zzlLength(unsigned char *zl) {
 /* Move to next entry based on the values in eptr and sptr. Both are set to
  * NULL when there is no next entry. */
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *l_eptr, *l_sptr;
+    unsigned char *l_eptr, *l_sptr;                                             WIN_PORT_FIX /* compiler error */
     redisAssert(*eptr != NULL && *sptr != NULL);
 
     l_eptr = ziplistNext(zl,*sptr);
@@ -924,7 +924,7 @@ unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
         sptr = ziplistNext(zl,eptr);
         redisAssertWithInfo(NULL,ele,sptr != NULL);
 
-        if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr))) {
+        if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr))) {     WIN_PORT_FIX /* unsigned int */
             /* Matching element, pull out score. */
             if (score != NULL) *score = zzlGetScore(sptr);
             decrRefCount(ele);
@@ -959,12 +959,12 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
     redisAssertWithInfo(NULL,ele,sdsEncodedObject(ele));
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
-        zl = ziplistPush(zl,ele->ptr,(unsigned int)sdslen(ele->ptr),ZIPLIST_TAIL);
+        zl = ziplistPush(zl,ele->ptr,(unsigned int)sdslen(ele->ptr),ZIPLIST_TAIL); WIN_PORT_FIX /* unsigned int */
         zl = ziplistPush(zl,(unsigned char*)scorebuf,scorelen,ZIPLIST_TAIL);
     } else {
         /* Keep offset relative to zl, as it might be re-allocated. */
         offset = eptr-zl;
-        zl = ziplistInsert(zl,eptr,ele->ptr,(unsigned int)sdslen(ele->ptr));
+        zl = ziplistInsert(zl,eptr,ele->ptr,(unsigned int)sdslen(ele->ptr));    WIN_PORT_FIX /* unsigned int */
         eptr = zl+offset;
 
         /* Insert score after the element. */
@@ -995,7 +995,7 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
             break;
         } else if (s == score) {
             /* Ensure lexicographical ordering for elements. */
-            if (zzlCompareElements(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)) > 0) {
+            if (zzlCompareElements(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)) > 0) { WIN_PORT_FIX /* unsigned int */
                 zl = zzlInsertAt(zl,eptr,ele,score);
                 break;
             }
@@ -1625,7 +1625,7 @@ int zuiLength(zsetopsrc *op) {
             return intsetLen(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_HT) {
             dict *ht = op->subject->ptr;
-            return (int)dictSize(ht);
+            return (int)dictSize(ht);                                           WIN_PORT_FIX /* int */
         } else {
             redisPanic("Unknown set encoding");
         }
@@ -1750,7 +1750,7 @@ int zuiBufferFromValue(zsetopval *val) {
                 val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(PORT_LONG)val->ele->ptr);
                 val->estr = val->_buf;
             } else if (sdsEncodedObject(val->ele)) {
-                val->elen = (unsigned int)sdslen(val->ele->ptr);
+                val->elen = (unsigned int)sdslen(val->ele->ptr);                WIN_PORT_FIX /* unsigned int */
                 val->estr = val->ele->ptr;
             } else {
                 redisPanic("Unsupported element encoding");
@@ -1827,7 +1827,7 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_MAX 3
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
-__inline static void zunionInterAggregate(double *target, double val, int aggregate) {
+inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
         *target = *target + val;
         /* The result of adding two doubles is NaN when one variable
@@ -1976,7 +1976,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                     if (sdsEncodedObject(tmp)) {
                         if (sdslen(tmp->ptr) > maxelelen)
-                            maxelelen = (unsigned int)sdslen(tmp->ptr);
+                            maxelelen = (unsigned int)sdslen(tmp->ptr);         WIN_PORT_FIX /* cast (unsigned int) */
                     }
                 }
             }
@@ -2015,7 +2015,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                      * at the end. */
                     if (sdsEncodedObject(tmp)) {
                         if (sdslen(tmp->ptr) > maxelelen)
-                            maxelelen = (unsigned int)sdslen(tmp->ptr);         /* UPSTREAM_CAST_MISSING: (unsigned int) */
+                            maxelelen = (unsigned int)sdslen(tmp->ptr);         WIN_PORT_FIX /* cast (unsigned int) */
                     }
                     /* Add the element with its initial score. */
                     de = dictAddRaw(accumulator,tmp);
@@ -2208,7 +2208,7 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
     zrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
-    PORT_LONG offset = 0,limit = -1;
+    PORT_LONG offset = 0, limit = -1;
     int withscores = 0;
     PORT_ULONG rangelen = 0;
     void *replylen = NULL;
@@ -2803,7 +2803,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
 
         rank = 1;
         while(eptr != NULL) {
-            if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)))
+            if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)))   WIN_PORT_FIX /* cast (unsigned int) */
                 break;
             rank++;
             zzlNext(zl,&eptr,&sptr);

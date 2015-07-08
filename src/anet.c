@@ -282,9 +282,7 @@ static int anetSetExclusiveAddr(char *err, int fd) {
     }
     return ANET_OK;
 }
-#endif
 
-#ifdef WIN32_IOCP
 static int anetCreateSocket(char *err, int domain) {
     int rfd;
     int on = 1;
@@ -486,7 +484,7 @@ int anetRead(int fd, char *buf, int count)
 {
     int nread, totlen = 0;
     while(totlen != count) {
-        nread = (int)read(fd,buf,count-totlen);                                 /* UPSTREAM_CAST_MISSING: (int) */
+        nread = (int)read(fd,buf,count-totlen);                                 WIN_PORT_FIX /* cast (int) */
         if (nread == 0) return totlen;
         if (nread == -1) return -1;
         totlen += nread;
@@ -501,7 +499,7 @@ int anetWrite(int fd, char *buf, int count)
 {
     int nwritten, totlen = 0;
     while(totlen != count) {
-        nwritten = (int)write(fd,buf,count-totlen);                             /* UPSTREAM_CAST_MISSING: (int) */
+        nwritten = (int)write(fd,buf,count-totlen);                             WIN_PORT_FIX /* cast (int) */
         if (nwritten == 0) return totlen;
         if (nwritten == -1) return -1;
         totlen += nwritten;
@@ -517,7 +515,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         return ANET_ERR;
     }
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
     if (aeWinListen(s, backlog) == SOCKET_ERROR) {
 #else
     if (listen(s, backlog) == -1) {
@@ -561,7 +559,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (IF_WIN32(anetSetExclusiveAddr,anetSetReuseAddr)(err,s) == ANET_ERR) goto error;
-        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;  /* UPSTREAM_CAST_MISSING: (socklen_t) */
+        if (anetListen(err,s,p->ai_addr,(socklen_t)p->ai_addrlen,backlog) == ANET_ERR) goto error;  WIN_PORT_FIX /* cast (socklen_t) */
         goto end;
     }
     if (p == NULL) {
@@ -614,11 +612,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
-#ifdef WIN32_IOCP
-        fd = aeWinAccept(s,sa,len);
-#else
-        fd = accept(s,sa,len);
-#endif
+        fd = IF_WIN32(aeWinAccept,accept)(s,sa,len);
         if (fd == -1) {
             if (errno == EINTR)
                 continue;
@@ -671,11 +665,7 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
-#ifdef WIN32_IOCP
-    if (aeWinGetPeerName(fd,(struct sockaddr*)&sa,&salen) == -1) goto error;
-#else
-    if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) goto error;
-#endif    
+    if (IF_WIN32(aeWinGetPeerName, getpeername)(fd, (struct sockaddr*)&sa, &salen) == -1) goto error;
     if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {

@@ -182,7 +182,7 @@ void mp_encode_bytes(mp_buf *buf, const unsigned char *s, size_t len) {
         hdrlen = 1;
     } else if (len <= 0xff) {
         hdr[0] = 0xd9;
-        hdr[1] = len;
+        hdr[1] = (unsigned char) len;                                           /* WIN_PORT_FIX: (unsigned char) cast */
         hdrlen = 2;
     } else if (len <= 0xffff) {
         hdr[0] = 0xda;
@@ -823,7 +823,7 @@ int mp_unpack_full(lua_State *L, int limit, int offset) {
         /* c->left is the remaining size of the input buffer.
          * subtract the entire buffer size from the unprocessed size
          * to get our next start offset */
-        int offset = (int)(len - c.left);                                       /* UPSTREAM_CAST_MISSING: (int) */
+        int offset = (int)(len - c.left);                                       /* WIN_PORT_FIX cast (int) */
         /* Return offset -1 when we have have processed the entire buffer. */
         lua_pushinteger(L, c.left == 0 ? -1 : offset);
         /* Results are returned with the arg elements still

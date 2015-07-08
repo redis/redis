@@ -45,9 +45,6 @@
 
 #include <errno.h>
 #include <stdlib.h>
-#ifdef _WIN32
-#define inline __inline
-#endif
 
 static inline char	*med3 (char *, char *, char *,
     int (*)(const void *, const void *));

@@ -68,7 +68,7 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, PORT_LONGLONG duration) 
             {
                 sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
 
-                s = sdscatprintf(s,"... (%lu more bytes)",                      /* TODO: verify %lu */
+                s = sdscatprintf(s,"... (%Iu more bytes)",                      WIN_PORT_FIX /* %lu -> %Iu */
                     (PORT_ULONG)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(REDIS_STRING,s);

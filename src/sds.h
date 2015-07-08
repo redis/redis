@@ -34,14 +34,11 @@
 #define SDS_MAX_PREALLOC (1024*1024)
 
 #ifdef _WIN32
+#include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
 #endif
 #include <sys/types.h>
 #include <stdarg.h>
-
-#ifdef _WIN32
-//#define inline __inline       /* BUGBUG */
-#endif
 
 typedef char *sds;
 
@@ -51,12 +48,12 @@ struct sdshdr {
     char buf[];
 };
 
-static __inline size_t sdslen(const sds s) {
+static inline size_t sdslen(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->len;
 }
 
-static __inline size_t sdsavail(const sds s) {
+static inline size_t sdsavail(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->free;
 }

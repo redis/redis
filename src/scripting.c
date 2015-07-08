@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop\win32_util.h"
+#endif
 #include "redis.h"
 #include "sha1.h"
 #include "rand.h"
@@ -107,7 +110,7 @@ char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
         lua_pushboolean(lua,0);
         return p+2;
     } else {
-        lua_pushlstring(lua,p+2,(size_t)bulklen);
+        lua_pushlstring(lua,p+2,(size_t)bulklen);                               WIN_PORT_FIX /* cast (size_t) */
         return p+2+bulklen+2;
     }
 }
@@ -271,8 +274,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             argv[j] = cached_objects[j];
             cached_objects[j] = NULL;
             memcpy(s,obj_s,obj_len+1);
-            sh->free += (int)(sh->len - obj_len);
-            sh->len = (int)obj_len;
+            sh->free += (int)(sh->len - obj_len);                               WIN_PORT_FIX /* cast (int) */
+            sh->len = (int)obj_len;                                             WIN_PORT_FIX /* cast (int) */
         } else {
             argv[j] = createStringObject(obj_s, obj_len);
         }
@@ -518,7 +521,7 @@ int luaLogCommand(lua_State *lua) {
         luaPushError(lua, "First argument must be a number (log level).");
         return 1;
     }
-    level = (int)lua_tonumber(lua,-argc);
+    level = (int)lua_tonumber(lua,-argc);                                       WIN_PORT_FIX /* cast (int) */
     if (level < REDIS_DEBUG || level > REDIS_WARNING) {
         luaPushError(lua, "Invalid debug level.");
         return 1;
@@ -612,12 +615,11 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
 
     /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
      * Modified to be adapted to Redis. */
-    s[j++]="local dbg=debug\n";
     s[j++]="local mt = {}\n";
     s[j++]="setmetatable(_G, mt)\n";
     s[j++]="mt.__newindex = function (t, n, v)\n";
-    s[j++]="  if dbg.getinfo(2) then\n";
-    s[j++]="    local w = dbg.getinfo(2, \"S\").what\n";
+    s[j++]="  if debug.getinfo(2) then\n";
+    s[j++]="    local w = debug.getinfo(2, \"S\").what\n";
     s[j++]="    if w ~= \"main\" and w ~= \"C\" then\n";
     s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="    end\n";
@@ -625,12 +627,11 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     s[j++]="  rawset(t, n, v)\n";
     s[j++]="end\n";
     s[j++]="mt.__index = function (t, n)\n";
-    s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
+    s[j++]="  if debug.getinfo(2) and debug.getinfo(2, \"S\").what ~= \"C\" then\n";
     s[j++]="    error(\"Script attempted to access unexisting global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="  end\n";
     s[j++]="  return rawget(t, n)\n";
     s[j++]="end\n";
-    s[j++]="debug = nil\n";
     s[j++]=NULL;
 
     for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
@@ -734,11 +735,10 @@ void scriptingInit(void) {
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
-        char *errh_func =       "local dbg = debug\n"
-                                "function __redis__err__handler(err)\n"
-                                "  local i = dbg.getinfo(2,'nSl')\n"
+        char *errh_func =       "function __redis__err__handler(err)\n"
+                                "  local i = debug.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
-                                "    i = dbg.getinfo(3,'nSl')\n"
+                                "    i = debug.getinfo(3,'nSl')\n"
                                 "  end\n"
                                 "  if i then\n"
                                 "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
@@ -792,7 +792,7 @@ void sha1hex(char *digest, char *script, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,(unsigned char*)script,(u_int32_t)len);
+    SHA1Update(&ctx,(unsigned char*)script,(u_int32_t)len);                     WIN_PORT_FIX /* cast (u_int32_t) */
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++) {
@@ -1005,8 +1005,8 @@ void evalGenericCommand(redisClient *c, int evalsha) {
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",c->argv+3,(int)numkeys);
-    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,(int)(c->argc-3-numkeys));
+    luaSetGlobalArray(lua,"KEYS",c->argv+3,(int)numkeys);                       WIN_PORT_FIX /* cast (int) */
+    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,(int)(c->argc-3-numkeys));   WIN_PORT_FIX /* cast (int) */
 
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);

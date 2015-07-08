@@ -405,7 +405,7 @@ static int processBulkItem(redisReader *r) {
     if (s != NULL) {
         p = r->buf+r->pos;
         bytelen = (int)(s-(r->buf+r->pos)+2); /* include \r\n */
-        len = readLongLong(p);
+        len = (PORT_LONG) readLongLong(p);                                      WIN_PORT_FIX /* cast (PORT_LONG) */
 
         if (len < 0) {
             /* The nil object can always be created. */
@@ -460,7 +460,7 @@ static int processMultiBulkItem(redisReader *r) {
     }
 
     if ((p = readLine(r,NULL)) != NULL) {
-        elements = readLongLong(p);
+        elements = (PORT_LONG) readLongLong(p);                                 WIN_PORT_FIX /* cast (PORT_LONG) */
         root = (r->ridx == 0);
 
         if (elements == -1) {
@@ -1156,7 +1156,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    nread = (int)read(c->fd,buf,sizeof(buf));                                   /* UPSTREAM_CAST_MISSING: (int) */
+    nread = (int)read(c->fd,buf,sizeof(buf));                                   WIN_PORT_FIX /* cast (int) */
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -1220,7 +1220,7 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-        nwritten = (int)write(c->fd,c->obuf,sdslen(c->obuf));                   /* UPSTREAM_CAST_MISSING: (int) */
+        nwritten = (int)write(c->fd,c->obuf,sdslen(c->obuf));                   WIN_PORT_FIX /* cast (int) */
         if (nwritten == -1) {
             if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
                 /* Try again later */

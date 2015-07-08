@@ -343,7 +343,7 @@ void incrDecrCommand(redisClient *c, PORT_LONGLONG incr) {
         value >= LONG_MIN && value <= LONG_MAX)
     {
         new = o;
-        o->ptr = (void*)(value);                                                /* WIN_PORT_FIX: (long) cast removed */
+        o->ptr = (void*)((PORT_LONG)(value));
     } else {
         new = createStringObjectFromLongLong(value);
         if (o) {

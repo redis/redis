@@ -119,7 +119,7 @@ sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset,
             int step;
 
             if (opt_log) relval = log(relval+1);
-            step = (int) ((relval*steps)/relmax);
+            step = (int) ((relval*steps)/relmax);                               WIN_PORT_FIX /* cast (int) entire expression */
             if (step < 0) step = 0;
             if (step >= steps) step = steps-1;
 
@@ -141,7 +141,7 @@ sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset,
                 }
                 /* Print the label if needed. */
                 if (s->label) {
-                    int label_len = (int)strlen(s->label);
+                    int label_len = (int)strlen(s->label);                      WIN_PORT_FIX /* cast (int) */
                     int label_char = row - rows - label_margin_top;
 
                     if (label_len > label_char) {

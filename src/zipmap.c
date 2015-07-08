@@ -80,7 +80,7 @@
 #include "zmalloc.h"
 #include "endianconv.h"
 #ifdef _WIN32
-#define inline __inline
+#include "Win32_Interop\win32_util.h"
 #include "Win32_Interop\Win32_FDAPI.h"
 #endif
 
@@ -169,7 +169,7 @@ static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, uns
     return k;
 }
 
-static PORT_ULONG zipmapRequiredLength(unsigned int klen, unsigned int vlen) {
+static unsigned int zipmapRequiredLength(unsigned int klen, unsigned int vlen) { WIN_PORT_FIX /* long -> int */
     unsigned int l;
 
     l = klen+vlen+3;

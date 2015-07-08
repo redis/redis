@@ -27,6 +27,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32fixes.h"
+#include <direct.h> // for getcwd
+#include <shlwapi.h> // for PathIsRelative
+#endif
+
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -34,14 +41,8 @@
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
-#ifndef _WIN32
-#include <unistd.h>
-#include <sys/time.h>
-#else
-#include "win32_Interop/win32fixes.h"
-#include <direct.h> // for getcwd
-#include <shlwapi.h> // for PathIsRelative
-#endif
+POSIX_ONLY(#include <unistd.h>)
+POSIX_ONLY(#include <sys/time.h>)
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
@@ -173,7 +174,7 @@ int stringmatchlen(const char *pattern, int patternLen,
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
-    return stringmatchlen(pattern,(int)strlen(pattern),string,(int)strlen(string),nocase);
+    return stringmatchlen(pattern,(int)strlen(pattern),string,(int)strlen(string),nocase); WIN_PORT_FIX /* cast (int) */
 }
 
 /* Convert a string representing an amount of memory into the number of
@@ -217,7 +218,7 @@ PORT_LONGLONG memtoll(const char *p, int *err) {
 
     /* Copy the digits into a buffer, we'll use strtoll() to convert
      * the digit (without the unit) into a number. */
-    digits = u-p;
+    digits = (unsigned int)(u-p);                                                WIN_PORT_FIX /* cast (unsigned int) */
     if (digits >= sizeof(buf)) {
         if (err) *err = 1;
         return 0;
@@ -277,7 +278,6 @@ int ll2string(char* dst, size_t dstlen, PORT_LONGLONG svalue) {
         "8081828384858687888990919293949596979899";
     int negative;
     PORT_ULONGLONG value;
-    uint32_t next;
 
     /* The main loop works with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
@@ -298,7 +298,7 @@ int ll2string(char* dst, size_t dstlen, PORT_LONGLONG svalue) {
     if (length >= dstlen) return 0;
 
     /* Null term. */
-    next = length;
+    uint32_t next = length;
     dst[next] = '\0';
     next--;
     while (value >= 100) {
@@ -401,7 +401,7 @@ int string2l(const char *s, size_t slen, PORT_LONG *lval) {
     if (llval < PORT_LONG_MIN || llval > PORT_LONG_MAX)
         return 0;
 
-    *lval = (PORT_LONG) llval;
+    *lval = (PORT_LONG)llval;
     return 1;
 }
 
@@ -441,7 +441,7 @@ int d2string(char *buf, size_t len, double value) {
             len = snprintf(buf,len,"%.17g",value);
     }
 
-    return (int)len;
+    return (int)len;                                                            WIN_PORT_FIX /* cast (int) */
 }
 
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
@@ -528,7 +528,27 @@ void getRandomHexChars(char *p, unsigned int len) {
  * The function does not try to normalize everything, but only the obvious
  * case of one or more "../" appearning at the start of "filename"
  * relative path. */
-#ifndef _WIN32
+#ifdef _WIN32
+sds getAbsolutePath(char *filename) {
+    char fullPath[MAX_PATH];
+    DWORD gfpnResult;
+    sds abspath;
+    sds relpath = sdsnew(filename);
+
+    relpath = sdstrim(relpath, " \r\n\t");
+
+    if (!PathIsRelative(relpath)) return relpath;
+
+    gfpnResult = GetFullPathNameA(relpath, sizeof(fullPath), fullPath, NULL);
+    sdsfree(relpath);
+
+    if (gfpnResult == 0 || gfpnResult > sizeof(fullPath)) {
+        return NULL;
+    }
+    abspath = sdsnew(fullPath);
+    return abspath;
+}
+#else
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
     sds abspath;
@@ -571,26 +591,6 @@ sds getAbsolutePath(char *filename) {
     /* Finally glue the two parts together. */
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
-    return abspath;
-}
-#else
-sds getAbsolutePath(char *filename) {
-    char fullPath[MAX_PATH];
-    DWORD gfpnResult;
-    sds abspath;
-    sds relpath = sdsnew(filename);
-
-    relpath = sdstrim(relpath," \r\n\t");
-
-    if (!PathIsRelative(relpath)) return relpath;
-
-    gfpnResult = GetFullPathNameA(relpath, sizeof(fullPath), fullPath, NULL);
-    sdsfree(relpath);
-
-    if (gfpnResult == 0 || gfpnResult > sizeof(fullPath)) {
-        return NULL;
-    }
-    abspath = sdsnew(fullPath);
     return abspath;
 }
 #endif

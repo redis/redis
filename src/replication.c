@@ -29,17 +29,15 @@
  */
 
 #ifdef _WIN32
+#include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
 #endif
 
 #include "redis.h"
-
-#ifndef _WIN32
-#include <sys/time.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#endif
+POSIX_ONLY(#include <sys/time.h>)
+POSIX_ONLY(#include <unistd.h>)
 #include <fcntl.h>
+POSIX_ONLY(#include <sys/socket.h>)
 #include <sys/stat.h>
 
 void replicationDiscardCachedMaster(void);
@@ -160,13 +158,13 @@ void feedReplicationBacklogWithObject(robj *o) {
     size_t len;
 
     if (o->encoding == REDIS_ENCODING_INT) {
-        len = ll2string(llstr, sizeof(llstr), (PORT_LONG) o->ptr);
+        len = ll2string(llstr,sizeof(llstr),(PORT_LONG)o->ptr);
         p = llstr;
     } else {
         len = sdslen(o->ptr);
         p = o->ptr;
     }
-    feedReplicationBacklog(p, len);
+    feedReplicationBacklog(p,len);
 }
 
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
@@ -226,7 +224,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         feedReplicationBacklog(aux,len+3);
 
         for (j = 0; j < argc; j++) {
-            PORT_LONG objlen = (PORT_LONG) stringObjectLen(argv[j]);
+            PORT_LONG objlen = (PORT_LONG) stringObjectLen(argv[j]);            WIN_PORT_FIX /* cast (PORT_LONG) */
 
             /* We need to feed the buffer with the object as a bulk reply
              * not just as a plain string, so create the $..CRLF payload len
@@ -272,7 +270,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
-    cmdrepr = sdscatprintf(cmdrepr, "%ld.%06ld ", tv.tv_sec, tv.tv_usec);
+    cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(PORT_LONG)tv.tv_sec,(PORT_LONG)tv.tv_usec);
     if (c->flags & REDIS_LUA_CLIENT) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
     } else if (c->flags & REDIS_UNIX_SOCKET) {
@@ -617,7 +615,7 @@ void replconfCommand(redisClient *c) {
             if ((getLongFromObjectOrReply(c,c->argv[j+1],
                     &port,NULL) != REDIS_OK))
                 return;
-            c->slave_listening_port = (int) port;                               /* UPSTREAM_CAST_MISSING: (int) */
+            c->slave_listening_port = (int) port;                               WIN_PORT_FIX /* cast (int) */
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -678,7 +676,7 @@ void putSlaveOnline(redisClient *slave) {
         replicationGetSlaveName(slave));
 }
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 void sendBulkToSlaveLenDone(aeEventLoop *el, int fd, void *privdata, int written) {
     aeWinSendReq *req = (aeWinSendReq *)privdata;
     REDIS_NOTUSED(el);
@@ -697,10 +695,8 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
     slave->repldboff += nwritten;
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
-#ifdef _WIN32
         DeleteFileA(slave->replFileCopy);
         memset(slave->replFileCopy, 0, MAX_PATH);
-#endif
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
         slave->replstate = REDIS_REPL_ONLINE;
@@ -715,10 +711,10 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
 }
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *slave = privdata;
-    char *buf;
-    ssize_t result, buflen;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
+    char *buf;
+    ssize_t result, buflen;
 
     if (slave->repldboff == 0) {
         /* Write the bulk write count before to transfer the DB. In theory here
@@ -756,11 +752,8 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(slave);
         return;
     }
-
 }
-
 #else
-
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *slave = privdata;
     REDIS_NOTUSED(el);
@@ -930,7 +923,7 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.repl_state == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
-#ifdef WIN32_IOCP
+#ifdef _WIN32
     aeWinCloseSocket(server.repl_transfer_s);
     if (server.repl_transfer_fd != -1) {
         close(server.repl_transfer_fd);
@@ -1001,9 +994,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
 
-#ifdef WIN32_IOCP
-        aeWinReceiveDone(fd);
-#endif
+        WIN32_ONLY(aeWinReceiveDone(fd);)
+
         if (buf[0] == '-') {
             redisLog(REDIS_WARNING,
                 "MASTER aborted replication with an error: %s",
@@ -1057,35 +1049,23 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
     }
 
-#ifdef WIN32_IOCP
     nread = read(fd,buf,readlen);
     if (nread <= 0) {
+#ifdef _WIN32
         if (server.repl_transfer_size) {
             errno = WSAGetLastError();
-#ifdef _WIN64
-            redisLog(REDIS_WARNING,"I/O error %d (left %lld) trying to sync with MASTER: %s",
+            redisLog(REDIS_WARNING,"I/O error %d (left %Iu) trying to sync with MASTER: %s",
                 errno, server.repl_transfer_size,
                 (nread == -1) ? wsa_strerror(errno) : "connection lost");
         }
 #else
-            redisLog(REDIS_WARNING,"I/O error %d (left %d) trying to sync with MASTER: %s",
-                errno, server.repl_transfer_size,
-                (nread == -1) ? wsa_strerror(errno) : "connection lost");
-        }
-#endif
-        replicationAbortSyncTransfer();
-        return;
-    }
-    aeWinReceiveDone(fd);
-#else
-    nread = read(fd,buf,readlen);
-    if (nread <= 0) {
-        redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
+        redisLog(REDIS_WARNING, "I/O error trying to sync with MASTER: %s",
             (nread == -1) ? strerror(errno) : "connection lost");
+#endif
         replicationAbortSyncTransfer();
         return;
     }
-#endif
+    WIN32_ONLY(aeWinReceiveDone(fd);)
     server.stat_net_input_bytes += nread;
 
     /* When a mark is used, we want to detect EOF asap in order to avoid
@@ -1097,7 +1077,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (nread >= REDIS_RUN_ID_SIZE) {
             memcpy(lastbytes,buf+nread-REDIS_RUN_ID_SIZE,REDIS_RUN_ID_SIZE);
         } else {
-            int rem = (int)(REDIS_RUN_ID_SIZE-nread);                           /* UPSTREAM_CAST_MISSING: (int) */
+            int rem = (int)(REDIS_RUN_ID_SIZE-nread);                           WIN_PORT_FIX /* cast (int) */
             memmove(lastbytes,lastbytes+nread,rem);
             memcpy(lastbytes+rem,buf,nread);
         }
@@ -1234,7 +1214,7 @@ char *sendSynchronousCommand(int fd, ...) {
     cmd = sdscatlen(cmd,"\r\n",2);
 
     /* Transfer command to the server. */
-    if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),server.repl_syncio_timeout*1000) == -1) {
+    if (syncWrite(fd,cmd,(ssize_t)sdslen(cmd),server.repl_syncio_timeout*1000) == -1) { WIN_PORT_FIX /* cast (ssize_t) */
         sdsfree(cmd);
         return sdscatprintf(sdsempty(),"-Writing to master: %s",
                 strerror(errno));
@@ -1379,7 +1359,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Check for errors in the socket. */
-    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&sockerr, &errlen) == -1)
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&sockerr, &errlen) == -1)   WIN_PORT_FIX /* cast (char*) */
         sockerr = errno;
     if (sockerr) {
         aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
@@ -1493,7 +1473,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(maxtries--) {
 #ifdef _WIN32
         snprintf(tmpfile,256,
-            "temp-%lld.%lld.rdb", (PORT_LONGLONG) server.unixtime, (PORT_LONGLONG) getpid()); /* TODO: verify %lld for 32-bit */
+            "temp-%d.%d.rdb", (int)server.unixtime, (int)getpid());
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL|O_BINARY,_S_IREAD|_S_IWRITE);
 #else
         snprintf(tmpfile,256,
@@ -1528,11 +1508,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     return;
 
 error:
-#ifdef WIN32_IOCP
-    aeWinCloseSocket(fd);
-#else
-    close(fd);
-#endif
+    IF_WIN32(aeWinCloseSocket,close)(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
     return;
@@ -1552,11 +1528,7 @@ int connectWithMaster(void) {
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
-#ifdef WIN32_IOCP
-        aeWinCloseSocket(fd);
-#else
-        close(fd);
-#endif
+        IF_WIN32(aeWinCloseSocket,close)(fd);
         redisLog(REDIS_WARNING,"Can't create readable event for SYNC");
         return REDIS_ERR;
     }
@@ -1575,11 +1547,7 @@ void undoConnectWithMaster(void) {
     redisAssert(server.repl_state == REDIS_REPL_CONNECTING ||
                 server.repl_state == REDIS_REPL_RECEIVE_PONG);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
-#ifdef WIN32_IOCP
-    aeWinCloseSocket(fd);
-#else
-    close(fd);
-#endif
+    IF_WIN32(aeWinCloseSocket,close)(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
 }
@@ -1673,7 +1641,7 @@ void slaveofCommand(redisClient *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
-        replicationSetMaster(c->argv[1]->ptr, (int)port);                       /* UPSTREAM_CAST_MISSING: (int) */
+        replicationSetMaster(c->argv[1]->ptr, (int)port);                       WIN_PORT_FIX /* cast (int) */
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
     }
@@ -2030,7 +1998,7 @@ void waitCommand(redisClient *c) {
      * waiting for ack from slaves. */
     c->bpop.timeout = timeout;
     c->bpop.reploffset = offset;
-    c->bpop.numreplicas = numreplicas;
+    c->bpop.numreplicas = (int) numreplicas;                                    WIN_PORT_FIX /* cast (int) */
     listAddNodeTail(server.clients_waiting_acks,c);
     blockClient(c,REDIS_BLOCKED_WAIT);
 
@@ -2176,7 +2144,7 @@ void replicationCron(void) {
                 (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END &&
                  server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
               {
-#ifdef WIN32_IOCP
+#ifdef _WIN32
                 if (aeWinSocketSend(slave->fd, "\n", 1, 
                                     server.el, NULL, NULL, NULL) == -1) {
 #else

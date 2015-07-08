@@ -154,7 +154,7 @@ void aofRewriteBufferAppend(unsigned char *s, PORT_ULONG len) {
 
             /* Log every time we cross more 10 or 100 blocks, respectively
              * as a notice or warning. */
-            numblocks = (int)listLength(server.aof_rewrite_buf_blocks);         /* UPSTREAM_CAST_MISSING: (int) */
+            numblocks = (int)listLength(server.aof_rewrite_buf_blocks);         WIN_PORT_FIX /* cast (int) */
             if (((numblocks+1) % 10) == 0) {
                 int level = ((numblocks+1) % 100) == 0 ? REDIS_WARNING :
                                                          REDIS_NOTICE;
@@ -402,7 +402,7 @@ void flushAppendOnlyFile(int force) {
              * was no way to undo it with ftruncate(2). */
             if (nwritten > 0) {
                 server.aof_current_size += nwritten;
-                sdsrange(server.aof_buf,(int)nwritten,-1);                      /* UPSTREAM_CAST_MISSING: (int) */
+                sdsrange(server.aof_buf,(int)nwritten,-1);                      WIN_PORT_FIX /* cast (int) */
             }
             return; /* We'll try again on the next call... */
         }
@@ -555,7 +555,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
      * in a buffer, so that when the child process will do its work we
      * can append the differences to the new append only file. */
     if (server.aof_child_pid != -1)
-        aofRewriteBufferAppend((unsigned char*)buf,(PORT_ULONG)sdslen(buf));    /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
+        aofRewriteBufferAppend((unsigned char*)buf,(PORT_ULONG)sdslen(buf));    WIN_PORT_FIX /* cast (PORT_ULONG) */
 
     sdsfree(buf);
 }
@@ -648,7 +648,7 @@ int loadAppendOnlyFile(char *filename) {
 
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
-            loadingProgress((off_t)ftello(fp));                                 /* UPSTREAM_CAST_MISSING: (off_t) */
+            loadingProgress((off_t)ftello(fp));                                 WIN_PORT_FIX /* cast (off_t) */
             processEventsWhileBlocked();
         }
 
@@ -773,9 +773,9 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
     if (obj->encoding == REDIS_ENCODING_INT) {
-        return (int) rioWriteBulkLongLong(r,(PORT_LONG)obj->ptr);               /* UPSTREAM_CAST_MISSING: (int) */
+        return (int) rioWriteBulkLongLong(r,(PORT_LONG)obj->ptr);               WIN_PORT_FIX /* cast (int) */
     } else if (sdsEncodedObject(obj)) {
-        return (int) rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));           /* UPSTREAM_CAST_MISSING: (int) */
+        return (int) rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));           WIN_PORT_FIX /* cast (int) */
     } else {
         redisPanic("Unknown string encoding");
     }
@@ -796,7 +796,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
         while(ziplistGet(p,&vstr,&vlen,&vlong)) {
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
@@ -822,7 +822,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
 
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
@@ -850,7 +850,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         while(intsetGet(o->ptr,ii++,&llval)) {
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
@@ -868,7 +868,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
             robj *eleobj = dictGetKey(de);
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
@@ -909,7 +909,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
@@ -936,7 +936,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               /* UPSTREAM_CAST_MISSING: (int) */
+                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : (int)items;               WIN_PORT_FIX /* cast (int) */
 
                 if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
@@ -968,9 +968,9 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
         if (vstr) {
-            return (int)rioWriteBulkString(r, (char*)vstr, vlen);       /* UPSTREAM_CAST_MISSING: (int) */
+            return (int)rioWriteBulkString(r, (char*)vstr, vlen);       WIN_PORT_FIX /* cast (int) */
         } else {
-            return (int)rioWriteBulkLongLong(r, vll);                   /* UPSTREAM_CAST_MISSING: (int) */
+            return (int)rioWriteBulkLongLong(r, vll);                   WIN_PORT_FIX /* cast (int) */
         }
 
     } else if (hi->encoding == REDIS_ENCODING_HT) {
@@ -993,7 +993,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != REDIS_ERR) {
         if (count == 0) {
-            int cmd_items = (int)((items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?   /* UPSTREAM_CAST_MISSING: (int) */
+            int cmd_items = (int)((items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?   WIN_PORT_FIX /* cast (int) */
                 REDIS_AOF_REWRITE_ITEMS_PER_CMD : items);
 
             if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;

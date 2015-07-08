@@ -164,7 +164,7 @@ const int cDeadForkWait = 30000;
 size_t pageSize = 0;
 
 #ifndef _WIN64
-size_t cDefaultmaxHeap32Bit = pow(2, 29);
+size_t cDefaultmaxHeap32Bit = 1 << 29;                          // 512MB
 #endif
 
 enum class BlockState : std::uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
@@ -276,9 +276,9 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
        SmartFileMapHandle sfmhMapFile(
            g_pQForkControl->heapMemoryMapFile, 
            PAGE_WRITECOPY, 
-#ifdef _WIN64           
+#ifdef _WIN64
            HIDWORD(mmSize),
-#else      
+#else
            0,
 #endif
            LODWORD(mmSize),

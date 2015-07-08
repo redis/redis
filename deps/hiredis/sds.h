@@ -34,14 +34,11 @@
 #define SDS_MAX_PREALLOC (1024*1024)
 
 #ifdef _WIN32
+#include "../../src/win32_Interop/win32_util.h"
 #include "../../src/win32_Interop/win32_types.h"
 #endif
 #include <sys/types.h>
 #include <stdarg.h>
-
-#ifdef _WIN32
-  #define inline __inline
-#endif
 
 typedef char *sds;
 

@@ -28,6 +28,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32fixes.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,9 +40,6 @@
 #include <assert.h>
 #include "sds.h"
 #include "zmalloc.h"
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#endif
 
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
@@ -60,7 +62,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
     }
     if (sh == NULL) return NULL;
-    sh->len = (int)initlen;
+    sh->len = (int)initlen;                                                     WIN_PORT_FIX /* cast (int) */
     sh->free = 0;
     if (initlen && init)
         memcpy(sh->buf, init, initlen);
@@ -107,7 +109,7 @@ void sdsfree(sds s) {
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    int reallen = (int)strlen(s);
+    int reallen = (int)strlen(s);                                               WIN_PORT_FIX /* cast (int) */
     sh->free += (sh->len-reallen);
     sh->len = reallen;
 }
@@ -145,7 +147,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
     if (newsh == NULL) return NULL;
 
-    newsh->free = (int)(newlen - len);
+    newsh->free = (int)(newlen - len);                                          WIN_PORT_FIX /* cast (int) */
     return newsh->buf;
 }
 
@@ -159,7 +161,7 @@ sds sdsRemoveFreeSpace(sds s) {
     struct sdshdr *sh;
 
     sh = (void*) (s-(sizeof(struct sdshdr)));
-    sh = (struct sdshdr *)zrealloc(sh, sizeof(struct sdshdr)+sh->len+1);
+    sh = (struct sdshdr *)zrealloc(sh, sizeof(struct sdshdr)+sh->len+1);        WIN_PORT_FIX /* cast (struct sdshdr *) */
     sh->free = 0;
     return sh->buf;
 }
@@ -229,8 +231,8 @@ sds sdsgrowzero(sds s, size_t len) {
     sh = (void*)(s-(sizeof(struct sdshdr)));
     memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
     totlen = sh->len+sh->free;
-    sh->len = (int)len;
-    sh->free = (int)(totlen-sh->len);
+    sh->len = (int)len;                                                         WIN_PORT_FIX /* cast (int) */
+    sh->free = (int)(totlen-sh->len);                                           WIN_PORT_FIX /* cast (int) */
     return s;
 }
 
@@ -247,8 +249,8 @@ sds sdscatlen(sds s, const void *t, size_t len) {
     if (s == NULL) return NULL;
     sh = (void*) (s-(sizeof(struct sdshdr)));
     memcpy(s+curlen, t, len);
-    sh->len = (int)(curlen+len);
-    sh->free = (int)(sh->free-len);
+    sh->len = (int)(curlen+len);                                                WIN_PORT_FIX /* cast (int) */
+    sh->free = (int)(sh->free-len);                                             WIN_PORT_FIX /* cast (int) */
     s[curlen+len] = '\0';
     return s;
 }
@@ -283,8 +285,8 @@ sds sdscpylen(sds s, const char *t, size_t len) {
     }
     memcpy(s, t, len);
     s[len] = '\0';
-    sh->len = (int)len;
-    sh->free = (int)(totlen-len);
+    sh->len = (int)len;                                                         WIN_PORT_FIX /* cast (int) */
+    sh->free = (int)(totlen-len);                                               WIN_PORT_FIX /* cast (int) */
     return s;
 }
 
@@ -329,7 +331,7 @@ int sdsll2str(char *s, PORT_LONGLONG value) {
         s++;
         p--;
     }
-    return (int)l;
+    return (int)l;                                                              WIN_PORT_FIX /* cast (int) */
 }
 
 /* Identical sdsll2str(), but for PORT_ULONGLONG type. */
@@ -392,25 +394,15 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     while(1) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
-#ifdef _WIN32
-        // see comment below
-        vsnprintf(buf, buflen-1, fmt, cpy);
-#else
-        vsnprintf(buf, buflen, fmt, cpy);
-#endif
+        vsnprintf(buf, buflen WIN32_ONLY(-1), fmt, cpy);    // WIN_PORT_FIX: see comment below
         va_end(cpy);
         if (buf[buflen-2] != '\0') {
             if (buf != staticbuf) zfree(buf);
             buflen *= 2;
-#ifdef _WIN32
-            // from the vsnprintf documentation in MSDN: 
-            // "To ensure that there is room for the terminating null, 
-            // be sure that count is strictly less than the buffer length 
-            // and initialize the buffer to null prior to calling the function."
-            buf = zcalloc(buflen);
-#else
-            buf = zmalloc(buflen);
-#endif
+
+            // WIN_PORT_FIX: from the vsnprintf documentation in MSDN: "To ensure that there is room for the terminating null, be sure that
+            // WIN_PORT_FIX: count is strictly less than the buffer length and initialize the buffer to null prior to calling the function."
+            buf = IF_WIN32(zcalloc,zmalloc)(buflen);
             if (buf == NULL) return NULL;
             continue;
         }
@@ -494,7 +486,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
             case 's':
             case 'S':
                 str = va_arg(ap,char*);
-                l = (int)((next == 's') ? strlen(str) : sdslen(str));
+                l = (int)((next == 's') ? strlen(str) : sdslen(str));           WIN_PORT_FIX /* cast (int) */
                 if (sh->free < l) {
                     s = sdsMakeRoomFor(s,l);
                     sh = (void*) (s-(sizeof(struct sdshdr)));
@@ -590,8 +582,8 @@ sds sdstrim(sds s, const char *cset) {
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (sh->buf != sp) memmove(sh->buf, sp, len);
     sh->buf[len] = '\0';
-    sh->free = sh->free+(int)(sh->len-len);
-    sh->len = (int)len;
+    sh->free = sh->free+(int)(sh->len-len);                                     WIN_PORT_FIX /* cast (int) */
+    sh->len = (int)len;                                                         WIN_PORT_FIX /* cast (int) */
     return s;
 }
 
@@ -617,11 +609,11 @@ void sdsrange(sds s, int start, int end) {
 
     if (len == 0) return;
     if (start < 0) {
-        start = (int)len+start;
+        start = (int)len+start;                                                 WIN_PORT_FIX /* cast (int) */
         if (start < 0) start = 0;
     }
     if (end < 0) {
-        end = (int)len+end;
+        end = (int)len+end;                                                     WIN_PORT_FIX /* cast (int) */
         if (end < 0) end = 0;
     }
     newlen = (start > end) ? 0 : (end-start)+1;
@@ -629,7 +621,7 @@ void sdsrange(sds s, int start, int end) {
         if (start >= (signed)len) {
             newlen = 0;
         } else if (end >= (signed)len) {
-            end = (int)len-1;
+            end = (int)len-1;                                                   WIN_PORT_FIX /* cast (int) */
             newlen = (start > end) ? 0 : (end-start)+1;
         }
     } else {
@@ -637,20 +629,20 @@ void sdsrange(sds s, int start, int end) {
     }
     if (start && newlen) memmove(sh->buf, sh->buf+start, newlen);
     sh->buf[newlen] = 0;
-    sh->free = (int)(sh->free+(sh->len-newlen));
-    sh->len = (int)newlen;
+    sh->free = (int)(sh->free+(sh->len-newlen));                                WIN_PORT_FIX /* cast (int) */
+    sh->len = (int)newlen;                                                      WIN_PORT_FIX /* cast (int) */
 }
 
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
-    int len = (int)sdslen(s), j;
+    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 /* Apply toupper() to every character of the sds string 's'. */
 void sdstoupper(sds s) {
-    int len = (int)sdslen(s), j;
+    int len = (int)sdslen(s), j;                                                WIN_PORT_FIX /* cast (int) */
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
@@ -674,7 +666,7 @@ int sdscmp(const sds s1, const sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return (int)(l1-l2);
+    if (cmp == 0) return (int)(l1-l2);                                          WIN_PORT_FIX /* cast (int) */
     return cmp;
 }
 
@@ -771,11 +763,7 @@ sds sdscatrepr(sds s, const char *p, size_t len) {
         case '\a': s = sdscatlen(s,"\\a",2); break;
         case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
-#ifdef _WIN32
-            if (isprint((unsigned char)*p))
-#else
-            if (isprint(*p))
-#endif
+            if (isprint((unsigned char)*p))                                     WIN_PORT_FIX /* cast (unsigned char) */
                 s = sdscatprintf(s,"%c",*p);
             else
                 s = sdscatprintf(s,"\\x%02x",(unsigned char)*p);

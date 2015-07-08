@@ -136,9 +136,9 @@ static PORT_LONGLONG mstime(void) {
 
 static void freeClient(client c) {
     listNode *ln;
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               /* UPSTREAM_CAST_MISSING: (int) */
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               /* UPSTREAM_CAST_MISSING: (int) */
-#ifdef WIN32_IOCP
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               WIN_PORT_FIX /* cast (int) */
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               WIN_PORT_FIX /* cast (int) */
+#ifdef _WIN32
     aeWinCloseSocket((int)c->context->fd);
     c->context->fd = 0;
 #endif
@@ -163,9 +163,9 @@ static void freeAllClients(void) {
 }
 
 static void resetClient(client c) {
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               /* UPSTREAM_CAST_MISSING: (int) */
-    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               /* UPSTREAM_CAST_MISSING: (int) */
-    aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);/* UPSTREAM_CAST_MISSING: (int) */
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               WIN_PORT_FIX /* cast (int) */
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               WIN_PORT_FIX /* cast (int) */
+    aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);WIN_PORT_FIX /* cast (int) */
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -205,7 +205,7 @@ static void clientDone(client c) {
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
-#ifdef WIN32_IOCP
+#ifdef _WIN32
     ssize_t nread;
     char buf[1024*16];
 #endif
@@ -218,7 +218,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
     if (c->latency < 0) c->latency = ustime()-(c->start);
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
     nread = read(c->context->fd,buf,sizeof(buf));
     if (nread == -1) {
         errno = WSAGetLastError();
@@ -237,9 +237,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
-#ifdef WIN32_IOCP
-        aeWinReceiveDone((int)c->context->fd);
-#endif
+        WIN32_ONLY(aeWinReceiveDone((int)c->context->fd);)
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
                 fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -318,7 +316,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-#ifdef WIN32_IOCP
+#ifdef _WIN32
         int result = aeWinSocketSend(c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 
                                         el, c, NULL, writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
@@ -370,7 +368,7 @@ static client createClient(char *cmd, size_t len, client from) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
-#ifdef WIN32_IOCP
+#ifdef _WIN32
         SOCKADDR_STORAGE ss;
         c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &ss);
         if (aeWinSocketConnect(c->context->fd, &ss) != 0) {
@@ -419,7 +417,7 @@ static client createClient(char *cmd, size_t len, client from) {
             (int)sdslen(config.dbnumstr),config.dbnumstr);
         c->prefix_pending++;
     }
-    c->prefixlen = (int)sdslen(c->obuf);                                        /* UPSTREAM_CAST_MISSING: (int) */
+    c->prefixlen = (int)sdslen(c->obuf);                                        WIN_PORT_FIX /* cast (int) */
     /* Append the request itself. */
     if (from) {
         c->obuf = sdscatlen(c->obuf,
@@ -486,7 +484,7 @@ static void createMissingClients(client c) {
 }
 
 static int compareLatency(const void *a, const void *b) {
-    return (int)((*(PORT_LONGLONG*)a)-(*(PORT_LONGLONG*)b));                    /* UPSTREAM_CAST_MISSING: (int) */
+    return (int)((*(PORT_LONGLONG*)a)-(*(PORT_LONGLONG*)b));                    WIN_PORT_FIX /* cast (int) */
 }
 
 static void showLatencyReport(void) {
@@ -506,7 +504,7 @@ static void showLatencyReport(void) {
         qsort(config.latency,config.requests,sizeof(PORT_LONGLONG),compareLatency);
         for (i = 0; i < config.requests; i++) {
             if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
-                curlat = (int)config.latency[i]/1000;                           /* UPSTREAM_CAST_MISSING: (int) */
+                curlat = (int)config.latency[i]/1000;                           WIN_PORT_FIX /* cast (int) */
                 perc = ((float)(i+1)*100)/config.requests;
                 printf("%.2f%% <= %d milliseconds\n", perc, curlat);
             }
@@ -681,7 +679,7 @@ int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *client
         fflush(stdout);
 	return 250;
     }
-    float dt = (float)((float)(mstime()-config.start)/1000.0);              /* UPSTREAM_CAST_MISSING: (float) */
+    float dt = (float)((float)(mstime()-config.start)/1000.0);              WIN_PORT_FIX /* cast (float) */
     float rps = (float)config.requests_finished/dt;
     printf("%s: %.2f\r", config.title, rps);
     fflush(stdout);
@@ -692,7 +690,7 @@ int showThroughput(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *client
  * switch, or if all the tests are selected (no -t passed by user). */
 int test_is_selected(char *name) {
     char buf[256];
-    int l = (int)strlen(name);                                                  /* UPSTREAM_CAST_MISSING: (int) */
+    int l = (int)strlen(name);                                                  WIN_PORT_FIX /* cast (int) */
 
     if (config.tests == NULL) return 1;
     buf[0] = ',';
@@ -713,7 +711,7 @@ int main(int argc, const char **argv) {
     InitTimeFunctions();
 #endif
 
-    srandom((unsigned int)time(NULL));                                          /* UPSTREAM_CAST_MISSING: (unsigned int) */
+    srandom((unsigned int)time(NULL));                                          WIN_PORT_FIX /* cast (unsigned int) */
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 

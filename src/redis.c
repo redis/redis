@@ -31,8 +31,6 @@
 #include "win32_Interop\win32_util.h"
 #include "Win32_Interop\Win32_FDAPI.h"
 #include "Win32_Interop\Win32_ThreadControl.h"
-#include <locale.h>
-#define LOG_LOCAL0 0
 #endif
 
 #include "redis.h"
@@ -43,26 +41,24 @@
 
 #include <time.h>
 #include <signal.h>
-#ifndef _WIN32
-#include <sys/wait.h>
-#include <arpa/inet.h>
-#include <sys/resource.h>
-#include <sys/uio.h>
-#include <sys/time.h>
-#include <sys/utsname.h>
-#endif
+POSIX_ONLY(#include <sys/wait.h>)
 #include <errno.h>
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
+POSIX_ONLY(#include <arpa/inet.h>)
 #include <sys/stat.h>
 #include <fcntl.h>
+POSIX_ONLY(#include <sys/time.h>)
+POSIX_ONLY(#include <sys/resource.h>)
+POSIX_ONLY(#include <sys/uio.h>)
 #include <limits.h>
 #include <float.h>
 #include <math.h>
-#ifndef _WIN32
+POSIX_ONLY(#include <sys/resource.h>)
+POSIX_ONLY(#include <sys/utsname.h>)
 #include <locale.h>
-#endif
+
 
 /* Our shared "common" objects */
 
@@ -301,8 +297,7 @@ struct evictionPoolEntry *evictionPoolAlloc(void);
 
 /*============================ Utility functions ============================ */
 
-// moved to redisLog.c in Win32 for sharing across binaries
-#ifndef _WIN32
+#ifndef _WIN32 // redisLog code moved to Win32_Interop/Win32_RedisLog.c for sharing across binaries
 /* Low level logging. To use only for very big messages, otherwise
  * redisLog() is to prefer. */
 void redisLogRaw(int level, const char *msg) {
@@ -443,8 +438,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     int l1,l2;
     DICT_NOTUSED(privdata);
 
-    l1 = (int)sdslen((sds)key1);
-    l2 = (int)sdslen((sds)key2);
+    l1 = (int)sdslen((sds)key1);                                                WIN_PORT_FIX /* cast (int) */
+    l2 = (int)sdslen((sds)key2);                                                WIN_PORT_FIX /* cast (int) */
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
@@ -483,15 +478,15 @@ int dictObjKeyCompare(void *privdata, const void *key1,
 
 unsigned int dictObjHash(const void *key) {
     const robj *o = key;
-    return dictGenHashFunction(o->ptr, (int)sdslen((sds)o->ptr));
+    return dictGenHashFunction(o->ptr, (int)sdslen((sds)o->ptr));               WIN_PORT_FIX /* cast (int) */
 }
 
 unsigned int dictSdsHash(const void *key) {
-    return dictGenHashFunction((unsigned char*)key, (int)sdslen((char*)key));
+    return dictGenHashFunction((unsigned char*)key, (int)sdslen((char*)key));   WIN_PORT_FIX /* cast (int) */
 }
 
 unsigned int dictSdsCaseHash(const void *key) {
-    return dictGenCaseHashFunction((unsigned char*)key, (int)sdslen((char*)key));
+    return dictGenCaseHashFunction((unsigned char*)key, (int)sdslen((char*)key)); WIN_PORT_FIX /* cast (int) */
 }
 
 int dictEncObjKeyCompare(void *privdata, const void *key1,
@@ -516,19 +511,19 @@ unsigned int dictEncObjHash(const void *key) {
     robj *o = (robj*) key;
 
     if (sdsEncodedObject(o)) {
-        return dictGenHashFunction(o->ptr, (int) sdslen((sds) o->ptr));
+        return dictGenHashFunction(o->ptr, (int) sdslen((sds)o->ptr));          WIN_PORT_FIX /* cast (int) */
     } else {
         if (o->encoding == REDIS_ENCODING_INT) {
             char buf[32];
             int len;
 
-            len = ll2string(buf, 32, (PORT_LONG) o->ptr);
+            len = ll2string(buf, 32, (PORT_LONG)o->ptr);                        WIN_PORT_FIX /* cast (int) */
             return dictGenHashFunction((unsigned char*) buf, len);
         } else {
             unsigned int hash;
 
             o = getDecodedObject(o);
-            hash = dictGenHashFunction(o->ptr, (int) sdslen((sds) o->ptr));
+            hash = dictGenHashFunction(o->ptr, (int) sdslen((sds)o->ptr));      WIN_PORT_FIX /* cast (int) */
             decrRefCount(o);
             return hash;
         }
@@ -794,7 +789,7 @@ void activeExpireCycle(int type) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
-    if ((dbs_per_call > server.dbnum) || timelimit_exit)
+    if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
     /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
@@ -825,11 +820,11 @@ void activeExpireCycle(int type) {
             int ttl_samples;
 
             /* If there is nothing to expire try next DB ASAP. */
-            if ((num = (PORT_ULONG) dictSize(db->expires)) == 0) {
+            if ((num = (PORT_ULONG) dictSize(db->expires)) == 0) {              WIN_PORT_FIX /* cast (PORT_ULONG) */
                 db->avg_ttl = 0;
                 break;
             }
-            slots = (PORT_ULONG) dictSlots(db->expires);
+            slots = (PORT_ULONG) dictSlots(db->expires);                        WIN_PORT_FIX /* cast (PORT_ULONG) */
             now = mstime();
 
             /* When there are less than 1% filled slots getting random
@@ -982,7 +977,7 @@ void clientsCron(void) {
      * in the worst case we process all the clients in 10 seconds.
      * In normal conditions (a reasonable number of clients) we process
      * all the clients in a shorter time. */
-    int numclients = (int)listLength(server.clients);                           /* UPSTREAM_CAST_MISSING: (int) */
+    int numclients = (int)listLength(server.clients);                           WIN_PORT_FIX /* cast (int) */
     int iterations = numclients/(server.hz*10);
 
     if (iterations < 50)
@@ -1411,7 +1406,7 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     for (j = 0; j < REDIS_SHARED_INTEGERS; j++) {
-        shared.integers[j] = createObject(REDIS_STRING, (void*) (PORT_LONG) j);
+        shared.integers[j] = createObject(REDIS_STRING,(void*)(PORT_LONG)j);
         shared.integers[j]->encoding = REDIS_ENCODING_INT;
     }
     for (j = 0; j < REDIS_SHARED_BULKHDR_LEN; j++) {
@@ -1445,9 +1440,7 @@ void initServerConfig(void) {
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_DEFAULT_VERBOSITY;
-#ifdef _WIN32
-    setLogVerbosityLevel(server.verbosity);
-#endif
+    WIN32_ONLY(setLogVerbosityLevel(server.verbosity);)
     server.maxidletime = REDIS_MAXIDLETIME;
     server.tcpkeepalive = REDIS_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
@@ -1457,7 +1450,7 @@ void initServerConfig(void) {
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
     server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
-    server.syslog_facility = LOG_LOCAL0;
+    POSIX_ONLY(server.syslog_facility = LOG_LOCAL0;)
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
@@ -1783,20 +1776,10 @@ void resetServerStats(void) {
 
 void initServer(void) {
     int j;
-#ifdef _WIN32
-    HMODULE lib;
-#endif
-
+    WIN32_ONLY(HMODULE lib;)
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
-
-#ifndef _WIN32
-    if (server.syslog_enabled) {
-        openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
-            server.syslog_facility);
-    }
-#endif
 
 #ifdef _WIN32
      /* Force binary mode on all files */
@@ -1811,6 +1794,11 @@ void initServer(void) {
     /* MingGW 32 lacks declaration of RtlGenRandom, MinGw64 don't */
     lib = LoadLibraryA("advapi32.dll");
     RtlGenRandom = (RtlGenRandomFunc)GetProcAddress(lib, "SystemFunction036");
+#else
+    if (server.syslog_enabled) {
+        openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
+            server.syslog_facility);
+}
 #endif
 
     server.pid = getpid();
@@ -2395,11 +2383,7 @@ int prepareForShutdown(int flags) {
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
         redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
-#ifdef _WIN32
-        AbortForkOperation();
-#else
-        kill(server.rdb_child_pid,SIGUSR1);
-#endif
+        IF_WIN32(AbortForkOperation(), kill(server.rdb_child_pid,SIGUSR1));
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.aof_state != REDIS_AOF_OFF) {
@@ -2414,11 +2398,7 @@ int prepareForShutdown(int flags) {
             }
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
-#ifdef _WIN32
-            AbortForkOperation();
-#else
-            kill(server.aof_child_pid,SIGUSR1);
-#endif
+            IF_WIN32(AbortForkOperation(), kill(server.aof_child_pid,SIGUSR1));
         }
         /* Append only file: fsync() the AOF and exit */
         redisLog(REDIS_NOTICE,"Calling fsync() on the AOF file.");
@@ -2442,7 +2422,6 @@ int prepareForShutdown(int flags) {
         unlink(server.pidfile);
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
-
     closeListeningSockets(1);
     redisLog(REDIS_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
@@ -2466,8 +2445,8 @@ int time_independent_strcmp(char *a, char *b) {
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
      * leak is possible in the following two lines of code. */
-    size_t alen = strlen(a);
-    size_t blen = strlen(b);
+    unsigned int alen = strlen(a);
+    unsigned int blen = strlen(b);
     unsigned int j;
     int diff = 0;
 
@@ -2688,10 +2667,8 @@ sds genRedisInfoString(char *section) {
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
-#ifndef _WIN32
-        static int call_uname = 1;
-        static struct utsname name;
-#endif
+        POSIX_ONLY(static int call_uname = 1;)
+        POSIX_ONLY(static struct utsname name;)
         char *mode;
 
         if (server.cluster_enabled) mode = "cluster";
@@ -2700,13 +2677,11 @@ sds genRedisInfoString(char *section) {
 
         if (sections++) info = sdscat(info,"\r\n");
 
-#ifndef _WIN32
-        if (call_uname) {
+        POSIX_ONLY(if (call_uname) {)
             /* Uname can be slow and is always the same output. Cache it. */
-            uname(&name);
-            call_uname = 0;
-        }
-#endif
+            POSIX_ONLY(uname(&name);)
+            POSIX_ONLY(call_uname = 0;)
+        POSIX_ONLY(})
 
         info = sdscatprintf(info,
             "# Server\r\n"
@@ -2718,19 +2693,12 @@ sds genRedisInfoString(char *section) {
             "os:%s %s %s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
-#ifndef _WIN32
-            "gcc_version:%d.%d.%d\r\n"
-#endif
+            POSIX_ONLY("gcc_version:%d.%d.%d\r\n")
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
             "tcp_port:%d\r\n"
-#ifdef _WIN32
-            "uptime_in_seconds:%lld\r\n"
-            "uptime_in_days:%lld\r\n"
-#else
-            "uptime_in_seconds:%jd\r\n"
-            "uptime_in_days:%jd\r\n"
-#endif
+            "uptime_in_seconds:%lld\r\n"                                        WIN_PORT_FIX /* %jd -> %lld */
+            "uptime_in_days:%lld\r\n"                                           WIN_PORT_FIX /* %jd -> %lld */
             "hz:%d\r\n"
             "lru_clock:%ld\r\n"
             "config_file:%s\r\n",
@@ -2739,10 +2707,10 @@ sds genRedisInfoString(char *section) {
             strtol(redisGitDirty(),NULL,10) > 0,
             (PORT_ULONGLONG) redisBuildId(),
             mode,
-#ifndef _WIN32
-            name.sysname, name.release, name.machine,
-#else
+#ifdef _WIN32
             "Windows", "", "",
+#else
+            name.sysname, name.release, name.machine,
 #endif
             server.arch_bits,
             aeGetApiName(),
@@ -2795,10 +2763,10 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
-            "used_memory:%Iu\r\n"
+            "used_memory:%Iu\r\n"                                               WIN_PORT_FIX /* %zu -> %Iu */
             "used_memory_human:%s\r\n"
-            "used_memory_rss:%Iu\r\n"
-            "used_memory_peak:%Iu\r\n"
+            "used_memory_rss:%Iu\r\n"                                           WIN_PORT_FIX /* %zu -> %Iu */
+            "used_memory_peak:%Iu\r\n"                                          WIN_PORT_FIX /* %zu -> %Iu */
             "used_memory_peak_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
@@ -2814,7 +2782,6 @@ sds genRedisInfoString(char *section) {
             );
     }
 
-#ifdef _WIN32                       // TODO: replace ifdef with IF_WIN32
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
         if (sections++) info = sdscat(info,"\r\n");
@@ -2823,51 +2790,15 @@ sds genRedisInfoString(char *section) {
             "loading:%d\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
-            "rdb_last_save_time:%lld\r\n"
+            "rdb_last_save_time:%lld\r\n"                                       WIN_PORT_FIX /* %jd -> %lld */
             "rdb_last_bgsave_status:%s\r\n"
-            "rdb_last_bgsave_time_sec:%lld\r\n"
-            "rdb_current_bgsave_time_sec:%lld\r\n"
+            "rdb_last_bgsave_time_sec:%lld\r\n"                                 WIN_PORT_FIX /* %jd -> %lld */
+            "rdb_current_bgsave_time_sec:%lld\r\n"                              WIN_PORT_FIX /* %jd -> %lld */
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
-            "aof_last_rewrite_time_sec:%lld\r\n"
-            "aof_current_rewrite_time_sec:%lld\r\n"
-            "aof_last_bgrewrite_status:%s\r\n"
-            "aof_last_write_status:%s\r\n", 
-            server.loading,
-            server.dirty,
-            server.rdb_child_pid != -1,
-            (PORT_LONGLONG)server.lastsave,
-            (server.lastbgsave_status == REDIS_OK) ? "ok" : "err",
-            (PORT_LONGLONG)server.rdb_save_time_last,
-            (server.rdb_child_pid == -1) ?
-                (PORT_LONGLONG)-1 : (PORT_LONGLONG)(time(NULL)-server.rdb_save_time_start),
-            server.aof_state != REDIS_AOF_OFF,
-            server.aof_child_pid != -1,
-            server.aof_rewrite_scheduled,
-            (PORT_LONGLONG)server.aof_rewrite_time_last,
-            (server.aof_child_pid == -1) ?
-                (PORT_LONGLONG)-1 : (PORT_LONGLONG)(time(NULL)-server.aof_rewrite_time_start),
-            (server.aof_lastbgrewrite_status == REDIS_OK) ? "ok" : "err",
-            (server.aof_last_write_status == REDIS_OK) ? "ok" : "err");
-#else
-    /* Persistence */
-    if (allsections || defsections || !strcasecmp(section,"persistence")) {
-        if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info,
-            "# Persistence\r\n"
-            "loading:%d\r\n"
-            "rdb_changes_since_last_save:%lld\r\n"
-            "rdb_bgsave_in_progress:%d\r\n"
-            "rdb_last_save_time:%jd\r\n"
-            "rdb_last_bgsave_status:%s\r\n"
-            "rdb_last_bgsave_time_sec:%jd\r\n"
-            "rdb_current_bgsave_time_sec:%jd\r\n"
-            "aof_enabled:%d\r\n"
-            "aof_rewrite_in_progress:%d\r\n"
-            "aof_rewrite_scheduled:%d\r\n"
-            "aof_last_rewrite_time_sec:%jd\r\n"
-            "aof_current_rewrite_time_sec:%jd\r\n"
+            "aof_last_rewrite_time_sec:%lld\r\n"                                WIN_PORT_FIX /* %jd -> %lld */
+            "aof_current_rewrite_time_sec:%lld\r\n"                             WIN_PORT_FIX /* %jd -> %lld */
             "aof_last_bgrewrite_status:%s\r\n"
             "aof_last_write_status:%s\r\n",
             server.loading,
@@ -2886,7 +2817,6 @@ sds genRedisInfoString(char *section) {
                 -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == REDIS_OK) ? "ok" : "err",
             (server.aof_last_write_status == REDIS_OK) ? "ok" : "err");
-#endif
 
         if (server.aof_state != REDIS_AOF_OFF) {
             info = sdscatprintf(info,
@@ -3078,7 +3008,7 @@ sds genRedisInfoString(char *section) {
                 }
                 if (state == NULL) continue;
                 if (slave->replstate == REDIS_REPL_ONLINE)
-                    lag = (PORT_LONG) (time(NULL) - slave->repl_ack_time);
+                    lag = (PORT_LONG)(time(NULL) - slave->repl_ack_time);       WIN_PORT_FIX /* cast (PORT_LONG) */
 
                 info = sdscatprintf(info,
                     "slave%d:ip=%s,port=%d,state=%s,"
@@ -3313,7 +3243,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
-    int slaves = (int)listLength(server.slaves);                                /* UPSTREAM_CAST_MISSING: (int) */
+    int slaves = (int)listLength(server.slaves);                                WIN_PORT_FIX /* cast (int) */
     mstime_t latency, eviction_latency;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
@@ -3345,7 +3275,7 @@ int freeMemoryIfNeeded(void) {
         return REDIS_ERR; /* We need to free memory, but policy forbids. */
 
     /* Compute how much memory we need to free. */
-    mem_tofree = mem_used - (size_t)server.maxmemory;
+    mem_tofree = mem_used - (size_t)server.maxmemory;                           WIN_PORT_FIX /* cast (size_t) */
     mem_freed = 0;
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
@@ -3419,7 +3349,7 @@ int freeMemoryIfNeeded(void) {
 
                     de = dictGetRandomKey(dict);
                     thiskey = dictGetKey(de);
-                    thisval = (PORT_LONG) dictGetVal(de);
+                    thisval = (PORT_LONG) dictGetVal(de);                       WIN_PORT_FIX /* cast (PORT_LONG) */
 
                     /* Expire sooner (minor expire unix timestamp) is better
                      * candidate for deletion */
@@ -3534,7 +3464,7 @@ void daemonize(void) {
 }
 
 void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",    /* TODO: verify %llx for 32-bit */
+    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",    /* TODO: verify %llx */
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
@@ -3572,11 +3502,11 @@ void redisAsciiArt(void) {
 
     if (server.syslog_enabled) {
         redisLog(REDIS_NOTICE,
-            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",   /* TODO: verify %ld for 32-bit */
+            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(void *) == 8) ? "64" : "32",
+            (sizeof(PORT_LONG) == 8) ? "64" : "32",
             mode, server.port,
             (PORT_LONG) getpid()
         );
@@ -3585,7 +3515,7 @@ void redisAsciiArt(void) {
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(void *) == 8) ? "64" : "32",
+            (sizeof(PORT_LONG) == 8) ? "64" : "32",
             mode, server.port,
             (PORT_LONG) getpid()
         );
@@ -3678,17 +3608,10 @@ void loadDataFromDisk(void) {
 }
 
 void redisOutOfMemoryHandler(size_t allocation_size) {
-#ifdef _WIN32
-    bugReportStart();
-    redisLog(REDIS_WARNING, "Out Of Memory allocating %Iu bytes.", /* %zu -> %Iu */
+    WIN32_ONLY(bugReportStart();)
+    redisLog(REDIS_WARNING, "Out Of Memory allocating %Iu bytes.",              WIN_PORT_FIX /* %zu -> %Iu */
         allocation_size);
-    // Call abort() instead of forcing an access violation in redisPanic
-    abort();
-#else
-    redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
-    redisPanic("Redis aborting for OUT OF MEMORY");
-#endif
+    IF_WIN32(abort(),redisPanic("Redis aborting for OUT OF MEMORY"));
 }
 
 void redisSetProcTitle(char *title) {
@@ -3717,7 +3640,7 @@ int main(int argc, char **argv) {
     setlocale(LC_COLLATE,"");
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
-    srand((unsigned int)time(NULL)^getpid());
+    srand((unsigned int)time(NULL)^getpid());                                   WIN_PORT_FIX /* cast (unsigned int) */
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);

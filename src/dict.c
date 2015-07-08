@@ -200,7 +200,7 @@ int dictResize(dict *d)
     int minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = (int)d->ht[0].used;                                               /* UPSTREAM_CAST_MISSING: (int) */
+    minimal = (int)d->ht[0].used;                                               WIN_PORT_FIX /* cast (int) */
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictExpand(d, minimal);
@@ -224,7 +224,7 @@ int dictExpand(dict *d,PORT_ULONG size)
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
-    n.used = (size_t) 0;                                                        /* UPSTREAM_CAST_MISSING: (size_t) */
+    n.used = (size_t) 0;                                                        WIN_PORT_FIX /* cast (size_t) */
 
     /* Is this the first initialization? If so it's not really a rehashing
      * we just set the first hash table so that it can accept keys. */
@@ -869,7 +869,7 @@ PORT_ULONG dictScan(dict *d,
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
-        m0 = (PORT_ULONG)t0->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
+        m0 = (PORT_ULONG)t0->sizemask;                                          WIN_PORT_FIX /* cast (PORT_ULONG) */
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -888,8 +888,8 @@ PORT_ULONG dictScan(dict *d,
             t1 = &d->ht[0];
         }
 
-        m0 = (PORT_ULONG)t0->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
-        m1 = (PORT_ULONG)t1->sizemask;                                          /* UPSTREAM_CAST_MISSING: (PORT_ULONG) */
+        m0 = (PORT_ULONG)t0->sizemask;                                          WIN_PORT_FIX /* cast (PORT_ULONG) */
+        m1 = (PORT_ULONG)t1->sizemask;                                          WIN_PORT_FIX /* cast (PORT_ULONG) */
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];

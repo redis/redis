@@ -503,7 +503,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
         minlen = (alen < blen) ? alen : blen;
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return (int)(alen-blen);                                  /* UPSTREAM_CAST_MISSING: (int) */
+        if (cmp == 0) return (int)(alen-blen);                                  WIN_PORT_FIX /* cast (int) */
         return cmp;
     }
 }
@@ -674,7 +674,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, PORT_LONG *target, const c
         }
         return REDIS_ERR;
     }
-    *target = (PORT_LONG)value;                                                 /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
+    *target = (PORT_LONG)value;                                                 WIN_PORT_FIX /* cast (PORT_LONG) */
     return REDIS_OK;
 }
 

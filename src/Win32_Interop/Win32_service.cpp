@@ -55,7 +55,6 @@ this should preceed the other arguments passed to redis. For instance:
 */
 
 #include "win32_types.h"
-
 #include <windows.h>
 #include <windowsx.h>
 #include <shlobj.h>

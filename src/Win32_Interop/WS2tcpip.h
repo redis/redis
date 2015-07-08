@@ -30,8 +30,8 @@
 **
 **  To provide the backward compatibility, all the TCP/IP
 **  specific definitions that were included in the WINSOCK.H
-**   file are now included in WINSOCK2.H file. WS2TCPIP.H
-**  file includes only the definitions  introduced in the
+**  file are now included in WINSOCK2.H file. WS2TCPIP.H
+**  file includes only the definitions introduced in the
 **  "WinSock 2 Protocol-Specific Annex" document.
 **
 **  Rev 0.3 Nov 13, 1995

@@ -171,7 +171,7 @@ public:
 
     virtual vector<string> Extract(vector<string> tokens, int startIndex = 0) {
         vector<string> params;
-        int parameterIndex = 1 + startIndex;
+        unsigned int parameterIndex = 1 + startIndex;
         if ((tokens.size() > parameterIndex) &&
             (tokens.at(parameterIndex) == string("\"\"") ||
             tokens.at(parameterIndex) == string("''"))) {

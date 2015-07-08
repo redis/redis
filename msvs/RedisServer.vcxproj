@@ -252,6 +252,7 @@
     <ClInclude Include="..\src\rand.h" />
     <ClInclude Include="..\src\rdb.h" />
     <ClInclude Include="..\src\redis.h" />
+    <ClInclude Include="..\src\redisassert.h" />
     <ClInclude Include="..\src\rio.h" />
     <ClInclude Include="..\src\sds.h" />
     <ClInclude Include="..\src\sha1.h" />

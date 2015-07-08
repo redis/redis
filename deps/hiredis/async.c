@@ -163,7 +163,7 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     SOCKADDR_STORAGE ss;
     redisContext *c = redisPreConnectNonBlock(ip, port, &ss);

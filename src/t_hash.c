@@ -77,7 +77,7 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
     if (fptr != NULL) {
-        fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
+        fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
             vptr = ziplistNext(zl, fptr);
@@ -179,7 +179,7 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = ziplistNext(zl, fptr);
@@ -190,14 +190,14 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
                 zl = ziplistDelete(zl, &vptr);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, value->ptr, (unsigned int)sdslen(value->ptr));
+                zl = ziplistInsert(zl, vptr, value->ptr, (unsigned int)sdslen(value->ptr)); WIN_PORT_FIX /* cast (unsigned int) */
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL);
-            zl = ziplistPush(zl, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL); WIN_PORT_FIX /* cast (unsigned int) */
+            zl = ziplistPush(zl, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL); WIN_PORT_FIX /* cast (unsigned int) */
         }
         o->ptr = zl;
         decrRefCount(field);
@@ -232,7 +232,7 @@ int hashTypeDelete(robj *o, robj *field) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1); WIN_PORT_FIX /* cast (unsigned int) */
             if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
                 zl = ziplistDelete(zl,&fptr);
@@ -265,7 +265,7 @@ PORT_ULONG hashTypeLength(robj *o) {
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         length = ziplistLen(o->ptr) / 2;
     } else if (o->encoding == REDIS_ENCODING_HT) {
-        length = (PORT_ULONG)dictSize((dict*)o->ptr);
+        length = (PORT_ULONG)dictSize((dict*)o->ptr);                           WIN_PORT_FIX /* cast (PORT_ULONG) */
     } else {
         redisPanic("Unknown hash encoding");
     }
@@ -551,10 +551,10 @@ void hincrbyfloatCommand(redisClient *c) {
     PORT_LONGDOUBLE value, incr;
     robj *o, *current, *new, *aux;
 
-    if (getLongDoubleFromObjectOrReply(c, c->argv[3], &incr, NULL) != REDIS_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c, c->argv[1])) == NULL) return;
-    if ((current = hashTypeGetObject(o, c->argv[2])) != NULL) {
-        if (getLongDoubleFromObjectOrReply(c, current, &value,
+    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
+        if (getLongDoubleFromObjectOrReply(c,current,&value,
             "hash value is not a valid float") != REDIS_OK) {
             decrRefCount(current);
             return;
@@ -565,21 +565,21 @@ void hincrbyfloatCommand(redisClient *c) {
     }
 
     value += incr;
-    new = createStringObjectFromLongDouble(value, 1);
-    hashTypeTryObjectEncoding(o, &c->argv[2], NULL);
-    hashTypeSet(o, c->argv[2], new);
-    addReplyBulk(c, new);
-    signalModifiedKey(c->db, c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_HASH, "hincrbyfloat", c->argv[1], c->db->id);
+    new = createStringObjectFromLongDouble(value,1);
+    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
+    hashTypeSet(o,c->argv[2],new);
+    addReplyBulk(c,new);
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting
      * will not create differences in replicas or after an AOF restart. */
-    aux = createStringObject("HSET", 4);
-    rewriteClientCommandArgument(c, 0, aux);
+    aux = createStringObject("HSET",4);
+    rewriteClientCommandArgument(c,0,aux);
     decrRefCount(aux);
-    rewriteClientCommandArgument(c, 3, new);
+    rewriteClientCommandArgument(c,3,new);
     decrRefCount(new);
 }
 

@@ -153,7 +153,7 @@ typedef struct {
 static unsigned char level = 0;
 static pos positions[16];
 
-#define CURR_OFFSET ((uint32_t)positions[level].offset)                         /* UPSTREAM_CAST_MISSING: (uint32_t) */
+#define CURR_OFFSET ((uint32_t)positions[level].offset)                         WIN_PORT_FIX /* cast (uint32_t) */
 
 /* Hold a stack of errors */
 typedef struct {
@@ -677,7 +677,7 @@ void process(void) {
             int i = 0;
 
             while (!entry.success && offset < positions[0].size) {
-                positions[1].offset = (size_t)offset;                           /* UPSTREAM_CAST_MISSING: (size_t) */
+                positions[1].offset = (size_t)offset;                           WIN_PORT_FIX /* cast (size_t) */
 
                 /* find 3 consecutive valid entries */
                 for (i = 0; i < 3; i++) {
@@ -695,7 +695,7 @@ void process(void) {
                 printSkipped(offset - positions[0].offset, offset);
             }
 
-            positions[0].offset = (size_t)offset;                               /* UPSTREAM_CAST_MISSING: (size_t) */
+            positions[0].offset = (size_t)offset;                               WIN_PORT_FIX /* cast (size_t) */
         } else {
             num_valid_ops++;
             num_valid_bytes += positions[1].offset - positions[0].offset;
@@ -778,7 +778,7 @@ int main(int argc, char **argv) {
     if (fstat(fd, &stat) == -1) {
         ERROR("Cannot stat: %s\n", argv[1]);
     } else {
-        size = (off_t)stat.st_size;                                             /* UPSTREAM_CAST_MISSING: (off_t) */
+        size = (off_t)stat.st_size;                                             WIN_PORT_FIX /* cast (off_t) */
     }
 
     if (sizeof(size_t) == sizeof(int32_t) && size >= INT_MAX) {

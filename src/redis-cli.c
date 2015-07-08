@@ -30,6 +30,7 @@
 
 #ifdef _WIN32
 #include "win32_Interop/win32_types.h"
+#include "win32_Interop/win32_util.h"
 #endif
 
 #include "fmacros.h"
@@ -890,7 +891,7 @@ static sds readArgFromStdin(void) {
     sds arg = sdsempty();
 
     while(1) {
-        int nread = (int)read(fileno(stdin),buf,1024);                          /* UPSTREAM_CAST_MISSING: (int) */
+        int nread = (int)read(fileno(stdin),buf,1024);                          WIN_PORT_FIX /* cast (int) */
 
         if (nread == 0) break;
         else if (nread == -1) {
@@ -977,12 +978,12 @@ static char **convertToSds(int count, char** args) {
 static int issueCommandRepeat(int argc, char **argv, PORT_LONG repeat) {
     while (1) {
         config.cluster_reissue_command = 0;
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        if (cliSendCommand(argc,argv,(int)repeat) != REDIS_OK) {                WIN_PORT_FIX /* cast (int) */
             cliConnect(1);
 
             /* If we still cannot send the command print error.
              * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            if (cliSendCommand(argc,argv,(int)repeat) != REDIS_OK) {            WIN_PORT_FIX /* cast (int) */
                 cliPrintContextError();
                 return REDIS_ERR;
             }
@@ -1210,7 +1211,7 @@ void showLatencyDistSamples(struct distsamples *samples, PORT_LONGLONG tot) {
     printf("\033[38;5;0m"); /* Set foreground color to black. */
     for (j = 0; ; j++) {
         int coloridx =
-            (int)ceil((float) samples[j].count / tot * (spectrum_palette_size-1));  /* UPSTREAM_CAST_MISSING: (int) */
+            (int)ceil((float) samples[j].count / tot * (spectrum_palette_size-1));  WIN_PORT_FIX /* cast (int) */
         int color = spectrum_palette[coloridx];
         printf("\033[48;5;%dm%c", (int)color, samples[j].character);
         samples[j].count = 0;
@@ -2067,7 +2068,7 @@ PORT_LONGLONG powerLawRand(PORT_LONGLONG min, PORT_LONGLONG max, double alpha) {
     max += 1;
     r = ((double)rand()) / RAND_MAX;
     pl = pow(
-        ((pow((double)max,alpha+1) - pow((double)min,alpha+1))*r + pow((double)min,alpha+1)),   /* UPSTREAM_CAST_MISSING: (double) */
+        ((pow((double)max,alpha+1) - pow((double)min,alpha+1))*r + pow((double)min,alpha+1)),   WIN_PORT_FIX /* cast (double) */
         (1.0/(alpha+1)));
     return (max-1-(PORT_LONGLONG)pl)+min;
 }
@@ -2087,7 +2088,7 @@ static void LRUTestMode(void) {
     PORT_LONGLONG start_cycle;
     int j;
 
-    srand((unsigned int)(time(NULL)^getpid()));                                   /* UPSTREAM_CAST_MISSING: (unsigned int) */
+    srand((unsigned int)(time(NULL)^getpid()));                                   WIN_PORT_FIX /* cast (unsigned int) */
     while(1) {
         /* Perform cycles of 1 second with 50% writes and 50% reads.
          * We use pipelining batching writes / reads N times per cycle in order

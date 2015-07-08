@@ -239,7 +239,7 @@ void setbitCommand(redisClient *c) {
     }
 
     /* Grow sds value to the right length if necessary */
-    byte = (int)(bitoffset >> 3);                                               /* UPSTREAM_CAST_MISSING: (int) */
+    byte = (int)(bitoffset >> 3);                                               WIN_PORT_FIX /* cast (int) */
     o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
@@ -345,7 +345,7 @@ void bitopCommand(redisClient *c) {
         }
         objects[j] = getDecodedObject(o);
         src[j] = objects[j]->ptr;
-        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);                           /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
+        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);                           WIN_PORT_FIX /* cast (PORT_LONG) */
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
@@ -476,7 +476,7 @@ void bitcountCommand(redisClient *c) {
         strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = (PORT_LONG) sdslen(o->ptr);                                    /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
+        strlen = (PORT_LONG) sdslen(o->ptr);                                    WIN_PORT_FIX /* cast (PORT_LONG) */
     }
 
     /* Parse start/end range if any. */
@@ -545,7 +545,7 @@ void bitposCommand(redisClient *c) {
         strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = (PORT_LONG) sdslen(o->ptr);                                    /* UPSTREAM_CAST_MISSING: (PORT_LONG) */
+        strlen = (PORT_LONG) sdslen(o->ptr);                                    WIN_PORT_FIX /* cast (PORT_LONG) */
     }
 
     /* Parse start/end range if any. */

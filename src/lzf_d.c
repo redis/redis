@@ -34,6 +34,10 @@
  * either the BSD or the GPL.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/win32_util.h"
+#endif
+
 #include "lzfP.h"
 
 #if AVOID_ERRNO
@@ -145,6 +149,6 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
     }
   while (ip < in_end);
 
-  return (unsigned int)(op - (u8 *)out_data);                                   /* UPSTREAM_CAST_MISSING: (unsigned int) */
+  return (unsigned int)(op - (u8 *)out_data);                                   WIN_PORT_FIX /* cast (unsigned int) */
 }
 

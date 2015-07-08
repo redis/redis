@@ -103,7 +103,12 @@
  *
  */
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include "../../src/Win32_Interop/win32_util.h"
+#include "../../src/Win32_Interop/win32fixes.h"
+#define REDIS_NOTUSED(V) ((void) V)
+#include "../../src/Win32_Interop/win32_ANSI.h"
+#else
 #include <termios.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -116,11 +121,6 @@
 #include <ctype.h>
 #include <sys/types.h>
 #include "linenoise.h"
-#ifdef _WIN32
-  #include "../../src/win32_Interop/win32fixes.h"
-  #define REDIS_NOTUSED(V) ((void) V)
-  #include "../../src/win32_Interop/win32_ANSI.h"
-#endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
@@ -539,7 +539,7 @@ static int completeLine(struct linenoiseState *ls) {
                 refreshLine(ls);
             }
 
-            nread = (int)read(ls->ifd,&c,1);                                    /* UPSTREAM_CAST_MISSING: (int) */
+            nread = (int)read(ls->ifd,&c,1);                                    WIN_PORT_FIX /* cast (int) */
             if (nread <= 0) {
                 freeCompletions(&lc);
                 return -1;
@@ -1084,7 +1084,7 @@ void linenoisePrintKeyCodes(void) {
         char c;
         int nread;
 
-        nread = (int)read(STDIN_FILENO,&c,1);                                   /* UPSTREAM_CAST_MISSING: (int) */
+        nread = (int)read(STDIN_FILENO,&c,1);                                   WIN_PORT_FIX /* cast (int) */
         if (nread <= 0) continue;
         memmove(quit,quit+1,sizeof(quit)-1); /* shift string to left. */
         quit[sizeof(quit)-1] = c; /* Insert current char on the right. */

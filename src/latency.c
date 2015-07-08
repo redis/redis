@@ -42,7 +42,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
 }
 
 unsigned int dictStringHash(const void *key) {
-    return dictGenHashFunction(key, (int)strlen(key));                          /* UPSTREAM_CAST_MISSING: (int) */
+    return dictGenHashFunction(key, (int)strlen(key));                          WIN_PORT_FIX /* cast (int) */
 }
 
 void dictVanillaFree(void *privdata, void *val);
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:");              /* UPSTREAM_CAST_MISSING: (int) */
+    return (int)zmalloc_get_smap_bytes_by_field("AnonHugePages:");              WIN_PORT_FIX /* cast (int) */
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -114,13 +114,13 @@ void latencyAddSample(char *event, mstime_t latency) {
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)
-            ts->samples[prev].latency = (int32_t)latency;                       /* UPSTREAM_CAST_MISSING: (int32_t) */
+            ts->samples[prev].latency = (int32_t)latency;                       WIN_PORT_FIX /* cast (int32_t) */
         return;
     }
 
-    ts->samples[ts->idx].time = (int32_t)time(NULL);                            /* UPSTREAM_CAST_MISSING: (int32_t) */
-    ts->samples[ts->idx].latency = (int32_t)latency;                            /* UPSTREAM_CAST_MISSING: (int32_t) */
-    if (latency > ts->max) ts->max = (int32_t)latency;                          /* UPSTREAM_CAST_MISSING: (int32_t) */
+    ts->samples[ts->idx].time = (int32_t)time(NULL);                            WIN_PORT_FIX /* cast (int32_t) */
+    ts->samples[ts->idx].latency = (int32_t)latency;                            WIN_PORT_FIX /* cast (int32_t) */
+    if (latency > ts->max) ts->max = (int32_t)latency;                          WIN_PORT_FIX /* cast (int32_t) */
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
@@ -194,7 +194,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
      * the oldest event time. We need to make the first an average and
      * the second a range of seconds. */
     if (ls->samples) {
-        ls->avg = (int32_t)(sum / ls->samples);                                 /* UPSTREAM_CAST_MISSING: (int32_t) */
+        ls->avg = (int32_t)(sum / ls->samples);                                 WIN_PORT_FIX /* cast (int32_t) */
         ls->period = time(NULL) - ls->period;
         if (ls->period == 0) ls->period = 1;
     }
@@ -209,7 +209,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
         if (delta < 0) delta = -delta;
         sum += delta;
     }
-    if (ls->samples) ls->mad = (int32_t)(sum / ls->samples);                    /* UPSTREAM_CAST_MISSING: (int32_t) */
+    if (ls->samples) ls->mad = (int32_t)(sum / ls->samples);                    WIN_PORT_FIX /* cast (int32_t) */
 }
 
 /* Create a human readable report of latency events for this Redis instance. */
@@ -534,7 +534,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
         }
         /* Use as label the number of seconds / minutes / hours / days
          * ago the event happened. */
-        elapsed = (int)(time(NULL) - ts->samples[i].time);                      /* UPSTREAM_CAST_MISSING: (int) */
+        elapsed = (int)(time(NULL) - ts->samples[i].time);                      WIN_PORT_FIX /* cast (int) */
         if (elapsed < 60)
             snprintf(buf,sizeof(buf),"%ds",elapsed);
         else if (elapsed < 3600)

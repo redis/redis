@@ -31,6 +31,7 @@
 #ifdef _WIN32
 #include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
+#include "win32_Interop/win32fixes.h"
 #endif
 
 #include <stdio.h>
@@ -45,11 +46,7 @@ void zlibc_free(void *ptr) {
 }
 
 #include <string.h>
-#ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
-#else
-#include <pthread.h>
-#endif
+POSIX_ONLY(#include <pthread.h>)
 #include "config.h"
 #include "zmalloc.h"
 

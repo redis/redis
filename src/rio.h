@@ -32,13 +32,12 @@
 #ifndef __REDIS_RIO_H
 #define __REDIS_RIO_H
 
+#ifdef _WIN32
+#include"Win32_Interop\win32_util.h"
+#endif
 #include <stdio.h>
 #include <stdint.h>
 #include "sds.h"
-
-#ifdef _WIN32
-  #define inline __inline
-#endif
 
 struct _rio {
     /* Backend functions.
@@ -120,7 +119,7 @@ static inline size_t rioRead(rio *r, void *buf, size_t len) {
     return 1;
 }
 
-static __inline off_t rioTell(rio *r) {
+static inline off_t rioTell(rio *r) {
     return r->tell(r);
 }
 

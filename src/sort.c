@@ -28,6 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+
 #include "redis.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
@@ -87,16 +88,16 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Find out if we're dealing with a hash dereference. */
     if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
-        fieldlen = (int)(sdslen(spat)-(f-spat)-2);
+        fieldlen = (int)(sdslen(spat)-(f-spat)-2);                              WIN_PORT_FIX /* cast (int) */
         fieldobj = createStringObject(f+2,fieldlen);
     } else {
         fieldlen = 0;
     }
 
     /* Perform the '*' substitution. */
-    prefixlen = (int)(p-spat);
-    sublen = (int)sdslen(ssub);
-    postfixlen = (int)(sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0));
+    prefixlen = (int)(p-spat);                                                  WIN_PORT_FIX /* cast (int) */
+    sublen = (int)sdslen(ssub);                                                 WIN_PORT_FIX /* cast (int) */
+    postfixlen = (int)(sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0)); WIN_PORT_FIX /* cast (int) */
     keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
     k = keyobj->ptr;
     memcpy(k,spat,prefixlen);
@@ -306,9 +307,9 @@ void sortCommand(redisClient *c) {
 
     /* Objtain the length of the object to sort. */
     switch(sortval->type) {
-    case REDIS_LIST: vectorlen = (int)listTypeLength(sortval); break;           /* UPSTREAM_CAST_MISSING: (int) */
-    case REDIS_SET: vectorlen =  (int)setTypeSize(sortval); break;              /* UPSTREAM_CAST_MISSING: (int) */
-    case REDIS_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break;
+    case REDIS_LIST: vectorlen = (int)listTypeLength(sortval); break;           WIN_PORT_FIX /* cast (int) */
+    case REDIS_SET: vectorlen =  (int)setTypeSize(sortval); break;              WIN_PORT_FIX /* cast (int) */
+    case REDIS_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break; WIN_PORT_FIX /* cast (int) */
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -335,7 +336,7 @@ void sortCommand(redisClient *c) {
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
-        vectorlen = (int)(end-start+1);                                         /* UPSTREAM_CAST_MISSING: (int) */
+        vectorlen = (int)(end-start+1);                                         WIN_PORT_FIX /* cast (int) */
     }
 
     /* Load the sorting vector with all the objects to sort */
@@ -378,7 +379,7 @@ void sortCommand(redisClient *c) {
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
-            PORT_LONG zsetlen = (PORT_LONG) dictSize(((zset*)sortval->ptr)->dict);
+            PORT_LONG zsetlen = (PORT_LONG) dictSize(((zset*)sortval->ptr)->dict); WIN_PORT_FIX /* cast (PORT_LONG) */
 
             ln = zsl->tail;
             if (start > 0)

@@ -30,7 +30,7 @@
 
 #include "redis.h"
 #ifndef _WIN32          // This should not be here in the first place since it's not used by the posix code either
-#include "hiredis.h"    
+#include "hiredis.h"
 #endif
 #include "async.h"
 
@@ -254,12 +254,10 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
-#ifdef WIN32_IOCP
-    aeWinReceiveDone(fd);
-#endif
+    WIN32_ONLY(aeWinReceiveDone(fd);)
 }
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
     aeWinSendReq *req = (aeWinSendReq *)privdata;
     redisAeEvents *e = (redisAeEvents *)req->client;
@@ -333,7 +331,7 @@ static void redisAeCleanup(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     redisAeDelRead(privdata);
     redisAeDelWrite(privdata);
-#ifdef WIN32_IOCP
+#ifdef _WIN32
     aeWinCloseSocket((int)e->fd);
     e->fd = 0;
 #endif
@@ -682,12 +680,8 @@ void sentinelScheduleScriptExecution(char *path, ...) {
     sj->retry_num = 0;
     sj->argv = zmalloc(sizeof(char*)*(argc+1));
     sj->start_time = 0;
-#ifdef _WIN32
-    sj->hScriptProcess = INVALID_HANDLE_VALUE;
+    WIN32_ONLY(sj->hScriptProcess = INVALID_HANDLE_VALUE;)
     sj->pid = 0;
-#else
-    sj->pid = 0;
-#endif
     memcpy(sj->argv,argv,sizeof(char*)*(argc+1));
 
     listAddNodeTail(sentinel.scripts_queue,sj);
@@ -744,9 +738,7 @@ void sentinelRunPendingScripts(void) {
            (ln = listNext(&li)) != NULL)
     {
         sentinelScriptJob *sj = ln->value;
-#ifndef _WIN32
-        pid_t pid;
-#endif
+        POSIX_ONLY(pid_t pid;)
 
         /* Skip if already running. */
         if (sj->flags & SENTINEL_SCRIPT_RUNNING) continue;
@@ -759,35 +751,34 @@ void sentinelRunPendingScripts(void) {
         sj->retry_num++;
 
 #ifdef _WIN32
-        {
-            PROCESS_INFORMATION pi;
-            char args[1024];
-            int j = 1;
-            int pos = 0;
-            while(sj->argv[j]) {
-                int arglen = (int)strlen(sj->argv[j]);
-                memcpy(args+pos, sj->argv[j], arglen);
-                pos += arglen;
-                memcpy(args+pos, " ", 1);
-                pos += 1;
-                j++;
-            }
-            if(TRUE == CreateProcessA(sj->argv[0], args, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi)) {
-                sj->hScriptProcess = pi.hProcess;
-                sj->pid = pi.dwProcessId;
-                CloseHandle( pi.hThread );
-
-                sentinel.running_scripts++;
-                sentinelEvent(REDIS_DEBUG, "+script-child", NULL, "%Id", (PORT_LONG) sj->pid);      WIN_PORT_FIX /* %ld -> %Id */
-            } else {
-                sentinelEvent(REDIS_WARNING,"-script-error",NULL,
-                              "%s %d %d", sj->argv[0], 99, 0);
-                sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
-                sj->pid = 0;
-                sj->hScriptProcess = INVALID_HANDLE_VALUE;
-            }
+        PROCESS_INFORMATION pi;
+        char args[1024];
+        int j = 1;
+        int pos = 0;
+        while (sj->argv[j]) {
+            int arglen = (int) strlen(sj->argv[j]);
+            memcpy(args + pos, sj->argv[j], arglen);
+            pos += arglen;
+            memcpy(args + pos, " ", 1);
+            pos += 1;
+            j++;
         }
-    }
+        if (TRUE == CreateProcessA(sj->argv[0], args, NULL, NULL, FALSE, 0, 
+                                   NULL, NULL, NULL, &pi)) {
+            sj->hScriptProcess = pi.hProcess;
+            sj->pid = pi.dwProcessId;
+            CloseHandle(pi.hThread);
+
+            sentinel.running_scripts++;
+            sentinelEvent(REDIS_DEBUG, "+script-child", NULL, "%Id", 
+                          (PORT_LONG) sj->pid);
+        } else {
+            sentinelEvent(REDIS_WARNING, "-script-error", NULL,
+                "%s %d %d", sj->argv[0], 99, 0);
+            sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
+            sj->pid = 0;
+            sj->hScriptProcess = INVALID_HANDLE_VALUE;
+        }
 #else
         pid = fork();
 
@@ -809,8 +800,8 @@ void sentinelRunPendingScripts(void) {
             sj->pid = pid;
             sentinelEvent(REDIS_DEBUG,"+script-child",NULL,"%ld",(PORT_LONG)pid);
         }
-    }
 #endif
+    }
 }
 
 /* How much to delay the execution of a script that we need to retry after
@@ -934,8 +925,8 @@ void sentinelKillTimedoutScripts(void) {
         if (sj->flags & SENTINEL_SCRIPT_RUNNING &&
             (now - sj->start_time) > SENTINEL_SCRIPT_MAX_RUNTIME)
         {
-            sentinelEvent(REDIS_WARNING, "-script-timeout", NULL, "%s %Id",     WIN_PORT_FIX /* %ld -> %Id*/
-                sj->argv[0], (PORT_LONG) sj->pid);
+            sentinelEvent(REDIS_WARNING,"-script-timeout",NULL,"%s %Id",        WIN_PORT_FIX /* %ld -> %Id*/
+                sj->argv[0], (PORT_LONG)sj->pid);
 #ifdef _WIN32
             TerminateProcess(sj->hScriptProcess,1);
 #else
@@ -1741,10 +1732,8 @@ void sentinelFlushConfig(void) {
     server.hz = saved_hz;
 
     if (rewrite_status == -1) goto werr;
-    if ((fd = open(server.configfile,O_RDONLY,0)) == -1) goto werr;
-#ifndef _WIN32
-    if (fsync(fd) == -1) goto werr;
-#endif
+    if ((fd = open(server.configfile,O_RDONLY,0)) == -1) goto werr;             WIN_PORT_FIX /* %lu -> %Iu */
+    POSIX_ONLY(if (fsync(fd) == -1) goto werr;)
     if (close(fd) == EOF) goto werr;
     return;
 
@@ -1930,7 +1919,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     ri->master_link_down_time = 0;
 
     /* Process line by line. */
-    lines = sdssplitlen(info,(int)strlen(info),"\r\n",2,&numlines);
+    lines = sdssplitlen(info,(int)strlen(info),"\r\n",2,&numlines);             WIN_PORT_FIX /* cast (int) */
     for (j = 0; j < numlines; j++) {
         sentinelRedisInstance *slave;
         sds l = lines[j];
@@ -2119,7 +2108,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if ((ri->flags & SRI_SLAVE) &&
         role == SRI_SLAVE &&
         (ri->slave_master_port != ri->master->addr->port ||
-         strcasecmp(ri->slave_master_host, ri->master->addr->ip)))
+         strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
         mstime_t wait_time = ri->master->failover_timeout;
 
@@ -2730,7 +2719,7 @@ void addReplyDictOfRedisInstances(redisClient *c, dict *instances) {
     dictEntry *de;
 
     di = dictGetIterator(instances);
-    addReplyMultiBulkLen(c, (PORT_LONG) dictSize(instances));
+    addReplyMultiBulkLen(c, (PORT_LONG) dictSize(instances));                   WIN_PORT_FIX /* cast (PORT_LONG) */
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
@@ -2799,7 +2788,7 @@ void sentinelCommand(redisClient *c) {
                                                               != REDIS_OK)
             return;
         ri = getSentinelRedisInstanceByAddrAndRunID(sentinel.masters,
-            c->argv[2]->ptr, (int) port, NULL);                                 /* UPSTREAM_CAST_MISSING: (int) */
+            c->argv[2]->ptr, (int) port, NULL);                                 WIN_PORT_FIX /* cast (int) */
 
         /* It exists? Is actually a master? Is subjectively down? It's down.
          * Note: if we are in tilt mode we always reply with "0". */
@@ -2887,7 +2876,7 @@ void sentinelCommand(redisClient *c) {
 
         /* Parameters are valid. Try to create the master instance. */
         ri = createSentinelRedisInstance(c->argv[2]->ptr,SRI_MASTER,
-                c->argv[3]->ptr,(int)port,(int)quorum,NULL);                    /* UPSTREAM_CAST_MISSING: (int) */
+                c->argv[3]->ptr,(int)port,(int)quorum,NULL);                    WIN_PORT_FIX /* cast (int) */
         if (ri == NULL) {
             switch(errno) {
             case EBUSY:
@@ -2942,9 +2931,8 @@ void sentinelInfoCommand(redisClient *c) {
     }
 
     if (!strcasecmp(section,"server") || defsections) {
-        sds serversection;
         if (sections++) info = sdscat(info,"\r\n");
-        serversection = genRedisInfoString("server");
+        sds serversection = genRedisInfoString("server");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
@@ -3020,10 +3008,10 @@ void sentinelSetCommand(redisClient *c) {
 
     /* Process option - value pairs. */
     for (j = 3; j < c->argc; j += 2) {
-        PORT_LONGLONG ll;
-        robj *o = c->argv[j+1];
         option = c->argv[j]->ptr;
         value = c->argv[j+1]->ptr;
+        robj *o = c->argv[j+1];
+        PORT_LONGLONG ll;
 
         if (!strcasecmp(option,"down-after-milliseconds")) {
             /* down-after-millisecodns <milliseconds> */
@@ -3042,7 +3030,7 @@ void sentinelSetCommand(redisClient *c) {
             /* parallel-syncs <milliseconds> */
             if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0)
                 goto badfmt;
-            ri->parallel_syncs = (int)ll;
+            ri->parallel_syncs = (int)ll;                                       WIN_PORT_FIX /* cast (int) */
             changes++;
        } else if (!strcasecmp(option,"notification-script")) {
             /* notification-script <path> */
@@ -3076,7 +3064,7 @@ void sentinelSetCommand(redisClient *c) {
             /* quorum <count> */
             if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0)
                 goto badfmt;
-            ri->quorum = (int)ll;
+            ri->quorum = (int)ll;                                               WIN_PORT_FIX /* cast (int) */
             changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option '%s' for SENTINEL SET",
@@ -3108,7 +3096,7 @@ void sentinelPublishCommand(redisClient *c) {
         addReplyError(c, "Only HELLO messages are accepted by Sentinel instances.");
         return;
     }
-    sentinelProcessHelloMessage(c->argv[2]->ptr,(int)sdslen(c->argv[2]->ptr));
+    sentinelProcessHelloMessage(c->argv[2]->ptr,(int)sdslen(c->argv[2]->ptr));  WIN_PORT_FIX /* cast (int) */
     addReplyLongLong(c,1);
 }
 
@@ -3354,7 +3342,7 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
     if (de) {
         oldval = dictGetUnsignedIntegerVal(de);
         dictSetUnsignedIntegerVal(de,oldval+1);
-        return (int)oldval+1;
+        return (int)oldval+1;                                                   WIN_PORT_FIX /* cast (int) */
     } else {
         de = dictAddRaw(counters,runid);
         redisAssert(de != NULL);
@@ -3382,7 +3370,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me. */  /* UPSTREAM_CAST_MISSING: (unsigned int) */
+    voters = (unsigned int)dictSize(master->sentinels)+1; /* All the other sentinels and me. */  WIN_PORT_FIX /* cast (unsigned int) */
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
@@ -3676,7 +3664,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
          * and the configured failover timeout. */
         if (election_timeout > ri->failover_timeout)
-            election_timeout = (int)ri->failover_timeout;
+            election_timeout = (int)ri->failover_timeout;                       WIN_PORT_FIX /* cast (int) */
         /* Abort the failover if I'm not the leader after some time. */
         if (mstime() - ri->failover_start_time > election_timeout) {
             sentinelEvent(REDIS_WARNING,"-failover-abort-not-elected",ri,"%@");
