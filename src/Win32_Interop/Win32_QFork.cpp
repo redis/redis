@@ -889,7 +889,7 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     sprintf_s(
         arguments,
         _MAX_PATH,
-        "\"%s\" --%s %llu %lu --%s \"%s\"",
+        "\"%s\" --%s %llu %Iu --%s \"%s\"",
         fileName,
         cQFork.c_str(),
         (uint64_t)g_hQForkControlFileMap,

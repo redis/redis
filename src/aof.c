@@ -158,7 +158,7 @@ void aofRewriteBufferAppend(unsigned char *s, PORT_ULONG len) {
             if (((numblocks+1) % 10) == 0) {
                 int level = ((numblocks+1) % 100) == 0 ? REDIS_WARNING :
                                                          REDIS_NOTICE;
-                redisLog(level,"Background AOF buffer size: %lu MB",
+                redisLog(level,"Background AOF buffer size: %Iu MB",            WIN_PORT_FIX /* %lu -> %Iu */
                     aofRewriteBufferSize()/(1024*1024));
             }
         }
@@ -520,7 +520,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
         char seldb[64];
 
         snprintf(seldb,sizeof(seldb),"%d",dictid);
-        buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n",
+        buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%Iu\r\n%s\r\n",          WIN_PORT_FIX /* %lu -> %Iu */
             (PORT_ULONG)strlen(seldb),seldb);
         server.aof_selected_db = dictid;
     }

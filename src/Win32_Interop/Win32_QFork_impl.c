@@ -88,8 +88,8 @@ int do_socketSave2(int *fds, int numfds, uint64_t *clientids)
     
         if (private_dirty) {
             redisLog(REDIS_NOTICE,
-                "RDB: %Iu MB of memory used by copy-on-write",
-                private_dirty/(1024*1024));                                     WIN_PORT_FIX /* %zu -> %Iu */
+                "RDB: %Iu MB of memory used by copy-on-write",                  WIN_PORT_FIX /* %zu -> %Iu */
+                private_dirty/(1024*1024));
         }
     
         /* If we are returning OK, at least one slave was served

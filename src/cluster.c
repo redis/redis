@@ -1543,7 +1543,7 @@ int clusterProcessPacket(clusterLink *link) {
     clusterNode *sender;
 
     server.cluster->stats_bus_messages_received++;
-    redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %lu bytes",
+    redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %Iu bytes",         WIN_PORT_FIX /* %lu -> %Iu */
         type, (PORT_ULONG) totlen);
 
     /* Perform sanity checks */
@@ -4023,7 +4023,7 @@ void clusterCommand(redisClient *c) {
             "cluster_slots_ok:%d\r\n"
             "cluster_slots_pfail:%d\r\n"
             "cluster_slots_fail:%d\r\n"
-            "cluster_known_nodes:%lu\r\n"
+            "cluster_known_nodes:%Iu\r\n"                                       WIN_PORT_FIX /* %lu -> %Iu */
             "cluster_size:%d\r\n"
             "cluster_current_epoch:%llu\r\n"
             "cluster_my_epoch:%llu\r\n"
@@ -4041,7 +4041,7 @@ void clusterCommand(redisClient *c) {
             server.cluster->stats_bus_messages_sent,
             server.cluster->stats_bus_messages_received
         );
-        addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
+        addReplySds(c,sdscatprintf(sdsempty(),"$%Iu\r\n",                       WIN_PORT_FIX /* %lu -> %Iu */
             (PORT_ULONG)sdslen(info)));
         addReplySds(c,info);
         addReply(c,shared.crlf);

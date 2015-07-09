@@ -2945,7 +2945,7 @@ void sentinelInfoCommand(redisClient *c) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Sentinel\r\n"
-            "sentinel_masters:%lu\r\n"
+            "sentinel_masters:%Iu\r\n"                                          WIN_PORT_FIX /* %lu -> %Iu */
             "sentinel_tilt:%d\r\n"
             "sentinel_running_scripts:%d\r\n"
             "sentinel_scripts_queue_length:%ld\r\n",
@@ -2963,7 +2963,7 @@ void sentinelInfoCommand(redisClient *c) {
             else if (ri->flags & SRI_S_DOWN) status = "sdown";
             info = sdscatprintf(info,
                 "master%d:name=%s,status=%s,address=%s:%d,"
-                "slaves=%lu,sentinels=%lu\r\n",
+                "slaves=%Iu,sentinels=%Iu\r\n",                                 WIN_PORT_FIX /* %lu -> %Iu */
                 master_id++, ri->name, status,
                 ri->addr->ip, ri->addr->port,
                 dictSize(ri->slaves),
@@ -2972,7 +2972,7 @@ void sentinelInfoCommand(redisClient *c) {
         dictReleaseIterator(di);
     }
 
-    addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
+    addReplySds(c,sdscatprintf(sdsempty(),"$%Iu\r\n",                           WIN_PORT_FIX /* %lu -> %Iu */
         (PORT_ULONG) sdslen(info)));
     addReplySds(c,info);
     addReply(c,shared.crlf);

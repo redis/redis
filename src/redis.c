@@ -2736,9 +2736,9 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
-            "connected_clients:%lu\r\n"
-            "client_longest_output_list:%lu\r\n"
-            "client_biggest_input_buf:%lu\r\n"
+            "connected_clients:%Iu\r\n"                                         WIN_PORT_FIX /* %lu -> %Iu */
+            "client_longest_output_list:%Iu\r\n"                                WIN_PORT_FIX /* %lu -> %Iu */
+            "client_biggest_input_buf:%Iu\r\n"                                  WIN_PORT_FIX /* %lu -> %Iu */
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
             lol, bib,
@@ -2824,9 +2824,9 @@ sds genRedisInfoString(char *section) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%Iu\r\n"                                     WIN_PORT_FIX /* %zu -> %Iu */
-                "aof_rewrite_buffer_length:%lu\r\n"
+                "aof_rewrite_buffer_length:%Iu\r\n"                             WIN_PORT_FIX /* %lu -> %Iu */
                 "aof_pending_bio_fsync:%llu\r\n"
-                "aof_delayed_fsync:%lu\r\n",
+                "aof_delayed_fsync:%Iu\r\n",                                    WIN_PORT_FIX /* %lu -> %Iu */
                 (PORT_LONGLONG) server.aof_current_size,
                 (PORT_LONGLONG) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
@@ -2889,7 +2889,7 @@ sds genRedisInfoString(char *section) {
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
-            "pubsub_patterns:%lu\r\n"
+            "pubsub_patterns:%Iu\r\n"                                           WIN_PORT_FIX /* %lu -> %Iu */
             "latest_fork_usec:%lld\r\n"
             "migrate_cached_sockets:%ld\r\n",
             server.stat_numconnections,
@@ -2968,7 +2968,7 @@ sds genRedisInfoString(char *section) {
         }
 
         info = sdscatprintf(info,
-            "connected_slaves:%lu\r\n",
+            "connected_slaves:%Iu\r\n",                                         WIN_PORT_FIX /* %lu -> %Iu */
             listLength(server.slaves));
 
         /* If min-slaves-to-write is active, write the number of slaves
@@ -3098,7 +3098,7 @@ void infoCommand(redisClient *c) {
         return;
     }
     sds info = genRedisInfoString(section);
-    addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
+    addReplySds(c,sdscatprintf(sdsempty(),"$%Iu\r\n",                           WIN_PORT_FIX /* %lu -> %Iu */
         (PORT_ULONG) sdslen(info)));
     addReplySds(c,info);
     addReply(c,shared.crlf);

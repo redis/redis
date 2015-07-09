@@ -123,7 +123,7 @@ void memtest_addressing(PORT_ULONG *l, size_t bytes) {
     p = l;
     for (j = 0; j < words; j++) {
         if (*p != (PORT_ULONG)p) {
-            printf("\n*** MEMORY ADDRESSING ERROR: %p contains %lu\n",
+            printf("\n*** MEMORY ADDRESSING ERROR: %p contains %Iu\n",          WIN_PORT_FIX /* %lu -> %Iu */
                 (void*) p, *p);
             exit(1);
         }
@@ -206,7 +206,7 @@ void memtest_compare(PORT_ULONG *l, size_t bytes) {
     l2 = l1+words;
     for (w = 0; w < words; w++) {
         if (*l1 != *l2) {
-            printf("\n*** MEMORY ERROR DETECTED: %p != %p (%lu vs %lu)\n",
+            printf("\n*** MEMORY ERROR DETECTED: %p != %p (%Iu vs %Iu)\n",      WIN_PORT_FIX /* %lu -> %Iu */
                 (void*)l1, (void*)l2, *l1, *l2);
             exit(1);
         }

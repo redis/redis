@@ -339,14 +339,14 @@ void debugCommand(redisClient *c) {
             return;
         dictExpand(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
-            snprintf(buf,sizeof(buf),"%s:%lu",
+            snprintf(buf,sizeof(buf),"%s:%Iu",                                  WIN_PORT_FIX /* %lu -> %Iu */
                 (c->argc == 3) ? "key" : (char*)c->argv[3]->ptr, j);
             key = createStringObject(buf,strlen(buf));
             if (lookupKeyRead(c->db,key) != NULL) {
                 decrRefCount(key);
                 continue;
             }
-            snprintf(buf,sizeof(buf),"value:%lu",j);
+            snprintf(buf,sizeof(buf),"value:%Iu",j);                            WIN_PORT_FIX /* %lu -> %Iu */
             val = createStringObject(buf,strlen(buf));
             dbAdd(c->db,key,val);
             decrRefCount(key);
