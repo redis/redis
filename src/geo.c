@@ -580,7 +580,7 @@ void georadiusByMemberCommand(redisClient *c) {
     georadiusGeneric(c, RADIUS_MEMBER);
 }
 
-/* GEODECODE long lat */
+/* GEODECODE score */
 void geodecodeCommand(redisClient *c) {
     GeoHashBits geohash;
     if (getLongLongFromObjectOrReply(c, c->argv[1], (long long *)&geohash.bits,

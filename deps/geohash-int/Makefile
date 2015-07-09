@@ -1,6 +1,6 @@
 STD=
 WARN= -Wall
-OPT= -Ofast
+OPT= -O2
 
 R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
 R_LDFLAGS= $(LDFLAGS)
