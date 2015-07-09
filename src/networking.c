@@ -871,11 +871,10 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     int nwritten = 0, totwritten = 0, objlen;
     size_t objmem;
     robj *o;
-    int result = 0;
-    listIter li;
-    listNode *ln;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
+    listIter li;
+    listNode *ln;
 
     /* move list pointer to last one sent or first in list */
     listRewind(c->reply, &li);
@@ -884,8 +883,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(c->bufpos > c->sentlen || ln != NULL) {
         if (c->bufpos > c->sentlen) {
             nwritten = c->bufpos - c->sentlen;
-            result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,
-                                        el, c, c->buf, sendReplyBufferDone);
+            int result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,
+                                         el, c, c->buf, sendReplyBufferDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE, "Error writing to client: %s", wsa_strerror(errno));
                 freeClient(c);
@@ -907,8 +906,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             /* object ref placed in request, release in sendReplyListDone */
             incrRefCount(o);
-            result = aeWinSocketSend(fd, ((char*)o->ptr), objlen, 
-                                        el, c, o, sendReplyListDone);
+            int result = aeWinSocketSend(fd, ((char*)o->ptr), objlen,
+                                         el, c, o, sendReplyListDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE,
                     "Error writing to client: %s", wsa_strerror(errno));
@@ -936,11 +935,11 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
              zmalloc_used_memory() < server.maxmemory)) break;
     }
     if (totwritten > 0) {
-		/* For clients representing masters we don't count sending data
-		* as an interaction, since we always send REPLCONF ACK commands
-		* that take some time to just fill the socket output buffer.
-		* We just rely on data / pings received for timeout detection. */
-		if (!(c->flags & REDIS_MASTER)) c->lastinteraction = server.unixtime;
+        /* For clients representing masters we don't count sending data
+        * as an interaction, since we always send REPLCONF ACK commands
+        * that take some time to just fill the socket output buffer.
+        * We just rely on data / pings received for timeout detection. */
+        if (!(c->flags & REDIS_MASTER)) c->lastinteraction = server.unixtime;
     }
 }
 #else
