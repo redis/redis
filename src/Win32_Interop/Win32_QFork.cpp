@@ -178,7 +178,6 @@ struct QForkControl {
     LPVOID heapStart;
 
     OperationType typeOfOperation;
-    HANDLE forkedProcessReady;
     HANDLE operationComplete;
     HANDLE operationFailed;
 
@@ -264,8 +263,6 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         // duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
         SmartHandle dupHeapFileHandle(shParent, sfvParentQForkControl->heapMemoryMapFile);
         g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
-        SmartHandle dupForkedProcessReady(shParent, sfvParentQForkControl->forkedProcessReady);
-        g_pQForkControl->forkedProcessReady = dupForkedProcessReady;
         SmartHandle dupOperationComplete(shParent, sfvParentQForkControl->operationComplete);
         g_pQForkControl->operationComplete = dupOperationComplete;
         SmartHandle dupOperationFailed(shParent, sfvParentQForkControl->operationFailed);
@@ -299,9 +296,6 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         if( SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
             throw std::runtime_error("DLMalloc global state copy failed.");
         }
-
-        // signal parent that we are ready
-        SetEvent(g_pQForkControl->forkedProcessReady);
 
         // copy redis globals into fork process
         SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize, g_pQForkControl->globalData.dictHashSeed);
@@ -567,13 +561,6 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         }
 
         g_pQForkControl->typeOfOperation = OperationType::otINVALID;
-        g_pQForkControl->forkedProcessReady = CreateEvent(NULL,TRUE,FALSE,NULL);
-        if (g_pQForkControl->forkedProcessReady == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
-        }
         g_pQForkControl->operationComplete = CreateEvent(NULL,TRUE,FALSE,NULL);
         if (g_pQForkControl->operationComplete == NULL) {
             throw std::system_error(
@@ -775,10 +762,6 @@ BOOL QForkShutdown() {
 
     if( g_pQForkControl != NULL )
     {
-        if (g_pQForkControl->forkedProcessReady != NULL) {
-            CloseHandle(g_pQForkControl->forkedProcessReady);
-            g_pQForkControl->forkedProcessReady = NULL;
-        }
         if (g_pQForkControl->operationComplete != NULL) {
             CloseHandle(g_pQForkControl->operationComplete);
             g_pQForkControl->operationComplete = NULL;
@@ -865,12 +848,6 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
             system_category(), 
             "BeginForkOperation: ResetEvent() failed.");
     }
-    if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
-        throw std::system_error(
-            GetLastError(),
-            system_category(),
-            "BeginForkOperation: ResetEvent() failed.");
-    }
 
     // Launch the "forked" process
     char fileName[MAX_PATH];
@@ -925,14 +902,6 @@ pid_t BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobal
         }
 
         CloseHandle(pi.hThread);
-
-        // wait for "forked" process to map memory
-        if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, cDeadForkWait) != WAIT_OBJECT_0) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "Forked Process did not respond in a timely manner.");
-        }
 
         return pi.dwProcessId;
     }
@@ -1017,7 +986,7 @@ OperationStatus GetForkOperationStatus() {
         return OperationStatus::osFAILED;
     }
 
-    if (g_hForkedProcess && WaitForSingleObject(g_pQForkControl->forkedProcessReady, 0) == WAIT_OBJECT_0) {
+    if (g_hForkedProcess) {
         // Verify if the child process is still running
         if (WaitForSingleObject(g_hForkedProcess, 0) == WAIT_OBJECT_0) {
             // The child process is not running, close the handle and report the status
@@ -1166,12 +1135,6 @@ BOOL EndForkOperation(int * pExitCode) {
             throw std::system_error(
                 GetLastError(),
                 system_category(), 
-                "EndForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
                 "EndForkOperation: ResetEvent() failed.");
         }
 
