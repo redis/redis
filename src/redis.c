@@ -285,8 +285,6 @@ struct redisCommand redisCommandTable[] = {
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
     {"georadius",georadiusCommand,-6,"r",0,NULL,1,1,1,0,0},
     {"georadiusbymember",georadiusByMemberCommand,-5,"r",0,NULL,1,1,1,0,0},
-    {"geoencode",geoencodeCommand,-3,"r",0,NULL,0,0,0,0,0},
-    {"geodecode",geodecodeCommand,2,"r",0,NULL,0,0,0,0,0},
     {"geohash",geohashCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"geopos",geoposCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"geodist",geodistCommand,-4,"r",0,NULL,0,0,0,0,0},
