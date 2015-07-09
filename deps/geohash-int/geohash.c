@@ -50,9 +50,9 @@
  * From:  https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
  */
 static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
-    static const uint64_t B[] = {0x5555555555555555, 0x3333333333333333,
-                                 0x0F0F0F0F0F0F0F0F, 0x00FF00FF00FF00FF,
-                                 0x0000FFFF0000FFFF};
+    static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
+                                 0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
+                                 0x0000FFFF0000FFFFULL};
     static const unsigned int S[] = {1, 2, 4, 8, 16};
 
     uint64_t x = xlo;
@@ -80,9 +80,9 @@ static inline uint64_t interleave64(uint32_t xlo, uint32_t ylo) {
  * derived from http://stackoverflow.com/questions/4909263
  */
 static inline uint64_t deinterleave64(uint64_t interleaved) {
-    static const uint64_t B[] = {0x5555555555555555, 0x3333333333333333,
-                                 0x0F0F0F0F0F0F0F0F, 0x00FF00FF00FF00FF,
-                                 0x0000FFFF0000FFFF, 0x00000000FFFFFFFF};
+    static const uint64_t B[] = {0x5555555555555555ULL, 0x3333333333333333ULL,
+                                 0x0F0F0F0F0F0F0F0FULL, 0x00FF00FF00FF00FFULL,
+                                 0x0000FFFF0000FFFFULL, 0x00000000FFFFFFFFULL};
     static const unsigned int S[] = {0, 1, 2, 4, 8, 16};
 
     uint64_t x = interleaved;
@@ -225,10 +225,10 @@ static void geohash_move_x(GeoHashBits *hash, int8_t d) {
     if (d == 0)
         return;
 
-    uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaLL;
-    uint64_t y = hash->bits & 0x5555555555555555LL;
+    uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaULL;
+    uint64_t y = hash->bits & 0x5555555555555555ULL;
 
-    uint64_t zz = 0x5555555555555555LL >> (64 - hash->step * 2);
+    uint64_t zz = 0x5555555555555555ULL >> (64 - hash->step * 2);
 
     if (d > 0) {
         x = x + (zz + 1);
@@ -237,7 +237,7 @@ static void geohash_move_x(GeoHashBits *hash, int8_t d) {
         x = x - (zz + 1);
     }
 
-    x &= (0xaaaaaaaaaaaaaaaaLL >> (64 - hash->step * 2));
+    x &= (0xaaaaaaaaaaaaaaaaULL >> (64 - hash->step * 2));
     hash->bits = (x | y);
 }
 
@@ -245,17 +245,17 @@ static void geohash_move_y(GeoHashBits *hash, int8_t d) {
     if (d == 0)
         return;
 
-    uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaLL;
-    uint64_t y = hash->bits & 0x5555555555555555LL;
+    uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaULL;
+    uint64_t y = hash->bits & 0x5555555555555555ULL;
 
-    uint64_t zz = 0xaaaaaaaaaaaaaaaaLL >> (64 - hash->step * 2);
+    uint64_t zz = 0xaaaaaaaaaaaaaaaaULL >> (64 - hash->step * 2);
     if (d > 0) {
         y = y + (zz + 1);
     } else {
         y = y | zz;
         y = y - (zz + 1);
     }
-    y &= (0x5555555555555555LL >> (64 - hash->step * 2));
+    y &= (0x5555555555555555ULL >> (64 - hash->step * 2));
     hash->bits = (x | y);
 }
 
