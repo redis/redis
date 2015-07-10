@@ -1416,6 +1416,7 @@ void psetexCommand(redisClient *c);
 void getCommand(redisClient *c);
 void delCommand(redisClient *c);
 void existsCommand(redisClient *c);
+void existsanyCommand(redisClient *c);
 void setbitCommand(redisClient *c);
 void getbitCommand(redisClient *c);
 void setrangeCommand(redisClient *c);

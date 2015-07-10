@@ -327,6 +327,20 @@ void existsCommand(redisClient *c) {
     }
 }
 
+void existsanyCommand(redisClient *c) {
+    int j;
+    int exists = 0;
+
+    for (j = 1; j < c->argc; j++) {
+        expireIfNeeded(c->db,c->argv[j]);
+        if (dbExists(c->db,c->argv[j])) {
+            exists = 1;
+            break;
+        }
+    }
+    addReply(c, exists > 0 ? shared.cone : shared.czero); 
+}
+
 void selectCommand(redisClient *c) {
     long id;
 

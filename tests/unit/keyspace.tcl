@@ -49,6 +49,18 @@ start_server {tags {"keyspace"}} {
         append res [r exists newkey]
     } {10}
 
+    test {EXISTSANY} {
+        set res {}
+        append res [r existsany keyone keytwo]
+        r set keyone test
+        append res [r existsany keyone keytwo]
+        r set keytwo test
+        append res [r existsany keyone keytwo]
+        r del keyone
+        r del keytwo
+        append res [r existsany keyone keytwo]
+    } {0110}
+
     test {Zero length value in key. SET/GET/EXISTS} {
         r set emptykey {}
         set res [r get emptykey]
