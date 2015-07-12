@@ -31,9 +31,7 @@
 #endif
 
 #include "redis.h"
-#ifndef _WIN32
-#include <sys/uio.h>
-#endif
+POSIX_ONLY(#include <sys/uio.h>)
 #include <math.h>
 
 static void setProtocolError(redisClient *c, int pos);
