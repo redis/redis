@@ -22,14 +22,10 @@
 
 /* IOCP-based ae.c module  */
 
-#include <string.h>
-#include "ae.h"
 #include "win32_Interop/win32fixes.h"
 #include "zmalloc.h"
 #include "adlist.h"
 #include "win32_Interop/win32_wsiocp.h"
-#include <mswsock.h>
-#include <Guiddef.h>
 
 /* Use GetQueuedCompletionStatusEx if possible.
  * Try to load the function pointer dynamically.
@@ -44,13 +40,12 @@ typedef BOOL (WINAPI *sGetQueuedCompletionStatusEx)
               BOOL fAlertable);
 sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
 
-/* lookup structure for socket
- * socket value is not an index. Convert socket to index
-  * and then find matching structure in list */
+/* Lookup structure for socket. Socket value is not an index.
+ * Convert socket to index and then find matching structure in list */
 
 #define MAX_SOCKET_LOOKUP   65535
 
-/* structure that keeps state of sockets and Completion port handle */
+/* Structure that keeps state of sockets and Completion port handle */
 typedef struct aeApiState {
     HANDLE iocp;
     int setsize;
@@ -59,21 +54,14 @@ typedef struct aeApiState {
     list closing;
 } aeApiState;
 
-/* uses virtual FD as an index */
-int aeSocketIndex(int fd) {
-    return fd;
-}
-
-/* get data for socket / fd being monitored. Create if not found*/
+/* Get data for socket/fd being monitored. Create if not found */
 aeSockState *aeGetSockState(void *apistate, int fd) {
-    int sindex;
     listNode *node;
     list *socklist;
     aeSockState *sockState;
     if (apistate == NULL) return NULL;
 
-    sindex = aeSocketIndex(fd);
-    socklist = &(((aeApiState *)apistate)->lookup[sindex]);
+    socklist = &(((aeApiState *)apistate)->lookup[fd]);
     node = listFirst(socklist);
     while (node != NULL) {
         sockState = (aeSockState *)listNodeValue(node);
@@ -101,16 +89,14 @@ aeSockState *aeGetSockState(void *apistate, int fd) {
     return NULL;
 }
 
-/* get data for socket / fd being monitored */
+/* Get data for socket/fd being monitored */
 aeSockState *aeGetExistingSockState(void *apistate, int fd) {
-    int sindex;
     listNode *node;
     list *socklist;
     aeSockState *sockState;
     if (apistate == NULL) return NULL;
 
-    sindex = aeSocketIndex(fd);
-    socklist = &(((aeApiState *)apistate)->lookup[sindex]);
+    socklist = &(((aeApiState *)apistate)->lookup[fd]);
     node = listFirst(socklist);
     while (node != NULL) {
         sockState = (aeSockState *)listNodeValue(node);
@@ -123,26 +109,26 @@ aeSockState *aeGetExistingSockState(void *apistate, int fd) {
     return NULL;
 }
 
-// find matching value in list and remove. If found return 1
-int removeMatchFromList(list *socklist, void *value) {
-    listNode *node;
-    if (socklist == NULL) return 0;
-    node = listFirst(socklist);
+/* Find matching value in list and remove. If found return 1. */
+BOOL removeMatchFromList(list *socklist, void *value) {
+    if (socklist == NULL) {
+        return FALSE;
+    }
+    listNode *node = listFirst(socklist);
     while (node != NULL) {
         if (listNodeValue(node) == value) {
             listDelNode(socklist, node);
-            return 1;
+            return TRUE;
         }
         node = listNextNode(node);
     }
-    return 0;
+    return FALSE;
 }
 
-/* delete data for socket / fd being monitored
+/* Delete data for socket / fd being monitored
    or move to the closing queue if operations are pending.
    Return 1 if deleted or not found, 0 if pending*/
 void aeDelSockState(void *apistate, aeSockState *sockState) {
-    int sindex;
     list *socklist;
 
     if (apistate == NULL) return;
@@ -150,23 +136,21 @@ void aeDelSockState(void *apistate, aeSockState *sockState) {
     if (sockState->wreqs == 0 &&
             (sockState->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED | CLOSE_PENDING)) == 0) {
         // see if in active list
-        sindex = aeSocketIndex(sockState->fd);
-        socklist = &(((aeApiState *)apistate)->lookup[sindex]);
-        if (removeMatchFromList(socklist, sockState) == 1) {
+        socklist = &(((aeApiState *) apistate)->lookup[sockState->fd]);
+        if (removeMatchFromList(socklist, sockState) == TRUE) {
             zfree(sockState);
             return;
         }
         // try closing list
         socklist = &(((aeApiState *)apistate)->closing);
-        if (removeMatchFromList(socklist, sockState) == 1) {
+        if (removeMatchFromList(socklist, sockState) == TRUE) {
             zfree(sockState);
             return;
         }
     } else {
         // not safe to delete. Move to closing
-        sindex = aeSocketIndex(sockState->fd);
-        socklist = &(((aeApiState *)apistate)->lookup[sindex]);
-        if (removeMatchFromList(socklist, sockState) == 1) {
+        socklist = &(((aeApiState *) apistate)->lookup[sockState->fd]);
+        if (removeMatchFromList(socklist, sockState) == TRUE) {
             // removed from active list. add to closing list
             socklist = &(((aeApiState *)apistate)->closing);
             listAddNodeHead(socklist, sockState);
@@ -213,7 +197,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 }
 
 
-/* termination */
+/* Termination */
 static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     CloseHandle(state->iocp);
@@ -221,7 +205,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeWinCleanup();
 }
 
-/* monitor state changes for a socket */
+/* Monitor state changes for a socket */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     aeSockState *sockstate = aeGetSockState(state, fd);
@@ -266,7 +250,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     return 0;
 }
 
-/* stop monitoring state changes for a socket */
+/* Stop monitoring state changes for a socket */
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     aeSockState *sockstate = aeGetExistingSockState(state, fd);
@@ -279,7 +263,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) sockstate->masks &= ~AE_WRITABLE;
 }
 
-/* return array of sockets that are ready for read or write 
+/* Return array of sockets that are ready for read or write
    depending on the mask for each socket */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
@@ -356,10 +340,10 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         aeApiAddEvent(eventLoop, rfd, sockstate->masks);
                     }
                 } else {
-                    int matched = 0;
+                    BOOL matched = FALSE;
                     /* check if event is read complete (may be 0 length read) */
                     if (entry->lpOverlapped == &sockstate->ov_read) {
-                        matched = 1;
+                        matched = TRUE;
                         sockstate->masks &= ~READ_QUEUED;
                         if (sockstate->masks & AE_READABLE) {
                             eventLoop->fired[numevents].fd = rfd;
@@ -388,7 +372,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             }
                         }
                     }
-                    if (matched == 0) {
+                    if (!matched) {
                         /* redisLog */printf("Sec:%lld Unknown complete (closed) on %d\n", gettimeofdaysecs(NULL), rfd);
                         sockstate = NULL;
                     }
@@ -437,7 +421,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     return numevents;
 }
 
-/* name of this event handler */
+/* Name of this event handler */
 static char *aeApiName(void) {
     return "winsock_IOCP";
 }
