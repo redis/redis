@@ -37,13 +37,11 @@ static fnGetSockState * aeGetSockState;
 static fnGetSockState * aeGetExistingSockState;
 static fnDelSockState * aeDelSockState;
 
-#define SUCCEEDED_WITH_IOCP(result)                        \
-  ((result) || (GetLastError() == ERROR_IO_PENDING))
+#define SUCCEEDED_WITH_IOCP(result) ((result) || (GetLastError() == ERROR_IO_PENDING))
 
 /* for zero length reads use shared buf */
 static DWORD wsarecvflags;
 static char zreadchar[1];
-
 
 int aeWinQueueAccept(int listenfd) {
     aeSockState *sockstate;
@@ -146,7 +144,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     sockstate->reqs = areq->next;
 
-    acceptfd = (int)areq->accept;
+    acceptfd = (int) areq->accept;
 
     result = FDAPI_UpdateAcceptContext(acceptfd);
     if (result == SOCKET_ERROR) {
@@ -155,14 +153,15 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     }
 
     locallen = *len;
-    FDAPI_GetAcceptExSockaddrs(
-                    acceptfd,
-                    areq->buf,
-                    0,
-                    sizeof(struct sockaddr_storage),
-                    sizeof(struct sockaddr_storage),
-                    &plocalsa, &locallen,
-                    &premotesa, &remotelen);
+    FDAPI_GetAcceptExSockaddrs(acceptfd,
+                               areq->buf,
+                               0,
+                               sizeof(struct sockaddr_storage),
+                               sizeof(struct sockaddr_storage),
+                               &plocalsa,
+                               &locallen,
+                               &premotesa,
+                               &remotelen);
 
     locallen = remotelen < *len ? remotelen : *len;
     memcpy(sa, premotesa, locallen);
@@ -463,7 +462,7 @@ int aeWinSocketAttach(int fd) {
     return 0;
 }
 
-void aeShutdown(int fd) {
+void aeWinShutdown(int fd) {
     char rbuf[100];
     PORT_LONGLONG waitmsecs = 50;      /* wait up to 50 millisecs */
     PORT_LONGLONG endms;
@@ -497,7 +496,7 @@ int aeWinCloseSocket(int fd) {
         return 0;
     }
 
-    aeShutdown(fd);
+    aeWinShutdown(fd);
     sockstate->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
 
     if (sockstate->wreqs == 0 &&

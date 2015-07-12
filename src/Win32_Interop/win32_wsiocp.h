@@ -23,7 +23,6 @@
 #ifndef WIN32WSIOCP_H
 #define WIN32WSIOCP_H
 
-#ifdef _WIN32
 /* structs and functions for using IOCP with windows sockets */
 
 /* structure used for async write requests.
@@ -72,5 +71,4 @@ typedef void fnDelSockState(void *apistate, aeSockState *sockState);
 void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnGetSockState *getExistingSockState, fnDelSockState *delSockState);
 void aeWinCleanup();
 
-#endif
 #endif
