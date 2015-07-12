@@ -22,59 +22,35 @@
 #define REDIS_NOTUSED(V) ((void) V)
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
-/* Winsock requires library initialization on startup  */
-/* now handled in Win32FDAPI_Init.cpp 
-*
-int w32initWinSock(void) {
-
-    WSADATA t_wsa;
-    WORD wVers;
-    int iError;
-
-    wVers = MAKEWORD(2, 2);
-    iError = WSAStartup(wVers, &t_wsa);
-
-    if(iError != NO_ERROR || LOBYTE(t_wsa.wVersion) != 2 || HIBYTE(t_wsa.wVersion) != 2 ) {
-        return 0; // not done; check WSAGetLastError() for error number
-    };
-
-    return 1;
-}
-*/
-
 /* Behaves as posix, works without ifdefs, makes compiler happy */
 int sigaction(int sig, struct sigaction *in, struct sigaction *out) {
     REDIS_NOTUSED(out);
 
     /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
      * is used. Otherwise, sa_handler is used */
-    if (in->sa_flags & SA_SIGINFO)
+    if (in->sa_flags & SA_SIGINFO) {
         signal(sig, in->sa_sigaction);
-    else
+    } else {
         signal(sig, in->sa_handler);
-
+    }
     return 0;
 }
 
 /* Terminates process, implemented only for SIGKILL */
 int kill(pid_t pid, int sig) {
-
     if (sig == SIGKILL) {
-
         HANDLE h = OpenProcess(PROCESS_TERMINATE, 0, pid);
-
         if (!TerminateProcess(h, 127)) {
             errno = EINVAL; /* GetLastError() */
             CloseHandle(h);
             return -1;
         };
-
         CloseHandle(h);
         return 0;
     } else {
         errno = EINVAL;
         return -1;
-    };
+    }
 }
 
 /* Missing wait3() implementation */
@@ -136,8 +112,7 @@ int replace_rename(const char *src, const char *dst) {
 }
 
 /* Proxy structure to pass func and arg to thread */
-typedef struct thread_params
-{
+typedef struct thread_params {
     void *(*func)(void *);
     void * arg;
 } thread_params;
@@ -159,8 +134,7 @@ static unsigned __stdcall win32_proxy_threadproc(void *arg) {
     return 0;
 }
 
-int pthread_create(pthread_t *thread, const void *unused,
-           void *(*start_routine)(void*), void *arg) {
+int pthread_create(pthread_t *thread, const void *unused, void *(*start_routine)(void*), void *arg) {
     HANDLE h;
     thread_params *params = (thread_params *)malloc(sizeof(thread_params));
     REDIS_NOTUSED(unused);
@@ -168,13 +142,13 @@ int pthread_create(pthread_t *thread, const void *unused,
     params->func = start_routine;
     params->arg  = arg;
 
-    h =(HANDLE) _beginthreadex(NULL,  /* Security not used */
-                               REDIS_THREAD_STACK_SIZE, /* Set custom stack size */
-                               win32_proxy_threadproc,  /* calls win32 stdcall proxy */
-                               params, /* real threadproc is passed as paremeter */
-                               STACK_SIZE_PARAM_IS_A_RESERVATION,  /* reserve stack */
-                               thread /* returned thread id */
-                );
+    h = (HANDLE)_beginthreadex(NULL,                              /* Security not used */
+                               REDIS_THREAD_STACK_SIZE,           /* Set custom stack size */
+                               win32_proxy_threadproc,            /* calls win32 stdcall proxy */
+                               params,                            /* real threadproc is passed as paremeter */
+                               STACK_SIZE_PARAM_IS_A_RESERVATION, /* reserve stack */
+                               thread                             /* returned thread id */
+                               );
 
     if (!h)
         return errno;
@@ -210,7 +184,7 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset) {
   return 0;
 }
 
-int win32_pthread_join(pthread_t *thread, void **value_ptr)  {
+int win32_pthread_join(pthread_t *thread, void **value_ptr) {
     int result;
     HANDLE h = OpenThread(SYNCHRONIZE, FALSE, *thread);
     REDIS_NOTUSED(value_ptr);
@@ -290,21 +264,21 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
         LeaveCriticalSection(&cond->waiters_lock);
 
         if (last_waiter) {
-                /*
-                 * cond_broadcast was issued while mutex was held. This means
-                 * that all other waiters have continued, but are contending
-                 * for the mutex at the end of this function because the
-                 * broadcasting thread did not leave cond_broadcast, yet.
-                 * (This is so that it can be sure that each waiter has
-                 * consumed exactly one slice of the semaphor.)
-                 * The last waiter must tell the broadcasting thread that it
-                 * can go on.
-                 */
-                SetEvent(cond->continue_broadcast);
-                /*
-                 * Now we go on to contend with all other waiters for
-                 * the mutex. Auf in den Kampf!
-                 */
+            /*
+             * cond_broadcast was issued while mutex was held. This means
+             * that all other waiters have continued, but are contending
+             * for the mutex at the end of this function because the
+             * broadcasting thread did not leave cond_broadcast, yet.
+             * (This is so that it can be sure that each waiter has
+             * consumed exactly one slice of the semaphor.)
+             * The last waiter must tell the broadcasting thread that it
+             * can go on.
+             */
+            SetEvent(cond->continue_broadcast);
+            /*
+             * Now we go on to contend with all other waiters for
+             * the mutex. Auf in den Kampf!
+             */
         }
         /* lock external mutex again */
         EnterCriticalSection(mutex);
@@ -341,64 +315,62 @@ int pthread_cond_signal(pthread_cond_t *cond) {
 /* child process will have data snapshot.   */
 /* Windows has no support for fork().       */
 int fork(void) {
-  return -1;
- }
+    return -1;
+}
 
 /* Redis CPU GetProcessTimes -> rusage  */
 int getrusage(int who, struct rusage * r) {
+    FILETIME starttime, exittime, kerneltime, usertime;
+    ULARGE_INTEGER li;
 
-   FILETIME starttime, exittime, kerneltime, usertime;
-   ULARGE_INTEGER li;
+    if (r == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
 
-   if (r == NULL) {
-       errno = EFAULT;
-       return -1;
-   }
+    memset(r, 0, sizeof(struct rusage));
 
-   memset(r, 0, sizeof(struct rusage));
+    if (who == RUSAGE_SELF) {
+        if (!GetProcessTimes(GetCurrentProcess(),
+            &starttime,
+            &exittime,
+            &kerneltime,
+            &usertime))
+        {
+            errno = EFAULT;
+            return -1;
+        }
+    }
 
-   if (who == RUSAGE_SELF) {
-     if (!GetProcessTimes(GetCurrentProcess(),
-                        &starttime,
-                        &exittime,
-                        &kerneltime,
-                        &usertime))
-     {
-         errno = EFAULT;
-         return -1;
-     }
-   }
-
-   if (who == RUSAGE_CHILDREN) {
+    if (who == RUSAGE_CHILDREN) {
         /* Childless on windows */
         starttime.dwLowDateTime = 0;
         starttime.dwHighDateTime = 0;
         exittime.dwLowDateTime = 0;
         exittime.dwHighDateTime = 0;
-        kerneltime.dwLowDateTime  = 0;
-        kerneltime.dwHighDateTime  = 0;
+        kerneltime.dwLowDateTime = 0;
+        kerneltime.dwHighDateTime = 0;
         usertime.dwLowDateTime = 0;
         usertime.dwHighDateTime = 0;
-   }
+    }
     memcpy(&li, &kerneltime, sizeof(FILETIME));
     li.QuadPart /= 10L;
-    r->ru_stime.tv_sec = (long)(li.QuadPart / 1000000L);
-    r->ru_stime.tv_usec = (long)(li.QuadPart % 1000000L);
+    r->ru_stime.tv_sec = (long) (li.QuadPart / 1000000L);
+    r->ru_stime.tv_usec = (long) (li.QuadPart % 1000000L);
 
     memcpy(&li, &usertime, sizeof(FILETIME));
     li.QuadPart /= 10L;
-    r->ru_utime.tv_sec = (long)(li.QuadPart / 1000000L);
-    r->ru_utime.tv_usec = (long)(li.QuadPart % 1000000L);
+    r->ru_utime.tv_sec = (long) (li.QuadPart / 1000000L);
+    r->ru_utime.tv_usec = (long) (li.QuadPart % 1000000L);
 
     return 0;
 }
 
 #define DELTA_EPOCH_IN_MICROSECS  11644473600000000Ui64
 
-struct timezone
-{
-  int  tz_minuteswest; /* minutes W of Greenwich */
-  int  tz_dsttime;     /* type of dst correction */
+struct timezone {
+    int  tz_minuteswest; /* minutes W of Greenwich */
+    int  tz_dsttime;     /* type of dst correction */
 };
 
 /* fnGetSystemTimePreciseAsFileTime is NULL if and only if it hasn't been initialized. */
@@ -411,8 +383,7 @@ static VOID (WINAPI *fnGetSystemTimePreciseAsFileTime)(LPFILETIME) = NULL;
  */
 static double highResTimeInterval = 0;
 
-void InitHighResRelativeTime()
-{
+void InitHighResRelativeTime() {
     LARGE_INTEGER perfFrequency;
 
     if (highResTimeInterval != 0)
@@ -430,8 +401,7 @@ void InitHighResRelativeTime()
     assert(highResTimeInterval != 0);
 }
 
-void InitHighResAbsoluteTime()
-{
+void InitHighResAbsoluteTime() {
     FARPROC fp;
     HMODULE module;
 
@@ -451,8 +421,7 @@ void InitHighResAbsoluteTime()
     assert(fnGetSystemTimePreciseAsFileTime != NULL);
 }
 
-void InitTimeFunctions()
-{
+void InitTimeFunctions() {
     InitHighResRelativeTime();
     InitHighResAbsoluteTime();
 }
@@ -482,8 +451,7 @@ uint64_t GetHighResRelativeTime(double scale) {
   return (uint64_t) ((double)counter.QuadPart * highResTimeInterval * scale);
 }
 
-time_t gettimeofdaysecs(unsigned int *usec)
-{
+time_t gettimeofdaysecs(unsigned int *usec) {
     FILETIME ft;
     time_t tmpres = 0;
 
@@ -496,18 +464,18 @@ time_t gettimeofdaysecs(unsigned int *usec)
     /*converting file time to unix epoch*/
     tmpres /= 10;  /*convert into microseconds*/
     tmpres -= DELTA_EPOCH_IN_MICROSECS;
-    if (usec != NULL) *usec = (unsigned int)(tmpres % 1000000UL);
+    if (usec != NULL) {
+        *usec = (unsigned int) (tmpres % 1000000UL);
+    }
     return (tmpres / 1000000UL);
 }
 
-int gettimeofday_fast(struct timeval *tv, struct timezone *tz)
-{
+int gettimeofday_fast(struct timeval *tv, struct timezone *tz) {
     FILETIME ft;
     unsigned __int64 tmpres = 0;
     static int tzflag;
 
-    if (NULL != tv)
-    {
+    if (NULL != tv) {
         GetSystemTimeAsFileTime(&ft);
 
         tmpres |= ft.dwHighDateTime;
@@ -521,8 +489,7 @@ int gettimeofday_fast(struct timeval *tv, struct timezone *tz)
         tv->tv_usec = (long)(tmpres % 1000000UL);
     }
 
-    if (NULL != tz)
-    {
+    if (NULL != tz) {
         if (!tzflag)
         {
             _tzset();
@@ -535,85 +502,87 @@ int gettimeofday_fast(struct timeval *tv, struct timezone *tz)
     return 0;
 }
 
-int gettimeofday_highres(struct timeval *tv, struct timezone *tz)
-{
-  FILETIME ft;
-  unsigned __int64 tmpres = 0;
-  static int tzflag;
+int gettimeofday_highres(struct timeval *tv, struct timezone *tz) {
+    FILETIME ft;
+    unsigned __int64 tmpres = 0;
+    static int tzflag;
 
-  if (NULL == fnGetSystemTimePreciseAsFileTime) {
-      InitHighResAbsoluteTime();
-  }
+    if (NULL == fnGetSystemTimePreciseAsFileTime) {
+        InitHighResAbsoluteTime();
+    }
 
-  if (NULL != tv)
-  {
-      fnGetSystemTimePreciseAsFileTime(&ft);
+    if (NULL != tv) {
+        fnGetSystemTimePreciseAsFileTime(&ft);
 
-      tmpres |= ft.dwHighDateTime;
-      tmpres <<= 32;
-      tmpres |= ft.dwLowDateTime;
+        tmpres |= ft.dwHighDateTime;
+        tmpres <<= 32;
+        tmpres |= ft.dwLowDateTime;
 
-      /*converting file time to unix epoch*/
-      tmpres /= 10;  /*convert into microseconds*/
-      tmpres -= DELTA_EPOCH_IN_MICROSECS; 
-      tv->tv_sec = (long)(tmpres / 1000000UL);
-      tv->tv_usec = (long)(tmpres % 1000000UL);
-  }
+        /*converting file time to unix epoch*/
+        tmpres /= 10;  /*convert into microseconds*/
+        tmpres -= DELTA_EPOCH_IN_MICROSECS;
+        tv->tv_sec = (long) (tmpres / 1000000UL);
+        tv->tv_usec = (long) (tmpres % 1000000UL);
+    }
 
-  if (NULL != tz)
-  {
-      if (!tzflag)
-      {
-          _tzset();
-          tzflag++;
-      }
-      tz->tz_minuteswest = _timezone / 60;
-      tz->tz_dsttime = _daylight;
-  }
+    if (NULL != tz) {
+        if (!tzflag) {
+            _tzset();
+            tzflag++;
+        }
+        tz->tz_minuteswest = _timezone / 60;
+        tz->tz_dsttime = _daylight;
+    }
 
-  return 0;
+    return 0;
 }
 
 static _locale_t clocale = NULL;
 double wstrtod(const char *nptr, char **eptr) {
     double d;
     char *leptr;
-    if (clocale == NULL)
+    if (clocale == NULL) {
         clocale = _create_locale(LC_ALL, "C");
+    }
     d = _strtod_l(nptr, &leptr, clocale);
     /* if 0, check if input was inf */
     if (d == 0 && nptr == leptr) {
         int neg = 0;
-        while (isspace(*nptr))
+        while (isspace(*nptr)) {
             nptr++;
-        if (*nptr == '+')
+        }
+        if (*nptr == '+') {
             nptr++;
-        else if (*nptr == '-') {
+        } else if (*nptr == '-') {
             nptr++;
             neg = 1;
         }
 
         if (_strnicmp("INF", nptr, 3) == 0) {
             if (eptr != NULL) {
-                if (_strnicmp("INFINITE", nptr, 8) == 0)
-                    *eptr = (char*)(nptr + 8);
-                else
-                    *eptr = (char*)(nptr + 3);
+                if (_strnicmp("INFINITE", nptr, 8) == 0) {
+                    *eptr = (char*) (nptr + 8);
+                } else {
+                    *eptr = (char*) (nptr + 3);
+                }
             }
-            if (neg == 1)
+            if (neg == 1) {
                 return -HUGE_VAL;
-            else
+            } else {
                 return HUGE_VAL;
+            }
         } else if (_strnicmp("NAN", nptr, 3) == 0) {
-            if (eptr != NULL)
-                *eptr = (char*)(nptr + 3);
+            if (eptr != NULL) {
+                *eptr = (char*) (nptr + 3);
+            }
             /* create a NaN : 0 * infinity*/
             d = HUGE_VAL;
             return d * 0;
         }
     }
-    if (eptr != NULL)
+    if (eptr != NULL) {
         *eptr = leptr;
+    }
     return d;
 }
 
@@ -651,7 +620,9 @@ char *wsa_strerror(int err) {
                             wsa_strerror_buf,
                             128,
                             NULL);
-    if (size == 0) return strerror(err);
+    if (size == 0) {
+        return strerror(err);
+    }
     if (size > 2 && wsa_strerror_buf[size - 2] == '\r') {
         /* remove extra CRLF */
         wsa_strerror_buf[size - 2] = '\0';

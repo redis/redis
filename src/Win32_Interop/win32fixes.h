@@ -16,7 +16,6 @@
 #endif
 #endif
 
-#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOGDI
 #define __USE_W32_SOCKETS
@@ -31,8 +30,8 @@
 #include <sys/stat.h>
 #include <windows.h>
 #include <float.h>
-#include <fcntl.h>    /* _O_BINARY */
-#include <limits.h>  /* INT_MAX */
+#include <fcntl.h>      /* _O_BINARY */
+#include <limits.h>     /* INT_MAX */
 #include <process.h>
 #include <sys/types.h>
 
@@ -43,11 +42,12 @@
 #define fseeko fseeko64
 #define ftello ftello64
 
-#define snprintf _snprintf
-#define ftello64 _ftelli64
-#define fseeko64 _fseeki64
-#define strcasecmp _stricmp
-#define strtoll _strtoi64
+#define snprintf    _snprintf
+#define ftello64    _ftelli64
+#define fseeko64    _fseeki64
+#define strcasecmp  _stricmp
+#define strtoll     _strtoi64
+
 #if _MSC_VER < 1800
 #define isnan _isnan
 #define isfinite _finite
@@ -55,6 +55,7 @@
 #else
 #include <math.h>
 #endif
+
 /* following defined to choose little endian byte order */
 #define __i386__ 1
 #if !defined(va_copy)
@@ -74,7 +75,6 @@ RtlGenRandomFunc RtlGenRandom;
 #define srandom srand
 int replace_random();
 
-
 #if !defined(mode_t)
 #define mode_t long
 #endif
@@ -85,9 +85,9 @@ typedef unsigned __int32 u_int32_t;
 #endif
 
 /* Redis calls usleep(1) to give thread some time
-* Sleep(0) should do the same on windows
-* In other cases, usleep is called with milisec resolution,
-* which can be directly translated to winapi Sleep() */
+ * Sleep(0) should do the same on windows
+ * In other cases, usleep is called with milisec resolution,
+ * which can be directly translated to winapi Sleep() */
 #undef usleep
 #define usleep(x) (x == 1) ? Sleep(0) : Sleep((int)((x)/1000))
 
@@ -95,11 +95,11 @@ typedef unsigned __int32 u_int32_t;
 #define waitpid(pid,statusp,options) _cwait (statusp, pid, WAIT_CHILD)
 
 #define WAIT_T int
-#define WTERMSIG(x) ((x) & 0xff) /* or: SIGABRT ?? */
+#define WTERMSIG(x) ((x) & 0xff)            /* or: SIGABRT ?? */
 #define WCOREDUMP(x) 0
-#define WEXITSTATUS(x) (((x) >> 8) & 0xff) /* or: (x) ?? */
-#define WIFSIGNALED(x) (WTERMSIG (x) != 0) /* or: ((x) == 3) ?? */
-#define WIFEXITED(x) (WTERMSIG (x) == 0) /* or: ((x) != 3) ?? */
+#define WEXITSTATUS(x) (((x) >> 8) & 0xff)  /* or: (x) ?? */
+#define WIFSIGNALED(x) (WTERMSIG (x) != 0)  /* or: ((x) == 3) ?? */
+#define WIFEXITED(x) (WTERMSIG (x) == 0)    /* or: ((x) != 3) ?? */
 #define WIFSTOPPED(x) 0
 
 #define WNOHANG 1
@@ -147,7 +147,7 @@ int getrusage(int who, struct rusage * rusage);
 #define SIGABRT 22
 /* #define SIGSTOP	24 /*Pause the process; cannot be trapped*/
 /* #define SIGTSTP	25 /*Terminal stop	Pause the process; can be trapped*/
-/* #define SIGCONT	26 */
+/* #define SIGCONT	26 /* */
 #define SIGWINCH 28
 #define SIGUSR1  30
 #define SIGUSR2  31
@@ -165,11 +165,11 @@ int getrusage(int who, struct rusage * rusage);
 #define SA_ONESHOT      SA_RESETHAND
 #define SA_RESTORER     0x04000000
 
-#define sigemptyset(pset)    (*(pset) = 0)
-#define sigfillset(pset)     (*(pset) = (unsigned int)-1)
-#define sigaddset(pset, num) (*(pset) |= (1L<<(num)))
-#define sigdelset(pset, num) (*(pset) &= ~(1L<<(num)))
-#define sigismember(pset, num) (*(pset) & (1L<<(num)))
+#define sigemptyset(pset)       (*(pset) = 0)
+#define sigfillset(pset)        (*(pset) = (unsigned int)-1)
+#define sigaddset(pset, num)    (*(pset) |= (1L<<(num)))
+#define sigdelset(pset, num)    (*(pset) &= ~(1L<<(num)))
+#define sigismember(pset, num)  (*(pset) & (1L<<(num)))
 
 #ifndef SIG_SETMASK
 #define SIG_SETMASK (0)
@@ -182,7 +182,7 @@ typedef	void (*__p_sig_fn_t)(int);
 #ifndef _SIGSET_T_
 #define _SIGSET_T_
 typedef size_t _sigset_t;
-# define sigset_t _sigset_t
+#define sigset_t _sigset_t
 #endif /* _SIGSET_T_ */
 
 struct sigaction {
@@ -213,8 +213,7 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 #define rename(a,b) replace_rename(a,b)
 int replace_rename(const char *src, const char *dest);
 
-//threads avoiding pthread.h
-
+/* threads avoiding pthread.h */
 #define pthread_mutex_t CRITICAL_SECTION
 #define pthread_attr_t ssize_t
 
@@ -231,8 +230,7 @@ int replace_rename(const char *src, const char *dest);
 
 #define pthread_t unsigned int
 
-int pthread_create(pthread_t *thread, const void *unused,
-                    void *(*start_routine)(void*), void *arg);
+int pthread_create(pthread_t *thread, const void *unused, void *(*start_routine)(void*), void *arg);
 
 pthread_t pthread_self(void);
 
@@ -256,13 +254,6 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
 int kill(pid_t pid, int sig);
 pid_t wait3(int *stat_loc, int options, void *rusage);
 
-int w32initWinSock(void);
-/* int inet_aton(const char *cp_arg, struct in_addr *addr) */
-
-/* redis-check-dump  */
-void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset);
-int munmap(void *start, size_t length);
-
 void InitTimeFunctions();
 uint64_t GetHighResRelativeTime(double scale);
 int gettimeofday_fast(struct timeval *tv, struct timezone *tz);
@@ -272,13 +263,11 @@ time_t gettimeofdaysecs(unsigned int *usec);
 
 char *ctime_r(const time_t *clock, char *buf);
 
-/* strtod does not handle Inf and Nan
-We need to do the check before calling strtod */
+/* strtod does not handle Inf and Nan, we need to do the check before calling strtod */
 #undef strtod
 #define strtod(nptr, eptr) wstrtod((nptr), (eptr))
 
 double wstrtod(const char *nptr, char **eptr);
-
 
 /* structs and functions for using IOCP with windows sockets */
 
@@ -290,17 +279,15 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-
-int aeWinSocketAttach(int fd);
-int aeWinCloseSocket(int fd);
-int aeWinReceiveDone(int fd);
-int aeWinSocketSend(int fd, char *buf, int len, 
-                    void *eventLoop, void *client, void *data, void *proc);
+int aeWinSocketAttach(int rfd);
+int aeWinCloseSocket(int rfd);
+int aeWinReceiveDone(int rfd);
+int aeWinSocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
 int aeWinListen(int rfd, int backlog);
-int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
-int aeWinGetPeerName(int fd, struct sockaddr *addr, socklen_t * addrlen);
-int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss);
-int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr);
+int aeWinAccept(int rfd, struct sockaddr *sa, socklen_t *len);
+int aeWinGetPeerName(int rfd, struct sockaddr *addr, socklen_t * addrlen);
+int aeWinSocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
+int aeWinSocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);
@@ -332,5 +319,4 @@ int truncate(const char *path, PORT_LONGLONG length);
 
 #define lseek lseek64
 
-#endif /* WIN32 */
 #endif /* WIN32FIXES_H */
