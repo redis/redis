@@ -32,15 +32,15 @@
 
 #include <stdio.h>
 #include <sys/types.h>
-#ifndef _WIN32
-  #include <sys/time.h>
-  #include <unistd.h> 
-  #include <poll.h>
-#else
+#ifdef _WIN32
   #include <sys/types.h> 
   #include <sys/timeb.h>
   #include "..\..\src\win32_Interop\Win32_FDAPI.h"
-#include "..\..\src\win32_Interop\Win32_Service.h"
+  #include "..\..\src\win32_Interop\Win32_Service.h"
+#else
+  #include <sys/time.h>
+  #include <unistd.h>
+  #include <poll.h>
 #endif
 #include <stdlib.h>
 #include <string.h>
