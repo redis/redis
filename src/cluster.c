@@ -94,7 +94,7 @@ int clusterBumpConfigEpochWithoutConsensus(void);
  * sake of locking if it does not already exist), REDIS_ERR is returned.
  * If the configuration was loaded from the file, REDIS_OK is returned. */
 int clusterLoadConfig(char *filename) {
-    FILE *fp = fopen(filename,"r");
+    FILE *fp = fopen(filename,IF_WIN32("rb", "r"));
     struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
     char *line;
     int maxline, j;
