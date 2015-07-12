@@ -25,7 +25,6 @@
 #include "..\adlist.h"
 #include "..\zmalloc.h"
 #include <mswsock.h>
-#include <Guiddef.h>
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
 #include <errno.h>
