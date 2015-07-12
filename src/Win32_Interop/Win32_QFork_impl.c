@@ -61,7 +61,7 @@ int do_aofSave(char* filename)
 int rdbSaveRioWithEOFMark(rio *rdb, int *error);
 
 // This function is meant to be an exact replica of the fork() child path in rdbSaveToSlavesSockets
-int do_socketSave2(int *fds, int numfds, uint64_t *clientids)
+int do_rdbSaveToSlavesSockets(int *fds, int numfds, uint64_t *clientids)
 {
 #ifndef NO_QFORKIMPL
     int retval;
@@ -138,5 +138,5 @@ int do_socketSave2(int *fds, int numfds, uint64_t *clientids)
 int do_socketSave(int *fds, int numfds, uint64_t *clientids, int pipe_write_fd)
 {
     server.rdb_pipe_write_result_to_parent = pipe_write_fd;
-    return do_socketSave2(fds, numfds, clientids);
+    return do_rdbSaveToSlavesSockets(fds, numfds, clientids);
 }
