@@ -866,7 +866,7 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     sprintf_s(
         arguments,
         _MAX_PATH,
-        "\"%s\" --%s %llu %Iu --%s \"%s\"",
+        "\"%s\" --%s %llu %lu --%s \"%s\"",
         fileName,
         cQFork.c_str(),
         (uint64_t)g_hQForkControlFileMap,
@@ -1229,8 +1229,7 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
     return retPtr;
 }
 
-BOOL FreeHeapBlock(LPVOID block, size_t size)
-{
+BOOL FreeHeapBlock(LPVOID block, size_t size) {
     totalFreeCalls++;
     if (size == 0) {
         return FALSE;
