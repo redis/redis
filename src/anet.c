@@ -647,11 +647,7 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
-#ifdef WIN32_IOCP
-    if (aeWinGetPeerName(fd,(struct sockaddr*)&sa,&salen) == -1) {
-#else
     if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) {
-#endif
         if (port) *port = 0;
         ip[0] = '?';
         ip[1] = '\0';
