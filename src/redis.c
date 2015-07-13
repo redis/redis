@@ -133,6 +133,7 @@ struct redisCommand redisCommandTable[] = {
     {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"existsany",existsanyCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0},
