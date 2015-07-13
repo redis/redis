@@ -32,7 +32,7 @@
 using namespace std;
 
 typedef struct {
-     bool IsBlockingSocket;
+    int flags;
 } RedisSocketState;
 
 typedef int RFD;   // Redis File Descriptor
