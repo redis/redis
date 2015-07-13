@@ -125,9 +125,10 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     aeSockState *sockstate;
     int acceptfd;
     int result;
-    SOCKADDR *plocalsa;
-    SOCKADDR *premotesa;
-    int locallen, remotelen;
+    SOCKADDR *plocalsa = NULL;
+    SOCKADDR *premotesa = NULL;
+    int locallen = 0;
+    int remotelen = 0;
     aacceptreq * areq;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
@@ -151,7 +152,6 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
         return SOCKET_ERROR;
     }
 
-    locallen = *len;
     FDAPI_GetAcceptExSockaddrs(
                     acceptfd,
                     areq->buf,
@@ -161,9 +161,16 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
                     &plocalsa, &locallen,
                     &premotesa, &remotelen);
 
-    locallen = remotelen < *len ? remotelen : *len;
-    memcpy(sa, premotesa, locallen);
-    *len = locallen;
+    if (sa != NULL) {
+        if (remotelen > 0) {
+            if (remotelen < *len) {
+                *len = remotelen;
+            }
+            memcpy(sa, premotesa, *len);
+        } else {
+            *len = 0;
+        }
+    }
 
     aeWinSocketAttach(acceptfd);
 
