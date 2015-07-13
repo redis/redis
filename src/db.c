@@ -293,13 +293,17 @@ void delCommand(redisClient *c) {
     addReplyLongLong(c,deleted);
 }
 
+/* EXISTS key1 key2 ... key_N.
+ * Return value is the number of keys existing. */
 void existsCommand(redisClient *c) {
-    expireIfNeeded(c->db,c->argv[1]);
-    if (dbExists(c->db,c->argv[1])) {
-        addReply(c, shared.cone);
-    } else {
-        addReply(c, shared.czero);
+    long long count = 0;
+    int j;
+
+    for (j = 1; j < c->argc; j++) {
+        expireIfNeeded(c->db,c->argv[j]);
+        if (dbExists(c->db,c->argv[j])) count++;
     }
+    addReplyLongLong(c,count);
 }
 
 void selectCommand(redisClient *c) {
