@@ -875,11 +875,11 @@ void configSetCommand(redisClient *c) {
       "activerehashing",server.activerehashing) {
     } config_set_bool_field(
       "stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err) {
-    } config_set_bool_field(
-      "tcp-keepalive",server.tcpkeepalive) {
 
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
+    } config_set_numerical_field(
+      "tcp-keepalive",server.tcpkeepalive,0,LLONG_MAX) {
     } config_set_numerical_field(
       "maxmemory-samples",server.maxmemory_samples,1,LLONG_MAX) {
     } config_set_numerical_field(
@@ -1088,9 +1088,9 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("cluster-migration-barrier",server.cluster_migration_barrier);
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
+    config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
 
     /* Bool (yes/no) values */
-    config_get_bool_field("tcp-keepalive",server.tcpkeepalive);
     config_get_bool_field("cluster-require-full-coverage",
             server.cluster_require_full_coverage);
     config_get_bool_field("no-appendfsync-on-rewrite",
