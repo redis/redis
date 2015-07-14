@@ -1,6 +1,35 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
 
+--[ Redis on Windows 2.8.2101 ] Release date: Jul 15 215
+
+ - [Change] New release number scheme because the MSI installer supports only 3 groups of digits.
+ - [Fix] deleting char** correctly (@zeliard)
+ - [Fix] BeginForkOperation_Aof()/_Rdb()/_Socket() and BeginForkOperation() code refactoring.
+ - [Fix] rewriteAppendOnlyFileBackground() code refactoring to minimize the code changes for WIN32.
+ - [Fix] rewriteAppendOnlyFileBackground() must update the latency monitor, the fork stats and replicationScriptCacheFlush().
+ - [Fix] rdbSaveBackground() code refactoring to minimize the code changes for WIN32.
+ - [Fix] rdbSaveBackground() must update the latency monitor and the fork stats.
+ - [Fix] memory leak in rdbSaveToSlavesSockets().
+ - [Fix] properly releasing resources in rdbSaveToSlavesSockets().
+ - [Fix] QForkChildInit() not setting the operationFailed event in case of exception.
+ - [Fix] QForkChildInit() AV in catch() statement.
+ - [Fix] Ignore SymInitialize() return value to make sure Stack Trace is logged when redis-server is running as a Windows service.
+ - [Change] Move ReleasePackagingTool to its own solution.
+ - [Cleanup] Removed unused code in ReleasePackagingTool.
+ - [Changed] Chocolatey package now imports documents from the same folder where binaries are.
+ - [Fix] Ignore SymInitialize() return value to make sure Stack Trace is logged.
+ - [Fix] UnhandledExceptiontHandler internal exception handling.
+ - [Fix] RFDMap was not thread safe.
+ - [Change] Removed extra space allocated at the end of the mmap file.
+ - [Fix] Closing handled before returning.
+ - [Fix] aeWinQueueAccept wrong return value.
+ - [Change] Removed the forkedProcessReady event.
+ - [Change] Rolled back "Workaround for getpeername() issue".
+ - [Fix] Socket blocking state.
+ - [Fix] Memory corruption. Merged fix from Azure fork (by Mike Montwill).
+ - [Fix] Added API mapping for fclose() and fileno().
+
 --[ Redis on Windows 2.8.21 ] Release date: Jun 24 2015
 
  - Merged Redis 2.8.21 [https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES]
