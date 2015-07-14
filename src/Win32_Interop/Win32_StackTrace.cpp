@@ -169,6 +169,7 @@ void BugReportEnd(){
 
 LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
     if (!processingException) {
+        bool headerLogged = false;
         try {
             const char* exDescription = "Exception code not available";
             processingException = true;
@@ -178,13 +179,16 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
 
             // Call antirez routine to log the start of the bug report
             bugReportStart();
+            headerLogged = true;
             redisLog(REDIS_WARNING, "--- %s", exDescription);
             StackTraceInfo();
-            //ServerInfo();
-            BugReportEnd();
-            processingException = false;
+            ServerInfo();
         }
-        catch (...) {};
+        catch (...) {}
+        if (headerLogged) {
+            BugReportEnd();
+        }
+        processingException = false;
     }
 
     if (defaultTopLevelExceptionHandler != NULL) {
