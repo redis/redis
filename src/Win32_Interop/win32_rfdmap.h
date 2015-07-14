@@ -78,8 +78,6 @@ private:
     RFDRecyclePoolType RFDRecyclePool;
 
 private:
-    const static int minRFD = 3;    // 0, 1 and 2 are reserved for stdin, stdout and stderr
-    RFD maxRFD;
     CRITICAL_SECTION mutex;
 
 public:

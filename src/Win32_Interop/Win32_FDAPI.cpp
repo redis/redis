@@ -51,6 +51,8 @@ redis_WSASocket WSASocket = NULL;
 
 // other API forwards
 redis_fwrite fdapi_fwrite = NULL;
+redis_fclose fdapi_fclose = NULL;
+redis_fileno fdapi_fileno = NULL;
 redis_setmode fdapi_setmode = NULL;
 redis_select select = NULL;
 redis_ntohl ntohl = NULL;
@@ -671,33 +673,26 @@ ssize_t redis_write_impl(int fd, const void *buf, size_t count) {
 int redis_fsync_impl(int fd) {
     try {
         int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
-        if( posixFD == -1 ) {
-            // There is one place in Redis where we are not tracking posix FDs because it involves
-            // direct ocnversion of a FILE* to an FD.
-            posixFD = fd;
-        }
-
-        HANDLE h = (HANDLE) crtget_osfhandle(posixFD);
-        DWORD err;
-
-        if (h == INVALID_HANDLE_VALUE) {
-            errno = EBADF;
-            return -1;
-        }
-
-        if (!FlushFileBuffers(h)) {
-            err = GetLastError();
-            switch (err) {
-                case ERROR_INVALID_HANDLE:
-                errno = EINVAL;
-                break;
-
-                default:
-                errno = EIO;
+        if (posixFD != -1) {
+            HANDLE h = (HANDLE) crtget_osfhandle(posixFD);
+            if (h == INVALID_HANDLE_VALUE) {
+                errno = EBADF;
+                return -1;
             }
-            return -1;
-        }
 
+            if (!FlushFileBuffers(h)) {
+                DWORD err = GetLastError();
+                switch (err) {
+                    case ERROR_INVALID_HANDLE:
+                        errno = EINVAL;
+                        break;
+
+                    default:
+                        errno = EIO;
+                }
+                return -1;
+            }
+        }
         return 0;
     } CATCH_AND_REPORT()
 
@@ -708,11 +703,9 @@ int redis_fsync_impl(int fd) {
 int redis_fstat_impl(int fd, struct __stat64 *buffer) {
     try {
         int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
-        if( posixFD == -1 ) {
-            posixFD = fd;
+        if (posixFD != -1) {
+            return _fstat64(posixFD, buffer);
         }
-
-        return _fstat64(posixFD, buffer);
     } CATCH_AND_REPORT()
 
     errno = EBADF;
@@ -740,26 +733,20 @@ int redis_listen_impl(int sockfd, int backlog) {
 int redis_ftruncate_impl(int fd, PORT_LONGLONG length) {
     try
     {
-        LARGE_INTEGER l, o;
-        HANDLE h = INVALID_HANDLE_VALUE;
-
         int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
-        if( posixFD == -1 ) {
-            h = (HANDLE) crtget_osfhandle (fd);
-        } else {
-            h = (HANDLE) crtget_osfhandle (posixFD);
+        if (posixFD != -1) {
+            HANDLE h = (HANDLE) crtget_osfhandle(posixFD);
+            if (h == INVALID_HANDLE_VALUE) {
+                errno = EBADF;
+                return -1;
+            }
+
+            LARGE_INTEGER l, o;
+            l.QuadPart = length;
+
+            if (!SetFilePointerEx(h, l, &o, FILE_BEGIN)) return -1;
+            if (!SetEndOfFile(h)) return -1;
         }
-
-        if( h == INVALID_HANDLE_VALUE) {
-            errno = EBADF;
-            return -1;
-        }
-
-        l.QuadPart = length;
-
-        if (!SetFilePointerEx(h, l, &o, FILE_BEGIN)) return -1;
-        if (!SetEndOfFile(h)) return -1;
-
         return 0;
     } CATCH_AND_REPORT();
 
@@ -986,11 +973,29 @@ u_short redis_ntohs_impl(u_short netshort) {
 }
 
 int redis_setmode_impl(int fd,int mode) {
-    return crtsetmode(fd,mode);
+    return crt_setmode(fd,mode);
 }
 
 size_t redis_fwrite_impl(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
-    return crtfwrite(_Str, _Size, _Count, _File);
+    return crt_fwrite(_Str, _Size, _Count, _File);
+}
+
+int redis_fclose_impl(FILE * file) {
+    int posixFD = crt_fileno(file);
+    if (posixFD != -1) {
+        RFDMap::getInstance().removePosixFD(posixFD);
+    }
+    return crt_fclose(file);
+}
+
+int redis_fileno_impl(FILE* file) {
+    int rfd = -1;
+    int posixFD = crt_fileno(file);
+    if (posixFD != -1) {
+        // if posixFD is already mapped, addPosixFD() will return the existing rfd.
+        rfd = RFDMap::getInstance().addPosixFD(posixFD);
+    }
+    return rfd;
 }
 
 auto f_select = dllfunctor_stdcall<int, int, fd_set*, fd_set*, fd_set*, const struct timeval*>("ws2_32.dll", "select");
@@ -1048,11 +1053,8 @@ int redis_access_impl(const char *pathname, int mode) {
 u_int64 redis_lseek64_impl(int fd, u_int64 offset, int whence) {
    try {
         int posixFD = RFDMap::getInstance().lookupPosixFD(fd);
-        if( posixFD != -1) {
+        if (posixFD != -1) {
             return crt_lseek64(posixFD, offset, whence);
-        } else {
-            errno = EBADF;
-            return 0;
         }
     } CATCH_AND_REPORT();
 
@@ -1063,11 +1065,8 @@ u_int64 redis_lseek64_impl(int fd, u_int64 offset, int whence) {
 intptr_t redis_get_osfhandle_impl(int fd) {
    try {
         int posixFD = RFDMap::getInstance().lookupPosixFD(fd);
-        if( posixFD != -1) {
+        if (posixFD != -1) {
             return crtget_osfhandle(posixFD);
-        } else {
-            errno = EBADF;
-            return 0;
         }
     } CATCH_AND_REPORT();
 
@@ -1191,6 +1190,8 @@ private:
         gethostbyname = redis_gethostbyname_impl;
         inet_ntoa = redis_inet_ntoa_impl; 
         fdapi_fwrite = redis_fwrite_impl;
+        fdapi_fclose = redis_fclose_impl;
+        fdapi_fileno = redis_fileno_impl;
         fdapi_setmode = redis_setmode_impl;
         WSASetLastError = redis_WSASetLastError_impl;
         WSAGetLastError = redis_WSAGetLastError_impl;

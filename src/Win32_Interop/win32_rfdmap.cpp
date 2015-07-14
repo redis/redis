@@ -31,7 +31,12 @@ RFDMap& RFDMap::getInstance() {
 
 RFDMap::RFDMap() {
     InitializeCriticalSection(&mutex);
-    maxRFD = minRFD;
+    // stdin, assigned rfd = 0
+    addPosixFD(0);
+    // stdout, assigned rfd = 1
+    addPosixFD(1);
+    // stderr, assigned rfd = 2
+    addPosixFD(2);
 }
 
 RFD RFDMap::getNextRFDAvailable() {
@@ -41,8 +46,7 @@ RFD RFDMap::getNextRFDAvailable() {
         rfd = RFDRecyclePool.front();
         RFDRecyclePool.pop();
     } else {
-        maxRFD = minRFD + (int) SocketToRFDMap.size() + (int) PosixFDToRFDMap.size();
-        rfd = maxRFD;
+        rfd = (int) SocketToRFDMap.size() + (int) PosixFDToRFDMap.size();
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -78,7 +82,7 @@ RFD RFDMap::addPosixFD(int posixFD) {
     RFD rfd;
     EnterCriticalSection(&mutex);
     if (PosixFDToRFDMap.find(posixFD) != PosixFDToRFDMap.end()) {
-        rfd = invalidRFD;
+        rfd = PosixFDToRFDMap[posixFD];
     } else {
         rfd = getNextRFDAvailable();
         PosixFDToRFDMap[posixFD] = rfd;
@@ -89,15 +93,19 @@ RFD RFDMap::addPosixFD(int posixFD) {
 }
 
 void RFDMap::removePosixFD(int posixFD) {
-    EnterCriticalSection(&mutex);
-    PosixFD2RFDIterator mit = PosixFDToRFDMap.find(posixFD);
-    if (mit != PosixFDToRFDMap.end()) {
-        RFD rfd = (*mit).second;
-        RFDRecyclePool.push(rfd);
-        RFDToPosixFDMap.erase(rfd);
-        PosixFDToRFDMap.erase(posixFD);
+    // posixFD between 0 and 2 should never be removed since they are assigned
+    // to stdin, stdout and stderr
+    if (posixFD > 2) {
+        EnterCriticalSection(&mutex);
+        PosixFD2RFDIterator mit = PosixFDToRFDMap.find(posixFD);
+        if (mit != PosixFDToRFDMap.end()) {
+            RFD rfd = (*mit).second;
+            RFDRecyclePool.push(rfd);
+            RFDToPosixFDMap.erase(rfd);
+            PosixFDToRFDMap.erase(posixFD);
+        }
+        LeaveCriticalSection(&mutex);
     }
-    LeaveCriticalSection(&mutex);
 }
 
 SOCKET RFDMap::lookupSocket(RFD rfd) {
