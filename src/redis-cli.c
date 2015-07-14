@@ -644,9 +644,9 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
 
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
-        (argc == 3 && !strcasecmp(command,"debug") &&
-                      (!strcasecmp(argv[1],"jemalloc") &&
-                       !strcasecmp(argv[2],"info"))) ||
+        (argc >= 2 && !strcasecmp(command,"debug") &&
+                      (!strcasecmp(argv[1],"jemalloc") ||
+                       !strcasecmp(argv[1],"htstats"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
