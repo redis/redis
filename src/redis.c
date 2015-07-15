@@ -1748,6 +1748,7 @@ void resetServerStats(void) {
     }
     server.stat_net_input_bytes = 0;
     server.stat_net_output_bytes = 0;
+    server.aof_delayed_fsync = 0;
 }
 
 void initServer(void) {
