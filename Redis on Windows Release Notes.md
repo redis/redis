@@ -3,32 +3,32 @@ MSOpenTech Redis on Windows 2.8 Release Notes
 
 --[ Redis on Windows 2.8.2101 ] Release date: Jul 15 215
 
- - [Change] New release number scheme because the MSI installer supports only 3 groups of digits.
- - [Fix] deleting char** correctly (@zeliard)
- - [Fix] BeginForkOperation_Aof()/_Rdb()/_Socket() and BeginForkOperation() code refactoring.
- - [Fix] rewriteAppendOnlyFileBackground() code refactoring to minimize the code changes for WIN32.
- - [Fix] rewriteAppendOnlyFileBackground() must update the latency monitor, the fork stats and replicationScriptCacheFlush().
- - [Fix] rdbSaveBackground() code refactoring to minimize the code changes for WIN32.
- - [Fix] rdbSaveBackground() must update the latency monitor and the fork stats.
- - [Fix] memory leak in rdbSaveToSlavesSockets().
- - [Fix] properly releasing resources in rdbSaveToSlavesSockets().
- - [Fix] QForkChildInit() not setting the operationFailed event in case of exception.
- - [Fix] QForkChildInit() AV in catch() statement.
- - [Fix] Ignore SymInitialize() return value to make sure Stack Trace is logged when redis-server is running as a Windows service.
- - [Change] Move ReleasePackagingTool to its own solution.
- - [Cleanup] Removed unused code in ReleasePackagingTool.
- - [Changed] Chocolatey package now imports documents from the same folder where binaries are.
- - [Fix] Ignore SymInitialize() return value to make sure Stack Trace is logged.
+ - [Fix] deleting char** correctly (@zeliard) 
+ - [Fix] Fork code for background processing fixes and code refactoring.
+ - [Setup] Updated the scripts to create/push the NuGet/Chocolatey packages.
+ - [Setup] EventLog.dll excluded from NuGet package.
+ - [Fix] The stack trace was not logged when Redis is running as a service.
+ - [Setup] Move ReleasePackagingTool to its own solution.
+ - [WinPort] Explicit cast.
+ - [Cleanup] Removed non-existent file from hiredis project.
+ - [Cleanup] Minor change to method signature.
+ - [Cleanup] Changed variable type to match function return value.
+ - [Cleanup] Removed useless platform definition from RedisServer.sln
+ - [Cleanup] Removed unused include.
  - [Fix] UnhandledExceptiontHandler internal exception handling.
  - [Fix] RFDMap was not thread safe.
  - [Change] Removed extra space allocated at the end of the mmap file.
- - [Fix] Closing handled before returning.
+ - [Cleanup] Tabs->spaces, formatting.
  - [Fix] aeWinQueueAccept wrong return value.
  - [Change] Removed the forkedProcessReady event.
  - [Change] Rolled back "Workaround for getpeername() issue".
+ - [Cleanup] Code cleanup: variables initialization and validation.
  - [Fix] Socket blocking state.
  - [Fix] Memory corruption. Merged fix from Azure fork (by Mike Montwill).
  - [Fix] Added API mapping for fclose() and fileno().
+ - [Setup] Updated the release number and the release notes (2.8.2101).
+ - [Fix] Bug report fixes.
+ - [Setup] Nuget/Chocolatey packages update.
 
 --[ Redis on Windows 2.8.21 ] Release date: Jun 24 2015
 
