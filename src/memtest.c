@@ -267,7 +267,11 @@ void memtest_test(size_t megabytes, int passes) {
         memtest_progress_end();
         memtest_compare_times(m,bytes,pass,4);
     }
+#ifdef _WIN32
+    VirtualFreeEx(GetCurrentProcess(), m, 0, MEM_RELEASE);
+#else
     free(m);
+#endif
 }
 
 void memtest_non_destructive_invert(void *addr, size_t size) {

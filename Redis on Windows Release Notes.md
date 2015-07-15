@@ -5,6 +5,20 @@ MSOpenTech Redis on Windows 2.8 Release Notes
 
  - [Fix] deleting char** correctly (@zeliard) 
  - [Fix] Fork code for background processing fixes and code refactoring.
+ - [Fix] BeginForkOperation_Aof()/_Rdb()/_Socket() and BeginForkOperation() code
+         refactoring.
+ - [Fix] rewriteAppendOnlyFileBackground() code refactoring to minimize the code
+         changes for WIN32.
+  -[Fix] rewriteAppendOnlyFileBackground() must update the latency monitor, the
+         fork stats and replicationScriptCacheFlush().
+ - [Fix] rdbSaveBackground() code refactoring to minimize the code changes for
+         WIN32.
+ - [Fix] rdbSaveBackground() must update the latency monitor and the fork stats.
+ - [Fix] memory leak in rdbSaveToSlavesSockets().
+ - [Fix] properly releasing resources in rdbSaveToSlavesSockets().
+ - [Fix] QForkChildInit() not setting the operationFailed event in case of
+         exception.
+ - [Fix] QForkChildInit() AV in catch() statement.
  - [Setup] Updated the scripts to create/push the NuGet/Chocolatey packages.
  - [Setup] EventLog.dll excluded from NuGet package.
  - [Fix] The stack trace was not logged when Redis is running as a service.
@@ -29,6 +43,8 @@ MSOpenTech Redis on Windows 2.8 Release Notes
  - [Setup] Updated the release number and the release notes (2.8.2101).
  - [Fix] Bug report fixes.
  - [Setup] Nuget/Chocolatey packages update.
+ - [Fix] Memory was not properly released at the end of the memory test.
+ - [Change] Hard-coded memory test loops changed from 50 to 5.
 
 --[ Redis on Windows 2.8.21 ] Release date: Jun 24 2015
 
