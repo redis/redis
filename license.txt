@@ -1,4 +1,4 @@
-Copyright (c) 2006-2014, Salvatore Sanfilippo
+Copyright (c) 2006-2015, Salvatore Sanfilippo
 Modifications copyright (c) Microsoft Open Technologies, Inc. 
 All rights reserved.
 

@@ -2,21 +2,28 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
   <metadata>
     <id>redis-64</id>
-    <title>Redis 64</title>
+    <title>Redis 64-bit</title>
     <version>CurrentRedisVersion</version>
     <authors>Alexis Campailla, Enrico Giordani, Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
-    <summary>Redis is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.</summary>
-    <description>Redis on Windows 64-bit.</description>
+    <description>A porting of Redis on Windows 64-bit.  
+
+[Redis](http://redis.io/) is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.  
+
+This package will install the Redis binaries in the default Chocolatey lib directory (i.e. C:\\ProgramData\\chocolatey\\lib\\redis-64).
+    </description>
     <projectUrl>https://msopentech.com/opentech-projects/redis/</projectUrl>
     <tags>Redis nosql cache</tags>
     <copyright>Copyright Microsoft Open Technologies, Inc.</copyright>
     <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8/license.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <iconUrl>http://redis.io/images/redis.png</iconUrl>
-    <releaseNotes>https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md</releaseNotes>
+    <iconUrl>https://cdn.rawgit.com/anonymous/5cfcb53c27ce7430d899/raw/e8d7e5f45c95314797128f535e96b16efd9d7c89/redis.svg</iconUrl>
+    <releaseNotes>The release notes are available [here](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)</releaseNotes>
   </metadata>
   <files>
-    <file src="..\signed_binaries\*.*" target=".\" />
+    <file src="..\signed_binaries\*.exe" target=".\" />
+    <file src="..\signed_binaries\*.pdb" target=".\" />
+    <file src="..\signed_binaries\*.conf" target=".\" />
+    <file src="..\signed_binaries\*.docx" target=".\" />
   </files>
 </package>

@@ -105,8 +105,18 @@ namespace ReleasePackagingTool
                 "redis-check-aof.exe",
                 "redis-check-dump.exe",
                 "redis-cli.exe",
-                "redis-server.exe",
-                "redis-server.pdb",
+                "redis-server.exe"
+            };
+            List<string> symbolNames = new List<string>()
+            {
+                "redis-benchmark.pdb",
+                "redis-check-aof.pdb",
+                "redis-check-dump.pdb",
+                "redis-cli.pdb",
+                "redis-server.pdb"
+            };
+            List<string> dependencyNames = new List<string>()
+            {
                 "EventLog.dll"
             };
             string documentsRoot = Path.Combine(rootPath, @"msvs\setups\documentation");
@@ -124,6 +134,14 @@ namespace ReleasePackagingTool
                 foreach (string executableName in executableNames)
                 {
                     archive.CreateEntryFromFile(Path.Combine(executablesRoot, executableName), executableName);
+                }
+                foreach (string symbolName in symbolNames)
+                {
+                    archive.CreateEntryFromFile(Path.Combine(executablesRoot, symbolName), symbolName);
+                }
+                foreach (string dependencyName in dependencyNames)
+                {
+                    archive.CreateEntryFromFile(Path.Combine(executablesRoot, dependencyName), dependencyName);
                 }
                 foreach (string documentName in docuementNames)
                 {
