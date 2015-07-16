@@ -78,7 +78,6 @@ aeSockState *aeGetSockState(void *apistate, int fd) {
         sockState->wreqs = 0;
         sockState->reqs = NULL;
         memset(&sockState->wreqlist, 0, sizeof(sockState->wreqlist));
-        memset(&sockState->remoteAddress, 0, sizeof(sockState->remoteAddress));
 
         if (listAddNodeHead(socklist, sockState) != NULL) {
             return sockState;
@@ -187,7 +186,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     state->setsize = eventLoop->setsize;
     eventLoop->apidata = state;
     /* initialize the IOCP socket code with state reference */
-    aeWinInit(state, state->iocp, aeGetSockState, aeGetExistingSockState, aeDelSockState);
+    aeWinInit(state, state->iocp, aeGetSockState, aeDelSockState);
     return 0;
 }
 
