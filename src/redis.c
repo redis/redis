@@ -973,11 +973,11 @@ int clientsCronResizeQueryBuffer(redisClient *c) {
 }
 
 void clientsCron(void) {
-    /* Make sure to process at least 1/(server.hz*10) of clients per call.
-     * Since this function is called server.hz times per second we are sure that
-     * in the worst case we process all the clients in 10 seconds.
-     * In normal conditions (a reasonable number of clients) we process
-     * all the clients in a shorter time. */
+    /* Make sure to process at least numclients/(server.hz*10) of clients
+     * per call. Since this function is called server.hz times per second
+     * we are sure that in the worst case we process all the clients in 10
+     * seconds. In normal conditions (a reasonable number of clients) we
+     * process all the clients in a shorter time. */
     int numclients = listLength(server.clients);
     int iterations = numclients/(server.hz*10);
 
