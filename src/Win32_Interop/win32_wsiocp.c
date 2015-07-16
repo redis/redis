@@ -23,7 +23,6 @@
 #include "win32fixes.h"
 #include "..\ae.h"
 #include "..\adlist.h"
-#include "..\zmalloc.h"
 #include <mswsock.h>
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
@@ -66,9 +65,8 @@ int aeWinQueueAccept(int listenfd) {
 
     accsockstate->masks = SOCKET_ATTACHED;
     /* keep accept socket in buf len until accepted */
-    areq = (aacceptreq *)zmalloc(sizeof(aacceptreq));
-    memset(areq, 0, sizeof(aacceptreq));
-    areq->buf = (char *)zmalloc(sizeof(struct sockaddr_storage) * 2 + 64);
+    areq = (aacceptreq *) CallocMemoryNoCOW(sizeof(aacceptreq));
+    areq->buf = CallocMemoryNoCOW(sizeof(struct sockaddr_storage) * 2 + 64);
     areq->accept = acceptfd;
     areq->next = NULL;
 
@@ -84,7 +82,8 @@ int aeWinQueueAccept(int listenfd) {
         sockstate->masks &= ~ACCEPT_PENDING;
         close(acceptfd);
         accsockstate->masks = 0;
-        zfree(areq);
+        FreeMemoryNoCOW(areq->buf);
+        FreeMemoryNoCOW(areq);
         return -1;
     }
 
@@ -146,6 +145,8 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     result = FDAPI_UpdateAcceptContext(acceptfd);
     if (result == SOCKET_ERROR) {
         errno = WSAGetLastError();
+        FreeMemoryNoCOW(areq->buf);
+        FreeMemoryNoCOW(areq);
         return SOCKET_ERROR;
     }
 
@@ -172,8 +173,8 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     aeWinSocketAttach(acceptfd);
 
-    zfree(areq->buf);
-    zfree(areq);
+    FreeMemoryNoCOW(areq->buf);
+    FreeMemoryNoCOW(areq);
 
     /* queue another accept */
     if (aeWinQueueAccept(fd) == -1) {
@@ -253,8 +254,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     }
 
     /* use overlapped structure to send using IOCP */
-    areq = (asendreq *)zmalloc(sizeof(asendreq));
-    memset(areq, 0, sizeof(asendreq));
+    areq = (asendreq *) CallocMemoryNoCOW(sizeof(asendreq));
     areq->wbuf.len = len;
     areq->wbuf.buf = buf;
     areq->eventLoop = (aeEventLoop *)eventLoop;
@@ -278,7 +278,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
         listAddNodeTail(&sockstate->wreqlist, areq);
     } else {
         errno = WSAGetLastError();
-        zfree(areq);
+        FreeMemoryNoCOW(areq);
     }
     return SOCKET_ERROR;
 }
@@ -504,4 +504,17 @@ void aeWinInit(void *state,
 
 void aeWinCleanup() {
     iocpState = NULL;
+}
+
+static HANDLE privateheap;
+
+void* CallocMemoryNoCOW(size_t size) {
+    if (!privateheap) {
+        privateheap = HeapCreate(HEAP_GENERATE_EXCEPTIONS | HEAP_NO_SERIALIZE, 0, 0);
+    }
+    return HeapAlloc(privateheap, HEAP_ZERO_MEMORY, size);
+}
+
+void FreeMemoryNoCOW(void * ptr) {
+    HeapFree(privateheap, 0, ptr);
 }

@@ -23,7 +23,6 @@
 /* IOCP-based ae.c module  */
 
 #include "win32_Interop/win32fixes.h"
-#include "zmalloc.h"
 #include "adlist.h"
 #include "win32_Interop/win32_wsiocp.h"
 
@@ -71,7 +70,7 @@ aeSockState *aeGetSockState(void *apistate, int fd) {
         node = listNextNode(node);
     }
     // not found. Do lazy create of sockState.
-    sockState = (aeSockState *) zmalloc(sizeof(aeSockState));
+    sockState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
     if (sockState != NULL) {
         sockState->fd = fd;
         sockState->masks = 0;
@@ -82,7 +81,7 @@ aeSockState *aeGetSockState(void *apistate, int fd) {
         if (listAddNodeHead(socklist, sockState) != NULL) {
             return sockState;
         } else {
-            zfree(sockState);
+            FreeMemoryNoCOW(sockState);
         }
     }
     return NULL;
@@ -137,13 +136,13 @@ void aeDelSockState(void *apistate, aeSockState *sockState) {
         // see if in active list
         socklist = &(((aeApiState *) apistate)->lookup[sockState->fd]);
         if (removeMatchFromList(socklist, sockState) == TRUE) {
-            zfree(sockState);
+            FreeMemoryNoCOW(sockState);
             return;
         }
         // try closing list
         socklist = &(((aeApiState *)apistate)->closing);
         if (removeMatchFromList(socklist, sockState) == TRUE) {
-            zfree(sockState);
+            FreeMemoryNoCOW(sockState);
             return;
         }
     } else {
@@ -160,10 +159,9 @@ void aeDelSockState(void *apistate, aeSockState *sockState) {
 /* Called by ae to initialize state */
 static int aeApiCreate(aeEventLoop *eventLoop) {
     HMODULE kernel32_module;
-    aeApiState *state = (aeApiState *)zmalloc(sizeof(aeApiState));
+    aeApiState *state = (aeApiState *) CallocMemoryNoCOW(sizeof(aeApiState));
 
     if (!state) return -1;
-    memset(state, 0, sizeof(aeApiState));
 
     /* create a single IOCP to be shared by all sockets */
     state->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
@@ -171,7 +169,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
                                          0,
                                          1);
     if (state->iocp == NULL) {
-        zfree(state);
+        FreeMemoryNoCOW(state);
         return -1;
     }
 
@@ -200,7 +198,7 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     CloseHandle(state->iocp);
-    zfree(state);
+    FreeMemoryNoCOW(state);
     aeWinCleanup();
 }
 
@@ -231,14 +229,13 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
         if ((sockstate->masks & CONNECT_PENDING) == 0) {
             // if no write active, then need to queue write ready
             if (sockstate->wreqs == 0) {
-                asendreq *areq = (asendreq *)zmalloc(sizeof(asendreq));
-                memset(areq, 0, sizeof(asendreq));
+                asendreq *areq = (asendreq *) CallocMemoryNoCOW(sizeof(asendreq));
                 if (PostQueuedCompletionStatus(state->iocp,
                                             0,
                                             fd,
                                             &areq->ov) == 0) {
                     errno = GetLastError();
-                    zfree(areq);
+                    FreeMemoryNoCOW(areq);
                     return -1;
                 }
                 sockstate->wreqs++;
@@ -362,7 +359,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                                 areq->proc(areq->eventLoop, rfd, &areq->req, (int)written);
                             }
                             sockstate->wreqs--;
-                            zfree(areq);
+                            FreeMemoryNoCOW(areq);
                             /* if no active write requests, set ready to write */
                             if (sockstate->wreqs == 0 && sockstate->masks & AE_WRITABLE) {
                                 eventLoop->fired[numevents].fd = rfd;
@@ -398,7 +395,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             asendreq *areq = (asendreq *)entry->lpOverlapped;
                             if (removeMatchFromList(&sockstate->wreqlist, areq)) {
                                 sockstate->wreqs--;
-                                zfree(areq);
+                                FreeMemoryNoCOW(areq);
                             }
                         }
                         if (sockstate->wreqs == 0 &&
