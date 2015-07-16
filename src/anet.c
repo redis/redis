@@ -74,7 +74,7 @@ int anetSetBlock(char *err, int fd, int non_block) {
     /* Set the socket blocking (if non_block is zero) or non-blocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
-    if ((flags = fcntl(fd, F_GETFL, 0)) == -1) {                                /* WIN_ISSUE: fcntl default value for the 'flags' parameter */
+    if ((flags = fcntl(fd, F_GETFL, 0)) == -1) {                                WIN_PORT_FIX /* fcntl default value for the 'flags' parameter */
         anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
         return ANET_ERR;
     }
@@ -265,79 +265,24 @@ static int anetSetReuseAddr(char *err, int fd) {
     /* Make sure connection-intensive things like the redis benckmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+        WIN32_ONLY(errno = WSAGetLastError();)
         anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
         return ANET_ERR;
     }
     return ANET_OK;
 }
 
-#ifdef _WIN32
-static int anetSetExclusiveAddr(char *err, int fd) {
-    int yes = 1;
-    /* Make sure connection-intensive things like the redis benckmark
-     * will be able to close/open sockets a zillion of times */
-    if (setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
-        return ANET_ERR;
-    }
-    return ANET_OK;
-}
-
-static int anetCreateSocket(char *err, int domain) {
-    int rfd;
-    int on = 1;
-
-    if ((rfd = socket(domain, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET) {
-        errno = WSAGetLastError();
-        anetSetError(err, "create socket error: %d\n", errno);
-        return ANET_ERR;
-    }
-
-    /* Make sure connection-intensive things like the redis benckmark
-     * will be able to close/open sockets a zillion of times */
-    if (setsockopt(rfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == SOCKET_ERROR) {
-        errno = WSAGetLastError();
-        anetSetError(err, "setsockopt SO_REUSEADDR: %d\n", errno);
-        return ANET_ERR;
-    }
-    return rfd;
-}
-
-#define ANET_CONNECT_NONE 0
-#define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_addr, int flags) {
-    int rfd;
-    SOCKADDR_STORAGE ss;
-
-    ParseStorageAddress(addr, port, &ss);
-
-    if ((rfd = anetCreateSocket(err,ss.ss_family)) == ANET_ERR) {
-        return ANET_ERR;
-    }
-    if (aeWinSocketConnect(rfd, &ss ) == SOCKET_ERROR) {
-        if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
-        if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
-            return rfd;
-        }
-
-        anetSetError(err, "connect: %d\n", errno);
-        close(rfd);
-        return ANET_ERR;
-    }
-
-    return rfd;
-}
-#else
 static int anetCreateSocket(char *err, int domain) {
     int s;
-    if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
-        anetSetError(err, "creating socket: %s", strerror(errno));
+    if ((s = socket(domain, SOCK_STREAM, IF_WIN32(IPPROTO_TCP,0))) == -1) {
+        WIN32_ONLY(errno = WSAGetLastError();)
+        anetSetError(err, "create socket error: %s", strerror(errno));
         return ANET_ERR;
     }
 
-    /* Make sure connection-intensive things like the redis benchmark
-     * will be able to close/open sockets a zillion of times */
-    if (anetSetReuseAddr(err,s) == ANET_ERR) {
+    /* Make sure connection-intensive things like the redis benckmark
+    * will be able to close/open sockets a zillion of times */
+    if (anetSetReuseAddr(err, s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
     }
@@ -346,6 +291,31 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
+
+#ifdef _WIN32
+static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_addr, int flags) {
+    int fd;
+    SOCKADDR_STORAGE ss;
+
+    ParseStorageAddress(addr, port, &ss);
+
+    if ((fd = anetCreateSocket(err,ss.ss_family)) == ANET_ERR) {
+        return ANET_ERR;
+    }
+    if (aeWinSocketConnect(fd, &ss ) == SOCKET_ERROR) {
+        if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
+        if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
+            return fd;
+        }
+
+        anetSetError(err, "connect: %d\n", errno);
+        close(fd);
+        return ANET_ERR;
+    }
+
+    return fd;
+}
+#else
 static int anetTcpGenericConnect(char *err, char *addr, int port,
                                  char *source_addr, int flags)
 {
@@ -536,6 +506,19 @@ static int anetV6Only(char *err, int s) {
     }
     return ANET_OK;
 }
+
+#ifdef _WIN32
+static int anetSetExclusiveAddr(char *err, int fd) {
+    int yes = 1;
+    /* Make sure connection-intensive things like the redis benckmark
+    * will be able to close/open sockets a zillion of times */
+    if (setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, &yes, sizeof(yes)) == -1) {
+        anetSetError(err, "setsockopt SO_EXCLUSIVEADDRUSE: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
+}
+#endif
 
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
