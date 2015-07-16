@@ -648,6 +648,12 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
+    if (getpeername(fd, (struct sockaddr*)&sa, &salen) == -1) {
+        if (port) *port = 0;
+        ip[0] = '?';
+        ip[1] = '\0';
+        return -1;
+    }
     if (sa.ss_family == AF_INET) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
         if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
