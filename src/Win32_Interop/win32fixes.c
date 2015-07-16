@@ -96,7 +96,7 @@ int replace_random() {
         RtlGenRandom = (RtlGenRandomFunc)GetProcAddress(lib, "SystemFunction036");
         if (RtlGenRandom == NULL) return 1;
     }
-    RtlGenRandom(&x, sizeof(UINT_MAX));
+    RtlGenRandom(&x, sizeof(unsigned int));
     return (int)(x >> 1);
 }
 

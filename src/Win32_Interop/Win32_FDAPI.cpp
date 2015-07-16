@@ -530,7 +530,7 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
 
             nfds_t i;
             for (i = 0; i < nfds; i++) {
-                if (fds[i].fd < 0) {
+                if (fds[i].fd == INVALID_SOCKET) {
                     continue;
                 }
                 if (pollCopy[i].fd >= FD_SETSIZE) {
@@ -1121,7 +1121,7 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAdd
     /* Setting AI_PASSIVE will give you a wildcard address if addr is NULL */
     hints.ai_flags = AI_NUMERICSERV | AI_PASSIVE;
 
-    if ((status = getaddrinfo(ip, port_buffer, &hints, &res) != 0)) {
+    if ((status = getaddrinfo(ip, port_buffer, &hints, &res)) != 0) {
         return FALSE;
     }
 
