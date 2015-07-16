@@ -33,7 +33,7 @@
 
 typedef unsigned long nfds_t;
 
-#define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
+#define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defined below.
 #include "win32_types.h"
 #include <WinSock2.h>
 #undef FD_ISSET
