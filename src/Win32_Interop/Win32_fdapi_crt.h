@@ -32,7 +32,10 @@ int crt_open(const char *filename, int oflag, int pmode);
 int crt_open_osfhandle(intptr_t osfhandle, int flags);
 intptr_t crtget_osfhandle(int fd);
 int crtsetmode(int fd, int mode);
-size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
+size_t crt_fwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
+int crt_fclose(FILE* file);
+int crt_fileno(FILE* file);
+
 int crt_isatty(int fd);
 int crt_access(const char *pathname, int mode);
 __int64 crt_lseek64(int fd, __int64 offset, int origin);

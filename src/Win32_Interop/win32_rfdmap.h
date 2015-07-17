@@ -31,23 +31,20 @@
 
 using namespace std;
 
+typedef int RFD; // Redis File Descriptor, just an index in the SocketOrCrtFD_To_RFD map
+
+enum class RFD_TYPE { SOCKET, CRTFD, INVALID };
+
+union RFD_VALUE {
+    SOCKET socket;
+    int    crtFD;
+};
+
 typedef struct {
-     bool IsBlockingSocket;
-} RedisSocketState;
-
-typedef int RFD;   // Redis File Descriptor
-typedef map<SOCKET,RFD> SocketToRFDMapType;
-typedef map<SOCKET,RedisSocketState> SocketToStateMapType;
-typedef map<int,RFD> PosixFDToRFDMapType;
-typedef map<RFD,SOCKET> RFDToSocketMapType;
-typedef map<RFD,int> RFDToPosixFDMapType;
-typedef queue<RFD> RFDRecyclePoolType;
-typedef SocketToRFDMapType::iterator S2RFDIterator;
-typedef SocketToStateMapType::iterator S2StateIterator;
-typedef PosixFDToRFDMapType::iterator PosixFD2RFDIterator;
-typedef RFDToSocketMapType::iterator RFD2SIterator;
-typedef RFDToPosixFDMapType::iterator RFD2PosixFDIterator;
-
+    int flags;
+    RFD_TYPE type;
+    RFD_VALUE value;
+} RFD_INFO;
 
 /* In UNIX File Descriptors increment by one for each new one. Windows handles 
  * do not follow the same rule.  Additionally UNIX uses a 32-bit int to 
@@ -66,56 +63,52 @@ public:
 
 private:
     RFDMap();
-    RFDMap(RFDMap const&);          // Don't implement to guarantee singleton semantics
-    void operator=(RFDMap const&);  // Don't implement to guarantee singleton semantics
+    RFDMap(RFDMap const&);         // Don't implement to guarantee singleton semantics
+    void operator=(RFDMap const&); // Don't implement to guarantee singleton semantics
 
 private:
-    SocketToRFDMapType SocketToRFDMap;
-    SocketToStateMapType SocketToStateMap;
-    PosixFDToRFDMapType PosixFDToRFDMap;
-    RFDToSocketMapType RFDToSocketMap;
-    RFDToPosixFDMapType RFDToPosixFDMap;
-    RFDRecyclePoolType RFDRecyclePool;
+    map<SOCKET, RFD>    SocketToRFDMap;
+    map<RFD, RFD_INFO>  RFDToSocketInfoMap;
+
+    map<int, RFD>       CrtFDToRFDMap;
+    map<RFD, RFD_INFO>  RFDToCrtFDInfoMap;
+
+    queue<int> RFDRecyclePool;
 
 private:
-    const static int minRFD = 3;    // 0, 1 and 2 are reserved for stdin, stdout and stderr
-    RFD maxRFD;
     CRITICAL_SECTION mutex;
 
-public:
-    const static int invalidRFD = -1;
-
 private:
-    /* Gets the next available Redis File Descriptor. Redis File Descriptors are always
-       non-negative integers, with the first three being reserved for stdin(0),
-       stdout(1) and stderr(2). */
+    /* Gets the next available Redis File Descriptor. Redis File Descriptors
+       are always non-negative integers, with the first three being reserved
+       for stdin(0), stdout(1) and stderr(2). */
     RFD getNextRFDAvailable();
 
 public:
-    /* Adds a socket to the socket map. Returns the redis file descriptor value for
-       the socket. Returns invalidRFD if the socket is already added to the
-       collection. */
+    /* Adds a socket to the socket map and returns the RFD value for the socket.
+       If the socket already exists, returns the RFD.
+    */
     RFD addSocket(SOCKET s);
 
-    /* Removes a socket from the list of sockets. Also removes the associated
-       file descriptor. */
-    void removeSocket(SOCKET s);
+    /* Adds a fd obtained with low-level CRT file/pipe functions and returns the
+       RFD value for the CrtFD. If the crtFD already exists returns the RFD. */
+    RFD addCrtFD(int crtFD);
 
-    /* Adds a posixFD (used with low-level CRT posix file functions) to the posixFD map. Returns
-       the redis file descriptor value for the posixFD. Returns invalidRFD if the posicFD is already
-       added to the collection. */
-    RFD addPosixFD(int posixFD);
+    /* Removes a generic RFD from the list of RFDs (SOCKET or CRTFD). */
+    void removeRFD(RFD rfd);
+    
+    /* Removes a RFD from the list of the CRTFDs */
+    void removeCrtRFD(RFD rfd);
 
-    /* Removes a socket from the list of sockets. Also removes the associated
-       file descriptor. */
-    void removePosixFD(int posixFD);
+    /* Gets the RFD_INFO data associated with a RFD */
+    RFD_INFO GetRFDInfo(RFD rfd);
 
-    /* Returns the socket associated with a file descriptor. */
+    /* Sets the RFD_INFO data associated with a RFD */
+    bool SetRFDInfo(RFD rfd, RFD_INFO rfd_info);
+
+    /* Returns the SOCKET associated with a RFD. */
     SOCKET lookupSocket(RFD rfd);
 
-    /* Returns the socket associated with a file descriptor. */
-    int lookupPosixFD(RFD rfd);
-
-    bool SetSocketState(SOCKET s, RedisSocketState state);
-    bool GetSocketState(SOCKET s, RedisSocketState& state);
+    /* Returns the CRTFD associated with a RFD. */
+    int lookupCrtFD(RFD rfd);
 };

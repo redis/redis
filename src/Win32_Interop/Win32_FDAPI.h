@@ -152,6 +152,8 @@ typedef int (*redis_WSASocket)(int af, int type, int protocol, LPWSAPROTOCOL_INF
 // other API forwards
 typedef int (*redis_setmode)(int fd,int mode);
 typedef size_t (*redis_fwrite)(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
+typedef int (*redis_fclose)(FILE* file);
+typedef int (*redis_fileno)(FILE* file);
 
 // API prototypes must match the unix implementation
 typedef int (*redis_pipe)(int pipefd[2]);
@@ -237,6 +239,8 @@ extern redis_getsockname getsockname;
 extern redis_ntohs ntohs;
 extern redis_setmode fdapi_setmode;
 extern redis_fwrite fdapi_fwrite;
+extern redis_fclose fdapi_fclose;
+extern redis_fileno fdapi_fileno;
 
 extern redis_select select;
 extern redis_ntohl ntohl;
@@ -267,6 +271,8 @@ int StorageSize(const SOCKADDR_STORAGE *ss);
 #define close(fd) fdapi_close(fd)
 #define setmode(fd,mode) fdapi_setmode(fd,mode)
 #define fwrite(Str, Size, Count, File) fdapi_fwrite(Str,Size,Count,File)
+#define fclose(File) fdapi_fclose(File)
+#define fileno(File) fdapi_fileno(File)
 #define _get_osfhandle(fd) fdapi_get_osfhandle(fd)
 
 #define _INC_STAT_INL

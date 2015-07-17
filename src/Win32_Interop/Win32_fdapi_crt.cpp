@@ -56,7 +56,7 @@ int crtsetmode(int fd, int mode) {
 	return ::_setmode(fd, mode);
 }
 
-size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
+size_t crt_fwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
     // fwrite() somehow locks its view of the buffer. If during a fork operation the buffer has not been loaded into the forkee's process space,
     // the VEH will be called to load the missing pages. Although the page gets loaded, fwrite() will not see the loaded page. The result is
     // that fwrite will fail with errno set to ERROR_INVALID_USER_BUFFER. The fix is to force the buffer into memory before fwrite(). This only
@@ -74,6 +74,13 @@ size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
     return ::fwrite(_Str, _Size, _Count, _File);
 }
 
+int crt_fclose(FILE* file) {
+    return ::fclose(file);
+}
+
+int crt_fileno(FILE* file) {
+    return ::_fileno(file);
+}
 
 int crt_isatty(int fd) {
 	return _isatty(fd);
