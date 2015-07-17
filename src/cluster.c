@@ -33,19 +33,13 @@
 #include "endianconv.h"
 
 #include <sys/types.h>
-#ifndef _WIN32
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#endif
+POSIX_ONLY(#include <sys/socket.h>)
+POSIX_ONLY(#include <arpa/inet.h>)
 #include <fcntl.h>
-#ifndef _WIN32
-#include <unistd.h>
-#include <sys/socket.h>
-#endif
+POSIX_ONLY(#include <unistd.h>)
+POSIX_ONLY(#include <sys/socket.h>)
 #include <sys/stat.h>
-#ifndef _WIN32
-#include <sys/file.h>
-#endif
+POSIX_ONLY(#include <sys/file.h>)
 #include <math.h>
 
 /* A global reference to myself is handy to make code more clear.
@@ -303,7 +297,7 @@ fmterr:
 int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
-    struct IF_WIN32(_stat64, stat) sb;                                          // TODO: verify for 32-bit
+    struct IF_WIN32(_stat64,stat) sb;                                           // TODO: verify for 32-bit
     int fd;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_SAVE_CONFIG;
