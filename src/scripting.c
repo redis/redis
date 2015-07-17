@@ -265,14 +265,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] &&
             cached_objects_len[j] >= obj_len)
         {
-            char *s = cached_objects[j]->ptr;
-            struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
-
+            sds s = cached_objects[j]->ptr;
             argv[j] = cached_objects[j];
             cached_objects[j] = NULL;
             memcpy(s,obj_s,obj_len+1);
-            sh->free += sh->len - obj_len;
-            sh->len = obj_len;
+            sdssetlen(s, obj_len);
         } else {
             argv[j] = createStringObject(obj_s, obj_len);
         }
@@ -422,11 +419,10 @@ cleanup:
              o->encoding == REDIS_ENCODING_EMBSTR) &&
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
         {
-            struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
-
+            sds s = o->ptr;
             if (cached_objects[j]) decrRefCount(cached_objects[j]);
             cached_objects[j] = o;
-            cached_objects_len[j] = sh->free + sh->len;
+            cached_objects_len[j] = sdsalloc(s);
         } else {
             decrRefCount(o);
         }

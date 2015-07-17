@@ -58,8 +58,8 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr)+len+1);
-    struct sdshdr *sh = (void*)(o+1);
+    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = REDIS_STRING;
     o->encoding = REDIS_ENCODING_EMBSTR;
@@ -68,7 +68,8 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->lru = LRU_CLOCK();
 
     sh->len = len;
-    sh->free = 0;
+    sh->alloc = len;
+    sh->flags = SDS_TYPE_8;
     if (ptr) {
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
@@ -84,7 +85,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  *
  * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
-#define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 39
+#define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
