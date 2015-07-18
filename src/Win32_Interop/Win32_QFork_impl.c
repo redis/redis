@@ -43,18 +43,23 @@ int do_rdbSave(char* filename)
     return REDIS_OK;
 }
 
-int do_aofSave(char* filename)
+int do_aofSave(char* filename, int aof_pipe_read_ack, int aof_pipe_read_data, int aof_pipe_write_ack)
 {
 #ifndef NO_QFORKIMPL
     int rewriteAppendOnlyFile(char *filename);
 
     server.aof_child_pid = GetCurrentProcessId();
-    if( rewriteAppendOnlyFile(filename) != REDIS_OK ) {
-        redisLog(REDIS_WARNING,"rewriteAppendOnlyFile failed in qfork: %s", strerror(errno));
+    server.aof_pipe_write_ack_to_parent = aof_pipe_write_ack;
+    server.aof_pipe_read_ack_from_parent = aof_pipe_read_ack;
+    server.aof_pipe_read_data_from_parent = aof_pipe_read_data;
+    server.aof_pipe_read_ack_from_child = -1;
+    server.aof_pipe_write_ack_to_child = -1;
+    server.aof_pipe_write_data_to_child = -1;
+    if (rewriteAppendOnlyFile(filename) != REDIS_OK) {
+        redisLog(REDIS_WARNING, "rewriteAppendOnlyFile failed in qfork: %s", strerror(errno));
         return REDIS_ERR;
     }
 #endif
-
     return REDIS_OK;
 }
 

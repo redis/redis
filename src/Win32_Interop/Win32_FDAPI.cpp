@@ -299,6 +299,57 @@ int redis_socket_impl(int af,int type,int protocol) {
     return rfd;
 }
 
+int FDAPI_PipeSetNonBlock(int rfd, int non_block)
+{
+    try {
+        int crtFD = RFDMap::getInstance().lookupCrtFD(rfd);
+        if (crtFD != -1) {
+            HANDLE h = (HANDLE) crtget_osfhandle(crtFD);
+            if (h == INVALID_HANDLE_VALUE) {
+                errno = EBADF;
+                return -1;
+            }
+
+            if (GetFileType(h) == FILE_TYPE_PIPE) {
+                /* h is a pipe or socket.  */
+                DWORD state;
+                if (GetNamedPipeHandleState(h, &state, NULL, NULL, NULL, NULL, 0)) {
+                    /* h is a pipe.  */
+                    if ((state & PIPE_NOWAIT) != 0) {
+                        if (non_block)
+                            return 0;
+                        state &= ~PIPE_NOWAIT;
+                    } else {
+                        if (!non_block)
+                            return 0;
+                        state |= PIPE_NOWAIT;
+                    }
+                    if (SetNamedPipeHandleState(h, &state, NULL, NULL)) {
+                        return 0;
+                    }
+                    errno = EINVAL;
+                    return -1;
+                } else {
+                    /* h is a socket.  */
+                    errno = EINVAL;
+                    return -1;
+                }
+            } else {
+                /* Win32 does not support non-blocking on regular files.  */
+                if (!non_block) {
+                    return 0;
+                }
+                errno = ENOTSUP;
+                return -1;
+            }
+            return 0;
+        }
+    } CATCH_AND_REPORT()
+
+        errno = EBADF;
+    return -1;
+}
+
 int redis_pipe_impl(int *pfds) {
     int err = -1;
     try {

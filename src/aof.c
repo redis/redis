@@ -110,7 +110,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
-            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
+            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,    // TODO: Azure removed this line
                               AE_WRITABLE);
             return;
         }
@@ -166,7 +166,7 @@ void aofRewriteBufferAppend(unsigned char *s, PORT_ULONG len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
-    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {  // TODO: Azure removed this code
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -220,16 +220,15 @@ void stopAppendOnly(void) {
     server.aof_state = REDIS_AOF_OFF;
     /* rewrite operation in progress? kill it, wait child exit */
     if (server.aof_child_pid != -1) {
+        POSIX_ONLY(int statloc;)
+
         redisLog(REDIS_NOTICE, "Killing running AOF rewrite child: %Id",        WIN_PORT_FIX /* %ld -> %Id */
             (PORT_LONG) server.aof_child_pid);
 #ifdef _WIN32
         AbortForkOperation();
 #else
-        {
-            int statloc;
-            if (kill(server.aof_child_pid,SIGUSR1) != -1)
-                wait3(&statloc,0,NULL);
-        }
+        if (kill(server.aof_child_pid,SIGUSR1) != -1)
+            wait3(&statloc,0,NULL);
 #endif
         /* reset the buffer accumulating changes while the child saves */
         aofRewriteBufferReset();
@@ -245,11 +244,7 @@ void stopAppendOnly(void) {
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     server.aof_last_fsync = server.unixtime;
-#ifdef _WIN32
-    server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT|_O_BINARY,_S_IREAD|_S_IWRITE);
-#else
-    server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
-#endif
+    server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT WIN32_ONLY(|_O_BINARY),IF_WIN32(_S_IREAD|_S_IWRITE,0644));
     redisAssert(server.aof_state == REDIS_AOF_OFF);
     if (server.aof_fd == -1) {
         redisLog(REDIS_WARNING,"Redis needs to enable the AOF but can't open the append only file: %s",strerror(errno));
@@ -1150,8 +1145,10 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Ask the master to stop sending diffs. */
     if (write(server.aof_pipe_write_ack_to_parent,"!",1) != 1) goto werr;
+#ifndef _WIN32
     if (anetNonBlock(NULL,server.aof_pipe_read_ack_from_parent) != ANET_OK)
         goto werr;
+#endif
     /* We read the ACK from the server using a 10 seconds timeout. Normally
      * it should reply ASAP, but just in case we lose its reply, we are sure
      * the child will eventually get terminated. */
@@ -1219,7 +1216,7 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     /* Remove the handler since this can be called only one time during a
      * rewrite. */
-    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);
+    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);   // TODO: Azure removed this code
 }
 
 /* Create the pipes used for parent - child process IPC during rewrite.
@@ -1235,9 +1232,14 @@ int aofCreatePipes(void) {
     if (pipe(fds+2) == -1) goto error; /* children -> parent ack. */
     if (pipe(fds+4) == -1) goto error; /* children -> parent ack. */
     /* Parent -> children data is non blocking. */
+#ifndef WIN32
     if (anetNonBlock(NULL,fds[0]) != ANET_OK) goto error;
     if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
     if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
+#else
+    if (FDAPI_PipeSetNonBlock(fds[0], 1) != 0) goto error;
+    if (FDAPI_PipeSetNonBlock(fds[1], 1) != 0) goto error;
+#endif
 
     server.aof_pipe_write_data_to_child = fds[1];
     server.aof_pipe_read_data_from_parent = fds[0];
@@ -1302,7 +1304,14 @@ int rewriteAppendOnlyFileBackground(void) {
 #endif
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
 #ifdef _WIN32
-        childpid = BeginForkOperation_Aof(tmpfile, &server, sizeof(server), dictGetHashFunctionSeed(), server.logfile);
+        childpid = BeginForkOperation_Aof(server.aof_pipe_write_ack_to_parent,
+                                          server.aof_pipe_read_ack_from_parent,
+                                          server.aof_pipe_read_data_from_parent,
+                                          tmpfile,
+                                          &server,
+                                          sizeof(server),
+                                          dictGetHashFunctionSeed(),
+                                          server.logfile);
 #else
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
@@ -1590,4 +1599,21 @@ cleanup:
     /* Schedule a new rewrite if we are waiting for it to switch the AOF ON. */
     if (server.aof_state == REDIS_AOF_WAIT_REWRITE)
         server.aof_rewrite_scheduled = 1;
+}
+
+void aofProcessDiffRewriteEvents(aeEventLoop* eventLoop)
+{
+    // only do these checks in the parent process and if an aof rewrite is in progress
+    if (server.aof_child_pid != -1 && server.aof_pipe_read_ack_from_child != -1) {
+        //1) check if more data can be written to the child and write it.
+        // in which case we dont need to send any more diffs to the parent
+        if (server.aof_stop_sending_diff == 0) {
+            aofChildWriteDiffData(eventLoop, server.aof_pipe_write_data_to_child, NULL, 0);
+        }
+
+        //2) check if child has signaled parent to stop sending diffs
+        if (server.aof_stop_sending_diff == 0) {
+            aofChildPipeReadable(eventLoop, server.aof_pipe_read_ack_from_child, NULL, 0);
+        }
+    }
 }

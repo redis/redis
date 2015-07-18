@@ -1292,6 +1292,12 @@ int serverCron(struct aeEventLoop *eventLoop, PORT_LONGLONG id, void *clientData
 void beforeSleep(struct aeEventLoop *eventLoop) {
     REDIS_NOTUSED(eventLoop);
 
+#ifdef WIN32
+    //1) check if child has signaled parent to stop sending diffs
+    //2) check if more data can be written to the child and write it
+    aofProcessDiffRewriteEvents(eventLoop);
+#endif
+
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients

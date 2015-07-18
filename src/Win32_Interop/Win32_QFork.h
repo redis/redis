@@ -59,6 +59,9 @@ typedef struct QForkBeginInfo {
     int numfds;
     uint64_t *clientids;
     HANDLE pipe_write_handle;
+    HANDLE aof_pipe_write_ack_handle;
+    HANDLE aof_pipe_read_ack_handle;
+    HANDLE aof_pipe_read_data_handle;
     LPVOID protocolInfo;
 } QForkStartupInfo;
     
@@ -74,6 +77,9 @@ pid_t BeginForkOperation_Rdb(
     char* logfile);
 
 pid_t BeginForkOperation_Aof(
+    int aof_pipe_write_ack_to_parent,
+    int aof_pipe_read_ack_from_parent,
+    int aof_pipe_read_data_from_parent,
     char* fileName,
     LPVOID globalData,
     int sizeOfGlobalData,

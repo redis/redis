@@ -28,14 +28,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
 #ifdef _WIN32
 #include "win32_Interop/win32fixes.h"
-#else
-#include <pthread.h>
 #endif
+
+#include "redis.h"
+POSIX_ONLY(#include <pthread.h>)
 #include <math.h>
 #include <ctype.h>
+
 
 #ifdef __CYGWIN__
 #define strtold(a,b) ((PORT_LONGDOUBLE)strtod((a),(b)))
