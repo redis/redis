@@ -127,7 +127,6 @@ public:
     {
         m_viewPtr = (T*)MapViewOfFile( fileMapHandle, desiredAccess, 0, 0, sizeof(T) );
         if(Invalid()) {
-            DebugBreak();
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
@@ -136,7 +135,6 @@ public:
     {
         m_viewPtr = (T*)MapViewOfFile( fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap );
         if(Invalid()) {
-            DebugBreak();
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
