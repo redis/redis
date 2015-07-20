@@ -432,7 +432,15 @@ static RedisParamterMapper g_redisArgMap =
     { cInclude,                         &fp1 },    // include [path]
 
     // sentinel commands
-    { "sentinel",                       &sp }
+    { "sentinel",                       &sp },
+
+    // cluster commands
+    {"cluster-enabled",                 &fp1},     // [yes/no]
+    {"cluster-config-file",             &fp1},     // [filename]
+    {"cluster-node-timeout",            &fp1},     // [number]
+    {"cluster-slave-validity-factor",   &fp1},     // [number]
+    {"cluster-migration-barrier",       &fp1},     // [1/0]
+    {"cluster-require-full-coverage",   &fp1}      // [yes/no]
 };
 
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {

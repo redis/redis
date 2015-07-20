@@ -331,7 +331,6 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
         }
         default:
         {
-            DebugBreak();
         }
     }
 
@@ -388,7 +387,7 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
         default:
         {
-                   DebugBreak();
+            return SOCKET_ERROR;
         }
     }
 

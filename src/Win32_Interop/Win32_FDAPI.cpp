@@ -93,6 +93,7 @@ redis_ntohs ntohs = NULL;
 redis_freeaddrinfo freeaddrinfo = NULL;
 redis_getaddrinfo getaddrinfo = NULL;
 redis_inet_ntop inet_ntop = NULL;
+redis_inet_pton inet_pton = NULL;
 redis_FD_ISSET FD_ISSET = NULL;
 }
 
@@ -1176,6 +1177,34 @@ const char* redis_inet_ntop_impl(int af, const void *src, char *dst, size_t size
     }
 }
 
+int redis_inet_pton_impl(int family, const char* src, void* dst) {
+    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+        static auto f_inet_pton = dllfunctor_stdcall<int, int, const char*, const void*>("ws2_32.dll", "inet_pton");
+        return f_inet_pton(family, src, dst);
+    } else {
+        static auto f_WSAStringToAddressA = dllfunctor_stdcall<int, LPSTR, INT, LPWSAPROTOCOL_INFO, LPSOCKADDR, LPINT>("ws2_32.dll", "WSAStringToAddressA");
+        struct sockaddr ss;
+        int size = sizeof(ss);
+        ZeroMemory(&ss, sizeof(ss));
+
+        char src_copy[INET6_ADDRSTRLEN + 1];
+        strncpy(src_copy, src, INET6_ADDRSTRLEN + 1);
+        src_copy[INET6_ADDRSTRLEN] = 0;
+        /* Non-Const API*/
+        if (f_WSAStringToAddressA(src_copy, family, NULL, (struct sockaddr *)&ss, &size) == 0) {
+            switch (family) {
+                case AF_INET:
+                    *(struct in_addr *)dst = ((struct sockaddr_in *)&ss)->sin_addr;
+                    return 1;
+                case AF_INET6:
+                    *(struct in6_addr *)dst = ((struct sockaddr_in6 *)&ss)->sin6_addr;
+                    return 1;
+            }
+        }
+        return 0;
+    }
+}
+
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr) {
     struct addrinfo hints, *res;
     int status;
@@ -1190,7 +1219,7 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAdd
     hints.ai_flags = AI_NUMERICSERV | AI_PASSIVE;
 
     if ((status = getaddrinfo(ip, port_buffer, &hints, &res) != 0)) {
-        fprintf(stderr, "getaddrinfo: %S\n", gai_strerror(status));
+        //fprintf(stderr, "getaddrinfo: %S\n", gai_strerror(status));
         return FALSE;
     }
 
@@ -1249,7 +1278,8 @@ private:
         ioctlsocket = redis_ioctlsocket_impl;
         inet_addr = redis_inet_addr_impl;
         gethostbyname = redis_gethostbyname_impl;
-        inet_ntoa = redis_inet_ntoa_impl; 
+        inet_ntoa = redis_inet_ntoa_impl;
+        inet_pton = redis_inet_pton_impl;
         fdapi_fwrite = redis_fwrite_impl;
         fdapi_fclose = redis_fclose_impl;
         fdapi_fileno = redis_fileno_impl;

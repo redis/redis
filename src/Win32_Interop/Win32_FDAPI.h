@@ -182,6 +182,7 @@ typedef u_short (*redis_ntohs)(u_short netshort);
 typedef void (*redis_freeaddrinfo)(struct addrinfo *ai);
 typedef int (*redis_getaddrinfo)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
 typedef const char* (*redis_inet_ntop)(int af, const void *src, char *dst, size_t size);
+typedef int (*redis_inet_pton)(int af, const char * src, void *dst);
 
 typedef int (*redis_select)(int nfds, fd_set *readfds, fd_set *writefds,fd_set *exceptfds, struct timeval *timeout);
 typedef u_int (*redis_ntohl)(u_int netlong);
@@ -252,6 +253,7 @@ extern redis_open_osfhandle fdapi_open_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
+extern redis_inet_pton inet_pton;
 extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs

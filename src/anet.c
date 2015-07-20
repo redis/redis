@@ -297,7 +297,9 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_a
     int fd;
     SOCKADDR_STORAGE ss;
 
-    ParseStorageAddress(addr, port, &ss);
+    if (ParseStorageAddress(addr, port, &ss) == FALSE) {
+        return ANET_ERR;
+    }
 
     if ((fd = anetCreateSocket(err,ss.ss_family)) == ANET_ERR) {
         return ANET_ERR;

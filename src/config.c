@@ -995,7 +995,12 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.rdb_compression = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"notify-keyspace-events")) {
+    } else if (!strcasecmp(c->argv[2]->ptr, "rdbchecksum")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.rdb_checksum = yn;
+    } else if (!strcasecmp(c->argv[2]->ptr, "notify-keyspace-events")) {
         int flags = keyspaceEventsStringToFlags(o->ptr);
 
         if (flags == -1) goto badfmt;

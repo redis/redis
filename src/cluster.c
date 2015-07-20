@@ -369,21 +369,35 @@ int clusterLockConfig(char *filename) {
         return REDIS_ERR;
     }
     
-    /* TODO-3.0: add redis_flock_impl 
+#ifndef _WIN32
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
+#else
+    HANDLE hFile = (HANDLE) _get_osfhandle(fd);
+    OVERLAPPED ovlp;
+    DWORD size_lower, size_upper;
+    // start offset is 0, and also zero the remaining members of the struct
+    memset(&ovlp, 0, sizeof ovlp);
+    // get file size
+    size_lower = GetFileSize(hFile, &size_upper);
+    if (!LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, size_lower, size_upper, &ovlp)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_LOCK_VIOLATION) {
+#endif
             redisLog(REDIS_WARNING,
-                 "Sorry, the cluster configuration file %s is already used "
-                 "by a different Redis Cluster node. Please make sure that "
-                 "different nodes use different cluster configuration "
-                 "files.", filename);
+                "Sorry, the cluster configuration file %s is already used "
+                "by a different Redis Cluster node. Please make sure that "
+                "different nodes use different cluster configuration "
+                "files.", filename);
+
         } else {
             redisLog(REDIS_WARNING,
-                "Impossible to lock %s: %s", filename, strerror(errno));
+                "Impossible to lock %s: %d", filename, err);
         }
+
         close(fd);
         return REDIS_ERR;
-    } */
+    }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
      * lock to the file as long as the process exists. */
     return REDIS_OK;
@@ -412,10 +426,12 @@ void clusterInit(void) {
     memset(server.cluster->slots,0, sizeof(server.cluster->slots));
     clusterCloseAllSlots();
 
+#ifndef WIN32   // TODO: review this to verify if we can lock the file on Windows
     /* Lock the cluster config file to make sure every node uses
      * its own nodes.conf. */
     if (clusterLockConfig(server.cluster_configfile) == REDIS_ERR)
         exit(1);
+#endif
 
     /* Load or create a new nodes configuration. */
     if (clusterLoadConfig(server.cluster_configfile) == REDIS_ERR) {
@@ -763,7 +779,7 @@ int clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
  * node as well. */
 int clusterNodeFailureReportsCount(clusterNode *node) {
     clusterNodeCleanupFailureReports(node);
-    return listLength(node->fail_reports);
+    return (int) listLength(node->fail_reports);                                WIN_PORT_FIX /* cast (int) */
 }
 
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
@@ -1237,7 +1253,6 @@ int clusterStartHandshake(char *ip, int port) {
     struct sockaddr_storage sa;
 
     /* IP sanity check */
-    /* TODO-3.0: inet_pton
     if (inet_pton(AF_INET,ip,
             &(((struct sockaddr_in *)&sa)->sin_addr)))
     {
@@ -1249,7 +1264,7 @@ int clusterStartHandshake(char *ip, int port) {
     } else {
         errno = EINVAL;
         return 0;
-    }*/
+    }
 
     /* Port sanity check */
     if (port <= 0 || port > (65535-REDIS_CLUSTER_PORT_INCR)) {
@@ -1988,7 +2003,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         handleLinkIOError(link);
         return;
     }
-    sdsrange(link->sndbuf,nwritten,-1);
+    sdsrange(link->sndbuf,(int)nwritten,-1);                                    WIN_PORT_FIX /* cast (int) */
     if (sdslen(link->sndbuf) == 0)
         aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
 }
@@ -2006,7 +2021,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
 
     while(1) { /* Read as long as there is data to read. */
-        rcvbuflen = sdslen(link->rcvbuf);
+        rcvbuflen = (unsigned int)sdslen(link->rcvbuf);                         WIN_PORT_FIX /* cast (unsigned int) */
         if (rcvbuflen < 8) {
             /* First, obtain the first 8 bytes to get the full message
              * length. */
@@ -2024,7 +2039,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                         "Bad message length or signature received "
                         "from Cluster bus.");
                     handleLinkIOError(link);
-                    return;
+                    IF_WIN32(goto done,return);
                 }
             }
             readlen = ntohl(hdr->totlen) - rcvbuflen;
@@ -2032,19 +2047,19 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
         nread = read(fd,buf,readlen);
-        if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        if (nread == -1 && errno == EAGAIN) IF_WIN32(goto done, return); /* No more data ready. */
 
         if (nread <= 0) {
             /* I/O error... */
             redisLog(REDIS_DEBUG,"I/O error reading from node link: %s",
                 (nread == 0) ? "connection closed" : strerror(errno));
             handleLinkIOError(link);
-            return;
+            IF_WIN32(goto done, return);
         } else {
             /* Read data and recast the pointer to the new buffer. */
             link->rcvbuf = sdscatlen(link->rcvbuf,buf,nread);
             hdr = (clusterMsg*) link->rcvbuf;
-            rcvbuflen += nread;
+            rcvbuflen += (unsigned int)nread;                                   WIN_PORT_FIX /* cast (unsigned int) */
         }
 
         /* Total length obtained? Process this packet. */
@@ -2053,10 +2068,12 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 sdsfree(link->rcvbuf);
                 link->rcvbuf = sdsempty();
             } else {
-                return; /* Link no longer valid. */
+                IF_WIN32(goto done, return); /* Link no longer valid. */
             }
         }
     }
+WIN32_ONLY(done:)
+    WIN32_ONLY(aeWinReceiveDone(fd);)
 }
 
 /* Put stuff into the send buffer.
@@ -2166,7 +2183,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * nodes available minus two (ourself and the node we are sending the
      * message to). However practically there may be less valid nodes since
      * nodes in handshake state, disconnected, are not considered. */
-    int freshnodes = dictSize(server.cluster->nodes)-2;
+    int freshnodes = (int)dictSize(server.cluster->nodes)-2;                    WIN_PORT_FIX /* cast (int) */
 
     /* How many gossip sections we want to add? 1/10 of the number of nodes
      * and anyway at least 3. Why 1/10?
@@ -2322,8 +2339,8 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
 
     channel = getDecodedObject(channel);
     message = getDecodedObject(message);
-    channel_len = sdslen(channel->ptr);
-    message_len = sdslen(message->ptr);
+    channel_len = (uint32_t)sdslen(channel->ptr);                               WIN_PORT_FIX /* cast (uint32_t) */
+    message_len = (uint32_t)sdslen(message->ptr);                               WIN_PORT_FIX /* cast (uint32_t) */
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_PUBLISH);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
@@ -3814,7 +3831,7 @@ void clusterCommand(redisClient *c) {
             return;
         }
 
-        if (clusterStartHandshake(c->argv[2]->ptr,port) == 0 &&
+        if (clusterStartHandshake(c->argv[2]->ptr,(int)port) == 0 &&            WIN_PORT_FIX /* cast (int) */
             errno == EINVAL)
         {
             addReplyErrorFormat(c,"Invalid node address specified: %s:%s",
@@ -4051,7 +4068,7 @@ void clusterCommand(redisClient *c) {
         /* CLUSTER KEYSLOT <key> */
         sds key = c->argv[2]->ptr;
 
-        addReplyLongLong(c,keyHashSlot(key,sdslen(key)));
+        addReplyLongLong(c,keyHashSlot(key,(int)sdslen(key)));                  WIN_PORT_FIX /* cast (int) */
     } else if (!strcasecmp(c->argv[1]->ptr,"countkeysinslot") && c->argc == 3) {
         /* CLUSTER COUNTKEYSINSLOT <slot> */
         PORT_LONGLONG slot;
@@ -4062,7 +4079,7 @@ void clusterCommand(redisClient *c) {
             addReplyError(c,"Invalid slot");
             return;
         }
-        addReplyLongLong(c,countKeysInSlot(slot));
+        addReplyLongLong(c,countKeysInSlot((unsigned int)slot));                WIN_PORT_FIX /* cast (unsigned int) */
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeysinslot") && c->argc == 4) {
         /* CLUSTER GETKEYSINSLOT <slot> <count> */
         PORT_LONGLONG maxkeys, slot;
@@ -4080,7 +4097,7 @@ void clusterCommand(redisClient *c) {
         }
 
         keys = zmalloc(sizeof(robj*)*maxkeys);
-        numkeys = getKeysInSlot(slot, keys, maxkeys);
+        numkeys = getKeysInSlot((unsigned int)slot, keys, (unsigned int)maxkeys); WIN_PORT_FIX /* cast (unsigned int) */
         addReplyMultiBulkLen(c,numkeys);
         for (j = 0; j < numkeys; j++) addReplyBulk(c,keys[j]);
         zfree(keys);
@@ -4646,12 +4663,34 @@ try_again:
         size_t pos = 0, towrite;
         int nwritten = 0;
 
+#ifdef _WIN32
+        while ((towrite = sdslen(buf) - pos) > 0) {
+            towrite = (towrite > (64 * 1024) ? (64 * 1024) : towrite);
+            while (nwritten != (signed) towrite) {
+                nwritten = syncWrite(cs->fd, buf + pos, (ssize_t) towrite, timeout);
+                if (nwritten != (signed) towrite) {
+                    DWORD err = GetLastError();
+                    if (err == WSAEWOULDBLOCK) {
+                        // Likely send buffer is full. A short delay or two is sufficient to allow this to work.
+                        redisLog(REDIS_VERBOSE, "In migrate. WSAEWOULDBLOCK with synchronous socket: sleeping for 0.1s");
+                        Sleep(100);
+                    } else {
+                        redisLog(REDIS_WARNING, "SyncWrite failure toWrite=%d  written=%d err=%d timeout=%d ", towrite, nwritten, GetLastError(), timeout);
+                        goto socket_wr_err;
+                    }
+                }
+            }
+            pos += nwritten;
+            nwritten = 0;
+        }
+#else
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
             nwritten = syncWrite(cs->fd,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
+#endif
     }
 
     /* Read back the reply. */
@@ -4702,6 +4741,9 @@ socket_wr_err:
     return;
 
 socket_rd_err:
+#ifdef _WIN32
+    redisLog(REDIS_WARNING, "syncReadLine failure err=%d timeout=%d ", GetLastError(), timeout);
+#endif
     sdsfree(cmd.io.buffer.ptr);
     migrateCloseSocket(c->argv[1],c->argv[2]);
     if (errno != ETIMEDOUT && retry_num++ == 0) goto try_again;
@@ -4819,7 +4861,7 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+                                       (int)sdslen(thiskey->ptr));              WIN_PORT_FIX /* cast (int) */
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
@@ -4984,7 +5026,7 @@ int clusterRedirectBlockedClientIfNeeded(redisClient *c) {
         di = dictGetIterator(c->bpop.keys);
         while((de = dictNext(di)) != NULL) {
             robj *key = dictGetKey(de);
-            int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
+            int slot = keyHashSlot((char*)key->ptr, (int)sdslen(key->ptr));     WIN_PORT_FIX /* cast (int) */
             clusterNode *node = server.cluster->slots[slot];
 
             /* We send an error and unblock the client if:
