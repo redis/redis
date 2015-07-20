@@ -305,8 +305,8 @@ void sdsIncrLen(sds s, int incr) {
             unsigned char *fp = ((unsigned char*)s)-1;
             unsigned char oldlen = SDS_TYPE_5_LEN(flags);
             assert((incr > 0 && oldlen+incr < 32) || (incr < 0 && oldlen >= (unsigned int)(-incr)));
-            *fp = SDS_TYPE_5 | ((oldlen+1) << SDS_TYPE_BITS);
-            len = oldlen+1;
+            *fp = SDS_TYPE_5 | ((oldlen+incr) << SDS_TYPE_BITS);
+            len = oldlen+incr;
             break;
         }
         case SDS_TYPE_8: {
@@ -1193,28 +1193,40 @@ int sdsTest(void) {
         test_cond("sdscatrepr(...data...)",
             memcmp(y,"\"\\a\\n\\x00foo\\r\"",15) == 0)
 
-#if 0
         {
             unsigned int oldfree;
+            char *p;
+            int step = 10, j, i;
 
             sdsfree(x);
             sdsfree(y);
             x = sdsnew("0");
-            sh = (void*) (x-(sizeof(struct sdshdr)));
-            test_cond("sdsnew() free/len buffers", sh->len == 1 && sh->free == 0);
-            x = sdsMakeRoomFor(x,1);
-            sh = (void*) (x-(sizeof(struct sdshdr)));
-            test_cond("sdsMakeRoomFor()", sh->len == 1 && sh->free > 0);
-            oldfree = sh->free;
-            x[1] = '1';
-            sdsIncrLen(x,1);
-            test_cond("sdsIncrLen() -- content", x[0] == '0' && x[1] == '1');
-            test_cond("sdsIncrLen() -- len", sh->len == 2);
-            test_cond("sdsIncrLen() -- free", sh->free == oldfree-1);
+            test_cond("sdsnew() free/len buffers", sdslen(x) == 1 && sdsavail(x) == 0);
+
+            /* Run the test a few times in order to hit the first two
+             * SDS header types. */
+            for (i = 0; i < 10; i++) {
+                int oldlen = sdslen(x);
+                x = sdsMakeRoomFor(x,step);
+                int type = x[-1]&SDS_TYPE_MASK;
+
+                test_cond("sdsMakeRoomFor() len", sdslen(x) == oldlen);
+                if (type != SDS_TYPE_5) {
+                    test_cond("sdsMakeRoomFor() free", sdsavail(x) >= step);
+                    oldfree = sdsavail(x);
+                }
+                p = x+oldlen;
+                for (j = 0; j < step; j++) {
+                    p[j] = 'A'+j;
+                }
+                sdsIncrLen(x,step);
+            }
+            test_cond("sdsMakeRoomFor() content",
+                memcmp("0ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJ",x,101) == 0);
+            test_cond("sdsMakeRoomFor() final length",sdslen(x)==101);
 
             sdsfree(x);
         }
-#endif
     }
     test_report()
     return 0;
