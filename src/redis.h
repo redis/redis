@@ -1053,14 +1053,14 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReplyBulk(redisClient *c, robj *obj);
-void addReplyBulkCString(redisClient *c, char *s);
-void addReplyBulkCBuffer(redisClient *c, void *p, size_t len);
+void addReplyBulkCString(redisClient *c, const char *s);
+void addReplyBulkCBuffer(redisClient *c, const void *p, size_t len);
 void addReplyBulkLongLong(redisClient *c, long long ll);
 void addReply(redisClient *c, robj *obj);
 void addReplySds(redisClient *c, sds s);
 void addReplyBulkSds(redisClient *c, sds s);
-void addReplyError(redisClient *c, char *err);
-void addReplyStatus(redisClient *c, char *status);
+void addReplyError(redisClient *c, const char *err);
+void addReplyStatus(redisClient *c, const char *status);
 void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
 void addReplyMultiBulkLen(redisClient *c, long length);
@@ -1074,6 +1074,7 @@ sds catClientInfoString(sds s, redisClient *client);
 sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval);
+void replaceClientCommandVector(redisClient *c, int argc, robj **argv);
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
@@ -1136,9 +1137,9 @@ void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 robj *createObject(int type, void *ptr);
-robj *createStringObject(char *ptr, size_t len);
-robj *createRawStringObject(char *ptr, size_t len);
-robj *createEmbeddedStringObject(char *ptr, size_t len);
+robj *createStringObject(const char *ptr, size_t len);
+robj *createRawStringObject(const char *ptr, size_t len);
+robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(robj *o);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
@@ -1241,6 +1242,7 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
+int zsetScore(robj *zobj, robj *member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
 
 /* Core functions */
@@ -1275,7 +1277,7 @@ void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
-char *maxmemoryToString(void);
+const char *maxmemoryToString(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
@@ -1328,7 +1330,7 @@ void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force);
+void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 int rewriteConfig(char *path);
 
 /* db.c -- Keyspace access API */
@@ -1396,6 +1398,7 @@ void blockClient(redisClient *c, int btype);
 void unblockClient(redisClient *c);
 void replyToBlockedClientTimedOut(redisClient *c);
 int getTimeoutFromObjectOrReply(redisClient *c, robj *object, mstime_t *timeout, int unit);
+void disconnectAllBlockedClients(void);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
@@ -1556,6 +1559,14 @@ void bitcountCommand(redisClient *c);
 void bitposCommand(redisClient *c);
 void replconfCommand(redisClient *c);
 void waitCommand(redisClient *c);
+void geoencodeCommand(redisClient *c);
+void geodecodeCommand(redisClient *c);
+void georadiusByMemberCommand(redisClient *c);
+void georadiusCommand(redisClient *c);
+void geoaddCommand(redisClient *c);
+void geohashCommand(redisClient *c);
+void geoposCommand(redisClient *c);
+void geodistCommand(redisClient *c);
 void pfselftestCommand(redisClient *c);
 void pfaddCommand(redisClient *c);
 void pfcountCommand(redisClient *c);

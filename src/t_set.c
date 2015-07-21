@@ -144,7 +144,11 @@ void setTypeReleaseIterator(setTypeIterator *si) {
  * Since set elements can be internally be stored as redis objects or
  * simple arrays of integers, setTypeNext returns the encoding of the
  * set object you are iterating, and will populate the appropriate pointer
- * (eobj) or (llobj) accordingly.
+ * (objele) or (llele) accordingly.
+ *
+ * Note that both the objele and llele pointers should be passed and cannot
+ * be NULL since the function will try to defensively populate the non
+ * used field with values which are easy to trap if misused.
  *
  * When there are no longer elements -1 is returned.
  * Returned objects ref count is not incremented, so this function is
@@ -154,9 +158,13 @@ int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele) {
         dictEntry *de = dictNext(si->di);
         if (de == NULL) return -1;
         *objele = dictGetKey(de);
+        *llele = -123456789; /* Not needed. Defensive. */
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
         if (!intsetGet(si->subject->ptr,si->ii++,llele))
             return -1;
+        *objele = NULL; /* Not needed. Defensive. */
+    } else {
+        redisPanic("Wrong set encoding in setTypeNext");
     }
     return si->encoding;
 }
@@ -197,6 +205,10 @@ robj *setTypeNextObject(setTypeIterator *si) {
  * field of the object and is used by the caller to check if the
  * int64_t pointer or the redis object pointer was populated.
  *
+ * Note that both the objele and llele pointers should be passed and cannot
+ * be NULL since the function will try to defensively populate the non
+ * used field with values which are easy to trap if misused.
+ *
  * When an object is returned (the set was a real set) the ref count
  * of the object is not incremented so this function can be considered
  * copy on write friendly. */
@@ -204,8 +216,10 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
     if (setobj->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictGetRandomKey(setobj->ptr);
         *objele = dictGetKey(de);
+        *llele = -123456789; /* Not needed. Defensive. */
     } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
         *llele = intsetRandom(setobj->ptr);
+        *objele = NULL; /* Not needed. Defensive. */
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -240,7 +254,7 @@ void setTypeConvert(robj *setobj, int enc) {
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
-        while (setTypeNext(si,NULL,&intele) != -1) {
+        while (setTypeNext(si,&element,&intele) != -1) {
             element = createStringObjectFromLongLong(intele);
             redisAssertWithInfo(NULL,element,
                                 dictAdd(d,element,NULL) == DICT_OK);
@@ -329,7 +343,7 @@ void smoveCommand(redisClient *c) {
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
-        addReply(c,shared.cone);
+        addReply(c,setTypeIsMember(srcset,ele) ? shared.cone : shared.czero);
         return;
     }
 

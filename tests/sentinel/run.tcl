@@ -13,6 +13,7 @@ proc main {} {
     spawn_instance redis $::redis_base_port $::instances_count
     run_tests
     cleanup
+    end_tests
 }
 
 if {[catch main e]} {

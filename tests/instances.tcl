@@ -19,6 +19,7 @@ set ::verbose 0
 set ::valgrind 0
 set ::pause_on_error 0
 set ::simulate_error 0
+set ::failed 0
 set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
@@ -231,6 +232,7 @@ proc test {descr code} {
     flush stdout
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
+        incr ::failed
         if {[string match "assertion:*" $error]} {
             set msg [string range $error 10 end]
             puts [colorstr red $msg]
@@ -246,6 +248,7 @@ proc test {descr code} {
     }
 }
 
+# Execute all the units inside the 'tests' directory.
 proc run_tests {} {
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
@@ -255,6 +258,17 @@ proc run_tests {} {
         if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
+    }
+}
+
+# Print a message and exists with 0 / 1 according to zero or more failures.
+proc end_tests {} {
+    if {$::failed == 0} {
+        puts "GOOD! No errors."
+        exit 0
+    } else {
+        puts "WARNING $::failed tests faield."
+        exit 1
     }
 }
 
