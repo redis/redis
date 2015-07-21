@@ -152,9 +152,9 @@ foreach mdl {no yes} {
                         lappend slaves [srv 0 client]
                         test "Connect multiple slaves at the same time (issue #141), master diskless=$mdl, slave diskless=$sdl" {
                             # Send SLAVEOF commands to slaves
-                            [lindex $slaves 0] config set repl-diskless-sync $sdl
-                            [lindex $slaves 1] config set repl-diskless-sync $sdl
-                            [lindex $slaves 2] config set repl-diskless-sync $sdl
+                            [lindex $slaves 0] config set repl-diskless-load $sdl
+                            [lindex $slaves 1] config set repl-diskless-load $sdl
+                            [lindex $slaves 2] config set repl-diskless-load $sdl
                             [lindex $slaves 0] slaveof $master_host $master_port
                             [lindex $slaves 1] slaveof $master_host $master_port
                             [lindex $slaves 2] slaveof $master_host $master_port

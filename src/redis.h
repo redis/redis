@@ -118,6 +118,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_RDB_CHECKSUM 1
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
 #define REDIS_DEFAULT_REPL_DISKLESS_SYNC 0
+#define REDIS_DEFAULT_REPL_DISKLESS_LOAD 0
 #define REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define REDIS_DEFAULT_SLAVE_READ_ONLY 1
@@ -570,6 +571,7 @@ typedef struct redisClient {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    int repl_eof_supported; /* slave supports EOF based, diskless replication */
 
     /* Response buffer */
     int bufpos;
@@ -828,7 +830,8 @@ struct redisServer {
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
-    int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
+    int repl_diskless_load;         /* Slave parse RDB directly from the socket. */
+    int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
