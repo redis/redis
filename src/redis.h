@@ -570,6 +570,7 @@ typedef struct redisClient {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    int repl_eof_supported; /* slave supports EOF based, diskless replication */
 
     /* Response buffer */
     int bufpos;
