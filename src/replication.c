@@ -441,9 +441,14 @@ need_full_resync:
  * socket target depending on the configuration, and making sure that
  * the script cache is flushed before to start.
  *
- * Returns REDIS_OK on success or REDIS_ERR otherwise. */
-int startBgsaveForReplication(int use_eof) {
+ * Returns REDIS_OK on success or REDIS_ERR otherwise.
+ *
+ * The caller should pass '1' as the function argument if all the slaves
+ * currently waiting for a BGSAVE all claimed to support the EOF-style
+ * streaming format for RDB transfer. Otherwise it should be '0'. */
+int startBgsaveForReplication(int all_slaves_supprot_eof) {
     int retval;
+    int use_eof = all_slaves_support_eof && server.repl_diskless_sync;
 
     redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         use_eof ? "slaves sockets" : "disk");
@@ -808,7 +813,8 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         }
     }
     if (slaves_waiting_eof || slaves_waiting_noneof) {
-        /* if there is at least one slave that doesn't support EOF, we'll start an non-eof replication */
+        /* if there is at least one slave that doesn't support EOF, we'll
+         * start an non-eof replication */
         if (startBgsaveForReplication(slaves_waiting_noneof==0) != REDIS_OK) {
             listIter li;
 
@@ -1054,6 +1060,17 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
             replicationAbortSyncTransfer();
             rioFreeFd(&rdb, NULL);
+            /* Remove the half-loaded data, and load back the old dataset
+             * if we have persistence turned on.
+             *
+             * TODO:
+             * 1) Actually allow rdbLoadRio() to don't fail with exit().
+             * 2) Load RDB / AOF.
+             *
+             * Right now this code path is not entered when the connection
+             * breaks between master and slave AFAIK.
+             */
+            emptyDb(NULL);
             return;
         }
         if (usemark) {
@@ -1379,7 +1396,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         sdsfree(err);
     }
-    
+
     /* Inform the master that this slave supports EOF marker of diskless-sync */
     {
         err = sendSynchronousCommand(fd,"REPLCONF","eof-supported","yes",
@@ -2174,9 +2191,10 @@ void replicationCron(void) {
 
         if ((slaves_waiting_eof || slaves_waiting_noneof) && max_idle > server.repl_diskless_sync_delay) {
             /* Start a BGSAVE. Usually with socket target, or with disk target
-             * if there was a recent socket -> disk config change. 
-             * if there is at least one slave that doesn't support EOF, we'll start an non-eof replication */
-            if (startBgsaveForReplication(slaves_waiting_noneof==0) == REDIS_OK) {
+             * if there was a recent socket -> disk config change.
+             * if there is at least one slave that doesn't support EOF, we'll
+             * start an non-eof replication */
+            if (startBgsaveForReplication(slaves_waiting_noneof==0) == REDIS_OK){
                 /* It started! We need to change the state of slaves
                  * from WAIT_BGSAVE_START to WAIT_BGSAVE_END in case
                  * the current target is disk. Otherwise it was already done
