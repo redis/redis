@@ -1235,7 +1235,7 @@ int processMultibulkBuffer(redisClient *c) {
             } else {
                 c->argv[c->argc++] =
                     createStringObject(c->querybuf+pos,c->bulklen);
-                pos += c->bulklen+2;
+                pos += (int)c->bulklen+2;                                       WIN_PORT_FIX /* cast (int) */
             }
             c->bulklen = -1;
             c->multibulklen--;

@@ -73,7 +73,7 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
     o->refcount = 1;
     o->lru = LRU_CLOCK();
 
-    sh->len = len;
+    sh->len = (unsigned int)len;                                                WIN_PORT_FIX /* cast (unsigned int) */
     sh->free = 0;
     if (ptr) {
         memcpy(sh->buf,ptr,len);

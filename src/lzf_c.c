@@ -85,7 +85,7 @@
 # define inline                     inline
 #else
 # define expect(expr,value)         (expr)
-# define inline                     static
+POSIX_ONLY(# define inline                     static)
 #endif
 
 #define expect_false(expr) expect ((expr) != 0, 0)

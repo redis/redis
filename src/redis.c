@@ -2451,8 +2451,8 @@ int time_independent_strcmp(char *a, char *b) {
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
      * leak is possible in the following two lines of code. */
-    unsigned int alen = strlen(a);
-    unsigned int blen = strlen(b);
+    unsigned int alen = (unsigned int) strlen(a);                               WIN_PORT_FIX /* cast (unsigned int) */
+    unsigned int blen = (unsigned int) strlen(b);                               WIN_PORT_FIX /* cast (unsigned int) */
     unsigned int j;
     int diff = 0;
 

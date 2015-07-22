@@ -1198,6 +1198,7 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 PORT_ULONG aofRewriteBufferSize(void);
+WIN32_ONLY(void aofProcessDiffRewriteEvents(aeEventLoop* eventLoop);)
 
 /* Sorted sets data type */
 

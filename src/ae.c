@@ -462,7 +462,7 @@ int aeWait(int fd, int mask, PORT_LONGLONG milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = (int)poll(&pfd, 1, milliseconds))== 1) {                      WIN_PORT_FIX /* cast (int) */
+    if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {                      WIN_PORT_FIX /* cast (int) */
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
