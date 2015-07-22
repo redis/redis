@@ -53,7 +53,8 @@ test "Cluster consistency during live resharding" {
             puts -nonewline "...Starting resharding..."
             flush stdout
             set target [dict get [get_myself [randomInt 5]] id]
-            set tribpid [lindex [exec \
+            # WIN_PORT_FIX: 'exec' -> 'exec ruby'
+            set tribpid [lindex [exec ruby \
                 ../../../src/redis-trib.rb reshard \
                 --from all \
                 --to $target \
