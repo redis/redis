@@ -829,15 +829,30 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
             system_category(),
             "BeginForkOperation: VirtualProtect failed for the fork control map");
     }
-    if (VirtualProtect( 
-        g_pQForkControl->heapStart, 
-        g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize, 
-        PAGE_WRITECOPY, 
-        &oldProtect) == FALSE ) {
-        throw std::system_error(
-            GetLastError(),
-            system_category(),
-            "BeginForkOperation: VirtualProtect failed for the heap");
+
+    // TODO: VirtualProtec randomly fails while running the cluster tests, 
+    // retrying the call is just a workaround for the alpha release.
+    int retries = 0;
+    while (TRUE){
+        BOOL result = VirtualProtect(
+            g_pQForkControl->heapStart,
+            g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize,
+            PAGE_WRITECOPY,
+            &oldProtect);
+
+        if (result == TRUE) {
+            break;
+        } else {
+            ++retries;
+            if (retries > 10) {
+                throw std::system_error(
+                    GetLastError(),
+                    system_category(),
+                    "BeginForkOperation: VirtualProtect failed for the heap");
+            }
+            redisLog(REDIS_DEBUG, "BeginForkOperation: VirtualProtect failed for the heap, retrying in 100ms.");
+            Sleep(100);
+        }
     }
 }
 
