@@ -95,7 +95,7 @@ namespace ReleasePackagingTool
                 Directory.CreateDirectory(releasePackageDir);
             }
 
-            string releasePackagePath = Path.Combine(rootPath, @"bin\Release\redis-" + version + ".zip");
+            string releasePackagePath = Path.Combine(rootPath, @"bin\Release\Redis-x64-" + version + ".zip");
             ForceFileErase(releasePackagePath);
 
             string executablesRoot = Path.Combine(rootPath, @"msvs\x64\Release");
