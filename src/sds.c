@@ -80,6 +80,9 @@ sds sdsnewlen(const void *init, size_t initlen) {
     void *sh;
     sds s;
     char type = sdsReqType(initlen);
+    /* Empty strings are usually created in order to append. Use type 8
+     * since type 5 is not good at this. */
+    if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
@@ -193,7 +196,9 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     char type, oldtype = s[-1] & SDS_TYPE_MASK;
     int hdrlen;
 
+    /* Return ASAP if there is enough space left. */
     if (avail >= addlen) return s;
+
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
@@ -203,6 +208,12 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
         newlen += SDS_MAX_PREALLOC;
 
     type = sdsReqType(newlen);
+
+    /* Don't use type 5: the user is appending to the string and type 5 is
+     * not able to remember empty space, so sdsMakeRoomFor() must be called
+     * at every appending operation. */
+    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+
     hdrlen = sdsHdrSize(type);
     if (oldtype==type) {
         newsh = zrealloc(sh, hdrlen+newlen+1);
