@@ -10,9 +10,45 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.3 ] Release date: 17 Jul 2015
+
+Upgrade urgency: LOW for Redis and Sentinel.
+
+* [FIX] Fix blocking operations timeout precision when HZ is at its default
+        value (not increased) and there are thousands of clients connected
+        at the same time. This bug affected Sidekiq users that experienced
+        a very long delay for BLPOP and similar commands to return for
+        timeout. Check commit b029ff1 for more info. (Salvatore Sanfilippo)
+* [FIX] MIGRATE "creating socket: Invalid argument" error fix. Check
+        issues #2609 and #2612 for more info. (Salvatore Sanfilippo)
+* [FIX] Be able to connect to the master even when the slave is bound to
+        just the loopback interface and has no valid public address in the
+        network the master is reacahble. (Salvatore Sanfilippo)
+* [FIX] ZADD with options encoding promotion fixed. (linfangrong)
+* [FIX] Reset aof_delayed_fsync on CONFIG RESETSTATS. (Tom Kiemes)
+* [FIX] PFCOUNT key parsing in cluster fixed. (MOON_CLJ)
+* [FIX] Fix Solaris compilation of Redis 3.0. (Jan-Erik Rediger)
+
+* [NEW] Variadic EXISTS command. Now the command accepts multiple arguments
+        and returns the total count of existing keys.
+
+--[ Redis 3.0.2 ] Release date: 4 Jun 2015
+
+Upgrade urgency: HIGH for Redis because of a security issue.
+                 LOW for Sentinel.
+
+* [FIX] Critical security issue fix by Ben Murphy: http://t.co/LpGTyZmfS7
+* [FIX] SMOVE reply fixed when src and dst keys are the same. (Glenn Nethercutt)
+* [FIX] Lua cmsgpack lib updated to support str8 type. (Sebastian Waisbrot)
+
+* [NEW] ZADD support for options: NX, XX, CH. See new doc at redis.io.
+        (Salvatore Sanfilippo)
+* [NEW] Senitnel: CKQUORUM and FLUSHCONFIG commands back ported.
+        (Salvatore Sanfilippo and Bill Anderson)
+
 --[ Redis 3.0.1 ] Release date: 5 May 2015
 
-Upgrade urgency: LOW for Redis, Sentinel, Cluster.
+Upgrade urgency: LOW for Redis and Cluster, MODERATE for Sentinel.
 
 * [FIX] Sentinel memory leak due to hiredis fixed. (Salvatore Sanfilippo)
 * [FIX] Sentinel memory leak on duplicated instance. (Charsyam)
@@ -32,7 +68,7 @@ Upgrade urgency: LOW for Redis, Sentinel, Cluster.
 * WAIT command to block waiting for a write to be transmitted to
   the specified number of slaves.
 * MIGRATE connection caching. Much faster keys migraitons.
-* MIGARTE new options COPY and REPLACE.
+* MIGRATE new options COPY and REPLACE.
 * CLIENT PAUSE command: stop processing client requests for a
   specified amount of time.
 * BITCOUNT performance improvements.
@@ -593,6 +629,11 @@ non-backward compatible changes introduced in the 3.0 release:
   in the following format [1234]. Now instead it is 1234:? Where
   '?' is actually the role of the instance. M for master, S for slave, C
   if this process is a saving child (for RDB/AOF), and X for Sentinel.
+
+* The default maxmemory policy in Redis 3.0 is no longer "volatile-lru" as
+  it used to be in 2.8, but "noeviction". The policies behavior is the same
+  (but LRU eviction is much more precise in 3.0), so only the default value
+  changed. Just make sure to specify in your redis.conf what you mean.
 
 --------------------------------------------------------------------------------
 

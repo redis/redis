@@ -321,7 +321,7 @@ void smoveCommand(redisClient *c) {
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
-        addReply(c,shared.cone);
+        addReply(c,setTypeIsMember(srcset,ele) ? shared.cone : shared.czero);
         return;
     }
 
