@@ -40,9 +40,9 @@
 #include <signal.h>
 #include <assert.h>
 
+#include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
 #include "hiredis.h"
-#include "sds.h"
 #include "adlist.h"
 #include "zmalloc.h"
 
