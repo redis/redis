@@ -6,7 +6,7 @@
 lg_qmin=3
 lg_qmax=4
 
-# The range of tiny size classes is [2^lg_tmin..2^(lg_q-1)].
+# The range of tiny size classes is [2^lg_tmin..2^(lg_q+1)].
 lg_tmin=3
 
 # Range of page sizes.
@@ -48,11 +48,11 @@ while [ ${lg_q} -le ${lg_qmax} ] ; do
       echo "#define	SIZE_CLASSES							\\"
 
       # Tiny size classes.
-      while [ ${sz} -lt ${q} ] ; do
+      while [ ${sz} -lt $((${q}*2)) ] ; do
         echo "    SIZE_CLASS(${bin},	${delta},	${sz})					\\"
         bin=$((${bin} + 1))
         psz=${sz}
-        sz=$((${sz} + ${sz}))
+        sz=$((${sz} + ${t}))
         delta=$((${sz} - ${psz}))
       done
       # Quantum-multiple size classes.  For each doubling of sz, as many as 4
