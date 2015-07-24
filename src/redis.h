@@ -1243,6 +1243,7 @@ unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 int zsetScore(robj *zobj, robj *member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
+unsigned long zslGetRankUnique(zskiplist *zsl, double score, robj *o, int reverse);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);

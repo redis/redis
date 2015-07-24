@@ -248,19 +248,66 @@ start_server {tags {"zset"}} {
             assert_equal {d 4 c 3 b 2 a 1} [r zrevrange ztmp 0 -1 withscores]
         }
 
-        test "ZRANK/ZREVRANK basics - $encoding" {
+        test "ZRANK basics - $encoding" {
             r del zranktmp
-            r zadd zranktmp 10 x
-            r zadd zranktmp 20 y
+            r zadd zranktmp -10 x
+            r zadd zranktmp 0 y
             r zadd zranktmp 30 z
             assert_equal 0 [r zrank zranktmp x]
             assert_equal 1 [r zrank zranktmp y]
             assert_equal 2 [r zrank zranktmp z]
             assert_equal "" [r zrank zranktmp foo]
+        }
+
+        test "ZREVRANK basics - $encoding" {
+            r del zranktmp
+            r zadd zranktmp -10 x
+            r zadd zranktmp 0 y
+            r zadd zranktmp 30 z
             assert_equal 2 [r zrevrank zranktmp x]
             assert_equal 1 [r zrevrank zranktmp y]
             assert_equal 0 [r zrevrank zranktmp z]
             assert_equal "" [r zrevrank zranktmp foo]
+        }
+
+        test "ZRANK negative score - $encoding" {
+            r del zranktmp
+            r zadd zranktmp -1 x
+            assert_equal 0 [r zrank zranktmp x]
+        }
+
+        test "ZRANK unique - $encoding" {
+            r del zranktmp
+            r zadd zranktmp -10 x
+            r zadd zranktmp 0 y
+            r zadd zranktmp 0 z
+            r zadd zranktmp 30 d
+            r zadd zranktmp 30 e
+            r zadd zranktmp 40 f
+            assert_equal 0 [r zrank zranktmp x unique]
+            assert_equal 1 [r zrank zranktmp y unique]
+            assert_equal 1 [r zrank zranktmp z unique]
+            assert_equal 3 [r zrank zranktmp d unique]
+            assert_equal 3 [r zrank zranktmp e unique]
+            assert_equal 5 [r zrank zranktmp f unique]
+            assert_equal "" [r zrank zranktmp foo unique]
+        }
+
+        test "ZREVRANK unique - $encoding" {
+            r del zranktmp
+            r zadd zranktmp -10 x
+            r zadd zranktmp 0 y
+            r zadd zranktmp 0 z
+            r zadd zranktmp 30 d
+            r zadd zranktmp 30 e
+            r zadd zranktmp 40 f
+            assert_equal 5 [r zrevrank zranktmp x unique]
+            assert_equal 3 [r zrevrank zranktmp y unique]
+            assert_equal 3 [r zrevrank zranktmp z unique]
+            assert_equal 1 [r zrevrank zranktmp d unique]
+            assert_equal 1 [r zrevrank zranktmp e unique]
+            assert_equal 0 [r zrevrank zranktmp f unique]
+            assert_equal "" [r zrank zranktmp foo unique]
         }
 
         test "ZRANK - after deletion - $encoding" {
