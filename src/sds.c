@@ -344,6 +344,7 @@ void sdsIncrLen(sds s, int incr) {
             len = (sh->len += incr);
             break;
         }
+        default: len = 0; /* Just to avoid compilation warnings. */
     }
     s[len] = '\0';
 }
