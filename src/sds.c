@@ -1,6 +1,7 @@
 /* SDSLib 2.0 -- A C dynamic strings library
  *
  * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2015, Oran Agra
  * Copyright (c) 2015, Redis Labs, Inc
  * All rights reserved.
  *
