@@ -476,6 +476,7 @@ typedef struct redisDb {
     struct evictionPoolEntry *eviction_pool;    /* Eviction pool of keys */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
+    sds name;                   /* Database name */
 } redisDb;
 
 /* Client MULTI/EXEC state */
@@ -1405,6 +1406,7 @@ char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
 /* Commands prototypes */
+void dbnameCommand(redisClient *c);
 void authCommand(redisClient *c);
 void pingCommand(redisClient *c);
 void echoCommand(redisClient *c);
