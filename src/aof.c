@@ -620,7 +620,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = REDIS_AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoadingFile(fp);
 
     while(1) {
         int argc, j;

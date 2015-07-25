@@ -1,12 +1,3 @@
-proc start_bg_complex_data {host port db ops} {
-    set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
-}
-
-proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
-}
-
 # Creates a master-slave pair and breaks the link continuously to force
 # partial resyncs attempts, all this while flooding the master with
 # write queries.

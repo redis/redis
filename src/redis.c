@@ -1513,12 +1513,16 @@ void initServerConfig(void) {
     server.cached_master = NULL;
     server.repl_master_initial_offset = -1;
     server.repl_state = REDIS_REPL_NONE;
+    server.repl_transfer_tmpfile = NULL;
+    server.repl_transfer_fd = -1;
+    server.repl_transfer_s = -1;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.repl_diskless_sync = REDIS_DEFAULT_REPL_DISKLESS_SYNC;
+    server.repl_diskless_load = REDIS_DEFAULT_REPL_DISKLESS_LOAD;
     server.repl_diskless_sync_delay = REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
