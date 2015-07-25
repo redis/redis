@@ -523,6 +523,14 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0],"lua-memory-limit") && argc == 2) {
+            server.lua_memory_limit = memtoll(argv[1], NULL);
+            if ( server.lua_memory_limit < REDIS_LUA_MEMORY_MIN && server.lua_memory_limit > 0)
+                server.lua_memory_limit = REDIS_LUA_MEMORY_MIN;
+        } else if (!strcasecmp(argv[0],"lua-gc-threshold") && argc == 2) {
+            server.lua_gc_threshold = strtol(argv[1],NULL,10);
+            if (server.lua_gc_threshold > 100)
+                server.lua_gc_threshold = 100;
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
@@ -802,6 +810,14 @@ void configSetCommand(redisClient *c) {
             addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
             return;
         }
+    } config_set_special_field("lua-memory-limit") {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+            if (ll < REDIS_LUA_MEMORY_MIN && ll > 0) ll = REDIS_LUA_MEMORY_MIN ;
+        server.lua_memory_limit = ll;
+    } config_set_special_field("lua-gc-threshold") {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+            if ( ll > 100) ll = 100;
+        server.lua_gc_threshold = ll;
     } config_set_special_field("client-output-buffer-limit") {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -1065,6 +1081,8 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("hll-sparse-max-bytes",
             server.hll_sparse_max_bytes);
     config_get_numerical_field("lua-time-limit",server.lua_time_limit);
+    config_get_numerical_field("lua-memory-limit",server.lua_memory_limit);
+    config_get_numerical_field("lua-gc-threshold",server.lua_gc_threshold);
     config_get_numerical_field("slowlog-log-slower-than",
             server.slowlog_log_slower_than);
     config_get_numerical_field("latency-monitor-threshold",
@@ -1796,6 +1814,8 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"auto-aof-rewrite-percentage",server.aof_rewrite_perc,REDIS_AOF_REWRITE_PERC);
     rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,REDIS_AOF_REWRITE_MIN_SIZE);
     rewriteConfigNumericalOption(state,"lua-time-limit",server.lua_time_limit,REDIS_LUA_TIME_LIMIT);
+    rewriteConfigNumericalOption(state,"lua-memory-limit",server.lua_memory_limit,REDIS_LUA_MEMORY_LIMIT);
+    rewriteConfigNumericalOption(state,"lua-gc-threshold",server.lua_gc_threshold,REDIS_LUA_GC_THRESHOLD);
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigYesNoOption(state,"cluster-require-full-coverage",server.cluster_require_full_coverage,REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE);

@@ -465,6 +465,46 @@ start_server {tags {"scripting"}} {
     }
 }
 
+# start new server to test the LUA memory limit config parameter
+start_server {tags {"scripting"}} {
+    test {EVAL - Lua try to reach 500Mb when memory limit is limited to 500Mb while allocating big variable (>500Mb)} {
+        r config set lua-memory-limit [ expr 500*1024*1024 ]
+        set error_condition 0
+        catch {
+            r eval { local a = {} ; local i ; for i=1, 32768000 do a[i]=i ; end } 0
+        } e
+        set pattern {not enough memory}
+        regexp $pattern $e e_token
+        if { [ info exist e_token ] } { set error_condition 1 }
+        set error_condition
+    } {1}
+
+    test {EVAL - Lua try to reach 500Mb when memory limit is limited to 500Mb while allocating small variables (<500Mb)} {
+        r config set lua-memory-limit [ expr 500*1024*1024 ]
+        r config set lua-gc-threshold 50
+        set error_condition 0
+        unset e_token
+        for {set j 1} {$j < 20 && $error_condition == 0} {incr j} {
+            catch {
+                r eval { local a = {} ; local i ; for i=1, 819200 do a[i]=i ; end } 0
+            } e
+            set pattern {not enough memory}
+            regexp $pattern $e e_token
+            if { [ info exist e_token ] == 1 } { set error_condition 1 }
+       }
+       set error_condition
+    } {0}
+
+    test {EVAL - Lua try to reach 500Mb when memory limit is unlimited} {
+        r config set lua-memory-limit 0
+        r eval { local a = {} ; local i ; for i=1, 32768000 do a[i]=i ; end } 0
+        set info_memory [ r info memory ]
+        set pattern {used_memory_lua:(\d*)}
+        regexp $pattern $info_memory t token
+        expr { $token > 500000000 } ? 1 : 0
+    } {1}
+}
+
 # Start a new server since the last test in this stanza will kill the
 # instance at all.
 start_server {tags {"scripting"}} {

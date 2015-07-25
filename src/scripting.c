@@ -635,12 +635,62 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     sdsfree(code);
 }
 
+/*
+ * parameters:
+ * ud - opaque pointer passed to lua_newstate
+ * ptr - pointer to the block being allocated/reallocated/freed
+ * osize - original size of the block
+ * nsize - the new size of the block
+ * 
+ * NOTE:
+ * ptr is NULL if and only if osize is zero.
+ * When nsize is zero, the allocator must return NULL
+ * if osize is not zero, it should free the block pointed to by ptr.
+ * When nsize is not zero, the allocator returns NULL if and only if it cannot fill the request.
+ * When nsize is not zero and osize is zero, the allocator should behave like malloc.
+ * When nsize and osize are not zero, the allocator behaves like realloc.
+ * 
+ * if server.lua_memory_limit is 0, then the limmitation is disabled
+ */ 
+static void *l_alloc_restricted (void *ud, void *ptr, size_t osize, size_t nsize) {
+    REDIS_NOTUSED(ud);
+    if (ptr == NULL && osize!= 0)
+        return NULL;
+
+    if (nsize == 0) {
+        if (osize != 0) {
+            zlibc_free(ptr);
+            server.lua_gc_used_memory -= osize;
+        }
+        return NULL;
+    } else {
+        if ( server.lua_memory_limit && server.lua_gc_used_memory + (nsize - osize) > server.lua_memory_limit ) {
+            redisLog(REDIS_WARNING,"Lua stack reach it's defined size limit");
+            return NULL;
+        }
+
+        if ( osize == 0)
+            ptr = zlibc_malloc(nsize);
+        else
+            ptr = zlibc_realloc(ptr, nsize);
+
+        if (ptr) {
+            server.lua_gc_used_memory += (nsize - osize);
+            return ptr;
+        } else
+            return NULL;
+    }
+}
+
 /* Initialize the scripting environment.
  * It is possible to call this function to reset the scripting environment
  * assuming that we call scriptingRelease() before.
  * See scriptingReset() for more information. */
 void scriptingInit(void) {
-    lua_State *lua = lua_open();
+    int* ud = zmalloc(sizeof(int));
+    *ud = 0;
+    server.lua_gc_used_memory = 0; 
+    lua_State* lua = lua_newstate(l_alloc_restricted, ud);
 
     luaLoadLibraries(lua);
     luaRemoveUnsupportedFunctions(lua);
@@ -925,6 +975,18 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     char funcname[43];
     long long numkeys;
     int delhook = 0, err;
+    unsigned int tempLuaMem = server.lua_gc_used_memory ;
+
+    if ( server.lua_memory_limit && server.lua_gc_threshold >= 0 ) {
+        int gc_occupied_mem_percentage = ( (float)server.lua_gc_used_memory / server.lua_memory_limit ) * 100;
+        while ( gc_occupied_mem_percentage > server.lua_gc_threshold ||
+            (server.lua_memory_limit - server.lua_gc_used_memory) < REDIS_LUA_MEMORY_MIN) {
+            lua_gc(lua,LUA_GCSTEP,10);
+            if ( server.lua_gc_used_memory == tempLuaMem ) // check if we reached our min limit
+                break;								// if we can't free more memory
+            tempLuaMem = server.lua_gc_used_memory;
+        }
+    }
 
     /* We want the same PRNG sequence at every call so that our PRNG is
      * not affected by external state. */
