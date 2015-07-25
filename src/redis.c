@@ -1874,17 +1874,6 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == REDIS_AOF_ON) {
-        server.aof_fd = open(server.aof_filename,
-                               O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
-                strerror(errno));
-            exit(1);
-        }
-    }
-
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
@@ -3612,13 +3601,22 @@ int checkForSentinelMode(int argc, char **argv) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
-    if (server.aof_state == REDIS_AOF_ON) {
+    struct redis_stat sb;
+    int aof_stat = redis_stat(server.aof_filename,&sb);
+    int aof_errno = errno;
+
+    if (server.aof_state == REDIS_AOF_ON && aof_stat != -1) {
         if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
-    } else {
+    } else if (server.aof_state != REDIS_AOF_ON || (aof_stat == -1 && aof_errno == ENOENT)) {
         if (rdbLoad(server.rdb_filename) == REDIS_OK) {
             redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
+            if (server.aof_state == REDIS_AOF_ON) {
+                redisLog(REDIS_NOTICE,"Detected upgrade from RDB to AOF. Creating append only file.");
+                server.aof_state = REDIS_AOF_OFF;
+                startAppendOnly();
+            }
         } else if (errno != ENOENT) {
             redisLog(REDIS_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
@@ -3892,6 +3890,17 @@ int main(int argc, char **argv) {
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     } else {
         sentinelIsRunning();
+    }
+
+    /* Open the AOF file if needed. */
+    if (server.aof_state == REDIS_AOF_ON && server.aof_fd == -1) {
+        server.aof_fd = open(server.aof_filename,
+                               O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
+            redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
+                strerror(errno));
+            exit(1);
+        }
     }
 
     /* Warning the user about suspicious maxmemory setting. */

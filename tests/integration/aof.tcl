@@ -257,4 +257,44 @@ tags {"aof"} {
             r expire x -1
         }
     }
+
+    start_server_aof [list dir $server_path appendonly no] {
+        set client [redis [dict get $srv host] [dict get $srv port]]
+        test "RDB: load some data" {
+            $client set abc def
+            $client set ghi jkl
+        }
+    }
+
+    start_server_aof [list dir $server_path appendfilename appendonlyupgrade.aof] {
+        test "AOF: upgrades from RDB" {
+            set pattern "*Detected upgrade from RDB to AOF.*"
+            set retry 2
+            while {$retry} {
+                set result [exec tail -n20 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found in log file"
+            }
+        }
+
+        test "AOF: imports old RDB data" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal "def" [$client get abc]
+            assert_equal "jkl" [$client get ghi]
+        }
+    }
+
+    start_server_aof [list dir $server_path appendfilename appendonlyupgrade.aof] {
+        test "AOF: retains old RDB data" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal "def" [$client get abc]
+            assert_equal "jkl" [$client get ghi]
+        }
+    }
 }
