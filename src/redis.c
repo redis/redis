@@ -1743,6 +1743,7 @@ void resetServerStats(void) {
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
     server.stat_evictedkeys = 0;
+    server.last_eviction_age = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_fork_time = 0;
@@ -2909,6 +2910,7 @@ sds genRedisInfoString(char *section) {
             "sync_partial_err:%lld\r\n"
             "expired_keys:%lld\r\n"
             "evicted_keys:%lld\r\n"
+            "last_eviction_age:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
@@ -2928,6 +2930,7 @@ sds genRedisInfoString(char *section) {
             server.stat_sync_partial_err,
             server.stat_expiredkeys,
             server.stat_evictedkeys,
+            server.last_eviction_age,
             server.stat_keyspace_hits,
             server.stat_keyspace_misses,
             dictSize(server.pubsub_channels),
@@ -3402,6 +3405,7 @@ int freeMemoryIfNeeded(void) {
                 delta -= (long long) zmalloc_used_memory();
                 mem_freed += delta;
                 server.stat_evictedkeys++;
+                server.last_eviction_age = bestval;
                 notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",
                     keyobj, db->id);
                 decrRefCount(keyobj);
