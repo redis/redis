@@ -3605,7 +3605,7 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
         dictSetUnsignedIntegerVal(de,oldval+1);
         return oldval+1;
     } else {
-        de = dictAddRaw(counters,runid);
+        de = dictAddRaw(counters,runid,NULL);
         redisAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
         return 1;
