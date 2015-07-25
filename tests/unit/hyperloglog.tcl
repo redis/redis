@@ -86,7 +86,7 @@ start_server {tags {"hll"}} {
         set e {}
         catch {r pfcount hll} e
         set e
-    } {*INVALIDOBJ*}
+    } {*WRONGTYPE*}
 
     test {Corrupted sparse HyperLogLogs are detected: Broken magic} {
         r del hll
@@ -156,15 +156,4 @@ start_server {tags {"hll"}} {
         r pfadd hll 1 2 3
         llength [r pfdebug getreg hll]
     } {16384}
-
-    test {PFADD / PFCOUNT cache invalidation works} {
-        r del hll
-        r pfadd hll a b c
-        r pfcount hll
-        assert {[r getrange hll 15 15] eq "\x00"}
-        r pfadd hll a b c
-        assert {[r getrange hll 15 15] eq "\x00"}
-        r pfadd hll 1 2 3
-        assert {[r getrange hll 15 15] eq "\x80"}
-    }
 }
