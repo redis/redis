@@ -153,7 +153,7 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
-void loadServerConfigFromString(char *config) {
+void loadServerConfigFromString(char *config, int depth) {
     char *err = NULL;
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
@@ -283,7 +283,7 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1],NULL);
+            loadServerConfig(argv[1],NULL,depth+1);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
             if (server.maxclients < 1) {
@@ -635,9 +635,14 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
-void loadServerConfig(char *filename, char *options) {
+void loadServerConfig(char *filename, char *options, int depth) {
     sds config = sdsempty();
     char buf[REDIS_CONFIGLINE_MAX+1];
+
+	if (depth > 10) {
+		redisLog(REDIS_WARNING, "Fatal error, can't open config '%s' due to maximum nesting depth exceeded", filename);
+		exit(1);
+	}
 
     /* Load the file content */
     if (filename) {
@@ -661,7 +666,7 @@ void loadServerConfig(char *filename, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
-    loadServerConfigFromString(config);
+    loadServerConfigFromString(config,depth);
     sdsfree(config);
 }
 

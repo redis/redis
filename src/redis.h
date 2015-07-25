@@ -1325,7 +1325,7 @@ int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
 /* Configuration */
-void loadServerConfig(char *filename, char *options);
+void loadServerConfig(char *filename, char *options, int depth);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */

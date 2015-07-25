@@ -3855,7 +3855,7 @@ int main(int argc, char **argv) {
         }
         if (configfile) server.configfile = getAbsolutePath(configfile);
         resetServerSaveParams();
-        loadServerConfig(configfile,options);
+        loadServerConfig(configfile,options,0);
         sdsfree(options);
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
