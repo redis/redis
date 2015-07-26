@@ -469,10 +469,11 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
             s = sdsMakeRoomFor(s,1);
             sh = (void*) (s-(sizeof(struct sdshdr)));
         }
-
         switch(*f) {
         case '%':
             next = *(f+1);
+			if(next == 0)
+				break;
             f++;
             switch(next) {
             case 's':
