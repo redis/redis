@@ -119,7 +119,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 
-    redisAssertWithInfo(NULL,key,retval == REDIS_OK);
+    serverAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
@@ -132,7 +132,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
-    redisAssertWithInfo(NULL,key,de != NULL);
+    serverAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
 }
 
@@ -224,7 +224,7 @@ int dbDelete(redisDb *db, robj *key) {
  * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
-    redisAssert(o->type == OBJ_STRING);
+    serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
@@ -460,7 +460,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
-    redisAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
+    serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
                 o->type == OBJ_ZSET);
 
     /* Set i to the first option argument. The previous one is the cursor. */
@@ -579,7 +579,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                 char buf[REDIS_LONGSTR_SIZE];
                 int len;
 
-                redisAssert(kobj->encoding == OBJ_ENCODING_INT);
+                serverAssert(kobj->encoding == OBJ_ENCODING_INT);
                 len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
@@ -799,7 +799,7 @@ void moveCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -808,7 +808,7 @@ void setExpire(redisDb *db, robj *key, long long when) {
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
-    redisAssertWithInfo(NULL,key,kde != NULL);
+    serverAssertWithInfo(NULL,key,kde != NULL);
     de = dictReplaceRaw(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
 }
@@ -824,7 +824,7 @@ long long getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    serverAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
 
@@ -924,7 +924,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (when <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
 
-        redisAssertWithInfo(c,key,dbDelete(c->db,key));
+        serverAssertWithInfo(c,key,dbDelete(c->db,key));
         server.dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */
@@ -1025,7 +1025,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     if (last < 0) last = argc+last;
     keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
-        redisAssert(j < argc);
+        serverAssert(j < argc);
         keys[i++] = j;
     }
     *numkeys = i;

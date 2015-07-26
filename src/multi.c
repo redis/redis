@@ -244,7 +244,7 @@ void unwatchAllKeys(client *c) {
          * from the list */
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
-        redisAssertWithInfo(c,NULL,clients != NULL);
+        serverAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,c));
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)

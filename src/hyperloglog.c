@@ -877,7 +877,7 @@ promote: /* Promote to dense representation. */
      * is propagated to slaves / AOF, so if there is a sparse -> dense
      * convertion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
-    redisAssert(dense_retval == 1);
+    serverAssert(dense_retval == 1);
     return dense_retval;
 }
 
@@ -1108,7 +1108,7 @@ robj *createHLLObject(void) {
         p += 2;
         aux -= xzero;
     }
-    redisAssert((p-(uint8_t*)s) == sparselen);
+    serverAssert((p-(uint8_t*)s) == sparselen);
 
     /* Create the actual object. */
     o = createObject(OBJ_STRING,s);

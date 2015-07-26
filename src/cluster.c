@@ -176,7 +176,7 @@ int clusterLoadConfig(char *filename) {
             p = strchr(s,',');
             if (p) *p = '\0';
             if (!strcasecmp(s,"myself")) {
-                redisAssert(server.cluster->myself == NULL);
+                serverAssert(server.cluster->myself == NULL);
                 myself = server.cluster->myself = n;
                 n->flags |= REDIS_NODE_MYSELF;
             } else if (!strcasecmp(s,"master")) {
@@ -230,7 +230,7 @@ int clusterLoadConfig(char *filename) {
                 clusterNode *cn;
 
                 p = strchr(argv[j],'-');
-                redisAssert(p != NULL);
+                serverAssert(p != NULL);
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j]+1);
@@ -833,7 +833,7 @@ void freeClusterNode(clusterNode *n) {
 
     /* Unlink from the set of nodes. */
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
-    redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
+    serverAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
 
     /* Release link and associated data structures. */
@@ -915,7 +915,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
         node->name, newname);
     retval = dictDelete(server.cluster->nodes, s);
     sdsfree(s);
-    redisAssert(retval == DICT_OK);
+    serverAssert(retval == DICT_OK);
     memcpy(node->name, newname, REDIS_CLUSTER_NAMELEN);
     clusterAddNode(node);
 }
@@ -1183,7 +1183,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
 void clearNodeFailureIfNeeded(clusterNode *node) {
     mstime_t now = mstime();
 
-    redisAssert(nodeFailed(node));
+    serverAssert(nodeFailed(node));
 
     /* For slaves we always clear the FAIL flag if we can contact the
      * node again. */
@@ -2571,7 +2571,7 @@ int clusterGetSlaveRank(void) {
     int j, rank = 0;
     clusterNode *master;
 
-    redisAssert(nodeIsSlave(myself));
+    serverAssert(nodeIsSlave(myself));
     master = myself->slaveof;
     if (master == NULL) return 0; /* Never called by slaves without master. */
 
@@ -3360,7 +3360,7 @@ int clusterDelSlot(int slot) {
     clusterNode *n = server.cluster->slots[slot];
 
     if (!n) return REDIS_ERR;
-    redisAssert(clusterNodeClearSlotBit(n,slot) == 1);
+    serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return REDIS_OK;
 }
@@ -3567,8 +3567,8 @@ int verifyClusterConfigWithData(void) {
 /* Set the specified node 'n' as master for this node.
  * If this node is currently a master, it is turned into a slave. */
 void clusterSetMaster(clusterNode *n) {
-    redisAssert(n != myself);
-    redisAssert(myself->numslots == 0);
+    serverAssert(n != myself);
+    serverAssert(myself->numslots == 0);
 
     if (nodeIsMaster(myself)) {
         myself->flags &= ~REDIS_NODE_MASTER;
@@ -3894,7 +3894,7 @@ void clusterCommand(client *c) {
 
                 retval = del ? clusterDelSlot(j) :
                                clusterAddSlot(myself,j);
-                redisAssertWithInfo(c,NULL,retval == REDIS_OK);
+                serverAssertWithInfo(c,NULL,retval == REDIS_OK);
             }
         }
         zfree(slots);
@@ -4315,8 +4315,8 @@ void createDumpPayload(rio *payload, robj *o) {
     /* Serialize the object in a RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
-    redisAssert(rdbSaveObjectType(payload,o));
-    redisAssert(rdbSaveObject(payload,o));
+    serverAssert(rdbSaveObjectType(payload,o));
+    serverAssert(rdbSaveObject(payload,o));
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -4610,9 +4610,9 @@ try_again:
     /* Send the SELECT command if the current DB is not already selected. */
     int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
     if (select) {
-        redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
-        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
-        redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
+        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
+        serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
     }
 
     /* Create RESTORE payload and generate the protocol to call the command. */
@@ -4621,28 +4621,28 @@ try_again:
         ttl = expireat-mstime();
         if (ttl < 1) ttl = 1;
     }
-    redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+    serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
     if (server.cluster_enabled)
-        redisAssertWithInfo(c,NULL,
+        serverAssertWithInfo(c,NULL,
             rioWriteBulkString(&cmd,"RESTORE-ASKING",14));
     else
-        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
-    redisAssertWithInfo(c,NULL,sdsEncodedObject(c->argv[3]));
-    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
+    serverAssertWithInfo(c,NULL,sdsEncodedObject(c->argv[3]));
+    serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,
             sdslen(c->argv[3]->ptr)));
-    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
+    serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
     /* Emit the payload argument, that is the serialized object using
      * the DUMP format. */
     createDumpPayload(&payload,o);
-    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,
+    serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                 sdslen(payload.io.buffer.ptr)));
     sdsfree(payload.io.buffer.ptr);
 
     /* Add the REPLACE option to the RESTORE command if it was specified
      * as a MIGRATE option. */
     if (replace)
-        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
 
     /* Transfer the query to the other node in 64K chunks. */
     errno = 0;

@@ -163,7 +163,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
 robj *dupStringObject(robj *o) {
     robj *d;
 
-    redisAssert(o->type == OBJ_STRING);
+    serverAssert(o->type == OBJ_STRING);
 
     switch(o->encoding) {
     case OBJ_ENCODING_RAW:
@@ -348,7 +348,7 @@ int checkType(client *c, robj *o, int type) {
 }
 
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
-    redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (o->encoding == OBJ_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return REDIS_OK;
@@ -367,7 +367,7 @@ robj *tryObjectEncoding(robj *o) {
      * in this function. Other types use encoded memory efficient
      * representations but are handled by the commands implementing
      * the type. */
-    redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
 
     /* We try some specialized encoding only for objects that are
      * RAW or EMBSTR encoded, in other words objects that are still
@@ -469,7 +469,7 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_COLL (1<<1)
 
 int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
-    redisAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
+    serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
 
@@ -526,7 +526,7 @@ int equalStringObjects(robj *a, robj *b) {
 }
 
 size_t stringObjectLen(robj *o) {
-    redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (sdsEncodedObject(o)) {
         return sdslen(o->ptr);
     } else {
@@ -541,7 +541,7 @@ int getDoubleFromObject(robj *o, double *target) {
     if (o == NULL) {
         value = 0;
     } else {
-        redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+        serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
@@ -583,7 +583,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
     if (o == NULL) {
         value = 0;
     } else {
-        redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+        serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtold(o->ptr, &eptr);
@@ -621,7 +621,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     if (o == NULL) {
         value = 0;
     } else {
-        redisAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+        serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtoll(o->ptr, &eptr, 10);

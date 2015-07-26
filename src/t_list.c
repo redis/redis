@@ -111,7 +111,7 @@ void listTypeReleaseIterator(listTypeIterator *li) {
  * entry is in fact an entry, 0 otherwise. */
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     /* Protect from converting when iterating */
-    redisAssert(li->subject->encoding == li->encoding);
+    serverAssert(li->subject->encoding == li->encoding);
 
     entry->li = li;
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -159,7 +159,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 /* Compare the given object with the entry at the current position. */
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        redisAssertWithInfo(NULL,o,sdsEncodedObject(o));
+        serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
         return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
     } else {
         redisPanic("Unknown list encoding");
@@ -177,8 +177,8 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
 
 /* Create a quicklist from a single ziplist */
 void listTypeConvert(robj *subject, int enc) {
-    redisAssertWithInfo(NULL,subject,subject->type==OBJ_LIST);
-    redisAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
+    serverAssertWithInfo(NULL,subject,subject->type==OBJ_LIST);
+    serverAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
 
     if (enc == OBJ_ENCODING_QUICKLIST) {
         size_t zlen = server.list_max_ziplist_size;
@@ -632,7 +632,7 @@ void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *t
             l = listCreate();
             retval = dictAdd(c->db->blocking_keys,keys[j],l);
             incrRefCount(keys[j]);
-            redisAssertWithInfo(c,keys[j],retval == DICT_OK);
+            serverAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
             l = dictGetVal(de);
         }
@@ -648,7 +648,7 @@ void unblockClientWaitingData(client *c) {
     dictIterator *di;
     list *l;
 
-    redisAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
+    serverAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
     di = dictGetIterator(c->bpop.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
     while((de = dictNext(di)) != NULL) {
@@ -656,7 +656,7 @@ void unblockClientWaitingData(client *c) {
 
         /* Remove this client from the list of clients waiting for this key. */
         l = dictFetchValue(c->db->blocking_keys,key);
-        redisAssertWithInfo(c,key,l != NULL);
+        serverAssertWithInfo(c,key,l != NULL);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
@@ -699,7 +699,7 @@ void signalListAsReady(redisDb *db, robj *key) {
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
-    redisAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
+    serverAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 
 /* This is a helper function for handleClientsBlockedOnLists(). It's work
@@ -882,7 +882,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     /* Non empty list, this is like a non normal [LR]POP. */
                     char *event = (where == REDIS_HEAD) ? "lpop" : "rpop";
                     robj *value = listTypePop(o,where);
-                    redisAssert(value != NULL);
+                    serverAssert(value != NULL);
 
                     addReplyMultiBulkLen(c,2);
                     addReplyBulk(c,c->argv[j]);
@@ -950,7 +950,7 @@ void brpoplpushCommand(client *c) {
         } else {
             /* The list exists and has elements, so
              * the regular rpoplpushCommand is executed. */
-            redisAssertWithInfo(c,key,listTypeLength(key) > 0);
+            serverAssertWithInfo(c,key,listTypeLength(key) > 0);
             rpoplpushCommand(c);
         }
     }

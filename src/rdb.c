@@ -357,7 +357,7 @@ ssize_t rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
     } else {
         /* Encode as string */
         enclen = ll2string((char*)buf,32,value);
-        redisAssert(enclen < 32);
+        serverAssert(enclen < 32);
         if ((n = rdbSaveLen(rdb,enclen)) == -1) return -1;
         nwritten += n;
         if ((n = rdbWriteRaw(rdb,buf,enclen)) == -1) return -1;
@@ -373,7 +373,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     if (obj->encoding == OBJ_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
-        redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
+        serverAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
     }
 }
@@ -666,7 +666,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
  * we could switch to a faster solution. */
 size_t rdbSavedObjectLen(robj *o) {
     ssize_t len = rdbSaveObject(NULL,o);
-    redisAssertWithInfo(NULL,o,len != -1);
+    serverAssertWithInfo(NULL,o,len != -1);
     return len;
 }
 
@@ -1051,10 +1051,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* Load raw strings */
             field = rdbLoadStringObject(rdb);
             if (field == NULL) return NULL;
-            redisAssert(sdsEncodedObject(field));
+            serverAssert(sdsEncodedObject(field));
             value = rdbLoadStringObject(rdb);
             if (value == NULL) return NULL;
-            redisAssert(sdsEncodedObject(value));
+            serverAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
             o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
@@ -1094,7 +1094,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
 
         /* All pairs should be read by now */
-        redisAssert(len == 0);
+        serverAssert(len == 0);
     } else if (rdbtype == REDIS_RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
         o = createQuicklistObject();

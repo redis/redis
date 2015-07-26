@@ -74,7 +74,7 @@ int setTypeAdd(robj *subject, robj *value) {
 
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
-            redisAssertWithInfo(NULL,value,
+            serverAssertWithInfo(NULL,value,
                                 dictAdd(subject->ptr,value,NULL) == DICT_OK);
             incrRefCount(value);
             return 1;
@@ -241,7 +241,7 @@ unsigned long setTypeSize(robj *subject) {
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
-    redisAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
+    serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding == OBJ_ENCODING_INTSET);
 
     if (enc == OBJ_ENCODING_HT) {
@@ -256,7 +256,7 @@ void setTypeConvert(robj *setobj, int enc) {
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,&element,&intele) != -1) {
             element = createStringObjectFromLongLong(intele);
-            redisAssertWithInfo(NULL,element,
+            serverAssertWithInfo(NULL,element,
                                 dictAdd(d,element,NULL) == DICT_OK);
         }
         setTypeReleaseIterator(si);
@@ -696,10 +696,10 @@ void srandmemberWithCountCommand(client *c) {
             } else {
                 retval = dictAdd(d,dupStringObject(ele),NULL);
             }
-            redisAssert(retval == DICT_OK);
+            serverAssert(retval == DICT_OK);
         }
         setTypeReleaseIterator(si);
-        redisAssert(dictSize(d) == size);
+        serverAssert(dictSize(d) == size);
 
         /* Remove random elements to reach the right count. */
         while(size > count) {

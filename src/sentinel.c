@@ -454,7 +454,7 @@ void initSentinel(void) {
         struct redisCommand *cmd = sentinelcmds+j;
 
         retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
-        redisAssert(retval == DICT_OK);
+        serverAssert(retval == DICT_OK);
     }
 
     /* Initialize various data structures. */
@@ -705,7 +705,7 @@ void sentinelScheduleScriptExecution(char *path, ...) {
             sentinelReleaseScriptJob(sj);
             break;
         }
-        redisAssert(listLength(sentinel.scripts_queue) <=
+        serverAssert(listLength(sentinel.scripts_queue) <=
                     SENTINEL_SCRIPT_MAX_QUEUE);
     }
 }
@@ -973,7 +973,7 @@ void instanceLinkCloseConnection(instanceLink *link, redisAsyncContext *c) {
  * replies for an instance that no longer exists. */
 instanceLink *releaseInstanceLink(instanceLink *link, sentinelRedisInstance *ri)
 {
-    redisAssert(link->refcount > 0);
+    serverAssert(link->refcount > 0);
     link->refcount--;
     if (link->refcount != 0) {
         if (ri && ri->link->cc) {
@@ -1016,7 +1016,7 @@ instanceLink *releaseInstanceLink(instanceLink *link, sentinelRedisInstance *ri)
  * different master and sharing was performed. Otherwise REDIS_ERR
  * is returned. */
 int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
-    redisAssert(ri->flags & SRI_SENTINEL);
+    serverAssert(ri->flags & SRI_SENTINEL);
     dictIterator *di;
     dictEntry *de;
 
@@ -1052,7 +1052,7 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
  *
  * Return the number of updated Sentinel addresses. */
 int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
-    redisAssert(ri->flags & SRI_SENTINEL);
+    serverAssert(ri->flags & SRI_SENTINEL);
     dictIterator *di;
     dictEntry *de;
     int reconfigured = 0;
@@ -1140,8 +1140,8 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     dict *table = NULL;
     char slavename[REDIS_PEER_ID_LEN], *sdsname;
 
-    redisAssert(flags & (SRI_MASTER|SRI_SLAVE|SRI_SENTINEL));
-    redisAssert((flags & SRI_MASTER) || master != NULL);
+    serverAssert(flags & (SRI_MASTER|SRI_SLAVE|SRI_SENTINEL));
+    serverAssert((flags & SRI_MASTER) || master != NULL);
 
     /* Check address validity. */
     addr = createSentinelAddr(hostname,port);
@@ -1262,7 +1262,7 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
     sentinelRedisInstance *slave;
     char buf[REDIS_PEER_ID_LEN];
 
-    redisAssert(ri->flags & SRI_MASTER);
+    serverAssert(ri->flags & SRI_MASTER);
     anetFormatAddr(buf,sizeof(buf),ip,port);
     key = sdsnew(buf);
     slave = dictFetchValue(ri->slaves,key);
@@ -1320,7 +1320,7 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
     dictEntry *de;
     sentinelRedisInstance *instance = NULL;
 
-    redisAssert(ip || runid);   /* User must pass at least one search param. */
+    serverAssert(ip || runid);   /* User must pass at least one search param. */
     di = dictGetIterator(instances);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
@@ -1388,7 +1388,7 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
 
 #define SENTINEL_RESET_NO_SENTINELS (1<<0)
 void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
-    redisAssert(ri->flags & SRI_MASTER);
+    serverAssert(ri->flags & SRI_MASTER);
     dictRelease(ri->slaves);
     ri->slaves = dictCreate(&instancesDictType,NULL);
     if (!(flags & SENTINEL_RESET_NO_SENTINELS)) {
@@ -3606,7 +3606,7 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
         return oldval+1;
     } else {
         de = dictAddRaw(counters,runid);
-        redisAssert(de != NULL);
+        serverAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
         return 1;
     }
@@ -3628,7 +3628,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     uint64_t leader_epoch;
     uint64_t max_votes = 0;
 
-    redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
+    serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
@@ -3751,7 +3751,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
 
 /* Setup the master state to start a failover. */
 void sentinelStartFailover(sentinelRedisInstance *master) {
-    redisAssert(master->flags & SRI_MASTER);
+    serverAssert(master->flags & SRI_MASTER);
 
     master->failover_state = SENTINEL_FAILOVER_STATE_WAIT_START;
     master->flags |= SRI_FAILOVER_IN_PROGRESS;
@@ -4137,7 +4137,7 @@ void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
 }
 
 void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
-    redisAssert(ri->flags & SRI_MASTER);
+    serverAssert(ri->flags & SRI_MASTER);
 
     if (!(ri->flags & SRI_FAILOVER_IN_PROGRESS)) return;
 
@@ -4166,8 +4166,8 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
  * the slave -> master switch. Otherwise the failover can't be aborted and
  * will reach its end (possibly by timeout). */
 void sentinelAbortFailover(sentinelRedisInstance *ri) {
-    redisAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
-    redisAssert(ri->failover_state <= SENTINEL_FAILOVER_STATE_WAIT_PROMOTION);
+    serverAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
+    serverAssert(ri->failover_state <= SENTINEL_FAILOVER_STATE_WAIT_PROMOTION);
 
     ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;

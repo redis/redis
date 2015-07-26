@@ -1938,7 +1938,7 @@ void populateCommandTable(void) {
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
         retval2 = dictAdd(server.orig_commands, sdsnew(c->name), c);
-        redisAssert(retval1 == DICT_OK && retval2 == DICT_OK);
+        serverAssert(retval1 == DICT_OK && retval2 == DICT_OK);
     }
 }
 

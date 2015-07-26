@@ -474,7 +474,7 @@ void loadServerConfigFromString(char *config) {
             /* If the target command name is the empty string we just
              * remove it from the command table. */
             retval = dictDelete(server.commands, argv[1]);
-            redisAssert(retval == DICT_OK);
+            serverAssert(retval == DICT_OK);
 
             /* Otherwise we re-add the command under a different name. */
             if (sdslen(argv[2]) != 0) {
@@ -703,8 +703,8 @@ void configSetCommand(client *c) {
     robj *o;
     long long ll;
     int err;
-    redisAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
-    redisAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
+    serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
+    serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
 
     if (0) { /* this starts the config_set macros else-if chain. */
@@ -1030,7 +1030,7 @@ void configGetCommand(client *c) {
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
-    redisAssertWithInfo(c,o,sdsEncodedObject(o));
+    serverAssertWithInfo(c,o,sdsEncodedObject(o));
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);

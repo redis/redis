@@ -299,7 +299,7 @@ void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
  * disk I/O concentrated in very little time. When we fsync in an explicit
  * way instead the I/O pressure is more distributed across time. */
 void rioSetAutoSync(rio *r, off_t bytes) {
-    redisAssert(r->read == rioFileIO.read);
+    serverAssert(r->read == rioFileIO.read);
     r->io.file.autosync = bytes;
 }
 

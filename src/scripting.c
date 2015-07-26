@@ -914,7 +914,7 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     {
         int retval = dictAdd(server.lua_scripts,
                              sdsnewlen(funcname+2,40),body);
-        redisAssertWithInfo(c,NULL,retval == DICT_OK);
+        serverAssertWithInfo(c,NULL,retval == DICT_OK);
         incrRefCount(body);
     }
     return REDIS_OK;
@@ -996,7 +996,7 @@ void evalGenericCommand(client *c, int evalsha) {
         }
         /* Now the following is guaranteed to return non nil */
         lua_getglobal(lua, funcname);
-        redisAssert(!lua_isnil(lua,-1));
+        serverAssert(!lua_isnil(lua,-1));
     }
 
     /* Populate the argv and keys table accordingly to the arguments that
@@ -1081,7 +1081,7 @@ void evalGenericCommand(client *c, int evalsha) {
             robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
 
             replicationScriptCacheAdd(c->argv[1]->ptr);
-            redisAssertWithInfo(c,NULL,script != NULL);
+            serverAssertWithInfo(c,NULL,script != NULL);
             rewriteClientCommandArgument(c,0,
                 resetRefCount(createStringObject("EVAL",4)));
             rewriteClientCommandArgument(c,1,script);

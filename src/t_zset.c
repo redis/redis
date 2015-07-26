@@ -112,7 +112,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
-    redisAssert(!isnan(score));
+    serverAssert(!isnan(score));
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
@@ -253,7 +253,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
 
     /* This is an inner range, so the next node cannot be NULL. */
     x = x->level[0].forward;
-    redisAssert(x != NULL);
+    serverAssert(x != NULL);
 
     /* Check if score <= max. */
     if (!zslValueLteMax(x->score,range)) return NULL;
@@ -278,7 +278,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     }
 
     /* This is an inner range, so this node cannot be NULL. */
-    redisAssert(x != NULL);
+    serverAssert(x != NULL);
 
     /* Check if score >= min. */
     if (!zslValueGteMin(x->score,range)) return NULL;
@@ -596,7 +596,7 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
     /* This is an inner range, so the next node cannot be NULL. */
     x = x->level[0].forward;
-    redisAssert(x != NULL);
+    serverAssert(x != NULL);
 
     /* Check if score <= max. */
     if (!zslLexValueLteMax(x->obj,range)) return NULL;
@@ -621,7 +621,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     }
 
     /* This is an inner range, so this node cannot be NULL. */
-    redisAssert(x != NULL);
+    serverAssert(x != NULL);
 
     /* Check if score >= min. */
     if (!zslLexValueGteMin(x->obj,range)) return NULL;
@@ -639,8 +639,8 @@ double zzlGetScore(unsigned char *sptr) {
     char buf[128];
     double score;
 
-    redisAssert(sptr != NULL);
-    redisAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
+    serverAssert(sptr != NULL);
+    serverAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
 
     if (vstr) {
         memcpy(buf,vstr,vlen);
@@ -661,8 +661,8 @@ robj *ziplistGetObject(unsigned char *sptr) {
     unsigned int vlen;
     long long vlong;
 
-    redisAssert(sptr != NULL);
-    redisAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
+    serverAssert(sptr != NULL);
+    serverAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
 
     if (vstr) {
         return createStringObject((char*)vstr,vlen);
@@ -679,7 +679,7 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
     unsigned char vbuf[32];
     int minlen, cmp;
 
-    redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
+    serverAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
     if (vstr == NULL) {
         /* Store string representation of long long in buf. */
         vlen = ll2string((char*)vbuf,sizeof(vbuf),vlong);
@@ -700,12 +700,12 @@ unsigned int zzlLength(unsigned char *zl) {
  * NULL when there is no next entry. */
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
     unsigned char *_eptr, *_sptr;
-    redisAssert(*eptr != NULL && *sptr != NULL);
+    serverAssert(*eptr != NULL && *sptr != NULL);
 
     _eptr = ziplistNext(zl,*sptr);
     if (_eptr != NULL) {
         _sptr = ziplistNext(zl,_eptr);
-        redisAssert(_sptr != NULL);
+        serverAssert(_sptr != NULL);
     } else {
         /* No next entry. */
         _sptr = NULL;
@@ -719,12 +719,12 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
  * set to NULL when there is no next entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
     unsigned char *_eptr, *_sptr;
-    redisAssert(*eptr != NULL && *sptr != NULL);
+    serverAssert(*eptr != NULL && *sptr != NULL);
 
     _sptr = ziplistPrev(zl,*eptr);
     if (_sptr != NULL) {
         _eptr = ziplistPrev(zl,_sptr);
-        redisAssert(_eptr != NULL);
+        serverAssert(_eptr != NULL);
     } else {
         /* No previous entry. */
         _eptr = NULL;
@@ -752,7 +752,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
         return 0;
 
     p = ziplistIndex(zl,1); /* First score. */
-    redisAssert(p != NULL);
+    serverAssert(p != NULL);
     score = zzlGetScore(p);
     if (!zslValueLteMax(score,range))
         return 0;
@@ -771,7 +771,7 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range) {
 
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        redisAssert(sptr != NULL);
+        serverAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
         if (zslValueGteMin(score,range)) {
@@ -799,7 +799,7 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
 
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        redisAssert(sptr != NULL);
+        serverAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,range)) {
@@ -813,7 +813,7 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
          * When this returns NULL, we know there also is no element. */
         sptr = ziplistPrev(zl,eptr);
         if (sptr != NULL)
-            redisAssert((eptr = ziplistPrev(zl,sptr)) != NULL);
+            serverAssert((eptr = ziplistPrev(zl,sptr)) != NULL);
         else
             eptr = NULL;
     }
@@ -852,7 +852,7 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
         return 0;
 
     p = ziplistIndex(zl,0); /* First element. */
-    redisAssert(p != NULL);
+    serverAssert(p != NULL);
     if (!zzlLexValueLteMax(p,range))
         return 0;
 
@@ -877,7 +877,7 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
 
         /* Move to next element. */
         sptr = ziplistNext(zl,eptr); /* This element score. Skip it. */
-        redisAssert(sptr != NULL);
+        serverAssert(sptr != NULL);
         eptr = ziplistNext(zl,sptr); /* Next element. */
     }
 
@@ -904,7 +904,7 @@ unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
          * When this returns NULL, we know there also is no element. */
         sptr = ziplistPrev(zl,eptr);
         if (sptr != NULL)
-            redisAssert((eptr = ziplistPrev(zl,sptr)) != NULL);
+            serverAssert((eptr = ziplistPrev(zl,sptr)) != NULL);
         else
             eptr = NULL;
     }
@@ -918,7 +918,7 @@ unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
     ele = getDecodedObject(ele);
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        redisAssertWithInfo(NULL,ele,sptr != NULL);
+        serverAssertWithInfo(NULL,ele,sptr != NULL);
 
         if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr))) {
             /* Matching element, pull out score. */
@@ -952,7 +952,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
     int scorelen;
     size_t offset;
 
-    redisAssertWithInfo(NULL,ele,sdsEncodedObject(ele));
+    serverAssertWithInfo(NULL,ele,sdsEncodedObject(ele));
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
         zl = ziplistPush(zl,ele->ptr,sdslen(ele->ptr),ZIPLIST_TAIL);
@@ -964,7 +964,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
         eptr = zl+offset;
 
         /* Insert score after the element. */
-        redisAssertWithInfo(NULL,ele,(sptr = ziplistNext(zl,eptr)) != NULL);
+        serverAssertWithInfo(NULL,ele,(sptr = ziplistNext(zl,eptr)) != NULL);
         zl = ziplistInsert(zl,sptr,(unsigned char*)scorebuf,scorelen);
     }
 
@@ -980,7 +980,7 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     ele = getDecodedObject(ele);
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
-        redisAssertWithInfo(NULL,ele,sptr != NULL);
+        serverAssertWithInfo(NULL,ele,sptr != NULL);
         s = zzlGetScore(sptr);
 
         if (s > score) {
@@ -1112,13 +1112,13 @@ void zsetConvert(robj *zobj, int encoding) {
         zs->zsl = zslCreate();
 
         eptr = ziplistIndex(zl,0);
-        redisAssertWithInfo(NULL,zobj,eptr != NULL);
+        serverAssertWithInfo(NULL,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
-        redisAssertWithInfo(NULL,zobj,sptr != NULL);
+        serverAssertWithInfo(NULL,zobj,sptr != NULL);
 
         while (eptr != NULL) {
             score = zzlGetScore(sptr);
-            redisAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            serverAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
             if (vstr == NULL)
                 ele = createStringObjectFromLongLong(vlong);
             else
@@ -1126,7 +1126,7 @@ void zsetConvert(robj *zobj, int encoding) {
 
             /* Has incremented refcount since it was just created. */
             node = zslInsert(zs->zsl,score,ele);
-            redisAssertWithInfo(NULL,zobj,dictAdd(zs->dict,ele,&node->score) == DICT_OK);
+            serverAssertWithInfo(NULL,zobj,dictAdd(zs->dict,ele,&node->score) == DICT_OK);
             incrRefCount(ele); /* Added to dictionary. */
             zzlNext(zl,&eptr,&sptr);
         }
@@ -1347,7 +1347,7 @@ void zaddGenericCommand(client *c, int flags) {
                  * delete the key object from the skiplist, since the
                  * dictionary still has a reference to it. */
                 if (score != curscore) {
-                    redisAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
+                    serverAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
                     znode = zslInsert(zs->zsl,score,curobj);
                     incrRefCount(curobj); /* Re-inserted in skiplist. */
                     dictGetVal(de) = &znode->score; /* Update score ptr. */
@@ -1358,7 +1358,7 @@ void zaddGenericCommand(client *c, int flags) {
             } else if (!xx) {
                 znode = zslInsert(zs->zsl,score,ele);
                 incrRefCount(ele); /* Inserted in skiplist. */
-                redisAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
+                serverAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
                 incrRefCount(ele); /* Added to dictionary. */
                 server.dirty++;
                 added++;
@@ -1430,7 +1430,7 @@ void zremCommand(client *c) {
 
                 /* Delete from the skiplist */
                 score = *(double*)dictGetVal(de);
-                redisAssertWithInfo(c,c->argv[j],zslDelete(zs->zsl,score,c->argv[j]));
+                serverAssertWithInfo(c,c->argv[j],zslDelete(zs->zsl,score,c->argv[j]));
 
                 /* Delete from the hash table */
                 dictDelete(zs->dict,c->argv[j]);
@@ -1654,7 +1654,7 @@ void zuiInitIterator(zsetopsrc *op) {
             it->zl.eptr = ziplistIndex(it->zl.zl,0);
             if (it->zl.eptr != NULL) {
                 it->zl.sptr = ziplistNext(it->zl.zl,it->zl.eptr);
-                redisAssert(it->zl.sptr != NULL);
+                serverAssert(it->zl.sptr != NULL);
             }
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             it->sl.zs = op->subject->ptr;
@@ -1762,7 +1762,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             /* No need to check both, but better be explicit. */
             if (it->zl.eptr == NULL || it->zl.sptr == NULL)
                 return 0;
-            redisAssert(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
+            serverAssert(ziplistGet(it->zl.eptr,&val->estr,&val->elen,&val->ell));
             val->score = zzlGetScore(it->zl.sptr);
 
             /* Move to next element. */
@@ -2223,12 +2223,12 @@ void zrangeGenericCommand(client *c, int reverse) {
         else
             eptr = ziplistIndex(zl,2*start);
 
-        redisAssertWithInfo(c,zobj,eptr != NULL);
+        serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
         while (rangelen--) {
-            redisAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
-            redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
+            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
             if (vstr == NULL)
                 addReplyBulkLongLong(c,vlong);
             else
@@ -2261,7 +2261,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         }
 
         while(rangelen--) {
-            redisAssertWithInfo(c,zobj,ln != NULL);
+            serverAssertWithInfo(c,zobj,ln != NULL);
             ele = ln->obj;
             addReplyBulk(c,ele);
             if (withscores)
@@ -2353,7 +2353,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         }
 
         /* Get score pointer for the first element. */
-        redisAssertWithInfo(c,zobj,eptr != NULL);
+        serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
         /* We don't know in advance how many matching elements there are in the
@@ -2382,7 +2382,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             /* We know the element exists, so ziplistGet should always succeed */
-            redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
             if (vstr == NULL) {
@@ -2509,7 +2509,7 @@ void zcountCommand(client *c) {
         /* First element is in range */
         sptr = ziplistNext(zl,eptr);
         score = zzlGetScore(sptr);
-        redisAssertWithInfo(c,zobj,zslValueLteMax(score,&range));
+        serverAssertWithInfo(c,zobj,zslValueLteMax(score,&range));
 
         /* Iterate over elements in range */
         while (eptr) {
@@ -2589,7 +2589,7 @@ void zlexcountCommand(client *c) {
 
         /* First element is in range */
         sptr = ziplistNext(zl,eptr);
-        redisAssertWithInfo(c,zobj,zzlLexValueLteMax(eptr,&range));
+        serverAssertWithInfo(c,zobj,zzlLexValueLteMax(eptr,&range));
 
         /* Iterate over elements in range */
         while (eptr) {
@@ -2705,7 +2705,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
         }
 
         /* Get score pointer for the first element. */
-        redisAssertWithInfo(c,zobj,eptr != NULL);
+        serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
 
         /* We don't know in advance how many matching elements there are in the
@@ -2733,7 +2733,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
 
             /* We know the element exists, so ziplistGet should always
              * succeed. */
-            redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
             if (vstr == NULL) {
@@ -2853,16 +2853,16 @@ void zrankGenericCommand(client *c, int reverse) {
         checkType(c,zobj,OBJ_ZSET)) return;
     llen = zsetLength(zobj);
 
-    redisAssertWithInfo(c,ele,sdsEncodedObject(ele));
+    serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
 
         eptr = ziplistIndex(zl,0);
-        redisAssertWithInfo(c,zobj,eptr != NULL);
+        serverAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
-        redisAssertWithInfo(c,zobj,sptr != NULL);
+        serverAssertWithInfo(c,zobj,sptr != NULL);
 
         rank = 1;
         while(eptr != NULL) {
@@ -2891,7 +2891,7 @@ void zrankGenericCommand(client *c, int reverse) {
         if (de != NULL) {
             score = *(double*)dictGetVal(de);
             rank = zslGetRank(zsl,score,ele);
-            redisAssertWithInfo(c,ele,rank); /* Existing elements always have a rank. */
+            serverAssertWithInfo(c,ele,rank); /* Existing elements always have a rank. */
             if (reverse)
                 addReplyLongLong(c,llen-rank);
             else
