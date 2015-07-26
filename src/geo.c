@@ -221,7 +221,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
     size_t origincount = ga->used;
     sds member;
 
-    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr = NULL;
@@ -250,7 +250,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
                 == REDIS_ERR) sdsfree(member);
             zzlNext(zl, &eptr, &sptr);
         }
-    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
@@ -266,7 +266,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
             if (!zslValueLteMax(ln->score, &range))
                 break;
 
-            member = (o->encoding == REDIS_ENCODING_INT) ?
+            member = (o->encoding == OBJ_ENCODING_INT) ?
                         sdsfromlonglong((long)o->ptr) :
                         sdsdup(o->ptr);
             if (geoAppendIfWithinRadius(ga,lon,lat,radius,ln->score,member)
@@ -397,7 +397,7 @@ void geoaddCommand(client *c) {
         GeoHashBits hash;
         geohashEncodeWGS84(xy[0], xy[1], GEO_STEP_MAX, &hash);
         GeoHashFix52Bits bits = geohashAlign52Bits(hash);
-        robj *score = createObject(REDIS_STRING, sdsfromlonglong(bits));
+        robj *score = createObject(OBJ_STRING, sdsfromlonglong(bits));
         robj *val = c->argv[2 + i * 3 + 2];
         argv[2+i*2] = score;
         argv[3+i*2] = val;
@@ -425,7 +425,7 @@ void georadiusGeneric(client *c, int type) {
     /* Look up the requested zset */
     robj *zobj = NULL;
     if ((zobj = lookupKeyReadOrReply(c, key, shared.emptymultibulk)) == NULL ||
-        checkType(c, zobj, REDIS_ZSET)) {
+        checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
 
@@ -589,7 +589,7 @@ void geohashCommand(client *c) {
     /* Look up the requested zset */
     robj *zobj = NULL;
     if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
-        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
      * missing elements. */
@@ -643,7 +643,7 @@ void geoposCommand(client *c) {
     /* Look up the requested zset */
     robj *zobj = NULL;
     if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
-        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Report elements one after the other, using a null bulk reply for
      * missing elements. */
@@ -686,7 +686,7 @@ void geodistCommand(client *c) {
     /* Look up the requested zset */
     robj *zobj = NULL;
     if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptybulk))
-        == NULL || checkType(c, zobj, REDIS_ZSET)) return;
+        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Get the scores. We need both otherwise NULL is returned. */
     double score1, score2, xyxy[4];

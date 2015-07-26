@@ -3832,7 +3832,7 @@ void clusterCommand(client *c) {
         robj *o;
         sds ci = clusterGenNodesDescription(0);
 
-        o = createObject(REDIS_STRING,ci);
+        o = createObject(OBJ_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
@@ -4377,7 +4377,7 @@ void dumpCommand(client *c) {
     createDumpPayload(&payload,o);
 
     /* Transfer to the client */
-    dumpobj = createObject(REDIS_STRING,payload.io.buffer.ptr);
+    dumpobj = createObject(OBJ_STRING,payload.io.buffer.ptr);
     addReplyBulk(c,dumpobj);
     decrRefCount(dumpobj);
     return;

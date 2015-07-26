@@ -1111,7 +1111,7 @@ robj *createHLLObject(void) {
     redisAssert((p-(uint8_t*)s) == sparselen);
 
     /* Create the actual object. */
-    o = createObject(REDIS_STRING,s);
+    o = createObject(OBJ_STRING,s);
     hdr = o->ptr;
     memcpy(hdr->magic,"HYLL",4);
     hdr->encoding = HLL_SPARSE;
@@ -1125,7 +1125,7 @@ int isHLLObjectOrReply(client *c, robj *o) {
     struct hllhdr *hdr;
 
     /* Key exists, check type */
-    if (checkType(c,o,REDIS_STRING))
+    if (checkType(c,o,OBJ_STRING))
         return REDIS_ERR; /* Error already sent. */
 
     if (stringObjectLen(o) < sizeof(*hdr)) goto invalid;

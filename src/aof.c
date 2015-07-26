@@ -666,7 +666,7 @@ int loadAppendOnlyFile(char *filename) {
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-            argv[j] = createObject(REDIS_STRING,argsds);
+            argv[j] = createObject(OBJ_STRING,argsds);
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
                 freeFakeClientArgv(fakeClient);
@@ -756,7 +756,7 @@ fmterr: /* Format error. */
 int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
-    if (obj->encoding == REDIS_ENCODING_INT) {
+    if (obj->encoding == OBJ_ENCODING_INT) {
         return rioWriteBulkLongLong(r,(long)obj->ptr);
     } else if (sdsEncodedObject(obj)) {
         return rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));
@@ -770,7 +770,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *list = o->ptr;
         quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
         quicklistEntry entry;
@@ -804,7 +804,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
 int rewriteSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = setTypeSize(o);
 
-    if (o->encoding == REDIS_ENCODING_INTSET) {
+    if (o->encoding == OBJ_ENCODING_INTSET) {
         int ii = 0;
         int64_t llval;
 
@@ -821,7 +821,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
             if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-    } else if (o->encoding == REDIS_ENCODING_HT) {
+    } else if (o->encoding == OBJ_ENCODING_HT) {
         dictIterator *di = dictGetIterator(o->ptr);
         dictEntry *de;
 
@@ -851,7 +851,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
 int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = zsetLength(o);
 
-    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = o->ptr;
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
@@ -886,7 +886,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-    } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
+    } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         dictIterator *di = dictGetIterator(zs->dict);
         dictEntry *de;
@@ -918,11 +918,11 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 /* Write either the key or the value of the currently selected item of a hash.
  * The 'hi' argument passes a valid Redis hash iterator.
  * The 'what' filed specifies if to write a key or a value and can be
- * either REDIS_HASH_KEY or REDIS_HASH_VALUE.
+ * either OBJ_HASH_KEY or OBJ_HASH_VALUE.
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
@@ -934,7 +934,7 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
             return rioWriteBulkLongLong(r, vll);
         }
 
-    } else if (hi->encoding == REDIS_ENCODING_HT) {
+    } else if (hi->encoding == OBJ_ENCODING_HT) {
         robj *value;
 
         hashTypeCurrentFromHashTable(hi, what, &value);
@@ -962,8 +962,8 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             if (rioWriteBulkObject(r,key) == 0) return 0;
         }
 
-        if (rioWriteHashIteratorCursor(r, hi, REDIS_HASH_KEY) == 0) return 0;
-        if (rioWriteHashIteratorCursor(r, hi, REDIS_HASH_VALUE) == 0) return 0;
+        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) == 0) return 0;
+        if (rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE) == 0) return 0;
         if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
@@ -1050,20 +1050,20 @@ int rewriteAppendOnlyFile(char *filename) {
             if (expiretime != -1 && expiretime < now) continue;
 
             /* Save the key and associated value */
-            if (o->type == REDIS_STRING) {
+            if (o->type == OBJ_STRING) {
                 /* Emit a SET command */
                 char cmd[]="*3\r\n$3\r\nSET\r\n";
                 if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 /* Key and value */
                 if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
                 if (rioWriteBulkObject(&aof,o) == 0) goto werr;
-            } else if (o->type == REDIS_LIST) {
+            } else if (o->type == OBJ_LIST) {
                 if (rewriteListObject(&aof,&key,o) == 0) goto werr;
-            } else if (o->type == REDIS_SET) {
+            } else if (o->type == OBJ_SET) {
                 if (rewriteSetObject(&aof,&key,o) == 0) goto werr;
-            } else if (o->type == REDIS_ZSET) {
+            } else if (o->type == OBJ_ZSET) {
                 if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werr;
-            } else if (o->type == REDIS_HASH) {
+            } else if (o->type == OBJ_HASH) {
                 if (rewriteHashObject(&aof,&key,o) == 0) goto werr;
             } else {
                 redisPanic("Unknown object type");

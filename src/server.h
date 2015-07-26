@@ -184,25 +184,25 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_CMD_FAST 8192                 /* "F" flag */
 
 /* Object types */
-#define REDIS_STRING 0
-#define REDIS_LIST 1
-#define REDIS_SET 2
-#define REDIS_ZSET 3
-#define REDIS_HASH 4
+#define OBJ_STRING 0
+#define OBJ_LIST 1
+#define OBJ_SET 2
+#define OBJ_ZSET 3
+#define OBJ_HASH 4
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-#define REDIS_ENCODING_RAW 0     /* Raw representation */
-#define REDIS_ENCODING_INT 1     /* Encoded as integer */
-#define REDIS_ENCODING_HT 2      /* Encoded as hash table */
-#define REDIS_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define REDIS_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
-#define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
-#define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
-#define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define REDIS_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
-#define REDIS_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
+#define OBJ_ENCODING_RAW 0     /* Raw representation */
+#define OBJ_ENCODING_INT 1     /* Encoded as integer */
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -333,15 +333,15 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
 
 /* Zip structure related defaults */
-#define REDIS_HASH_MAX_ZIPLIST_ENTRIES 512
-#define REDIS_HASH_MAX_ZIPLIST_VALUE 64
-#define REDIS_SET_MAX_INTSET_ENTRIES 512
-#define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
-#define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
+#define OBJ_HASH_MAX_ZIPLIST_ENTRIES 512
+#define OBJ_HASH_MAX_ZIPLIST_VALUE 64
+#define OBJ_SET_MAX_INTSET_ENTRIES 512
+#define OBJ_ZSET_MAX_ZIPLIST_ENTRIES 128
+#define OBJ_ZSET_MAX_ZIPLIST_VALUE 64
 
 /* List defaults */
-#define REDIS_LIST_MAX_ZIPLIST_SIZE -2
-#define REDIS_LIST_COMPRESS_DEPTH 0
+#define OBJ_LIST_MAX_ZIPLIST_SIZE -2
+#define OBJ_LIST_COMPRESS_DEPTH 0
 
 /* HyperLogLog defines */
 #define CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES 3000
@@ -446,8 +446,8 @@ typedef struct redisObject {
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
     _var.refcount = 1; \
-    _var.type = REDIS_STRING; \
-    _var.encoding = REDIS_ENCODING_RAW; \
+    _var.type = OBJ_STRING; \
+    _var.encoding = OBJ_ENCODING_RAW; \
     _var.ptr = _ptr; \
 } while(0);
 
@@ -1006,8 +1006,8 @@ typedef struct {
     dictEntry *de;
 } hashTypeIterator;
 
-#define REDIS_HASH_KEY 1
-#define REDIS_HASH_VALUE 2
+#define OBJ_HASH_KEY 1
+#define OBJ_HASH_VALUE 2
 
 /*-----------------------------------------------------------------------------
  * Extern declarations
@@ -1166,7 +1166,7 @@ int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
-#define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
+#define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);

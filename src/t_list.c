@@ -39,7 +39,7 @@
  * There is no need for the caller to increment the refcount of 'value' as
  * the function takes care of it if needed. */
 void listTypePush(robj *subject, robj *value, int where) {
-    if (subject->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         int pos = (where == REDIS_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
         value = getDecodedObject(value);
         size_t len = sdslen(value->ptr);
@@ -59,7 +59,7 @@ robj *listTypePop(robj *subject, int where) {
     robj *value = NULL;
 
     int ql_where = where == REDIS_HEAD ? QUICKLIST_HEAD : QUICKLIST_TAIL;
-    if (subject->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         if (quicklistPopCustom(subject->ptr, ql_where, (unsigned char **)&value,
                                NULL, &vlong, listPopSaver)) {
             if (!value)
@@ -72,7 +72,7 @@ robj *listTypePop(robj *subject, int where) {
 }
 
 unsigned long listTypeLength(robj *subject) {
-    if (subject->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (subject->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCount(subject->ptr);
     } else {
         redisPanic("Unknown list encoding");
@@ -91,7 +91,7 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
      * REDIS_TAIL means start at HEAD and move *towards tail. */
     int iter_direction =
         direction == REDIS_HEAD ? AL_START_TAIL : AL_START_HEAD;
-    if (li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         li->iter = quicklistGetIteratorAtIdx(li->subject->ptr,
                                              iter_direction, index);
     } else {
@@ -114,7 +114,7 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
     redisAssert(li->subject->encoding == li->encoding);
 
     entry->li = li;
-    if (li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistNext(li->iter, &entry->entry);
     } else {
         redisPanic("Unknown list encoding");
@@ -125,7 +125,7 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
 /* Return entry or NULL at the current position of the iterator. */
 robj *listTypeGet(listTypeEntry *entry) {
     robj *value = NULL;
-    if (entry->li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         if (entry->entry.value) {
             value = createStringObject((char *)entry->entry.value,
                                        entry->entry.sz);
@@ -139,7 +139,7 @@ robj *listTypeGet(listTypeEntry *entry) {
 }
 
 void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
-    if (entry->li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
@@ -158,7 +158,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 
 /* Compare the given object with the entry at the current position. */
 int listTypeEqual(listTypeEntry *entry, robj *o) {
-    if (entry->li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         redisAssertWithInfo(NULL,o,sdsEncodedObject(o));
         return quicklistCompare(entry->entry.zi,o->ptr,sdslen(o->ptr));
     } else {
@@ -168,7 +168,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o) {
 
 /* Delete the element pointed to. */
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
-    if (entry->li->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelEntry(iter->iter, &entry->entry);
     } else {
         redisPanic("Unknown list encoding");
@@ -177,14 +177,14 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
 
 /* Create a quicklist from a single ziplist */
 void listTypeConvert(robj *subject, int enc) {
-    redisAssertWithInfo(NULL,subject,subject->type==REDIS_LIST);
-    redisAssertWithInfo(NULL,subject,subject->encoding==REDIS_ENCODING_ZIPLIST);
+    redisAssertWithInfo(NULL,subject,subject->type==OBJ_LIST);
+    redisAssertWithInfo(NULL,subject,subject->encoding==OBJ_ENCODING_ZIPLIST);
 
-    if (enc == REDIS_ENCODING_QUICKLIST) {
+    if (enc == OBJ_ENCODING_QUICKLIST) {
         size_t zlen = server.list_max_ziplist_size;
         int depth = server.list_compress_depth;
         subject->ptr = quicklistCreateFromZiplist(zlen, depth, subject->ptr);
-        subject->encoding = REDIS_ENCODING_QUICKLIST;
+        subject->encoding = OBJ_ENCODING_QUICKLIST;
     } else {
         redisPanic("Unsupported list conversion");
     }
@@ -198,7 +198,7 @@ void pushGenericCommand(client *c, int where) {
     int j, waiting = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
-    if (lobj && lobj->type != REDIS_LIST) {
+    if (lobj && lobj->type != OBJ_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
     }
@@ -239,7 +239,7 @@ void pushxGenericCommand(client *c, robj *refval, robj *val, int where) {
     int inserted = 0;
 
     if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,subject,REDIS_LIST)) return;
+        checkType(c,subject,OBJ_LIST)) return;
 
     if (refval != NULL) {
         /* Seek refval from head to tail */
@@ -298,20 +298,20 @@ void linsertCommand(client *c) {
 
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
 }
 
 void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = NULL;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
         return;
 
-    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistEntry entry;
         if (quicklistIndex(o->ptr, index, &entry)) {
             if (entry.value) {
@@ -331,14 +331,14 @@ void lindexCommand(client *c) {
 
 void lsetCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
         return;
 
-    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklist *ql = o->ptr;
         int replaced = quicklistReplaceAtIndex(ql, index,
                                                value->ptr, sdslen(value->ptr));
@@ -357,7 +357,7 @@ void lsetCommand(client *c) {
 
 void popGenericCommand(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
-    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
 
     robj *value = listTypePop(o,where);
     if (value == NULL) {
@@ -394,7 +394,7 @@ void lrangeCommand(client *c) {
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
-         || checkType(c,o,REDIS_LIST)) return;
+         || checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
     /* convert negative indexes */
@@ -413,7 +413,7 @@ void lrangeCommand(client *c) {
 
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c,rangelen);
-    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         listTypeIterator *iter = listTypeInitIterator(o, start, REDIS_TAIL);
 
         while(rangelen--) {
@@ -440,7 +440,7 @@ void ltrimCommand(client *c) {
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
+        checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
     /* convert negative indexes */
@@ -461,7 +461,7 @@ void ltrimCommand(client *c) {
     }
 
     /* Remove list elements to perform the trim */
-    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelRange(o->ptr,0,ltrim);
         quicklistDelRange(o->ptr,-rtrim,rtrim);
     } else {
@@ -488,7 +488,7 @@ void lremCommand(client *c) {
         return;
 
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
-    if (subject == NULL || checkType(c,subject,REDIS_LIST)) return;
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
 
     listTypeIterator *li;
     if (toremove < 0) {
@@ -551,7 +551,7 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
 void rpoplpushCommand(client *c) {
     robj *sobj, *value;
     if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,sobj,REDIS_LIST)) return;
+        checkType(c,sobj,OBJ_LIST)) return;
 
     if (listTypeLength(sobj) == 0) {
         /* This may only happen after loading very old RDB files. Recent
@@ -561,7 +561,7 @@ void rpoplpushCommand(client *c) {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
 
-        if (dobj && checkType(c,dobj,REDIS_LIST)) return;
+        if (dobj && checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,REDIS_TAIL);
         /* We saved touched key, and protect it, since rpoplpushHandlePush
          * may change the client command argument vector (it does not
@@ -743,7 +743,7 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         robj *dstobj =
             lookupKeyWrite(receiver->db,dstkey);
         if (!(dstobj &&
-             checkType(receiver,dstobj,REDIS_LIST)))
+             checkType(receiver,dstobj,OBJ_LIST)))
         {
             /* Propagate the RPOP operation. */
             argv[0] = shared.rpop;
@@ -803,7 +803,7 @@ void handleClientsBlockedOnLists(void) {
             /* If the key exists and it's a list, serve blocked clients
              * with data. */
             robj *o = lookupKeyWrite(rl->db,rl->key);
-            if (o != NULL && o->type == REDIS_LIST) {
+            if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 
                 /* We serve clients in the same order they blocked for
@@ -874,7 +874,7 @@ void blockingPopGenericCommand(client *c, int where) {
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
         if (o != NULL) {
-            if (o->type != REDIS_LIST) {
+            if (o->type != OBJ_LIST) {
                 addReply(c,shared.wrongtypeerr);
                 return;
             } else {
@@ -945,7 +945,7 @@ void brpoplpushCommand(client *c) {
             blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2]);
         }
     } else {
-        if (key->type != REDIS_LIST) {
+        if (key->type != OBJ_LIST) {
             addReply(c, shared.wrongtypeerr);
         } else {
             /* The list exists and has elements, so

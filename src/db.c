@@ -120,7 +120,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
-    if (val->type == REDIS_LIST) signalListAsReady(db, key);
+    if (val->type == OBJ_LIST) signalListAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
@@ -217,15 +217,15 @@ int dbDelete(redisDb *db, robj *key) {
  * in 'db', the usage pattern looks like this:
  *
  * o = lookupKeyWrite(db,key);
- * if (checkType(c,o,REDIS_STRING)) return;
+ * if (checkType(c,o,OBJ_STRING)) return;
  * o = dbUnshareStringValue(db,key,o);
  *
  * At this point the caller is ready to modify the object, for example
  * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
-    redisAssert(o->type == REDIS_STRING);
-    if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
+    redisAssert(o->type == OBJ_STRING);
+    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
@@ -399,15 +399,15 @@ void scanCallback(void *privdata, const dictEntry *de) {
     if (o == NULL) {
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
-    } else if (o->type == REDIS_SET) {
+    } else if (o->type == OBJ_SET) {
         key = dictGetKey(de);
         incrRefCount(key);
-    } else if (o->type == REDIS_HASH) {
+    } else if (o->type == OBJ_HASH) {
         key = dictGetKey(de);
         incrRefCount(key);
         val = dictGetVal(de);
         incrRefCount(val);
-    } else if (o->type == REDIS_ZSET) {
+    } else if (o->type == OBJ_ZSET) {
         key = dictGetKey(de);
         incrRefCount(key);
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
@@ -460,8 +460,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
-    redisAssert(o == NULL || o->type == REDIS_SET || o->type == REDIS_HASH ||
-                o->type == REDIS_ZSET);
+    redisAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
+                o->type == OBJ_ZSET);
 
     /* Set i to the first option argument. The previous one is the cursor. */
     i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
@@ -509,12 +509,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     ht = NULL;
     if (o == NULL) {
         ht = c->db->dict;
-    } else if (o->type == REDIS_SET && o->encoding == REDIS_ENCODING_HT) {
+    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
-    } else if (o->type == REDIS_HASH && o->encoding == REDIS_ENCODING_HT) {
+    } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
         count *= 2; /* We return key / value for this type. */
-    } else if (o->type == REDIS_ZSET && o->encoding == REDIS_ENCODING_SKIPLIST) {
+    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
         ht = zs->dict;
         count *= 2; /* We return key / value for this type. */
@@ -538,14 +538,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
-    } else if (o->type == REDIS_SET) {
+    } else if (o->type == OBJ_SET) {
         int pos = 0;
         int64_t ll;
 
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
-    } else if (o->type == REDIS_HASH || o->type == REDIS_ZSET) {
+    } else if (o->type == OBJ_HASH || o->type == OBJ_ZSET) {
         unsigned char *p = ziplistIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
@@ -579,7 +579,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
                 char buf[REDIS_LONGSTR_SIZE];
                 int len;
 
-                redisAssert(kobj->encoding == REDIS_ENCODING_INT);
+                redisAssert(kobj->encoding == OBJ_ENCODING_INT);
                 len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
@@ -597,7 +597,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* If this is a hash or a sorted set, we have a flat list of
          * key-value elements, so if this element was filtered, remove the
          * value, or skip it if it was not filtered: we only match keys. */
-        if (o && (o->type == REDIS_ZSET || o->type == REDIS_HASH)) {
+        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
             node = nextnode;
             nextnode = listNextNode(node);
             if (filter) {
@@ -650,11 +650,11 @@ void typeCommand(client *c) {
         type = "none";
     } else {
         switch(o->type) {
-        case REDIS_STRING: type = "string"; break;
-        case REDIS_LIST: type = "list"; break;
-        case REDIS_SET: type = "set"; break;
-        case REDIS_ZSET: type = "zset"; break;
-        case REDIS_HASH: type = "hash"; break;
+        case OBJ_STRING: type = "string"; break;
+        case OBJ_LIST: type = "list"; break;
+        case OBJ_SET: type = "set"; break;
+        case OBJ_ZSET: type = "zset"; break;
+        case OBJ_HASH: type = "hash"; break;
         default: type = "unknown"; break;
         }
     }

@@ -415,8 +415,8 @@ cleanup:
          * (we must be the only owner) for us to cache it. */
         if (j < LUA_CMD_OBJCACHE_SIZE &&
             o->refcount == 1 &&
-            (o->encoding == REDIS_ENCODING_RAW ||
-             o->encoding == REDIS_ENCODING_EMBSTR) &&
+            (o->encoding == OBJ_ENCODING_RAW ||
+             o->encoding == OBJ_ENCODING_EMBSTR) &&
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
         {
             sds s = o->ptr;

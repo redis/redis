@@ -110,13 +110,13 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     if (o == NULL) goto noobj;
 
     if (fieldobj) {
-        if (o->type != REDIS_HASH) goto noobj;
+        if (o->type != OBJ_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. This operation
          * already increases the refcount of the returned object. */
         o = hashTypeGetObject(o, fieldobj);
     } else {
-        if (o->type != REDIS_STRING) goto noobj;
+        if (o->type != OBJ_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
@@ -200,9 +200,9 @@ void sortCommand(client *c) {
 
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
-    if (sortval && sortval->type != REDIS_SET &&
-                   sortval->type != REDIS_LIST &&
-                   sortval->type != REDIS_ZSET)
+    if (sortval && sortval->type != OBJ_SET &&
+                   sortval->type != OBJ_LIST &&
+                   sortval->type != OBJ_ZSET)
     {
         addReply(c,shared.wrongtypeerr);
         return;
@@ -292,7 +292,7 @@ void sortCommand(client *c) {
      * even if no sort order is requested, so they remain stable across
      * scripting and replication. */
     if (dontsort &&
-        sortval->type == REDIS_SET &&
+        sortval->type == OBJ_SET &&
         (storekey || c->flags & REDIS_LUA_CLIENT))
     {
         /* Force ALPHA sorting */
@@ -302,14 +302,14 @@ void sortCommand(client *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == REDIS_ZSET)
-        zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
+    if (sortval->type == OBJ_ZSET)
+        zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
 
     /* Objtain the length of the object to sort. */
     switch(sortval->type) {
-    case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
-    case REDIS_SET: vectorlen =  setTypeSize(sortval); break;
-    case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
+    case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
+    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -332,7 +332,7 @@ void sortCommand(client *c) {
      * the number of elements to fetch, we also optimize to just load the
      * range we are interested in and allocating a vector that is big enough
      * for the selected range length. */
-    if ((sortval->type == REDIS_ZSET || sortval->type == REDIS_LIST) &&
+    if ((sortval->type == OBJ_ZSET || sortval->type == OBJ_LIST) &&
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
@@ -343,7 +343,7 @@ void sortCommand(client *c) {
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
 
-    if (sortval->type == REDIS_LIST && dontsort) {
+    if (sortval->type == OBJ_LIST && dontsort) {
         /* Special handling for a list, if 'dontsort' is true.
          * This makes sure we return elements in the list original
          * ordering, accordingly to DESC / ASC options.
@@ -368,7 +368,7 @@ void sortCommand(client *c) {
             end -= start;
             start = 0;
         }
-    } else if (sortval->type == REDIS_LIST) {
+    } else if (sortval->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(sortval,0,REDIS_TAIL);
         listTypeEntry entry;
         while(listTypeNext(li,&entry)) {
@@ -378,7 +378,7 @@ void sortCommand(client *c) {
             j++;
         }
         listTypeReleaseIterator(li);
-    } else if (sortval->type == REDIS_SET) {
+    } else if (sortval->type == OBJ_SET) {
         setTypeIterator *si = setTypeInitIterator(sortval);
         robj *ele;
         while((ele = setTypeNextObject(si)) != NULL) {
@@ -388,7 +388,7 @@ void sortCommand(client *c) {
             j++;
         }
         setTypeReleaseIterator(si);
-    } else if (sortval->type == REDIS_ZSET && dontsort) {
+    } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
          * ordering, accordingly to DESC / ASC options.
@@ -427,7 +427,7 @@ void sortCommand(client *c) {
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
-    } else if (sortval->type == REDIS_ZSET) {
+    } else if (sortval->type == OBJ_ZSET) {
         dict *set = ((zset*)sortval->ptr)->dict;
         dictIterator *di;
         dictEntry *setele;
@@ -469,7 +469,7 @@ void sortCommand(client *c) {
                     {
                         int_convertion_error = 1;
                     }
-                } else if (byval->encoding == REDIS_ENCODING_INT) {
+                } else if (byval->encoding == OBJ_ENCODING_INT) {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
                      * far. We can just cast it */
@@ -577,7 +577,7 @@ void sortCommand(client *c) {
     }
 
     /* Cleanup */
-    if (sortval->type == REDIS_LIST || sortval->type == REDIS_SET)
+    if (sortval->type == OBJ_LIST || sortval->type == OBJ_SET)
         for (j = 0; j < vectorlen; j++)
             decrRefCount(vector[j].obj);
     decrRefCount(sortval);
