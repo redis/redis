@@ -33,7 +33,7 @@
  * Set Commands
  *----------------------------------------------------------------------------*/
 
-void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum,
+void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
@@ -269,7 +269,7 @@ void setTypeConvert(robj *setobj, int enc) {
     }
 }
 
-void saddCommand(redisClient *c) {
+void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
 
@@ -296,7 +296,7 @@ void saddCommand(redisClient *c) {
     addReplyLongLong(c,added);
 }
 
-void sremCommand(redisClient *c) {
+void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
@@ -324,7 +324,7 @@ void sremCommand(redisClient *c) {
     addReplyLongLong(c,deleted);
 }
 
-void smoveCommand(redisClient *c) {
+void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
@@ -377,7 +377,7 @@ void smoveCommand(redisClient *c) {
     addReply(c,shared.cone);
 }
 
-void sismemberCommand(redisClient *c) {
+void sismemberCommand(client *c) {
     robj *set;
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -390,7 +390,7 @@ void sismemberCommand(redisClient *c) {
         addReply(c,shared.czero);
 }
 
-void scardCommand(redisClient *c) {
+void scardCommand(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -407,7 +407,7 @@ void scardCommand(redisClient *c) {
  * implementation for more info. */
 #define SPOP_MOVE_STRATEGY_MUL 5
 
-void spopWithCountCommand(redisClient *c) {
+void spopWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
     robj *set;
@@ -556,7 +556,7 @@ void spopWithCountCommand(redisClient *c) {
     preventCommandPropagation(c);
 }
 
-void spopCommand(redisClient *c) {
+void spopCommand(client *c) {
     robj *set, *ele, *aux;
     int64_t llele;
     int encoding;
@@ -616,7 +616,7 @@ void spopCommand(redisClient *c) {
  * implementation for more info. */
 #define SRANDMEMBER_SUB_STRATEGY_MUL 3
 
-void srandmemberWithCountCommand(redisClient *c) {
+void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
     int uniq = 1;
@@ -749,7 +749,7 @@ void srandmemberWithCountCommand(redisClient *c) {
     }
 }
 
-void srandmemberCommand(redisClient *c) {
+void srandmemberCommand(client *c) {
     robj *set, *ele;
     int64_t llele;
     int encoding;
@@ -785,7 +785,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
 }
 
-void sinterGenericCommand(redisClient *c, robj **setkeys,
+void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
@@ -921,11 +921,11 @@ void sinterGenericCommand(redisClient *c, robj **setkeys,
     zfree(sets);
 }
 
-void sinterCommand(redisClient *c) {
+void sinterCommand(client *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }
 
-void sinterstoreCommand(redisClient *c) {
+void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
 
@@ -933,7 +933,7 @@ void sinterstoreCommand(redisClient *c) {
 #define REDIS_OP_DIFF 1
 #define REDIS_OP_INTER 2
 
-void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum,
+void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
@@ -1092,23 +1092,23 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
-void sunionCommand(redisClient *c) {
+void sunionCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,REDIS_OP_UNION);
 }
 
-void sunionstoreCommand(redisClient *c) {
+void sunionstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],REDIS_OP_UNION);
 }
 
-void sdiffCommand(redisClient *c) {
+void sdiffCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,REDIS_OP_DIFF);
 }
 
-void sdiffstoreCommand(redisClient *c) {
+void sdiffstoreCommand(client *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],REDIS_OP_DIFF);
 }
 
-void sscanCommand(redisClient *c) {
+void sscanCommand(client *c) {
     robj *set;
     unsigned long cursor;
 

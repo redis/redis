@@ -1196,7 +1196,7 @@ int zsetScore(robj *zobj, robj *member, double *score) {
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
 #define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
 #define ZADD_CH (1<<3)      /* Return num of elements added or updated. */
-void zaddGenericCommand(redisClient *c, int flags) {
+void zaddGenericCommand(client *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *ele;
@@ -1388,15 +1388,15 @@ cleanup:
     }
 }
 
-void zaddCommand(redisClient *c) {
+void zaddCommand(client *c) {
     zaddGenericCommand(c,ZADD_NONE);
 }
 
-void zincrbyCommand(redisClient *c) {
+void zincrbyCommand(client *c) {
     zaddGenericCommand(c,ZADD_INCR);
 }
 
-void zremCommand(redisClient *c) {
+void zremCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     int deleted = 0, keyremoved = 0, j;
@@ -1460,7 +1460,7 @@ void zremCommand(redisClient *c) {
 #define ZRANGE_RANK 0
 #define ZRANGE_SCORE 1
 #define ZRANGE_LEX 2
-void zremrangeGenericCommand(redisClient *c, int rangetype) {
+void zremrangeGenericCommand(client *c, int rangetype) {
     robj *key = c->argv[1];
     robj *zobj;
     int keyremoved = 0;
@@ -1560,15 +1560,15 @@ cleanup:
     if (rangetype == ZRANGE_LEX) zslFreeLexRange(&lexrange);
 }
 
-void zremrangebyrankCommand(redisClient *c) {
+void zremrangebyrankCommand(client *c) {
     zremrangeGenericCommand(c,ZRANGE_RANK);
 }
 
-void zremrangebyscoreCommand(redisClient *c) {
+void zremrangebyscoreCommand(client *c) {
     zremrangeGenericCommand(c,ZRANGE_SCORE);
 }
 
-void zremrangebylexCommand(redisClient *c) {
+void zremrangebylexCommand(client *c) {
     zremrangeGenericCommand(c,ZRANGE_LEX);
 }
 
@@ -1922,7 +1922,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
+void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
@@ -2163,15 +2163,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zfree(src);
 }
 
-void zunionstoreCommand(redisClient *c) {
+void zunionstoreCommand(client *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_UNION);
 }
 
-void zinterstoreCommand(redisClient *c) {
+void zinterstoreCommand(client *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_INTER);
 }
 
-void zrangeGenericCommand(redisClient *c, int reverse) {
+void zrangeGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *zobj;
     int withscores = 0;
@@ -2273,16 +2273,16 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
     }
 }
 
-void zrangeCommand(redisClient *c) {
+void zrangeCommand(client *c) {
     zrangeGenericCommand(c,0);
 }
 
-void zrevrangeCommand(redisClient *c) {
+void zrevrangeCommand(client *c) {
     zrangeGenericCommand(c,1);
 }
 
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE. */
-void genericZrangebyscoreCommand(redisClient *c, int reverse) {
+void genericZrangebyscoreCommand(client *c, int reverse) {
     zrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
@@ -2468,15 +2468,15 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
-void zrangebyscoreCommand(redisClient *c) {
+void zrangebyscoreCommand(client *c) {
     genericZrangebyscoreCommand(c,0);
 }
 
-void zrevrangebyscoreCommand(redisClient *c) {
+void zrevrangebyscoreCommand(client *c) {
     genericZrangebyscoreCommand(c,1);
 }
 
-void zcountCommand(redisClient *c) {
+void zcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zrangespec range;
@@ -2553,7 +2553,7 @@ void zcountCommand(redisClient *c) {
     addReplyLongLong(c, count);
 }
 
-void zlexcountCommand(redisClient *c) {
+void zlexcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zlexrangespec range;
@@ -2633,7 +2633,7 @@ void zlexcountCommand(redisClient *c) {
 }
 
 /* This command implements ZRANGEBYLEX, ZREVRANGEBYLEX. */
-void genericZrangebylexCommand(redisClient *c, int reverse) {
+void genericZrangebylexCommand(client *c, int reverse) {
     zlexrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
@@ -2809,15 +2809,15 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
-void zrangebylexCommand(redisClient *c) {
+void zrangebylexCommand(client *c) {
     genericZrangebylexCommand(c,0);
 }
 
-void zrevrangebylexCommand(redisClient *c) {
+void zrevrangebylexCommand(client *c) {
     genericZrangebylexCommand(c,1);
 }
 
-void zcardCommand(redisClient *c) {
+void zcardCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
 
@@ -2827,7 +2827,7 @@ void zcardCommand(redisClient *c) {
     addReplyLongLong(c,zsetLength(zobj));
 }
 
-void zscoreCommand(redisClient *c) {
+void zscoreCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     double score;
@@ -2842,7 +2842,7 @@ void zscoreCommand(redisClient *c) {
     }
 }
 
-void zrankGenericCommand(redisClient *c, int reverse) {
+void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
     robj *zobj;
@@ -2904,15 +2904,15 @@ void zrankGenericCommand(redisClient *c, int reverse) {
     }
 }
 
-void zrankCommand(redisClient *c) {
+void zrankCommand(client *c) {
     zrankGenericCommand(c, 0);
 }
 
-void zrevrankCommand(redisClient *c) {
+void zrevrankCommand(client *c) {
     zrankGenericCommand(c, 1);
 }
 
-void zscanCommand(redisClient *c) {
+void zscanCommand(client *c) {
     robj *o;
     unsigned long cursor;
 

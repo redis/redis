@@ -73,7 +73,7 @@
  * Note that if the timeout is zero (usually from the point of view of
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
-int getTimeoutFromObjectOrReply(redisClient *c, robj *object, mstime_t *timeout, int unit) {
+int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
 
     if (getLongLongFromObjectOrReply(c,object,&tval,
@@ -97,7 +97,7 @@ int getTimeoutFromObjectOrReply(redisClient *c, robj *object, mstime_t *timeout,
 /* Block a client for the specific operation type. Once the REDIS_BLOCKED
  * flag is set client query buffer is not longer processed, but accumulated,
  * and will be processed when the client is unblocked. */
-void blockClient(redisClient *c, int btype) {
+void blockClient(client *c, int btype) {
     c->flags |= REDIS_BLOCKED;
     c->btype = btype;
     server.bpop_blocked_clients++;
@@ -108,7 +108,7 @@ void blockClient(redisClient *c, int btype) {
  * unblocked after a blocking operation. */
 void processUnblockedClients(void) {
     listNode *ln;
-    redisClient *c;
+    client *c;
 
     while (listLength(server.unblocked_clients)) {
         ln = listFirst(server.unblocked_clients);
@@ -131,7 +131,7 @@ void processUnblockedClients(void) {
 
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
-void unblockClient(redisClient *c) {
+void unblockClient(client *c) {
     if (c->btype == REDIS_BLOCKED_LIST) {
         unblockClientWaitingData(c);
     } else if (c->btype == REDIS_BLOCKED_WAIT) {
@@ -154,7 +154,7 @@ void unblockClient(redisClient *c) {
 
 /* This function gets called when a blocked client timed out in order to
  * send it a reply of some kind. */
-void replyToBlockedClientTimedOut(redisClient *c) {
+void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == REDIS_BLOCKED_LIST) {
         addReply(c,shared.nullmultibulk);
     } else if (c->btype == REDIS_BLOCKED_WAIT) {
@@ -177,7 +177,7 @@ void disconnectAllBlockedClients(void) {
 
     listRewind(server.clients,&li);
     while((ln = listNext(&li))) {
-        redisClient *c = listNodeValue(ln);
+        client *c = listNodeValue(ln);
 
         if (c->flags & REDIS_BLOCKED) {
             addReplySds(c,sdsnew(

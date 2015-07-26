@@ -339,7 +339,7 @@ robj *resetRefCount(robj *obj) {
     return obj;
 }
 
-int checkType(redisClient *c, robj *o, int type) {
+int checkType(client *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);
         return 1;
@@ -562,7 +562,7 @@ int getDoubleFromObject(robj *o, double *target) {
     return REDIS_OK;
 }
 
-int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const char *msg) {
+int getDoubleFromObjectOrReply(client *c, robj *o, double *target, const char *msg) {
     double value;
     if (getDoubleFromObject(o, &value) != REDIS_OK) {
         if (msg != NULL) {
@@ -600,7 +600,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
     return REDIS_OK;
 }
 
-int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg) {
+int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, const char *msg) {
     long double value;
     if (getLongDoubleFromObject(o, &value) != REDIS_OK) {
         if (msg != NULL) {
@@ -638,7 +638,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     return REDIS_OK;
 }
 
-int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg) {
+int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
     if (getLongLongFromObject(o, &value) != REDIS_OK) {
         if (msg != NULL) {
@@ -652,7 +652,7 @@ int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, con
     return REDIS_OK;
 }
 
-int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg) {
+int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg) {
     long long value;
 
     if (getLongLongFromObjectOrReply(c, o, &value, msg) != REDIS_OK) return REDIS_ERR;
@@ -696,14 +696,14 @@ unsigned long long estimateObjectIdleTime(robj *o) {
 
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
-robj *objectCommandLookup(redisClient *c, robj *key) {
+robj *objectCommandLookup(client *c, robj *key) {
     dictEntry *de;
 
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetVal(de);
 }
 
-robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
+robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
     robj *o = objectCommandLookup(c,key);
 
     if (!o) addReply(c, reply);
@@ -712,7 +712,7 @@ robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
 
 /* Object command allows to inspect the internals of an Redis Object.
  * Usage: OBJECT <refcount|encoding|idletime> <key> */
-void objectCommand(redisClient *c) {
+void objectCommand(client *c) {
     robj *o;
 
     if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {

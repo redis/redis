@@ -194,7 +194,7 @@ void listTypeConvert(robj *subject, int enc) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
-void pushGenericCommand(redisClient *c, int where) {
+void pushGenericCommand(client *c, int where) {
     int j, waiting = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
@@ -224,15 +224,15 @@ void pushGenericCommand(redisClient *c, int where) {
     server.dirty += pushed;
 }
 
-void lpushCommand(redisClient *c) {
+void lpushCommand(client *c) {
     pushGenericCommand(c,REDIS_HEAD);
 }
 
-void rpushCommand(redisClient *c) {
+void rpushCommand(client *c) {
     pushGenericCommand(c,REDIS_TAIL);
 }
 
-void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
+void pushxGenericCommand(client *c, robj *refval, robj *val, int where) {
     robj *subject;
     listTypeIterator *iter;
     listTypeEntry entry;
@@ -275,17 +275,17 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
     addReplyLongLong(c,listTypeLength(subject));
 }
 
-void lpushxCommand(redisClient *c) {
+void lpushxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     pushxGenericCommand(c,NULL,c->argv[2],REDIS_HEAD);
 }
 
-void rpushxCommand(redisClient *c) {
+void rpushxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     pushxGenericCommand(c,NULL,c->argv[2],REDIS_TAIL);
 }
 
-void linsertCommand(redisClient *c) {
+void linsertCommand(client *c) {
     c->argv[4] = tryObjectEncoding(c->argv[4]);
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
         pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_TAIL);
@@ -296,13 +296,13 @@ void linsertCommand(redisClient *c) {
     }
 }
 
-void llenCommand(redisClient *c) {
+void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     addReplyLongLong(c,listTypeLength(o));
 }
 
-void lindexCommand(redisClient *c) {
+void lindexCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     long index;
@@ -329,7 +329,7 @@ void lindexCommand(redisClient *c) {
     }
 }
 
-void lsetCommand(redisClient *c) {
+void lsetCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     long index;
@@ -355,7 +355,7 @@ void lsetCommand(redisClient *c) {
     }
 }
 
-void popGenericCommand(redisClient *c, int where) {
+void popGenericCommand(client *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
 
@@ -378,15 +378,15 @@ void popGenericCommand(redisClient *c, int where) {
     }
 }
 
-void lpopCommand(redisClient *c) {
+void lpopCommand(client *c) {
     popGenericCommand(c,REDIS_HEAD);
 }
 
-void rpopCommand(redisClient *c) {
+void rpopCommand(client *c) {
     popGenericCommand(c,REDIS_TAIL);
 }
 
-void lrangeCommand(redisClient *c) {
+void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
 
@@ -432,7 +432,7 @@ void lrangeCommand(redisClient *c) {
     }
 }
 
-void ltrimCommand(redisClient *c) {
+void ltrimCommand(client *c) {
     robj *o;
     long start, end, llen, ltrim, rtrim;
 
@@ -478,7 +478,7 @@ void ltrimCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
-void lremCommand(redisClient *c) {
+void lremCommand(client *c) {
     robj *subject, *obj;
     obj = c->argv[3];
     long toremove;
@@ -533,7 +533,7 @@ void lremCommand(redisClient *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 
-void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value) {
+void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createQuicklistObject();
@@ -548,7 +548,7 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
     addReplyBulk(c,value);
 }
 
-void rpoplpushCommand(redisClient *c) {
+void rpoplpushCommand(client *c) {
     robj *sobj, *value;
     if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,sobj,REDIS_LIST)) return;
@@ -608,7 +608,7 @@ void rpoplpushCommand(redisClient *c) {
 
 /* Set a client in blocking mode for the specified key, with the specified
  * timeout */
-void blockForKeys(redisClient *c, robj **keys, int numkeys, mstime_t timeout, robj *target) {
+void blockForKeys(client *c, robj **keys, int numkeys, mstime_t timeout, robj *target) {
     dictEntry *de;
     list *l;
     int j;
@@ -643,7 +643,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, mstime_t timeout, ro
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP.
  * You should never call this function directly, but unblockClient() instead. */
-void unblockClientWaitingData(redisClient *c) {
+void unblockClientWaitingData(client *c) {
     dictEntry *de;
     dictIterator *di;
     list *l;
@@ -721,7 +721,7 @@ void signalListAsReady(redisDb *db, robj *key) {
  * should be undone as the client was not served: This only happens for
  * BRPOPLPUSH that fails to push the value to the destination key as it is
  * of the wrong type. */
-int serveClientBlockedOnList(redisClient *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where)
+int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where)
 {
     robj *argv[3];
 
@@ -815,7 +815,7 @@ void handleClientsBlockedOnLists(void) {
 
                     while(numclients--) {
                         listNode *clientnode = listFirst(clients);
-                        redisClient *receiver = clientnode->value;
+                        client *receiver = clientnode->value;
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
@@ -863,7 +863,7 @@ void handleClientsBlockedOnLists(void) {
 }
 
 /* Blocking RPOP/LPOP */
-void blockingPopGenericCommand(redisClient *c, int where) {
+void blockingPopGenericCommand(client *c, int where) {
     robj *o;
     mstime_t timeout;
     int j;
@@ -919,15 +919,15 @@ void blockingPopGenericCommand(redisClient *c, int where) {
     blockForKeys(c, c->argv + 1, c->argc - 2, timeout, NULL);
 }
 
-void blpopCommand(redisClient *c) {
+void blpopCommand(client *c) {
     blockingPopGenericCommand(c,REDIS_HEAD);
 }
 
-void brpopCommand(redisClient *c) {
+void brpopCommand(client *c) {
     blockingPopGenericCommand(c,REDIS_TAIL);
 }
 
-void brpoplpushCommand(redisClient *c) {
+void brpoplpushCommand(client *c) {
     mstime_t timeout;
 
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)

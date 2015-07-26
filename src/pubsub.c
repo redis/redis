@@ -48,14 +48,14 @@ int listMatchPubsubPattern(void *a, void *b) {
 }
 
 /* Return the number of channels + patterns a client is subscribed to. */
-int clientSubscriptionsCount(redisClient *c) {
+int clientSubscriptionsCount(client *c) {
     return dictSize(c->pubsub_channels)+
            listLength(c->pubsub_patterns);
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was already subscribed to that channel. */
-int pubsubSubscribeChannel(redisClient *c, robj *channel) {
+int pubsubSubscribeChannel(client *c, robj *channel) {
     dictEntry *de;
     list *clients = NULL;
     int retval = 0;
@@ -85,7 +85,7 @@ int pubsubSubscribeChannel(redisClient *c, robj *channel) {
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
-int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
+int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     dictEntry *de;
     list *clients;
     listNode *ln;
@@ -124,7 +124,7 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
 }
 
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
-int pubsubSubscribePattern(redisClient *c, robj *pattern) {
+int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
@@ -147,7 +147,7 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
-int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
+int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     listNode *ln;
     pubsubPattern pat;
     int retval = 0;
@@ -175,7 +175,7 @@ int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
 
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed to. */
-int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
+int pubsubUnsubscribeAllChannels(client *c, int notify) {
     dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
     dictEntry *de;
     int count = 0;
@@ -199,7 +199,7 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
 
 /* Unsubscribe from all the patterns. Return the number of patterns the
  * client was subscribed from. */
-int pubsubUnsubscribeAllPatterns(redisClient *c, int notify) {
+int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     listNode *ln;
     listIter li;
     int count = 0;
@@ -237,7 +237,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
 
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
-            redisClient *c = ln->value;
+            client *c = ln->value;
 
             addReply(c,shared.mbulkhdr[3]);
             addReply(c,shared.messagebulk);
@@ -274,7 +274,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
  * Pubsub commands implementation
  *----------------------------------------------------------------------------*/
 
-void subscribeCommand(redisClient *c) {
+void subscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
@@ -282,7 +282,7 @@ void subscribeCommand(redisClient *c) {
     c->flags |= REDIS_PUBSUB;
 }
 
-void unsubscribeCommand(redisClient *c) {
+void unsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
     } else {
@@ -294,7 +294,7 @@ void unsubscribeCommand(redisClient *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
 }
 
-void psubscribeCommand(redisClient *c) {
+void psubscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
@@ -302,7 +302,7 @@ void psubscribeCommand(redisClient *c) {
     c->flags |= REDIS_PUBSUB;
 }
 
-void punsubscribeCommand(redisClient *c) {
+void punsubscribeCommand(client *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
     } else {
@@ -314,7 +314,7 @@ void punsubscribeCommand(redisClient *c) {
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
 }
 
-void publishCommand(redisClient *c) {
+void publishCommand(client *c) {
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);
@@ -324,7 +324,7 @@ void publishCommand(redisClient *c) {
 }
 
 /* PUBSUB command for Pub/Sub introspection. */
-void pubsubCommand(redisClient *c) {
+void pubsubCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"channels") &&
         (c->argc == 2 || c->argc ==3))
     {

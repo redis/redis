@@ -249,8 +249,8 @@ typedef struct {
                                             master is up. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
-clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
-int clusterRedirectBlockedClientIfNeeded(redisClient *c);
-void clusterRedirectClient(redisClient *c, clusterNode *n, int hashslot, int error_code);
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+int clusterRedirectBlockedClientIfNeeded(client *c);
+void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 
 #endif /* __REDIS_CLUSTER_H */

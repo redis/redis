@@ -1121,7 +1121,7 @@ robj *createHLLObject(void) {
 /* Check if the object is a String with a valid HLL representation.
  * Return REDIS_OK if this is true, otherwise reply to the client
  * with an error and return REDIS_ERR. */
-int isHLLObjectOrReply(redisClient *c, robj *o) {
+int isHLLObjectOrReply(client *c, robj *o) {
     struct hllhdr *hdr;
 
     /* Key exists, check type */
@@ -1152,7 +1152,7 @@ invalid:
 }
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
-void pfaddCommand(redisClient *c) {
+void pfaddCommand(client *c) {
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     struct hllhdr *hdr;
     int updated = 0, j;
@@ -1192,7 +1192,7 @@ void pfaddCommand(redisClient *c) {
 }
 
 /* PFCOUNT var -> approximated cardinality of set. */
-void pfcountCommand(redisClient *c) {
+void pfcountCommand(client *c) {
     robj *o;
     struct hllhdr *hdr;
     uint64_t card;
@@ -1282,7 +1282,7 @@ void pfcountCommand(redisClient *c) {
 }
 
 /* PFMERGE dest src1 src2 src3 ... srcN => OK */
-void pfmergeCommand(redisClient *c) {
+void pfmergeCommand(client *c) {
     uint8_t max[HLL_REGISTERS];
     struct hllhdr *hdr;
     int j;
@@ -1348,7 +1348,7 @@ void pfmergeCommand(redisClient *c) {
  * This command performs a self-test of the HLL registers implementation.
  * Something that is not easy to test from within the outside. */
 #define HLL_TEST_CYCLES 1000
-void pfselftestCommand(redisClient *c) {
+void pfselftestCommand(client *c) {
     unsigned int j, i;
     sds bitcounters = sdsnewlen(NULL,HLL_DENSE_SIZE);
     struct hllhdr *hdr = (struct hllhdr*) bitcounters, *hdr2;
@@ -1452,7 +1452,7 @@ cleanup:
 
 /* PFDEBUG <subcommand> <key> ... args ...
  * Different debugging related operations about the HLL implementation. */
-void pfdebugCommand(redisClient *c) {
+void pfdebugCommand(client *c) {
     char *cmd = c->argv[1]->ptr;
     struct hllhdr *hdr;
     robj *o;

@@ -206,7 +206,7 @@ void luaSortArray(lua_State *lua) {
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
-    redisClient *c = server.lua_client;
+    client *c = server.lua_client;
     sds reply;
 
     /* Cached across calls. */
@@ -798,7 +798,7 @@ void sha1hex(char *digest, char *script, size_t len) {
     digest[40] = '\0';
 }
 
-void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
+void luaReplyToRedisReply(client *c, lua_State *lua) {
     int t = lua_type(lua,-1);
 
     switch(t) {
@@ -884,7 +884,7 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
  * On success REDIS_OK is returned, and nothing is left on the Lua stack.
  * On error REDIS_ERR is returned and an appropriate error is set in the
  * client context. */
-int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body) {
+int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     sds funcdef = sdsempty();
 
     funcdef = sdscat(funcdef,"function ");
@@ -920,7 +920,7 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
     return REDIS_OK;
 }
 
-void evalGenericCommand(redisClient *c, int evalsha) {
+void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
@@ -1090,11 +1090,11 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     }
 }
 
-void evalCommand(redisClient *c) {
+void evalCommand(client *c) {
     evalGenericCommand(c,0);
 }
 
-void evalShaCommand(redisClient *c) {
+void evalShaCommand(client *c) {
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
@@ -1149,7 +1149,7 @@ int redis_math_randomseed (lua_State *L) {
  * SCRIPT command for script environment introspection and control
  * ------------------------------------------------------------------------- */
 
-void scriptCommand(redisClient *c) {
+void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);

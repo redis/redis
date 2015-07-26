@@ -474,7 +474,7 @@ sds createLatencyReport(void) {
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
-void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts) {
+void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
     void *replylen = addDeferredMultiBulkLength(c);
     int samples = 0, j;
 
@@ -492,7 +492,7 @@ void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts
 
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
  * listing the last latency sample for every event type registered so far. */
-void latencyCommandReplyWithLatestEvents(redisClient *c) {
+void latencyCommandReplyWithLatestEvents(client *c) {
     dictIterator *di;
     dictEntry *de;
 
@@ -564,7 +564,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY DOCTOR: returns an human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  */
-void latencyCommand(redisClient *c) {
+void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {

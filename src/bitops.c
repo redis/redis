@@ -37,7 +37,7 @@
 /* This helper function used by GETBIT / SETBIT parses the bit offset argument
  * making sure an error is returned if it is negative or if it overflows
  * Redis 512 MB limit for the string value. */
-static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
+static int getBitOffsetFromArgument(client *c, robj *o, size_t *offset) {
     long long loffset;
     char *err = "bit offset is not an integer or out of range";
 
@@ -209,7 +209,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
 #define BITOP_NOT   3
 
 /* SETBIT key offset bitvalue */
-void setbitCommand(redisClient *c) {
+void setbitCommand(client *c) {
     robj *o;
     char *err = "bit is not an integer or out of range";
     size_t bitoffset;
@@ -256,7 +256,7 @@ void setbitCommand(redisClient *c) {
 }
 
 /* GETBIT key offset */
-void getbitCommand(redisClient *c) {
+void getbitCommand(client *c) {
     robj *o;
     char llbuf[32];
     size_t bitoffset;
@@ -283,7 +283,7 @@ void getbitCommand(redisClient *c) {
 }
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
-void bitopCommand(redisClient *c) {
+void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
     unsigned long op, j, numkeys;
@@ -457,7 +457,7 @@ void bitopCommand(redisClient *c) {
 }
 
 /* BITCOUNT key [start end] */
-void bitcountCommand(redisClient *c) {
+void bitcountCommand(client *c) {
     robj *o;
     long start, end, strlen;
     unsigned char *p;
@@ -511,7 +511,7 @@ void bitcountCommand(redisClient *c) {
 }
 
 /* BITPOS key bit [start [end]] */
-void bitposCommand(redisClient *c) {
+void bitposCommand(client *c) {
     robj *o;
     long bit, start, end, strlen;
     unsigned char *p;

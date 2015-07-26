@@ -258,7 +258,7 @@ void inputCatSds(void *result, const char *str) {
     *info = sdscat(*info, str);
 }
 
-void debugCommand(redisClient *c) {
+void debugCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
@@ -483,7 +483,7 @@ void _redisAssert(char *estr, char *file, int line) {
     *((char*)-1) = 'x';
 }
 
-void _redisAssertPrintClientInfo(redisClient *c) {
+void _redisAssertPrintClientInfo(client *c) {
     int j;
 
     bugReportStart();
@@ -537,7 +537,7 @@ void _redisAssertPrintObject(robj *o) {
     serverLogObjectDebugInfo(o);
 }
 
-void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line) {
+void _redisAssertWithInfo(client *c, robj *o, char *estr, char *file, int line) {
     if (c) _redisAssertPrintClientInfo(c);
     if (o) _redisAssertPrintObject(o);
     _redisAssert(estr,file,line);
@@ -770,7 +770,7 @@ void logStackTrace(ucontext_t *uc) {
 void logCurrentClient(void) {
     if (server.current_client == NULL) return;
 
-    redisClient *cc = server.current_client;
+    client *cc = server.current_client;
     sds client;
     int j;
 

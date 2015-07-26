@@ -44,4 +44,4 @@ void slowlogInit(void);
 void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration);
 
 /* Exported commands */
-void slowlogCommand(redisClient *c);
+void slowlogCommand(client *c);

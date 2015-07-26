@@ -699,7 +699,7 @@ void loadServerConfig(char *filename, char *options) {
 
 #define config_set_else } else
 
-void configSetCommand(redisClient *c) {
+void configSetCommand(client *c) {
     robj *o;
     long long ll;
     int err;
@@ -1024,7 +1024,7 @@ badfmt: /* Bad format errors */
     } \
 } while(0);
 
-void configGetCommand(redisClient *c) {
+void configGetCommand(client *c) {
     robj *o = c->argv[2];
     void *replylen = addDeferredMultiBulkLength(c);
     char *pattern = o->ptr;
@@ -1843,7 +1843,7 @@ int rewriteConfig(char *path) {
  * CONFIG command entry point
  *----------------------------------------------------------------------------*/
 
-void configCommand(redisClient *c) {
+void configCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc != 4) goto badarity;
         configSetCommand(c);
