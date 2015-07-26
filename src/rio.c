@@ -53,7 +53,7 @@
 #include "util.h"
 #include "crc64.h"
 #include "config.h"
-#include "redis.h"
+#include "server.h"
 
 /* ------------------------- Buffer I/O implementation ----------------------- */
 

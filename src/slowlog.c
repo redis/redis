@@ -39,7 +39,7 @@
  */
 
 
-#include "redis.h"
+#include "server.h"
 #include "slowlog.h"
 
 /* Create a new slowlog entry.

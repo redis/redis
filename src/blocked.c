@@ -63,7 +63,7 @@
  * clusterRedirectBlockedClientIfNeeded() function should also be updated.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* Get a timeout value from an object and store it into 'timeout'.
  * The final timeout is always stored as milliseconds as a time where the

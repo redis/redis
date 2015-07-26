@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 #include "cluster.h"
 #include "slowlog.h"
 #include "bio.h"
@@ -1416,34 +1416,34 @@ void initServerConfig(void) {
 
     getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
     server.configfile = NULL;
-    server.hz = REDIS_DEFAULT_HZ;
+    server.hz = CONFIG_DEFAULT_HZ;
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
     server.tcp_backlog = REDIS_TCP_BACKLOG;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
-    server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
+    server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
     server.sofd = -1;
-    server.dbnum = REDIS_DEFAULT_DBNUM;
-    server.verbosity = REDIS_DEFAULT_VERBOSITY;
+    server.dbnum = CONFIG_DEFAULT_DBNUM;
+    server.verbosity = CONFIG_DEFAULT_VERBOSITY;
     server.maxidletime = REDIS_MAXIDLETIME;
-    server.tcpkeepalive = REDIS_DEFAULT_TCP_KEEPALIVE;
+    server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
     server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
-    server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
-    server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
-    server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
+    server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED;
+    server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
-    server.daemonize = REDIS_DEFAULT_DAEMONIZE;
+    server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
     server.supervised = 0;
     server.supervised_mode = REDIS_SUPERVISED_NONE;
     server.aof_state = REDIS_AOF_OFF;
-    server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
-    server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
+    server.aof_fsync = CONFIG_DEFAULT_AOF_FSYNC;
+    server.aof_no_fsync_on_rewrite = CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
     server.aof_rewrite_perc = REDIS_AOF_REWRITE_PERC;
     server.aof_rewrite_min_size = REDIS_AOF_REWRITE_MIN_SIZE;
     server.aof_rewrite_base_size = 0;
@@ -1456,22 +1456,22 @@ void initServerConfig(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
-    server.aof_rewrite_incremental_fsync = REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
-    server.aof_load_truncated = REDIS_DEFAULT_AOF_LOAD_TRUNCATED;
+    server.aof_rewrite_incremental_fsync = CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
+    server.aof_load_truncated = CONFIG_DEFAULT_AOF_LOAD_TRUNCATED;
     server.pidfile = NULL;
-    server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
-    server.aof_filename = zstrdup(REDIS_DEFAULT_AOF_FILENAME);
+    server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
+    server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);
     server.requirepass = NULL;
-    server.rdb_compression = REDIS_DEFAULT_RDB_COMPRESSION;
-    server.rdb_checksum = REDIS_DEFAULT_RDB_CHECKSUM;
-    server.stop_writes_on_bgsave_err = REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
-    server.activerehashing = REDIS_DEFAULT_ACTIVE_REHASHING;
+    server.rdb_compression = CONFIG_DEFAULT_RDB_COMPRESSION;
+    server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
+    server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
+    server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
     server.notify_keyspace_events = 0;
-    server.maxclients = REDIS_MAX_CLIENTS;
+    server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
-    server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
-    server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
-    server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
+    server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
+    server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
+    server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_size = REDIS_LIST_MAX_ZIPLIST_SIZE;
@@ -1479,18 +1479,18 @@ void initServerConfig(void) {
     server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
     server.zset_max_ziplist_entries = REDIS_ZSET_MAX_ZIPLIST_ENTRIES;
     server.zset_max_ziplist_value = REDIS_ZSET_MAX_ZIPLIST_VALUE;
-    server.hll_sparse_max_bytes = REDIS_DEFAULT_HLL_SPARSE_MAX_BYTES;
+    server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
     server.shutdown_asap = 0;
     server.repl_ping_slave_period = REDIS_REPL_PING_SLAVE_PERIOD;
     server.repl_timeout = REDIS_REPL_TIMEOUT;
-    server.repl_min_slaves_to_write = REDIS_DEFAULT_MIN_SLAVES_TO_WRITE;
-    server.repl_min_slaves_max_lag = REDIS_DEFAULT_MIN_SLAVES_MAX_LAG;
+    server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE;
+    server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
     server.cluster_enabled = 0;
     server.cluster_node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
     server.cluster_migration_barrier = REDIS_CLUSTER_DEFAULT_MIGRATION_BARRIER;
     server.cluster_slave_validity_factor = REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
-    server.cluster_configfile = zstrdup(REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
+    server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
@@ -1514,22 +1514,22 @@ void initServerConfig(void) {
     server.repl_master_initial_offset = -1;
     server.repl_state = REDIS_REPL_NONE;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
-    server.repl_serve_stale_data = REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA;
-    server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
+    server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
+    server.repl_slave_ro = CONFIG_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
-    server.repl_diskless_sync = REDIS_DEFAULT_REPL_DISKLESS_SYNC;
-    server.repl_diskless_sync_delay = REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
-    server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
+    server.repl_disable_tcp_nodelay = CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY;
+    server.repl_diskless_sync = CONFIG_DEFAULT_REPL_DISKLESS_SYNC;
+    server.repl_diskless_sync_delay = CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
+    server.slave_priority = CONFIG_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
-    server.repl_backlog_size = REDIS_DEFAULT_REPL_BACKLOG_SIZE;
+    server.repl_backlog_size = CONFIG_DEFAULT_REPL_BACKLOG_SIZE;
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
     server.repl_backlog_off = 0;
-    server.repl_backlog_time_limit = REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
+    server.repl_backlog_time_limit = CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
@@ -1560,7 +1560,7 @@ void initServerConfig(void) {
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
 
     /* Latency monitor */
-    server.latency_monitor_threshold = REDIS_DEFAULT_LATENCY_MONITOR_THRESHOLD;
+    server.latency_monitor_threshold = CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD;
 
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
@@ -3455,7 +3455,7 @@ void linuxMemoryWarnings(void) {
 void createPidFile(void) {
     /* If pidfile requested, but no pidfile defined, use
      * default pidfile path */
-    if (!server.pidfile) server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+    if (!server.pidfile) server.pidfile = zstrdup(CONFIG_DEFAULT_PID_FILE);
 
     /* Try to write the pid file in a best-effort way. */
     FILE *fp = fopen(server.pidfile,"w");

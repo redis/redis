@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* This file implements keyspace events notification via Pub/Sub ad
  * described at http://redis.io/topics/keyspace-events. */

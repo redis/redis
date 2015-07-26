@@ -1,7 +1,7 @@
 #ifndef __GEO_H__
 #define __GEO_H__
 
-#include "redis.h"
+#include "server.h"
 
 /* Structures used inside geo.c in order to represent points and array of
  * points on the earth. */

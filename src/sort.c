@@ -29,7 +29,7 @@
  */
 
 
-#include "redis.h"
+#include "server.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 

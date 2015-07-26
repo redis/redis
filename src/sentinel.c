@@ -28,7 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 #include "hiredis.h"
 #include "async.h"
 
@@ -1840,7 +1840,7 @@ void sentinelFlushConfig(void) {
     int saved_hz = server.hz;
     int rewrite_status;
 
-    server.hz = REDIS_DEFAULT_HZ;
+    server.hz = CONFIG_DEFAULT_HZ;
     rewrite_status = rewriteConfig(server.configfile);
     server.hz = saved_hz;
 
@@ -4288,6 +4288,6 @@ void sentinelTimer(void) {
      * exactly continue to stay synchronized asking to be voted at the
      * same time again and again (resulting in nobody likely winning the
      * election because of split brain voting). */
-    server.hz = REDIS_DEFAULT_HZ + rand() % REDIS_DEFAULT_HZ;
+    server.hz = CONFIG_DEFAULT_HZ + rand() % CONFIG_DEFAULT_HZ;
 }
 

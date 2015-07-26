@@ -28,7 +28,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.

@@ -33,7 +33,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {

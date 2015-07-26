@@ -29,7 +29,7 @@
  */
 
 
-#include "redis.h"
+#include "server.h"
 #include "rdb.h"
 #include <stdlib.h>
 #include <stdio.h>
