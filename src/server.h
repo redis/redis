@@ -71,8 +71,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "crc64.h"
 
 /* Error codes */
-#define REDIS_OK                0
-#define REDIS_ERR               -1
+#define C_OK                    0
+#define C_ERR                   -1
 
 /* Static server configuration */
 #define CONFIG_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
@@ -770,10 +770,10 @@ struct redisServer {
     time_t aof_last_fsync;            /* UNIX time of last fsync() */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
-    int aof_lastbgrewrite_status;   /* REDIS_OK or REDIS_ERR */
+    int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
     int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
-    int aof_last_write_status;      /* REDIS_OK or REDIS_ERR */
+    int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
@@ -800,7 +800,7 @@ struct redisServer {
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int rdb_child_type;             /* Type of save by active child. */
-    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
+    int lastbgsave_status;          /* C_OK or C_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */

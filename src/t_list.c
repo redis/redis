@@ -308,7 +308,7 @@ void lindexCommand(client *c) {
     long index;
     robj *value = NULL;
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
+    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -335,7 +335,7 @@ void lsetCommand(client *c) {
     long index;
     robj *value = c->argv[3];
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
+    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -390,8 +390,8 @@ void lrangeCommand(client *c) {
     robj *o;
     long start, end, llen, rangelen;
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
          || checkType(c,o,OBJ_LIST)) return;
@@ -436,8 +436,8 @@ void ltrimCommand(client *c) {
     robj *o;
     long start, end, llen, ltrim, rtrim;
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
         checkType(c,o,OBJ_LIST)) return;
@@ -484,7 +484,7 @@ void lremCommand(client *c) {
     long toremove;
     long removed = 0;
 
-    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != REDIS_OK))
+    if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != C_OK))
         return;
 
     subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
@@ -716,8 +716,8 @@ void signalListAsReady(redisDb *db, robj *key) {
  * 'value' element was popped fron the head (BLPOP) or tail (BRPOP) so that
  * we can propagate the command properly.
  *
- * The function returns REDIS_OK if we are able to serve the client, otherwise
- * REDIS_ERR is returned to signal the caller that the list POP operation
+ * The function returns C_OK if we are able to serve the client, otherwise
+ * C_ERR is returned to signal the caller that the list POP operation
  * should be undone as the client was not served: This only happens for
  * BRPOPLPUSH that fails to push the value to the destination key as it is
  * of the wrong type. */
@@ -765,10 +765,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         } else {
             /* BRPOPLPUSH failed because of wrong
              * destination type. */
-            return REDIS_ERR;
+            return C_ERR;
         }
     }
-    return REDIS_OK;
+    return C_OK;
 }
 
 /* This function should be called by Redis every time a single command,
@@ -831,7 +831,7 @@ void handleClientsBlockedOnLists(void) {
 
                             if (serveClientBlockedOnList(receiver,
                                 rl->key,dstkey,rl->db,value,
-                                where) == REDIS_ERR)
+                                where) == C_ERR)
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
@@ -869,7 +869,7 @@ void blockingPopGenericCommand(client *c, int where) {
     int j;
 
     if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout,UNIT_SECONDS)
-        != REDIS_OK) return;
+        != C_OK) return;
 
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
@@ -931,7 +931,7 @@ void brpoplpushCommand(client *c) {
     mstime_t timeout;
 
     if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
-        != REDIS_OK) return;
+        != C_OK) return;
 
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
 

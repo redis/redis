@@ -233,9 +233,9 @@ void sortCommand(client *c) {
             alpha = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
             if ((getLongFromObjectOrReply(c, c->argv[j+1], &limit_start, NULL)
-                 != REDIS_OK) ||
+                 != C_OK) ||
                 (getLongFromObjectOrReply(c, c->argv[j+2], &limit_count, NULL)
-                 != REDIS_OK))
+                 != C_OK))
             {
                 syntax_error++;
                 break;

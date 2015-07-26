@@ -40,7 +40,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
 robj *setTypeCreate(robj *value) {
-    if (isObjectRepresentableAsLongLong(value,NULL) == REDIS_OK)
+    if (isObjectRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObject();
     return createSetObject();
 }
@@ -58,7 +58,7 @@ int setTypeAdd(robj *subject, robj *value) {
             return 1;
         }
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
@@ -93,7 +93,7 @@ int setTypeRemove(robj *setobj, robj *value) {
             return 1;
         }
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == C_OK) {
             int success;
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
             if (success) return 1;
@@ -109,7 +109,7 @@ int setTypeIsMember(robj *subject, robj *value) {
     if (subject->encoding == OBJ_ENCODING_HT) {
         return dictFind((dict*)subject->ptr,value) != NULL;
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == C_OK) {
             return intsetFind((intset*)subject->ptr,llval);
         }
     } else {
@@ -413,7 +413,7 @@ void spopWithCountCommand(client *c) {
     robj *set;
 
     /* Get the count argument */
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != REDIS_OK) return;
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned) l;
     } else {
@@ -626,7 +626,7 @@ void srandmemberWithCountCommand(client *c) {
 
     dict *d;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != REDIS_OK) return;
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
         count = (unsigned) l;
     } else {
@@ -1112,7 +1112,7 @@ void sscanCommand(client *c) {
     robj *set;
     unsigned long cursor;
 
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
     scanGenericCommand(c,set,cursor);

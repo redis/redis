@@ -143,7 +143,7 @@ void slowlogCommand(client *c) {
         slowlogEntry *se;
 
         if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != REDIS_OK)
+            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
             return;
 
         listRewind(server.slowlog,&li);

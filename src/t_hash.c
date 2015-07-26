@@ -266,7 +266,7 @@ int hashTypeDelete(robj *o, robj *field) {
         decrRefCount(field);
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (dictDelete((dict*)o->ptr, field) == REDIS_OK) {
+        if (dictDelete((dict*)o->ptr, field) == C_OK) {
             deleted = 1;
 
             /* Always check if the dictionary needs a resize after a delete. */
@@ -320,8 +320,8 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
     zfree(hi);
 }
 
-/* Move to the next entry in the hash. Return REDIS_OK when the next entry
- * could be found and REDIS_ERR when the iterator reaches the end. */
+/* Move to the next entry in the hash. Return C_OK when the next entry
+ * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi) {
     if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl;
@@ -340,7 +340,7 @@ int hashTypeNext(hashTypeIterator *hi) {
             serverAssert(vptr != NULL);
             fptr = ziplistNext(zl, vptr);
         }
-        if (fptr == NULL) return REDIS_ERR;
+        if (fptr == NULL) return C_ERR;
 
         /* Grab pointer to the value (fptr points to the field) */
         vptr = ziplistNext(zl, fptr);
@@ -350,11 +350,11 @@ int hashTypeNext(hashTypeIterator *hi) {
         hi->fptr = fptr;
         hi->vptr = vptr;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        if ((hi->de = dictNext(hi->di)) == NULL) return REDIS_ERR;
+        if ((hi->de = dictNext(hi->di)) == NULL) return C_ERR;
     } else {
         redisPanic("Unknown hash encoding");
     }
-    return REDIS_OK;
+    return C_OK;
 }
 
 /* Get the field or value at iterator cursor, for an iterator on a hash value
@@ -443,7 +443,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         hi = hashTypeInitIterator(o);
         dict = dictCreate(&hashDictType, NULL);
 
-        while (hashTypeNext(hi) != REDIS_ERR) {
+        while (hashTypeNext(hi) != C_ERR) {
             robj *field, *value;
 
             field = hashTypeCurrentObject(hi, OBJ_HASH_KEY);
@@ -539,11 +539,11 @@ void hincrbyCommand(client *c) {
     long long value, incr, oldvalue;
     robj *o, *current, *new;
 
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongLongFromObjectOrReply(c,current,&value,
-            "hash value is not an integer") != REDIS_OK) {
+            "hash value is not an integer") != C_OK) {
             decrRefCount(current);
             return;
         }
@@ -573,11 +573,11 @@ void hincrbyfloatCommand(client *c) {
     double long value, incr;
     robj *o, *current, *new, *aux;
 
-    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
+    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongDoubleFromObjectOrReply(c,current,&value,
-            "hash value is not a valid float") != REDIS_OK) {
+            "hash value is not a valid float") != C_OK) {
             decrRefCount(current);
             return;
         }
@@ -756,7 +756,7 @@ void genericHgetallCommand(client *c, int flags) {
     addReplyMultiBulkLen(c, length);
 
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != REDIS_ERR) {
+    while (hashTypeNext(hi) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
             count++;
@@ -795,7 +795,7 @@ void hscanCommand(client *c) {
     robj *o;
     unsigned long cursor;
 
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
     scanGenericCommand(c,o,cursor);
