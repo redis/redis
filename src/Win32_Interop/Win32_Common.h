@@ -19,23 +19,15 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-#pragma once
-#include <cstdint>
-#include <stdio.h>
 
+#ifndef WIN32_COMMON_H
+#define WIN32_COMMON_H
 
-int crt_pipe(int *pfds, unsigned int psize, int textmode);
-int crt_close(int fd);
-int crt_read(int fd, void *buffer, unsigned int count);
-int crt_write(int fd, const void *buffer, unsigned int count);
-int crt_open(const char *filename, int oflag, int pmode);
-int crt_open_osfhandle(intptr_t osfhandle, int flags);
-intptr_t crtget_osfhandle(int fd);
-int crtsetmode(int fd, int mode);
-size_t crt_fwrite(const void *buffer, size_t size, size_t count, FILE *file);
-int crt_fclose(FILE* file);
-int crt_fileno(FILE* file);
+void EnsureMemoryIsMapped(const void *buffer, size_t size);
 
-int crt_isatty(int fd);
-int crt_access(const char *pathname, int mode);
-__int64 crt_lseek64(int fd, __int64 offset, int origin);
+namespace Globals {
+    // forward declarations only
+    extern size_t pageSize;
+}
+
+#endif

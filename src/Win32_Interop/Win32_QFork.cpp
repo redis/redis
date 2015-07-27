@@ -22,6 +22,7 @@
 
 #include "win32_types.h"
 #include "Win32_FDAPI.h"
+#include "Win32_Common.h"
 
 #include <Windows.h>
 #include <WinNT.h>
@@ -161,7 +162,6 @@ const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per h
 const int cMaxBlocks = 1 << 24;                                   // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
 const char* cMapFileBaseName = "RedisQFork";
 const int cDeadForkWait = 30000;
-size_t pageSize = 0;
 
 #ifndef _WIN64
 size_t cDefaultmaxHeap32Bit = 1 << 29;                          // 512MB
@@ -693,7 +693,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
         ::redisLog(REDIS_WARNING, "Failing startup.\n");
         return StartupStatus::ssFAILED;
     }
-    pageSize = perfinfo.PageSize;
+    Globals::pageSize = perfinfo.PageSize;
 
     /*
     Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not 
@@ -740,7 +740,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
             maxheapBytes = cSentinelHeapSize;
         } else {
 #ifdef _WIN64
-            maxheapBytes = perfinfo.PhysicalTotal * pageSize;
+            maxheapBytes = perfinfo.PhysicalTotal * Globals::pageSize;
 #else
             maxheapBytes = cDefaultmaxHeap32Bit;
 #endif
