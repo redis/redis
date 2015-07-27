@@ -279,7 +279,7 @@ void subscribeCommand(client *c) {
 
     for (j = 1; j < c->argc; j++)
         pubsubSubscribeChannel(c,c->argv[j]);
-    c->flags |= REDIS_PUBSUB;
+    c->flags |= CLIENT_PUBSUB;
 }
 
 void unsubscribeCommand(client *c) {
@@ -291,7 +291,7 @@ void unsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribeChannel(c,c->argv[j],1);
     }
-    if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
+    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
 void psubscribeCommand(client *c) {
@@ -299,7 +299,7 @@ void psubscribeCommand(client *c) {
 
     for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
-    c->flags |= REDIS_PUBSUB;
+    c->flags |= CLIENT_PUBSUB;
 }
 
 void punsubscribeCommand(client *c) {
@@ -311,7 +311,7 @@ void punsubscribeCommand(client *c) {
         for (j = 1; j < c->argc; j++)
             pubsubUnsubscribePattern(c,c->argv[j],1);
     }
-    if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
+    if (clientSubscriptionsCount(c) == 0) c->flags &= ~CLIENT_PUBSUB;
 }
 
 void publishCommand(client *c) {
@@ -319,7 +319,7 @@ void publishCommand(client *c) {
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
-        forceCommandPropagation(c,REDIS_PROPAGATE_REPL);
+        forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
 }
 

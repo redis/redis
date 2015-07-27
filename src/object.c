@@ -95,7 +95,7 @@ robj *createStringObject(const char *ptr, size_t len) {
 
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -176,7 +176,7 @@ robj *dupStringObject(robj *o) {
         d->ptr = o->ptr;
         return d;
     default:
-        redisPanic("Wrong encoding.");
+        serverPanic("Wrong encoding.");
         break;
     }
 }
@@ -246,7 +246,7 @@ void freeListObject(robj *o) {
         quicklistRelease(o->ptr);
         break;
     default:
-        redisPanic("Unknown list encoding type");
+        serverPanic("Unknown list encoding type");
     }
 }
 
@@ -259,7 +259,7 @@ void freeSetObject(robj *o) {
         zfree(o->ptr);
         break;
     default:
-        redisPanic("Unknown set encoding type");
+        serverPanic("Unknown set encoding type");
     }
 }
 
@@ -276,7 +276,7 @@ void freeZsetObject(robj *o) {
         zfree(o->ptr);
         break;
     default:
-        redisPanic("Unknown sorted set encoding");
+        serverPanic("Unknown sorted set encoding");
     }
 }
 
@@ -289,7 +289,7 @@ void freeHashObject(robj *o) {
         zfree(o->ptr);
         break;
     default:
-        redisPanic("Unknown hash encoding type");
+        serverPanic("Unknown hash encoding type");
         break;
     }
 }
@@ -299,7 +299,7 @@ void incrRefCount(robj *o) {
 }
 
 void decrRefCount(robj *o) {
-    if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
+    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
@@ -307,7 +307,7 @@ void decrRefCount(robj *o) {
         case OBJ_SET: freeSetObject(o); break;
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
-        default: redisPanic("Unknown object type"); break;
+        default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
     } else {
@@ -389,10 +389,10 @@ robj *tryObjectEncoding(robj *o) {
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
         if ((server.maxmemory == 0 ||
-             (server.maxmemory_policy != REDIS_MAXMEMORY_VOLATILE_LRU &&
-              server.maxmemory_policy != REDIS_MAXMEMORY_ALLKEYS_LRU)) &&
+             (server.maxmemory_policy != MAXMEMORY_VOLATILE_LRU &&
+              server.maxmemory_policy != MAXMEMORY_ALLKEYS_LRU)) &&
             value >= 0 &&
-            value < REDIS_SHARED_INTEGERS)
+            value < OBJ_SHARED_INTEGERS)
         {
             decrRefCount(o);
             incrRefCount(shared.integers[value]);
@@ -453,7 +453,7 @@ robj *getDecodedObject(robj *o) {
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
-        redisPanic("Unknown encoding type");
+        serverPanic("Unknown encoding type");
     }
 }
 
@@ -555,7 +555,7 @@ int getDoubleFromObject(robj *o, double *target) {
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisPanic("Unknown string encoding");
+            serverPanic("Unknown string encoding");
         }
     }
     *target = value;
@@ -593,7 +593,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisPanic("Unknown string encoding");
+            serverPanic("Unknown string encoding");
         }
     }
     *target = value;
@@ -631,7 +631,7 @@ int getLongLongFromObject(robj *o, long long *target) {
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisPanic("Unknown string encoding");
+            serverPanic("Unknown string encoding");
         }
     }
     if (target) *target = value;
@@ -687,10 +687,10 @@ char *strEncoding(int encoding) {
 unsigned long long estimateObjectIdleTime(robj *o) {
     unsigned long long lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {
-        return (lruclock - o->lru) * REDIS_LRU_CLOCK_RESOLUTION;
+        return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
     } else {
-        return (lruclock + (REDIS_LRU_CLOCK_MAX - o->lru)) *
-                    REDIS_LRU_CLOCK_RESOLUTION;
+        return (lruclock + (LRU_CLOCK_MAX - o->lru)) *
+                    LRU_CLOCK_RESOLUTION;
     }
 }
 
