@@ -1486,10 +1486,10 @@ void initServerConfig(void) {
     server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE;
     server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
     server.cluster_enabled = 0;
-    server.cluster_node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
-    server.cluster_migration_barrier = REDIS_CLUSTER_DEFAULT_MIGRATION_BARRIER;
-    server.cluster_slave_validity_factor = REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY;
-    server.cluster_require_full_coverage = REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
+    server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT;
+    server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
+    server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
+    server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.lua_caller = NULL;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
@@ -2226,9 +2226,9 @@ int processCommand(client *c) {
     {
         int hashslot;
 
-        if (server.cluster->state != REDIS_CLUSTER_OK) {
+        if (server.cluster->state != CLUSTER_OK) {
             flagTransaction(c);
-            clusterRedirectClient(c,NULL,0,REDIS_CLUSTER_REDIR_DOWN_STATE);
+            clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return C_OK;
         } else {
             int error_code;
@@ -2855,7 +2855,7 @@ sds genRedisInfoString(char *section) {
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
                 aofRewriteBufferSize(),
-                bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC),
+                bioPendingJobsOfType(BIO_AOF_FSYNC),
                 server.aof_delayed_fsync);
         }
 
