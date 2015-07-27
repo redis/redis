@@ -19,22 +19,30 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-#pragma once
-#include <cstdint>
-#include <stdio.h>
+#include "Win32_Common.h"
 
+namespace Globals
+{
+    size_t pageSize = 0;
+}
 
-int crt_pipe(int *pfds, unsigned int psize, int textmode);
-int crt_close(int fd);
-int crt_read(int fd, void *buffer, unsigned int count);
-int crt_write(int fd, const void *buffer, unsigned int count);
-int crt_open(const char *filename, int oflag, int pmode);
-int crt_open_osfhandle(intptr_t osfhandle, int flags);
-intptr_t crtget_osfhandle(int fd);
-int crt_setmode(int fd, int mode);
-size_t crt_fwrite(const void *buffer, size_t size, size_t count, FILE *file);
-int crt_fclose(FILE* file);
-int crt_fileno(FILE* file);
-int crt_isatty(int fd);
-int crt_access(const char *pathname, int mode);
-__int64 crt_lseek64(int fd, __int64 offset, int origin);
+/* This function is used to force the VEH on the entire size of the buffer length,
+   in the event that the buffer crosses the memory page boundaries */
+void EnsureMemoryIsMapped(const void *buffer, size_t size) {
+    /* Use 'volatile' to make sure the compiler doesn't remove "c = *((char*) (p + offset));" */
+    volatile char c;
+    char* p = (char*) buffer;
+    char* pStart = p - ((size_t) p % Globals::pageSize);
+    char* pEnd = p + size;
+    if ((size_t) (pEnd - pStart) > Globals::pageSize) {
+        size_t offset = 0;
+        while (offset < size) {
+            if (size < offset) {
+                offset = size;
+            } else {
+                offset += Globals::pageSize;
+            }
+            c = *((char*) (p + offset));
+        }
+    }
+}
