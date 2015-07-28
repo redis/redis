@@ -1567,12 +1567,13 @@ unsigned long getClientOutputBufferMemoryUsage(client *c) {
  * CLIENT_TYPE_NORMAL -> Normal client
  * CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
  * CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
+ * CLIENT_TYPE_MASTER -> The client representing our replication master.
  */
 int getClientType(client *c) {
+    if (c->flags & CLIENT_MASTER) return CLIENT_TYPE_MASTER;
     if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR))
         return CLIENT_TYPE_SLAVE;
-    if (c->flags & CLIENT_PUBSUB)
-        return CLIENT_TYPE_PUBSUB;
+    if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;
     return CLIENT_TYPE_NORMAL;
 }
 
@@ -1580,6 +1581,7 @@ int getClientTypeByName(char *name) {
     if (!strcasecmp(name,"normal")) return CLIENT_TYPE_NORMAL;
     else if (!strcasecmp(name,"slave")) return CLIENT_TYPE_SLAVE;
     else if (!strcasecmp(name,"pubsub")) return CLIENT_TYPE_PUBSUB;
+    else if (!strcasecmp(name,"master")) return CLIENT_TYPE_MASTER;
     else return -1;
 }
 
@@ -1588,6 +1590,7 @@ char *getClientTypeName(int class) {
     case CLIENT_TYPE_NORMAL: return "normal";
     case CLIENT_TYPE_SLAVE:  return "slave";
     case CLIENT_TYPE_PUBSUB: return "pubsub";
+    case CLIENT_TYPE_MASTER: return "master";
     default:                       return NULL;
     }
 }
@@ -1603,6 +1606,10 @@ int checkClientOutputBufferLimits(client *c) {
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
     class = getClientType(c);
+    /* For the purpose of output buffer limiting, masters are handled
+     * like normal clients. */
+    if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
+
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
         hard = 1;
