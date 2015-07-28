@@ -454,7 +454,7 @@ int dictSdsKeyCaseCompare(void *privdata, const void *key1,
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictRedisObjectDestructor(void *privdata, void *val)
+void dictObjectDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
@@ -536,7 +536,7 @@ dictType setDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictRedisObjectDestructor, /* key destructor */
+    dictObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -546,7 +546,7 @@ dictType zsetDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictRedisObjectDestructor, /* key destructor */
+    dictObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -557,7 +557,7 @@ dictType dbDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictRedisObjectDestructor   /* val destructor */
+    dictObjectDestructor   /* val destructor */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
@@ -567,7 +567,7 @@ dictType shaScriptObjectDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictRedisObjectDestructor   /* val destructor */
+    dictObjectDestructor   /* val destructor */
 };
 
 /* Db->expires */
@@ -596,8 +596,8 @@ dictType hashDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictEncObjKeyCompare,       /* key compare */
-    dictRedisObjectDestructor,  /* key destructor */
-    dictRedisObjectDestructor   /* val destructor */
+    dictObjectDestructor,  /* key destructor */
+    dictObjectDestructor   /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
@@ -608,7 +608,7 @@ dictType keylistDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictObjKeyCompare,          /* key compare */
-    dictRedisObjectDestructor,  /* key destructor */
+    dictObjectDestructor,  /* key destructor */
     dictListDestructor          /* val destructor */
 };
 
