@@ -1504,6 +1504,13 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
+    /* PSYNC failed or is not supported: we want our slaves to resync with us
+     * as well, if we have any (chained replication case). The mater may
+     * transfer us an entirely different data set and we have no way to
+     * incrementally feed our slaves after that. */
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.repl_master_runid and repl_master_initial_offset are
      * already populated. */
@@ -1663,12 +1670,9 @@ void replicationHandleMasterDisconnection(void) {
     server.master = NULL;
     server.repl_state = REDIS_REPL_CONNECT;
     server.repl_down_since = server.unixtime;
-    /* We lost connection with our master, force our slaves to resync
-     * with us as well to load the new data set.
-     *
-     * If server.masterhost is NULL the user called SLAVEOF NO ONE so
-     * slave resync is not needed. */
-    if (server.masterhost != NULL) disconnectSlaves();
+    /* We lost connection with our master, don't disconnect slaves yet,
+     * maybe we'll be able to PSYNC with our master later. We'll disconnect
+     * the slaves only if we'll have to do a full resync with our master. */
 }
 
 void slaveofCommand(redisClient *c) {
