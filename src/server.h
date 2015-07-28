@@ -368,9 +368,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define UNIT_MILLISECONDS 1
 
 /* SHUTDOWN flags */
-#define SHUTDOWN_SAVE 1       /* Force SAVE on SHUTDOWN even if no save
-                                       points are configured. */
-#define SHUTDOWN_NOSAVE 2     /* Don't SAVE on SHUTDOWN. */
+#define SHUTDOWN_NOFLAGS 0      /* No flags. */
+#define SHUTDOWN_SAVE 1         /* Force SAVE on SHUTDOWN even if no save
+                                   points are configured. */
+#define SHUTDOWN_NOSAVE 2       /* Don't SAVE on SHUTDOWN. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
