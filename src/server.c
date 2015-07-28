@@ -398,7 +398,7 @@ long long ustime(void) {
 }
 
 /* Return the UNIX time in milliseconds */
-long long mstime(void) {
+mstime_t mstime(void) {
     return ustime()/1000;
 }
 
