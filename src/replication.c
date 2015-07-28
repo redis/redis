@@ -1701,6 +1701,20 @@ void replicationUnsetMaster(void) {
     server.repl_state = REDIS_REPL_NONE;
 }
 
+/* This function is called when the slave lose the connection with the
+ * master into an unexpected way. */
+void replicationHandleMasterDisconnection(void) {
+    server.master = NULL;
+    server.repl_state = REDIS_REPL_CONNECT;
+    server.repl_down_since = server.unixtime;
+    /* We lost connection with our master, force our slaves to resync
+     * with us as well to load the new data set.
+     *
+     * If server.masterhost is NULL the user called SLAVEOF NO ONE so
+     * slave resync is not needed. */
+    if (server.masterhost != NULL) disconnectSlaves();
+}
+
 void slaveofCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
