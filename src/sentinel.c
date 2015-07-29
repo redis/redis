@@ -3165,6 +3165,16 @@ numargserr:
                           (char*)c->argv[1]->ptr);
 }
 
+#define info_section_from_redis(section_name) do { \
+    if (defsections || allsections || !strcasecmp(section,section_name)) { \
+        sds redissection; \
+        if (sections++) info = sdscat(info,"\r\n"); \
+        redissection = genRedisInfoString(section_name); \
+        info = sdscatlen(info,redissection,sdslen(redissection)); \
+        sdsfree(redissection); \
+    } \
+} while(0)
+
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(client *c) {
     if (c->argc > 2) {
@@ -3183,12 +3193,11 @@ void sentinelInfoCommand(client *c) {
 
     int sections = 0;
     sds info = sdsempty();
-    if (defsections || allsections || !strcasecmp(section,"server")) {
-        if (sections++) info = sdscat(info,"\r\n");
-        sds serversection = genRedisInfoString("server");
-        info = sdscatlen(info,serversection,sdslen(serversection));
-        sdsfree(serversection);
-    }
+
+    info_section_from_redis("server");
+    info_section_from_redis("clients");
+    info_section_from_redis("cpu");
+    info_section_from_redis("stats");
 
     if (defsections || allsections || !strcasecmp(section,"sentinel")) {
         dictIterator *di;
