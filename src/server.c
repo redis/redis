@@ -112,7 +112,7 @@ struct redisServer server; /* server global state */
  *    is deterministic.
  * l: Allow command while loading the database.
  * t: Allow command while a slave has stale data but is not allowed to
- *    server this data. Normally no command is accepted in this condition
+ *    serve this data. Normally no command is accepted in this condition
  *    but just a few.
  * M: Do not automatically propagate the command on MONITOR.
  * k: Perform an implicit ASKING for this command, so the command will be
@@ -273,6 +273,8 @@ struct redisCommand redisCommandTable[] = {
     {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
+    {"evaltxn",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
+    {"evalshatxn",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0},
@@ -1352,7 +1354,7 @@ void createSharedObjects(void) {
     shared.loadingerr = createObject(OBJ_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(OBJ_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL, SCRIPT ROLLBACK, or SHUTDOWN NOSAVE.\r\n"));
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and slave-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
@@ -1495,6 +1497,9 @@ void initServerConfig(void) {
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
+    server.lua_rollback = NULL;
+    server.lua_all_transactions = 0;
+    server.lua_rolled_back = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -2135,6 +2140,16 @@ void call(client *c, int flags) {
         c->cmd->calls++;
     }
 
+    /* This server rolled back the script and the changes weren't applied. This
+     * flag is only set at the end of change rollback, so we can be sure that if
+     * it is set here, then we shouldn't replicate the call. */
+    if (server.lua_rolled_back &&
+        (c->cmd->proc == evalCommand ||
+         c->cmd->proc == evalShaCommand)) {
+        flags = PROPAGATE_NONE;
+        server.lua_rolled_back = 0;
+    }
+
     /* Propagate the command into the AOF and replication link */
     if (flags & CMD_CALL_PROPAGATE && (c->flags & CLIENT_PREVENT_PROP) == 0) {
         int flags = PROPAGATE_NONE;
@@ -2337,7 +2352,8 @@ int processCommand(client *c) {
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
         !(c->cmd->proc == scriptCommand &&
           c->argc == 2 &&
-          tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
+          (tolower(((char*)c->argv[1]->ptr)[0]) == 'k' ||
+           tolower(((char*)c->argv[1]->ptr)[0]) == 'r')))
     {
         flagTransaction(c);
         addReply(c, shared.slowscripterr);
