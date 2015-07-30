@@ -110,8 +110,10 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
-            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,    // TODO: Azure removed this line
+#ifndef _WIN32
+            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
+#endif
             return;
         }
         if (block->used > 0) {
@@ -163,13 +165,14 @@ void aofRewriteBufferAppend(unsigned char *s, PORT_ULONG len) {
             }
         }
     }
-
+#ifndef _WIN32
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
-    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {  // TODO: Azure removed this code
+    if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
+#endif
 }
 
 /* Write the buffer (possibly composed of multiple blocks) into the specified
@@ -1214,9 +1217,11 @@ void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
                 strerror(errno));
         }
     }
+#ifndef _WIN32
     /* Remove the handler since this can be called only one time during a
      * rewrite. */
-    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);   // TODO: Azure removed this code
+    aeDeleteFileEvent(server.el,server.aof_pipe_read_ack_from_child,AE_READABLE);
+#endif
 }
 
 /* Create the pipes used for parent - child process IPC during rewrite.
@@ -1239,6 +1244,7 @@ int aofCreatePipes(void) {
 #else
     if (FDAPI_PipeSetNonBlock(fds[0], 1) != 0) goto error;
     if (FDAPI_PipeSetNonBlock(fds[1], 1) != 0) goto error;
+    if (FDAPI_PipeSetNonBlock(fds[2], 1) != 0) goto error;
 #endif
 
     server.aof_pipe_write_data_to_child = fds[1];
