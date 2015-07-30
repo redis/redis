@@ -855,7 +855,7 @@ unsigned long dictScan(dict *d,
                        void *privdata)
 {
     dictht *t0, *t1;
-    const dictEntry *de;
+    const dictEntry *de, *next;
     unsigned long m0, m1;
 
     if (dictSize(d) == 0) return 0;
@@ -867,8 +867,9 @@ unsigned long dictScan(dict *d,
         /* Emit entries at cursor */
         de = t0->table[v & m0];
         while (de) {
+            next = de->next;
             fn(privdata, de);
-            de = de->next;
+            de = next;
         }
 
     } else {
@@ -887,8 +888,9 @@ unsigned long dictScan(dict *d,
         /* Emit entries at cursor */
         de = t0->table[v & m0];
         while (de) {
+            next = de->next;
             fn(privdata, de);
-            de = de->next;
+            de = next;
         }
 
         /* Iterate over indices in larger table that are the expansion
@@ -897,8 +899,9 @@ unsigned long dictScan(dict *d,
             /* Emit entries at cursor */
             de = t1->table[v & m1];
             while (de) {
+                next = de->next;
                 fn(privdata, de);
-                de = de->next;
+                de = next;
             }
 
             /* Increment bits not covered by the smaller mask */

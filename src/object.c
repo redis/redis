@@ -48,6 +48,23 @@ robj *createObject(int type, void *ptr) {
     return o;
 }
 
+/* Set a special refcount in the object to make it "shared":
+ * incrRefCount and decrRefCount() will test for this special refcount
+ * and will not touch the object. This way it is free to access shared
+ * objects such as small integers from different threads without any
+ * mutex.
+ *
+ * A common patter to create shared objects:
+ *
+ * robj *myobject = makeObjectShared(createObject(...));
+ *
+ */
+robj *makeObjectShared(robj *o) {
+    serverAssert(o->refcount == 1);
+    o->refcount = OBJ_SHARED_REFCOUNT;
+    return o;
+}
+
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
 robj *createRawStringObject(const char *ptr, size_t len) {
@@ -295,11 +312,10 @@ void freeHashObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    o->refcount++;
+    if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
 void decrRefCount(robj *o) {
-    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
@@ -311,7 +327,8 @@ void decrRefCount(robj *o) {
         }
         zfree(o);
     } else {
-        o->refcount--;
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
+        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
     }
 }
 

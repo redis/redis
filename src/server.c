@@ -131,6 +131,7 @@ struct redisCommand redisCommandTable[] = {
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
+    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0},
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
     {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0},
@@ -458,7 +459,7 @@ void dictObjectDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
-    if (val == NULL) return; /* Values of swapped out keys as set to NULL */
+    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
     decrRefCount(val);
 }
 
@@ -1286,6 +1287,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * later in this function. */
     if (server.cluster_enabled) clusterBeforeSleep();
 
+    /* Lazy free a few objects before to return to the event loop, this way
+     * if there is activity in the server (that may generate writes) we
+     * reclaim memory at a faster rate. */
+    lazyfreeStep(LAZYFREE_STEP_FAST);
+
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && server.masterhost == NULL)
@@ -1397,7 +1403,8 @@ void createSharedObjects(void) {
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
-        shared.integers[j] = createObject(OBJ_STRING,(void*)(long)j);
+        shared.integers[j] =
+            makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
         shared.integers[j]->encoding = OBJ_ENCODING_INT;
     }
     for (j = 0; j < OBJ_SHARED_BULKHDR_LEN; j++) {
@@ -1794,6 +1801,7 @@ void initServer(void) {
     server.system_memory_size = zmalloc_get_memory_size();
 
     createSharedObjects();
+    initLazyfreeEngine();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
@@ -1858,10 +1866,11 @@ void initServer(void) {
     server.repl_good_slaves_count = 0;
     updateCachedTime();
 
-    /* Create the serverCron() time event, that's our main way to process
-     * background operations. */
-    if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
-        serverPanic("Can't create the serverCron time event.");
+    /* Create out timers, that's our main way to process background
+     * operations. */
+    if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR ||
+       aeCreateTimeEvent(server.el, 1, lazyfreeCron, NULL, NULL) == AE_ERR) {
+        serverPanic("Can't create event loop timers.");
         exit(1);
     }
 
@@ -3268,10 +3277,15 @@ int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
     mstime_t latency, eviction_latency;
+    long long delta;
+
+    /* Check if we are over the memory usage limit. If we are not, no need
+     * to subtract the slaves output buffers. We can just return ASAP. */
+    mem_used = zmalloc_used_memory();
+    if (mem_used <= server.maxmemory) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
-    mem_used = zmalloc_used_memory();
     if (slaves) {
         listIter li;
         listNode *ln;
@@ -3291,15 +3305,36 @@ int freeMemoryIfNeeded(void) {
         mem_used -= aofRewriteBufferSize();
     }
 
-    /* Check if we are over the memory limit. */
+    /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
-
-    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
-        return C_ERR; /* We need to free memory, but policy forbids. */
 
     /* Compute how much memory we need to free. */
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
+
+    /* Let's start reclaiming memory from the lazy free list: those
+     * objects are logically freed so this is the first thing we want
+     * to get rid of. */
+    if (listLength(server.lazyfree_dbs) || listLength(server.lazyfree_obj)) {
+        latencyStartMonitor(eviction_latency);
+        while (mem_freed < mem_tofree) {
+            delta = (long long) zmalloc_used_memory();
+            size_t workdone = lazyfreeStep(LAZYFREE_STEP_FAST);
+            delta -= (long long) zmalloc_used_memory();
+            mem_freed += delta;
+            if (!workdone) break; /* Lazy free list is empty. */
+        }
+        latencyEndMonitor(eviction_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",eviction_latency);
+    }
+
+    /* If after lazy freeing we are alraedy back to our limit, no need
+     * to evict keys. Return to the caller. */
+    if (mem_freed >= mem_tofree) return C_OK;
+
+    if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
+        return C_ERR; /* We need to free memory, but policy forbids. */
+
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
@@ -3385,8 +3420,6 @@ int freeMemoryIfNeeded(void) {
 
             /* Finally remove the selected key. */
             if (bestkey) {
-                long long delta;
-
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
                 propagateExpire(db,keyobj);
                 /* We compute the amount of memory freed by dbDelete() alone.

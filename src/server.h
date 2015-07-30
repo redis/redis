@@ -185,27 +185,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_ASKING 4096               /* "k" flag */
 #define CMD_FAST 8192                 /* "F" flag */
 
-/* Object types */
-#define OBJ_STRING 0
-#define OBJ_LIST 1
-#define OBJ_SET 2
-#define OBJ_ZSET 3
-#define OBJ_HASH 4
-
-/* Objects encoding. Some kind of objects like Strings and Hashes can be
- * internally represented in multiple ways. The 'encoding' field of the object
- * is set to one of this fields for this object. */
-#define OBJ_ENCODING_RAW 0     /* Raw representation */
-#define OBJ_ENCODING_INT 1     /* Encoded as integer */
-#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
-#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
-#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
-#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
-#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
-#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
-
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
@@ -441,9 +420,31 @@ typedef long long mstime_t; /* millisecond time type. */
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
+#define OBJ_STRING 0
+#define OBJ_LIST 1
+#define OBJ_SET 2
+#define OBJ_ZSET 3
+#define OBJ_HASH 4
+
+/* Objects encoding. Some kind of objects like Strings and Hashes can be
+ * internally represented in multiple ways. The 'encoding' field of the object
+ * is set to one of this fields for this object. */
+#define OBJ_ENCODING_RAW 0     /* Raw representation */
+#define OBJ_ENCODING_INT 1     /* Encoded as integer */
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
+
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
+
+#define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
@@ -702,6 +703,10 @@ struct redisServer {
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
+    /* Lazy free */
+    list *lazyfree_dbs;         /* List of DBs to free in background. */
+    list *lazyfree_obj;         /* List of objects to free in background. */
+    size_t lazyfree_elements;   /* Number of logical element in obj list. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1156,6 +1161,7 @@ void flagTransaction(client *c);
 void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
+robj *makeObjectShared(robj *o);
 robj *resetRefCount(robj *obj);
 void freeStringObject(robj *o);
 void freeListObject(robj *o);
@@ -1376,6 +1382,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
+int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 long long emptyDb(void(callback)(void*));
@@ -1388,6 +1395,17 @@ unsigned int delKeysInSlot(unsigned int hashslot);
 int verifyClusterConfigWithData(void);
 void scanGenericCommand(client *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
+void slotToKeyAdd(robj *key);
+void slotToKeyDel(robj *key);
+void slotToKeyFlush(void);
+
+/* Lazy free */
+#define LAZYFREE_STEP_SLOW 0
+#define LAZYFREE_STEP_FAST 1
+int dbAsyncDelete(redisDb *db, robj *key);
+void initLazyfreeEngine(void);
+size_t lazyfreeStep(int type);
+int lazyfreeCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
 
 /* API to get key arguments from commands */
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
@@ -1443,6 +1461,7 @@ void setexCommand(client *c);
 void psetexCommand(client *c);
 void getCommand(client *c);
 void delCommand(client *c);
+void unlinkCommand(client *c);
 void existsCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);
