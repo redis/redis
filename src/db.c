@@ -415,8 +415,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
-        key = dictGetKey(de);
-        incrRefCount(key);
+        sds keysds = dictGetKey(de);
+        key = createStringObject(keysds,sdslen(keysds));
     } else if (o->type == OBJ_HASH) {
         key = dictGetKey(de);
         incrRefCount(key);

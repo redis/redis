@@ -531,13 +531,24 @@ unsigned int dictEncObjHash(const void *key) {
     }
 }
 
-/* Sets type hash table */
-dictType setDictType = {
+/* Generic hash table type where keys are Redis Objects, Values
+ * dummy pointers. */
+dictType objectKeyPointerValueDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
     dictObjectDestructor, /* key destructor */
+    NULL                       /* val destructor */
+};
+
+/* Set dictionary type. Keys are SDS strings, values are ot used. */
+dictType setDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    dictSdsDestructor,         /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -547,7 +558,7 @@ dictType zsetDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -1834,7 +1845,7 @@ void initServer(void) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&setDictType,NULL);
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].eviction_pool = evictionPoolAlloc();
         server.db[j].id = j;

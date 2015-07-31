@@ -364,13 +364,17 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
+int isSdsRepresentableAsLongLong(sds s, long long *llval) {
+    return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
+}
+
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (o->encoding == OBJ_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return C_OK;
     } else {
-        return string2ll(o->ptr,sdslen(o->ptr),llval) ? C_OK : C_ERR;
+        return isSdsRepresentableAsLongLong(o->ptr,llval);
     }
 }
 

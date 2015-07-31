@@ -117,13 +117,13 @@ client *createClient(int fd) {
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
-    c->bpop.keys = dictCreate(&setDictType,NULL);
+    c->bpop.keys = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->bpop.target = NULL;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
     c->watched_keys = listCreate();
-    c->pubsub_channels = dictCreate(&setDictType,NULL);
+    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);

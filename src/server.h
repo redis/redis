@@ -1043,6 +1043,7 @@ typedef struct {
 
 extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
+extern dictType objectKeyPointerValueDictType;
 extern dictType setDictType;
 extern dictType zsetDictType;
 extern dictType clusterNodesDictType;
@@ -1173,6 +1174,7 @@ robj *createStringObject(const char *ptr, size_t len);
 robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(robj *o);
+int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
@@ -1313,15 +1315,15 @@ unsigned int getLRUClock(void);
 const char *maxmemoryToString(void);
 
 /* Set data type */
-robj *setTypeCreate(robj *value);
-int setTypeAdd(robj *subject, robj *value);
-int setTypeRemove(robj *subject, robj *value);
-int setTypeIsMember(robj *subject, robj *value);
+robj *setTypeCreate(sds value);
+int setTypeAdd(robj *subject, sds value);
+int setTypeRemove(robj *subject, sds value);
+int setTypeIsMember(robj *subject, sds value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
-int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele);
-robj *setTypeNextObject(setTypeIterator *si);
-int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele);
+int setTypeNext(setTypeIterator *si, sds *sdsele, int64_t *llele);
+sds setTypeNextObject(setTypeIterator *si);
+int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);

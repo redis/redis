@@ -164,7 +164,9 @@ void computeDatasetDigest(unsigned char *final) {
             } else if (o->type == OBJ_SET) {
                 setTypeIterator *si = setTypeInitIterator(o);
                 robj *ele;
-                while((ele = setTypeNextObject(si)) != NULL) {
+                sds sdsele;
+                while((sdsele = setTypeNextObject(si)) != NULL) {
+                    ele = createObject(OBJ_STRING,sdsele);
                     xorObjectDigest(digest,ele);
                     decrRefCount(ele);
                 }
