@@ -402,23 +402,16 @@ int redis_fcntl_impl(int fd, int cmd, int flags = 0 ) {
                 case F_GETFL:
                 {
                     // Since there is no way to determine if a socket is blocking in winsock, we keep track of this separately.
-                    RedisSocketState state;
-                    if (RFDMap::getInstance().GetSocketState(s, state)) {
-                        return state.flags;
-                    } else {
-                        return 0;
-                    }
+                    return RFDMap::getInstance().GetSocketFlags(s);
                 }
                 case F_SETFL:
                 {
-                    RedisSocketState state;
-                    state.flags = flags;
                     u_long fionbio_flags = (flags & O_NONBLOCK);
-                    if( f_ioctlsocket(s, FIONBIO, &fionbio_flags) == SOCKET_ERROR ) {
+                    if (f_ioctlsocket(s, FIONBIO, &fionbio_flags) == SOCKET_ERROR) {
                         errno = WSAGetLastError();
                         return -1;
                     } else {
-                        RFDMap::getInstance().SetSocketState( s, state );
+                        RFDMap::getInstance().SetSocketFlags(s, flags);
                         return 0;
                     }
                     break;

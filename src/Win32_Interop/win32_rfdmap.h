@@ -31,13 +31,9 @@
 
 using namespace std;
 
-typedef struct {
-    int flags;
-} RedisSocketState;
-
 typedef int RFD;   // Redis File Descriptor
 typedef map<SOCKET,RFD> SocketToRFDMapType;
-typedef map<SOCKET,RedisSocketState> SocketToStateMapType;
+typedef map<SOCKET,int> SocketToStateMapType;
 typedef map<int,RFD> PosixFDToRFDMapType;
 typedef map<RFD,SOCKET> RFDToSocketMapType;
 typedef map<RFD,int> RFDToPosixFDMapType;
@@ -114,6 +110,6 @@ public:
     /* Returns the socket associated with a file descriptor. */
     int lookupPosixFD(RFD rfd);
 
-    bool SetSocketState(SOCKET s, RedisSocketState state);
-    bool GetSocketState(SOCKET s, RedisSocketState& state);
+    bool SetSocketFlags(SOCKET s, int flags);
+    int GetSocketFlags(SOCKET s);
 };

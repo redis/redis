@@ -130,26 +130,25 @@ int RFDMap::lookupPosixFD(RFD rfd) {
     return posixFD;
 }
 
-bool RFDMap::SetSocketState(SOCKET s, RedisSocketState state) {
+bool RFDMap::SetSocketFlags(SOCKET s, int flags) {
     bool result = false;
     EnterCriticalSection(&mutex);
     S2StateIterator sit = SocketToStateMap.find(s);
     if (sit != SocketToStateMap.end()) {
-        SocketToStateMap[s] = state;
+        SocketToStateMap[s] = flags;
         result = true;
     }
     LeaveCriticalSection(&mutex);
     return result;
 }
 
-bool RFDMap::GetSocketState(SOCKET s, RedisSocketState& state) {
-    bool result = false;
+int RFDMap::GetSocketFlags(SOCKET s) {
+    int flags = 0;
     EnterCriticalSection(&mutex);
     S2StateIterator sit = SocketToStateMap.find(s);
     if (sit != SocketToStateMap.end()) {
-        state = SocketToStateMap[s];
-        result = true;
+        flags = SocketToStateMap[s];
     }
     LeaveCriticalSection(&mutex);
-    return result;
+    return flags;
 }
