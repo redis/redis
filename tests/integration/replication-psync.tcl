@@ -13,7 +13,7 @@ proc stop_bg_complex_data {handle} {
 #
 # You can specifiy backlog size, ttl, delay before reconnection, test duration
 # in seconds, and an additional condition to verify at the end.
-proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
+proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless} {
     start_server {tags {"repl"}} {
         start_server {} {
 
@@ -24,6 +24,8 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
 
             $master config set repl-backlog-size $backlog_size
             $master config set repl-backlog-ttl $backlog_ttl
+            $master config set repl-diskless-sync $diskless
+            $master config set repl-diskless-sync-delay 1
 
             set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
             set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000]
@@ -48,7 +50,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
                 }
             }
 
-            test "Test replication partial resync: $descr" {
+            test "Test replication partial resync: $descr (diskless: $diskless)" {
                 # Now while the clients are writing data, break the maste-slave
                 # link multiple times.
                 for {set j 0} {$j < $duration*10} {incr j} {
@@ -98,18 +100,20 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
     }
 }
 
-test_psync {ok psync} 6 1000000 3600 0 {
-    assert {[s -1 sync_partial_ok] > 0}
-}
+foreach diskless {no yes} {
+    test_psync {ok psync} 6 1000000 3600 0 {
+        assert {[s -1 sync_partial_ok] > 0}
+    } $diskless
 
-test_psync {no backlog} 6 100 3600 0.5 {
-    assert {[s -1 sync_partial_err] > 0}
-}
+    test_psync {no backlog} 6 100 3600 0.5 {
+        assert {[s -1 sync_partial_err] > 0}
+    } $diskless
 
-test_psync {ok after delay} 3 100000000 3600 3 {
-    assert {[s -1 sync_partial_ok] > 0}
-}
+    test_psync {ok after delay} 3 100000000 3600 3 {
+        assert {[s -1 sync_partial_ok] > 0}
+    } $diskless
 
-test_psync {backlog expired} 3 100000000 1 3 {
-    assert {[s -1 sync_partial_err] > 0}
+    test_psync {backlog expired} 3 100000000 1 3 {
+        assert {[s -1 sync_partial_err] > 0}
+    } $diskless
 }
