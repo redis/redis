@@ -622,10 +622,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetKey(de);
+                sds ele = dictGetKey(de);
                 double *score = dictGetVal(de);
 
-                if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
+                    == -1) return -1;
                 nwritten += n;
                 if ((n = rdbSaveDoubleValue(rdb,*score)) == -1) return -1;
                 nwritten += n;
@@ -992,7 +993,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 return NULL;
 
             if (o->encoding == OBJ_ENCODING_INTSET) {
-                /* Fetch integer value from element */
+                /* Fetch integer value from element. */
                 if (isSdsRepresentableAsLongLong(sdsele,&llval) == C_OK) {
                     o->ptr = intsetAdd(o->ptr,llval,NULL);
                 } else {
@@ -1002,7 +1003,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             }
 
             /* This will also be called when the set was just converted
-             * to a regular hash table encoded set */
+             * to a regular hash table encoded set. */
             if (o->encoding == OBJ_ENCODING_HT) {
                 dictAdd((dict*)o->ptr,sdsele,NULL);
             } else {
@@ -1010,7 +1011,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             }
         }
     } else if (rdbtype == RDB_TYPE_ZSET) {
-        /* Read list/set value */
+        /* Read list/set value. */
         size_t zsetlen;
         size_t maxelelen = 0;
         zset *zs;
@@ -1019,23 +1020,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         o = createZsetObject();
         zs = o->ptr;
 
-        /* Load every single element of the list/set */
+        /* Load every single element of the sorted set. */
         while(zsetlen--) {
-            robj *ele;
+            sds sdsele;
             double score;
             zskiplistNode *znode;
 
-            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
-            ele = tryObjectEncoding(ele);
+            if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
+                return NULL;
             if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
 
             /* Don't care about integer-encoded strings. */
-            if (sdsEncodedObject(ele) && sdslen(ele->ptr) > maxelelen)
-                maxelelen = sdslen(ele->ptr);
+            if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
 
-            znode = zslInsert(zs->zsl,score,ele);
-            dictAdd(zs->dict,ele,&znode->score);
-            incrRefCount(ele); /* added to skiplist */
+            znode = zslInsert(zs->zsl,score,sdsele);
+            dictAdd(zs->dict,sdsele,&znode->score);
         }
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */

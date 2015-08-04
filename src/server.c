@@ -554,11 +554,11 @@ dictType setDictType = {
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
 dictType zsetDictType = {
-    dictEncObjHash,            /* hash function */
+    dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor,      /* key destructor */
+    dictSdsKeyCompare,         /* key compare */
+    NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL                       /* val destructor */
 };
 
@@ -1428,8 +1428,8 @@ void createSharedObjects(void) {
      * actually used for their value but as a special object meaning
      * respectively the minimum possible string and the maximum possible
      * string in string comparisons for the ZRANGEBYLEX command. */
-    shared.minstring = createStringObject("minstring",9);
-    shared.maxstring = createStringObject("maxstring",9);
+    shared.minstring = sdsnew("minstring");
+    shared.maxstring = sdsnew("maxstring");
 }
 
 void initServerConfig(void) {

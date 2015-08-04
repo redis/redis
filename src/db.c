@@ -423,8 +423,8 @@ void scanCallback(void *privdata, const dictEntry *de) {
         val = dictGetVal(de);
         incrRefCount(val);
     } else if (o->type == OBJ_ZSET) {
-        key = dictGetKey(de);
-        incrRefCount(key);
+        sds keysds = dictGetKey(de);
+        key = createStringObject(keysds,sdslen(keysds));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");
@@ -1181,14 +1181,13 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
 void slotToKeyAdd(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslInsert(server.cluster->slots_to_keys,hashslot,key);
-    incrRefCount(key);
+    sds sdskey = sdsdup(key->ptr);
+    zslInsert(server.cluster->slots_to_keys,hashslot,sdskey);
 }
 
 void slotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
-
-    zslDelete(server.cluster->slots_to_keys,hashslot,key);
+    zslDelete(server.cluster->slots_to_keys,hashslot,key->ptr,NULL);
 }
 
 void slotToKeyFlush(void) {
@@ -1196,6 +1195,9 @@ void slotToKeyFlush(void) {
     server.cluster->slots_to_keys = zslCreate();
 }
 
+/* Pupulate the specified array of objects with keys in the specified slot.
+ * New objects are returned to represent keys, it's up to the caller to
+ * decrement the reference count to release the keys names. */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     zskiplistNode *n;
     zrangespec range;
@@ -1206,7 +1208,7 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
 
     n = zslFirstInRange(server.cluster->slots_to_keys, &range);
     while(n && n->score == hashslot && count--) {
-        keys[j++] = n->obj;
+        keys[j++] = createStringObject(n->ele,sdslen(n->ele));
         n = n->level[0].forward;
     }
     return j;
@@ -1224,9 +1226,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
     n = zslFirstInRange(server.cluster->slots_to_keys, &range);
     while(n && n->score == hashslot) {
-        robj *key = n->obj;
+        sds sdskey = n->ele;
+        robj *key = createStringObject(sdskey,sdslen(sdskey));
         n = n->level[0].forward; /* Go to the next item before freeing it. */
-        incrRefCount(key); /* Protect the object while freeing it. */
         dbDelete(&server.db[0],key);
         decrRefCount(key);
         j++;
@@ -1248,7 +1250,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
     /* Use rank of first element, if any, to determine preliminary count */
     if (zn != NULL) {
-        rank = zslGetRank(zsl, zn->score, zn->obj);
+        rank = zslGetRank(zsl, zn->score, zn->ele);
         count = (zsl->length - (rank - 1));
 
         /* Find last element in range */
@@ -1256,7 +1258,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
         /* Use rank of last element, if any, to determine the actual count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->obj);
+            rank = zslGetRank(zsl, zn->score, zn->ele);
             count -= (zsl->length - rank);
         }
     }

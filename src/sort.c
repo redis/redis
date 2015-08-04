@@ -399,7 +399,7 @@ void sortCommand(client *c) {
         zset *zs = sortval->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
-        robj *ele;
+        sds sdsele;
         int rangelen = vectorlen;
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
@@ -417,8 +417,8 @@ void sortCommand(client *c) {
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            ele = ln->obj;
-            vector[j].obj = ele;
+            sdsele = ln->ele;
+            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -431,9 +431,11 @@ void sortCommand(client *c) {
         dict *set = ((zset*)sortval->ptr)->dict;
         dictIterator *di;
         dictEntry *setele;
+        sds sdsele;
         di = dictGetIterator(set);
         while((setele = dictNext(di)) != NULL) {
-            vector[j].obj = dictGetKey(setele);
+            sdsele =  dictGetKey(setele);
+            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;

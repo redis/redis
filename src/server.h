@@ -612,16 +612,17 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan, *minstring, *maxstring,
+    *lpush, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[OBJ_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
+    sds minstring, maxstring;
 };
 
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
-    robj *obj;
+    sds ele;
     double score;
     struct zskiplistNode *backward;
     struct zskiplistLevel {
@@ -1261,15 +1262,15 @@ typedef struct {
 
 /* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
 typedef struct {
-    robj *min, *max;  /* May be set to shared.(minstring|maxstring) */
+    sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */
 } zlexrangespec;
 
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
-zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
-unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
-int zslDelete(zskiplist *zsl, double score, robj *obj);
+zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
+unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
+int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node);
 zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range);
 zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range);
 double zzlGetScore(unsigned char *sptr);
@@ -1277,8 +1278,8 @@ void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
-int zsetScore(robj *zobj, robj *member, double *score);
-unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
+int zsetScore(robj *zobj, sds member, double *score);
+unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);
