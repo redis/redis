@@ -106,7 +106,8 @@ start_server {tags {"pubsub"}} {
     test "PUBLISH/SUBSCRIBE after UNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [subscribe $rd1 {chan1 chan2 chan3}]
-        unsubscribe $rd1
+        $rd1 unsubscribe
+        $rd1 read
         assert_equal 0 [r publish chan1 hello]
         assert_equal 0 [r publish chan2 hello]
         assert_equal 0 [r publish chan3 hello]
@@ -179,7 +180,8 @@ start_server {tags {"pubsub"}} {
     test "PUBLISH/PSUBSCRIBE after PUNSUBSCRIBE without arguments" {
         set rd1 [redis_deferring_client]
         assert_equal {1 2 3} [psubscribe $rd1 {chan1.* chan2.* chan3.*}]
-        punsubscribe $rd1
+        $rd1 punsubscribe
+        $rd1 read
         assert_equal 0 [r publish chan1.hi hello]
         assert_equal 0 [r publish chan2.hi hello]
         assert_equal 0 [r publish chan3.hi hello]
