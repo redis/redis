@@ -543,6 +543,9 @@ typedef struct redisClient {
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
     long long repl_ack_time;/* replication ack time, if this is a slave */
+    long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
+                                       copying this slave output buffer
+                                       should use. */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
@@ -1171,6 +1174,8 @@ int replicationCountAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(redisClient *c);
+long long getPsyncInitialOffset(void);
+int replicationSendFullresyncReply(redisClient *slave, long long offset);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
