@@ -201,6 +201,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
             addReply(slave,selectcmd);
         }
 
