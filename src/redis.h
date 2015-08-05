@@ -1175,7 +1175,7 @@ void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
 char *replicationGetSlaveName(redisClient *c);
 long long getPsyncInitialOffset(void);
-int replicationSendFullresyncReply(redisClient *slave, long long offset);
+int replicationSetupSlaveForFullResync(redisClient *slave, long long offset);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
