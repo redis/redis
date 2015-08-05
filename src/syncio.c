@@ -138,6 +138,9 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
                 *ptr = '\0';
                 if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';
                 return nread;
+            } else {
+                /* Read again with a fresh timeout. */
+                continue;
             }
         } else {
             *ptr++ = c;
