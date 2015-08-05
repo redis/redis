@@ -201,6 +201,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
             redisClient *slave = ln->value;
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) continue;
             addReply(slave,selectcmd);
         }
 
