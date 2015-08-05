@@ -1843,6 +1843,8 @@ int replicationScriptCacheExists(sds sha1) {
 
 /* Replication cron function, called 1 time per second. */
 void replicationCron(void) {
+    static long long replication_cron_loops = 0;
+
     /* Non blocking connection timeout? */
     if (server.masterhost &&
         (server.repl_state == REDIS_REPL_CONNECTING ||
@@ -1889,31 +1891,34 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    if (!(server.cronloops % (server.repl_ping_slave_period * server.hz))) {
-        listIter li;
-        listNode *ln;
-        robj *ping_argv[1];
+    listIter li;
+    listNode *ln;
+    robj *ping_argv[1];
 
-        /* First, send PING */
+    /* First, send PING according to ping_slave_period. */
+    if ((replication_cron_loops % server.repl_ping_slave_period) == 0) {
         ping_argv[0] = createStringObject("PING",4);
-        replicationFeedSlaves(server.slaves, server.slaveseldb, ping_argv, 1);
+        replicationFeedSlaves(server.slaves, server.slaveseldb,
+            ping_argv, 1);
         decrRefCount(ping_argv[0]);
+    }
 
-        /* Second, send a newline to all the slaves in pre-synchronization
-         * stage, that is, slaves waiting for the master to create the RDB file.
-         * The newline will be ignored by the slave but will refresh the
-         * last-io timer preventing a timeout. */
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            redisClient *slave = ln->value;
+    /* Second, send a newline to all the slaves in pre-synchronization
+     * stage, that is, slaves waiting for the master to create the RDB file.
+     * The newline will be ignored by the slave but will refresh the
+     * last-io timer preventing a timeout. In this case we ignore the
+     * ping period and refresh the connection once per second since certain
+     * timeouts are set at a few seconds (example: PSYNC response). */
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        redisClient *slave = ln->value;
 
-            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START ||
-                (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END &&
-                 server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
-            {
-                if (write(slave->fd, "\n", 1) == -1) {
-                    /* Don't worry, it's just a ping. */
-                }
+        if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START ||
+            (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END &&
+             server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
+        {
+            if (write(slave->fd, "\n", 1) == -1) {
+                /* Don't worry, it's just a ping. */
             }
         }
     }
@@ -2010,4 +2015,5 @@ void replicationCron(void) {
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
     refreshGoodSlavesCount();
+    replication_cron_loops++; /* Incremented with frequency 1 HZ. */
 }
