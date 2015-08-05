@@ -1572,7 +1572,7 @@ int rdbSaveToSlavesSockets(void) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
             slave->replstate = SLAVE_STATE_WAIT_BGSAVE_END;
-            replicationSendFullresyncReply(slave,getPsyncInitialOffset());
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
             /* Put the socket in non-blocking mode to simplify RDB transfer.
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
