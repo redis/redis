@@ -284,6 +284,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_REPL_SEND_BULK 8 /* Sending RDB file to slave. */
 #define REDIS_REPL_ONLINE 9 /* RDB file transmitted, sending just updates. */
 
+/* Slave capabilities. */
+#define SLAVE_CAPA_NONE 0
+#define SLAVE_CAPA_EOF (1<<0)   /* Can parse the RDB EOF streaming format. */
+
 /* Synchronous read timeout - slave side */
 #define REDIS_REPL_SYNCIO_TIMEOUT 5
 
@@ -548,6 +552,7 @@ typedef struct redisClient {
                                        should use. */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if REDIS_BLOCKED. */
     blockingState bpop;     /* blocking state */
