@@ -492,7 +492,7 @@ int startBgsaveForReplication(int mincapa) {
     int retval;
     int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
 
-    redisLog(REIDS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
+    redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "slaves sockets" : "disk");
 
     if (socket_target)
@@ -619,7 +619,7 @@ void syncCommand(redisClient *c) {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (startBgsaveForReplication(c->slave_capa) != C_OK) {
+            if (startBgsaveForReplication(c->slave_capa) != REDIS_OK) {
                 redisLog(REDIS_NOTICE,"Replication failed, can't BGSAVE");
                 addReplyError(c,"Unable to perform background save");
                 return;
