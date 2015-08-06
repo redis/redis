@@ -260,22 +260,31 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_CLIENT_TYPE_PUBSUB 2 /* Clients subscribed to PubSub channels. */
 #define REDIS_CLIENT_TYPE_COUNT 3
 
-/* Slave replication state - from the point of view of the slave. */
+/* Slave replication state. Used in server.repl_state for slaves to remember
+ * what to do next. */
 #define REDIS_REPL_NONE 0 /* No active replication */
 #define REDIS_REPL_CONNECT 1 /* Must connect to master */
 #define REDIS_REPL_CONNECTING 2 /* Connecting to master */
 #define REDIS_REPL_RECEIVE_PONG 3 /* Wait for PING reply */
-#define REDIS_REPL_TRANSFER 4 /* Receiving .rdb from master */
-#define REDIS_REPL_CONNECTED 5 /* Connected to master */
+#define REDIS_REPL_SEND_AUTH 4 /* Send AUTH to master */
+#define REDIS_REPL_RECEIVE_AUTH 5 /* Wait for AUTH reply */
+#define REDIS_REPL_SEND_PORT 6 /* Send REPLCONF listening-port */
+#define REDIS_REPL_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
+#define REDIS_REPL_SEND_CAPA 8 /* Send REPLCONF capa */
+#define REDIS_REPL_RECEIVE_CAPA 9 /* Wait for REPLCONF reply */
+#define REDIS_REPL_SEND_PSYNC 10 /* Send PSYNC */
+#define REDIS_REPL_RECEIVE_PSYNC 11 /* Wait for PSYNC reply */
+#define REDIS_REPL_TRANSFER 12 /* Receiving .rdb from master */
+#define REDIS_REPL_CONNECTED 13 /* Connected to master */
 
-/* Slave replication state - from the point of view of the master.
+/* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE state instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-#define REDIS_REPL_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
-#define REDIS_REPL_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
-#define REDIS_REPL_SEND_BULK 8 /* Sending RDB file to slave. */
-#define REDIS_REPL_ONLINE 9 /* RDB file transmitted, sending just updates. */
+#define REDIS_REPL_WAIT_BGSAVE_START 14 /* We need to produce a new RDB file. */
+#define REDIS_REPL_WAIT_BGSAVE_END 15 /* Waiting RDB file creation to finish. */
+#define REDIS_REPL_SEND_BULK 16 /* Sending RDB file to slave. */
+#define REDIS_REPL_ONLINE 17 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
