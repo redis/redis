@@ -490,11 +490,12 @@ need_full_resync:
  * Returns REDIS_OK on success or REDIS_ERR otherwise. */
 int startBgsaveForReplication(int mincapa) {
     int retval;
+    int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
 
-    redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
-        server.repl_diskless_sync ? "slaves sockets" : "disk");
+    redisLog(REIDS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
+        socket_target ? "slaves sockets" : "disk");
 
-    if (server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF))
+    if (socket_target)
         retval = rdbSaveToSlavesSockets();
     else
         retval = rdbSaveBackground(server.rdb_filename);
