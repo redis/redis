@@ -118,9 +118,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 }
 
 /* Read a line making sure that every char will not require more than 'timeout'
- * milliseconds to be read. Empty newlines before the first non-empty line
- * are ignored. This is useful because since Redis sometimes uses empty
- * newlines in order to take the connection "alive".
+ * milliseconds to be read.
  *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
@@ -133,15 +131,9 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
 
         if (syncRead(fd,&c,1,timeout) == -1) return -1;
         if (c == '\n') {
-            /* Ignore empty lines, otherwise return to the caller. */
-            if (nread != 0) {
-                *ptr = '\0';
-                if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';
-                return nread;
-            } else {
-                /* Read again with a fresh timeout. */
-                continue;
-            }
+            *ptr = '\0';
+            if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';
+            return nread;
         } else {
             *ptr++ = c;
             *ptr = '\0';
