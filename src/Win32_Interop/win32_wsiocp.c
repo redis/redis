@@ -247,7 +247,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     if (sockstate == NULL ||
         (sockstate->masks & SOCKET_ATTACHED) == 0 ||
         proc == NULL) {
-		result = (int)write(fd, buf, len);					                    /* UPSTREAM_ISSUE: missing (int) cast */
+		result = (int)write(fd, buf, len);
         if (result == SOCKET_ERROR) {
             errno = WSAGetLastError();
         }
@@ -283,9 +283,6 @@ int aeWinSocketSend(int fd, char *buf, int len,
     }
     return SOCKET_ERROR;
 }
-
-
-
 
 /* for non-blocking connect with IOCP */
 int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
