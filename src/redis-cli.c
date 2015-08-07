@@ -1062,10 +1062,10 @@ static int noninteractive(int argc, char **argv) {
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
-        retval = cliSendCommand(argc+1, argv, config.repeat);
+        retval = cliSendCommand(argc+1, argv, (int)config.repeat);              /* WIN_PORT_FIX cast (int) */
     } else {
         /* stdin is probably a tty, can be tested with S_ISCHR(s.st_mode) */
-        retval = cliSendCommand(argc, argv, config.repeat);
+        retval = cliSendCommand(argc, argv, (int)config.repeat);                /* WIN_PORT_FIX cast (int) */
     }
     return retval;
 }
@@ -1109,7 +1109,7 @@ static int evalMode(int argc, char **argv) {
     argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
     /* Call it */
-    return cliSendCommand(argc+3-got_comma, argv2, config.repeat);
+    return cliSendCommand(argc+3-got_comma, argv2, (int)config.repeat);         /* WIN_PORT_FIX cast (int) */
 }
 
 /*------------------------------------------------------------------------------

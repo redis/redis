@@ -214,7 +214,7 @@ static inline unsigned char *zipmapResize(unsigned char *zm, unsigned int len) {
  * already preset, otherwise to 0. */
 unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char *val, unsigned int vlen, int *update) {
     unsigned int zmlen, offset;
-    unsigned int freelen, reqlen = zipmapRequiredLength(klen,vlen);
+    unsigned int freelen, reqlen = (unsigned int)zipmapRequiredLength(klen,vlen); /* WIN_PORT_FIX cast (unsigned int) */
     unsigned int empty, vempty;
     unsigned char *p;
 
