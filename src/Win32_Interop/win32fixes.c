@@ -26,26 +26,6 @@
 #define REDIS_NOTUSED(V) ((void) V)
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
-/* Winsock requires library initialization on startup  */
-/* now handled in Win32FDAPI_Init.cpp 
-*
-int w32initWinSock(void) {
-
-    WSADATA t_wsa;
-    WORD wVers;
-    int iError;
-
-    wVers = MAKEWORD(2, 2);
-    iError = WSAStartup(wVers, &t_wsa);
-
-    if(iError != NO_ERROR || LOBYTE(t_wsa.wVersion) != 2 || HIBYTE(t_wsa.wVersion) != 2 ) {
-        return 0; // not done; check WSAGetLastError() for error number
-    };
-
-    return 1;
-}
-*/
-
 /* Behaves as posix, works without ifdefs, makes compiler happy */
 int sigaction(int sig, struct sigaction *in, struct sigaction *out) {
     REDIS_NOTUSED(out);
