@@ -57,9 +57,6 @@ typedef struct aeSockState {
     list wreqlist;
 } aeSockState;
 
-typedef aeSockState * fnGetSockState(void *apistate, int fd);
-typedef void fnDelSockState(void *apistate, aeSockState *sockState);
-
 #define READ_QUEUED         0x000100
 #define SOCKET_ATTACHED     0x000400
 #define ACCEPT_PENDING      0x000800
@@ -67,8 +64,11 @@ typedef void fnDelSockState(void *apistate, aeSockState *sockState);
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnDelSockState *delSockState);
+void aeWinInit(HANDLE iocp);
 void aeWinCleanup();
+aeSockState* aeWinGetExistingSocketState(int fd);
+aeSockState *aeWinGetSocketState(int fd);
+BOOL aeWinDelSocketState(aeSockState* pSocketState);
 
 void* CallocMemoryNoCOW(size_t size);
 void FreeMemoryNoCOW(void * ptr);

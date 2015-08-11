@@ -255,13 +255,15 @@ extern redis_inet_pton inet_pton;
 extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
-BOOL SetFDInformation(int FD, DWORD mask, DWORD flags);
+BOOL FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
 HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
 BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
 BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
 void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
 int FDAPI_UpdateAcceptContext( int fd );
 int FDAPI_PipeSetNonBlock(int rfd, int non_blocking);
+void** FDAPI_GetSocketStatePtr(int rfd);
+void FDAPI_ClearSocketState(int fd);
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
