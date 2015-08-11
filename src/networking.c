@@ -34,6 +34,8 @@
 POSIX_ONLY(#include <sys/uio.h>)
 #include <math.h>
 
+WIN32_ONLY(extern int aeWinQueueAccept(int listenfd);)
+
 static void setProtocolError(redisClient *c, int pos);
 
 /* To evaluate the output buffer size of a client we need to get size of
@@ -622,9 +624,16 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
-            if (errno != EWOULDBLOCK)
+            if (errno != EWOULDBLOCK) {
                 redisLog(REDIS_WARNING,
                     "Accepting client connection: %s", server.neterr);
+#ifdef _WIN32
+                if (aeWinQueueAccept(fd) == -1) {
+                    redisLog(REDIS_WARNING,
+                        "acceptTcpHandler: failed to queue another accept.");
+                }
+#endif
+            }
             return;
         }
         redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
