@@ -762,13 +762,13 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      * of the old one, possibly moving what is on the right a few bytes
      * if the new sequence is longer than the older one. */
     uint8_t seq[5], *n = seq;
-    int last = first+span-1; /* Last register covered by the sequence. */
+    int last = (int)(first+span-1); /* Last register covered by the sequence. */  WIN_PORT_FIX /* cast (int) */
     int len;
 
     if (is_zero || is_xzero) {
         /* Handle splitting of ZERO / XZERO. */
         if (index != first) {
-            len = index-first;
+            len = (int)(index-first);                                           WIN_PORT_FIX /* cast (int) */
             if (len > HLL_SPARSE_ZERO_MAX_LEN) {
                 HLL_SPARSE_XZERO_SET(n,len);
                 n += 2;
@@ -780,7 +780,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
         HLL_SPARSE_VAL_SET(n,count,1);
         n++;
         if (index != last) {
-            len = last-index;
+            len = (int)(last-index);                                            WIN_PORT_FIX /* cast (int) */
             if (len > HLL_SPARSE_ZERO_MAX_LEN) {
                 HLL_SPARSE_XZERO_SET(n,len);
                 n += 2;
@@ -794,14 +794,14 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
         int curval = HLL_SPARSE_VAL_VALUE(p);
 
         if (index != first) {
-            len = index-first;
+            len = (int)(index-first);                                           WIN_PORT_FIX /* cast (int) */
             HLL_SPARSE_VAL_SET(n,curval,len);
             n++;
         }
         HLL_SPARSE_VAL_SET(n,count,1);
         n++;
         if (index != last) {
-            len = last-index;
+            len = (int)(last-index);                                            WIN_PORT_FIX /* cast (int) */
             HLL_SPARSE_VAL_SET(n,curval,len);
             n++;
         }
@@ -1061,11 +1061,11 @@ int hllMerge(uint8_t *max, robj *hll) {
         while(p < end) {
             if (HLL_SPARSE_IS_ZERO(p)) {
                 runlen = HLL_SPARSE_ZERO_LEN(p);
-                i += runlen;
+                i += (int)runlen;                                               WIN_PORT_FIX /* cast (int) */
                 p++;
             } else if (HLL_SPARSE_IS_XZERO(p)) {
                 runlen = HLL_SPARSE_XZERO_LEN(p);
-                i += runlen;
+                i += (int)runlen;                                               WIN_PORT_FIX /* cast (int) */
                 p += 2;
             } else {
                 runlen = HLL_SPARSE_VAL_LEN(p);
