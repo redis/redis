@@ -31,7 +31,11 @@
 #endif
 
 #include "redis.h"
-POSIX_ONLY(#include <sys/uio.h>)
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#else
+#include <sys/uio.h>
+#endif
 #include <math.h>
 
 WIN32_ONLY(extern int aeWinQueueAccept(int listenfd);)

@@ -28,6 +28,9 @@
  */
 
 #include "redis.h"
+#ifdef _WIN32
+#include "Win32_Interop/Win32_QFork.h"
+#endif
 #include "cluster.h"
 
 #include <signal.h>

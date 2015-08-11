@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #ifdef _WIN32
 #include <stdio.h>
+#include "Win32_Interop/Win32_QFork.h"
 #else
 #include <sys/time.h>
 #include <sys/resource.h>

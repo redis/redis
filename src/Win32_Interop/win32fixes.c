@@ -6,7 +6,6 @@
 *  - modified rename to retry after failure
 */
 
-#include <process.h>
 #include <stdlib.h>
 #include <errno.h>
 #include "win32fixes.h"
@@ -20,7 +19,6 @@
 
 /* Redefined here to avoid redis.h so it can be used in other projects */
 #define REDIS_NOTUSED(V) ((void) V)
-#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Behaves as posix, works without ifdefs, makes compiler happy */
 int sigaction(int sig, struct sigaction *in, struct sigaction *out) {
@@ -51,30 +49,6 @@ int kill(pid_t pid, int sig) {
         errno = EINVAL;
         return -1;
     }
-}
-
-/* Missing wait3() implementation */
-pid_t wait3(int *stat_loc, int options, void *rusage) {
-    REDIS_NOTUSED(stat_loc);
-    REDIS_NOTUSED(options);
-    REDIS_NOTUSED(rusage);
-//JEP: BUGBUG 
-// http://linux.die.net/man/2/wait3 says:
-//    "wait3(status, options, rusage); is equivalent to: waitpid(-1, status, options);   "
-//
-// http://linux.die.net/man/2/waitpid says:
-//    "The value of pid can be: 
-//    < -1 meaning wait for any child process whose process group ID is equal to the absolute value of pid.
-//    -1 meaning wait for any child process.
-//    0 meaning wait for any child process whose process group ID is equal to that of the calling process.
-//    > 0 meaning wait for the child whose process ID is equal to the value of pid."
-//
-// On Windows waitpid evaluates to _cwait, so the -1 passed referrs to the current process. Thus it will never signal.
-//
-// Since windows parent->child relationships are unreliable (process ids are recycled leading to unexpected PID relationships),
-// the hiredis mechanism of process signaling will have to be changed. It should be using process handles on Windows.
-
-    return (pid_t) waitpid((intptr_t) -1, 0, WAIT_FLAGS);
 }
 
 /* Replace MS C rtl rand which is 15bit with 32 bit */
@@ -111,212 +85,6 @@ int replace_rename(const char *src, const char *dst) {
     return -1;
 }
 
-/* Proxy structure to pass func and arg to thread */
-typedef struct thread_params {
-    void *(*func)(void *);
-    void * arg;
-} thread_params;
-
-/* Proxy function by windows thread requirements */
-static unsigned __stdcall win32_proxy_threadproc(void *arg) {
-    IncrementWorkerThreadCount();
-    __try {
-        thread_params *p = (thread_params *) arg;
-        p->func(p->arg);
-
-        /* Dealocate params */
-        free(p);
-    } __finally {
-        DecrementWorkerThreadCount();
-    }
-
-    _endthreadex(0);
-    return 0;
-}
-
-int pthread_create(pthread_t *thread, const void *unused, void *(*start_routine)(void*), void *arg) {
-    HANDLE h;
-    thread_params *params = (thread_params *)malloc(sizeof(thread_params));
-    REDIS_NOTUSED(unused);
-
-    params->func = start_routine;
-    params->arg  = arg;
-
-    h = (HANDLE)_beginthreadex(NULL,                              /* Security not used */
-                               REDIS_THREAD_STACK_SIZE,           /* Set custom stack size */
-                               win32_proxy_threadproc,            /* calls win32 stdcall proxy */
-                               params,                            /* real threadproc is passed as paremeter */
-                               STACK_SIZE_PARAM_IS_A_RESERVATION, /* reserve stack */
-                               thread                             /* returned thread id */
-                               );
-
-    if (!h)
-        return errno;
-
-    CloseHandle(h);
-    return 0;
-}
-
-/* Noop in windows */
-int pthread_detach (pthread_t thread) {
-    REDIS_NOTUSED(thread);
-    return 0; /* noop */
-}
-
-pthread_t pthread_self(void) {
-    return GetCurrentThreadId();
-}
-
-int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset) {
-    REDIS_NOTUSED(set);
-    REDIS_NOTUSED(oset);
-    switch (how) {
-      case SIG_BLOCK:
-      case SIG_UNBLOCK:
-      case SIG_SETMASK:
-           break;
-      default:
-            errno = EINVAL;
-            return -1;
-    }
-
-  errno = ENOSYS;
-  return 0;
-}
-
-int win32_pthread_join(pthread_t *thread, void **value_ptr) {
-    int result;
-    HANDLE h = OpenThread(SYNCHRONIZE, FALSE, *thread);
-    REDIS_NOTUSED(value_ptr);
-
-    switch (WaitForSingleObject(h, INFINITE)) {
-            case WAIT_OBJECT_0:
-                    result = 0;
-            case WAIT_ABANDONED:
-                    result = EINVAL;
-            default:
-                    result = GetLastError();
-    }
-
-    CloseHandle(h);
-    return result;
-}
-
-int pthread_cond_init(pthread_cond_t *cond, const void *unused) {
-        REDIS_NOTUSED(unused);
-        cond->waiters = 0;
-        cond->was_broadcast = 0;
-
-        InitializeCriticalSection(&cond->waiters_lock);
-
-        cond->sema = CreateSemaphore(NULL, 0, LONG_MAX, NULL);
-        if (!cond->sema) {
-            errno = GetLastError();
-            return -1;
-        }
-
-        cond->continue_broadcast = CreateEvent(NULL,    /* security */
-                                FALSE,                  /* auto-reset */
-                                FALSE,                  /* not signaled */
-                                NULL);                  /* name */
-        if (!cond->continue_broadcast) {
-            errno = GetLastError();
-            return -1;
-        }
-
-        return 0;
-}
-
-int pthread_cond_destroy(pthread_cond_t *cond) {
-        CloseHandle(cond->sema);
-        CloseHandle(cond->continue_broadcast);
-        DeleteCriticalSection(&cond->waiters_lock);
-        return 0;
-}
-
-int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
-        int last_waiter;
-
-        EnterCriticalSection(&cond->waiters_lock);
-        cond->waiters++;
-        LeaveCriticalSection(&cond->waiters_lock);
-
-        /*
-         * Unlock external mutex and wait for signal.
-         * NOTE: we've held mutex locked long enough to increment
-         * waiters count above, so there's no problem with
-         * leaving mutex unlocked before we wait on semaphore.
-         */
-        LeaveCriticalSection(mutex);
-
-        /* let's wait - ignore return value */
-        WaitForSingleObject(cond->sema, INFINITE);
-
-        /*
-         * Decrease waiters count. If we are the last waiter, then we must
-         * notify the broadcasting thread that it can continue.
-         * But if we continued due to cond_signal, we do not have to do that
-         * because the signaling thread knows that only one waiter continued.
-         */
-        EnterCriticalSection(&cond->waiters_lock);
-        cond->waiters--;
-        last_waiter = cond->was_broadcast && cond->waiters == 0;
-        LeaveCriticalSection(&cond->waiters_lock);
-
-        if (last_waiter) {
-            /*
-             * cond_broadcast was issued while mutex was held. This means
-             * that all other waiters have continued, but are contending
-             * for the mutex at the end of this function because the
-             * broadcasting thread did not leave cond_broadcast, yet.
-             * (This is so that it can be sure that each waiter has
-             * consumed exactly one slice of the semaphor.)
-             * The last waiter must tell the broadcasting thread that it
-             * can go on.
-             */
-            SetEvent(cond->continue_broadcast);
-            /*
-             * Now we go on to contend with all other waiters for
-             * the mutex. Auf in den Kampf!
-             */
-        }
-        /* lock external mutex again */
-        EnterCriticalSection(mutex);
-
-        return 0;
-}
-
-/*
- * IMPORTANT: This implementation requires that pthread_cond_signal
- * is called while the mutex is held that is used in the corresponding
- * pthread_cond_wait calls!
- */
-int pthread_cond_signal(pthread_cond_t *cond) {
-        int have_waiters;
-
-        EnterCriticalSection(&cond->waiters_lock);
-        have_waiters = cond->waiters > 0;
-        LeaveCriticalSection(&cond->waiters_lock);
-
-        /*
-         * Signal only when there are waiters
-         */
-        if (have_waiters)
-                return ReleaseSemaphore(cond->sema, 1, NULL) ?
-                        0 : GetLastError();
-        else
-                return 0;
-}
-
-
-/* Redis forks to perform background writing */
-/* fork() on unix will split process in two */
-/* marking memory pages as Copy-On-Write so */
-/* child process will have data snapshot.   */
-/* Windows has no support for fork().       */
-int fork(void) {
-    return -1;
-}
 
 /* Redis CPU GetProcessTimes -> rusage  */
 int getrusage(int who, struct rusage * r) {

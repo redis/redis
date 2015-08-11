@@ -28,7 +28,7 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_types.h"
 #endif
 
 #include "redis.h"
@@ -43,6 +43,8 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#else
+#include "Win32_Interop/Win32_QFork.h"
 #endif
 
 void aofUpdateCurrentSize(void);

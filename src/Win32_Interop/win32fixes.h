@@ -34,10 +34,9 @@
 #include <limits.h>     /* INT_MAX */
 #include <process.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 #include "Win32_FDAPI.h"    
-#include "Win32_QFork.h"
-#include "Win32_Service.h"
 
 #define fseeko fseeko64
 #define ftello ftello64
@@ -92,15 +91,7 @@ typedef unsigned __int32 u_int32_t;
 #define usleep(x) (x == 1) ? Sleep(0) : Sleep((int)((x)/1000))
 
 /* Processes */
-#define waitpid(pid,statusp,options) _cwait (statusp, pid, WAIT_CHILD)
-
-#define WAIT_T int
-#define WTERMSIG(x) ((x) & 0xff)            /* or: SIGABRT ?? */
-#define WCOREDUMP(x) 0
-#define WEXITSTATUS(x) (((x) >> 8) & 0xff)  /* or: (x) ?? */
-#define WIFSIGNALED(x) (WTERMSIG (x) != 0)  /* or: ((x) == 3) ?? */
-#define WIFEXITED(x) (WTERMSIG (x) == 0)    /* or: ((x) != 3) ?? */
-#define WIFSTOPPED(x) 0
+#define waitpid(pid,statusp,options) _cwait(statusp, pid, WAIT_CHILD)
 
 #define WNOHANG 1
 
@@ -152,8 +143,6 @@ int getrusage(int who, struct rusage * rusage);
 #define SIGUSR1  30
 #define SIGUSR2  31
 
-#define ucontext_t void*
-
 #define SA_NOCLDSTOP    0x00000001u
 #define SA_NOCLDWAIT    0x00000002u
 #define SA_SIGINFO      0x00000004u
@@ -170,12 +159,6 @@ int getrusage(int who, struct rusage * rusage);
 #define sigaddset(pset, num)    (*(pset) |= (1L<<(num)))
 #define sigdelset(pset, num)    (*(pset) &= ~(1L<<(num)))
 #define sigismember(pset, num)  (*(pset) & (1L<<(num)))
-
-#ifndef SIG_SETMASK
-#define SIG_SETMASK (0)
-#define SIG_BLOCK   (1)
-#define SIG_UNBLOCK (2)
-#endif /*SIG_SETMASK*/
 
 typedef	void (*__p_sig_fn_t)(int);
 
@@ -194,8 +177,6 @@ struct sigaction {
 
 int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 
-/* Sockets */
-
 #if _MSC_VER < 1800
 #ifndef ECONNRESET
 #define ECONNRESET WSAECONNRESET
@@ -212,43 +193,6 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 
 #define rename(a,b) replace_rename(a,b)
 int replace_rename(const char *src, const char *dest);
-
-/* threads avoiding pthread.h */
-#define pthread_mutex_t CRITICAL_SECTION
-#define pthread_attr_t ssize_t
-
-#define pthread_mutex_init(a,b) (InitializeCriticalSectionAndSpinCount((a), 0x80000400),0)
-#define pthread_mutex_destroy(a) DeleteCriticalSection((a))
-#define pthread_mutex_lock EnterCriticalSection
-#define pthread_mutex_unlock LeaveCriticalSection
-
-#define pthread_equal(t1, t2) ((t1) == (t2))
-
-#define pthread_attr_init(x) (*(x) = 0)
-#define pthread_attr_getstacksize(x, y) (*(y) = *(x))
-#define pthread_attr_setstacksize(x, y) (*(x) = y)
-
-#define pthread_t unsigned int
-
-int pthread_create(pthread_t *thread, const void *unused, void *(*start_routine)(void*), void *arg);
-
-pthread_t pthread_self(void);
-
-typedef struct {
-    CRITICAL_SECTION waiters_lock;
-    LONG waiters;
-    int was_broadcast;
-    HANDLE sema;
-    HANDLE continue_broadcast;
-} pthread_cond_t;
-
-int pthread_cond_init(pthread_cond_t *cond, const void *unused);
-int pthread_cond_destroy(pthread_cond_t *cond);
-int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
-int pthread_cond_signal(pthread_cond_t *cond);
-
-int pthread_detach (pthread_t thread);
-int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
 
 /* Misc Unix -> Win32 */
 int kill(pid_t pid, int sig);
@@ -279,7 +223,6 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-int aeWinSocketAttach(int rfd);
 int aeWinCloseSocket(int rfd);
 int aeWinReceiveDone(int rfd);
 int aeWinSocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
@@ -298,20 +241,6 @@ char *wsa_strerror(int err);
 
 #ifndef STDOUT_FILENO
 #define STDOUT_FILENO 1
-#endif
-
-#ifndef siginfo_t
-typedef struct {
-    int si_signo;
-    int si_code;
-    int si_value;
-    int si_errno;
-    pid_t si_pid;
-    int si_uid;
-    void *si_addr;
-    int si_status;
-    int si_band;
-} siginfo_t;
 #endif
 
 int truncate(const char *path, PORT_LONGLONG length);

@@ -27,6 +27,7 @@
     <ClCompile Include="Win32_EventLog.cpp" />
     <ClCompile Include="Win32_FDAPI.cpp" />
     <ClCompile Include="Win32_fdapi_crt.cpp" />
+    <ClCompile Include="Win32_PThread.c" />
     <ClCompile Include="Win32_QFork.cpp" />
     <ClCompile Include="Win32_QFork_impl.c" />
     <ClCompile Include="Win32_RedisLog.c" />
@@ -47,6 +48,7 @@
     <ClInclude Include="Win32_FDAPI.h" />
     <ClInclude Include="Win32_fdapi_crt.h" />
     <ClInclude Include="Win32_Common.h" />
+    <ClInclude Include="Win32_PThread.h" />
     <ClInclude Include="Win32_QFork.h" />
     <ClInclude Include="Win32_QFork_impl.h" />
     <ClInclude Include="Win32_RedisLog.h" />
