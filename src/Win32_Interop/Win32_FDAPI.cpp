@@ -44,7 +44,6 @@ redis_WSAGetLastError WSAGetLastError = NULL;
 redis_WSAIoctl WSAIoctl = NULL;
 redis_WSASend WSASend = NULL;
 redis_WSARecv WSARecv = NULL;
-redis_WSACleanup WSACleanup = NULL;
 redis_WSAGetOverlappedResult WSAGetOverlappedResult = NULL;
 redis_WSADuplicateSocket WSADuplicateSocket = NULL;
 redis_WSASocket WSASocket = NULL;
@@ -948,10 +947,6 @@ int redis_WSARecv_impl(int rfd, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD
     return SOCKET_ERROR;
 }
 
-int redis_WSACleanup_impl(void) {
-	return f_WSACleanup();
-}
-
 int redis_ioctlsocket_impl(int rfd, long cmd, u_long *argp) {
    try {
         SOCKET s = RFDMap::getInstance().lookupSocket( rfd );
@@ -1289,7 +1284,6 @@ private:
         WSAIoctl = redis_WSAIoctl_impl;
         WSASend = redis_WSASend_impl;
         WSARecv = redis_WSARecv_impl;
-        WSACleanup = redis_WSACleanup_impl;
         WSAGetOverlappedResult = redis_WSAGetOverlappedResult_impl;
         WSADuplicateSocket = redis_WSADuplicateSocket_impl;
         WSASocket = redis_WSASocket_impl;
