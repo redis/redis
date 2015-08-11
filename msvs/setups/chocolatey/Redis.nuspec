@@ -3,7 +3,7 @@
   <metadata>
     <id>redis-64</id>
     <title>Redis 64-bit</title>
-    <version>3.0.100-alpha1</version>
+    <version>3.0.300-alpha2</version>
     <authors>Alexis Campailla, Enrico Giordani, Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
     <description>A porting of Redis on Windows 64-bit.  
@@ -15,10 +15,10 @@ This package will install the Redis binaries in the default Chocolatey lib direc
     <projectUrl>https://msopentech.com/opentech-projects/redis/</projectUrl>
     <tags>Redis nosql cache</tags>
     <copyright>Copyright Microsoft Open Technologies, Inc.</copyright>
-    <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8/license.txt</licenseUrl>
+    <licenseUrl>https://github.com/MSOpenTech/redis/blob/3.0/license.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>https://cdn.rawgit.com/anonymous/5cfcb53c27ce7430d899/raw/e8d7e5f45c95314797128f535e96b16efd9d7c89/redis.svg</iconUrl>
-    <releaseNotes>The release notes are available [here](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)</releaseNotes>
+    <releaseNotes>The release notes are available [here](https://raw.githubusercontent.com/MSOpenTech/redis/3.0/Redis%20on%20Windows%20Release%20Notes.md)</releaseNotes>
   </metadata>
   <files>
     <file src="..\signed_binaries\*.exe" target=".\" />
