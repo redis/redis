@@ -49,25 +49,6 @@ typedef enum startupStatus {
     ssCHILD_EXIT = 2              // Child completed operation. Call QForkShutdown and exit.
 } StartupStatus;
 
-#define MAX_GLOBAL_DATA 10000
-typedef struct QForkBeginInfo {
-    BYTE globalData[MAX_GLOBAL_DATA];
-    size_t globalDataSize;
-    unsigned __int32 dictHashSeed;
-    char filename[MAX_PATH];
-    int *fds;
-    int numfds;
-    uint64_t *clientids;
-    HANDLE pipe_write_handle;
-    HANDLE aof_pipe_write_ack_handle;
-    HANDLE aof_pipe_read_ack_handle;
-    HANDLE aof_pipe_read_data_handle;
-    LPVOID protocolInfo;
-} QForkStartupInfo;
-    
-StartupStatus QForkStartup(int argc, char** argv);
-BOOL QForkShutdown();
-
 // For parent process use only
 pid_t BeginForkOperation_Rdb(
     char* fileName,
@@ -105,7 +86,6 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
 int FreeHeapBlock(LPVOID block, size_t size);
 
 // for no persistence optimization/feature
-BOOL IsPersistenceAvailable();
 extern void*(*g_malloc)(size_t);
 extern void*(*g_calloc)(size_t, size_t);
 extern void*(*g_realloc)(void*, size_t);

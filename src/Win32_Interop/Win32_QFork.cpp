@@ -57,6 +57,22 @@
 
 using namespace std;
 
+#define MAX_GLOBAL_DATA 10000
+struct QForkBeginInfo {
+    BYTE globalData[MAX_GLOBAL_DATA];
+    size_t globalDataSize;
+    unsigned __int32 dictHashSeed;
+    char filename[MAX_PATH];
+    int *fds;
+    int numfds;
+    uint64_t *clientids;
+    HANDLE pipe_write_handle;
+    HANDLE aof_pipe_write_ack_handle;
+    HANDLE aof_pipe_read_ack_handle;
+    HANDLE aof_pipe_read_data_handle;
+    LPVOID protocolInfo;
+};
+
 #ifndef PAGE_REVERT_TO_FILE_MAP
 #define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
 #endif
