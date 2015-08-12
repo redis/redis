@@ -755,9 +755,9 @@ int rdbSave(char *filename) {
     return REDIS_OK;
 
 werr:
+    redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
     fclose(fp);
     unlink(tmpfile);
-    redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
     return REDIS_ERR;
 }
 
@@ -1420,7 +1420,7 @@ int rdbSaveToSlavesSockets(void) {
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
-            slave->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
             /* Put the socket in non-blocking mode to simplify RDB transfer.
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */

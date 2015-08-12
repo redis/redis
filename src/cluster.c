@@ -74,26 +74,12 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 sds representRedisNodeFlags(sds ci, uint16_t flags);
+uint64_t clusterGetMaxEpoch(void);
+int clusterBumpConfigEpochWithoutConsensus(void);
 
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
-
-/* Return the greatest configEpoch found in the cluster. */
-uint64_t clusterGetMaxEpoch(void) {
-    uint64_t max = 0;
-    dictIterator *di;
-    dictEntry *de;
-
-    di = dictGetSafeIterator(server.cluster->nodes);
-    while((de = dictNext(di)) != NULL) {
-        clusterNode *node = dictGetVal(de);
-        if (node->configEpoch > max) max = node->configEpoch;
-    }
-    dictReleaseIterator(di);
-    if (max < server.cluster->currentEpoch) max = server.cluster->currentEpoch;
-    return max;
-}
 
 /* Load the cluster config from 'filename'.
  *
@@ -372,6 +358,11 @@ void clusterSaveConfigOrDie(int do_fsync) {
  * On success REDIS_OK is returned, otherwise an error is logged and
  * the function returns REDIS_ERR to signal a lock was not acquired. */
 int clusterLockConfig(char *filename) {
+/* flock() does not exist on Solaris
+ * and a fcntl-based solution won't help, as we constantly re-open that file,
+ * which will release _all_ locks anyway
+ */
+#if !defined(__sun)
     /* To lock it, we need to open the file in a way it is created if
      * it does not exist, otherwise there is a race condition with other
      * processes. */
@@ -399,6 +390,8 @@ int clusterLockConfig(char *filename) {
     }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
      * lock to the file as long as the process exists. */
+#endif /* __sun */
+
     return REDIS_OK;
 }
 
@@ -928,6 +921,138 @@ void clusterRenameNode(clusterNode *node, char *newname) {
 }
 
 /* -----------------------------------------------------------------------------
+ * CLUSTER config epoch handling
+ * -------------------------------------------------------------------------- */
+
+/* Return the greatest configEpoch found in the cluster, or the current
+ * epoch if greater than any node configEpoch. */
+uint64_t clusterGetMaxEpoch(void) {
+    uint64_t max = 0;
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        if (node->configEpoch > max) max = node->configEpoch;
+    }
+    dictReleaseIterator(di);
+    if (max < server.cluster->currentEpoch) max = server.cluster->currentEpoch;
+    return max;
+}
+
+/* If this node epoch is zero or is not already the greatest across the
+ * cluster (from the POV of the local configuration), this function will:
+ *
+ * 1) Generate a new config epoch increment the current epoch.
+ * 2) Assign the new epoch to this node, WITHOUT any consensus.
+ * 3) Persist the configuration on disk before sending packets with the
+ *    new configuration.
+ *
+ * If the new config epoch is generated and assigend, REDIS_OK is returned,
+ * otherwise REDIS_ERR is returned (since the node has already the greatest
+ * configuration around) and no operation is performed.
+ *
+ * Important note: this function violates the principle that config epochs
+ * should be generated with consensus and should be unique across the cluster.
+ * However Redis Cluster uses this auto-generated new config epochs in two
+ * cases:
+ *
+ * 1) When slots are closed after importing. Otherwise resharding would be
+ *    too exansive.
+ * 2) When CLUSTER FAILOVER is called with options that force a slave to
+ *    failover its master even if there is not master majority able to
+ *    create a new configuration epoch.
+ *
+ * Redis Cluster does not explode using this function, even in the case of
+ * a collision between this node and another node, generating the same
+ * configuration epoch unilaterally, because the config epoch conflict
+ * resolution algorithm will eventually move colliding nodes to different
+ * config epochs. However usign this function may violate the "last failover
+ * wins" rule, so should only be used with care. */
+int clusterBumpConfigEpochWithoutConsensus(void) {
+    uint64_t maxEpoch = clusterGetMaxEpoch();
+
+    if (myself->configEpoch == 0 ||
+        myself->configEpoch != maxEpoch)
+    {
+        server.cluster->currentEpoch++;
+        myself->configEpoch = server.cluster->currentEpoch;
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_FSYNC_CONFIG);
+        redisLog(REDIS_WARNING,
+            "New configEpoch set to %llu",
+            (unsigned long long) myself->configEpoch);
+        return REDIS_OK;
+    } else {
+        return REDIS_ERR;
+    }
+}
+
+/* This function is called when this node is a master, and we receive from
+ * another master a configuration epoch that is equal to our configuration
+ * epoch.
+ *
+ * BACKGROUND
+ *
+ * It is not possible that different slaves get the same config
+ * epoch during a failover election, because the slaves need to get voted
+ * by a majority. However when we perform a manual resharding of the cluster
+ * the node will assign a configuration epoch to itself without to ask
+ * for agreement. Usually resharding happens when the cluster is working well
+ * and is supervised by the sysadmin, however it is possible for a failover
+ * to happen exactly while the node we are resharding a slot to assigns itself
+ * a new configuration epoch, but before it is able to propagate it.
+ *
+ * So technically it is possible in this condition that two nodes end with
+ * the same configuration epoch.
+ *
+ * Another possibility is that there are bugs in the implementation causing
+ * this to happen.
+ *
+ * Moreover when a new cluster is created, all the nodes start with the same
+ * configEpoch. This collision resolution code allows nodes to automatically
+ * end with a different configEpoch at startup automatically.
+ *
+ * In all the cases, we want a mechanism that resolves this issue automatically
+ * as a safeguard. The same configuration epoch for masters serving different
+ * set of slots is not harmful, but it is if the nodes end serving the same
+ * slots for some reason (manual errors or software bugs) without a proper
+ * failover procedure.
+ *
+ * In general we want a system that eventually always ends with different
+ * masters having different configuration epochs whatever happened, since
+ * nothign is worse than a split-brain condition in a distributed system.
+ *
+ * BEHAVIOR
+ *
+ * When this function gets called, what happens is that if this node
+ * has the lexicographically smaller Node ID compared to the other node
+ * with the conflicting epoch (the 'sender' node), it will assign itself
+ * the greatest configuration epoch currently detected among nodes plus 1.
+ *
+ * This means that even if there are multiple nodes colliding, the node
+ * with the greatest Node ID never moves forward, so eventually all the nodes
+ * end with a different configuration epoch.
+ */
+void clusterHandleConfigEpochCollision(clusterNode *sender) {
+    /* Prerequisites: nodes have the same configEpoch and are both masters. */
+    if (sender->configEpoch != myself->configEpoch ||
+        !nodeIsMaster(sender) || !nodeIsMaster(myself)) return;
+    /* Don't act if the colliding node has a smaller Node ID. */
+    if (memcmp(sender->name,myself->name,REDIS_CLUSTER_NAMELEN) <= 0) return;
+    /* Get the next ID available at the best of this node knowledge. */
+    server.cluster->currentEpoch++;
+    myself->configEpoch = server.cluster->currentEpoch;
+    clusterSaveConfigOrDie(1);
+    redisLog(REDIS_VERBOSE,
+        "WARNING: configEpoch collision with node %.40s."
+        " configEpoch set to %llu",
+        sender->name,
+        (unsigned long long) myself->configEpoch);
+}
+
+/* -----------------------------------------------------------------------------
  * CLUSTER nodes blacklist
  *
  * The nodes blacklist is just a way to ensure that a given node with a given
@@ -1397,69 +1522,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         for (j = 0; j < dirty_slots_count; j++)
             delKeysInSlot(dirty_slots[j]);
     }
-}
-
-/* This function is called when this node is a master, and we receive from
- * another master a configuration epoch that is equal to our configuration
- * epoch.
- *
- * BACKGROUND
- *
- * It is not possible that different slaves get the same config
- * epoch during a failover election, because the slaves need to get voted
- * by a majority. However when we perform a manual resharding of the cluster
- * the node will assign a configuration epoch to itself without to ask
- * for agreement. Usually resharding happens when the cluster is working well
- * and is supervised by the sysadmin, however it is possible for a failover
- * to happen exactly while the node we are resharding a slot to assigns itself
- * a new configuration epoch, but before it is able to propagate it.
- *
- * So technically it is possible in this condition that two nodes end with
- * the same configuration epoch.
- *
- * Another possibility is that there are bugs in the implementation causing
- * this to happen.
- *
- * Moreover when a new cluster is created, all the nodes start with the same
- * configEpoch. This collision resolution code allows nodes to automatically
- * end with a different configEpoch at startup automatically.
- *
- * In all the cases, we want a mechanism that resolves this issue automatically
- * as a safeguard. The same configuration epoch for masters serving different
- * set of slots is not harmful, but it is if the nodes end serving the same
- * slots for some reason (manual errors or software bugs) without a proper
- * failover procedure.
- *
- * In general we want a system that eventually always ends with different
- * masters having different configuration epochs whatever happened, since
- * nothign is worse than a split-brain condition in a distributed system.
- *
- * BEHAVIOR
- *
- * When this function gets called, what happens is that if this node
- * has the lexicographically smaller Node ID compared to the other node
- * with the conflicting epoch (the 'sender' node), it will assign itself
- * the greatest configuration epoch currently detected among nodes plus 1.
- *
- * This means that even if there are multiple nodes colliding, the node
- * with the greatest Node ID never moves forward, so eventually all the nodes
- * end with a different configuration epoch.
- */
-void clusterHandleConfigEpochCollision(clusterNode *sender) {
-    /* Prerequisites: nodes have the same configEpoch and are both masters. */
-    if (sender->configEpoch != myself->configEpoch ||
-        !nodeIsMaster(sender) || !nodeIsMaster(myself)) return;
-    /* Don't act if the colliding node has a smaller Node ID. */
-    if (memcmp(sender->name,myself->name,REDIS_CLUSTER_NAMELEN) <= 0) return;
-    /* Get the next ID available at the best of this node knowledge. */
-    server.cluster->currentEpoch++;
-    myself->configEpoch = server.cluster->currentEpoch;
-    clusterSaveConfigOrDie(1);
-    redisLog(REDIS_VERBOSE,
-        "WARNING: configEpoch collision with node %.40s."
-        " configEpoch set to %llu",
-        sender->name,
-        (unsigned long long) myself->configEpoch);
 }
 
 /* When this function is called, there is a packet to process starting
@@ -2582,6 +2644,42 @@ void clusterLogCantFailover(int reason) {
     redisLog(REDIS_WARNING,"Currently unable to failover: %s", msg);
 }
 
+/* This function implements the final part of automatic and manual failovers,
+ * where the slave grabs its master's hash slots, and propagates the new
+ * configuration.
+ *
+ * Note that it's up to the caller to be sure that the node got a new
+ * configuration epoch already. */
+void clusterFailoverReplaceYourMaster(void) {
+    int j;
+    clusterNode *oldmaster = myself->slaveof;
+
+    if (nodeIsMaster(myself) || oldmaster == NULL) return;
+
+    /* 1) Turn this node into a master. */
+    clusterSetNodeAsMaster(myself);
+    replicationUnsetMaster();
+
+    /* 2) Claim all the slots assigned to our master. */
+    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (clusterNodeGetSlotBit(oldmaster,j)) {
+            clusterDelSlot(j);
+            clusterAddSlot(myself,j);
+        }
+    }
+
+    /* 3) Update state and save config. */
+    clusterUpdateState();
+    clusterSaveConfigOrDie(1);
+
+    /* 4) Pong all the other nodes so that they can update the state
+     *    accordingly and detect that we switched to master role. */
+    clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+
+    /* 5) If there was a manual failover in progress, clear the state. */
+    resetManualFailover();
+}
+
 /* This function is called if we are a slave node and our master serving
  * a non-zero amount of hash slots is in FAIL state.
  *
@@ -2596,7 +2694,6 @@ void clusterHandleSlaveFailover(void) {
     int needed_quorum = (server.cluster->size / 2) + 1;
     int manual_failover = server.cluster->mf_end != 0 &&
                           server.cluster->mf_can_start;
-    int j;
     mstime_t auth_timeout, auth_retry_time;
 
     server.cluster->todo_before_sleep &= ~CLUSTER_TODO_HANDLE_FAILOVER;
@@ -2738,26 +2835,12 @@ void clusterHandleSlaveFailover(void) {
 
     /* Check if we reached the quorum. */
     if (server.cluster->failover_auth_count >= needed_quorum) {
-        clusterNode *oldmaster = myself->slaveof;
+        /* We have the quorum, we can finally failover the master. */
 
         redisLog(REDIS_WARNING,
             "Failover election won: I'm the new master.");
-        /* We have the quorum, perform all the steps to correctly promote
-         * this slave to a master.
-         *
-         * 1) Turn this node into a master. */
-        clusterSetNodeAsMaster(myself);
-        replicationUnsetMaster();
 
-        /* 2) Claim all the slots assigned to our master. */
-        for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-            if (clusterNodeGetSlotBit(oldmaster,j)) {
-                clusterDelSlot(j);
-                clusterAddSlot(myself,j);
-            }
-        }
-
-        /* 3) Update my configEpoch to the epoch of the election. */
+        /* Update my configEpoch to the epoch of the election. */
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
             redisLog(REDIS_WARNING,
@@ -2765,16 +2848,8 @@ void clusterHandleSlaveFailover(void) {
                 (unsigned long long) myself->configEpoch);
         }
 
-        /* 4) Update state and save config. */
-        clusterUpdateState();
-        clusterSaveConfigOrDie(1);
-
-        /* 5) Pong all the other nodes so that they can update the state
-         *    accordingly and detect that we switched to master role. */
-        clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
-
-        /* 6) If there was a manual failover in progress, clear the state. */
-        resetManualFailover();
+        /* Take responsability for the cluster slots. */
+        clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES);
     }
@@ -3567,7 +3642,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
     else
         ci = sdscatlen(ci," - ",3);
 
-    /* Latency from the POV of this node, link status */
+    /* Latency from the POV of this node, config epoch, link status */
     ci = sdscatprintf(ci,"%lld %lld %llu %s",
         (long long) node->ping_sent,
         (long long) node->pong_received,
@@ -3760,6 +3835,9 @@ void clusterCommand(redisClient *c) {
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+        /* CLUSTER MYID */
+        addReplyBulkCBuffer(c,myself->name, REDIS_CLUSTER_NAMELEN);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);
@@ -3899,17 +3977,9 @@ void clusterCommand(redisClient *c) {
                  * failover happens at the same time we close the slot, the
                  * configEpoch collision resolution will fix it assigning
                  * a different epoch to each node. */
-                uint64_t maxEpoch = clusterGetMaxEpoch();
-
-                if (myself->configEpoch == 0 ||
-                    myself->configEpoch != maxEpoch)
-                {
-                    server.cluster->currentEpoch++;
-                    myself->configEpoch = server.cluster->currentEpoch;
-                    clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
+                if (clusterBumpConfigEpochWithoutConsensus() == REDIS_OK) {
                     redisLog(REDIS_WARNING,
-                        "configEpoch set to %llu after importing slot %d",
-                        (unsigned long long) myself->configEpoch, slot);
+                        "configEpoch updated after importing slot %d", slot);
                 }
                 server.cluster->importing_slots_from[slot] = NULL;
             }
@@ -4055,7 +4125,7 @@ void clusterCommand(redisClient *c) {
         }
 
         /* Can't replicate a slave. */
-        if (n->slaveof != NULL) {
+        if (nodeIsSlave(n)) {
             addReplyError(c,"I can only replicate a master, not a slave.");
             return;
         }
@@ -4112,24 +4182,31 @@ void clusterCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"failover") &&
                (c->argc == 2 || c->argc == 3))
     {
-        /* CLUSTER FAILOVER [FORCE] */
-        int force = 0;
+        /* CLUSTER FAILOVER [FORCE|TAKEOVER] */
+        int force = 0, takeover = 0;
 
         if (c->argc == 3) {
             if (!strcasecmp(c->argv[2]->ptr,"force")) {
                 force = 1;
+            } else if (!strcasecmp(c->argv[2]->ptr,"takeover")) {
+                takeover = 1;
+                force = 1; /* Takeover also implies force. */
             } else {
                 addReply(c,shared.syntaxerr);
                 return;
             }
         }
 
+        /* Check preconditions. */
         if (nodeIsMaster(myself)) {
             addReplyError(c,"You should send CLUSTER FAILOVER to a slave");
             return;
+        } else if (myself->slaveof == NULL) {
+            addReplyError(c,"I'm a slave but my master is unknown to me");
+            return;
         } else if (!force &&
-                   (myself->slaveof == NULL || nodeFailed(myself->slaveof) ||
-                   myself->slaveof->link == NULL))
+                   (nodeFailed(myself->slaveof) ||
+                    myself->slaveof->link == NULL))
         {
             addReplyError(c,"Master is down or failed, "
                             "please use CLUSTER FAILOVER FORCE");
@@ -4138,15 +4215,24 @@ void clusterCommand(redisClient *c) {
         resetManualFailover();
         server.cluster->mf_end = mstime() + REDIS_CLUSTER_MF_TIMEOUT;
 
-        /* If this is a forced failover, we don't need to talk with our master
-         * to agree about the offset. We just failover taking over it without
-         * coordination. */
-        if (force) {
+        if (takeover) {
+            /* A takeover does not perform any initial check. It just
+             * generates a new configuration epoch for this node without
+             * consensus, claims the master's slots, and broadcast the new
+             * configuration. */
+            redisLog(REDIS_WARNING,"Taking over the master (user request).");
+            clusterBumpConfigEpochWithoutConsensus();
+            clusterFailoverReplaceYourMaster();
+        } else if (force) {
+            /* If this is a forced failover, we don't need to talk with our
+             * master to agree about the offset. We just failover taking over
+             * it without coordination. */
+            redisLog(REDIS_WARNING,"Forced failover user request accepted.");
             server.cluster->mf_can_start = 1;
         } else {
+            redisLog(REDIS_WARNING,"Manual failover user request accepted.");
             clusterSendMFStart(myself->slaveof);
         }
-        redisLog(REDIS_WARNING,"Manual failover user request accepted.");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3)
     {
@@ -4365,11 +4451,12 @@ void restoreCommand(redisClient *c) {
 
 typedef struct migrateCachedSocket {
     int fd;
+    long last_dbid;
     time_t last_use_time;
 } migrateCachedSocket;
 
-/* Return a TCP socket connected with the target instance, possibly returning
- * a cached one.
+/* Return a migrateCachedSocket containing a TCP socket connected with the
+ * target instance, possibly returning a cached one.
  *
  * This function is responsible of sending errors to the client if a
  * connection can't be established. In this case -1 is returned.
@@ -4379,7 +4466,7 @@ typedef struct migrateCachedSocket {
  * If the caller detects an error while using the socket, migrateCloseSocket()
  * should be called so that the connection will be created from scratch
  * the next time. */
-int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
+migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     int fd;
     sds name = sdsempty();
     migrateCachedSocket *cs;
@@ -4392,7 +4479,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     if (cs) {
         sdsfree(name);
         cs->last_use_time = server.unixtime;
-        return cs->fd;
+        return cs;
     }
 
     /* No cached socket, create one. */
@@ -4406,13 +4493,13 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     }
 
     /* Create the socket */
-    fd = anetTcpNonBlockBindConnect(server.neterr,c->argv[1]->ptr,
-                atoi(c->argv[2]->ptr),REDIS_BIND_ADDR);
+    fd = anetTcpNonBlockConnect(server.neterr,c->argv[1]->ptr,
+                                atoi(c->argv[2]->ptr));
     if (fd == -1) {
         sdsfree(name);
         addReplyErrorFormat(c,"Can't connect to target node: %s",
             server.neterr);
-        return -1;
+        return NULL;
     }
     anetEnableTcpNoDelay(server.neterr,fd);
 
@@ -4422,15 +4509,16 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         close(fd);
-        return -1;
+        return NULL;
     }
 
     /* Add to the cache and return it to the caller. */
     cs = zmalloc(sizeof(*cs));
     cs->fd = fd;
+    cs->last_dbid = -1;
     cs->last_use_time = server.unixtime;
     dictAdd(server.migrate_cached_sockets,name,cs);
-    return fd;
+    return cs;
 }
 
 /* Free a migrate cached connection. */
@@ -4471,7 +4559,8 @@ void migrateCloseTimedoutSockets(void) {
 
 /* MIGRATE host port key dbid timeout [COPY | REPLACE] */
 void migrateCommand(redisClient *c) {
-    int fd, copy, replace, j;
+    migrateCachedSocket *cs;
+    int copy, replace, j;
     long timeout;
     long dbid;
     long long ttl, expireat;
@@ -4513,15 +4602,20 @@ try_again:
     }
 
     /* Connect */
-    fd = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
-    if (fd == -1) return; /* error sent to the client by migrateGetSocket() */
+    cs = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
+    if (cs == NULL) return; /* error sent to the client by migrateGetSocket() */
+
+    rioInitWithBuffer(&cmd,sdsempty());
+
+    /* Send the SELECT command if the current DB is not already selected. */
+    int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
+    if (select) {
+        redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
+        redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
+    }
 
     /* Create RESTORE payload and generate the protocol to call the command. */
-    rioInitWithBuffer(&cmd,sdsempty());
-    redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
-    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
-    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
-
     expireat = getExpire(c->db,c->argv[3]);
     if (expireat != -1) {
         ttl = expireat-mstime();
@@ -4559,7 +4653,7 @@ try_again:
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
+            nwritten = syncWrite(cs->fd,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
@@ -4571,28 +4665,33 @@ try_again:
         char buf2[1024];
 
         /* Read the two replies */
-        if (syncReadLine(fd, buf1, sizeof(buf1), timeout) <= 0)
+        if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
             goto socket_rd_err;
-        if (syncReadLine(fd, buf2, sizeof(buf2), timeout) <= 0)
+        if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0)
             goto socket_rd_err;
-        if (buf1[0] == '-' || buf2[0] == '-') {
+        if ((select && buf1[0] == '-') || buf2[0] == '-') {
+            /* On error assume that last_dbid is no longer valid. */
+            cs->last_dbid = -1;
             addReplyErrorFormat(c,"Target instance replied with error: %s",
-                (buf1[0] == '-') ? buf1+1 : buf2+1);
+                (select && buf1[0] == '-') ? buf1+1 : buf2+1);
         } else {
+            /* Update the last_dbid in migrateCachedSocket */
+            cs->last_dbid = dbid;
             robj *aux;
+
+            addReply(c,shared.ok);
 
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,c->argv[3]);
                 signalModifiedKey(c->db,c->argv[3]);
-            }
-            addReply(c,shared.ok);
-            server.dirty++;
+                server.dirty++;
 
-            /* Translate MIGRATE as DEL for replication/AOF. */
-            aux = createStringObject("DEL",3);
-            rewriteClientCommandVector(c,2,aux,c->argv[3]);
-            decrRefCount(aux);
+                /* Translate MIGRATE as DEL for replication/AOF. */
+                aux = createStringObject("DEL",3);
+                rewriteClientCommandVector(c,2,aux,c->argv[3]);
+                decrRefCount(aux);
+            }
         }
     }
 
@@ -4674,7 +4773,12 @@ void readwriteCommand(redisClient *c) {
  *
  * REDIS_CLUSTER_REDIR_UNSTABLE if the request contains mutliple keys
  * belonging to the same slot, but the slot is not stable (in migration or
- * importing state, likely because a resharding is in progress). */
+ * importing state, likely because a resharding is in progress).
+ *
+ * REDIS_CLUSTER_REDIR_DOWN_UNBOUND if the request addresses a slot which is
+ * not bound to any node. In this case the cluster global state should be
+ * already "down" but it is fragile to rely on the update of the global state,
+ * so we also handle it here. */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -4728,7 +4832,18 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
                 firstkey = thiskey;
                 slot = thisslot;
                 n = server.cluster->slots[slot];
-                redisAssertWithInfo(c,firstkey,n != NULL);
+
+                /* Error: If a slot is not served, we are in "cluster down"
+                 * state. However the state is yet to be updated, so this was
+                 * not trapped earlier in processCommand(). Report the same
+                 * error to the client. */
+                if (n == NULL) {
+                    getKeysFreeResult(keyindex);
+                    if (error_code)
+                        *error_code = REDIS_CLUSTER_REDIR_DOWN_UNBOUND;
+                    return NULL;
+                }
+
                 /* If we are migrating or importing this slot, we need to check
                  * if we have all the keys in the request (the only way we
                  * can safely serve the request, otherwise we return a TRYAGAIN
@@ -4816,4 +4931,84 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
      * myself, set error_code to MOVED since we need to issue a rediretion. */
     if (n != myself && error_code) *error_code = REDIS_CLUSTER_REDIR_MOVED;
     return n;
+}
+
+/* Send the client the right redirection code, according to error_code
+ * that should be set to one of REDIS_CLUSTER_REDIR_* macros.
+ *
+ * If REDIS_CLUSTER_REDIR_ASK or REDIS_CLUSTER_REDIR_MOVED error codes
+ * are used, then the node 'n' should not be NULL, but should be the
+ * node we want to mention in the redirection. Moreover hashslot should
+ * be set to the hash slot that caused the redirection. */
+void clusterRedirectClient(redisClient *c, clusterNode *n, int hashslot, int error_code) {
+    if (error_code == REDIS_CLUSTER_REDIR_CROSS_SLOT) {
+        addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
+    } else if (error_code == REDIS_CLUSTER_REDIR_UNSTABLE) {
+        /* The request spawns mutliple keys in the same slot,
+         * but the slot is not "stable" currently as there is
+         * a migration or import in progress. */
+        addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
+    } else if (error_code == REDIS_CLUSTER_REDIR_DOWN_STATE) {
+        addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down\r\n"));
+    } else if (error_code == REDIS_CLUSTER_REDIR_DOWN_UNBOUND) {
+        addReplySds(c,sdsnew("-CLUSTERDOWN Hash slot not served\r\n"));
+    } else if (error_code == REDIS_CLUSTER_REDIR_MOVED ||
+               error_code == REDIS_CLUSTER_REDIR_ASK)
+    {
+        addReplySds(c,sdscatprintf(sdsempty(),
+            "-%s %d %s:%d\r\n",
+            (error_code == REDIS_CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
+            hashslot,n->ip,n->port));
+    } else {
+        redisPanic("getNodeByQuery() unknown error.");
+    }
+}
+
+/* This function is called by the function processing clients incrementally
+ * to detect timeouts, in order to handle the following case:
+ *
+ * 1) A client blocks with BLPOP or similar blocking operation.
+ * 2) The master migrates the hash slot elsewhere or turns into a slave.
+ * 3) The client may remain blocked forever (or up to the max timeout time)
+ *    waiting for a key change that will never happen.
+ *
+ * If the client is found to be blocked into an hash slot this node no
+ * longer handles, the client is sent a redirection error, and the function
+ * returns 1. Otherwise 0 is returned and no operation is performed. */
+int clusterRedirectBlockedClientIfNeeded(redisClient *c) {
+    if (c->flags & REDIS_BLOCKED && c->btype == REDIS_BLOCKED_LIST) {
+        dictEntry *de;
+        dictIterator *di;
+
+        /* If the cluster is down, unblock the client with the right error. */
+        if (server.cluster->state == REDIS_CLUSTER_FAIL) {
+            clusterRedirectClient(c,NULL,0,REDIS_CLUSTER_REDIR_DOWN_STATE);
+            return 1;
+        }
+
+        di = dictGetIterator(c->bpop.keys);
+        while((de = dictNext(di)) != NULL) {
+            robj *key = dictGetKey(de);
+            int slot = keyHashSlot((char*)key->ptr, sdslen(key->ptr));
+            clusterNode *node = server.cluster->slots[slot];
+
+            /* We send an error and unblock the client if:
+             * 1) The slot is unassigned, emitting a cluster down error.
+             * 2) The slot is not handled by this node, nor being imported. */
+            if (node != myself &&
+                server.cluster->importing_slots_from[slot] == NULL)
+            {
+                if (node == NULL) {
+                    clusterRedirectClient(c,NULL,0,
+                        REDIS_CLUSTER_REDIR_DOWN_UNBOUND);
+                } else {
+                    clusterRedirectClient(c,node,slot,
+                        REDIS_CLUSTER_REDIR_MOVED);
+                }
+                return 1;
+            }
+        }
+        dictReleaseIterator(di);
+    }
+    return 0;
 }

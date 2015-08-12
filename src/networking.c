@@ -105,6 +105,7 @@ redisClient *createClient(int fd) {
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
+    c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
@@ -135,23 +136,49 @@ redisClient *createClient(int fd) {
  * returns REDIS_OK, and make sure to install the write handler in our event
  * loop so that when the socket is writable new data gets written.
  *
- * If the client should not receive new data, because it is a fake client,
- * a master, a slave not yet online, or because the setup of the write handler
- * failed, the function returns REDIS_ERR.
+ * If the client should not receive new data, because it is a fake client
+ * (used to load AOF in memory), a master or because the setup of the write
+ * handler failed, the function returns REDIS_ERR.
+ *
+ * The function may return REDIS_OK without actually installing the write
+ * event handler in the following cases:
+ *
+ * 1) The event handler should already be installed since the output buffer
+ *    already contained something.
+ * 2) The client is a slave but not yet online, so we want to just accumulate
+ *    writes in the buffer but not actually sending them yet.
  *
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns REDIS_ERR no
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
+    /* If it's the Lua client we always return ok without installing any
+     * handler since there is no socket at all. */
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
+
+    /* Masters don't receive replies, unless REDIS_MASTER_FORCE_REPLY flag
+     * is set. */
     if ((c->flags & REDIS_MASTER) &&
         !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
-    if (c->fd <= 0) return REDIS_ERR; /* Fake client */
+
+    if (c->fd <= 0) return REDIS_ERR; /* Fake client for AOF loading. */
+
+    /* Only install the handler if not already installed and, in case of
+     * slaves, if the client can actually receive writes. */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
-         c->replstate == REDIS_REPL_ONLINE) &&
-        aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
-        sendReplyToClient, c) == AE_ERR) return REDIS_ERR;
+         (c->replstate == REDIS_REPL_ONLINE && !c->repl_put_online_on_ack)))
+    {
+        /* Try to install the write handler. */
+        if (aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+                sendReplyToClient, c) == AE_ERR)
+        {
+            freeClientAsync(c);
+            return REDIS_ERR;
+        }
+    }
+
+    /* Authorize the caller to queue in the output buffer of this client. */
     return REDIS_OK;
 }
 
@@ -771,7 +798,7 @@ void freeClient(redisClient *c) {
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(redisClient *c) {
-    if (c->flags & REDIS_CLOSE_ASAP) return;
+    if (c->flags & REDIS_CLOSE_ASAP || c->flags & REDIS_LUA_CLIENT) return;
     c->flags |= REDIS_CLOSE_ASAP;
     listAddNodeTail(server.clients_to_close,c);
 }
@@ -948,7 +975,7 @@ int processInlineBuffer(redisClient *c) {
 /* Helper function. Trims query buffer to make the function that processes
  * multi bulk requests idempotent. */
 static void setProtocolError(redisClient *c, int pos) {
-    if (server.verbosity >= REDIS_VERBOSE) {
+    if (server.verbosity <= REDIS_VERBOSE) {
         sds client = catClientInfoString(sdsempty(),c);
         redisLog(REDIS_VERBOSE,
             "Protocol error from client: %s", client);
@@ -1689,7 +1716,9 @@ void pauseClients(mstime_t end) {
 /* Return non-zero if clients are currently paused. As a side effect the
  * function checks if the pause time was reached and clear it. */
 int clientsArePaused(void) {
-    if (server.clients_paused && server.clients_pause_end_time < server.mstime) {
+    if (server.clients_paused &&
+        server.clients_pause_end_time < server.mstime)
+    {
         listNode *ln;
         listIter li;
         redisClient *c;
@@ -1702,7 +1731,10 @@ int clientsArePaused(void) {
         while ((ln = listNext(&li)) != NULL) {
             c = listNodeValue(ln);
 
-            if (c->flags & REDIS_SLAVE) continue;
+            /* Don't touch slaves and blocked clients. The latter pending
+             * requests be processed when unblocked. */
+            if (c->flags & (REDIS_SLAVE|REDIS_BLOCKED)) continue;
+            c->flags |= REDIS_UNBLOCKED;
             listAddNodeTail(server.unblocked_clients,c);
         }
     }

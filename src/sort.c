@@ -209,7 +209,7 @@ void sortCommand(redisClient *c) {
     }
 
     /* Create a list of operations to perform for every sorted element.
-     * Operations can be GET/DEL/INCR/DECR */
+     * Operations can be GET */
     operations = listCreate();
     listSetFreeMethod(operations,zfree);
     j = 2; /* options start at argv[2] */

@@ -264,6 +264,7 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
+#define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
 static int anetTcpGenericConnect(char *err, char *addr, int port,
                                  char *source_addr, int flags)
 {
@@ -295,7 +296,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
             if ((rv = getaddrinfo(source_addr, NULL, &hints, &bservinfo)) != 0)
             {
                 anetSetError(err, "%s", gai_strerror(rv));
-                goto end;
+                goto error;
             }
             for (b = bservinfo; b != NULL; b = b->ai_next) {
                 if (bind(s,b->ai_addr,b->ai_addrlen) != -1) {
@@ -306,7 +307,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
             freeaddrinfo(bservinfo);
             if (!bound) {
                 anetSetError(err, "bind: %s", strerror(errno));
-                goto end;
+                goto error;
             }
         }
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
@@ -331,9 +332,17 @@ error:
         close(s);
         s = ANET_ERR;
     }
+
 end:
     freeaddrinfo(servinfo);
-    return s;
+
+    /* Handle best effort binding: if a binding address was used, but it is
+     * not possible to create a socket, try again without a binding address. */
+    if (s == ANET_ERR && source_addr && (flags & ANET_CONNECT_BE_BINDING)) {
+        return anetTcpGenericConnect(err,addr,port,NULL,flags);
+    } else {
+        return s;
+    }
 }
 
 int anetTcpConnect(char *err, char *addr, int port)
@@ -346,9 +355,18 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
     return anetTcpGenericConnect(err,addr,port,NULL,ANET_CONNECT_NONBLOCK);
 }
 
-int anetTcpNonBlockBindConnect(char *err, char *addr, int port, char *source_addr)
+int anetTcpNonBlockBindConnect(char *err, char *addr, int port,
+                               char *source_addr)
 {
-    return anetTcpGenericConnect(err,addr,port,source_addr,ANET_CONNECT_NONBLOCK);
+    return anetTcpGenericConnect(err,addr,port,source_addr,
+            ANET_CONNECT_NONBLOCK);
+}
+
+int anetTcpNonBlockBestEffortBindConnect(char *err, char *addr, int port,
+                                         char *source_addr)
+{
+    return anetTcpGenericConnect(err,addr,port,source_addr,
+            ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
 int anetUnixGenericConnect(char *err, char *path, int flags)
