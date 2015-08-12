@@ -515,9 +515,9 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     string line;
     string value;
 
-#ifdef _DEBUG
-    cout << "processing " << confFile << endl;
-#endif
+//#ifdef _DEBUG
+//    cout << "processing " << confFile << endl;
+//#endif
     char fullConfFilePath[MAX_PATH];
     if (PathIsRelativeA(confFile.c_str())) {
         if (NULL == PathCombineA(fullConfFilePath, cwd.c_str(), confFile.c_str())) {
@@ -681,26 +681,26 @@ void ParseCommandLineArguments(int argc, char** argv) {
     }
     g_pathsAccessed.push_back(fileCreationDirectory);
 
-#ifdef _DEBUG
-    cout << "arguments seen:" << endl;
-    for (auto key : g_argMap) {
-        cout << key.first << endl;
-        bool first = true;
-        for (auto params : key.second) {
-            cout << "\t";
-            bool firstParam = true;
-            for (auto param : params) {
-                if (firstParam == true) {
-                    firstParam = false;
-                } else {
-                    cout << ", ";
-                }
-                cout << param;
-            }
-            cout << endl;
-        }
-    }
-#endif
+//#ifdef _DEBUG
+//    cout << "arguments seen:" << endl;
+//    for (auto key : g_argMap) {
+//        cout << key.first << endl;
+//        bool first = true;
+//        for (auto params : key.second) {
+//            cout << "\t";
+//            bool firstParam = true;
+//            for (auto param : params) {
+//                if (firstParam == true) {
+//                    firstParam = false;
+//                } else {
+//                    cout << ", ";
+//                }
+//                cout << param;
+//            }
+//            cout << endl;
+//        }
+//    }
+//#endif
 
     ValidateCommandlineCombinations();
 }

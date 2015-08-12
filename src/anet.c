@@ -118,8 +118,7 @@ int anetKeepAlive(char *err, int fd, int interval)
     alive.keepalivetime = interval * 1000; 
     /* According to http://msdn.microsoft.com/en-us/library/windows/desktop/ee470551(v=vs.85).aspx 
        On Windows Vista and later, the number of keep-alive probes (data retransmissions) is set to 10 and cannot be changed. 
-        So we set the keep alive interval as interval/10, as 10 probes will be send before 
-        detecting an error 
+       So we set the keep alive interval as interval/10, as 10 probes will be send before detecting an error 
     */ 
     val = interval/10; 
     if (val == 0) val = 1; 
@@ -301,10 +300,11 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_a
         return ANET_ERR;
     }
 
-    if ((fd = anetCreateSocket(err,ss.ss_family)) == ANET_ERR) {
+    if ((fd = anetCreateSocket(err, ss.ss_family)) == ANET_ERR) {
         return ANET_ERR;
     }
-    if (aeWinSocketConnect(fd, &ss ) == SOCKET_ERROR) {
+
+    if (aeWinSocketConnect(fd, &ss) == SOCKET_ERROR) {
         if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
         if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
             return fd;

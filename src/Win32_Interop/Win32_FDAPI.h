@@ -139,7 +139,6 @@ typedef struct pollfd {
 // WinSock APIs used in Win32_wsiocp.cpp
 typedef int (*redis_WSASend)(int rfd, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
 typedef int (*redis_WSARecv)(int rfd,LPWSABUF lpBuffers,DWORD dwBufferCount,LPDWORD lpNumberOfBytesRecvd,LPDWORD lpFlags,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
-typedef int (*redis_ioctlsocket)(int rfd,long cmd,u_long *argp );
 typedef unsigned long (*redis_inet_addr)(const char *cp);
 typedef struct hostent* (*redis_gethostbyname)(const char *name);
 typedef char* (*redis_inet_ntoa)(struct in_addr in);
@@ -207,7 +206,6 @@ extern redis_pipe pipe;
 extern redis_socket socket;
 extern redis_WSASend WSASend;
 extern redis_WSARecv WSARecv;
-extern redis_ioctlsocket ioctlsocket;
 extern redis_inet_addr inet_addr;
 extern redis_inet_ntoa inet_ntoa;
 extern redis_WSAGetOverlappedResult WSAGetOverlappedResult;
@@ -256,6 +254,7 @@ extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
 BOOL FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
+int FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp);
 HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
 BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
 BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
