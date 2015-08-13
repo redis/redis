@@ -294,17 +294,20 @@ static int anetCreateSocket(char *err, int domain) {
 #ifdef _WIN32
 static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_addr, int flags) {
     int fd;
-    SOCKADDR_STORAGE ss;
+    SOCKADDR_STORAGE socketStorage;
 
-    if (ParseStorageAddress(addr, port, &ss) == FALSE) {
+    if (ParseStorageAddress(addr, port, &socketStorage) == FALSE) {
         return ANET_ERR;
     }
 
-    if ((fd = anetCreateSocket(err, ss.ss_family)) == ANET_ERR) {
+    if ((fd = anetCreateSocket(err, socketStorage.ss_family)) == ANET_ERR) {
         return ANET_ERR;
     }
 
-    if (aeWinSocketConnect(fd, &ss) == SOCKET_ERROR) {
+    // Workaround for getpeername failing to retrieve the endpoint address
+    FDAPI_SaveSocketAddrStorage(fd, &socketStorage);
+
+    if (aeWinSocketConnect(fd, &socketStorage) == SOCKET_ERROR) {
         if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
         if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
             return fd;

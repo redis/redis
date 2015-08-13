@@ -34,6 +34,7 @@ using namespace std;
 typedef struct {
     SOCKET socket;
     void*  state;
+    SOCKADDR_STORAGE socketAddrStorage;
 } SocketInfo;
 
 typedef int RFD;   // Redis File Descriptor

@@ -253,6 +253,7 @@ extern redis_inet_pton inet_pton;
 extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
+void FDAPI_SaveSocketAddrStorage(int rfd, SOCKADDR_STORAGE* socketAddrStorage);
 BOOL FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
 int FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp);
 HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);

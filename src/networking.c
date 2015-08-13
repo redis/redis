@@ -1424,16 +1424,7 @@ int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
     } else {
         /* TCP client. */
         int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
-#ifdef _WIN32
-        if (retval == -1 && client->flags & REDIS_MASTER) {
-            formatPeerId(peerid, peerid_len, "MASTER", 0);
-            retval = 0;
-        } else {
-            formatPeerId(peerid,peerid_len,ip,port);
-        }
-#else
         formatPeerId(peerid,peerid_len,ip,port);
-#endif
         return (retval == -1) ? REDIS_ERR : REDIS_OK;
     }
 }

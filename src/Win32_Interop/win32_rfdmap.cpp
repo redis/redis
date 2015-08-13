@@ -64,6 +64,7 @@ RFD RFDMap::addSocket(SOCKET s) {
         SocketInfo socket_info;
         socket_info.socket = s;
         socket_info.state = NULL;
+        memset(&(socket_info.socketAddrStorage), 0, sizeof(SOCKADDR_STORAGE));
         RFDToSocketInfoMap[rfd] = socket_info;
     }
     LeaveCriticalSection(&mutex);

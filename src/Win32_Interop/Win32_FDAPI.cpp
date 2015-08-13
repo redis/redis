@@ -95,6 +95,13 @@ redis_inet_pton inet_pton = NULL;
 redis_FD_ISSET FD_ISSET = NULL;
 }
 
+void FDAPI_SaveSocketAddrStorage(int rfd, SOCKADDR_STORAGE* socketAddrStorage) {
+    SocketInfo* socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
+    if (socket_info != NULL) {
+        memcpy(&(socket_info->socketAddrStorage), socketAddrStorage, sizeof(SOCKADDR_STORAGE));
+    }
+}
+
 BOOL FDAPI_SetFDInformation(int rfd, DWORD mask, DWORD flags) {
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
@@ -968,7 +975,17 @@ int redis_getpeername_impl(int rfd, struct sockaddr *addr, socklen_t * addrlen) 
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
         if (socket != INVALID_SOCKET) {
-            return f_getpeername(socket, addr, addrlen);
+            int result = f_getpeername(socket, addr, addrlen);
+            // Workaround for getpeername failing to retrieve the endpoint address
+            if (result != 0) {
+                SocketInfo* socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
+                if (socket_info != NULL) {
+                    memcpy(addr, &(socket_info->socketAddrStorage), sizeof(SOCKADDR_STORAGE));
+                    *addrlen = sizeof(SOCKADDR_STORAGE);
+                    return 0;
+                }
+            }
+            return result;
         }
     } CATCH_AND_REPORT();
 
@@ -1159,7 +1176,7 @@ int redis_inet_pton_impl(int family, const char* src, void* dst) {
     }
 }
 
-BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr) {
+BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pStorageAddr) {
     struct addrinfo hints, *res;
     int status;
     char port_buffer[6];
@@ -1177,7 +1194,7 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAdd
     }
 
     // Note, we're taking the first valid address, there may be more than one
-    memcpy(pSotrageAddr, res->ai_addr, res->ai_addrlen);
+    memcpy(pStorageAddr, res->ai_addr, res->ai_addrlen);
 
     freeaddrinfo(res);
     return TRUE;
