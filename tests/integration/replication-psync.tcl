@@ -63,20 +63,12 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
                         catch {
                             if {$delay} {
                                 $slave multi
-								if { $::tcl_platform(platform) == "windows" } {
-									$slave client kill MASTER:0
-								} else {
-									$slave client kill $master_host:$master_port
-								}
+								$slave client kill $master_host:$master_port
 
                                 $slave debug sleep $delay
                                 $slave exec
                             } else {
-								if { $::tcl_platform(platform) == "windows" } {
-									$slave client kill MASTER:0
-								} else {
-									$slave client kill $master_host:$master_port
-								}
+								$slave client kill $master_host:$master_port
                             }
                         }
                     }
