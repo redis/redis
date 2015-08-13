@@ -870,8 +870,10 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (errno == EAGAIN) {
             nwritten = 0;
         } else {
-            serverLog(LL_VERBOSE,
-                "Error writing to client: %s", strerror(errno));
+            if (server.verbosity <= LL_VERBOSE) {
+                serverLog(LL_VERBOSE,
+                    "Error writing to client(%s): %s", getClientPeerId(c), strerror(errno));
+            }
             freeClient(c);
             return;
         }
@@ -1192,12 +1194,18 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (errno == EAGAIN) {
             return;
         } else {
-            serverLog(LL_VERBOSE, "Reading from client: %s",strerror(errno));
+            if (server.verbosity <= LL_VERBOSE) {
+                serverLog(LL_VERBOSE, "Reading from client(%s): %s", getClientPeerId(c), strerror(errno));
+            }
+
             freeClient(c);
             return;
         }
     } else if (nread == 0) {
-        serverLog(LL_VERBOSE, "Client closed connection");
+        if (server.verbosity <= LL_VERBOSE) {
+            serverLog(LL_VERBOSE, "Client(%s) closed connection", getClientPeerId(c));
+        }
+
         freeClient(c);
         return;
     }
