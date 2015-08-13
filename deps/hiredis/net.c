@@ -160,16 +160,15 @@ int redisKeepAlive(redisContext *c, int interval) {
         settings.keepalivetime = interval*1000;
         settings.keepaliveinterval = interval*1000/3;
         overlapped.hEvent = NULL;
-        WSAIoctl(
-            fd,
-            SIO_KEEPALIVE_VALS,
-            &settings,
-            sizeof(struct tcp_keepalive),
-            NULL,
-            0,
-            &bytesReturned,
-            &overlapped,
-            NULL);
+        FDAPI_WSAIoctl(fd,
+                       SIO_KEEPALIVE_VALS,
+                       &settings,
+                       sizeof(struct tcp_keepalive),
+                       NULL,
+                       0,
+                       &bytesReturned,
+                       &overlapped,
+                       NULL);
     }
 #else
     val = interval;

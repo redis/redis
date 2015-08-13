@@ -78,44 +78,21 @@ BOOL aeWinDelSocketState(aeSockState* pSocketState) {
 
 /* For each asynch socket, need to associate completion port */
 int aeWinSocketAttach(int fd, aeSockState *socketState) {
-    if (iocph == NULL) {
-        return -1;
-    }
-
     if (socketState == NULL) {
         socketState = aeWinGetSocketState(fd);
-        if (socketState == NULL) {
-            errno = WSAEINVAL;
-            return -1;
+    }
+
+    if (iocph != NULL && socketState != NULL) {
+        if (FDAPI_SocketAttachIOCP(fd, iocph)) {
+            socketState->masks = SOCKET_ATTACHED;
+            socketState->wreqs = 0;
+            return 0;
         }
+    } else {
+        errno = WSAEINVAL;
     }
 
-    // Set the socket to nonblocking mode
-    DWORD yes = 1;
-    if (FDAPI_ioctlsocket(fd, FIONBIO, &yes) == SOCKET_ERROR) {
-        errno = WSAGetLastError();
-        return -1;
-    }
-
-    // Make the socket non-inheritable
-    if (!FDAPI_SetFDInformation(fd, HANDLE_FLAG_INHERIT, 0)) {
-        errno = WSAGetLastError();
-        return -1;
-    }
-
-    // Associate it with the I/O completion port.
-    // Use FD as completion key.
-    if (FDAPI_CreateIoCompletionPortOnFD(fd,
-        iocph,
-        (ULONG_PTR) fd,
-        0) == NULL) {
-        errno = WSAGetLastError();
-        return -1;
-    }
-    socketState->masks = SOCKET_ATTACHED;
-    socketState->wreqs = 0;
-
-    return 0;
+    return -1;
 }
 
 int aeWinQueueAccept(int listenfd) {
@@ -157,7 +134,7 @@ int aeWinQueueAccept(int listenfd) {
     if (SUCCEEDED_WITH_IOCP(result)){
         sockstate->masks |= ACCEPT_PENDING;
     } else {
-        errno = WSAGetLastError();
+        errno = FDAPI_WSAGetLastError();
         sockstate->masks &= ~ACCEPT_PENDING;
         close(acceptfd);
         accsockstate->masks = 0;
@@ -185,11 +162,11 @@ int aeWinListen(int rfd, int backlog) {
 
     if (listen(rfd, backlog) == 0) {
         if (aeWinQueueAccept(rfd) == -1) {
-            errno = WSAGetLastError();
+            errno = FDAPI_WSAGetLastError();
             return SOCKET_ERROR;
         }
     } else {
-        errno = WSAGetLastError();
+        errno = FDAPI_WSAGetLastError();
     }
 
     return 0;
@@ -223,7 +200,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     result = FDAPI_UpdateAcceptContext(acceptfd);
     if (result == SOCKET_ERROR) {
-        errno = WSAGetLastError();
+        errno = FDAPI_WSAGetLastError();
         FreeMemoryNoCOW(areq->buf);
         FreeMemoryNoCOW(areq);
         return SOCKET_ERROR;
@@ -296,7 +273,7 @@ int aeWinReceiveDone(int fd) {
     if (SUCCEEDED_WITH_IOCP(result == 0)){
         sockstate->masks |= READ_QUEUED;
     } else {
-        errno = WSAGetLastError();
+        errno = FDAPI_WSAGetLastError();
         sockstate->masks &= ~READ_QUEUED;
         return -1;
     }
@@ -326,7 +303,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
         proc == NULL) {
         result = (int) write(fd, buf, len);
         if (result == SOCKET_ERROR) {
-            errno = WSAGetLastError();
+            errno = FDAPI_WSAGetLastError();
         }
         return result;
     }
@@ -355,7 +332,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
         sockstate->wreqs++;
         listAddNodeTail(&sockstate->wreqlist, areq);
     } else {
-        errno = WSAGetLastError();
+        errno = FDAPI_WSAGetLastError();
         FreeMemoryNoCOW(areq);
     }
     return SOCKET_ERROR;
@@ -407,7 +384,7 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
     }
 
     if (result != TRUE) {
-        result = WSAGetLastError();
+        result = FDAPI_WSAGetLastError();
         if (result == ERROR_IO_PENDING) {
             errno = WSA_IO_PENDING;
             sockstate->masks |= CONNECT_PENDING;
@@ -419,7 +396,7 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
     return 0;
 }
 
-int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr) {
+int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, const char* source_addr) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
     aeSockState *sockstate;
@@ -436,12 +413,14 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
 
     // Need to bind sock before connectex
-    switch (ss->ss_family) {
+    int storageSize = 0;
+    switch (socketAddrStorage->ss_family) {
         case AF_INET:
         {
+            storageSize = sizeof(SOCKADDR_IN);
             SOCKADDR_IN addr;
-            memset(&addr, 0, sizeof(SOCKADDR_IN));
-            addr.sin_family = ss->ss_family;
+            memset(&addr, 0, storageSize);
+            addr.sin_family = socketAddrStorage->ss_family;
             addr.sin_addr.S_un.S_addr = INADDR_ANY;
             addr.sin_port = 0;
             result = bind(fd, (SOCKADDR*) &addr, sizeof(addr));
@@ -449,9 +428,10 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
         case AF_INET6:
         {
+            storageSize = sizeof(SOCKADDR_IN6);
             SOCKADDR_IN6 addr;
-            memset(&addr, 0, sizeof(SOCKADDR_IN6));
-            addr.sin6_family = ss->ss_family;
+            memset(&addr, 0, storageSize);
+            addr.sin6_family = socketAddrStorage->ss_family;
             memset(&(addr.sin6_addr.u.Byte), 0, 16);
             addr.sin6_port = 0;
             result = bind(fd, (SOCKADDR*) &addr, sizeof(addr));
@@ -463,9 +443,9 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
     }
 
-    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR) ss, StorageSize(ss), NULL, 0, NULL, &sockstate->ov_read);
+    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR) socketAddrStorage, storageSize, NULL, 0, NULL, &sockstate->ov_read);
     if (result != TRUE) {
-        result = WSAGetLastError();
+        result = FDAPI_WSAGetLastError();
         if (result == ERROR_IO_PENDING) {
             errno = WSA_IO_PENDING;
             sockstate->masks |= CONNECT_PENDING;

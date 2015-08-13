@@ -221,7 +221,6 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 #ifdef _WIN32
     nread = read(c->context->fd,buf,sizeof(buf));
     if (nread == -1) {
-        errno = WSAGetLastError();
         if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
             errno = EAGAIN;
             aeWinReceiveDone((int)c->context->fd);

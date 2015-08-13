@@ -36,27 +36,10 @@ typedef unsigned long nfds_t;
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defined below.
 #include "win32_types.h"
 #include <WinSock2.h>
-#undef FD_ISSET
 #include <fcntl.h>
 #include <stdio.h>
 
 // the following are required to be defined before WS2tcpip is included.
-typedef void (*redis_WSASetLastError)(int iError);
-typedef int (*redis_WSAGetLastError)(void);
-typedef int (*redis_WSAIoctl)(int rfd,DWORD dwIoControlCode,LPVOID lpvInBuffer,DWORD cbInBuffer,LPVOID lpvOutBuffer,DWORD cbOutBuffer,LPDWORD lpcbBytesReturned,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-extern redis_WSASetLastError WSASetLastError;
-extern redis_WSAGetLastError WSAGetLastError;
-extern redis_WSAIoctl WSAIoctl;
-
-#ifdef __cplusplus
-}
-#endif
 
 // including a version of this file modified to eliminate prototype definitions not removed by INCL_WINSOCK_API_PROTOTYPES
 #include "WS2tcpip.h"
@@ -189,7 +172,6 @@ typedef int (*redis_access)(const char *pathname, int mode);
 typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence); 
 typedef intptr_t (*redis_get_osfhandle)(int fd);
 typedef int (*redis_open_osfhandle)(intptr_t osfhandle, int flags);
-typedef int(*redis_FD_ISSET)(int fd, fd_set *);
 
 // access() mode definitions 
 #define X_OK    0
@@ -204,10 +186,11 @@ extern "C"
 // API replacements
 extern redis_pipe pipe;
 extern redis_socket socket;
-extern redis_WSASend WSASend;
-extern redis_WSARecv WSARecv;
 extern redis_inet_addr inet_addr;
 extern redis_inet_ntoa inet_ntoa;
+
+extern redis_WSASend WSASend;
+extern redis_WSARecv WSARecv;
 extern redis_WSAGetOverlappedResult WSAGetOverlappedResult;
 extern redis_WSADuplicateSocket WSADuplicateSocket;
 extern redis_WSASocket WSASocket;
@@ -250,13 +233,10 @@ extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
 extern redis_inet_pton inet_pton;
-extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
 void FDAPI_SaveSocketAddrStorage(int rfd, SOCKADDR_STORAGE* socketAddrStorage);
-BOOL FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
-int FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp);
-HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
+BOOL FDAPI_SocketAttachIOCP(int rfd, HANDLE iocph);
 BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
 BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
 void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
@@ -264,10 +244,11 @@ int FDAPI_UpdateAcceptContext( int fd );
 int FDAPI_PipeSetNonBlock(int rfd, int non_blocking);
 void** FDAPI_GetSocketStatePtr(int rfd);
 void FDAPI_ClearSocketState(int fd);
+int FDAPI_WSAIoctl(int rfd, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+int FDAPI_WSAGetLastError(void);
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
-int StorageSize(const SOCKADDR_STORAGE *ss);
 
 // macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS
@@ -283,7 +264,5 @@ int StorageSize(const SOCKADDR_STORAGE *ss);
 #endif
 
 #ifdef __cplusplus
-
-bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor);
 }
 #endif

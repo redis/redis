@@ -123,9 +123,9 @@ int anetKeepAlive(char *err, int fd, int interval)
     val = interval/10; 
     if (val == 0) val = 1; 
     alive.keepaliveinterval = val*1000; 
-    if(WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive), 
+    if (FDAPI_WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
        NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) { 
-        anetSetError(err, "WSAIotcl(SIO_KEEPALIVE_VALS) failed with error code %d\n", WSAGetLastError()); 
+        anetSetError(err, "WSAIotcl(SIO_KEEPALIVE_VALS) failed with error code %d\n", strerror(errno));
     	return ANET_ERR; 
     } 
 #else
@@ -264,7 +264,6 @@ static int anetSetReuseAddr(char *err, int fd) {
     /* Make sure connection-intensive things like the redis benckmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
-        WIN32_ONLY(errno = WSAGetLastError();)
         anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
         return ANET_ERR;
     }
@@ -274,7 +273,6 @@ static int anetSetReuseAddr(char *err, int fd) {
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, IF_WIN32(IPPROTO_TCP,0))) == -1) {
-        WIN32_ONLY(errno = WSAGetLastError();)
         anetSetError(err, "create socket error: %s", strerror(errno));
         return ANET_ERR;
     }

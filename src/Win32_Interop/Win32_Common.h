@@ -23,11 +23,14 @@
 #ifndef WIN32_COMMON_H
 #define WIN32_COMMON_H
 
-void EnsureMemoryIsMapped(const void *buffer, size_t size);
+#include <Windows.h>
 
 namespace Globals {
     // forward declarations only
     extern size_t pageSize;
 }
+
+void EnsureMemoryIsMapped(const void *buffer, size_t size);
+bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor);
 
 #endif

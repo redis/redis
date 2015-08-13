@@ -1053,7 +1053,6 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (nread <= 0) {
 #ifdef _WIN32
         if (server.repl_transfer_size) {
-            errno = WSAGetLastError();
             redisLog(REDIS_WARNING,"I/O error %d (left %Iu) trying to sync with MASTER: %s",
                 errno, server.repl_transfer_size,
                 (nread == -1) ? wsa_strerror(errno) : "connection lost");

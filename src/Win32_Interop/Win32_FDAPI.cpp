@@ -33,15 +33,14 @@
 #include "win32_util.h"
 #include <string>
 #include "Win32_RedisLog.h"
+#include "Win32_Common.h"
+
 using namespace std;
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}
 
 extern "C" {
 // FD lookup Winsock equivalents for Win32_wsiocp.c
-redis_WSASetLastError WSASetLastError = NULL;
-redis_WSAGetLastError WSAGetLastError = NULL;
-redis_WSAIoctl WSAIoctl = NULL;
 redis_WSASend WSASend = NULL;
 redis_WSARecv WSARecv = NULL;
 redis_WSAGetOverlappedResult WSAGetOverlappedResult = NULL;
@@ -92,7 +91,11 @@ redis_freeaddrinfo freeaddrinfo = NULL;
 redis_getaddrinfo getaddrinfo = NULL;
 redis_inet_ntop inet_ntop = NULL;
 redis_inet_pton inet_pton = NULL;
-redis_FD_ISSET FD_ISSET = NULL;
+}
+
+auto f_WSAGetLastError = dllfunctor_stdcall<int>("ws2_32.dll", "WSAGetLastError");
+int FDAPI_WSAGetLastError(void) {
+    return f_WSAGetLastError();
 }
 
 void FDAPI_SaveSocketAddrStorage(int rfd, SOCKADDR_STORAGE* socketAddrStorage) {
@@ -102,23 +105,52 @@ void FDAPI_SaveSocketAddrStorage(int rfd, SOCKADDR_STORAGE* socketAddrStorage) {
     }
 }
 
-BOOL FDAPI_SetFDInformation(int rfd, DWORD mask, DWORD flags) {
-    try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
-            return SetHandleInformation((HANDLE) socket, mask, flags);
-        }
-    } CATCH_AND_REPORT();
+auto f_ioctlsocket = dllfunctor_stdcall<int, SOCKET, long, u_long*>("ws2_32.dll", "ioctlsocket");
 
+BOOL FDAPI_SocketAttachIOCP(int rfd, HANDLE iocph) {
+    SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
+    if (socket != INVALID_SOCKET) {
+        // Set the socket to nonblocking mode
+        DWORD yes = 1;
+        if (f_ioctlsocket(socket, FIONBIO, &yes) != SOCKET_ERROR) {
+            // Make the socket non-inheritable
+            if (SetHandleInformation((HANDLE) socket, HANDLE_FLAG_INHERIT, 0)) {
+                // Associate it with the I/O completion port.
+                // Use the rfd as the completion key.
+                if (CreateIoCompletionPort((HANDLE) socket,
+                                           iocph,
+                                           (ULONG_PTR) rfd,
+                                           0) != NULL) {
+                    return TRUE;
+                }
+            }
+        }
+        errno = f_WSAGetLastError();
+    } else {
+        errno = EBADF;
+    }
     return FALSE;
 }
 
-auto f_ioctlsocket = dllfunctor_stdcall<int, SOCKET, long, u_long*>("ws2_32.dll", "ioctlsocket");
-int FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp) {
+auto f_WSAIoctl = dllfunctor_stdcall<int, SOCKET, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPVOID, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE>("ws2_32.dll", "WSAIoctl");
+int FDAPI_WSAIoctl(int rfd, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
         if (socket != INVALID_SOCKET) {
-            return f_ioctlsocket(socket, cmd, argp);
+            if (f_WSAIoctl(socket,
+                           dwIoControlCode,
+                           lpvInBuffer,
+                           cbInBuffer,
+                           lpvOutBuffer,
+                           cbOutBuffer,
+                           lpcbBytesReturned,
+                           lpOverlapped,
+                           lpCompletionRoutine) == 0) {
+                return 0;
+            } else {
+                errno = f_WSAGetLastError();
+                return SOCKET_ERROR;
+            }
         }
     } CATCH_AND_REPORT();
 
@@ -126,18 +158,6 @@ int FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp) {
     return SOCKET_ERROR;
 }
 
-HANDLE FDAPI_CreateIoCompletionPortOnFD(int rfd, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads) {
-    try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
-            return CreateIoCompletionPort((HANDLE) socket, ExistingCompletionPort, CompletionKey, NumberOfConcurrentThreads);
-        }
-    } CATCH_AND_REPORT();
-
-    return INVALID_HANDLE_VALUE;
-}
-
-auto f_WSAIoctl = dllfunctor_stdcall<int, SOCKET, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPVOID, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE>("ws2_32.dll", "WSAIoctl");
 BOOL FDAPI_AcceptEx(int listenFD, int acceptFD, PVOID lpOutputBuffer, DWORD dwReceiveDataLength, DWORD dwLocalAddressLength, DWORD dwRemoteAddressLength, LPDWORD lpdwBytesReceived, LPOVERLAPPED lpOverlapped) {
     try {
         SOCKET sListen = RFDMap::getInstance().lookupSocket(listenFD);
@@ -165,38 +185,18 @@ BOOL FDAPI_AcceptEx(int listenFD, int acceptFD, PVOID lpOutputBuffer, DWORD dwRe
     return FALSE;
 }
 
-bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor) {
-	OSVERSIONINFOEXW osvi = { sizeof(osvi), 0, 0, 0, 0, { 0 }, 0, 0 };
-	DWORDLONG        const dwlConditionMask = VerSetConditionMask(
-		VerSetConditionMask(
-		VerSetConditionMask(
-		0, VER_MAJORVERSION, VER_GREATER_EQUAL),
-		VER_MINORVERSION, VER_GREATER_EQUAL),
-		VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
-
-	osvi.dwMajorVersion = wMajorVersion;
-	osvi.dwMinorVersion = wMinorVersion;
-	osvi.wServicePackMajor = wServicePackMajor;
-
-	return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, dwlConditionMask) != FALSE;
-}
-
-#ifndef _WIN32_WINNT_WIN8
-#define _WIN32_WINNT_WIN8                   0x0602
-#endif
-
 #ifndef SIO_LOOPBACK_FAST_PATH
 const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
 #endif
 
 void EnableFastLoopback(SOCKET socket) {
-    // If Win8+, use fast path option on loopback 
-    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN8), LOBYTE(_WIN32_WINNT_WIN8), 0)) {
+    // If Win8+ (6.2), use fast path option on loopback
+    if (IsWindowsVersionAtLeast(6, 2, 0)) {
         int enabled = 1;
         DWORD result_byte_count = -1;
         int result = f_WSAIoctl(socket, SIO_LOOPBACK_FAST_PATH, &enabled, sizeof(enabled), NULL, 0, &result_byte_count, NULL, NULL);
         if (result != 0) {
-            throw std::system_error(WSAGetLastError(), system_category(), "WSAIoctl failed");
+            throw std::system_error(f_WSAGetLastError(), system_category(), "WSAIoctl failed");
         }
     }
 }
@@ -209,15 +209,15 @@ BOOL FDAPI_ConnectEx(int rfd, const struct sockaddr *name, int namelen, PVOID lp
             const GUID wsaid_connectex = WSAID_CONNECTEX;
             DWORD bytes;
 
-            if (SOCKET_ERROR == WSAIoctl(rfd,
-                                         SIO_GET_EXTENSION_FUNCTION_POINTER,
-                                         (void *) &wsaid_connectex,
-                                         sizeof(GUID),
-                                         &connectex,
-                                         sizeof(LPFN_ACCEPTEX),
-                                         &bytes,
-                                         NULL,
-                                         NULL)) {
+            if (SOCKET_ERROR == f_WSAIoctl(socket,
+                                           SIO_GET_EXTENSION_FUNCTION_POINTER,
+                                           (void *) &wsaid_connectex,
+                                           sizeof(GUID),
+                                           &connectex,
+                                           sizeof(LPFN_ACCEPTEX),
+                                           &bytes,
+                                           NULL,
+                                           NULL)) {
                 return FALSE;
             }
 
@@ -243,15 +243,15 @@ void FDAPI_GetAcceptExSockaddrs(int rfd, PVOID lpOutputBuffer, DWORD dwReceiveDa
             const GUID wsaid_getacceptsockaddrs = WSAID_GETACCEPTEXSOCKADDRS;
             DWORD bytes;
 
-            if (SOCKET_ERROR == WSAIoctl(rfd,
-                                         SIO_GET_EXTENSION_FUNCTION_POINTER,
-                                         (void *) &wsaid_getacceptsockaddrs,
-                                         sizeof(GUID),
-                                         &getacceptsockaddrs,
-                                         sizeof(LPFN_ACCEPTEX),
-                                         &bytes,
-                                         NULL,
-                                         NULL)) {
+            if (SOCKET_ERROR == f_WSAIoctl(socket,
+                                           SIO_GET_EXTENSION_FUNCTION_POINTER,
+                                           (void *) &wsaid_getacceptsockaddrs,
+                                           sizeof(GUID),
+                                           &getacceptsockaddrs,
+                                           sizeof(LPFN_ACCEPTEX),
+                                           &bytes,
+                                           NULL,
+                                           NULL)) {
                 return;
             }
 
@@ -267,17 +267,20 @@ void FDAPI_GetAcceptExSockaddrs(int rfd, PVOID lpOutputBuffer, DWORD dwReceiveDa
     } CATCH_AND_REPORT();
 }
 
+auto f_setsockopt = dllfunctor_stdcall<int, SOCKET, int, int, const char*, int>("ws2_32.dll", "setsockopt");
+
 int FDAPI_UpdateAcceptContext(int rfd) {
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
         if (socket != INVALID_SOCKET) {
-            return setsockopt(rfd,
-                              SOL_SOCKET,
-                              SO_UPDATE_ACCEPT_CONTEXT,
-                              (char*) &socket,
-                              sizeof(SOCKET));
+            return f_setsockopt(socket,
+                                SOL_SOCKET,
+                                SO_UPDATE_ACCEPT_CONTEXT,
+                                (char*) &socket,
+                                sizeof(SOCKET));
         }
     } CATCH_AND_REPORT();
+
     errno = EBADF;
     return SOCKET_ERROR;
 }
@@ -302,19 +305,6 @@ void FDAPI_ClearSocketState(int rfd) {
     } else {
         redisLog(REDIS_WARNING, "ClearSocketState called on non attached socket.");
     }
-}
-
-auto f_socket = dllfunctor_stdcall<SOCKET, int, int, int>("ws2_32.dll", "socket");
-int redis_socket_impl(int af, int type, int protocol) {
-    try {
-        SOCKET socket = f_socket(af, type, protocol);
-        if (socket != INVALID_SOCKET) {
-            return RFDMap::getInstance().addSocket(socket);
-        }
-    } CATCH_AND_REPORT();
-
-    errno = EBADF;
-    return -1;
 }
 
 int FDAPI_PipeSetNonBlock(int rfd, int non_blocking) {
@@ -381,6 +371,22 @@ int redis_pipe_impl(int *pfds) {
     return result;
 }
 
+auto f_socket = dllfunctor_stdcall<SOCKET, int, int, int>("ws2_32.dll", "socket");
+int redis_socket_impl(int af, int type, int protocol) {
+    try {
+        SOCKET socket = f_socket(af, type, protocol);
+        if (socket != INVALID_SOCKET) {
+            return RFDMap::getInstance().addSocket(socket);
+        } else {
+            errno = f_WSAGetLastError();
+            return -1;
+        }
+    } CATCH_AND_REPORT();
+
+    errno = EBADF;
+    return -1;
+}
+
 // In unix a fd is a fd. All are closed with close().
 auto f_closesocket = dllfunctor_stdcall<int, SOCKET>("ws2_32.dll", "closesocket");
 int redis_close_impl(RFD rfd) {
@@ -429,7 +435,7 @@ int redis_accept_impl(int rfd, struct sockaddr *addr, socklen_t *addrlen) {
             if (sAccept != INVALID_SOCKET) {
                 return RFDMap::getInstance().addSocket(sAccept);
             } else {
-                errno = WSAGetLastError();
+                errno = f_WSAGetLastError();
                 if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
                     errno = EAGAIN;
                     return -1;
@@ -442,12 +448,16 @@ int redis_accept_impl(int rfd, struct sockaddr *addr, socklen_t *addrlen) {
     return -1;
 }
 
-auto f_setsockopt = dllfunctor_stdcall<int, SOCKET, int, int, const char*, int>("ws2_32.dll", "setsockopt");
 int redis_setsockopt_impl(int rfd, int level, int optname, const void *optval, socklen_t optlen) {
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
         if (socket != INVALID_SOCKET) {
-            return f_setsockopt(socket, level, optname, (const char*) optval, optlen);
+            if (f_setsockopt(socket, level, optname, (const char*) optval, optlen) == 0) {
+                return 0;
+            } else {
+                errno = f_WSAGetLastError();
+                return -1;
+            }
         }
     } CATCH_AND_REPORT();
 
@@ -469,7 +479,7 @@ int redis_fcntl_impl(int rfd, int cmd, int flags = 0 ) {
                 {
                     u_long fionbio_flags = (flags & O_NONBLOCK);
                     if (f_ioctlsocket(socket, FIONBIO, &fionbio_flags) == SOCKET_ERROR) {
-                        errno = WSAGetLastError();
+                        errno = f_WSAGetLastError();
                         return -1;
                     } else {
                         RFDMap::getInstance().SetSocketFlags(socket, flags);
@@ -490,25 +500,6 @@ int redis_fcntl_impl(int rfd, int cmd, int flags = 0 ) {
 }
 
 static auto f_WSAFDIsSet = dllfunctor_stdcall<int, SOCKET, fd_set*>("ws2_32.dll", "__WSAFDIsSet");
-#define FD_ISSET(fd, set) f_WSAFDIsSet((SOCKET)(fd), (fd_set *)(set))
-int redis_FD_ISSET_impl(int rfd, fd_set* pSet) {
-    fd_set copy;
-    FD_ZERO(&copy);
-    for (u_int n = 0; n < pSet->fd_count; n++)  {
-        SOCKET socket = RFDMap::getInstance().lookupSocket((RFD) (pSet->fd_array[n]));
-        if (socket == INVALID_SOCKET) {
-            errno = EBADF;
-            return -1;
-        }
-        FD_SET(socket, &copy);
-    }
-    SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-    if (socket == INVALID_SOCKET) {
-        errno = EBADF;
-        return -1;
-    }
-    return f_WSAFDIsSet(socket, &copy);
-}
 
 int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
     try {
@@ -525,7 +516,7 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
             pollCopy[n].revents = fds[n].revents;
         }
 
-        if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+        if (IsWindowsVersionAtLeast(6, 0, 0)) {
             static auto f_WSAPoll = dllfunctor_stdcall<int, WSAPOLLFD*, ULONG, INT>("ws2_32.dll", "WSAPoll");
 
             // WSAPoll implementation has a bug that cause the client to wait forever on a non-existant endpoint 
@@ -587,9 +578,9 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
             for (i = 0; i < nfds; i++) {
                 fds[i].revents = 0;
 
-                if (FD_ISSET(pollCopy[i].fd, &readSet)) fds[i].revents |= POLLIN;
-                if (FD_ISSET(pollCopy[i].fd, &writeSet)) fds[i].revents |= POLLOUT;
-                if (FD_ISSET(pollCopy[i].fd, &excepSet)) fds[i].revents |= POLLERR;
+                if (f_WSAFDIsSet(pollCopy[i].fd, &readSet)) fds[i].revents |= POLLIN;
+                if (f_WSAFDIsSet(pollCopy[i].fd, &writeSet)) fds[i].revents |= POLLOUT;
+                if (f_WSAFDIsSet(pollCopy[i].fd, &excepSet)) fds[i].revents |= POLLERR;
             }
 
             delete pollCopy;
@@ -624,7 +615,7 @@ int redis_connect_impl(int rfd, const struct sockaddr *addr, size_t addrlen) {
         if (socket != INVALID_SOCKET) {
             EnableFastLoopback(socket);
             int result = f_connect(socket, addr, (int) addrlen);
-            errno = WSAGetLastError();
+            errno = f_WSAGetLastError();
             if ((errno == WSAEINVAL) || (errno == WSAEWOULDBLOCK) || (errno == WSA_IO_PENDING)) {
                 errno = EINPROGRESS;
             }
@@ -831,16 +822,6 @@ int redis_shutdown_impl(int rfd, int how) {
     return -1;
 }
 
-auto f_WSASetLastError = dllfunctor_stdcall<void, int>("ws2_32.dll", "WSASetLastError");
-void redis_WSASetLastError_impl(int iError) {
-    f_WSASetLastError(iError);
-}
-
-auto f_WSAGetLastError = dllfunctor_stdcall<int>("ws2_32.dll", "WSAGetLastError");
-int redis_WSAGetLastError_impl(void) {
-    return f_WSAGetLastError();
-}
-
 auto f_WSAGetOverlappedResult = dllfunctor_stdcall<BOOL, SOCKET, LPWSAOVERLAPPED, LPDWORD, BOOL, LPDWORD>("ws2_32.dll", "WSAGetOverlappedResult");
 BOOL redis_WSAGetOverlappedResult_impl(int rfd, LPWSAOVERLAPPED lpOverlapped, LPDWORD lpcbTransfer, BOOL fWait, LPDWORD lpdwFlags) {
     try {
@@ -883,26 +864,6 @@ int redis_WSASocket_impl(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpPr
     } CATCH_AND_REPORT();
 
     return -1;
-}
-
-int redis_WSAIoctl_impl(RFD rfd, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
-            return f_WSAIoctl(socket, 
-                              dwIoControlCode,
-                              lpvInBuffer,
-                              cbInBuffer,
-                              lpvOutBuffer,
-                              cbOutBuffer,
-                              lpcbBytesReturned,
-                              lpOverlapped,
-                              lpCompletionRoutine);
-        }
-    } CATCH_AND_REPORT();
-
-    errno = EBADF;
-    return SOCKET_ERROR;
 }
 
 auto f_WSASend = dllfunctor_stdcall<int, SOCKET, LPWSABUF, DWORD, LPDWORD, DWORD, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE>("ws2_32.dll", "WSASend");
@@ -1130,7 +1091,7 @@ int redis_getaddrinfo_impl(const char *node, const char *service, const struct a
 }
 
 const char* redis_inet_ntop_impl(int af, const void *src, char *dst, size_t size) {
-    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+    if (IsWindowsVersionAtLeast(6, 0, 0)) {
         static auto f_inet_ntop = dllfunctor_stdcall<const char*, int, const void*, char*, size_t>("ws2_32.dll", "inet_ntop");
         return f_inet_ntop(af, src, dst, size);
     } else {
@@ -1149,7 +1110,7 @@ const char* redis_inet_ntop_impl(int af, const void *src, char *dst, size_t size
 }
 
 int redis_inet_pton_impl(int family, const char* src, void* dst) {
-    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+    if (IsWindowsVersionAtLeast(6, 0, 0)) {
         static auto f_inet_pton = dllfunctor_stdcall<int, int, const char*, const void*>("ws2_32.dll", "inet_pton");
         return f_inet_pton(family, src, dst);
     } else {
@@ -1198,17 +1159,6 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pStorageAdd
 
     freeaddrinfo(res);
     return TRUE;
-}
-
-int StorageSize(const SOCKADDR_STORAGE *ss) {
-    switch (ss->ss_family) {
-        case AF_INET:
-            return sizeof(SOCKADDR_IN);
-        case AF_INET6:
-            return sizeof(SOCKADDR_IN6);
-        default:
-            return SOCKET_ERROR;
-    }
 }
 
 auto f_WSAStartup = dllfunctor_stdcall<int, WORD, LPWSADATA>("ws2_32.dll", "WSAStartup");
@@ -1273,9 +1223,6 @@ private:
         fdapi_fclose = redis_fclose_impl;
         fdapi_fileno = redis_fileno_impl;
         fdapi_setmode = redis_setmode_impl;
-        WSASetLastError = redis_WSASetLastError_impl;
-        WSAGetLastError = redis_WSAGetLastError_impl;
-        WSAIoctl = redis_WSAIoctl_impl;
         WSASend = redis_WSASend_impl;
         WSARecv = redis_WSARecv_impl;
         WSAGetOverlappedResult = redis_WSAGetOverlappedResult_impl;
@@ -1291,7 +1238,6 @@ private:
         freeaddrinfo = redis_freeaddrinfo_impl;
         getaddrinfo = redis_getaddrinfo_impl;
         inet_ntop = redis_inet_ntop_impl;
-        FD_ISSET = redis_FD_ISSET_impl;
         accept = redis_accept_impl;
     }
 
