@@ -11,9 +11,11 @@ set ::instances_count 20 ; # How many instances we use at max.
 
 proc main {} {
     parse_options
+    # WIN32_PORT_FIX: "maxheap 150mb"
     spawn_instance redis $::redis_base_port $::instances_count {
         "cluster-enabled yes"
         "appendonly yes"
+        "maxheap 150mb"
     }
     run_tests
     cleanup
