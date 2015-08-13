@@ -10,7 +10,9 @@ start_server {tags {"repl"}} {
             r config set min-slaves-to-write 1
             r config set min-slaves-max-lag 10
             r set foo 12345
-            wait_for_condition 50 100 {
+
+            #WIN_PORT_FIX 'wait_for_condition 50 100' -> 'wait_for_condition 50 250'
+            wait_for_condition 50 250 {
                 [r -1 get foo] eq {12345}
             } else {
                 fail "Write did not reached slave"
