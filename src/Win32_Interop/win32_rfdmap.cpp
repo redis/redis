@@ -157,16 +157,10 @@ int RFDMap::lookupPosixFD(RFD rfd) {
     return posixFD;
 }
 
-bool RFDMap::SetSocketFlags(SOCKET s, int flags) {
-    bool result = false;
+void RFDMap::SetSocketFlags(SOCKET s, int flags) {
     EnterCriticalSection(&mutex);
-    SocketToFlagsMapType::iterator sit = SocketToFlagsMap.find(s);
-    if (sit != SocketToFlagsMap.end()) {
-        SocketToFlagsMap[s] = flags;
-        result = true;
-    }
+    SocketToFlagsMap[s] = flags;
     LeaveCriticalSection(&mutex);
-    return result;
 }
 
 int RFDMap::GetSocketFlags(SOCKET s) {

@@ -116,6 +116,6 @@ public:
     /* Returns the socket associated with a file descriptor. */
     int lookupPosixFD(RFD rfd);
 
-    bool SetSocketFlags(SOCKET s, int flags);
+    void SetSocketFlags(SOCKET s, int flags);
     int GetSocketFlags(SOCKET s);
 };
