@@ -62,6 +62,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
+#include "percentile.h" /* Percentile reservoir sampling */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -927,7 +928,12 @@ struct redisCommand {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
+    percentileSampleReservoir* samples;
 };
+
+#define CASSERT(expr) extern void compiler_assert__(char[(expr)?1:-1])
+#define CMDTIME_PERCENTILES_COUNT 5
+extern const double CMDTIME_PERCENTILES[];
 
 struct redisFunctionSym {
     char *name;
