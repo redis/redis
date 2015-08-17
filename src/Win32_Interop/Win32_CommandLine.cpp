@@ -507,7 +507,7 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     string line;
     string value;
 
-#ifdef _DEBUG
+#ifdef _DEBUG_ //disabled
     cout << "processing " << confFile << endl;
 #endif
     char fullConfFilePath[MAX_PATH];
@@ -673,7 +673,7 @@ void ParseCommandLineArguments(int argc, char** argv) {
     }
     g_pathsAccessed.push_back(fileCreationDirectory);
 
-#ifdef _DEBUG
+#ifdef _DEBUG_ // disabled
     cout << "arguments seen:" << endl;
     for (auto key : g_argMap) {
         cout << key.first << endl;
