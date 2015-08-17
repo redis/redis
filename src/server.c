@@ -1421,9 +1421,13 @@ void initServerConfig(void) {
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
+    server.tcp_receive_buffer = CONFIG_DEFAULT_TCP_RECEIVE_BUFFER;
+    server.tcp_send_buffer = CONFIG_DEFAULT_TCP_SEND_BUFFER;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
+    server.unix_receive_buffer = CONFIG_DEFAULT_UNIX_RECEIVE_BUFFER;
+    server.unix_send_buffer = CONFIG_DEFAULT_UNIX_SEND_BUFFER;
     server.ipfd_count = 0;
     server.sofd = -1;
     server.dbnum = CONFIG_DEFAULT_DBNUM;
@@ -1696,13 +1700,13 @@ int listenToPort(int port, int *fds, int *count) {
             /* Bind * for both IPv6 and IPv4, we enter here only if
              * server.bindaddr_count == 0. */
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
-                server.tcp_backlog);
+                server.tcp_backlog,server.tcp_receive_buffer,server.tcp_send_buffer);
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
             }
             fds[*count] = anetTcpServer(server.neterr,port,NULL,
-                server.tcp_backlog);
+                server.tcp_backlog,server.tcp_receive_buffer,server.tcp_send_buffer);
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
@@ -1714,11 +1718,11 @@ int listenToPort(int port, int *fds, int *count) {
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
             fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_receive_buffer, server.tcp_send_buffer);
         } else {
             /* Bind IPv4 address. */
             fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_receive_buffer, server.tcp_send_buffer);
         }
         if (fds[*count] == ANET_ERR) {
             serverLog(LL_WARNING,
@@ -1809,6 +1813,22 @@ void initServer(void) {
             exit(1);
         }
         anetNonBlock(NULL,server.sofd);
+        if (server.unix_send_buffer >= 0) {
+            if (anetSetSendBuffer(server.neterr,
+                server.sofd,server.unix_send_buffer) == ANET_ERR) {
+                serverLog(LL_WARNING, "Setting send buffer for socket %s: %s",
+                    server.unixsocket, server.neterr);
+                exit(1);
+            }
+        }
+        if (server.unix_receive_buffer >= 0) {
+            if (anetSetReceiveBuffer(server.neterr,
+                server.sofd,server.unix_receive_buffer) == ANET_ERR) {
+                serverLog(LL_WARNING, "Setting receive buffer for socket %s: %s",
+                    server.unixsocket, server.neterr);
+                exit(1);
+            }
+        }
     }
 
     /* Abort if there are no listening sockets at all. */

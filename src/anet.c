@@ -158,6 +158,15 @@ int anetDisableTcpNoDelay(char *err, int fd)
     return anetSetTcpNoDelay(err, fd, 0);
 }
 
+int anetSetReceiveBuffer(char *err, int fd, int buffsize)
+{
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buffsize, sizeof(buffsize)) == -1)
+    {
+        anetSetError(err, "setsockopt SO_RCVBUF: %s", strerror(errno));
+        return ANET_ERR;
+    }
+    return ANET_OK;
+}
 
 int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
@@ -460,7 +469,7 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
-static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
+static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog, int recv_buffer, int send_buffer)
 {
     int s, rv;
     char _port[6];  /* strlen("65535") */
@@ -482,6 +491,8 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        if (recv_buffer >= 0 && anetSetReceiveBuffer(err,s,recv_buffer) == ANET_ERR) goto error;
+        if (send_buffer >= 0 && anetSetSendBuffer(err,s,send_buffer) == ANET_ERR) goto error;
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) goto error;
         goto end;
     }
@@ -497,14 +508,14 @@ end:
     return s;
 }
 
-int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
+int anetTcpServer(char *err, int port, char *bindaddr, int backlog, int recv_buffer, int send_buffer)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog, recv_buffer, send_buffer);
 }
 
-int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
+int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int recv_buffer, int send_buffer)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog, recv_buffer, send_buffer);
 }
 
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)

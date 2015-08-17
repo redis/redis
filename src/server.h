@@ -80,6 +80,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_MAX_HZ            500
 #define CONFIG_DEFAULT_SERVER_PORT        6379    /* TCP port */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511     /* TCP listen backlog */
+#define CONFIG_DEFAULT_TCP_RECEIVE_BUFFER -1
+#define CONFIG_DEFAULT_TCP_SEND_BUFFER -1
+#define CONFIG_DEFAULT_UNIX_RECEIVE_BUFFER -1
+#define CONFIG_DEFAULT_UNIX_SEND_BUFFER -1
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite */
 #define CONFIG_DEFAULT_DBNUM     16
 #define CONFIG_MAX_LINE    1024
@@ -703,10 +707,14 @@ struct redisServer {
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
+    int tcp_receive_buffer;     /* TCP socket receive buffer size */
+    int tcp_send_buffer;        /* TCP socket send buffer size */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
+    int unix_receive_buffer;    /* TCP socket receive buffer size */
+    int unix_send_buffer;       /* TCP socket send buffer size */
     int ipfd[CONFIG_BINDADDR_MAX]; /* TCP socket file descriptors */
     int ipfd_count;             /* Used slots in ipfd[] */
     int sofd;                   /* Unix socket file descriptor */
