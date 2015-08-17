@@ -56,7 +56,7 @@ RFD RFDMap::addSocket(SOCKET s) {
     RFD rfd;
     EnterCriticalSection(&mutex);
     if (SocketToRFDMap.find(s) != SocketToRFDMap.end()) {
-        rfd = invalidRFD;
+        rfd = RFDMap::INVALID_RFD;
     } else {
         rfd = getNextRFDAvailable();
         SocketToRFDMap[s] = rfd;
@@ -68,7 +68,7 @@ RFD RFDMap::addSocket(SOCKET s) {
 
 void RFDMap::removeSocket(SOCKET s) {
     EnterCriticalSection(&mutex);
-    S2RFDIterator mit = SocketToRFDMap.find(s);
+    map<SOCKET, RFD>::iterator mit = SocketToRFDMap.find(s);
     if (mit != SocketToRFDMap.end()) {
         RFD rfd = (*mit).second;
         RFDRecyclePool.push(rfd);
@@ -97,7 +97,7 @@ void RFDMap::removePosixFD(int posixFD) {
     // to stdin, stdout and stderr
     if (posixFD > 2) {
         EnterCriticalSection(&mutex);
-        PosixFD2RFDIterator mit = PosixFDToRFDMap.find(posixFD);
+        map<int, RFD>::iterator mit = PosixFDToRFDMap.find(posixFD);
         if (mit != PosixFDToRFDMap.end()) {
             RFD rfd = (*mit).second;
             RFDRecyclePool.push(rfd);

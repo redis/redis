@@ -36,7 +36,6 @@ typedef unsigned long nfds_t;
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
 #include "win32_types.h"
 #include <WinSock2.h>
-#undef FD_ISSET
 #include <fcntl.h>
 #include <stdio.h>
 
@@ -190,7 +189,6 @@ typedef int (*redis_access)(const char *pathname, int mode);
 typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence); 
 typedef intptr_t (*redis_get_osfhandle)(int fd);
 typedef int (*redis_open_osfhandle)(intptr_t osfhandle, int flags);
-typedef int(*redis_FD_ISSET)(int fd, fd_set *);
 
 // access() mode definitions 
 #define X_OK    0
@@ -252,19 +250,17 @@ extern redis_open_osfhandle fdapi_open_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
-extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
-BOOL SetFDInformation(int FD, DWORD mask, DWORD flags);
-HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
-BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
-BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
-void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
-int FDAPI_UpdateAcceptContext( int fd );
+BOOL    FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
+HANDLE  FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
+BOOL    FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
+BOOL    FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
+void    FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
+int     FDAPI_UpdateAcceptContext( int fd );
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
-int StorageSize(const SOCKADDR_STORAGE *ss);
 
 // macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS
@@ -280,7 +276,5 @@ int StorageSize(const SOCKADDR_STORAGE *ss);
 #endif
 
 #ifdef __cplusplus
-
-bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor);
 }
 #endif

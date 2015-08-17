@@ -22,7 +22,6 @@
 
 /* IOCP-based ae.c module  */
 
-#include <string.h>
 #include "ae.h"
 #include "win32_Interop/win32fixes.h"
 #include "adlist.h"

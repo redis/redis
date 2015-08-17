@@ -32,16 +32,6 @@
 using namespace std;
 
 typedef int RFD;   // Redis File Descriptor
-typedef map<SOCKET,RFD> SocketToRFDMapType;
-typedef map<int,RFD> PosixFDToRFDMapType;
-typedef map<RFD,SOCKET> RFDToSocketMapType;
-typedef map<RFD,int> RFDToPosixFDMapType;
-typedef queue<RFD> RFDRecyclePoolType;
-typedef SocketToRFDMapType::iterator S2RFDIterator;
-typedef PosixFDToRFDMapType::iterator PosixFD2RFDIterator;
-typedef RFDToSocketMapType::iterator RFD2SIterator;
-typedef RFDToPosixFDMapType::iterator RFD2PosixFDIterator;
-
 
 /* In UNIX File Descriptors increment by one for each new one. Windows handles 
  * do not follow the same rule.  Additionally UNIX uses a 32-bit int to 
@@ -64,18 +54,18 @@ private:
     void operator=(RFDMap const&);  // Don't implement to guarantee singleton semantics
 
 private:
-    SocketToRFDMapType SocketToRFDMap;
-    map<SOCKET, int> SocketToFlagsMap;
-    PosixFDToRFDMapType PosixFDToRFDMap;
-    RFDToSocketMapType RFDToSocketMap;
-    RFDToPosixFDMapType RFDToPosixFDMap;
-    RFDRecyclePoolType RFDRecyclePool;
+    map<SOCKET, RFD>    SocketToRFDMap;
+    map<SOCKET, int>    SocketToFlagsMap;
+    map<int, RFD>       PosixFDToRFDMap;
+    map<RFD, int>       RFDToPosixFDMap;
+    map<RFD, SOCKET>    RFDToSocketMap;
+    queue<RFD>          RFDRecyclePool;
 
 private:
     CRITICAL_SECTION mutex;
 
 public:
-    const static int invalidRFD = -1;
+    const static int INVALID_RFD = -1;
 
 private:
     /* Gets the next available Redis File Descriptor. Redis File Descriptors are always

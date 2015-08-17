@@ -33,13 +33,11 @@ static HANDLE iocph;
 static fnGetSockState * aeGetSockState;
 static fnDelSockState * aeDelSockState;
 
-#define SUCCEEDED_WITH_IOCP(result)                        \
-  ((result) || (GetLastError() == ERROR_IO_PENDING))
+#define SUCCEEDED_WITH_IOCP(result)  ((result) || (GetLastError() == ERROR_IO_PENDING))
 
 /* for zero length reads use shared buf */
 static DWORD wsarecvflags;
 static char zreadchar[1];
-
 
 int aeWinQueueAccept(int listenfd) {
     aeSockState *sockstate;
@@ -363,11 +361,13 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
 
     /* need to bind sock before connectex */
+    int storageSize = 0;
     switch (ss->ss_family) {
         case AF_INET:
         {
+            storageSize = sizeof(SOCKADDR_IN);
             SOCKADDR_IN addr;
-            memset(&addr, 0, sizeof(SOCKADDR_IN));
+            memset(&addr, 0, storageSize);
             addr.sin_family = ss->ss_family;
             addr.sin_addr.S_un.S_addr = INADDR_ANY;
             addr.sin_port = 0;
@@ -376,8 +376,9 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
         case AF_INET6:
         {
+            storageSize = sizeof(SOCKADDR_IN6);
             SOCKADDR_IN6 addr;
-            memset(&addr, 0, sizeof(SOCKADDR_IN6));
+            memset(&addr, 0, storageSize);
             addr.sin6_family = ss->ss_family;
             memset(&(addr.sin6_addr.u.Byte), 0, 16);
             addr.sin6_port = 0;
@@ -390,7 +391,7 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
     }
 
-    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR)ss, StorageSize(ss), NULL, 0, NULL, &sockstate->ov_read);
+    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR) ss, storageSize, NULL, 0, NULL, &sockstate->ov_read);
     if (result != TRUE) {
         result = WSAGetLastError();
         if (result == ERROR_IO_PENDING) {
@@ -421,7 +422,7 @@ int aeWinSocketAttach(int fd) {
     }
 
     /* Make the socket non-inheritable */
-    if (!SetFDInformation(fd, HANDLE_FLAG_INHERIT, 0)) {
+    if (!FDAPI_SetFDInformation(fd, HANDLE_FLAG_INHERIT, 0)) {
         errno = WSAGetLastError();
         return -1;
     }
@@ -468,7 +469,6 @@ void aeShutdown(int fd) {
 /* when closing socket, need to unassociate completion port */
 int aeWinCloseSocket(int fd) {
     aeSockState *sockstate;
-    BOOL closed = FALSE;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         close(fd);
@@ -481,7 +481,6 @@ int aeWinCloseSocket(int fd) {
     if (sockstate->wreqs == 0 &&
         (sockstate->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED)) == 0) {
         close(fd);
-        closed = TRUE;
     } else {
         sockstate->masks |= CLOSE_PENDING;
     }
