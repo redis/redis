@@ -1,6 +1,17 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
 
+--[ Redis on Windows 2.8.2102 ] Release date: Aug 14 215
+
+ - [Fix] Fixed some porting bugs from Linux to Windows #270 (by @zeliard)
+ - [Fix] Issue #275 AOF rewrite not working (credits to @ppanyukov for investigating the bug)
+ - [Fix] Redis Server stops accepting connections. #259 #281
+ - [Fix & Cleanup] Socket state moved from aeApiState to RFDMap. #282
+ - [Setup] NuGet description doesn't support Markdown.
+ - [Cleanup] Removed code that was commented out.
+ - [Portability] Explicit type casting.
+ - [Cleanup] Change methods name and signature.
+
 --[ Redis on Windows 2.8.2101 ] Release date: Jul 15 215
 
  - [Fix] deleting char** correctly (@zeliard) 
