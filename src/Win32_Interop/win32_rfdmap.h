@@ -33,13 +33,11 @@ using namespace std;
 
 typedef int RFD;   // Redis File Descriptor
 typedef map<SOCKET,RFD> SocketToRFDMapType;
-typedef map<SOCKET,int> SocketToStateMapType;
 typedef map<int,RFD> PosixFDToRFDMapType;
 typedef map<RFD,SOCKET> RFDToSocketMapType;
 typedef map<RFD,int> RFDToPosixFDMapType;
 typedef queue<RFD> RFDRecyclePoolType;
 typedef SocketToRFDMapType::iterator S2RFDIterator;
-typedef SocketToStateMapType::iterator S2StateIterator;
 typedef PosixFDToRFDMapType::iterator PosixFD2RFDIterator;
 typedef RFDToSocketMapType::iterator RFD2SIterator;
 typedef RFDToPosixFDMapType::iterator RFD2PosixFDIterator;
@@ -67,7 +65,7 @@ private:
 
 private:
     SocketToRFDMapType SocketToRFDMap;
-    SocketToStateMapType SocketToStateMap;
+    map<SOCKET, int> SocketToFlagsMap;
     PosixFDToRFDMapType PosixFDToRFDMap;
     RFDToSocketMapType RFDToSocketMap;
     RFDToPosixFDMapType RFDToPosixFDMap;
@@ -110,6 +108,6 @@ public:
     /* Returns the socket associated with a file descriptor. */
     int lookupPosixFD(RFD rfd);
 
-    bool SetSocketFlags(SOCKET s, int flags);
+    void SetSocketFlags(SOCKET s, int flags);
     int GetSocketFlags(SOCKET s);
 };
