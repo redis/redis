@@ -492,7 +492,7 @@ int startBgsaveForReplication(int mincapa) {
     int retval;
     int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
 
-    redisLog(REIDS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
+    redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "slaves sockets" : "disk");
 
     if (socket_target)
