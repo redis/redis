@@ -276,7 +276,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         }
                     }
                     if (matched == FALSE) {
-                        redisLog(REDIS_VERBOSE, "Sec:%lld Unknown complete (closed) on %d\n", gettimeofdaysecs(NULL), rfd);
+                        redisLog(REDIS_VERBOSE, "Unknown complete (closed) on %d\n", rfd);
                         sockstate = NULL;
                         aeWinCloseSocket(rfd);
                     }
