@@ -127,10 +127,10 @@ int aeWinQueueAccept(int listenfd) {
     areq->next = NULL;
 
     result = FDAPI_AcceptEx(listenfd, acceptfd,
-        areq->buf, 0,
-        sizeof(struct sockaddr_storage),
-        sizeof(struct sockaddr_storage),
-        &bytes, &areq->ov);
+                            areq->buf, 0,
+                            sizeof(struct sockaddr_storage),
+                            sizeof(struct sockaddr_storage),
+                            &bytes, &areq->ov);
     if (SUCCEEDED_WITH_IOCP(result)){
         sockstate->masks |= ACCEPT_PENDING;
     } else {
@@ -206,14 +206,13 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
         return SOCKET_ERROR;
     }
 
-    FDAPI_GetAcceptExSockaddrs(
-        acceptfd,
-        areq->buf,
-        0,
-        sizeof(struct sockaddr_storage),
-        sizeof(struct sockaddr_storage),
-        &plocalsa, &locallen,
-        &premotesa, &remotelen);
+    FDAPI_GetAcceptExSockaddrs(acceptfd,
+                               areq->buf,
+                               0,
+                               sizeof(struct sockaddr_storage),
+                               sizeof(struct sockaddr_storage),
+                               &plocalsa, &locallen,
+                               &premotesa, &remotelen);
 
     if (sa != NULL) {
         if (remotelen > 0) {
@@ -264,12 +263,12 @@ int aeWinReceiveDone(int fd) {
     zreadbuf.buf = zreadchar;
     zreadbuf.len = 0;
     result = WSARecv(fd,
-        &zreadbuf,
-        1,
-        &bytesReceived,
-        &recvFlags,
-        &sockstate->ov_read,
-        NULL);
+                     &zreadbuf,
+                     1,
+                     &bytesReceived,
+                     &recvFlags,
+                     &sockstate->ov_read,
+                     NULL);
     if (SUCCEEDED_WITH_IOCP(result == 0)){
         sockstate->masks |= READ_QUEUED;
     } else {
@@ -320,12 +319,12 @@ int aeWinSocketSend(int fd, char *buf, int len,
     areq->proc = (aeFileProc *) proc;
 
     result = WSASend(fd,
-        &areq->wbuf,
-        1,
-        &bytesSent,
-        0,
-        &areq->ov,
-        NULL);
+                     &areq->wbuf,
+                     1,
+                     &bytesSent,
+                     0,
+                     &areq->ov,
+                     NULL);
 
     if (SUCCEEDED_WITH_IOCP(result == 0)) {
         errno = WSA_IO_PENDING;
