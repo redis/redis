@@ -2,8 +2,11 @@ start_server {tags {"repl"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            #WIN_PORT_FIX 'after 1000' -> 'after 2000'
-            after 2000
+            if { $::tcl_platform(platform) == "windows" } {
+                after 2000
+            } else {
+                after 1000
+            }
             s -1 role
         } {slave}
 

@@ -12,6 +12,7 @@ source tests/support/test.tcl
 source tests/support/util.tcl
 
 set ::all_tests {
+    windows/regression
     unit/printver
     unit/dump
     unit/auth

@@ -56,7 +56,11 @@ proc exec_instance {type cfgfile} {
 # Spawn a redis or sentinel instance, depending on 'type'.
 proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
-        set port [find_available_port $base_port]
+        if { $::tcl_platform(platform) == "windows" } {
+            set port ${base_port}
+        } else {
+            set port [find_available_port $base_port]
+        }
         incr base_port
         puts "Starting $type #$j at port $port"
 
