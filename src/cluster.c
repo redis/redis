@@ -2227,9 +2227,14 @@ void clusterSendPing(clusterLink *link, int type) {
         clusterMsgDataGossip *gossip;
         int j;
 
-        /* Don't include this node: the whole packet header is about us
-         * already, so we just gossip about other nodes. */
-        if (this == myself) continue;
+        /* Don't include:
+         * 1) this node, because the whole packet header is about us
+         *    already, so we just gossip about other nodes.
+         * 2) target node, the node we are sending the message to already
+         *    knows about itself.
+         */
+        if (this == myself || this->name == link->node->name)
+            continue;
 
         /* Give a bias to FAIL/PFAIL nodes. */
         if (maxiterations > wanted*2 &&
