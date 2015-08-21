@@ -331,10 +331,6 @@ static void redisAeCleanup(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     redisAeDelRead(privdata);
     redisAeDelWrite(privdata);
-#ifdef WIN32_IOCP
-    aeWinCloseSocket((int)e->fd);
-    e->fd = 0;
-#endif
     zfree(e);
 }
 

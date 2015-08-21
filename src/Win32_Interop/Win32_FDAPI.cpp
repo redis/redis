@@ -33,10 +33,15 @@
 #include "win32_util.h"
 #include "Win32_RedisLog.h"
 #include "Win32_Common.h"
-
+#include "Win32_Assert.h"
 using namespace std;
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}
+
+static fnIOCP_OnSocketClose* IOCP_OnSocketClose;
+void FDAPI_SetOnSocketClose(fnIOCP_OnSocketClose* iocpOnSocketClose) {
+    IOCP_OnSocketClose = iocpOnSocketClose;
+}
 
 extern "C" {
 // FD lookup Winsock equivalents for Win32_wsiocp.c
@@ -308,30 +313,62 @@ int redis_pipe_impl(int *pfds) {
     return err;
 }
 
+void FDAPI_ClearSocketInfo(int rfd) {
+    SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
+
+    ASSERT(socketInfo != NULL)
+    ASSERT(socketInfo->socket == INVALID_SOCKET)
+
+    if (socketInfo != NULL) {
+        if (socketInfo->socket == INVALID_SOCKET) {
+            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+            return;
+        } else {
+            redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non closed socket.");
+        }
+    } else {
+        redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non attached socket.");
+    }
+}
+
 // In unix a fd is a fd. All are closed with close().
 int redis_close_impl(RFD rfd) {
     try {
-        SOCKET s = RFDMap::getInstance().lookupSocket(rfd);
-        if( s != INVALID_SOCKET ) {
-            RFDMap::getInstance().removeSocket(s);
-            return f_closesocket(s);
+        SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
+        if (socketInfo != NULL) {
+
+            ASSERT(socketInfo->socket != INVALID_SOCKET)
+
+            if (socketInfo->socket != INVALID_SOCKET) {
+                SOCKET socket = socketInfo->socket;
+                socketInfo->socket = INVALID_SOCKET;
+
+                BOOL socketStateDeleted = FALSE;
+                if (IOCP_OnSocketClose != NULL) {
+                    socketStateDeleted = IOCP_OnSocketClose(rfd);
+                }
+
+                if (socketStateDeleted == TRUE) {
+                    RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+                }
+
+                RFDMap::getInstance().removeSocket(socket);
+                return f_closesocket(socket);
+            }
         } else {
             int posixFD = RFDMap::getInstance().lookupPosixFD(rfd);
-            if(posixFD != -1) {
+            if (posixFD != RFDMap::INVALID_FD) {
                 RFDMap::getInstance().removePosixFD(posixFD);
                 int retval = crt_close(posixFD);
-                if( retval == -1 ) {
+                if (retval == -1) {
                     errno = GetLastError();
                 }
                 return retval;
             }
-            else {
-                errno = EBADF;
-                return -1;
-            }
         }
     } CATCH_AND_REPORT()
 
+    errno = EBADF;
     return -1;
 }
 

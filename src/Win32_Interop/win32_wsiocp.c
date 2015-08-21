@@ -31,6 +31,7 @@
 static void *iocpState;
 static HANDLE iocph;
 static fnGetSockState * aeGetSockState;
+static fnGetSockState * aeGetExistingSockState;
 static fnDelSockState * aeDelSockState;
 
 #define SUCCEEDED_WITH_IOCP(result)  ((result) || (GetLastError() == ERROR_IO_PENDING))
@@ -466,37 +467,31 @@ void aeShutdown(int fd) {
     }
 }
 
-/* when closing socket, need to unassociate completion port */
-int aeWinCloseSocket(int fd) {
-    aeSockState *sockstate;
-
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
-        close(fd);
-        return 0;
+BOOL WSIOCP_OnSocketClose(int rfd) {
+    aeSockState *socketState;
+    if ((socketState = aeGetExistingSockState(iocpState, rfd)) == NULL) {
+        return TRUE;
     }
 
-    aeShutdown(fd);
-    sockstate->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
-
-    if (sockstate->wreqs == 0 &&
-        (sockstate->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED)) == 0) {
-        close(fd);
-    } else {
-        sockstate->masks |= CLOSE_PENDING;
+    socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
+    if (socketState->wreqs != 0 || (socketState->masks & (READ_QUEUED | CONNECT_PENDING)) != 0) {
+        socketState->masks |= CLOSE_PENDING;
     }
-    aeDelSockState(iocpState, sockstate);
 
-    return 0;
+    return aeDelSockState(iocpState, socketState);
 }
 
 void aeWinInit(void *state,
                 HANDLE iocp,
                 fnGetSockState *getSockState,
+                fnGetSockState *getExistingSockState,
                 fnDelSockState *delSockState) {
     iocpState = state;
     iocph = iocp;
     aeGetSockState = getSockState;
+    aeGetExistingSockState = getExistingSockState;
     aeDelSockState = delSockState;
+    FDAPI_SetOnSocketClose(WSIOCP_OnSocketClose);
 }
 
 void aeWinCleanup() {

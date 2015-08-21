@@ -20,7 +20,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include "win32_types.h"
 #include "win32_rfdmap.h"
 
@@ -46,7 +45,7 @@ RFD RFDMap::getNextRFDAvailable() {
         rfd = RFDRecyclePool.front();
         RFDRecyclePool.pop();
     } else {
-        rfd = (int) SocketToRFDMap.size() + (int) PosixFDToRFDMap.size();
+        rfd = RFDMap::next_available_rfd++;
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -60,7 +59,10 @@ RFD RFDMap::addSocket(SOCKET s) {
     } else {
         rfd = getNextRFDAvailable();
         SocketToRFDMap[s] = rfd;
-        RFDToSocketMap[rfd] = s;
+
+        SocketInfo socket_info;
+        socket_info.socket = s;
+        RFDToSocketInfoMap[rfd] = socket_info;
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -68,13 +70,14 @@ RFD RFDMap::addSocket(SOCKET s) {
 
 void RFDMap::removeSocket(SOCKET s) {
     EnterCriticalSection(&mutex);
-    map<SOCKET, RFD>::iterator mit = SocketToRFDMap.find(s);
-    if (mit != SocketToRFDMap.end()) {
-        RFD rfd = (*mit).second;
-        RFDRecyclePool.push(rfd);
-        RFDToSocketMap.erase(rfd);
-        SocketToRFDMap.erase(s);
-    }
+    SocketToRFDMap.erase(s);
+    LeaveCriticalSection(&mutex);
+}
+
+void RFDMap::removeRFDToSocketInfo(RFD rfd) {
+    EnterCriticalSection(&mutex);
+    RFDToSocketInfoMap.erase(rfd);
+    RFDRecyclePool.push(rfd);
     LeaveCriticalSection(&mutex);
 }
 
@@ -93,9 +96,9 @@ RFD RFDMap::addPosixFD(int posixFD) {
 }
 
 void RFDMap::removePosixFD(int posixFD) {
-    // posixFD between 0 and 2 should never be removed since they are assigned
-    // to stdin, stdout and stderr
-    if (posixFD > 2) {
+    // posixFD between RESERVED_RFD_INDEX_START and RESERVED_RFD_INDEX_END
+    // should never be removed.
+    if (posixFD > RFDMap::RESERVED_RFD_INDEX_END) {
         EnterCriticalSection(&mutex);
         map<int, RFD>::iterator mit = PosixFDToRFDMap.find(posixFD);
         if (mit != PosixFDToRFDMap.end()) {
@@ -111,19 +114,30 @@ void RFDMap::removePosixFD(int posixFD) {
 SOCKET RFDMap::lookupSocket(RFD rfd) {
     SOCKET socket = INVALID_SOCKET;
     EnterCriticalSection(&mutex);
-    if (RFDToSocketMap.find(rfd) != RFDToSocketMap.end()) {
-        socket = RFDToSocketMap[rfd];
+    if (RFDToSocketInfoMap.find(rfd) != RFDToSocketInfoMap.end()) {
+        socket = RFDToSocketInfoMap[rfd].socket;
     }
     LeaveCriticalSection(&mutex);
     return socket;
 }
 
+SocketInfo* RFDMap::lookupSocketInfo(RFD rfd) {
+    SocketInfo* socket_info = NULL;
+    EnterCriticalSection(&mutex);
+    if (RFDToSocketInfoMap.find(rfd) != RFDToSocketInfoMap.end()) {
+        socket_info = &RFDToSocketInfoMap[rfd];
+    }
+    LeaveCriticalSection(&mutex);
+    return socket_info;
+}
+
 int RFDMap::lookupPosixFD(RFD rfd) {
-    int posixFD = -1;
+    int posixFD = RFDMap::INVALID_FD;
     EnterCriticalSection(&mutex);
     if (RFDToPosixFDMap.find(rfd) != RFDToPosixFDMap.end()) {
         posixFD = RFDToPosixFDMap[rfd];
-    } else if (rfd >= 0 && rfd <= 2) {
+    } else if (rfd >= RFDMap::RESERVED_RFD_INDEX_START
+               && rfd <= RFDMap::RESERVED_RFD_INDEX_END) {
         posixFD = rfd;
     }
     LeaveCriticalSection(&mutex);

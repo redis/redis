@@ -41,6 +41,7 @@
   <ItemGroup>
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_ANSI.h" />
+    <ClInclude Include="Win32_Assert.h" />
     <ClInclude Include="Win32_CommandLine.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
     <ClInclude Include="Win32_EventLog.h" />

@@ -142,10 +142,6 @@ static void freeClient(client c) {
     listNode *ln;
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
-#ifdef WIN32_IOCP
-    aeWinCloseSocket((int)c->context->fd);
-    c->context->fd = 0;
-#endif
     redisFree(c->context);
     sdsfree(c->obuf);
     zfree(c->randptr);

@@ -61,42 +61,6 @@ int aeSocketIndex(int fd) {
     return fd;
 }
 
-/* get data for socket / fd being monitored. Create if not found*/
-aeSockState *aeGetSockState(void *apistate, int fd) {
-    int sindex;
-    listNode *node;
-    list *socklist;
-    aeSockState *sockState;
-    if (apistate == NULL) return NULL;
-
-    sindex = aeSocketIndex(fd);
-    socklist = &(((aeApiState *)apistate)->lookup[sindex]);
-    node = listFirst(socklist);
-    while (node != NULL) {
-        sockState = (aeSockState *)listNodeValue(node);
-        if (sockState->fd == fd) {
-            return sockState;
-        }
-        node = listNextNode(node);
-    }
-    // not found. Do lazy create of sockState.
-    sockState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
-    if (sockState != NULL) {
-        sockState->fd = fd;
-        sockState->masks = 0;
-        sockState->wreqs = 0;
-        sockState->reqs = NULL;
-        memset(&sockState->wreqlist, 0, sizeof(sockState->wreqlist));
-
-        if (listAddNodeHead(socklist, sockState) != NULL) {
-            return sockState;
-        } else {
-            FreeMemoryNoCOW(sockState);
-        }
-    }
-    return NULL;
-}
-
 /* get data for socket / fd being monitored */
 aeSockState *aeGetExistingSockState(void *apistate, int fd) {
     int sindex;
@@ -119,6 +83,30 @@ aeSockState *aeGetExistingSockState(void *apistate, int fd) {
     return NULL;
 }
 
+/* get data for socket / fd being monitored. Create if not found*/
+aeSockState *aeGetSockState(void *apistate, int fd) {
+    aeSockState *sockState = aeGetExistingSockState(apistate, fd);
+    if (sockState == NULL) {
+        // Not found. Do lazy create of sockState.
+        sockState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
+        if (sockState != NULL) {
+            sockState->fd = fd;
+            sockState->masks = 0;
+            sockState->wreqs = 0;
+            sockState->reqs = NULL;
+            memset(&sockState->wreqlist, 0, sizeof(sockState->wreqlist));
+
+            int sindex = aeSocketIndex(fd);
+            list *socklist = &(((aeApiState *) apistate)->lookup[sindex]);
+            if (listAddNodeHead(socklist, sockState) == NULL) {
+                FreeMemoryNoCOW(sockState);
+                return NULL;
+            }
+        }
+    }
+    return sockState;
+}
+
 // find matching value in list and remove. If found return 1
 int removeMatchFromList(list *socklist, void *value) {
     listNode *node;
@@ -136,12 +124,12 @@ int removeMatchFromList(list *socklist, void *value) {
 
 /* delete data for socket / fd being monitored
    or move to the closing queue if operations are pending.
-   Return 1 if deleted or not found, 0 if pending*/
-void aeDelSockState(void *apistate, aeSockState *sockState) {
+   Return TRUE if deleted or not found, FLASE if pending*/
+BOOL aeDelSockState(void *apistate, aeSockState *sockState) {
     int sindex;
     list *socklist;
 
-    if (apistate == NULL) return;
+    if (apistate == NULL) return TRUE;
 
     if (sockState->wreqs == 0 &&
             (sockState->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED | CLOSE_PENDING)) == 0) {
@@ -150,13 +138,13 @@ void aeDelSockState(void *apistate, aeSockState *sockState) {
         socklist = &(((aeApiState *)apistate)->lookup[sindex]);
         if (removeMatchFromList(socklist, sockState) == 1) {
             FreeMemoryNoCOW(sockState);
-            return;
+            return TRUE;
         }
         // try closing list
         socklist = &(((aeApiState *)apistate)->closing);
         if (removeMatchFromList(socklist, sockState) == 1) {
             FreeMemoryNoCOW(sockState);
-            return;
+            return TRUE;
         }
     } else {
         // not safe to delete. Move to closing
@@ -168,6 +156,8 @@ void aeDelSockState(void *apistate, aeSockState *sockState) {
             listAddNodeHead(socklist, sockState);
         }
     }
+
+    return FALSE;
 }
 
 /* Called by ae to initialize state */
@@ -198,7 +188,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     state->setsize = eventLoop->setsize;
     eventLoop->apidata = state;
     /* initialize the IOCP socket code with state reference */
-    aeWinInit(state, state->iocp, aeGetSockState, aeDelSockState);
+    aeWinInit(state, state->iocp, aeGetSockState, aeGetExistingSockState, aeDelSockState);
     return 0;
 }
 
@@ -414,12 +404,13 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         }
                         if (sockstate->wreqs == 0 &&
                             (sockstate->masks & (CONNECT_PENDING | READ_QUEUED | SOCKET_ATTACHED)) == 0) {
-                            if ((sockstate->masks & CLOSE_PENDING) != 0) {
-                                close(rfd);
+                            if (sockstate->masks & CLOSE_PENDING) {
                                 sockstate->masks &= ~(CLOSE_PENDING);
                             }
-                            // safe to delete sockstate
-                            aeDelSockState(state, sockstate);
+                            if (aeDelSockState(state, sockstate)) {
+                                FDAPI_ClearSocketInfo(rfd);
+                            }
+                            sockstate = NULL;
                         }
                         break;
                     }
