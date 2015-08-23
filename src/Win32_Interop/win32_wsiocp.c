@@ -26,6 +26,7 @@
 #include <mswsock.h>
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
+#include "Win32_Assert.h"
 #include <errno.h>
 
 static HANDLE iocph;
@@ -368,7 +369,9 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
         }
         default:
         {
-            DebugBreak();
+            ASSERT(ss->ss_family == AF_INET || ss->ss_family == AF_INET6)
+            errno = WSAEINVAL;
+            return SOCKET_ERROR;
         }
     }
 
@@ -428,7 +431,9 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
         }
         default:
         {
-                   DebugBreak();
+            ASSERT(ss->ss_family == AF_INET || ss->ss_family == AF_INET6)
+            errno = WSAEINVAL;
+            return SOCKET_ERROR;
         }
     }
 

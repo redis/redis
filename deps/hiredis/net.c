@@ -298,7 +298,7 @@ int redisContextPreConnectTcp(
     int blocking = (c->flags & REDIS_BLOCK);
 
     if (ParseStorageAddress(addr, port, ss) == FALSE) {
-        DebugBreak();
+        return REDIS_ERR;
     }
 
     if (REDIS_OK != redisCreateSocket(c, ss->ss_family)) {
