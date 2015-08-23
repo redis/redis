@@ -42,7 +42,9 @@ start_server {tags {"aofrw"}} {
         # Make sure that we remain the only connected client.
         # This step is needed to make sure there are no pending writes
         # that will be processed between the two "debug digest" calls.
-        wait_for_condition 50 100 {
+
+        #WIN_PORT_FIX wait_for_condition 50 100 -> wait_for_condition 50 250
+        wait_for_condition 50 250 {
             [llength [split [string trim [r client list]] "\n"]] == 1
         } else {
             puts [r client list]
