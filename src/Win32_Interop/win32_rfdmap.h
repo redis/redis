@@ -35,6 +35,7 @@ typedef int RFD;   // Redis File Descriptor
 
 typedef struct {
     SOCKET socket;
+    void*  state;
 } SocketInfo;
 
 /* In UNIX File Descriptors increment by one for each new one. Windows handles 
@@ -93,7 +94,7 @@ public:
     RFD addSocket(SOCKET s);
 
     /* Removes a socket from SocketToRFDMap. */
-    void removeSocket(SOCKET s);
+    void removeSocketToRFD(SOCKET s);
 
     /*
       Removes a RFD from RFDToSocketInfoMap.

@@ -51,15 +51,13 @@ typedef struct aacceptreq {
 /* per socket information */
 typedef struct aeSockState {
     int masks;
-    int fd;
+    int rfd;
     aacceptreq *reqs;
     int wreqs;
     OVERLAPPED ov_read;
     list wreqlist;
+    int unknownComplete;
 } aeSockState;
-
-typedef aeSockState * fnGetSockState(void *apistate, int fd);
-typedef BOOL fnDelSockState(void *apistate, aeSockState *sockState);
 
 #define READ_QUEUED         0x000100
 #define SOCKET_ATTACHED     0x000400
@@ -68,11 +66,15 @@ typedef BOOL fnDelSockState(void *apistate, aeSockState *sockState);
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnGetSockState *getExistingSockState, fnDelSockState *delSockState);
+void aeWinInit(HANDLE iocp);
 void aeWinCleanup();
 
+aeSockState* WSIOCP_GetExistingSocketState(int rfd);
+aeSockState* WSIOCP_GetSocketState(int rfd);
+BOOL         WSIOCP_CloseSocketState(aeSockState* pSocketState);
+
 void* CallocMemoryNoCOW(size_t size);
-void FreeMemoryNoCOW(void * ptr);
+void  FreeMemoryNoCOW(void * ptr);
 
 #endif
 #endif

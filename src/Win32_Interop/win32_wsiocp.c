@@ -28,17 +28,57 @@
 #include "Win32_FDAPI.h"
 #include <errno.h>
 
-static void *iocpState;
 static HANDLE iocph;
-static fnGetSockState * aeGetSockState;
-static fnGetSockState * aeGetExistingSockState;
-static fnDelSockState * aeDelSockState;
 
 #define SUCCEEDED_WITH_IOCP(result)  ((result) || (GetLastError() == ERROR_IO_PENDING))
 
 /* for zero length reads use shared buf */
 static DWORD wsarecvflags;
 static char zreadchar[1];
+
+aeSockState* WSIOCP_GetExistingSocketState(int rfd) {
+    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(rfd);
+    if (socketState == NULL) {
+        return NULL;
+    } else {
+        return *socketState;
+    }
+}
+
+/* Get the socket state. Create if not found. */
+aeSockState* WSIOCP_GetSocketState(int rfd) {
+    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(rfd);
+    if (socketState == NULL) {
+        return NULL;
+    } else {
+        if (*socketState == NULL) {
+            // Not found. Do lazy create of socket state.
+            *socketState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
+            if (*socketState != NULL) {
+                (*socketState)->rfd = rfd;
+            }
+        }
+        return *socketState;
+    }
+}
+
+/* Closes the socket state or sets the CLOSE_PENDING mask bit.
+   Returns TRUE if closed, FALSE if pending. */
+BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
+    socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
+    if (socketState->wreqs == 0 &&
+        (socketState->masks & (READ_QUEUED | CONNECT_PENDING)) == 0) {
+        FreeMemoryNoCOW(socketState);
+        return TRUE;
+    } else {
+        socketState->masks |= CLOSE_PENDING;
+        return FALSE;
+    }
+}
+
+BOOL WSIOCP_CloseSocketStateRFD(int rfd) {
+    return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
+}
 
 int aeWinQueueAccept(int listenfd) {
     aeSockState *sockstate;
@@ -47,7 +87,7 @@ int aeWinQueueAccept(int listenfd) {
     int acceptfd;
     aacceptreq * areq;
 
-    if ((sockstate = aeGetSockState(iocpState, listenfd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(listenfd)) == NULL) {
         errno = WSAEINVAL;
         return -1;
     }
@@ -58,7 +98,7 @@ int aeWinQueueAccept(int listenfd) {
         return -1;
     }
 
-    accsockstate = aeGetSockState(iocpState, acceptfd);
+    accsockstate = WSIOCP_GetSocketState(acceptfd);
     if (accsockstate == NULL) {
         errno = WSAEINVAL;
         return -1;
@@ -97,7 +137,7 @@ int aeWinListen(int rfd, int backlog) {
     const GUID wsaid_acceptex = WSAID_ACCEPTEX;
     const GUID wsaid_acceptexaddrs = WSAID_GETACCEPTEXSOCKADDRS;
 
-    if ((sockstate = aeGetSockState(iocpState, rfd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -128,7 +168,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     int remotelen = 0;
     aacceptreq * areq;
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -193,7 +233,7 @@ int aeWinReceiveDone(int fd) {
     WSABUF zreadbuf;
     DWORD bytesReceived = 0;
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return -1;
     }
@@ -235,7 +275,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     asendreq *areq;
     DWORD bytesSent = 0;
 
-    sockstate = aeGetSockState(iocpState, fd);
+    sockstate = WSIOCP_GetSocketState(fd);
 
     if (sockstate != NULL &&
         (sockstate->masks & CONNECT_PENDING)) {
@@ -289,7 +329,7 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
     DWORD result;
     aeSockState *sockstate;
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -350,7 +390,7 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
     DWORD result;
     aeSockState *sockstate;
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -408,15 +448,18 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* sourc
 
 /* for each asynch socket, need to associate completion port */
 int aeWinSocketAttach(int fd) {
-    DWORD yes = 1;
-    aeSockState *sockstate;
+    if (iocph == NULL) {
+        return -1;
+    }
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+    aeSockState *sockstate;
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return -1;
     }
 
     /* Set the socket to nonblocking mode */
+    DWORD yes = 1;
     if (ioctlsocket(fd, FIONBIO, &yes) == SOCKET_ERROR) {
         errno = WSAGetLastError();
         return -1;
@@ -443,59 +486,13 @@ int aeWinSocketAttach(int fd) {
     return 0;
 }
 
-void aeShutdown(int fd) {
-    char rbuf[100];
-    PORT_LONGLONG waitmsecs = 50;      /* wait up to 50 millisecs */
-    PORT_LONGLONG endms;
-    PORT_LONGLONG nowms;
-
-    /* wait for last item to complete up to tosecs seconds*/
-    endms = GetHighResRelativeTime(1000) + waitmsecs;
-
-    if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
-        /* read data until no more or error to ensure shutdown completed */
-        while (1) {
-            ssize_t rc = read(fd, rbuf, 100);
-            if (rc == 0 || rc == SOCKET_ERROR)
-                break;
-            else {
-                nowms = GetHighResRelativeTime(1000);
-                if (nowms > endms)
-                    break;
-            }
-        }
-    }
-}
-
-BOOL WSIOCP_OnSocketClose(int rfd) {
-    aeSockState *socketState;
-    if ((socketState = aeGetExistingSockState(iocpState, rfd)) == NULL) {
-        return TRUE;
-    }
-
-    socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
-    if (socketState->wreqs != 0 || (socketState->masks & (READ_QUEUED | CONNECT_PENDING)) != 0) {
-        socketState->masks |= CLOSE_PENDING;
-    }
-
-    return aeDelSockState(iocpState, socketState);
-}
-
-void aeWinInit(void *state,
-                HANDLE iocp,
-                fnGetSockState *getSockState,
-                fnGetSockState *getExistingSockState,
-                fnDelSockState *delSockState) {
-    iocpState = state;
+void aeWinInit(HANDLE iocp) {
     iocph = iocp;
-    aeGetSockState = getSockState;
-    aeGetExistingSockState = getExistingSockState;
-    aeDelSockState = delSockState;
-    FDAPI_SetOnSocketClose(WSIOCP_OnSocketClose);
+    FDAPI_SetCloseSocketState(WSIOCP_CloseSocketStateRFD);
 }
 
 void aeWinCleanup() {
-    iocpState = NULL;
+    iocph = NULL;
 }
 
 static HANDLE privateheap;

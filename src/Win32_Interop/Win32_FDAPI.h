@@ -190,7 +190,7 @@ typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence);
 typedef intptr_t (*redis_get_osfhandle)(int fd);
 typedef int (*redis_open_osfhandle)(intptr_t osfhandle, int flags);
 
-typedef BOOL fnIOCP_OnSocketClose(int rfd);
+typedef BOOL fnWSIOCP_CloseSocketStateRFD(int rfd);
 
 // access() mode definitions 
 #define X_OK    0
@@ -260,8 +260,9 @@ BOOL    FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwRe
 BOOL    FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
 void    FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
 int     FDAPI_UpdateAcceptContext(int fd);
-void    FDAPI_SetOnSocketClose(fnIOCP_OnSocketClose *iocpOnSocketClose);
+void    FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func);
 void    FDAPI_ClearSocketInfo(int fd);
+void**  FDAPI_GetSocketStatePtr(int rfd);
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);

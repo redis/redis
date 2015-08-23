@@ -38,9 +38,9 @@ using namespace std;
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}
 
-static fnIOCP_OnSocketClose* IOCP_OnSocketClose;
-void FDAPI_SetOnSocketClose(fnIOCP_OnSocketClose* iocpOnSocketClose) {
-    IOCP_OnSocketClose = iocpOnSocketClose;
+static fnWSIOCP_CloseSocketStateRFD* wsiocp_CloseSocketState;
+void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func) {
+    wsiocp_CloseSocketState = func;
 }
 
 extern "C" {
@@ -286,6 +286,33 @@ int FDAPI_UpdateAcceptContext(int fd)
     return RFDMap::INVALID_RFD;
 }
 
+void** FDAPI_GetSocketStatePtr(int rfd) {
+    SocketInfo* socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
+    if (socket_info == NULL) {
+        return NULL;
+    } else {
+        return &(socket_info->state);
+    }
+}
+
+void FDAPI_ClearSocketInfo(int rfd) {
+    SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
+
+    ASSERT(socketInfo != NULL)
+        ASSERT(socketInfo->socket == INVALID_SOCKET)
+
+        if (socketInfo != NULL) {
+            if (socketInfo->socket == INVALID_SOCKET) {
+                RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+                return;
+            } else {
+                redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non closed socket.");
+            }
+        } else {
+            redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non attached socket.");
+        }
+}
+
 int redis_socket_impl(int af,int type,int protocol) {
     RFD rfd = RFDMap::INVALID_RFD;
     try {
@@ -313,24 +340,6 @@ int redis_pipe_impl(int *pfds) {
     return err;
 }
 
-void FDAPI_ClearSocketInfo(int rfd) {
-    SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
-
-    ASSERT(socketInfo != NULL)
-    ASSERT(socketInfo->socket == INVALID_SOCKET)
-
-    if (socketInfo != NULL) {
-        if (socketInfo->socket == INVALID_SOCKET) {
-            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
-            return;
-        } else {
-            redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non closed socket.");
-        }
-    } else {
-        redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non attached socket.");
-    }
-}
-
 // In unix a fd is a fd. All are closed with close().
 int redis_close_impl(RFD rfd) {
     try {
@@ -343,16 +352,16 @@ int redis_close_impl(RFD rfd) {
                 SOCKET socket = socketInfo->socket;
                 socketInfo->socket = INVALID_SOCKET;
 
-                BOOL socketStateDeleted = FALSE;
-                if (IOCP_OnSocketClose != NULL) {
-                    socketStateDeleted = IOCP_OnSocketClose(rfd);
-                }
-
-                if (socketStateDeleted == TRUE) {
+                if (socketInfo->state != NULL) {
+                    if (wsiocp_CloseSocketState != NULL) {
+                        if (wsiocp_CloseSocketState(rfd)) {
+                            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+                        }
+                    }
+                } else {
                     RFDMap::getInstance().removeRFDToSocketInfo(rfd);
                 }
-
-                RFDMap::getInstance().removeSocket(socket);
+                RFDMap::getInstance().removeSocketToRFD(socket);
                 return f_closesocket(socket);
             }
         } else {

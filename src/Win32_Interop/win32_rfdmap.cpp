@@ -68,6 +68,7 @@ RFD RFDMap::addSocket(SOCKET s) {
 
             SocketInfo socket_info;
             socket_info.socket = s;
+            socket_info.state = NULL;
             RFDToSocketInfoMap[rfd] = socket_info;
         }
     }
@@ -75,7 +76,7 @@ RFD RFDMap::addSocket(SOCKET s) {
     return rfd;
 }
 
-void RFDMap::removeSocket(SOCKET s) {
+void RFDMap::removeSocketToRFD(SOCKET s) {
     EnterCriticalSection(&mutex);
     SocketToRFDMap.erase(s);
     LeaveCriticalSection(&mutex);
