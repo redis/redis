@@ -124,7 +124,7 @@ int removeMatchFromList(list *socklist, void *value) {
 
 /* delete data for socket / fd being monitored
    or move to the closing queue if operations are pending.
-   Return TRUE if deleted or not found, FLASE if pending*/
+   Return TRUE if deleted or not found, FALSE if pending*/
 BOOL aeDelSockState(void *apistate, aeSockState *sockState) {
     int sindex;
     list *socklist;

@@ -22,6 +22,7 @@
 
 #include "win32_types.h"
 #include "win32_rfdmap.h"
+#include "Win32_Assert.h"
 
 RFDMap& RFDMap::getInstance() {
     static RFDMap instance; // Instantiated on first use. Guaranteed to be destroyed.
@@ -45,7 +46,11 @@ RFD RFDMap::getNextRFDAvailable() {
         rfd = RFDRecyclePool.front();
         RFDRecyclePool.pop();
     } else {
-        rfd = RFDMap::next_available_rfd++;
+        if (next_available_rfd < INT_MAX) {
+            rfd = RFDMap::next_available_rfd++;
+        } else {
+            rfd = RFDMap::INVALID_RFD;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -58,11 +63,13 @@ RFD RFDMap::addSocket(SOCKET s) {
         rfd = RFDMap::INVALID_RFD;
     } else {
         rfd = getNextRFDAvailable();
-        SocketToRFDMap[s] = rfd;
+        if (rfd != RFDMap::INVALID_RFD) {
+            SocketToRFDMap[s] = rfd;
 
-        SocketInfo socket_info;
-        socket_info.socket = s;
-        RFDToSocketInfoMap[rfd] = socket_info;
+            SocketInfo socket_info;
+            socket_info.socket = s;
+            RFDToSocketInfoMap[rfd] = socket_info;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -88,17 +95,20 @@ RFD RFDMap::addPosixFD(int posixFD) {
         rfd = PosixFDToRFDMap[posixFD];
     } else {
         rfd = getNextRFDAvailable();
-        PosixFDToRFDMap[posixFD] = rfd;
-        RFDToPosixFDMap[rfd] = posixFD;
+        if (rfd != RFDMap::INVALID_RFD) {
+            PosixFDToRFDMap[posixFD] = rfd;
+            RFDToPosixFDMap[rfd] = posixFD;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
 }
 
 void RFDMap::removePosixFD(int posixFD) {
-    // posixFD between RESERVED_RFD_INDEX_START and RESERVED_RFD_INDEX_END
+    // posixFD between FIRST_RESERVED_RFD_INDEX and LAST_RESERVED_RFD_INDEX
     // should never be removed.
-    if (posixFD > RFDMap::RESERVED_RFD_INDEX_END) {
+    ASSERT(FIRST_RESERVED_RFD_INDEX == 0);
+    if (posixFD > RFDMap::LAST_RESERVED_RFD_INDEX) {
         EnterCriticalSection(&mutex);
         map<int, RFD>::iterator mit = PosixFDToRFDMap.find(posixFD);
         if (mit != PosixFDToRFDMap.end()) {
@@ -136,8 +146,8 @@ int RFDMap::lookupPosixFD(RFD rfd) {
     EnterCriticalSection(&mutex);
     if (RFDToPosixFDMap.find(rfd) != RFDToPosixFDMap.end()) {
         posixFD = RFDToPosixFDMap[rfd];
-    } else if (rfd >= RFDMap::RESERVED_RFD_INDEX_START
-               && rfd <= RFDMap::RESERVED_RFD_INDEX_END) {
+    } else if (rfd >= RFDMap::FIRST_RESERVED_RFD_INDEX
+               && rfd <= RFDMap::LAST_RESERVED_RFD_INDEX) {
         posixFD = rfd;
     }
     LeaveCriticalSection(&mutex);

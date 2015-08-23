@@ -80,9 +80,9 @@ private:
     */
     RFD getNextRFDAvailable();
 
-    const static int RESERVED_RFD_INDEX_START = 0;
-    const static int RESERVED_RFD_INDEX_END   = 2;
-    int next_available_rfd = RESERVED_RFD_INDEX_END + 1;
+    const static int FIRST_RESERVED_RFD_INDEX = 0;
+    const static int LAST_RESERVED_RFD_INDEX  = 2;
+    int next_available_rfd = LAST_RESERVED_RFD_INDEX + 1;
 
 public:
     /*
