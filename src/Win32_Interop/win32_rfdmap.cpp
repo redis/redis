@@ -69,6 +69,7 @@ RFD RFDMap::addSocket(SOCKET s) {
             SocketInfo socket_info;
             socket_info.socket = s;
             socket_info.state = NULL;
+            socket_info.flags = 0;
             RFDToSocketInfoMap[rfd] = socket_info;
         }
     }
@@ -155,19 +156,3 @@ int RFDMap::lookupPosixFD(RFD rfd) {
     return posixFD;
 }
 
-void RFDMap::SetSocketFlags(SOCKET s, int flags) {
-    EnterCriticalSection(&mutex);
-    SocketToFlagsMap[s] = flags;
-    LeaveCriticalSection(&mutex);
-}
-
-int RFDMap::GetSocketFlags(SOCKET s) {
-    int flags = 0;
-    EnterCriticalSection(&mutex);
-    map<SOCKET, int>::iterator iter = SocketToFlagsMap.find(s);
-    if (iter != SocketToFlagsMap.end()) {
-        flags = SocketToFlagsMap[s];
-    }
-    LeaveCriticalSection(&mutex);
-    return flags;
-}

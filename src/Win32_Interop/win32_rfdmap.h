@@ -36,6 +36,7 @@ typedef int RFD;   // Redis File Descriptor
 typedef struct {
     SOCKET socket;
     void*  state;
+    int    flags;
 } SocketInfo;
 
 /* In UNIX File Descriptors increment by one for each new one. Windows handles 
@@ -60,7 +61,6 @@ private:
 
 private:
     map<SOCKET, RFD>     SocketToRFDMap;
-    map<SOCKET, int>     SocketToFlagsMap;
     map<int, RFD>        PosixFDToRFDMap;
     map<RFD, SocketInfo> RFDToSocketInfoMap;
     map<RFD, int>        RFDToPosixFDMap;
@@ -132,15 +132,4 @@ public:
       Returns INVALID_FD if the posixFD is not found.
     */
     int lookupPosixFD(RFD rfd);
-
-    /*
-      Sets the socket flags.
-    */
-    void SetSocketFlags(SOCKET s, int flags);
-
-    /*
-      Returns the socket flags.
-      Returns 0 if the flags are not found.
-    */
-    int GetSocketFlags(SOCKET s);
 };

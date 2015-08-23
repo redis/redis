@@ -430,31 +430,32 @@ int redis_setsockopt_impl(int sockfd, int level, int optname, const void *optval
     return -1;
 }
 
-int redis_fcntl_impl(int fd, int cmd, int flags = 0 ) {
+int redis_fcntl_impl(int rfd, int cmd, int flags = 0 ) {
     try {
-        SOCKET s = RFDMap::getInstance().lookupSocket(fd);
-        if( s != INVALID_SOCKET ) {
+        SocketInfo* socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
+        if (socket_info != NULL && socket_info->socket != INVALID_SOCKET) {
             switch(cmd) {
                 case F_GETFL:
                 {
-                    // Since there is no way to determine if a socket is blocking in winsock, we keep track of this separately.
-                    return RFDMap::getInstance().GetSocketFlags(s);
+                    // Since in WinSock there is no way to determine if a socket
+                    // is blocking, we keep track of this separately.
+                    return socket_info->flags;
                 }
                 case F_SETFL:
                 {
                     u_long fionbio_flags = (flags & O_NONBLOCK);
-                    if (f_ioctlsocket(s, FIONBIO, &fionbio_flags) == SOCKET_ERROR) {
+                    if (f_ioctlsocket(socket_info->socket, FIONBIO, &fionbio_flags) == SOCKET_ERROR) {
                         errno = WSAGetLastError();
                         return -1;
                     } else {
-                        RFDMap::getInstance().SetSocketFlags(s, flags);
+                        socket_info->flags = flags;
                         return 0;
                     }
                     break;
                 }
                 default:
                 {
-                    DebugBreak();
+                    ASSERT(cmd == F_GETFL || cmd == F_SETFL)
                     return -1;
                 }
             }
