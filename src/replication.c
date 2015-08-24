@@ -724,8 +724,8 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         bulkcount = sdscatprintf(sdsempty(),"$%lld\r\n",(PORT_ULONGLONG)
             slave->repldbsize);
 
-        result = aeWinSocketSend(fd,bulkcount,(int)sdslen(bulkcount),
-                            el, slave, bulkcount, sendBulkToSlaveLenDone);
+        result = WSIOCP_SocketSend(fd, bulkcount, (int) sdslen(bulkcount), el,
+                                   slave, bulkcount, sendBulkToSlaveLenDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             sdsfree(bulkcount);
             freeClient(slave);
@@ -742,8 +742,8 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
-    result = aeWinSocketSend(fd,buf,(int)buflen,
-                                el, slave, buf, sendBulkToSlaveDataDone);
+    result = WSIOCP_SocketSend(fd, buf, (int) buflen, el, slave, buf,
+                               sendBulkToSlaveDataDone);
     if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
         redisLog(REDIS_VERBOSE,"Write error sending DB to slave: %s",
             strerror(errno));
@@ -991,7 +991,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
 #ifdef WIN32_IOCP
-        aeWinReceiveDone(fd);
+        WSIOCP_ReceiveDone(fd);
 #endif
         if (buf[0] == '-') {
             redisLog(REDIS_WARNING,
@@ -1065,7 +1065,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         replicationAbortSyncTransfer();
         return;
     }
-    aeWinReceiveDone(fd);
+    WSIOCP_ReceiveDone(fd);
 #else
     nread = read(fd,buf,readlen);
     if (nread <= 0) {
@@ -2019,10 +2019,10 @@ void replicationCron(void) {
                  server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
               {
 #ifdef WIN32_IOCP
-                if (aeWinSocketSend(slave->fd, "\n", 1, 
-                                    server.el, NULL, NULL, NULL) == -1) {
+                    if (WSIOCP_SocketSend(slave->fd, "\n", 1, server.el,
+                                          NULL, NULL, NULL) == -1) {
 #else
-                if (write(slave->fd, "\n", 1) == -1) {
+                    if (write(slave->fd, "\n", 1) == -1) {
 #endif
                     /* Don't worry, it's just a ping. */
                 }

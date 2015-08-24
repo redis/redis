@@ -66,8 +66,8 @@ typedef struct aeSockState {
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void aeWinInit(HANDLE iocp);
-void aeWinCleanup();
+void WSIOCP_Init(HANDLE iocp);
+void WSIOCP_Cleanup();
 
 aeSockState* WSIOCP_GetExistingSocketState(int rfd);
 aeSockState* WSIOCP_GetSocketState(int rfd);

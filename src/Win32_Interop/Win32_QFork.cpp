@@ -309,12 +309,12 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->globalData.protocolInfo;
             int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->globalData.pipe_write_handle, _O_APPEND);
             for (int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
-                g_pQForkControl->globalData.fds[i] = WSASocket(FROM_PROTOCOL_INFO,
-                                                               FROM_PROTOCOL_INFO,
-                                                               FROM_PROTOCOL_INFO,
-                                                               &lpProtocolInfo[i],
-                                                               0,
-                                                               WSA_FLAG_OVERLAPPED);
+                g_pQForkControl->globalData.fds[i] = FDAPI_WSASocket(FROM_PROTOCOL_INFO,
+                                                                     FROM_PROTOCOL_INFO,
+                                                                     FROM_PROTOCOL_INFO,
+                                                                     &lpProtocolInfo[i],
+                                                                     0,
+                                                                     WSA_FLAG_OVERLAPPED);
             }
 
             g_ChildExitCode = do_socketSave(g_pQForkControl->globalData.fds,
@@ -946,7 +946,7 @@ void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
     WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*)dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
     g_pQForkControl->globalData.protocolInfo = protocolInfo;
     for(int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
-        WSADuplicateSocket(g_pQForkControl->globalData.fds[i], dwProcessId, &protocolInfo[i]);
+        FDAPI_WSADuplicateSocket(g_pQForkControl->globalData.fds[i], dwProcessId, &protocolInfo[i]);
     }
 }
 

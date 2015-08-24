@@ -227,7 +227,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         errno = WSAGetLastError();
         if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
             errno = EAGAIN;
-            aeWinReceiveDone((int)c->context->fd);
+            WSIOCP_ReceiveDone((int) c->context->fd);
             return;
         } else {
             fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -241,7 +241,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         exit(1);
     } else {
 #ifdef WIN32_IOCP
-        aeWinReceiveDone((int)c->context->fd);
+        WSIOCP_ReceiveDone((int) c->context->fd);
 #endif
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
@@ -322,8 +322,9 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
 #ifdef WIN32_IOCP
-        int result = aeWinSocketSend(c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 
-                                        el, c, NULL, writeHandlerDone);
+        int result = WSIOCP_SocketSend(c->context->fd, (char*) ptr,
+                                       (int) (sdslen(c->obuf) - c->written),
+                                       el, c, NULL, writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket %s\n", wsa_strerror(errno));
@@ -376,7 +377,7 @@ static client createClient(char *cmd, size_t len, client from) {
 #ifdef WIN32_IOCP
         SOCKADDR_STORAGE ss;
         c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &ss);
-        if (aeWinSocketConnect(c->context->fd, &ss) != 0) {
+        if (WSIOCP_SocketConnect(c->context->fd, &ss) != 0) {
             c->context->err = errno;
             strerror_r(errno,c->context->errstr,sizeof(c->context->errstr));
         }

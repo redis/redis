@@ -32,6 +32,7 @@
 using namespace std;
 
 typedef int RFD;   // Redis File Descriptor
+#define INVALID_FD -1
 
 typedef struct {
     SOCKET socket;
@@ -61,17 +62,13 @@ private:
 
 private:
     map<SOCKET, RFD>     SocketToRFDMap;
-    map<int, RFD>        PosixFDToRFDMap;
+    map<int, RFD>        CrtFDToRFDMap;
     map<RFD, SocketInfo> RFDToSocketInfoMap;
-    map<RFD, int>        RFDToPosixFDMap;
+    map<RFD, int>        RFDToCrtFDMap;
     queue<RFD>           RFDRecyclePool;
 
 private:
     CRITICAL_SECTION mutex;
-
-public:
-    const static int INVALID_RFD = -1;
-    const static int INVALID_FD  = -1;
 
 private:
     /*
@@ -91,10 +88,10 @@ public:
       Returns the RFD value for the socket.
       Returns INVALID_RFD if the socket is already added to the collection.
     */
-    RFD addSocket(SOCKET s);
+    RFD addSocket(SOCKET socket);
 
     /* Removes a socket from SocketToRFDMap. */
-    void removeSocketToRFD(SOCKET s);
+    void removeSocketToRFD(SOCKET socket);
 
     /*
       Removes a RFD from RFDToSocketInfoMap.
@@ -103,17 +100,17 @@ public:
     void removeRFDToSocketInfo(RFD rfd);
 
     /*
-      Adds a posixFD (used with low-level CRT posix file functions) to RFDToPosixFDMap.
-      Returns the RFD value for the posixFD.
-      Returns the existing RFD if the posixFD is already present in the collection.
+      Adds a CRT fd (used with low-level CRT posix file functions) to RFDToCrtFDMap.
+      Returns the RFD value for the crt_fd.
+      Returns the existing RFD if the crt_fd is already present in the collection.
     */
-    RFD addPosixFD(int posixFD);
+    RFD addCrtFD(int crt_fd);
 
     /*
-      Removes a socket from RFDToPosixFDMap.
+      Removes a socket from RFDToCrtFDMap.
       It frees the associated RFD adding it to RFDRecyclePool.
     */
-    void removePosixFD(int posixFD);
+    void removeCrtFD(int crt_fd);
 
     /*
       Returns the socket associated with a RFD.
@@ -128,8 +125,8 @@ public:
     SocketInfo* lookupSocketInfo(RFD rfd);
 
     /*
-      Returns the posixFD associated with a RFD.
-      Returns INVALID_FD if the posixFD is not found.
+      Returns the crt_fd associated with a RFD.
+      Returns INVALID_FD if the crt_fd is not found.
     */
-    int lookupPosixFD(RFD rfd);
+    int lookupCrtFD(RFD rfd);
 };

@@ -36,7 +36,7 @@
 #endif
 #include <math.h>
 
-WIN32_ONLY(extern int aeWinQueueAccept(int listenfd);)
+WIN32_ONLY(extern int WSIOCP_QueueAccept(int listenfd);)
 
 static void setProtocolError(redisClient *c, int pos);
 
@@ -589,7 +589,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 redisLog(REDIS_WARNING,
                     "Accepting client connection: %s", server.neterr);
 #ifdef _WIN32
-                if (aeWinQueueAccept(fd) == -1) {
+                if (WSIOCP_QueueAccept(fd) == -1) {
                     redisLog(REDIS_WARNING,
                         "acceptTcpHandler: failed to queue another accept.");
                 }
@@ -867,8 +867,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(c->bufpos > c->sentlen || ln != NULL) {
         if (c->bufpos > c->sentlen) {
             nwritten = c->bufpos - c->sentlen;
-            result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,
-                                        el, c, c->buf, sendReplyBufferDone);
+            result = WSIOCP_SocketSend(fd, c->buf + c->sentlen, nwritten,
+                                       el, c, c->buf, sendReplyBufferDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE, "Error writing to client: %s", wsa_strerror(errno));
                 freeClient(c);
@@ -890,8 +890,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             /* object ref placed in request, release in sendReplyListDone */
             incrRefCount(o);
-            result = aeWinSocketSend(fd, ((char*)o->ptr), objlen, 
-                                        el, c, o, sendReplyListDone);
+            result = WSIOCP_SocketSend(fd, ((char*) o->ptr), objlen,
+                                       el, c, o, sendReplyListDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE,
                     "Error writing to client: %s", wsa_strerror(errno));
@@ -1318,7 +1318,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 #ifdef WIN32_IOCP
-    aeWinReceiveDone(fd);
+    WSIOCP_ReceiveDone(fd);
 #endif
     if (nread) {
         sdsIncrLen(c->querybuf,nread);

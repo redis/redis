@@ -24,7 +24,7 @@
 #define WIN32_ASSERT_H
 
 #ifdef _DEBUG
-#define ASSERT(condition) { if(!(condition)){ fprintf(stderr, "Assertion failed: %s @ %s::%s (%d)\n", #condition , __FILE__, __FUNCTION__, __LINE__); DebugBreak();} }
+#define ASSERT(condition)  do { if(!(condition)){ fprintf(stderr, "Assertion failed: %s @ %s::%s (%d)\n", #condition , __FILE__, __FUNCTION__, __LINE__); DebugBreak();} } while(0)
 #else
 #define ASSERT(condition) 
 #endif

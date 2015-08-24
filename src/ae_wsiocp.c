@@ -41,27 +41,24 @@ typedef BOOL (WINAPI *sGetQueuedCompletionStatusEx)
               BOOL fAlertable);
 sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
 
-/* lookup structure for socket
- * socket value is not an index. Convert socket to index
-  * and then find matching structure in list */
-
 #define MAX_SOCKET_LOOKUP   65535
 
-/* structure that keeps state of sockets and Completion port handle */
+/* Structure that keeps IOCP data */
 typedef struct aeApiState {
     HANDLE iocp;
     int setsize;
     OVERLAPPED_ENTRY entries[MAX_COMPLETE_PER_POLL];
 } aeApiState;
 
-// find matching value in list and remove. If found return 1
-int removeMatchFromList(list *socklist, void *value) {
-    listNode *node;
-    if (socklist == NULL) return 0;
-    node = listFirst(socklist);
+/* Find matching value in list and remove. If found return 1 */
+int removeMatchFromList(list *requestlist, void *value) {
+    if (requestlist == NULL) {
+        return 0;
+    }
+    listNode* node = listFirst(requestlist);
     while (node != NULL) {
         if (listNodeValue(node) == value) {
-            listDelNode(socklist, node);
+            listDelNode(requestlist, node);
             return 1;
         }
         node = listNextNode(node);
@@ -76,7 +73,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     if (!state) return -1;
 
-    /* create a single IOCP to be shared by all sockets */
+    // Create a single IOCP to be shared by all sockets
     state->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
                                          NULL,
                                          0,
@@ -96,8 +93,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     state->setsize = eventLoop->setsize;
     eventLoop->apidata = state;
-    /* initialize the IOCP socket code with state reference */
-    aeWinInit(state->iocp);
+    // Initialize the IOCP socket code with state reference
+    WSIOCP_Init(state->iocp);
     return 0;
 }
 
@@ -107,15 +104,15 @@ static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
 }
 
 
-/* termination */
+/* Termination */
 static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     CloseHandle(state->iocp);
     FreeMemoryNoCOW(state);
-    aeWinCleanup();
+    WSIOCP_Cleanup();
 }
 
-/* monitor state changes for a socket */
+/* Monitor state changes for a socket */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
     aeSockState *sockstate = WSIOCP_GetSocketState(fd);
@@ -128,11 +125,11 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
         sockstate->masks |= AE_READABLE;
         if ((sockstate->masks & CONNECT_PENDING) == 0) {
             if (sockstate->masks & LISTEN_SOCK) {
-                /* actually a listen. Do not treat as read */
+                // Actually a listen. Do not treat as read
             } else {
                 if ((sockstate->masks & READ_QUEUED) == 0) {
-                    // queue up a 0 byte read
-                    aeWinReceiveDone(fd);
+                    // Queue up a 0 byte read
+                    WSIOCP_ReceiveDone(fd);
                 }
             }
         }
@@ -140,13 +137,13 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) {
         sockstate->masks |= AE_WRITABLE;
         if ((sockstate->masks & CONNECT_PENDING) == 0) {
-            // if no write active, then need to queue write ready
+            // If no write active, then need to queue write ready
             if (sockstate->wreqs == 0) {
                 asendreq *areq = (asendreq *) CallocMemoryNoCOW(sizeof(asendreq));
                 if (PostQueuedCompletionStatus(state->iocp,
-                                            0,
-                                            fd,
-                                            &areq->ov) == 0) {
+                                               0,
+                                               fd,
+                                               &areq->ov) == 0) {
                     errno = GetLastError();
                     FreeMemoryNoCOW(areq);
                     return -1;
@@ -159,7 +156,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     return 0;
 }
 
-/* stop monitoring state changes for a socket */
+/* Stop monitoring state changes for a socket */
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeSockState *sockstate = WSIOCP_GetExistingSocketState(fd);
     if (sockstate == NULL) {
@@ -171,7 +168,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     if (mask & AE_WRITABLE) sockstate->masks &= ~AE_WRITABLE;
 }
 
-/* return array of sockets that are ready for read or write 
+/* Return array of sockets that are ready for read or write
    depending on the mask for each socket */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = (aeApiState *)eventLoop->apidata;
@@ -185,11 +182,11 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (pGetQueuedCompletionStatusEx != NULL) {
         /* first get an array of completion notifications */
         rc = pGetQueuedCompletionStatusEx(state->iocp,
-                                        state->entries,
-                                        MAX_COMPLETE_PER_POLL,
-                                        &numComplete,
-                                        mswait,
-                                        FALSE);
+                                          state->entries,
+                                          MAX_COMPLETE_PER_POLL,
+                                          &numComplete,
+                                          mswait,
+                                          FALSE);
     } else {
         /* need to get one at a time. Use first array element */
         rc = GetQueuedCompletionStatus(state->iocp,
@@ -270,7 +267,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             if (areq->proc != NULL) {
                                 DWORD written = 0;
                                 DWORD flags;
-                                WSAGetOverlappedResult(rfd, &areq->ov, &written, FALSE, &flags);
+                                FDAPI_WSAGetOverlappedResult(rfd, &areq->ov, &written, FALSE, &flags);
                                 areq->proc(areq->eventLoop, rfd, &areq->req, (int)written);
                             }
                             sockstate->wreqs--;

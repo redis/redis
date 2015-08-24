@@ -40,18 +40,14 @@ typedef unsigned long nfds_t;
 #include <stdio.h>
 
 // the following are required to be defined before WS2tcpip is included.
-typedef void (*redis_WSASetLastError)(int iError);
 typedef int (*redis_WSAGetLastError)(void);
-typedef int (*redis_WSAIoctl)(int rfd,DWORD dwIoControlCode,LPVOID lpvInBuffer,DWORD cbInBuffer,LPVOID lpvOutBuffer,DWORD cbOutBuffer,LPDWORD lpcbBytesReturned,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-extern redis_WSASetLastError WSASetLastError;
 extern redis_WSAGetLastError WSAGetLastError;
-extern redis_WSAIoctl WSAIoctl;
 
 #ifdef __cplusplus
 }
@@ -135,19 +131,6 @@ typedef struct pollfd {
 } WSAPOLLFD, *PWSAPOLLFD, FAR *LPWSAPOLLFD;
 #endif
 
-// WinSock APIs used in Win32_wsiocp.cpp
-typedef int (*redis_WSASend)(int rfd, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
-typedef int (*redis_WSARecv)(int rfd,LPWSABUF lpBuffers,DWORD dwBufferCount,LPDWORD lpNumberOfBytesRecvd,LPDWORD lpFlags,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
-typedef int (*redis_WSACleanup)(void);
-typedef int (*redis_ioctlsocket)(int rfd,long cmd,u_long *argp );
-typedef unsigned long (*redis_inet_addr)(const char *cp);
-typedef struct hostent* (*redis_gethostbyname)(const char *name);
-typedef char* (*redis_inet_ntoa)(struct in_addr in);
-typedef BOOL (*redis_WSAGetOverlappedResult)(int rfd,LPWSAOVERLAPPED lpOverlapped, LPDWORD lpcbTransfer, BOOL fWait, LPDWORD lpdwFlags);
-
-typedef int (*redis_WSADuplicateSocket)(int rfd, DWORD dwProcessId, LPWSAPROTOCOL_INFO lpProtocolInfo);
-typedef int (*redis_WSASocket)(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpProtocolInfo, GROUP g, DWORD dwFlags);
-
 // other API forwards
 typedef int (*redis_setmode)(int fd,int mode);
 typedef size_t (*redis_fwrite)(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
@@ -172,12 +155,11 @@ typedef int (*_redis_fstat)(int fd, struct __stat64 *buffer);
 typedef int (*redis_listen)(int sockfd, int backlog);
 typedef int (*redis_ftruncate)(int fd, PORT_LONGLONG length);
 typedef int (*redis_bind)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
-typedef int (*redis_shutdown)(int sockfd, int how); 
 typedef u_short (*redis_htons)(u_short hostshort);
 typedef u_long (*redis_htonl)(u_long hostlong);
+typedef u_short (*redis_ntohs)(u_short netshort);
 typedef int (*redis_getpeername)(int sockfd, struct sockaddr *addr, socklen_t * addrlen);
 typedef int (*redis_getsockname)(int sockfd, struct sockaddr* addrsock, int* addrlen );
-typedef u_short (*redis_ntohs)(u_short netshort);
 typedef void (*redis_freeaddrinfo)(struct addrinfo *ai);
 typedef int (*redis_getaddrinfo)(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
 typedef const char* (*redis_inet_ntop)(int af, const void *src, char *dst, size_t size);
@@ -205,17 +187,6 @@ extern "C"
 // API replacements
 extern redis_pipe pipe;
 extern redis_socket socket;
-extern redis_WSASend WSASend;
-extern redis_WSARecv WSARecv;
-extern redis_WSACleanup WSACleanup;
-extern redis_ioctlsocket ioctlsocket;
-extern redis_inet_addr inet_addr;
-extern redis_inet_ntoa inet_ntoa;
-extern redis_WSAGetOverlappedResult WSAGetOverlappedResult;
-extern redis_WSADuplicateSocket WSADuplicateSocket;
-extern redis_WSASocket WSASocket;
-
-extern redis_close fdapi_close;
 extern redis_open open;
 extern redis_accept accept;
 extern redis_setsockopt setsockopt;
@@ -226,48 +197,56 @@ extern redis_connect connect;
 extern redis_read read;
 extern redis_write write;
 extern redis_fsync fsync;
-extern _redis_fstat fdapi_fstat64;
 extern redis_listen listen;
 extern redis_ftruncate ftruncate;
 extern redis_bind bind;
-extern redis_shutdown shutdown;
-extern redis_gethostbyname gethostbyname;
 extern redis_htons htons;
 extern redis_htonl htonl;
 extern redis_getpeername getpeername;
 extern redis_getsockname getsockname;
 extern redis_ntohs ntohs;
-extern redis_setmode fdapi_setmode;
-extern redis_fwrite fdapi_fwrite;
-extern redis_fclose fdapi_fclose;
-extern redis_fileno fdapi_fileno;
-
 extern redis_select select;
 extern redis_ntohl ntohl;
 extern redis_isatty isatty;
 extern redis_access access;
 extern redis_lseek64 lseek64;
-extern redis_get_osfhandle fdapi_get_osfhandle;
-extern redis_open_osfhandle fdapi_open_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
 
-// other FD based APIs
-BOOL    FDAPI_SetFDInformation(int FD, DWORD mask, DWORD flags);
-HANDLE  FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
-BOOL    FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
-BOOL    FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
-void    FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
-int     FDAPI_UpdateAcceptContext(int fd);
-void    FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func);
-void    FDAPI_ClearSocketInfo(int fd);
-void**  FDAPI_GetSocketStatePtr(int rfd);
+extern redis_close fdapi_close;
+extern _redis_fstat fdapi_fstat64;
+extern redis_setmode fdapi_setmode;
+extern redis_fwrite fdapi_fwrite;
+extern redis_fclose fdapi_fclose;
+extern redis_fileno fdapi_fileno;
+extern redis_get_osfhandle fdapi_get_osfhandle;
+extern redis_open_osfhandle fdapi_open_osfhandle;
 
-// other networking functions
+// Other FD based APIs
+BOOL   FDAPI_SetFDInformation(int rfd, DWORD mask, DWORD flags);
+HANDLE FDAPI_CreateIoCompletionPort(int rfd, HANDLE ExistingCompletionPort, ULONG_PTR CompletionKey, DWORD NumberOfConcurrentThreads);
+BOOL   FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped);
+BOOL   FDAPI_ConnectEx(int rfd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
+void   FDAPI_GetAcceptExSockaddrs(int rfd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
+int    FDAPI_UpdateAcceptContext(int rfd);
+void   FDAPI_ClearSocketInfo(int rfd);
+void** FDAPI_GetSocketStatePtr(int rfd);
+
+int    FDAPI_WSAIoctl(int rfd, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+int    FDAPI_WSASend(int rfd, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+int    FDAPI_WSARecv(int rfd, LPWSABUF lpBuffers, DWORD dwBufferCount, LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+BOOL   FDAPI_WSAGetOverlappedResult(int rfd, LPWSAOVERLAPPED lpOverlapped, LPDWORD lpcbTransfer, BOOL fWait, LPDWORD lpdwFlags);
+int    FDAPI_WSADuplicateSocket(int rfd, DWORD dwProcessId, LPWSAPROTOCOL_INFO lpProtocolInfo);
+int    FDAPI_WSASocket(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpProtocolInfo, GROUP g, DWORD dwFlags);
+int    FDAPI_ioctlsocket(int rfd, long cmd, u_long *argp);
+
+void   FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func);
+
+// Other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
 
-// macroize CRT definitions to point to our own
+// Macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS
 #define close(fd) fdapi_close(fd)
 #define setmode(fd,mode) fdapi_setmode(fd,mode)

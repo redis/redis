@@ -280,9 +280,9 @@ We need to do the check before calling strtod */
 double wstrtod(const char *nptr, char **eptr);
 
 
-/* structs and functions for using IOCP with windows sockets */
+/* Structs and functions for using IOCP with windows sockets */
 
-/* need callback on write complete. aeWinSendReq is used to pass parameters */
+/* Need a callback on write complete. aeWinSendReq is used to pass parameters */
 typedef struct aeWinSendReq {
     void *client;
     void *data;
@@ -290,15 +290,12 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-
-int aeWinSocketAttach(int fd);
-int aeWinReceiveDone(int fd);
-int aeWinSocketSend(int fd, char *buf, int len, 
-                    void *eventLoop, void *client, void *data, void *proc);
-int aeWinListen(int rfd, int backlog);
-int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
-int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss);
-int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr);
+int WSIOCP_ReceiveDone(int fd);
+int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
+int WSIOCP_Listen(int rfd, int backlog);
+int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len);
+int WSIOCP_SocketConnect(int fd, const SOCKADDR_STORAGE *ss);
+int WSIOCP_SocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);
