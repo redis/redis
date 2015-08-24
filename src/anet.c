@@ -246,6 +246,17 @@ static int anetSetReuseAddr(char *err, int fd) {
     return ANET_OK;
 }
 
+static int anetSetReusePort(char *err, int fd) {
+    int yes = 1;
+#ifdef HAVE_REUSEPORT
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)) == -1) {
+        anetSetError(err, "setsockopt SO_REUSEPORT: %s", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+    return ANET_OK;
+}
+
 static int anetCreateSocket(char *err, int domain) {
     int s;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
@@ -256,6 +267,10 @@ static int anetCreateSocket(char *err, int domain) {
     /* Make sure connection-intensive things like the redis benchmark
      * will be able to close/open sockets a zillion of times */
     if (anetSetReuseAddr(err,s) == ANET_ERR) {
+        close(s);
+        return ANET_ERR;
+    }
+    if (anetSetReusePort(err,s) == ANET_ERR) {
         close(s);
         return ANET_ERR;
     }
@@ -288,6 +303,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        if (anetSetReusePort(err,s) == ANET_ERR) goto error;
         if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
         if (source_addr) {
@@ -482,6 +498,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        if (anetSetReusePort(err,s) == ANET_ERR) goto error;
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) goto error;
         goto end;
     }
