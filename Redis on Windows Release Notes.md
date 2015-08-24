@@ -1,18 +1,31 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
 
---[ Redis on Windows 2.8.2102 ] Release date: Aug 14 215
+--[ Redis on Windows 2.8.2102 ] Release date: Aug 25 2015
 
- - [Fix] Fixed some porting bugs from Linux to Windows #270 (by @zeliard)
- - [Fix] Issue #275 AOF rewrite not working (credits to @ppanyukov for investigating the bug)
- - [Fix] Redis Server stops accepting connections. #259 #281
- - [Fix & Cleanup] Socket state moved from aeApiState to RFDMap. #282
- - [Setup] NuGet description doesn't support Markdown.
+ - [Cleanup] Code refactoring.
+ - [Cleanup] Replaced DebugBreak with ASSERT.
+ - [Code optimization] Socket flags moved to socket info structure.
+ - [Fix & Cleanup] Socket state moved from aeApiState to RFDMap.
+ - [Test] Increased waiting time while/before checking condition.
+ - [Fix] Making sure getNextRFDAvailable never reaches MAX_INT.
+ - [Fix] Sockets not properly closed.
+ - [Test] Added a Windows-specific regression test.
+ - [Test] Gitignore log file.
+ - [Cleanup] Code refactoring.
+ - [Debug] Disabled command line arguments print out.
+ - [Fix] Socket state flags were not saved.
+ - [Setup] Updated version number and release notes.
  - [Cleanup] Removed code that was commented out.
  - [Portability] Explicit type casting.
+ - [Cleanup] Removed comment.
+ - [Setup] NuGet description doesn't support Markdown.
  - [Cleanup] Change methods name and signature.
+ - [Fix] Redis Server stops accepting connections.
+ - [Setup] NuGet description doesn't support Markdown.
+ - [Fix] AOF rewrite failure. (Credits to @ppanyukov for investigating the bug)
 
---[ Redis on Windows 2.8.2101 ] Release date: Jul 15 215
+--[ Redis on Windows 2.8.2101 ] Release date: Jul 15 2015
 
  - [Fix] deleting char** correctly (@zeliard) 
  - [Fix] Fork code for background processing fixes and code refactoring.
