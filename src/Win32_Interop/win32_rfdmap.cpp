@@ -72,27 +72,16 @@ RFD RFDMap::addSocket(SOCKET s) {
     return rfd;
 }
 
-void RFDMap::removeSocket(SOCKET s) {
+void RFDMap::removeSocketToRFD(SOCKET s) {
     EnterCriticalSection(&mutex);
-    SocketToRFDMapType::iterator mit = SocketToRFDMap.find(s);
-    if (mit != SocketToRFDMap.end()) {
-        RFD rfd = (*mit).second;
-        RFDRecyclePool.push(rfd);
-        RFDToSocketInfoMap.erase(rfd);
-        SocketToRFDMap.erase(s);
-    }
+    SocketToRFDMap.erase(s);
     LeaveCriticalSection(&mutex);
 }
 
-void RFDMap::removeRFDToSocket(RFD rfd) {
+void RFDMap::removeRFDToSocketInfo(RFD rfd) {
     EnterCriticalSection(&mutex);
-    RFDToSocketInfoMapType::iterator mit = RFDToSocketInfoMap.find(rfd);
-    if (mit != RFDToSocketInfoMap.end()) {
-        SocketInfo socket_info = (*mit).second;
-        RFDRecyclePool.push(rfd);
-        RFDToSocketInfoMap.erase(rfd);
-        SocketToRFDMap.erase(socket_info.socket);
-    }
+    RFDToSocketInfoMap.erase(rfd);
+    RFDRecyclePool.push(rfd);
     LeaveCriticalSection(&mutex);
 }
 

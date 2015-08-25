@@ -92,9 +92,9 @@ public:
 
     /* Removes a socket from the list of sockets. Also removes the associated
      * file descriptor. */
-    void removeSocket(SOCKET s);
+    void removeSocketToRFD(SOCKET s);
 
-    void removeRFDToSocket(RFD rfd);
+    void removeRFDToSocketInfo(RFD rfd);
 
     /* Adds a posixFD (used with low-level CRT posix file functions) to the
      * posixFD map. Returns the redis file descriptor value for the posixFD.

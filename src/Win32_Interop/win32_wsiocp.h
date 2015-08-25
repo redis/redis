@@ -55,6 +55,7 @@ typedef struct aeSockState {
     int wreqs;
     OVERLAPPED ov_read;
     list wreqlist;
+    int unknownComplete;
 } aeSockState;
 
 #define READ_QUEUED         0x000100
@@ -68,7 +69,7 @@ void aeWinInit(HANDLE iocp);
 void aeWinCleanup();
 aeSockState* aeWinGetExistingSocketState(int fd);
 aeSockState *aeWinGetSocketState(int fd);
-BOOL aeWinDelSocketState(aeSockState* pSocketState);
+BOOL         WSIOCP_CloseSocketState(aeSockState* pSocketState);
 
 void* CallocMemoryNoCOW(size_t size);
 void FreeMemoryNoCOW(void * ptr);

@@ -62,18 +62,22 @@ aeSockState *aeWinGetSocketState(int fd) {
     }
 }
 
-/* Delete the socket state or sets the close pending mask bit.
- * Return TRUE if deleted, FALSE if pending. */
-BOOL aeWinDelSocketState(aeSockState* pSocketState) {
-    pSocketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
-    if (pSocketState->wreqs == 0 &&
-        (pSocketState->masks & (READ_QUEUED | CONNECT_PENDING)) == 0) {
-        FreeMemoryNoCOW(pSocketState);
+/* Closes the socket state or sets the CLOSE_PENDING mask bit.
+Returns TRUE if closed, FALSE if pending. */
+BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
+    socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
+    if (socketState->wreqs == 0 &&
+        (socketState->masks & (READ_QUEUED | CONNECT_PENDING)) == 0) {
+        FreeMemoryNoCOW(socketState);
         return TRUE;
     } else {
-        pSocketState->masks |= CLOSE_PENDING;
+        socketState->masks |= CLOSE_PENDING;
         return FALSE;
     }
+}
+
+BOOL WSIOCP_CloseSocketStateRFD(int rfd) {
+    return WSIOCP_CloseSocketState(aeWinGetExistingSocketState(rfd));
 }
 
 /* For each asynch socket, need to associate completion port */
@@ -456,51 +460,9 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, co
     return 0;
 }
 
-void aeWinShutdown(int fd) {
-    char rbuf[100];
-    PORT_LONGLONG waitmsecs = 50;      // Wait up to 50 millisecs
-    PORT_LONGLONG endms;
-    PORT_LONGLONG nowms;
-
-    // Wait for last item to complete up to tosecs seconds
-    endms = GetHighResRelativeTime(1000) + waitmsecs;
-
-    if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
-        // Read data until no more or error to ensure shutdown completed
-        while (1) {
-            ssize_t rc = read(fd, rbuf, 100);
-            if (rc == 0 || rc == SOCKET_ERROR)
-                break;
-            else {
-                nowms = GetHighResRelativeTime(1000);
-                if (nowms > endms)
-                    break;
-            }
-        }
-    }
-}
-
-/* When closing socket, need to unassociate completion port */
-int aeWinCloseSocket(int fd) {
-    aeSockState *pSockState = aeWinGetExistingSocketState(fd);
-    if (pSockState == NULL) {
-        close(fd);
-        return 0;
-    }
-
-    // Disable sending on this socket.
-    aeWinShutdown(fd);
-
-    if (aeWinDelSocketState(pSockState)) {
-        close(fd);
-        pSockState = NULL;
-        return 0;
-    }
-    return -1;
-}
-
 void aeWinInit(HANDLE iocp) {
     iocph = iocp;
+    FDAPI_SetCloseSocketState(WSIOCP_CloseSocketStateRFD);
 }
 
 void aeWinCleanup() {

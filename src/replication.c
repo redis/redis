@@ -923,8 +923,8 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.repl_state == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
+    close(server.repl_transfer_s);
 #ifdef _WIN32
-    aeWinCloseSocket(server.repl_transfer_s);
     if (server.repl_transfer_fd != -1) {
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
@@ -935,7 +935,6 @@ void replicationAbortSyncTransfer(void) {
         server.repl_transfer_tmpfile = NULL;
     }
 #else
-    close(server.repl_transfer_s);
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
@@ -1507,7 +1506,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     return;
 
 error:
-    IF_WIN32(aeWinCloseSocket,close)(fd);
+    close(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
     return;
@@ -1527,7 +1526,7 @@ int connectWithMaster(void) {
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
-        IF_WIN32(aeWinCloseSocket,close)(fd);
+        close(fd);
         redisLog(REDIS_WARNING,"Can't create readable event for SYNC");
         return REDIS_ERR;
     }
@@ -1546,7 +1545,7 @@ void undoConnectWithMaster(void) {
     redisAssert(server.repl_state == REDIS_REPL_CONNECTING ||
                 server.repl_state == REDIS_REPL_RECEIVE_PONG);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
-    IF_WIN32(aeWinCloseSocket,close)(fd);
+    close(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
 }

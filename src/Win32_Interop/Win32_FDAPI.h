@@ -173,6 +173,8 @@ typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence);
 typedef intptr_t (*redis_get_osfhandle)(int fd);
 typedef int (*redis_open_osfhandle)(intptr_t osfhandle, int flags);
 
+typedef BOOL fnWSIOCP_CloseSocketStateRFD(int rfd);
+
 // access() mode definitions 
 #define X_OK    0
 #define W_OK    2
@@ -210,7 +212,6 @@ extern _redis_fstat fdapi_fstat64;
 extern redis_listen listen;
 extern redis_ftruncate ftruncate;
 extern redis_bind bind;
-extern redis_shutdown shutdown;
 extern redis_gethostbyname gethostbyname;
 extern redis_htons htons;
 extern redis_htonl htonl;
@@ -243,9 +244,11 @@ void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveData
 int FDAPI_UpdateAcceptContext( int fd );
 int FDAPI_PipeSetNonBlock(int rfd, int non_blocking);
 void** FDAPI_GetSocketStatePtr(int rfd);
-void FDAPI_ClearSocketState(int fd);
+void FDAPI_ClearSocketInfo(int fd);
 int FDAPI_WSAIoctl(int rfd, DWORD dwIoControlCode, LPVOID lpvInBuffer, DWORD cbInBuffer, LPVOID lpvOutBuffer, DWORD cbOutBuffer, LPDWORD lpcbBytesReturned, LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
 int FDAPI_WSAGetLastError(void);
+
+void   FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func);
 
 // other networking functions
 BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);

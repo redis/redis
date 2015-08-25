@@ -81,7 +81,6 @@ _redis_fstat fdapi_fstat64 = NULL;
 redis_listen listen = NULL;
 redis_ftruncate ftruncate = NULL;
 redis_bind bind = NULL;
-redis_shutdown shutdown = NULL;
 redis_gethostbyname gethostbyname = NULL;
 redis_htons htons = NULL;
 redis_htonl htonl = NULL;
@@ -92,6 +91,11 @@ redis_freeaddrinfo freeaddrinfo = NULL;
 redis_getaddrinfo getaddrinfo = NULL;
 redis_inet_ntop inet_ntop = NULL;
 redis_inet_pton inet_pton = NULL;
+}
+
+static fnWSIOCP_CloseSocketStateRFD* wsiocp_CloseSocketState;
+void FDAPI_SetCloseSocketState(fnWSIOCP_CloseSocketStateRFD* func) {
+    wsiocp_CloseSocketState = func;
 }
 
 auto f_WSAGetLastError = dllfunctor_stdcall<int>("ws2_32.dll", "WSAGetLastError");
@@ -295,16 +299,21 @@ void** FDAPI_GetSocketStatePtr(int rfd) {
     }
 }
 
-void FDAPI_ClearSocketState(int rfd) {
-    SocketInfo * socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
-    if (socket_info && socket_info->state) {
-        if (socket_info->socket == INVALID_SOCKET) {
-            RFDMap::getInstance().removeRFDToSocket(rfd);
+void FDAPI_ClearSocketInfo(int rfd) {
+    SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
+
+    ASSERT(socketInfo != NULL);
+    ASSERT(socketInfo->socket == INVALID_SOCKET);
+
+    if (socketInfo != NULL) {
+        if (socketInfo->socket == INVALID_SOCKET) {
+            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+            return;
         } else {
-            socket_info->state = NULL;
+            redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non closed socket.");
         }
     } else {
-        redisLog(REDIS_WARNING, "ClearSocketState called on non attached socket.");
+        redisLog(REDIS_WARNING, "FDAPI_ClearSocketInfo called on non attached socket.");
     }
 }
 
@@ -392,26 +401,37 @@ int redis_socket_impl(int af, int type, int protocol) {
 auto f_closesocket = dllfunctor_stdcall<int, SOCKET>("ws2_32.dll", "closesocket");
 int redis_close_impl(RFD rfd) {
     try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
-            RFDMap::getInstance().removeSocket(socket);
-            return f_closesocket(socket);
+        SocketInfo* socketInfo = RFDMap::getInstance().lookupSocketInfo(rfd);
+        if (socketInfo != NULL) {
+
+            ASSERT(socketInfo->socket != INVALID_SOCKET);
+
+            if (socketInfo->socket != INVALID_SOCKET) {
+                SOCKET socket = socketInfo->socket;
+                socketInfo->socket = INVALID_SOCKET;
+
+                if (socketInfo->state != NULL) {
+                    if (wsiocp_CloseSocketState != NULL) {
+                        if (wsiocp_CloseSocketState(rfd)) {
+                            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+                        }
+                    }
+                } else {
+                    RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+                }
+                RFDMap::getInstance().removeSocketToRFD(socket);
+                return f_closesocket(socket);
+            }
         } else {
             int posixFD = RFDMap::getInstance().lookupPosixFD(rfd);
             if (posixFD != -1) {
                 RFDMap::getInstance().removePosixFD(posixFD);
-                int retval = crt_close(posixFD);
-                if (retval == -1) {
-                    errno = GetLastError();
-                }
-                return retval;
-            } else {
-                errno = EBADF;
-                return -1;
+                return crt_close(posixFD);
             }
         }
     } CATCH_AND_REPORT();
 
+    errno = EBADF;
     return -1;
 }
 
@@ -811,22 +831,6 @@ int redis_bind_impl(int rfd, const struct sockaddr *addr, socklen_t addrlen) {
     return -1;
 }
 
-auto f_shutdown = dllfunctor_stdcall<int, SOCKET, int>("ws2_32.dll", "shutdown");
-int redis_shutdown_impl(int rfd, int how) {
-    try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
-            return f_shutdown(socket, how);
-        } else {
-            errno = EBADF;
-            return 0;
-        }
-    } CATCH_AND_REPORT();
-
-    errno = EBADF;
-    return -1;
-}
-
 auto f_WSAGetOverlappedResult = dllfunctor_stdcall<BOOL, SOCKET, LPWSAOVERLAPPED, LPDWORD, BOOL, LPDWORD>("ws2_32.dll", "WSAGetOverlappedResult");
 BOOL redis_WSAGetOverlappedResult_impl(int rfd, LPWSAOVERLAPPED lpOverlapped, LPDWORD lpcbTransfer, BOOL fWait, LPDWORD lpdwFlags) {
     try {
@@ -1214,7 +1218,6 @@ private:
         listen = redis_listen_impl;
         ftruncate = redis_ftruncate_impl;
         bind = redis_bind_impl;
-        shutdown = redis_shutdown_impl;
         htons = redis_htons_impl;
         htonl = redis_htonl_impl;
         getpeername = redis_getpeername_impl;

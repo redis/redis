@@ -85,7 +85,7 @@ redisClient *createClient(int fd) {
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
-            IF_WIN32(aeWinCloseSocket,close)(fd);
+            close(fd);
             zfree(c);
             return NULL;
         }
@@ -596,7 +596,7 @@ static void acceptCommonHandler(int fd, int flags) {
         redisLog(REDIS_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
-        IF_WIN32(aeWinCloseSocket,close)(fd); /* May be already closed, just ingore errors */
+        close(fd); /* May be already closed, just ingore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
@@ -752,7 +752,6 @@ void freeClient(redisClient *c) {
     }
     listRelease(c->reply);
     freeClientArgv(c);
-    WIN32_ONLY(aeWinCloseSocket(c->fd);)
     /* Remove from the list of clients */
     if (c->fd != -1) {
         ln = listSearchKey(server.clients,c);

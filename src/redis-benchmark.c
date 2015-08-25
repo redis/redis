@@ -138,10 +138,6 @@ static void freeClient(client c) {
     listNode *ln;
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);               WIN_PORT_FIX /* cast (int) */
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);               WIN_PORT_FIX /* cast (int) */
-#ifdef _WIN32
-    aeWinCloseSocket((int)c->context->fd);
-    c->context->fd = 0;
-#endif
     redisFree(c->context);
     sdsfree(c->obuf);
     zfree(c->randptr);

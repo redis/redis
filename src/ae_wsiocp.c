@@ -1,31 +1,30 @@
 /*
-* Copyright (c), Microsoft Open Technologies, Inc.
-* All rights reserved.
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*  - Redistributions of source code must retain the above copyright notice,
-*    this list of conditions and the following disclaimer.
-*  - Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-* AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-* IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-* FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-* SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-* CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-* OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+ * Copyright (c), Microsoft Open Technologies, Inc.
+ * All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *  - Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *  - Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 /* IOCP-based ae.c module  */
 
 #include "win32_Interop/win32fixes.h"
 #include "adlist.h"
 #include "win32_Interop/win32_wsiocp.h"
-#include "Win32_Interop/Win32_RedisLog.h"
 
 #define MAX_COMPLETE_PER_POLL   100
 #define MAX_SOCKET_LOOKUP       65535
@@ -50,15 +49,15 @@ typedef struct aeApiState {
 } aeApiState;
 
 /* Find matching value in list and remove. If found return TRUE */
-BOOL removeMatchFromList(list *socklist, void *value) {
+BOOL removeMatchFromList(list *requestlist, void *value) {
     listNode *node;
-    if (socklist == NULL) {
+    if (requestlist == NULL) {
         return FALSE;
     }
-    node = listFirst(socklist);
+    node = listFirst(requestlist);
     while (node != NULL) {
         if (listNodeValue(node) == value) {
-            listDelNode(socklist, node);
+            listDelNode(requestlist, node);
             return TRUE;
         }
         node = listNextNode(node);
@@ -275,42 +274,34 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             }
                         }
                     }
-                    if (matched == FALSE) {
-                        redisLog(REDIS_VERBOSE, "Unknown complete (closed) on %d\n", rfd);
-                        sockstate = NULL;
-                        aeWinCloseSocket(rfd);
+                    if (matched == 0 && sockstate->unknownComplete == 0) {
+                        sockstate->unknownComplete = 1;
+                        close(rfd);
                     }
                 }
             } else if (sockstate && (sockstate->masks & CLOSE_PENDING)) {
+
                 if (sockstate->masks & CONNECT_PENDING) {
-                    // Check if connect complete
+                    /* check if connect complete */
                     if (entry->lpOverlapped == &sockstate->ov_read) {
                         sockstate->masks &= ~CONNECT_PENDING;
                     }
                 } else if (entry->lpOverlapped == &sockstate->ov_read) {
-                    // Read complete
+                    // read complete
                     sockstate->masks &= ~READ_QUEUED;
                 } else {
-                    // Check pending writes
+                    // check pending writes
                     asendreq *areq = (asendreq *) entry->lpOverlapped;
                     if (removeMatchFromList(&sockstate->wreqlist, areq)) {
-                        if (areq->proc != NULL) {
-                            areq->proc(areq->eventLoop, rfd, &areq->req, -1);
-                        }
                         sockstate->wreqs--;
                         FreeMemoryNoCOW(areq);
                     }
                 }
                 if (sockstate->wreqs == 0 &&
                     (sockstate->masks & (CONNECT_PENDING | READ_QUEUED | SOCKET_ATTACHED)) == 0) {
-                    if ((sockstate->masks & CLOSE_PENDING) != 0) {
-                        close(rfd);
-                        sockstate->masks &= ~(CLOSE_PENDING);
-                    }
-                    // Safe to delete sockstate
-                    if (aeWinDelSocketState(sockstate)) {
-                        sockstate = NULL;
-                        FDAPI_ClearSocketState(rfd);
+                    sockstate->masks &= ~(CLOSE_PENDING);
+                    if (WSIOCP_CloseSocketState(sockstate)) {
+                        FDAPI_ClearSocketInfo(rfd);
                     }
                 }
             }

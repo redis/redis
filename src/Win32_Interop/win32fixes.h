@@ -223,7 +223,6 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-int aeWinCloseSocket(int rfd);
 int aeWinReceiveDone(int rfd);
 int aeWinSocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
 int aeWinListen(int rfd, int backlog);
