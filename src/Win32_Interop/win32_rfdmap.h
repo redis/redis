@@ -39,6 +39,8 @@ typedef struct {
 } SocketInfo;
 
 typedef int RFD;   // Redis File Descriptor
+#define INVALID_FD -1
+
 typedef map<SOCKET, RFD> SocketToRFDMapType;
 typedef map<int, RFD> PosixFDToRFDMapType;
 typedef map<RFD, SocketInfo> RFDToSocketInfoMapType;
@@ -74,9 +76,9 @@ private:
 
 private:
     CRITICAL_SECTION mutex;
-
-public:
-    const static int invalidRFD = -1;
+    const static int FIRST_RESERVED_RFD_INDEX = 0;
+    const static int LAST_RESERVED_RFD_INDEX = 2;
+    int next_available_rfd = LAST_RESERVED_RFD_INDEX + 1;
 
 private:
     /* Gets the next available Redis File Descriptor. Redis File Descriptors

@@ -46,7 +46,11 @@ RFD RFDMap::getNextRFDAvailable() {
         rfd = RFDRecyclePool.front();
         RFDRecyclePool.pop();
     } else {
-        rfd = (int) SocketToRFDMap.size() + (int) PosixFDToRFDMap.size();
+        if (next_available_rfd < INT_MAX) {
+            rfd = RFDMap::next_available_rfd++;
+        } else {
+            rfd = INVALID_FD;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -56,17 +60,19 @@ RFD RFDMap::addSocket(SOCKET s) {
     RFD rfd;
     EnterCriticalSection(&mutex);
     if (SocketToRFDMap.find(s) != SocketToRFDMap.end()) {
-        rfd = invalidRFD;
+        rfd = INVALID_FD;
     } else {
         rfd = getNextRFDAvailable();
-        SocketToRFDMap[s] = rfd;
+        if (rfd != INVALID_FD) {
+            SocketToRFDMap[s] = rfd;
 
-        SocketInfo socket_info;
-        socket_info.socket = s;
-        socket_info.state = NULL;
-        socket_info.flags = 0;
-        memset(&(socket_info.socketAddrStorage), 0, sizeof(SOCKADDR_STORAGE));
-        RFDToSocketInfoMap[rfd] = socket_info;
+            SocketInfo socket_info;
+            socket_info.socket = s;
+            socket_info.state = NULL;
+            socket_info.flags = 0;
+            memset(&(socket_info.socketAddrStorage), 0, sizeof(SOCKADDR_STORAGE));
+            RFDToSocketInfoMap[rfd] = socket_info;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
@@ -92,8 +98,10 @@ RFD RFDMap::addPosixFD(int posixFD) {
         rfd = PosixFDToRFDMap[posixFD];
     } else {
         rfd = getNextRFDAvailable();
-        PosixFDToRFDMap[posixFD] = rfd;
-        RFDToPosixFDMap[rfd] = posixFD;
+        if (rfd != INVALID_FD) {
+            PosixFDToRFDMap[posixFD] = rfd;
+            RFDToPosixFDMap[rfd] = posixFD;
+        }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
