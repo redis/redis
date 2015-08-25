@@ -1,9 +1,165 @@
 Following are change highlights associated with official releases.  Important
-bug fixes are all mentioned, but internal enhancements are omitted here for
-brevity (even though they are more fun to write about).  Much more detail can be
-found in the git revision history:
+bug fixes are all mentioned, but some internal enhancements are omitted here for
+brevity.  Much more detail can be found in the git revision history:
 
     https://github.com/jemalloc/jemalloc
+
+* 4.0.0 (August 17, 2015)
+
+  This version contains many speed and space optimizations, both minor and
+  major.  The major themes are generalization, unification, and simplification.
+  Although many of these optimizations cause no visible behavior change, their
+  cumulative effect is substantial.
+
+  New features:
+  - Normalize size class spacing to be consistent across the complete size
+    range.  By default there are four size classes per size doubling, but this
+    is now configurable via the --with-lg-size-class-group option.  Also add the
+    --with-lg-page, --with-lg-page-sizes, --with-lg-quantum, and
+    --with-lg-tiny-min options, which can be used to tweak page and size class
+    settings.  Impacts:
+    + Worst case performance for incrementally growing/shrinking reallocation
+      is improved because there are far fewer size classes, and therefore
+      copying happens less often.
+    + Internal fragmentation is limited to 20% for all but the smallest size
+      classes (those less than four times the quantum).  (1B + 4 KiB)
+      and (1B + 4 MiB) previously suffered nearly 50% internal fragmentation.
+    + Chunk fragmentation tends to be lower because there are fewer distinct run
+      sizes to pack.
+  - Add support for explicit tcaches.  The "tcache.create", "tcache.flush", and
+    "tcache.destroy" mallctls control tcache lifetime and flushing, and the
+    MALLOCX_TCACHE(tc) and MALLOCX_TCACHE_NONE flags to the *allocx() API
+    control which tcache is used for each operation.
+  - Implement per thread heap profiling, as well as the ability to
+    enable/disable heap profiling on a per thread basis.  Add the "prof.reset",
+    "prof.lg_sample", "thread.prof.name", "thread.prof.active",
+    "opt.prof_thread_active_init", "prof.thread_active_init", and
+    "thread.prof.active" mallctls.
+  - Add support for per arena application-specified chunk allocators, configured
+    via the "arena.<i>.chunk_hooks" mallctl.
+  - Refactor huge allocation to be managed by arenas, so that arenas now
+    function as general purpose independent allocators.  This is important in
+    the context of user-specified chunk allocators, aside from the scalability
+    benefits.  Related new statistics:
+    + The "stats.arenas.<i>.huge.allocated", "stats.arenas.<i>.huge.nmalloc",
+      "stats.arenas.<i>.huge.ndalloc", and "stats.arenas.<i>.huge.nrequests"
+      mallctls provide high level per arena huge allocation statistics.
+    + The "arenas.nhchunks", "arenas.hchunk.<i>.size",
+      "stats.arenas.<i>.hchunks.<j>.nmalloc",
+      "stats.arenas.<i>.hchunks.<j>.ndalloc",
+      "stats.arenas.<i>.hchunks.<j>.nrequests", and
+      "stats.arenas.<i>.hchunks.<j>.curhchunks" mallctls provide per size class
+      statistics.
+  - Add the 'util' column to malloc_stats_print() output, which reports the
+    proportion of available regions that are currently in use for each small
+    size class.
+  - Add "alloc" and "free" modes for for junk filling (see the "opt.junk"
+    mallctl), so that it is possible to separately enable junk filling for
+    allocation versus deallocation.
+  - Add the jemalloc-config script, which provides information about how
+    jemalloc was configured, and how to integrate it into application builds.
+  - Add metadata statistics, which are accessible via the "stats.metadata",
+    "stats.arenas.<i>.metadata.mapped", and
+    "stats.arenas.<i>.metadata.allocated" mallctls.
+  - Add the "stats.resident" mallctl, which reports the upper limit of
+    physically resident memory mapped by the allocator.
+  - Add per arena control over unused dirty page purging, via the
+    "arenas.lg_dirty_mult", "arena.<i>.lg_dirty_mult", and
+    "stats.arenas.<i>.lg_dirty_mult" mallctls.
+  - Add the "prof.gdump" mallctl, which makes it possible to toggle the gdump
+    feature on/off during program execution.
+  - Add sdallocx(), which implements sized deallocation.  The primary
+    optimization over dallocx() is the removal of a metadata read, which often
+    suffers an L1 cache miss.
+  - Add missing header includes in jemalloc/jemalloc.h, so that applications
+    only have to #include <jemalloc/jemalloc.h>.
+  - Add support for additional platforms:
+    + Bitrig
+    + Cygwin
+    + DragonFlyBSD
+    + iOS
+    + OpenBSD
+    + OpenRISC/or1k
+
+  Optimizations:
+  - Maintain dirty runs in per arena LRUs rather than in per arena trees of
+    dirty-run-containing chunks.  In practice this change significantly reduces
+    dirty page purging volume.
+  - Integrate whole chunks into the unused dirty page purging machinery.  This
+    reduces the cost of repeated huge allocation/deallocation, because it
+    effectively introduces a cache of chunks.
+  - Split the arena chunk map into two separate arrays, in order to increase
+    cache locality for the frequently accessed bits.
+  - Move small run metadata out of runs, into arena chunk headers.  This reduces
+    run fragmentation, smaller runs reduce external fragmentation for small size
+    classes, and packed (less uniformly aligned) metadata layout improves CPU
+    cache set distribution.
+  - Randomly distribute large allocation base pointer alignment relative to page
+    boundaries in order to more uniformly utilize CPU cache sets.  This can be
+    disabled via the --disable-cache-oblivious configure option, and queried via
+    the "config.cache_oblivious" mallctl.
+  - Micro-optimize the fast paths for the public API functions.
+  - Refactor thread-specific data to reside in a single structure.  This assures
+    that only a single TLS read is necessary per call into the public API.
+  - Implement in-place huge allocation growing and shrinking.
+  - Refactor rtree (radix tree for chunk lookups) to be lock-free, and make
+    additional optimizations that reduce maximum lookup depth to one or two
+    levels.  This resolves what was a concurrency bottleneck for per arena huge
+    allocation, because a global data structure is critical for determining
+    which arenas own which huge allocations.
+
+  Incompatible changes:
+  - Replace --enable-cc-silence with --disable-cc-silence to suppress spurious
+    warnings by default.
+  - Assure that the constness of malloc_usable_size()'s return type matches that
+    of the system implementation.
+  - Change the heap profile dump format to support per thread heap profiling,
+    rename pprof to jeprof, and enhance it with the --thread=<n> option.  As a
+    result, the bundled jeprof must now be used rather than the upstream
+    (gperftools) pprof.
+  - Disable "opt.prof_final" by default, in order to avoid atexit(3), which can
+    internally deadlock on some platforms.
+  - Change the "arenas.nlruns" mallctl type from size_t to unsigned.
+  - Replace the "stats.arenas.<i>.bins.<j>.allocated" mallctl with
+    "stats.arenas.<i>.bins.<j>.curregs".
+  - Ignore MALLOC_CONF in set{uid,gid,cap} binaries.
+  - Ignore MALLOCX_ARENA(a) in dallocx(), in favor of using the
+    MALLOCX_TCACHE(tc) and MALLOCX_TCACHE_NONE flags to control tcache usage.
+
+  Removed features:
+  - Remove the *allocm() API, which is superseded by the *allocx() API.
+  - Remove the --enable-dss options, and make dss non-optional on all platforms
+    which support sbrk(2).
+  - Remove the "arenas.purge" mallctl, which was obsoleted by the
+    "arena.<i>.purge" mallctl in 3.1.0.
+  - Remove the unnecessary "opt.valgrind" mallctl; jemalloc automatically
+    detects whether it is running inside Valgrind.
+  - Remove the "stats.huge.allocated", "stats.huge.nmalloc", and
+    "stats.huge.ndalloc" mallctls.
+  - Remove the --enable-mremap option.
+  - Remove the "stats.chunks.current", "stats.chunks.total", and
+    "stats.chunks.high" mallctls.
+
+  Bug fixes:
+  - Fix the cactive statistic to decrease (rather than increase) when active
+    memory decreases.  This regression was first released in 3.5.0.
+  - Fix OOM handling in memalign() and valloc().  A variant of this bug existed
+    in all releases since 2.0.0, which introduced these functions.
+  - Fix an OOM-related regression in arena_tcache_fill_small(), which could
+    cause cache corruption on OOM.  This regression was present in all releases
+    from 2.2.0 through 3.6.0.
+  - Fix size class overflow handling for malloc(), posix_memalign(), memalign(),
+    calloc(), and realloc() when profiling is enabled.
+  - Fix the "arena.<i>.dss" mallctl to return an error if "primary" or
+    "secondary" precedence is specified, but sbrk(2) is not supported.
+  - Fix fallback lg_floor() implementations to handle extremely large inputs.
+  - Ensure the default purgeable zone is after the default zone on OS X.
+  - Fix latent bugs in atomic_*().
+  - Fix the "arena.<i>.dss" mallctl to handle read-only calls.
+  - Fix tls_model configuration to enable the initial-exec model when possible.
+  - Mark malloc_conf as a weak symbol so that the application can override it.
+  - Correctly detect glibc's adaptive pthread mutexes.
+  - Fix the --without-export configure option.
 
 * 3.6.0 (March 31, 2014)
 
@@ -21,7 +177,7 @@ found in the git revision history:
     backtracing to be reliable.
   - Use dss allocation precedence for huge allocations as well as small/large
     allocations.
-  - Fix test assertion failure message formatting.  This bug did not manifect on
+  - Fix test assertion failure message formatting.  This bug did not manifest on
     x86_64 systems because of implementation subtleties in va_list.
   - Fix inconsequential test failures for hash and SFMT code.
 
@@ -516,7 +672,7 @@ found in the git revision history:
   - Make it possible for the application to manually flush a thread's cache, via
     the "tcache.flush" mallctl.
   - Base maximum dirty page count on proportion of active memory.
-  - Compute various addtional run-time statistics, including per size class
+  - Compute various additional run-time statistics, including per size class
     statistics for large objects.
   - Expose malloc_stats_print(), which can be called repeatedly by the
     application.
