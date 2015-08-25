@@ -219,7 +219,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (nread == -1) {
         if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
             errno = EAGAIN;
-            aeWinReceiveDone((int)c->context->fd);
+            WSIOCP_ReceiveDone((int) c->context->fd);
             return;
         } else {
             fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -232,7 +232,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
-        WIN32_ONLY(aeWinReceiveDone((int)c->context->fd);)
+        WIN32_ONLY(WSIOCP_ReceiveDone((int) c->context->fd);)
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
                 fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -312,8 +312,13 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
 #ifdef _WIN32
-        int result = aeWinSocketSend(c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 
-                                        el, c, NULL, writeHandlerDone);
+        int result = WSIOCP_SocketSend(c->context->fd,
+                                       (char*) ptr,
+                                       (int) (sdslen(c->obuf) - c->written),
+                                       el,
+                                       c,
+                                       NULL,
+                                       writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket %s\n", wsa_strerror(errno));
@@ -366,7 +371,7 @@ static client createClient(char *cmd, size_t len, client from) {
 #ifdef _WIN32
         SOCKADDR_STORAGE ss;
         c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &ss);
-        if (aeWinSocketConnect(c->context->fd, &ss) != 0) {
+        if (WSIOCP_SocketConnect(c->context->fd, &ss) != 0) {
             c->context->err = errno;
             strerror_r(errno,c->context->errstr,sizeof(c->context->errstr));
         }

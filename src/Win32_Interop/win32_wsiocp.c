@@ -26,6 +26,7 @@
 #include <mswsock.h>
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
+#include "Win32_Assert.h"
 #include <errno.h>
 
 static HANDLE iocph;
@@ -36,34 +37,34 @@ static HANDLE iocph;
 static DWORD wsarecvflags;
 static char zreadchar[1];
 
-aeSockState* aeWinGetExistingSocketState(int fd) {
-    aeSockState** pSocketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
-    if (pSocketState == NULL) {
+aeSockState* WSIOCP_GetExistingSocketState(int fd) {
+    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
+    if (socketState == NULL) {
         return NULL;
     } else {
-        return *pSocketState;
+        return *socketState;
     }
 }
 
 /* Get the socket state. Create if not found. */
-aeSockState *aeWinGetSocketState(int fd) {
-    aeSockState** pSocketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
-    if (pSocketState == NULL) {
+aeSockState* WSIOCP_GetSocketState(int fd) {
+    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
+    if (socketState == NULL) {
         return NULL;
     } else {
-        if (*pSocketState == NULL) {
-            // Not found. Do lazy create of *pSocketState.
-            *pSocketState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
-            if (*pSocketState != NULL) {
-                (*pSocketState)->fd = fd;
+        if (*socketState == NULL) {
+            // Not found. Do lazy create of socket state.
+            *socketState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
+            if (*socketState != NULL) {
+                (*socketState)->fd = fd;
             }
         }
-        return *pSocketState;
+        return *socketState;
     }
 }
 
 /* Closes the socket state or sets the CLOSE_PENDING mask bit.
-Returns TRUE if closed, FALSE if pending. */
+ * Returns TRUE if closed, FALSE if pending. */
 BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
     socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
     if (socketState->wreqs == 0 &&
@@ -77,13 +78,13 @@ BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
 }
 
 BOOL WSIOCP_CloseSocketStateRFD(int rfd) {
-    return WSIOCP_CloseSocketState(aeWinGetExistingSocketState(rfd));
+    return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
 }
 
 /* For each asynch socket, need to associate completion port */
-int aeWinSocketAttach(int fd, aeSockState *socketState) {
+int WSIOCP_SocketAttach(int fd, aeSockState *socketState) {
     if (socketState == NULL) {
-        socketState = aeWinGetSocketState(fd);
+        socketState = WSIOCP_GetSocketState(fd);
     }
 
     if (iocph != NULL && socketState != NULL) {
@@ -99,14 +100,14 @@ int aeWinSocketAttach(int fd, aeSockState *socketState) {
     return -1;
 }
 
-int aeWinQueueAccept(int listenfd) {
+int WSIOCP_QueueAccept(int listenfd) {
     aeSockState *sockstate;
     aeSockState *accsockstate;
     DWORD result, bytes;
     int acceptfd;
     aacceptreq * areq;
 
-    if ((sockstate = aeWinGetSocketState(listenfd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(listenfd)) == NULL) {
         errno = WSAEINVAL;
         return -1;
     }
@@ -117,7 +118,7 @@ int aeWinQueueAccept(int listenfd) {
         return -1;
     }
 
-    accsockstate = aeWinGetSocketState(acceptfd);
+    accsockstate = WSIOCP_GetSocketState(acceptfd);
     if (accsockstate == NULL) {
         errno = WSAEINVAL;
         return -1;
@@ -151,21 +152,21 @@ int aeWinQueueAccept(int listenfd) {
 }
 
 /* Listen using extension function to get faster accepts */
-int aeWinListen(int rfd, int backlog) {
+int WSIOCP_Listen(int rfd, int backlog) {
     aeSockState *sockstate;
     const GUID wsaid_acceptex = WSAID_ACCEPTEX;
     const GUID wsaid_acceptexaddrs = WSAID_GETACCEPTEXSOCKADDRS;
 
-    if ((sockstate = aeWinGetSocketState(rfd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
 
-    aeWinSocketAttach(rfd, sockstate);
+    WSIOCP_SocketAttach(rfd, sockstate);
     sockstate->masks |= LISTEN_SOCK;
 
     if (listen(rfd, backlog) == 0) {
-        if (aeWinQueueAccept(rfd) == -1) {
+        if (WSIOCP_QueueAccept(rfd) == -1) {
             errno = FDAPI_WSAGetLastError();
             return SOCKET_ERROR;
         }
@@ -177,7 +178,7 @@ int aeWinListen(int rfd, int backlog) {
 }
 
 /* Return the queued accept socket */
-int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
+int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     aeSockState *sockstate;
     int acceptfd;
     int result;
@@ -187,7 +188,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     int remotelen = 0;
     aacceptreq * areq;
 
-    if ((sockstate = aeWinGetSocketState(fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
@@ -229,30 +230,30 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
         }
     }
 
-    aeWinSocketAttach(acceptfd, NULL);
+    WSIOCP_SocketAttach(acceptfd, NULL);
 
     FreeMemoryNoCOW(areq->buf);
     FreeMemoryNoCOW(areq);
 
     // Queue another accept
-    if (aeWinQueueAccept(fd) == -1) {
+    if (WSIOCP_QueueAccept(fd) == -1) {
         return SOCKET_ERROR;
     }
 
     return acceptfd;
 }
 
-/* After doing read caller needs to call done so that we can continue 
- * to check for read events.
+/* After doing read caller needs to call done so that we can 
+ * continue to check for read events.
  * This is not necessary if caller will delete read events */
-int aeWinReceiveDone(int fd) {
+int WSIOCP_ReceiveDone(int fd) {
     aeSockState *sockstate;
     int result;
     WSABUF zreadbuf;
     DWORD bytesReceived = 0;
     DWORD recvFlags = 0;
 
-    if ((sockstate = aeWinGetSocketState(fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return -1;
     }
@@ -260,8 +261,8 @@ int aeWinReceiveDone(int fd) {
         return 0;
     }
 
-    /* use zero length read with overlapped to get notification
-    of when data is available */
+    // Use zero length read with overlapped to get notification
+    // of when data is available
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
 
     zreadbuf.buf = zreadchar;
@@ -286,14 +287,14 @@ int aeWinReceiveDone(int fd) {
 /* Wrapper for send.
  * Enables use of WSA Send to get IOCP notification of completion.
  * Returns -1 with errno = WSA_IO_PENDING if callback will be invoked later */
-int aeWinSocketSend(int fd, char *buf, int len, 
-                    void *eventLoop, void *client, void *data, void *proc) {
+int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
+                      void *client, void *data, void *proc) {
     aeSockState *sockstate;
     int result;
     asendreq *areq;
     DWORD bytesSent = 0;
 
-    sockstate = aeWinGetSocketState(fd);
+    sockstate = WSIOCP_GetSocketState(fd);
 
     if (sockstate != NULL &&
         (sockstate->masks & CONNECT_PENDING)) {
@@ -342,47 +343,65 @@ int aeWinSocketSend(int fd, char *buf, int len,
 }
 
 /* For non-blocking connect with IOCP */
-int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
+int WSIOCP_SocketConnect(int fd, const SOCKADDR_STORAGE *socketAddrStorage) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
     aeSockState *sockstate;
 
-    if ((sockstate = aeWinGetSocketState(fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
 
-    if (aeWinSocketAttach(fd, sockstate) != 0) {
+    if (WSIOCP_SocketAttach(fd, sockstate) != 0) {
         return SOCKET_ERROR;
     }
 
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
     
-    /* need to bind sock before connectex */
-    switch (ss->ss_family) {
+    // Need to bind sock before connectex
+    switch (socketAddrStorage->ss_family) {
         case AF_INET:
         {
             SOCKADDR_IN addr;
             memset(&addr, 0, sizeof(SOCKADDR_IN));
-            addr.sin_family = ss->ss_family;
+            addr.sin_family = socketAddrStorage->ss_family;
             addr.sin_addr.S_un.S_addr = INADDR_ANY;
             addr.sin_port = 0;
             result = bind(fd, (SOCKADDR*) &addr, sizeof(addr));
 
-            result = FDAPI_ConnectEx(fd, (SOCKADDR*) ss, sizeof(SOCKADDR_IN), NULL, 0, NULL, &sockstate->ov_read);
+            result = FDAPI_ConnectEx(fd,
+                                     (SOCKADDR*) socketAddrStorage,
+                                     sizeof(SOCKADDR_IN),
+                                     NULL,
+                                     0,
+                                     NULL,
+                                     &sockstate->ov_read);
             break;
         }
         case AF_INET6:
         {
             SOCKADDR_IN6 addr;
             memset(&addr, 0, sizeof(SOCKADDR_IN6));
-            addr.sin6_family = ss->ss_family;
+            addr.sin6_family = socketAddrStorage->ss_family;
             memset(&(addr.sin6_addr.u.Byte), 0, 16);
             addr.sin6_port = 0;
             result = bind(fd, (SOCKADDR*) &addr, sizeof(addr));
 
-            result = FDAPI_ConnectEx(fd, (SOCKADDR*) ss, sizeof(SOCKADDR_IN6), NULL, 0, NULL, &sockstate->ov_read);
+            result = FDAPI_ConnectEx(fd,
+                                     (SOCKADDR*) socketAddrStorage,
+                                     sizeof(SOCKADDR_IN6),
+                                     NULL,
+                                     0,
+                                     NULL,
+                                     &sockstate->ov_read);
             break;
+        }
+        default:
+        {
+            ASSERT(socketAddrStorage->ss_family == AF_INET || socketAddrStorage->ss_family == AF_INET6);
+            errno = WSAEINVAL;
+            return SOCKET_ERROR;
         }
     }
 
@@ -399,17 +418,17 @@ int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
     return 0;
 }
 
-int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, const char* source_addr) {
+int WSIOCP_SocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, const char* source_addr) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
     aeSockState *sockstate;
 
-    if ((sockstate = aeWinGetSocketState(fd)) == NULL) {
+    if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
 
-    if (aeWinSocketAttach(fd, sockstate) != 0) {
+    if (WSIOCP_SocketAttach(fd, sockstate) != 0) {
         return SOCKET_ERROR;
     }
 
@@ -442,11 +461,14 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, co
         }
         default:
         {
+            ASSERT(socketAddrStorage->ss_family == AF_INET || socketAddrStorage->ss_family == AF_INET6);
+            errno = WSAEINVAL;
             return SOCKET_ERROR;
         }
     }
 
-    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR) socketAddrStorage, storageSize, NULL, 0, NULL, &sockstate->ov_read);
+    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR) socketAddrStorage,
+                             storageSize, NULL, 0, NULL, &sockstate->ov_read);
     if (result != TRUE) {
         result = FDAPI_WSAGetLastError();
         if (result == ERROR_IO_PENDING) {
@@ -460,12 +482,12 @@ int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, co
     return 0;
 }
 
-void aeWinInit(HANDLE iocp) {
+void WSIOCP_Init(HANDLE iocp) {
     iocph = iocp;
     FDAPI_SetCloseSocketState(WSIOCP_CloseSocketStateRFD);
 }
 
-void aeWinCleanup() {
+void WSIOCP_Cleanup() {
     iocph = NULL;
 }
 

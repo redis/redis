@@ -254,7 +254,7 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
-    WIN32_ONLY(aeWinReceiveDone(fd);)
+    WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
 }
 
 #ifdef _WIN32
@@ -272,8 +272,13 @@ static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask)
     ((void)el); ((void)fd); ((void)mask);
 
     if (redisAsyncHandleWritePrep(e->context) == REDIS_OK) {
-        result = aeWinSocketSend((int)c->fd,(char*)c->obuf,(int)(sdslen(c->obuf)), 
-                                        el, e, NULL, writeHandlerDone);
+        result = WSIOCP_SocketSend((int) c->fd,
+                                   (char*) c->obuf,
+                                   (int) (sdslen(c->obuf)),
+                                   el,
+                                   e,
+                                   NULL,
+                                   writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             if (errno != EPIPE) {
                 redisLog(REDIS_VERBOSE, "Writing to socket %s (%d)\n", wsa_strerror(errno), errno);

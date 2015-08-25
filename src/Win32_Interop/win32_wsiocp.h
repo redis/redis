@@ -65,10 +65,10 @@ typedef struct aeSockState {
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void aeWinInit(HANDLE iocp);
-void aeWinCleanup();
-aeSockState* aeWinGetExistingSocketState(int fd);
-aeSockState *aeWinGetSocketState(int fd);
+void         WSIOCP_Init(HANDLE iocp);
+void         WSIOCP_Cleanup();
+aeSockState* WSIOCP_GetExistingSocketState(int fd);
+aeSockState* WSIOCP_GetSocketState(int fd);
 BOOL         WSIOCP_CloseSocketState(aeSockState* pSocketState);
 
 void* CallocMemoryNoCOW(size_t size);

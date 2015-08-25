@@ -305,7 +305,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_a
     // Workaround for getpeername failing to retrieve the endpoint address
     FDAPI_SaveSocketAddrStorage(fd, &socketStorage);
 
-    if (aeWinSocketConnect(fd, &socketStorage) == SOCKET_ERROR) {
+    if (WSIOCP_SocketConnect(fd, &socketStorage) == SOCKET_ERROR) {
         if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
         if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
             return fd;
@@ -506,7 +506,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
     }
 
 #ifdef _WIN32
-    if (aeWinListen(s, backlog) == SOCKET_ERROR) {
+    if (WSIOCP_Listen(s, backlog) == SOCKET_ERROR) {
 #else
     if (listen(s, backlog) == -1) {
 #endif
@@ -615,7 +615,7 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
-        fd = IF_WIN32(aeWinAccept,accept)(s,sa,len);
+        fd = IF_WIN32(WSIOCP_Accept, accept)(s, sa, len);
         if (fd == -1) {
             if (errno == EINTR)
                 continue;

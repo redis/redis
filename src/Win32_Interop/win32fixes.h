@@ -223,12 +223,12 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-int aeWinReceiveDone(int rfd);
-int aeWinSocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
-int aeWinListen(int rfd, int backlog);
-int aeWinAccept(int rfd, struct sockaddr *sa, socklen_t *len);
-int aeWinSocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
-int aeWinSocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
+int WSIOCP_ReceiveDone(int rfd);
+int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
+int WSIOCP_Listen(int rfd, int backlog);
+int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
+int WSIOCP_SocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
+int WSIOCP_SocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);

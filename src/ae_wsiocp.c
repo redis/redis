@@ -72,7 +72,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     if (!state) return -1;
 
-    /* create a single IOCP to be shared by all sockets */
+    // Create a single IOCP to be shared by all sockets
     state->iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
                                          NULL,
                                          0,
@@ -92,7 +92,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     state->setsize = eventLoop->setsize;
     eventLoop->apidata = state;
-    aeWinInit(state->iocp);
+    WSIOCP_Init(state->iocp);
     return 0;
 }
 
@@ -106,12 +106,12 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = (aeApiState *) eventLoop->apidata;
     CloseHandle(state->iocp);
     FreeMemoryNoCOW(state);
-    aeWinCleanup();
+    WSIOCP_Cleanup();
 }
 
 /* Monitor state changes for a socket */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
-    aeSockState *sockstate = aeWinGetSocketState(fd);
+    aeSockState *sockstate = WSIOCP_GetSocketState(fd);
     if (sockstate == NULL) {
         errno = WSAEINVAL;
         return -1;
@@ -125,7 +125,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
             } else {
                 if ((sockstate->masks & READ_QUEUED) == 0) {
                     // Queue up a 0 byte read
-                    aeWinReceiveDone(fd);
+                    WSIOCP_ReceiveDone(fd);
                 }
             }
         }
@@ -155,7 +155,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
 /* Stop monitoring state changes for a socket */
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
-    aeSockState *sockstate = aeWinGetExistingSocketState(fd);
+    aeSockState *sockstate = WSIOCP_GetExistingSocketState(fd);
     if (sockstate == NULL) {
         errno = WSAEINVAL;
         return;
@@ -218,11 +218,14 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     if (rc && numComplete > 0) {
         LPOVERLAPPED_ENTRY entry = state->entries;
         for (j = 0; j < numComplete && numevents < state->setsize; j++, entry++) {
-            // The competion key is the socket 
+            // The competion key is the rfd identifying the socket 
             int rfd = (int) entry->lpCompletionKey;
-            sockstate = aeWinGetExistingSocketState(rfd);
+            sockstate = WSIOCP_GetExistingSocketState(rfd);
+            if (sockstate == NULL) {
+                continue;
+            }
 
-            if (sockstate != NULL && !(sockstate->masks & CLOSE_PENDING)) {
+            if ((sockstate->masks & CLOSE_PENDING) == FALSE) {
                 if ((sockstate->masks & LISTEN_SOCK) && entry->lpOverlapped != NULL) {
                     // Need to set event for listening
                     aacceptreq *areq = (aacceptreq *) entry->lpOverlapped;
@@ -279,18 +282,17 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         close(rfd);
                     }
                 }
-            } else if (sockstate && (sockstate->masks & CLOSE_PENDING)) {
-
+            } else {
                 if (sockstate->masks & CONNECT_PENDING) {
-                    /* check if connect complete */
+                    // Check if connect complete
                     if (entry->lpOverlapped == &sockstate->ov_read) {
                         sockstate->masks &= ~CONNECT_PENDING;
                     }
                 } else if (entry->lpOverlapped == &sockstate->ov_read) {
-                    // read complete
+                    // Read complete
                     sockstate->masks &= ~READ_QUEUED;
                 } else {
-                    // check pending writes
+                    // Check pending writes
                     asendreq *areq = (asendreq *) entry->lpOverlapped;
                     if (removeMatchFromList(&sockstate->wreqlist, areq)) {
                         sockstate->wreqs--;
@@ -312,5 +314,5 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
 /* Name of this event handler */
 static char *aeApiName(void) {
-    return "winsock_IOCP";
+    return "WinSock_IOCP";
 }

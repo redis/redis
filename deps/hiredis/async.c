@@ -168,7 +168,7 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     SOCKADDR_STORAGE ss;
     redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
     redisAsyncContext *ac = redisAsyncInitialize(c);
-    if (aeWinSocketConnect(ac->c.fd, &ss) != 0) {
+    if (WSIOCP_SocketConnect(ac->c.fd, &ss) != 0) {
          ac->c.err = errno;
         strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
     }
@@ -180,7 +180,7 @@ redisAsyncContext *redisAsyncConnectBind(const char *ip, int port, const char *s
     SOCKADDR_STORAGE ss;
     redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
     redisAsyncContext *ac = redisAsyncInitialize(c);
-    if (aeWinSocketConnectBind(ac->c.fd, &ss, source_addr) != 0) {
+    if (WSIOCP_SocketConnectBind(ac->c.fd, &ss, source_addr) != 0) {
         ac->c.err = errno;
         strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
     }
