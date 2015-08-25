@@ -34,6 +34,7 @@
 #include <string>
 #include "Win32_RedisLog.h"
 #include "Win32_Common.h"
+#include "Win32_Assert.h"
 
 using namespace std;
 
@@ -467,28 +468,32 @@ int redis_setsockopt_impl(int rfd, int level, int optname, const void *optval, s
 
 int redis_fcntl_impl(int rfd, int cmd, int flags = 0 ) {
     try {
-        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
-        if (socket != INVALID_SOCKET) {
+        SocketInfo* socket_info = RFDMap::getInstance().lookupSocketInfo(rfd);
+        if (socket_info != NULL && socket_info->socket != INVALID_SOCKET) {
             switch (cmd) {
                 case F_GETFL:
                 {
-                    // Since there is no way to determine if a socket is blocking in winsock, we keep track of this separately.
-                    return RFDMap::getInstance().GetSocketFlags(socket);
+                    // Since in WinSock there is no way to determine if a socket
+                    // is blocking, we keep track of this separately.
+                    return socket_info->flags;
                 }
                 case F_SETFL:
                 {
                     u_long fionbio_flags = (flags & O_NONBLOCK);
-                    if (f_ioctlsocket(socket, FIONBIO, &fionbio_flags) == SOCKET_ERROR) {
+                    if (SOCKET_ERROR == f_ioctlsocket(socket_info->socket,
+                        FIONBIO,
+                        &fionbio_flags)) {
                         errno = f_WSAGetLastError();
                         return -1;
                     } else {
-                        RFDMap::getInstance().SetSocketFlags(socket, flags);
+                        socket_info->flags = flags;
                         return 0;
                     }
                     break;
                 }
                 default:
                 {
+                    ASSERT(cmd == F_GETFL || cmd == F_SETFL);
                     return -1;
                 }
             }
