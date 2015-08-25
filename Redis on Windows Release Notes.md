@@ -3,6 +3,12 @@ MSOpenTech Redis on Windows 2.8 Release Notes
 
 --[ Redis on Windows 2.8.2102 ] Release date: Aug 25 2015
 
+IMPORTANT NOTE: the 2.8.2102 release introduces some high impact changes
+in the networking layer. Those changes fix some major bugs but since they
+are touching significant part of the networking layer, we strongly
+suggest to carefully test this release before using it in production.
+
+ - [Fix] Fixed some win32 potential bugs. (By @zeliard)
  - [Cleanup] Code refactoring.
  - [Cleanup] Replaced DebugBreak with ASSERT.
  - [Code optimization] Socket flags moved to socket info structure.
