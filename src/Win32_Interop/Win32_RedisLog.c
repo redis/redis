@@ -30,7 +30,7 @@
 #include "../redis.h"
 #include "Win32Fixes.h"
 #include "Win32_EventLog.h"
-#include <time.h>
+#include "Win32_Time.h"
 #include <assert.h>
 
 static const char ellipsis[] = "[...]";
@@ -136,11 +136,14 @@ void redisLogRaw(int level, const char *msg) {
         secs = gettimeofdaysecs(&usecs);
         now = localtime(&secs);
         vlen = snprintf(buf + off, sizeof(buf) - off, "[%d] ", (int)_getpid());
-        assert(vlen >= 0); off += vlen;
+        assert(vlen >= 0);
+        off += vlen;
         vlen = (int)strftime(buf + off, sizeof(buf) - off, "%d %b %H:%M:%S.", now);
-        assert(vlen >= 0); off += vlen;
+        assert(vlen >= 0);
+        off += vlen;
         vlen = snprintf(buf + off, sizeof(buf) - off, "%03d %c ", usecs / 1000, c[level]);
-        assert(vlen >= 0); off += vlen;
+        assert(vlen >= 0);
+        off += vlen;
         vlen = snprintf(buf + off, sizeof(buf) - off, "%s\n", msg);
         if (vlen >= 0 && (off + vlen < sizeof(buf))) {
             completeMessageLength = off + vlen;

@@ -154,9 +154,6 @@ int WSIOCP_QueueAccept(int listenfd) {
 /* Listen using extension function to get faster accepts */
 int WSIOCP_Listen(int rfd, int backlog) {
     aeSockState *sockstate;
-    const GUID wsaid_acceptex = WSAID_ACCEPTEX;
-    const GUID wsaid_acceptexaddrs = WSAID_GETACCEPTEXSOCKADDRS;
-
     if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
@@ -267,13 +264,13 @@ int WSIOCP_ReceiveDone(int fd) {
 
     zreadbuf.buf = zreadchar;
     zreadbuf.len = 0;
-    result = WSARecv(fd,
-                     &zreadbuf,
-                     1,
-                     &bytesReceived,
-                     &recvFlags,
-                     &sockstate->ov_read,
-                     NULL);
+    result = FDAPI_WSARecv(fd,
+                           &zreadbuf,
+                           1,
+                           &bytesReceived,
+                           &recvFlags,
+                           &sockstate->ov_read,
+                           NULL);
     if (SUCCEEDED_WITH_IOCP(result == 0)){
         sockstate->masks |= READ_QUEUED;
     } else {
@@ -323,13 +320,13 @@ int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
     areq->req.buf = buf;
     areq->proc = (aeFileProc *) proc;
 
-    result = WSASend(fd,
-                     &areq->wbuf,
-                     1,
-                     &bytesSent,
-                     0,
-                     &areq->ov,
-                     NULL);
+    result = FDAPI_WSASend(fd,
+                           &areq->wbuf,
+                           1,
+                           &bytesSent,
+                           0,
+                           &areq->ov,
+                           NULL);
 
     if (SUCCEEDED_WITH_IOCP(result == 0)) {
         errno = WSA_IO_PENDING;

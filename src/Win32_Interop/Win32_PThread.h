@@ -13,7 +13,7 @@ typedef size_t _sigset_t;
 #define SIG_SETMASK (0)
 #define SIG_BLOCK   (1)
 #define SIG_UNBLOCK (2)
-#endif /*SIG_SETMASK*/
+#endif /* SIG_SETMASK */
 
 /* threads avoiding pthread.h */
 #define pthread_mutex_t CRITICAL_SECTION

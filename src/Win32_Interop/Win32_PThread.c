@@ -57,10 +57,10 @@ int pthread_create(pthread_t *thread, const void *unused, void *(*start_routine)
     return 0;
 }
 
-/* Noop in windows */
+/* Noop in Windows */
 int pthread_detach(pthread_t thread) {
     REDIS_NOTUSED(thread);
-    return 0; /* noop */
+    return 0;
 }
 
 pthread_t pthread_self(void) {
@@ -116,9 +116,9 @@ int pthread_cond_init(pthread_cond_t *cond, const void *unused) {
     }
 
     cond->continue_broadcast = CreateEvent(NULL,    /* security */
-        FALSE,                  /* auto-reset */
-        FALSE,                  /* not signaled */
-        NULL);                  /* name */
+                                           FALSE,   /* auto-reset */
+                                           FALSE,   /* not signaled */
+                                           NULL);   /* name */
     if (!cond->continue_broadcast) {
         errno = GetLastError();
         return -1;
@@ -149,7 +149,7 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
     */
     LeaveCriticalSection(mutex);
 
-    /* let's wait - ignore return value */
+    /* Let's wait - ignore return value */
     WaitForSingleObject(cond->sema, INFINITE);
 
     /*
@@ -180,7 +180,7 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
         * the mutex. Auf in den Kampf!
         */
     }
-    /* lock external mutex again */
+    /* Lock external mutex again */
     EnterCriticalSection(mutex);
 
     return 0;
@@ -198,9 +198,7 @@ int pthread_cond_signal(pthread_cond_t *cond) {
     have_waiters = cond->waiters > 0;
     LeaveCriticalSection(&cond->waiters_lock);
 
-    /*
-    * Signal only when there are waiters
-    */
+    /* Signal only when there are waiters */
     if (have_waiters)
         return ReleaseSemaphore(cond->sema, 1, NULL) ?
         0 : GetLastError();

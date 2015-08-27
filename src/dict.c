@@ -34,6 +34,7 @@
  */
 #ifdef _WIN32
 #include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32_time.h"
 #include "win32_Interop/win32fixes.h"
 #endif
 
@@ -642,9 +643,9 @@ dictEntry *dictGetRandomKey(dict *d)
         do {
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
-            h = d->rehashidx + (random() % (d->ht[0].size +
+            h = (unsigned int) (d->rehashidx + (random() % (d->ht[0].size +     WIN_PORT_FIX /* cast (unsigned int) */
                                             d->ht[1].size -
-                                            d->rehashidx));
+                                            d->rehashidx)));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
         } while(he == NULL);
@@ -699,7 +700,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned int stored = 0, maxsizemask;
     unsigned int maxsteps;
 
-    if (dictSize(d) < count) count = dictSize(d);
+    if (dictSize(d) < count) count = (unsigned int)dictSize(d);                 WIN_PORT_FIX /* cast (unsigned int) */
     maxsteps = count*10;
 
     /* Try to do a rehashing work proportional to 'count'. */
@@ -711,9 +712,9 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
     }
 
     tables = dictIsRehashing(d) ? 2 : 1;
-    maxsizemask = d->ht[0].sizemask;
+    maxsizemask = (unsigned int) d->ht[0].sizemask;                             WIN_PORT_FIX /* cast (unsigned int) */
     if (tables > 1 && maxsizemask < d->ht[1].sizemask)
-        maxsizemask = d->ht[1].sizemask;
+        maxsizemask = (unsigned int) d->ht[1].sizemask;                         WIN_PORT_FIX /* cast (unsigned int) */
 
     /* Pick a random point inside the larger table. */
     unsigned int i = random() & maxsizemask;
@@ -728,7 +729,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
-                if (i >= d->ht[1].size) i = d->rehashidx;
+                if (i >= d->ht[1].size) i = (unsigned int) d->rehashidx;        WIN_PORT_FIX /* cast (unsigned int) */
                 continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */

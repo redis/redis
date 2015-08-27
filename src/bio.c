@@ -188,9 +188,9 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == REDIS_BIO_CLOSE_FILE) {
-            close((PORT_LONG) job->arg1);
+            close((int) job->arg1);                                             WIN_PORT_FIX /* cast (long) -> (int) */
         } else if (type == REDIS_BIO_AOF_FSYNC) {
-            aof_fsync((PORT_LONG) job->arg1);
+            aof_fsync((int) job->arg1);                                         WIN_PORT_FIX /* cast (long) -> (int) */
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }

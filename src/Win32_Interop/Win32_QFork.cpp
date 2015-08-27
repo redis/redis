@@ -320,9 +320,9 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
             g_ChildExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
-            int aof_pipe_read_ack = fdapi_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_read_ack_handle, _O_APPEND);
-            int aof_pipe_read_data = fdapi_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_read_data_handle, _O_APPEND);
-            int aof_pipe_write_ack = fdapi_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_write_ack_handle, _O_APPEND);
+            int aof_pipe_read_ack = FDAPI_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_read_ack_handle, _O_APPEND);
+            int aof_pipe_read_data = FDAPI_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_read_data_handle, _O_APPEND);
+            int aof_pipe_write_ack = FDAPI_open_osfhandle((intptr_t) g_pQForkControl->globalData.aof_pipe_write_ack_handle, _O_APPEND);
             g_ChildExitCode = do_aofSave(g_pQForkControl->globalData.filename,
                                          aof_pipe_read_ack,
                                          aof_pipe_read_data,
@@ -330,14 +330,14 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
                                          );
         } else if (g_pQForkControl->typeOfOperation == OperationType::otSocket) {
             LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->globalData.protocolInfo;
-            int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->globalData.pipe_write_handle, _O_APPEND);
+            int pipe_write_fd = FDAPI_open_osfhandle((intptr_t) g_pQForkControl->globalData.pipe_write_handle, _O_APPEND);
             for (int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
-                g_pQForkControl->globalData.fds[i] = WSASocket(FROM_PROTOCOL_INFO,
-                                                               FROM_PROTOCOL_INFO,
-                                                               FROM_PROTOCOL_INFO,
-                                                               &lpProtocolInfo[i],
-                                                               0,
-                                                               WSA_FLAG_OVERLAPPED);
+                g_pQForkControl->globalData.fds[i] = FDAPI_WSASocket(FROM_PROTOCOL_INFO,
+                                                                     FROM_PROTOCOL_INFO,
+                                                                     FROM_PROTOCOL_INFO,
+                                                                     &lpProtocolInfo[i],
+                                                                     0,
+                                                                     WSA_FLAG_OVERLAPPED);
             }
 
             g_ChildExitCode = do_socketSave(g_pQForkControl->globalData.fds,
@@ -979,9 +979,9 @@ pid_t BeginForkOperation_Aof(
     unsigned __int32 dictHashSeed,
     char* logfile)
 {
-    HANDLE aof_pipe_write_ack_handle = (HANDLE) _get_osfhandle(aof_pipe_write_ack_to_parent);
-    HANDLE aof_pipe_read_ack_handle = (HANDLE) _get_osfhandle(aof_pipe_read_ack_from_parent);
-    HANDLE aof_pipe_read_data_handle = (HANDLE) _get_osfhandle(aof_pipe_read_data_from_parent);
+    HANDLE aof_pipe_write_ack_handle = (HANDLE) FDAPI_get_osfhandle(aof_pipe_write_ack_to_parent);
+    HANDLE aof_pipe_read_ack_handle  = (HANDLE) FDAPI_get_osfhandle(aof_pipe_read_ack_from_parent);
+    HANDLE aof_pipe_read_data_handle = (HANDLE) FDAPI_get_osfhandle(aof_pipe_read_data_from_parent);
 
     // The handle is already inheritable so there is no need to duplicate it
     g_pQForkControl->globalData.aof_pipe_write_ack_handle = (aof_pipe_write_ack_handle);
@@ -996,7 +996,7 @@ void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
     WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*)dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
     g_pQForkControl->globalData.protocolInfo = protocolInfo;
     for(int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
-        WSADuplicateSocket(g_pQForkControl->globalData.fds[i], dwProcessId, &protocolInfo[i]);
+        FDAPI_WSADuplicateSocket(g_pQForkControl->globalData.fds[i], dwProcessId, &protocolInfo[i]);
     }
 }
 
@@ -1014,7 +1014,7 @@ pid_t BeginForkOperation_Socket(
     g_pQForkControl->globalData.numfds = numfds;
     g_pQForkControl->globalData.clientids = clientids;
 
-    HANDLE pipe_write_handle = (HANDLE)_get_osfhandle(pipe_write_fd);
+    HANDLE pipe_write_handle = (HANDLE) FDAPI_get_osfhandle(pipe_write_fd);
 
     // The handle is already inheritable so there is no need to duplicate it
     g_pQForkControl->globalData.pipe_write_handle = (pipe_write_handle);

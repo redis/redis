@@ -27,10 +27,10 @@ namespace Globals
 }
 
 /* This function is used to force the VEH on the entire size of the buffer length,
-   in the event that the buffer crosses the memory page boundaries */
+ * in the event that the buffer crosses the memory page boundaries */
 void EnsureMemoryIsMapped(const void *buffer, size_t size) {
-    /* Use 'volatile' to make sure the compiler doesn't remove "c = *((char*) (p + offset));" */
-    volatile char c;    
+    // Use 'volatile' to make sure the compiler doesn't remove "c = *((char*) (p + offset));"
+    volatile char c;
     char* p = (char*) buffer;
     char* pStart = p - ((size_t) p % Globals::pageSize);
     char* pEnd = p + size;

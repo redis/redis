@@ -126,7 +126,7 @@ listTypeIterator *listTypeInitIterator(robj *subject, PORT_LONG index, unsigned 
     li->encoding = subject->encoding;
     li->direction = direction;
     if (li->encoding == REDIS_ENCODING_ZIPLIST) {
-        li->zi = ziplistIndex(subject->ptr,index);
+        li->zi = ziplistIndex(subject->ptr,(int)index);                         WIN_PORT_FIX /* cast (int) */
     } else if (li->encoding == REDIS_ENCODING_LINKEDLIST) {
         li->ln = listIndex(subject->ptr,index);
     } else {
@@ -613,8 +613,8 @@ void ltrimCommand(redisClient *c) {
 
     /* Remove list elements to perform the trim */
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        o->ptr = ziplistDeleteRange(o->ptr,0,ltrim);
-        o->ptr = ziplistDeleteRange(o->ptr,-rtrim,rtrim);
+        o->ptr = ziplistDeleteRange(o->ptr,0,(unsigned int)ltrim);              WIN_PORT_FIX /* cast (unsigned int) */
+        o->ptr = ziplistDeleteRange(o->ptr,(unsigned int)-rtrim,(unsigned int)rtrim); WIN_PORT_FIX /* cast (unsigned int) */
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
         list = o->ptr;
         for (j = 0; j < ltrim; j++) {

@@ -401,12 +401,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * timer to fire. */
             aeGetTime(&now_sec, &now_ms);
             tvp = &tv;
-            tvp->tv_sec = shortest->when_sec - now_sec;
+            tvp->tv_sec = (int)(shortest->when_sec - now_sec);                  WIN_PORT_FIX /* cast (int) */
             if (shortest->when_ms < now_ms) {
-                tvp->tv_usec = ((shortest->when_ms+1000) - now_ms)*1000;
+                tvp->tv_usec = (int)((shortest->when_ms+1000) - now_ms)*1000;   WIN_PORT_FIX /* cast (int) */
                 tvp->tv_sec --;
             } else {
-                tvp->tv_usec = (shortest->when_ms - now_ms)*1000;
+                tvp->tv_usec = (int)(shortest->when_ms - now_ms)*1000;          WIN_PORT_FIX /* cast (int) */
             }
             if (tvp->tv_sec < 0) tvp->tv_sec = 0;
             if (tvp->tv_usec < 0) tvp->tv_usec = 0;

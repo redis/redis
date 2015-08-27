@@ -478,13 +478,13 @@ void sortCommand(redisClient *c) {
 
     /* Send command output to the output buffer, performing the specified
      * GET/DEL/INCR/DECR operations if any. */
-    outputlen = getop ? getop*(end-start+1) : end-start+1;
+    outputlen = getop ? (unsigned int)(getop*(end-start+1)) : (unsigned int)(end-start+1); WIN_PORT_FIX /* cast (unsigned int), cast (unsigned int) */
     if (int_convertion_error) {
         addReplyError(c,"One or more scores can't be converted into double");
     } else if (storekey == NULL) {
         /* STORE option not specified, sent the sorting result to client */
         addReplyMultiBulkLen(c,outputlen);
-        for (j = start; j <= end; j++) {
+        for (j = (int)start; j <= end; j++) {                                   WIN_PORT_FIX /* cast (int) */
             listNode *ln;
             listIter li;
 
@@ -512,7 +512,7 @@ void sortCommand(redisClient *c) {
         robj *sobj = createZiplistObject();
 
         /* STORE option specified, set the sorting result as a List object */
-        for (j = start; j <= end; j++) {
+        for (j = (int)start; j <= end; j++) {                                   WIN_PORT_FIX /* cast (int) */
             listNode *ln;
             listIter li;
 

@@ -116,17 +116,21 @@ int anetKeepAlive(char *err, int fd, int interval)
     DWORD dwBytesRet = 0; 
     alive.onoff = TRUE; 
     alive.keepalivetime = interval * 1000; 
-    /* According to http://msdn.microsoft.com/en-us/library/windows/desktop/ee470551(v=vs.85).aspx 
-       On Windows Vista and later, the number of keep-alive probes (data retransmissions) is set to 10 and cannot be changed. 
-       So we set the keep alive interval as interval/10, as 10 probes will be send before detecting an error 
-    */ 
+    /* According to
+     * http://msdn.microsoft.com/en-us/library/windows/desktop/ee470551(v=vs.85).aspx
+     * On Windows Vista and later, the number of keep-alive probes (data
+     * retransmissions) is set to 10 and cannot be changed.
+     * So we set the keep alive interval as interval/10, as 10 probes will
+     * be send before detecting an error */
     val = interval/10; 
     if (val == 0) val = 1; 
     alive.keepaliveinterval = val*1000; 
     if (FDAPI_WSAIoctl(fd, SIO_KEEPALIVE_VALS, &alive, sizeof(alive),
-       NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) { 
-        anetSetError(err, "WSAIotcl(SIO_KEEPALIVE_VALS) failed with error code %d\n", strerror(errno));
-    	return ANET_ERR; 
+                       NULL, 0, &dwBytesRet, NULL, NULL) == SOCKET_ERROR) {
+        anetSetError(err,
+                     "WSAIotcl(SIO_KEEPALIVE_VALS) failed with error code %d\n",
+                     strerror(errno));
+        return ANET_ERR;
     } 
 #else
     /* Default settings are more or less garbage, with the keepalive time
@@ -208,7 +212,7 @@ int anetTcpKeepAlive(char *err, int fd)
 int anetSendTimeout(char *err, int fd, PORT_LONGLONG ms) {
     struct timeval tv;
 
-    tv.tv_sec = ms/1000;
+    tv.tv_sec = (int) ms/1000;                                                  WIN_PORT_FIX /* cast (int) */
     tv.tv_usec = (ms%1000)*1000;
     if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
         anetSetError(err, "setsockopt SO_SNDTIMEO: %s", strerror(errno));
@@ -290,7 +294,8 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONBLOCK 1
 #define ANET_CONNECT_BE_BINDING 2 /* Best effort binding. */
 #ifdef _WIN32
-static int anetTcpGenericConnect(char *err, char *addr, int port, char *source_addr, int flags) {
+static int anetTcpGenericConnect(char *err, char *addr, int port,
+                                 char *source_addr, int flags) {
     int fd;
     SOCKADDR_STORAGE socketStorage;
 

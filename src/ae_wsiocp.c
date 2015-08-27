@@ -264,7 +264,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             if (areq->proc != NULL) {
                                 DWORD written = 0;
                                 DWORD flags;
-                                WSAGetOverlappedResult(rfd, &areq->ov, &written, FALSE, &flags);
+                                FDAPI_WSAGetOverlappedResult(rfd, &areq->ov, &written, FALSE, &flags);
                                 areq->proc(areq->eventLoop, rfd, &areq->req, (int) written);
                             }
                             sockstate->wreqs--;

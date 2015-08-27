@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="win32fixes.c" />
     <ClCompile Include="Win32_ANSI.c" />
+    <ClCompile Include="Win32_APIs.c" />
     <ClCompile Include="Win32_CommandLine.cpp" />
     <ClCompile Include="Win32_Common.cpp" />
     <ClCompile Include="Win32_dlmalloc.c" />
@@ -35,6 +36,7 @@
     <ClCompile Include="Win32_service.cpp" />
     <ClCompile Include="Win32_StackTrace.cpp" />
     <ClCompile Include="Win32_ThreadControl.c" />
+    <ClCompile Include="Win32_Time.c" />
     <ClCompile Include="win32_util.c" />
     <ClCompile Include="Win32_variadicFunctor.cpp" />
     <ClCompile Include="win32_wsiocp.c" />
@@ -42,6 +44,7 @@
   <ItemGroup>
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_ANSI.h" />
+    <ClInclude Include="Win32_APIs.h" />
     <ClInclude Include="Win32_Assert.h" />
     <ClInclude Include="Win32_CommandLine.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
@@ -58,6 +61,7 @@
     <ClInclude Include="Win32_SmartHandle.h" />
     <ClInclude Include="Win32_StackTrace.h" />
     <ClInclude Include="Win32_ThreadControl.h" />
+    <ClInclude Include="Win32_Time.h" />
     <ClInclude Include="win32_types.h" />
     <ClInclude Include="win32_util.h" />
     <ClInclude Include="Win32_variadicFunctor.h" />

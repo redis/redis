@@ -581,7 +581,7 @@ void bitposCommand(redisClient *c) {
         addReplyLongLong(c, -1);
     } else {
         PORT_LONG bytes = end-start+1;
-        PORT_LONG pos = redisBitpos(p+start,bytes,bit);
+        PORT_LONG pos = redisBitpos(p+start,(PORT_ULONG)bytes,(int)bit);        WIN_PORT_FIX /* cast (PORT_ULONG), cast (int) */
 
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as

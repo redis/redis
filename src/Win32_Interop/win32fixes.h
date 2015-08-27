@@ -29,23 +29,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <windows.h>
-#include <float.h>
 #include <fcntl.h>      /* _O_BINARY */
 #include <limits.h>     /* INT_MAX */
 #include <process.h>
-#include <sys/types.h>
-#include <stdint.h>
+#include "Win32_APIs.h"
 
 #include "Win32_FDAPI.h"    
-
-#define fseeko fseeko64
-#define ftello ftello64
-
-#define snprintf    _snprintf
-#define ftello64    _ftelli64
-#define fseeko64    _fseeki64
-#define strcasecmp  _stricmp
-#define strtoll     _strtoi64
 
 #if _MSC_VER < 1800
 #define isnan _isnan
@@ -55,25 +44,6 @@
 #include <math.h>
 #endif
 
-/* following defined to choose little endian byte order */
-#define __i386__ 1
-#if !defined(va_copy)
-#define va_copy(d,s)  d = (s)
-#endif
-
-#define sleep(x) Sleep((x)*1000)
-
-#ifndef __RTL_GENRANDOM
-#define __RTL_GENRANDOM 1
-typedef BOOLEAN (_stdcall* RtlGenRandomFunc)(void * RandomBuffer, ULONG RandomBufferLength);
-#endif
-RtlGenRandomFunc RtlGenRandom;
-
-#define random() (long)replace_random()
-#define rand() replace_random()
-#define srandom srand
-int replace_random();
-
 #if !defined(mode_t)
 #define mode_t long
 #endif
@@ -82,16 +52,6 @@ int replace_random();
 /* sha1 */
 typedef unsigned __int32 u_int32_t;
 #endif
-
-/* Redis calls usleep(1) to give thread some time
- * Sleep(0) should do the same on windows
- * In other cases, usleep is called with milisec resolution,
- * which can be directly translated to winapi Sleep() */
-#undef usleep
-#define usleep(x) (x == 1) ? Sleep(0) : Sleep((int)((x)/1000))
-
-/* Processes */
-#define waitpid(pid,statusp,options) _cwait(statusp, pid, WAIT_CHILD)
 
 #define WNOHANG 1
 
@@ -191,27 +151,19 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 #endif
 #endif
 
-#define rename(a,b) replace_rename(a,b)
-int replace_rename(const char *src, const char *dest);
 
 /* Misc Unix -> Win32 */
 int kill(pid_t pid, int sig);
 pid_t wait3(int *stat_loc, int options, void *rusage);
-
-void InitTimeFunctions();
-uint64_t GetHighResRelativeTime(double scale);
-int gettimeofday_fast(struct timeval *tv, struct timezone *tz);
-int gettimeofday_highres(struct timeval *tv, struct timezone *tz);
-time_t gettimeofdaysecs(unsigned int *usec);
-#define gettimeofday gettimeofday_highres
-
-char *ctime_r(const time_t *clock, char *buf);
 
 /* strtod does not handle Inf and Nan, we need to do the check before calling strtod */
 #undef strtod
 #define strtod(nptr, eptr) wstrtod((nptr), (eptr))
 
 double wstrtod(const char *nptr, char **eptr);
+
+int strerror_r(int err, char* buf, size_t buflen);
+char *wsa_strerror(int err);
 
 /* structs and functions for using IOCP with windows sockets */
 
@@ -230,9 +182,6 @@ int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
 int WSIOCP_SocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
 int WSIOCP_SocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
-int strerror_r(int err, char* buf, size_t buflen);
-char *wsa_strerror(int err);
-
 // access check for executable uses X_OK. For Windows use READ access.
 #ifndef X_OK
 #define X_OK 4
@@ -242,8 +191,6 @@ char *wsa_strerror(int err);
 #define STDOUT_FILENO 1
 #endif
 
-int truncate(const char *path, PORT_LONGLONG length);
 
-#define lseek lseek64
 
 #endif /* WIN32FIXES_H */

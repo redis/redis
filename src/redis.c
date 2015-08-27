@@ -28,10 +28,10 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop\win32_util.h"
-#include "Win32_Interop\Win32_FDAPI.h"
-#include "Win32_Interop\Win32_ThreadControl.h"
-#include "Win32_Interop\Win32_QFork.h"
+#include "win32_Interop/Win32_util.h"
+#include "Win32_Interop/Win32_FDAPI.h"
+#include "Win32_Interop/Win32_ThreadControl.h"
+#include "Win32_Interop/Win32_QFork.h"
 #endif
 
 #include "redis.h"

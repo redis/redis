@@ -2753,7 +2753,7 @@ int sentinelIsQuorumReachable(sentinelRedisInstance *master, int *usableptr) {
     dictEntry *de;
     int usable = 1; /* Number of usable Sentinels. Init to 1 to count myself. */
     int result = SENTINEL_ISQR_OK;
-    int voters = dictSize(master->sentinels)+1; /* Known Sentinels + myself. */
+    int voters = (int)dictSize(master->sentinels)+1; /* Known Sentinels + myself. */ WIN_PORT_FIX /* cast (int) */
 
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {

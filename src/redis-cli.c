@@ -30,6 +30,7 @@
 
 #ifdef _WIN32
 #include "win32_Interop/win32_types.h"
+#include "win32_Interop/win32_time.h"
 #include "win32_Interop/win32_util.h"
 #endif
 

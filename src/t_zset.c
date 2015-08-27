@@ -139,7 +139,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
             update[i] = zsl->header;
-            update[i]->level[i].span = zsl->length;
+            update[i]->level[i].span = (unsigned int) zsl->length;              WIN_PORT_FIX /* cast (unsigned int) */
         }
         zsl->level = level;
     }
@@ -1087,7 +1087,7 @@ unsigned int zsetLength(robj *zobj) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-        length = ((zset*)zobj->ptr)->zsl->length;
+        length = (int) ((zset*)zobj->ptr)->zsl->length;                         WIN_PORT_FIX /* cast (int) */
     } else {
         redisPanic("Unknown sorted set encoding");
     }
@@ -1494,7 +1494,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         switch(rangetype) {
         case ZRANGE_RANK:
-            zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
+            zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,(int)start+1,(int)end+1,&deleted);   WIN_PORT_FIX /* cast (int), cast (int) */
             break;
         case ZRANGE_SCORE:
             zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,&range,&deleted);
@@ -1511,7 +1511,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
         zset *zs = zobj->ptr;
         switch(rangetype) {
         case ZRANGE_RANK:
-            deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
+            deleted = zslDeleteRangeByRank(zs->zsl,(int)start+1,(int)end+1,zs->dict);   WIN_PORT_FIX /* cast (int), cast (int) */
             break;
         case ZRANGE_SCORE:
             deleted = zslDeleteRangeByScore(zs->zsl,&range,zs->dict);
@@ -1687,7 +1687,7 @@ int zuiLength(zsetopsrc *op) {
             return intsetLen(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_HT) {
             dict *ht = op->subject->ptr;
-            return (int)dictSize(ht);                                           WIN_PORT_FIX /* int */
+            return (int)dictSize(ht);                                           WIN_PORT_FIX /* cast (int) */
         } else {
             redisPanic("Unknown set encoding");
         }
@@ -1696,7 +1696,7 @@ int zuiLength(zsetopsrc *op) {
             return zzlLength(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = op->subject->ptr;
-            return zs->zsl->length;
+            return (int)zs->zsl->length;                                        WIN_PORT_FIX /* cast (int) */
         } else {
             redisPanic("Unknown sorted set encoding");
         }
@@ -2190,7 +2190,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         return;
     }
     if (end >= llen) end = llen-1;
-    rangelen = (end-start)+1;
+    rangelen = (int)(end-start)+1;                                              WIN_PORT_FIX /* cast (int) */
 
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
@@ -2203,9 +2203,9 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         PORT_LONGLONG vlong;
 
         if (reverse)
-            eptr = ziplistIndex(zl,-2-(2*start));
+            eptr = ziplistIndex(zl,(int)(-2-(2*start)));                        WIN_PORT_FIX /* cast (int) */
         else
-            eptr = ziplistIndex(zl,2*start);
+            eptr = ziplistIndex(zl,(int)(2*start));                             WIN_PORT_FIX /* cast (int) */
 
         redisAssertWithInfo(c,zobj,eptr != NULL);
         sptr = ziplistNext(zl,eptr);
@@ -2519,7 +2519,7 @@ void zcountCommand(redisClient *c) {
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
             rank = zslGetRank(zsl, zn->score, zn->obj);
-            count = (zsl->length - (rank - 1));
+            count = (int)(zsl->length - (rank - 1));                            WIN_PORT_FIX /* cast (int) */
 
             /* Find last element in range */
             zn = zslLastInRange(zsl, &range);
@@ -2527,7 +2527,7 @@ void zcountCommand(redisClient *c) {
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
                 rank = zslGetRank(zsl, zn->score, zn->obj);
-                count -= (zsl->length - rank);
+                count -= (int)(zsl->length - rank);                             WIN_PORT_FIX /* cast (int) */
             }
         }
     } else {
@@ -2597,7 +2597,7 @@ void zlexcountCommand(redisClient *c) {
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
             rank = zslGetRank(zsl, zn->score, zn->obj);
-            count = (zsl->length - (rank - 1));
+            count = (int)(zsl->length - (rank - 1));                            WIN_PORT_FIX /* cast (int) */
 
             /* Find last element in range */
             zn = zslLastInLexRange(zsl, &range);
@@ -2605,7 +2605,7 @@ void zlexcountCommand(redisClient *c) {
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
                 rank = zslGetRank(zsl, zn->score, zn->obj);
-                count -= (zsl->length - rank);
+                count -= (int)(zsl->length - rank);                             WIN_PORT_FIX /* cast (int) */
             }
         }
     } else {

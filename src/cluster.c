@@ -378,7 +378,7 @@ int clusterLockConfig(char *filename) {
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
 #else
-    HANDLE hFile = (HANDLE) _get_osfhandle(fd);
+    HANDLE hFile = (HANDLE) FDAPI_get_osfhandle(fd);
     OVERLAPPED ovlp;
     DWORD size_lower, size_upper;
     // start offset is 0, and also zero the remaining members of the struct
@@ -2278,8 +2278,8 @@ void clusterSendPing(clusterLink *link, int type) {
         freshnodes--;
         gossip = &(hdr->data.ping.gossip[gossipcount]);
         memcpy(gossip->nodename,this->name,REDIS_CLUSTER_NAMELEN);
-        gossip->ping_sent = htonl(this->ping_sent);
-        gossip->pong_received = htonl(this->pong_received);
+        gossip->ping_sent = htonl((u_long)this->ping_sent);                     WIN_PORT_FIX /* cast (u_long) */
+        gossip->pong_received = htonl((u_long)this->pong_received);             WIN_PORT_FIX /* cast (u_long) */
         memcpy(gossip->ip,this->ip,sizeof(this->ip));
         gossip->port = htons(this->port);
         gossip->flags = htons(this->flags);
@@ -4674,7 +4674,7 @@ try_again:
         while ((towrite = sdslen(buf) - pos) > 0) {
             towrite = (towrite > (64 * 1024) ? (64 * 1024) : towrite);
             while (nwritten != (signed) towrite) {
-                nwritten = syncWrite(cs->fd, buf + pos, (ssize_t) towrite, timeout);
+                nwritten = (int) syncWrite(cs->fd, buf + pos, (ssize_t) towrite, timeout);
                 if (nwritten != (signed) towrite) {
                     DWORD err = GetLastError();
                     if (err == WSAEWOULDBLOCK) {

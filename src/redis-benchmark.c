@@ -30,6 +30,7 @@
 #ifdef _WIN32
 #include "Win32_Interop/win32_util.h"
 #include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/win32_time.h"
 #endif
 
 #include "fmacros.h"

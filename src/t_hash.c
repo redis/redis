@@ -721,7 +721,7 @@ void genericHgetallCommand(redisClient *c, int flags) {
     if (flags & REDIS_HASH_KEY) multiplier++;
     if (flags & REDIS_HASH_VALUE) multiplier++;
 
-    length = hashTypeLength(o) * multiplier;
+    length = (int)(hashTypeLength(o) * multiplier);                             WIN_PORT_FIX /* cast (int) */
     addReplyMultiBulkLen(c, length);
 
     hi = hashTypeInitIterator(o);

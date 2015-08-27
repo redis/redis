@@ -63,7 +63,7 @@ void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset
         return MAP_FAILED;
     };
 
-    h = CreateFileMapping((HANDLE) _get_osfhandle(fd), NULL, PAGE_READONLY, 0, 0, NULL);
+    h = CreateFileMapping((HANDLE) FDAPI_get_osfhandle(fd), NULL, PAGE_READONLY, 0, 0, NULL);
     if (!h) {
         return MAP_FAILED;
     }

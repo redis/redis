@@ -1,28 +1,28 @@
 /*
-* Copyright (c), Microsoft Open Technologies, Inc.
-* All rights reserved.
-* Redistribution and use in source and binary forms, with or without
-* modification, are permitted provided that the following conditions are met:
-*  - Redistributions of source code must retain the above copyright notice,
-*    this list of conditions and the following disclaimer.
-*  - Redistributions in binary form must reproduce the above copyright notice,
-*    this list of conditions and the following disclaimer in the documentation
-*    and/or other materials provided with the distribution.
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-* AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-* IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-* DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-* FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-* SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-* CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-* OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
-
+ * Copyright (c), Microsoft Open Technologies, Inc.
+ * All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *  - Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *  - Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
 #include "win32_types.h"
 #include "win32_rfdmap.h"
+#include "Win32_Assert.h"
 
 RFDMap& RFDMap::getInstance() {
     static RFDMap instance; // Instantiated on first use. Guaranteed to be destroyed.
@@ -32,11 +32,11 @@ RFDMap& RFDMap::getInstance() {
 RFDMap::RFDMap() {
     InitializeCriticalSection(&mutex);
     // stdin, assigned rfd = 0
-    addPosixFD(0);
+    addCrtFD(0);
     // stdout, assigned rfd = 1
-    addPosixFD(1);
+    addCrtFD(1);
     // stderr, assigned rfd = 2
-    addPosixFD(2);
+    addCrtFD(2);
 }
 
 RFD RFDMap::getNextRFDAvailable() {
@@ -91,33 +91,34 @@ void RFDMap::removeRFDToSocketInfo(RFD rfd) {
     LeaveCriticalSection(&mutex);
 }
 
-RFD RFDMap::addPosixFD(int posixFD) {
+RFD RFDMap::addCrtFD(int crt_fd) {
     RFD rfd;
     EnterCriticalSection(&mutex);
-    if (PosixFDToRFDMap.find(posixFD) != PosixFDToRFDMap.end()) {
-        rfd = PosixFDToRFDMap[posixFD];
+    if (CrtFDToRFDMap.find(crt_fd) != CrtFDToRFDMap.end()) {
+        rfd = CrtFDToRFDMap[crt_fd];
     } else {
         rfd = getNextRFDAvailable();
         if (rfd != INVALID_FD) {
-            PosixFDToRFDMap[posixFD] = rfd;
-            RFDToPosixFDMap[rfd] = posixFD;
+            CrtFDToRFDMap[crt_fd] = rfd;
+            RFDToCrtFDMap[rfd] = crt_fd;
         }
     }
     LeaveCriticalSection(&mutex);
     return rfd;
 }
 
-void RFDMap::removePosixFD(int posixFD) {
-    // posixFD between 0 and 2 should never be removed since they are assigned
-    // to stdin, stdout and stderr
-    if (posixFD > 2) {
+void RFDMap::removeCrtFD(int crt_fd) {
+    // crt_fd between FIRST_RESERVED_RFD_INDEX and LAST_RESERVED_RFD_INDEX
+    // should never be removed.
+    ASSERT(FIRST_RESERVED_RFD_INDEX == 0);
+    if (crt_fd > RFDMap::LAST_RESERVED_RFD_INDEX) {
         EnterCriticalSection(&mutex);
-        PosixFDToRFDMapType::iterator mit = PosixFDToRFDMap.find(posixFD);
-        if (mit != PosixFDToRFDMap.end()) {
+        map<int, RFD>::iterator mit = CrtFDToRFDMap.find(crt_fd);
+        if (mit != CrtFDToRFDMap.end()) {
             RFD rfd = (*mit).second;
             RFDRecyclePool.push(rfd);
-            RFDToPosixFDMap.erase(rfd);
-            PosixFDToRFDMap.erase(posixFD);
+            RFDToCrtFDMap.erase(rfd);
+            CrtFDToRFDMap.erase(crt_fd);
         }
         LeaveCriticalSection(&mutex);
     }
@@ -143,14 +144,15 @@ SocketInfo* RFDMap::lookupSocketInfo(RFD rfd) {
     return socket_info;
 }
 
-int RFDMap::lookupPosixFD(RFD rfd) {
-    int posixFD = -1;
+int RFDMap::lookupCrtFD(RFD rfd) {
+    int crt_fd = INVALID_FD;
     EnterCriticalSection(&mutex);
-    if (RFDToPosixFDMap.find(rfd) != RFDToPosixFDMap.end()) {
-        posixFD = RFDToPosixFDMap[rfd];
-    } else if (rfd >= 0 && rfd <= 2) {
-        posixFD = rfd;
+    if (RFDToCrtFDMap.find(rfd) != RFDToCrtFDMap.end()) {
+        crt_fd = RFDToCrtFDMap[rfd];
+    } else if (rfd >= RFDMap::FIRST_RESERVED_RFD_INDEX
+        && rfd <= RFDMap::LAST_RESERVED_RFD_INDEX) {
+        crt_fd = rfd;
     }
     LeaveCriticalSection(&mutex);
-    return posixFD;
+    return crt_fd;
 }

@@ -584,7 +584,7 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     robj *o1 = *(robj**)s1, *o2 = *(robj**)s2;
 
-    return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
+    return (int)((o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0));      WIN_PORT_FIX /* cast (int) */
 }
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, PORT_ULONG setnum, robj *dstkey) {

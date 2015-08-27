@@ -556,7 +556,7 @@ void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
             if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                if (!stringmatchlen(pat, patlen, kobj->ptr, (int)sdslen(kobj->ptr), 0)) WIN_PORT_FIX /* cast (int) */
                     filter = 1;
             } else {
                 char buf[REDIS_LONGSTR_SIZE];
@@ -1141,14 +1141,14 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
 void slotToKeyAdd(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot(key->ptr,(int)sdslen(key->ptr));        WIN_PORT_FIX /* cast (int) */
 
     zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
 void slotToKeyDel(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot(key->ptr,(int)sdslen(key->ptr));        WIN_PORT_FIX /* cast (int) */
 
     zslDelete(server.cluster->slots_to_keys,hashslot,key);
 }
@@ -1210,16 +1210,16 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
     /* Use rank of first element, if any, to determine preliminary count */
     if (zn != NULL) {
-        rank = zslGetRank(zsl, zn->score, zn->obj);
-        count = (zsl->length - (rank - 1));
+        rank = (int) zslGetRank(zsl, zn->score, zn->obj);                       WIN_PORT_FIX /* cast (int) */
+        count = (int) (zsl->length - (rank - 1));                               WIN_PORT_FIX /* cast (int) */
 
         /* Find last element in range */
         zn = zslLastInRange(zsl, &range);
 
         /* Use rank of last element, if any, to determine the actual count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->obj);
-            count -= (zsl->length - rank);
+            rank = (int) zslGetRank(zsl, zn->score, zn->obj);                   WIN_PORT_FIX /* cast (int) */
+            count -= (int) (zsl->length - rank);                                WIN_PORT_FIX /* cast (int) */
         }
     }
     return count;

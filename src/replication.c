@@ -31,6 +31,7 @@
 #ifdef _WIN32
 #include "win32_Interop/win32_util.h"
 #include "win32_Interop/win32_types.h"
+#include "win32_Interop/win32_time.h"
 #endif
 
 #include "redis.h"

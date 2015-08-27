@@ -400,8 +400,10 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
             if (buf != staticbuf) zfree(buf);
             buflen *= 2;
 
-            // WIN_PORT_FIX: from the vsnprintf documentation in MSDN: "To ensure that there is room for the terminating null, be sure that
-            // WIN_PORT_FIX: count is strictly less than the buffer length and initialize the buffer to null prior to calling the function."
+            // WIN_PORT_FIX: from the vsnprintf documentation in MSDN:
+            // "To ensure that there is room for the terminating null, be sure
+            //  that count is strictly less than the buffer length and
+            //  initialize the buffer to null prior to calling the function."
             buf = IF_WIN32(zcalloc,zmalloc)(buflen);
             if (buf == NULL) return NULL;
             continue;
