@@ -46,15 +46,15 @@
 #include <limits.h>
 #include <math.h>
 
-#include "hiredis.h"
-#include "sds.h"
+#include <hiredis.h>
+#include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
 #include "zmalloc.h"
 #include "linenoise.h"
 #include "help.h"
 #include "anet.h"
 #include "ae.h"
 
-#define REDIS_NOTUSED(V) ((void) V)
+#define UNUSED(V) ((void) V)
 
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
@@ -644,9 +644,9 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
 
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
-        (argc == 3 && !strcasecmp(command,"debug") &&
-                      (!strcasecmp(argv[1],"jemalloc") &&
-                       !strcasecmp(argv[2],"info"))) ||
+        (argc >= 2 && !strcasecmp(command,"debug") &&
+                      (!strcasecmp(argv[1],"jemalloc") ||
+                       !strcasecmp(argv[1],"htstats"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
@@ -2128,7 +2128,7 @@ unsigned long compute_something_fast(void) {
 }
 
 static void intrinsicLatencyModeStop(int s) {
-    REDIS_NOTUSED(s);
+    UNUSED(s);
     force_cancel_loop = 1;
 }
 

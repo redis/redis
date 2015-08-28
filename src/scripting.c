@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 #include "sha1.h"
 #include "rand.h"
 #include "cluster.h"
@@ -206,7 +206,7 @@ void luaSortArray(lua_State *lua) {
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
-    redisClient *c = server.lua_client;
+    client *c = server.lua_client;
     sds reply;
 
     /* Cached across calls. */
@@ -224,7 +224,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         char *recursion_warning =
             "luaRedisGenericCommand() recursive call detected. "
             "Are you doing funny stuff with Lua debug hooks?";
-        redisLog(REDIS_WARNING,"%s",recursion_warning);
+        serverLog(LL_WARNING,"%s",recursion_warning);
         luaPushError(lua,recursion_warning);
         return 1;
     }
@@ -265,14 +265,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] &&
             cached_objects_len[j] >= obj_len)
         {
-            char *s = cached_objects[j]->ptr;
-            struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
-
+            sds s = cached_objects[j]->ptr;
             argv[j] = cached_objects[j];
             cached_objects[j] = NULL;
             memcpy(s,obj_s,obj_len+1);
-            sh->free += sh->len - obj_len;
-            sh->len = obj_len;
+            sdssetlen(s, obj_len);
         } else {
             argv[j] = createStringObject(obj_s, obj_len);
         }
@@ -312,7 +309,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     c->cmd = cmd;
 
     /* There are commands that are not allowed inside scripts. */
-    if (cmd->flags & REDIS_CMD_NOSCRIPT) {
+    if (cmd->flags & CMD_NOSCRIPT) {
         luaPushError(lua, "This Redis command is not allowed from scripts");
         goto cleanup;
     }
@@ -320,20 +317,20 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
      * of this script. */
-    if (cmd->flags & REDIS_CMD_WRITE) {
+    if (cmd->flags & CMD_WRITE) {
         if (server.lua_random_dirty) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands");
             goto cleanup;
         } else if (server.masterhost && server.repl_slave_ro &&
                    !server.loading &&
-                   !(server.lua_caller->flags & REDIS_MASTER))
+                   !(server.lua_caller->flags & CLIENT_MASTER))
         {
             luaPushError(lua, shared.roslaveerr->ptr);
             goto cleanup;
         } else if (server.stop_writes_on_bgsave_err &&
                    server.saveparamslen > 0 &&
-                   server.lastbgsave_status == REDIS_ERR)
+                   server.lastbgsave_status == C_ERR)
         {
             luaPushError(lua, shared.bgsaveerr->ptr);
             goto cleanup;
@@ -345,24 +342,24 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * first write in the context of this script, otherwise we can't stop
      * in the middle. */
     if (server.maxmemory && server.lua_write_dirty == 0 &&
-        (cmd->flags & REDIS_CMD_DENYOOM))
+        (cmd->flags & CMD_DENYOOM))
     {
-        if (freeMemoryIfNeeded() == REDIS_ERR) {
+        if (freeMemoryIfNeeded() == C_ERR) {
             luaPushError(lua, shared.oomerr->ptr);
             goto cleanup;
         }
     }
 
-    if (cmd->flags & REDIS_CMD_RANDOM) server.lua_random_dirty = 1;
-    if (cmd->flags & REDIS_CMD_WRITE) server.lua_write_dirty = 1;
+    if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
+    if (cmd->flags & CMD_WRITE) server.lua_write_dirty = 1;
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
      * received from our master. */
-    if (server.cluster_enabled && !(server.lua_caller->flags & REDIS_MASTER)) {
+    if (server.cluster_enabled && !(server.lua_caller->flags & CLIENT_MASTER)) {
         /* Duplicate relevant flags in the lua client. */
-        c->flags &= ~(REDIS_READONLY|REDIS_ASKING);
-        c->flags |= server.lua_caller->flags & (REDIS_READONLY|REDIS_ASKING);
+        c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
+        c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
         if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL) !=
                            server.cluster->myself)
         {
@@ -374,12 +371,12 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Run the command */
-    call(c,REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+    call(c,CMD_CALL_SLOWLOG | CMD_CALL_STATS);
 
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    if (listLength(c->reply) == 0 && c->bufpos < REDIS_REPLY_CHUNK_BYTES) {
+    if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
         /* This is a fast path for the common case of a reply inside the
          * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
@@ -400,7 +397,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     redisProtocolToLuaType(lua,reply);
     /* Sort the output array if needed, assuming it is a non-null multi bulk
      * reply as expected. */
-    if ((cmd->flags & REDIS_CMD_SORT_FOR_SCRIPT) &&
+    if ((cmd->flags & CMD_SORT_FOR_SCRIPT) &&
         (reply[0] == '*' && reply[1] != '-')) {
             luaSortArray(lua);
     }
@@ -418,15 +415,14 @@ cleanup:
          * (we must be the only owner) for us to cache it. */
         if (j < LUA_CMD_OBJCACHE_SIZE &&
             o->refcount == 1 &&
-            (o->encoding == REDIS_ENCODING_RAW ||
-             o->encoding == REDIS_ENCODING_EMBSTR) &&
+            (o->encoding == OBJ_ENCODING_RAW ||
+             o->encoding == OBJ_ENCODING_EMBSTR) &&
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
         {
-            struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
-
+            sds s = o->ptr;
             if (cached_objects[j]) decrRefCount(cached_objects[j]);
             cached_objects[j] = o;
-            cached_objects_len[j] = sh->free + sh->len;
+            cached_objects_len[j] = sdsalloc(s);
         } else {
             decrRefCount(o);
         }
@@ -519,7 +515,7 @@ int luaLogCommand(lua_State *lua) {
         return 1;
     }
     level = lua_tonumber(lua,-argc);
-    if (level < REDIS_DEBUG || level > REDIS_WARNING) {
+    if (level < LL_DEBUG || level > LL_WARNING) {
         luaPushError(lua, "Invalid debug level.");
         return 1;
     }
@@ -536,19 +532,19 @@ int luaLogCommand(lua_State *lua) {
             log = sdscatlen(log,s,len);
         }
     }
-    redisLogRaw(level,log);
+    serverLogRaw(level,log);
     sdsfree(log);
     return 0;
 }
 
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     long long elapsed;
-    REDIS_NOTUSED(ar);
-    REDIS_NOTUSED(lua);
+    UNUSED(ar);
+    UNUSED(lua);
 
     elapsed = mstime() - server.lua_time_start;
     if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
-        redisLog(REDIS_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
+        serverLog(LL_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
          * to call SCRIPT KILL or SHUTDOWN NOSAVE if needed. For this reason
@@ -559,7 +555,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     }
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
-        redisLog(REDIS_WARNING,"Lua script killed by user with SCRIPT KILL.");
+        serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
@@ -672,20 +668,20 @@ void scriptingInit(void) {
     lua_pushcfunction(lua,luaLogCommand);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LOG_DEBUG");
-    lua_pushnumber(lua,REDIS_DEBUG);
+    lua_pushstring(lua,"LL_DEBUG");
+    lua_pushnumber(lua,LL_DEBUG);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LOG_VERBOSE");
-    lua_pushnumber(lua,REDIS_VERBOSE);
+    lua_pushstring(lua,"LL_VERBOSE");
+    lua_pushnumber(lua,LL_VERBOSE);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LOG_NOTICE");
-    lua_pushnumber(lua,REDIS_NOTICE);
+    lua_pushstring(lua,"LL_NOTICE");
+    lua_pushnumber(lua,LL_NOTICE);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LOG_WARNING");
-    lua_pushnumber(lua,REDIS_WARNING);
+    lua_pushstring(lua,"LL_WARNING");
+    lua_pushnumber(lua,LL_WARNING);
     lua_settable(lua,-3);
 
     /* redis.sha1hex */
@@ -756,7 +752,7 @@ void scriptingInit(void) {
      * by scriptingReset(). */
     if (server.lua_client == NULL) {
         server.lua_client = createClient(-1);
-        server.lua_client->flags |= REDIS_LUA_CLIENT;
+        server.lua_client->flags |= CLIENT_LUA;
     }
 
     /* Lua beginners often don't use "local", this is likely to introduce
@@ -802,7 +798,7 @@ void sha1hex(char *digest, char *script, size_t len) {
     digest[40] = '\0';
 }
 
-void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
+void luaReplyToRedisReply(client *c, lua_State *lua) {
     int t = lua_type(lua,-1);
 
     switch(t) {
@@ -880,15 +876,15 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
 }
 
 /* Define a lua function with the specified function name and body.
- * The function name musts be a 2 characters long string, since all the
+ * The function name musts be a 42 characters long string, since all the
  * functions we defined in the Lua context are in the form:
  *
  *   f_<hex sha1 sum>
  *
- * On success REDIS_OK is returned, and nothing is left on the Lua stack.
- * On error REDIS_ERR is returned and an appropriate error is set in the
+ * On success C_OK is returned, and nothing is left on the Lua stack.
+ * On error C_ERR is returned and an appropriate error is set in the
  * client context. */
-int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body) {
+int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     sds funcdef = sdsempty();
 
     funcdef = sdscat(funcdef,"function ");
@@ -902,14 +898,14 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
             lua_tostring(lua,-1));
         lua_pop(lua,1);
         sdsfree(funcdef);
-        return REDIS_ERR;
+        return C_ERR;
     }
     sdsfree(funcdef);
     if (lua_pcall(lua,0,0,0)) {
         addReplyErrorFormat(c,"Error running script (new function): %s\n",
             lua_tostring(lua,-1));
         lua_pop(lua,1);
-        return REDIS_ERR;
+        return C_ERR;
     }
 
     /* We also save a SHA1 -> Original script map in a dictionary
@@ -918,13 +914,13 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
     {
         int retval = dictAdd(server.lua_scripts,
                              sdsnewlen(funcname+2,40),body);
-        redisAssertWithInfo(c,NULL,retval == DICT_OK);
+        serverAssertWithInfo(c,NULL,retval == DICT_OK);
         incrRefCount(body);
     }
-    return REDIS_OK;
+    return C_OK;
 }
 
-void evalGenericCommand(redisClient *c, int evalsha) {
+void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
@@ -946,7 +942,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     server.lua_write_dirty = 0;
 
     /* Get the number of arguments that are keys */
-    if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
         return;
     if (numkeys > (c->argc - 3)) {
         addReplyError(c,"Number of keys can't be greater than number of args");
@@ -992,15 +988,15 @@ void evalGenericCommand(redisClient *c, int evalsha) {
             addReply(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) {
+        if (luaCreateFunction(c,lua,funcname,c->argv[1]) == C_ERR) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
-             * itself when it returns REDIS_ERR. */
+             * itself when it returns C_ERR. */
             return;
         }
         /* Now the following is guaranteed to return non nil */
         lua_getglobal(lua, funcname);
-        redisAssert(!lua_isnil(lua,-1));
+        serverAssert(!lua_isnil(lua,-1));
     }
 
     /* Populate the argv and keys table accordingly to the arguments that
@@ -1085,20 +1081,20 @@ void evalGenericCommand(redisClient *c, int evalsha) {
             robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
 
             replicationScriptCacheAdd(c->argv[1]->ptr);
-            redisAssertWithInfo(c,NULL,script != NULL);
+            serverAssertWithInfo(c,NULL,script != NULL);
             rewriteClientCommandArgument(c,0,
                 resetRefCount(createStringObject("EVAL",4)));
             rewriteClientCommandArgument(c,1,script);
-            forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
+            forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
 }
 
-void evalCommand(redisClient *c) {
+void evalCommand(client *c) {
     evalGenericCommand(c,0);
 }
 
-void evalShaCommand(redisClient *c) {
+void evalShaCommand(client *c) {
     if (sdslen(c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
@@ -1153,7 +1149,7 @@ int redis_math_randomseed (lua_State *L) {
  * SCRIPT command for script environment introspection and control
  * ------------------------------------------------------------------------- */
 
-void scriptCommand(redisClient *c) {
+void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
@@ -1179,14 +1175,14 @@ void scriptCommand(redisClient *c) {
         sha = sdsnewlen(funcname+2,40);
         if (dictFind(server.lua_scripts,sha) == NULL) {
             if (luaCreateFunction(c,server.lua,funcname,c->argv[2])
-                    == REDIS_ERR) {
+                    == C_ERR) {
                 sdsfree(sha);
                 return;
             }
         }
         addReplyBulkCBuffer(c,funcname+2,40);
         sdsfree(sha);
-        forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
+        forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));

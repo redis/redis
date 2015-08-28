@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 
@@ -150,10 +150,10 @@ void computeDatasetDigest(unsigned char *final) {
             expiretime = getExpire(db,keyobj);
 
             /* Save the key and associated value */
-            if (o->type == REDIS_STRING) {
+            if (o->type == OBJ_STRING) {
                 mixObjectDigest(digest,o);
-            } else if (o->type == REDIS_LIST) {
-                listTypeIterator *li = listTypeInitIterator(o,0,REDIS_TAIL);
+            } else if (o->type == OBJ_LIST) {
+                listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
                 listTypeEntry entry;
                 while(listTypeNext(li,&entry)) {
                     robj *eleobj = listTypeGet(&entry);
@@ -161,7 +161,7 @@ void computeDatasetDigest(unsigned char *final) {
                     decrRefCount(eleobj);
                 }
                 listTypeReleaseIterator(li);
-            } else if (o->type == REDIS_SET) {
+            } else if (o->type == OBJ_SET) {
                 setTypeIterator *si = setTypeInitIterator(o);
                 robj *ele;
                 while((ele = setTypeNextObject(si)) != NULL) {
@@ -169,10 +169,10 @@ void computeDatasetDigest(unsigned char *final) {
                     decrRefCount(ele);
                 }
                 setTypeReleaseIterator(si);
-            } else if (o->type == REDIS_ZSET) {
+            } else if (o->type == OBJ_ZSET) {
                 unsigned char eledigest[20];
 
-                if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+                if (o->encoding == OBJ_ENCODING_ZIPLIST) {
                     unsigned char *zl = o->ptr;
                     unsigned char *eptr, *sptr;
                     unsigned char *vstr;
@@ -181,12 +181,12 @@ void computeDatasetDigest(unsigned char *final) {
                     double score;
 
                     eptr = ziplistIndex(zl,0);
-                    redisAssert(eptr != NULL);
+                    serverAssert(eptr != NULL);
                     sptr = ziplistNext(zl,eptr);
-                    redisAssert(sptr != NULL);
+                    serverAssert(sptr != NULL);
 
                     while (eptr != NULL) {
-                        redisAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                        serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
                         score = zzlGetScore(sptr);
 
                         memset(eledigest,0,20);
@@ -202,7 +202,7 @@ void computeDatasetDigest(unsigned char *final) {
                         xorDigest(digest,eledigest,20);
                         zzlNext(zl,&eptr,&sptr);
                     }
-                } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
+                } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
                     zset *zs = o->ptr;
                     dictIterator *di = dictGetIterator(zs->dict);
                     dictEntry *de;
@@ -219,28 +219,28 @@ void computeDatasetDigest(unsigned char *final) {
                     }
                     dictReleaseIterator(di);
                 } else {
-                    redisPanic("Unknown sorted set encoding");
+                    serverPanic("Unknown sorted set encoding");
                 }
-            } else if (o->type == REDIS_HASH) {
+            } else if (o->type == OBJ_HASH) {
                 hashTypeIterator *hi;
                 robj *obj;
 
                 hi = hashTypeInitIterator(o);
-                while (hashTypeNext(hi) != REDIS_ERR) {
+                while (hashTypeNext(hi) != C_ERR) {
                     unsigned char eledigest[20];
 
                     memset(eledigest,0,20);
-                    obj = hashTypeCurrentObject(hi,REDIS_HASH_KEY);
+                    obj = hashTypeCurrentObject(hi,OBJ_HASH_KEY);
                     mixObjectDigest(eledigest,obj);
                     decrRefCount(obj);
-                    obj = hashTypeCurrentObject(hi,REDIS_HASH_VALUE);
+                    obj = hashTypeCurrentObject(hi,OBJ_HASH_VALUE);
                     mixObjectDigest(eledigest,obj);
                     decrRefCount(obj);
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
             } else {
-                redisPanic("Unknown object type");
+                serverPanic("Unknown object type");
             }
             /* If the key has an expire, add it to the mix */
             if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
@@ -258,7 +258,7 @@ void inputCatSds(void *result, const char *str) {
     *info = sdscat(*info, str);
 }
 
-void debugCommand(redisClient *c) {
+void debugCommand(client *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
@@ -267,27 +267,27 @@ void debugCommand(redisClient *c) {
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
-        redisAssertWithInfo(c,c->argv[0],1 == 2);
+        serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        if (rdbSave(server.rdb_filename) != REDIS_OK) {
+        if (rdbSave(server.rdb_filename) != C_OK) {
             addReply(c,shared.err);
             return;
         }
         emptyDb(NULL);
-        if (rdbLoad(server.rdb_filename) != REDIS_OK) {
+        if (rdbLoad(server.rdb_filename) != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
             return;
         }
-        redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
+        serverLog(LL_WARNING,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         emptyDb(NULL);
-        if (loadAppendOnlyFile(server.aof_filename) != REDIS_OK) {
+        if (loadAppendOnlyFile(server.aof_filename) != C_OK) {
             addReply(c,shared.err);
             return;
         }
         server.dirty = 0; /* Prevent AOF / replication */
-        redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        serverLog(LL_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
@@ -302,7 +302,7 @@ void debugCommand(redisClient *c) {
         strenc = strEncoding(val->encoding);
 
         char extra[128] = {0};
-        if (val->encoding == REDIS_ENCODING_QUICKLIST) {
+        if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
@@ -353,7 +353,7 @@ void debugCommand(redisClient *c) {
         val = dictGetVal(de);
         key = dictGetKey(de);
 
-        if (val->type != REDIS_STRING || !sdsEncodedObject(val)) {
+        if (val->type != OBJ_STRING || !sdsEncodedObject(val)) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
             addReplyStatusFormat(c,
@@ -370,7 +370,7 @@ void debugCommand(redisClient *c) {
         robj *key, *val;
         char buf[128];
 
-        if (getLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != REDIS_OK)
+        if (getLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
         dictExpand(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
@@ -420,11 +420,36 @@ void debugCommand(redisClient *c) {
         addReplySds(c,errstr);
     } else if (!strcasecmp(c->argv[1]->ptr,"structsize") && c->argc == 2) {
         sds sizes = sdsempty();
-        sizes = sdscatprintf(sizes,"bits:%d ", (sizeof(void*) == 8)?64:32);
-        sizes = sdscatprintf(sizes,"robj:%d ", (int)sizeof(robj));
-        sizes = sdscatprintf(sizes,"dictentry:%d ", (int)sizeof(dictEntry));
-        sizes = sdscatprintf(sizes,"sdshdr:%d", (int)sizeof(struct sdshdr));
+        sizes = sdscatprintf(sizes,"bits:%d ",(sizeof(void*) == 8)?64:32);
+        sizes = sdscatprintf(sizes,"robj:%d ",(int)sizeof(robj));
+        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)sizeof(dictEntry));
+        sizes = sdscatprintf(sizes,"sdshdr5:%d ",(int)sizeof(struct sdshdr5));
+        sizes = sdscatprintf(sizes,"sdshdr8:%d ",(int)sizeof(struct sdshdr8));
+        sizes = sdscatprintf(sizes,"sdshdr16:%d ",(int)sizeof(struct sdshdr16));
+        sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
+        sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc == 3) {
+        long dbid;
+        sds stats = sdsempty();
+        char buf[4096];
+
+        if (getLongFromObjectOrReply(c, c->argv[2], &dbid, NULL) != C_OK)
+            return;
+        if (dbid < 0 || dbid >= server.dbnum) {
+            addReplyError(c,"Out of range database");
+            return;
+        }
+
+        stats = sdscatprintf(stats,"[Dictionary HT]\n");
+        dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
+        stats = sdscat(stats,buf);
+
+        stats = sdscatprintf(stats,"[Expires HT]\n");
+        dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
+        stats = sdscat(stats,buf);
+
+        addReplyBulkSds(c,stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"jemalloc") && c->argc == 3) {
 #if defined(USE_JEMALLOC)
         if (!strcasecmp(c->argv[2]->ptr, "info")) {
@@ -445,94 +470,94 @@ void debugCommand(redisClient *c) {
 
 /* =========================== Crash handling  ============================== */
 
-void _redisAssert(char *estr, char *file, int line) {
+void _serverAssert(char *estr, char *file, int line) {
     bugReportStart();
-    redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
-    redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
+    serverLog(LL_WARNING,"=== ASSERTION FAILED ===");
+    serverLog(LL_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
     server.assert_failed = estr;
     server.assert_file = file;
     server.assert_line = line;
-    redisLog(REDIS_WARNING,"(forcing SIGSEGV to print the bug report.)");
+    serverLog(LL_WARNING,"(forcing SIGSEGV to print the bug report.)");
 #endif
     *((char*)-1) = 'x';
 }
 
-void _redisAssertPrintClientInfo(redisClient *c) {
+void _serverAssertPrintClientInfo(client *c) {
     int j;
 
     bugReportStart();
-    redisLog(REDIS_WARNING,"=== ASSERTION FAILED CLIENT CONTEXT ===");
-    redisLog(REDIS_WARNING,"client->flags = %d", c->flags);
-    redisLog(REDIS_WARNING,"client->fd = %d", c->fd);
-    redisLog(REDIS_WARNING,"client->argc = %d", c->argc);
+    serverLog(LL_WARNING,"=== ASSERTION FAILED CLIENT CONTEXT ===");
+    serverLog(LL_WARNING,"client->flags = %d", c->flags);
+    serverLog(LL_WARNING,"client->fd = %d", c->fd);
+    serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {
         char buf[128];
         char *arg;
 
-        if (c->argv[j]->type == REDIS_STRING && sdsEncodedObject(c->argv[j])) {
+        if (c->argv[j]->type == OBJ_STRING && sdsEncodedObject(c->argv[j])) {
             arg = (char*) c->argv[j]->ptr;
         } else {
             snprintf(buf,sizeof(buf),"Object type: %d, encoding: %d",
                 c->argv[j]->type, c->argv[j]->encoding);
             arg = buf;
         }
-        redisLog(REDIS_WARNING,"client->argv[%d] = \"%s\" (refcount: %d)",
+        serverLog(LL_WARNING,"client->argv[%d] = \"%s\" (refcount: %d)",
             j, arg, c->argv[j]->refcount);
     }
 }
 
-void redisLogObjectDebugInfo(robj *o) {
-    redisLog(REDIS_WARNING,"Object type: %d", o->type);
-    redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
-    redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
-    if (o->type == REDIS_STRING && sdsEncodedObject(o)) {
-        redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
+void serverLogObjectDebugInfo(robj *o) {
+    serverLog(LL_WARNING,"Object type: %d", o->type);
+    serverLog(LL_WARNING,"Object encoding: %d", o->encoding);
+    serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
+    if (o->type == OBJ_STRING && sdsEncodedObject(o)) {
+        serverLog(LL_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
         if (sdslen(o->ptr) < 4096) {
             sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
-            redisLog(REDIS_WARNING,"Object raw string content: %s", repr);
+            serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
-    } else if (o->type == REDIS_LIST) {
-        redisLog(REDIS_WARNING,"List length: %d", (int) listTypeLength(o));
-    } else if (o->type == REDIS_SET) {
-        redisLog(REDIS_WARNING,"Set size: %d", (int) setTypeSize(o));
-    } else if (o->type == REDIS_HASH) {
-        redisLog(REDIS_WARNING,"Hash size: %d", (int) hashTypeLength(o));
-    } else if (o->type == REDIS_ZSET) {
-        redisLog(REDIS_WARNING,"Sorted set size: %d", (int) zsetLength(o));
-        if (o->encoding == REDIS_ENCODING_SKIPLIST)
-            redisLog(REDIS_WARNING,"Skiplist level: %d", (int) ((zset*)o->ptr)->zsl->level);
+    } else if (o->type == OBJ_LIST) {
+        serverLog(LL_WARNING,"List length: %d", (int) listTypeLength(o));
+    } else if (o->type == OBJ_SET) {
+        serverLog(LL_WARNING,"Set size: %d", (int) setTypeSize(o));
+    } else if (o->type == OBJ_HASH) {
+        serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o));
+    } else if (o->type == OBJ_ZSET) {
+        serverLog(LL_WARNING,"Sorted set size: %d", (int) zsetLength(o));
+        if (o->encoding == OBJ_ENCODING_SKIPLIST)
+            serverLog(LL_WARNING,"Skiplist level: %d", (int) ((zset*)o->ptr)->zsl->level);
     }
 }
 
-void _redisAssertPrintObject(robj *o) {
+void _serverAssertPrintObject(robj *o) {
     bugReportStart();
-    redisLog(REDIS_WARNING,"=== ASSERTION FAILED OBJECT CONTEXT ===");
-    redisLogObjectDebugInfo(o);
+    serverLog(LL_WARNING,"=== ASSERTION FAILED OBJECT CONTEXT ===");
+    serverLogObjectDebugInfo(o);
 }
 
-void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line) {
-    if (c) _redisAssertPrintClientInfo(c);
-    if (o) _redisAssertPrintObject(o);
-    _redisAssert(estr,file,line);
+void _serverAssertWithInfo(client *c, robj *o, char *estr, char *file, int line) {
+    if (c) _serverAssertPrintClientInfo(c);
+    if (o) _serverAssertPrintObject(o);
+    _serverAssert(estr,file,line);
 }
 
-void _redisPanic(char *msg, char *file, int line) {
+void _serverPanic(char *msg, char *file, int line) {
     bugReportStart();
-    redisLog(REDIS_WARNING,"------------------------------------------------");
-    redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
-    redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
+    serverLog(LL_WARNING,"------------------------------------------------");
+    serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
+    serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
 #ifdef HAVE_BACKTRACE
-    redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
+    serverLog(LL_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
 #endif
-    redisLog(REDIS_WARNING,"------------------------------------------------");
+    serverLog(LL_WARNING,"------------------------------------------------");
     *((char*)-1) = 'x';
 }
 
 void bugReportStart(void) {
     if (server.bug_report_start == 0) {
-        redisLog(REDIS_WARNING,
+        serverLog(LL_WARNING,
             "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
         server.bug_report_start = 1;
     }
@@ -577,20 +602,20 @@ void logStackContent(void **sp) {
         unsigned long val = (unsigned long) sp[i];
 
         if (sizeof(long) == 4)
-            redisLog(REDIS_WARNING, "(%08lx) -> %08lx", addr, val);
+            serverLog(LL_WARNING, "(%08lx) -> %08lx", addr, val);
         else
-            redisLog(REDIS_WARNING, "(%016lx) -> %016lx", addr, val);
+            serverLog(LL_WARNING, "(%016lx) -> %016lx", addr, val);
     }
 }
 
 void logRegisters(ucontext_t *uc) {
-    redisLog(REDIS_WARNING, "--- REGISTERS");
+    serverLog(LL_WARNING, "--- REGISTERS");
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
   /* OSX AMD64 */
     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
     "\n"
     "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
     "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
@@ -622,7 +647,7 @@ void logRegisters(ucontext_t *uc) {
     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
     #else
     /* OSX x86 */
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
@@ -651,7 +676,7 @@ void logRegisters(ucontext_t *uc) {
 #elif defined(__linux__)
     /* Linux x86 */
     #if defined(__i386__)
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
@@ -677,7 +702,7 @@ void logRegisters(ucontext_t *uc) {
     logStackContent((void**)uc->uc_mcontext.gregs[7]);
     #elif defined(__X86_64__) || defined(__x86_64__)
     /* Linux AMD64 */
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
     "\n"
     "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
     "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
@@ -707,7 +732,7 @@ void logRegisters(ucontext_t *uc) {
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
     #endif
 #else
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
         "  Dumping of registers not supported for this OS/arch");
 #endif
 }
@@ -745,19 +770,19 @@ void logStackTrace(ucontext_t *uc) {
 void logCurrentClient(void) {
     if (server.current_client == NULL) return;
 
-    redisClient *cc = server.current_client;
+    client *cc = server.current_client;
     sds client;
     int j;
 
-    redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
+    serverLog(LL_WARNING, "--- CURRENT CLIENT INFO");
     client = catClientInfoString(sdsempty(),cc);
-    redisLog(REDIS_WARNING,"client: %s", client);
+    serverLog(LL_WARNING,"client: %s", client);
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
 
         decoded = getDecodedObject(cc->argv[j]);
-        redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+        serverLog(LL_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -770,8 +795,8 @@ void logCurrentClient(void) {
         de = dictFind(cc->db->dict, key->ptr);
         if (de) {
             val = dictGetVal(de);
-            redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
-            redisLogObjectDebugInfo(val);
+            serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
+            serverLogObjectDebugInfo(val);
         }
         decrRefCount(key);
     }
@@ -864,28 +889,28 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     ucontext_t *uc = (ucontext_t*) secret;
     sds infostring, clients;
     struct sigaction act;
-    REDIS_NOTUSED(info);
+    UNUSED(info);
 
     bugReportStart();
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
         "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
         "    Failed assertion: %s (%s:%d)", server.assert_failed,
                         server.assert_file, server.assert_line);
 
     /* Log the stack trace */
-    redisLog(REDIS_WARNING, "--- STACK TRACE");
+    serverLog(LL_WARNING, "--- STACK TRACE");
     logStackTrace(uc);
 
     /* Log INFO and CLIENT LIST */
-    redisLog(REDIS_WARNING, "--- INFO OUTPUT");
+    serverLog(LL_WARNING, "--- INFO OUTPUT");
     infostring = genRedisInfoString("all");
     infostring = sdscatprintf(infostring, "hash_init_value: %u\n",
         dictGetHashFunctionSeed());
-    redisLogRaw(REDIS_WARNING, infostring);
-    redisLog(REDIS_WARNING, "--- CLIENT LIST OUTPUT");
+    serverLogRaw(LL_WARNING, infostring);
+    serverLog(LL_WARNING, "--- CLIENT LIST OUTPUT");
     clients = getAllClientsInfoString();
-    redisLogRaw(REDIS_WARNING, clients);
+    serverLogRaw(LL_WARNING, clients);
     sdsfree(infostring);
     sdsfree(clients);
 
@@ -897,18 +922,18 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */
-    redisLog(REDIS_WARNING, "--- FAST MEMORY TEST");
+    serverLog(LL_WARNING, "--- FAST MEMORY TEST");
     bioKillThreads();
     if (memtest_test_linux_anonymous_maps()) {
-        redisLog(REDIS_WARNING,
+        serverLog(LL_WARNING,
             "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!");
     } else {
-        redisLog(REDIS_WARNING,
+        serverLog(LL_WARNING,
             "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.");
     }
 #endif
 
-    redisLog(REDIS_WARNING,
+    serverLog(LL_WARNING,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/antirez/redis/issues\n\n"
@@ -929,12 +954,12 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 /* ==================== Logging functions for debugging ===================== */
 
-void redisLogHexDump(int level, char *descr, void *value, size_t len) {
+void serverLogHexDump(int level, char *descr, void *value, size_t len) {
     char buf[65], *b;
     unsigned char *v = value;
     char charset[] = "0123456789abcdef";
 
-    redisLog(level,"%s (hexdump):", descr);
+    serverLog(level,"%s (hexdump):", descr);
     b = buf;
     while(len) {
         b[0] = charset[(*v)>>4];
@@ -944,11 +969,11 @@ void redisLogHexDump(int level, char *descr, void *value, size_t len) {
         len--;
         v++;
         if (b-buf == 64 || len == 0) {
-            redisLogRaw(level|REDIS_LOG_RAW,buf);
+            serverLogRaw(level|LL_RAW,buf);
             b = buf;
         }
     }
-    redisLogRaw(level|REDIS_LOG_RAW,"\n");
+    serverLogRaw(level|LL_RAW,"\n");
 }
 
 /* =========================== Software Watchdog ============================ */
@@ -958,16 +983,16 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #endif
-    REDIS_NOTUSED(info);
-    REDIS_NOTUSED(sig);
+    UNUSED(info);
+    UNUSED(sig);
 
-    redisLogFromHandler(REDIS_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+    serverLogFromHandler(LL_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
     logStackTrace(uc);
 #else
-    redisLogFromHandler(REDIS_WARNING,"Sorry: no support for backtrace().");
+    serverLogFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
-    redisLogFromHandler(REDIS_WARNING,"--------\n");
+    serverLogFromHandler(LL_WARNING,"--------\n");
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.

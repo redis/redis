@@ -29,7 +29,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 #include <stdint.h>
 #include <math.h>
@@ -563,8 +563,8 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
  * representation. Both representations are represented by SDS strings, and
  * the input representation is freed as a side effect.
  *
- * The function returns REDIS_OK if the sparse representation was valid,
- * otherwise REDIS_ERR is returned if the representation was corrupted. */
+ * The function returns C_OK if the sparse representation was valid,
+ * otherwise C_ERR is returned if the representation was corrupted. */
 int hllSparseToDense(robj *o) {
     sds sparse = o->ptr, dense;
     struct hllhdr *hdr, *oldhdr = (struct hllhdr*)sparse;
@@ -573,7 +573,7 @@ int hllSparseToDense(robj *o) {
 
     /* If the representation is already the right one return ASAP. */
     hdr = (struct hllhdr*) sparse;
-    if (hdr->encoding == HLL_DENSE) return REDIS_OK;
+    if (hdr->encoding == HLL_DENSE) return C_OK;
 
     /* Create a string of the right size filled with zero bytes.
      * Note that the cached cardinality is set to 0 as a side effect
@@ -610,13 +610,13 @@ int hllSparseToDense(robj *o) {
      * set to HLL_REGISTERS. */
     if (idx != HLL_REGISTERS) {
         sdsfree(dense);
-        return REDIS_ERR;
+        return C_ERR;
     }
 
     /* Free the old representation and set the new one. */
     sdsfree(o->ptr);
     o->ptr = dense;
-    return REDIS_OK;
+    return C_OK;
 }
 
 /* "Add" the element in the sparse hyperloglog data structure.
@@ -866,7 +866,7 @@ updated:
     return 1;
 
 promote: /* Promote to dense representation. */
-    if (hllSparseToDense(o) == REDIS_ERR) return -1; /* Corrupted HLL. */
+    if (hllSparseToDense(o) == C_ERR) return -1; /* Corrupted HLL. */
     hdr = o->ptr;
 
     /* We need to call hllDenseAdd() to perform the operation after the
@@ -877,7 +877,7 @@ promote: /* Promote to dense representation. */
      * is propagated to slaves / AOF, so if there is a sparse -> dense
      * convertion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
-    redisAssert(dense_retval == 1);
+    serverAssert(dense_retval == 1);
     return dense_retval;
 }
 
@@ -991,7 +991,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     } else if (hdr->encoding == HLL_RAW) {
         E = hllRawSum(hdr->registers,PE,&ez);
     } else {
-        redisPanic("Unknown HyperLogLog encoding in hllCount()");
+        serverPanic("Unknown HyperLogLog encoding in hllCount()");
     }
 
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
@@ -1039,7 +1039,7 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
  * The hll object must be already validated via isHLLObjectOrReply()
  * or in some other way.
  *
- * If the HyperLogLog is sparse and is found to be invalid, REDIS_ERR
+ * If the HyperLogLog is sparse and is found to be invalid, C_ERR
  * is returned, otherwise the function always succeeds. */
 int hllMerge(uint8_t *max, robj *hll) {
     struct hllhdr *hdr = hll->ptr;
@@ -1077,9 +1077,9 @@ int hllMerge(uint8_t *max, robj *hll) {
                 p++;
             }
         }
-        if (i != HLL_REGISTERS) return REDIS_ERR;
+        if (i != HLL_REGISTERS) return C_ERR;
     }
-    return REDIS_OK;
+    return C_OK;
 }
 
 /* ========================== HyperLogLog commands ========================== */
@@ -1108,10 +1108,10 @@ robj *createHLLObject(void) {
         p += 2;
         aux -= xzero;
     }
-    redisAssert((p-(uint8_t*)s) == sparselen);
+    serverAssert((p-(uint8_t*)s) == sparselen);
 
     /* Create the actual object. */
-    o = createObject(REDIS_STRING,s);
+    o = createObject(OBJ_STRING,s);
     hdr = o->ptr;
     memcpy(hdr->magic,"HYLL",4);
     hdr->encoding = HLL_SPARSE;
@@ -1119,14 +1119,14 @@ robj *createHLLObject(void) {
 }
 
 /* Check if the object is a String with a valid HLL representation.
- * Return REDIS_OK if this is true, otherwise reply to the client
- * with an error and return REDIS_ERR. */
-int isHLLObjectOrReply(redisClient *c, robj *o) {
+ * Return C_OK if this is true, otherwise reply to the client
+ * with an error and return C_ERR. */
+int isHLLObjectOrReply(client *c, robj *o) {
     struct hllhdr *hdr;
 
     /* Key exists, check type */
-    if (checkType(c,o,REDIS_STRING))
-        return REDIS_ERR; /* Error already sent. */
+    if (checkType(c,o,OBJ_STRING))
+        return C_ERR; /* Error already sent. */
 
     if (stringObjectLen(o) < sizeof(*hdr)) goto invalid;
     hdr = o->ptr;
@@ -1142,17 +1142,17 @@ int isHLLObjectOrReply(redisClient *c, robj *o) {
         stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
 
     /* All tests passed. */
-    return REDIS_OK;
+    return C_OK;
 
 invalid:
     addReplySds(c,
         sdsnew("-WRONGTYPE Key is not a valid "
                "HyperLogLog string value.\r\n"));
-    return REDIS_ERR;
+    return C_ERR;
 }
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
-void pfaddCommand(redisClient *c) {
+void pfaddCommand(client *c) {
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     struct hllhdr *hdr;
     int updated = 0, j;
@@ -1165,7 +1165,7 @@ void pfaddCommand(redisClient *c) {
         dbAdd(c->db,c->argv[1],o);
         updated++;
     } else {
-        if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+        if (isHLLObjectOrReply(c,o) != C_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
     /* Perform the low level ADD operation for every element. */
@@ -1184,7 +1184,7 @@ void pfaddCommand(redisClient *c) {
     hdr = o->ptr;
     if (updated) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty++;
         HLL_INVALIDATE_CACHE(hdr);
     }
@@ -1192,7 +1192,7 @@ void pfaddCommand(redisClient *c) {
 }
 
 /* PFCOUNT var -> approximated cardinality of set. */
-void pfcountCommand(redisClient *c) {
+void pfcountCommand(client *c) {
     robj *o;
     struct hllhdr *hdr;
     uint64_t card;
@@ -1214,11 +1214,11 @@ void pfcountCommand(redisClient *c) {
             /* Check type and size. */
             robj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
-            if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+            if (isHLLObjectOrReply(c,o) != C_OK) return;
 
             /* Merge with this HLL with our 'max' HHL by setting max[i]
              * to MAX(max[i],hll[i]). */
-            if (hllMerge(registers,o) == REDIS_ERR) {
+            if (hllMerge(registers,o) == C_ERR) {
                 addReplySds(c,sdsnew(invalid_hll_err));
                 return;
             }
@@ -1239,7 +1239,7 @@ void pfcountCommand(redisClient *c) {
          * we would have a key as HLLADD creates it as a side effect. */
         addReply(c,shared.czero);
     } else {
-        if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+        if (isHLLObjectOrReply(c,o) != C_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
 
         /* Check if the cached cardinality is valid. */
@@ -1282,7 +1282,7 @@ void pfcountCommand(redisClient *c) {
 }
 
 /* PFMERGE dest src1 src2 src3 ... srcN => OK */
-void pfmergeCommand(redisClient *c) {
+void pfmergeCommand(client *c) {
     uint8_t max[HLL_REGISTERS];
     struct hllhdr *hdr;
     int j;
@@ -1295,11 +1295,11 @@ void pfmergeCommand(redisClient *c) {
         /* Check type and size. */
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
-        if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+        if (isHLLObjectOrReply(c,o) != C_OK) return;
 
         /* Merge with this HLL with our 'max' HHL by setting max[i]
          * to MAX(max[i],hll[i]). */
-        if (hllMerge(max,o) == REDIS_ERR) {
+        if (hllMerge(max,o) == C_ERR) {
             addReplySds(c,sdsnew(invalid_hll_err));
             return;
         }
@@ -1321,7 +1321,7 @@ void pfmergeCommand(redisClient *c) {
     }
 
     /* Only support dense objects as destination. */
-    if (hllSparseToDense(o) == REDIS_ERR) {
+    if (hllSparseToDense(o) == C_ERR) {
         addReplySds(c,sdsnew(invalid_hll_err));
         return;
     }
@@ -1337,7 +1337,7 @@ void pfmergeCommand(redisClient *c) {
     signalModifiedKey(c->db,c->argv[1]);
     /* We generate an PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -1348,7 +1348,7 @@ void pfmergeCommand(redisClient *c) {
  * This command performs a self-test of the HLL registers implementation.
  * Something that is not easy to test from within the outside. */
 #define HLL_TEST_CYCLES 1000
-void pfselftestCommand(redisClient *c) {
+void pfselftestCommand(client *c) {
     unsigned int j, i;
     sds bitcounters = sdsnewlen(NULL,HLL_DENSE_SIZE);
     struct hllhdr *hdr = (struct hllhdr*) bitcounters, *hdr2;
@@ -1452,7 +1452,7 @@ cleanup:
 
 /* PFDEBUG <subcommand> <key> ... args ...
  * Different debugging related operations about the HLL implementation. */
-void pfdebugCommand(redisClient *c) {
+void pfdebugCommand(client *c) {
     char *cmd = c->argv[1]->ptr;
     struct hllhdr *hdr;
     robj *o;
@@ -1463,7 +1463,7 @@ void pfdebugCommand(redisClient *c) {
         addReplyError(c,"The specified key does not exist");
         return;
     }
-    if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+    if (isHLLObjectOrReply(c,o) != C_OK) return;
     o = dbUnshareStringValue(c->db,c->argv[2],o);
     hdr = o->ptr;
 
@@ -1472,7 +1472,7 @@ void pfdebugCommand(redisClient *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            if (hllSparseToDense(o) == REDIS_ERR) {
+            if (hllSparseToDense(o) == C_ERR) {
                 addReplySds(c,sdsnew(invalid_hll_err));
                 return;
             }
@@ -1536,7 +1536,7 @@ void pfdebugCommand(redisClient *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-            if (hllSparseToDense(o) == REDIS_ERR) {
+            if (hllSparseToDense(o) == C_ERR) {
                 addReplySds(c,sdsnew(invalid_hll_err));
                 return;
             }

@@ -242,7 +242,7 @@ static const bool config_ivsalloc =
  */
 #ifndef LG_QUANTUM
 #  if (defined(__i386__) || defined(_M_IX86))
-#    define LG_QUANTUM		4
+#    define LG_QUANTUM		3
 #  endif
 #  ifdef __ia64__
 #    define LG_QUANTUM		4
@@ -254,7 +254,7 @@ static const bool config_ivsalloc =
 #    define LG_QUANTUM		4
 #  endif
 #  if (defined(__amd64__) || defined(__x86_64__) || defined(_M_X64))
-#    define LG_QUANTUM		4
+#    define LG_QUANTUM		3
 #  endif
 #  ifdef __arm__
 #    define LG_QUANTUM		3
