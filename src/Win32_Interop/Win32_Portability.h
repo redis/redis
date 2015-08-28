@@ -27,7 +27,6 @@ extern "C"
 {
 #endif
 
-
 /*  Sometimes in the Windows port we make changes from:
         antirez_redis_statement();
     to:
@@ -71,11 +70,6 @@ extern "C"
 #define WIN32_ONLY(x)
 #define POSIX_ONLY(x) x
 #endif
-
-/* Converts error codes returned by GetLastError/WSAGetLastError to errno codes */
-int translate_sys_error(int sys_error);
-
-void set_errno_from_last_error();
 
 #ifdef __cplusplus
 }

@@ -29,7 +29,7 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32fixes.h"
+#include "Win32_Interop/win32fixes.h"
 #endif
 
 #include "redis.h"

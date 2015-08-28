@@ -25,6 +25,7 @@
     <ClCompile Include="Win32_CommandLine.cpp" />
     <ClCompile Include="Win32_Common.cpp" />
     <ClCompile Include="Win32_dlmalloc.c" />
+    <ClCompile Include="Win32_Error.c" />
     <ClCompile Include="Win32_EventLog.cpp" />
     <ClCompile Include="Win32_FDAPI.cpp" />
     <ClCompile Include="Win32_fdapi_crt.cpp" />
@@ -34,10 +35,10 @@
     <ClCompile Include="Win32_RedisLog.c" />
     <ClCompile Include="win32_rfdmap.cpp" />
     <ClCompile Include="Win32_service.cpp" />
+    <ClCompile Include="Win32_Signal_Process.c" />
     <ClCompile Include="Win32_StackTrace.cpp" />
     <ClCompile Include="Win32_ThreadControl.c" />
     <ClCompile Include="Win32_Time.c" />
-    <ClCompile Include="win32_util.c" />
     <ClCompile Include="Win32_variadicFunctor.cpp" />
     <ClCompile Include="win32_wsiocp.c" />
   </ItemGroup>
@@ -48,6 +49,7 @@
     <ClInclude Include="Win32_Assert.h" />
     <ClInclude Include="Win32_CommandLine.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
+    <ClInclude Include="Win32_Error.h" />
     <ClInclude Include="Win32_EventLog.h" />
     <ClInclude Include="Win32_FDAPI.h" />
     <ClInclude Include="Win32_fdapi_crt.h" />
@@ -58,12 +60,13 @@
     <ClInclude Include="Win32_RedisLog.h" />
     <ClInclude Include="win32_rfdmap.h" />
     <ClInclude Include="Win32_Service.h" />
+    <ClInclude Include="Win32_Signal_Process.h" />
     <ClInclude Include="Win32_SmartHandle.h" />
     <ClInclude Include="Win32_StackTrace.h" />
     <ClInclude Include="Win32_ThreadControl.h" />
     <ClInclude Include="Win32_Time.h" />
     <ClInclude Include="win32_types.h" />
-    <ClInclude Include="win32_util.h" />
+    <ClInclude Include="Win32_Portability.h" />
     <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_winapifamily.h" />
     <ClInclude Include="win32_wsiocp.h" />

@@ -43,8 +43,9 @@
 #include "net.h"
 #include "sds.h"
 #ifdef _WIN32
-  #include "../../src/win32_Interop/win32_util.h"
-  #include "../../src/win32_Interop/win32fixes.h"
+  #include "../../src/Win32_Interop/Win32_Portability.h"
+  #include "../../src/Win32_Interop/Win32_Error.h"
+  #include "../../src/Win32_Interop/win32fixes.h"
 #endif
 
 static redisReply *createReplyObject(int type);

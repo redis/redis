@@ -28,6 +28,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "Win32_Interop/Win32_Error.h"
+#endif
+
 #include "redis.h"
 #ifndef _WIN32          // This should not be here in the first place since it's not used by the posix code either
 #include "hiredis.h"

@@ -80,7 +80,7 @@
 #include "zmalloc.h"
 #include "endianconv.h"
 #ifdef _WIN32
-#include "Win32_Interop\win32_util.h"
+#include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop\Win32_FDAPI.h"
 #endif
 

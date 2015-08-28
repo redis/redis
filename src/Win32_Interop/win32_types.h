@@ -75,3 +75,12 @@ typedef double              PORT_LONGDOUBLE;
 #define MAX_SIZE_T          (~(size_t)0)
 
 typedef int                 pid_t;
+
+#ifndef mode_t
+#define mode_t              long
+#endif
+
+/* sha1 */
+#ifndef u_int32_t
+typedef unsigned __int32    u_int32_t;
+#endif

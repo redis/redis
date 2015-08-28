@@ -33,9 +33,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #ifdef _WIN32
-#include "win32_Interop/win32_util.h"
-#include "win32_Interop/win32_time.h"
-#include "win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/Win32_Time.h"
+#include "Win32_Interop/win32fixes.h"
 #endif
 
 #include "fmacros.h"

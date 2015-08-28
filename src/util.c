@@ -28,11 +28,12 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_util.h"
-#include "win32_Interop/win32fixes.h"
-#include "win32_Interop/win32_time.h"
-#include <direct.h> // for getcwd
-#include <shlwapi.h> // for PathIsRelative
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Time.h"
+#include <process.h>    // for getpid
+#include <direct.h>     // for getcwd
+#include <shlwapi.h>    // for PathIsRelative
 #endif
 
 #include "fmacros.h"

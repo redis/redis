@@ -35,10 +35,8 @@
 #include <stdarg.h> /* for va_list */
 #ifndef _WIN32
 #include <sys/time.h> /* for struct timeval */
-#endif
-#ifdef _WIN32
-    #include "..\..\src\win32_Interop\Win32_FDAPI.h"
-    #include <windows.h>
+#else
+    #include "../../src/Win32_Interop\Win32_FDAPI.h"
 
     #ifndef va_copy
       #define va_copy(d,s) d = (s)

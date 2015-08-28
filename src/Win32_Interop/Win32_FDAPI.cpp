@@ -30,9 +30,9 @@
 #include "Win32_fdapi_crt.h"
 #include "Win32_variadicFunctor.h"
 #include "Win32_ANSI.h"
-#include "win32_util.h"
 #include "Win32_RedisLog.h"
 #include "Win32_Common.h"
+#include "Win32_Error.h"
 #include "Win32_Assert.h"
 
 using namespace std;

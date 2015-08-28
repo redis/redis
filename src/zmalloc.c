@@ -29,9 +29,9 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_util.h"
-#include "win32_Interop/win32_types.h"
-#include "win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/win32fixes.h"
 #include "Win32_Interop/Win32_QFork.h"
 #include "Win32_Interop/Win32_PThread.h"
 #endif

@@ -27,8 +27,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #ifdef _WIN32
-#include "win32_Interop/win32_util.h"
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
 #endif
 
 #include <stdlib.h>
@@ -44,8 +44,8 @@
 #include <stropts.h>
 #endif
 #else
-#include "win32_Interop/win32fixes.h"
-#include "win32_Interop/win32_ANSI.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/win32_ANSI.h"
 #endif
 #include "config.h"
 

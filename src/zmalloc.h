@@ -32,7 +32,7 @@
 #define __ZMALLOC_H
 
 #ifdef WIN32
-#include "Win32_Interop\win32_util.h"
+#include "Win32_Interop/Win32_Portability.h"
 #endif
 
 /* Double expansion needed for stringification of macro values. */
@@ -65,7 +65,7 @@
 #define zmalloc_size(p) malloc_size(p)
 
 #elif defined(USE_DLMALLOC)
-#include "win32_Interop/win32_dlmalloc.h"
+#include "Win32_Interop/win32_dlmalloc.h"
 #define ZMALLOC_LIB ("dlmalloc-" __xstr(2) "." __xstr(8) )
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p)  g_msize(p)

@@ -29,9 +29,9 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
-#include "win32_Interop/win32_time.h"
-#include "win32_Interop/win32_util.h"
+#include "Win32_Interop/Win32_Portability.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_Time.h"
 #endif
 
 #include "fmacros.h"
@@ -57,8 +57,9 @@
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include "win32_Interop/win32fixes.h"
-#include "win32_Interop/Win32_ANSI.h"
+#include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_Signal_Process.h"
+#include "Win32_Interop/Win32_ANSI.h"
 #include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp

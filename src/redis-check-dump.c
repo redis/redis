@@ -30,8 +30,9 @@
 
 
 #ifdef _WIN32
+#include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32_types.h"
-#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/Win32_Error.h"
 #include "Win32_Interop/win32fixes.h"
 #endif
 

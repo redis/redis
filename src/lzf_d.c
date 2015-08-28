@@ -35,7 +35,7 @@
  */
 
 #ifdef _WIN32
-#include "Win32_Interop/win32_util.h"
+#include "Win32_Interop/Win32_Portability.h"
 #endif
 
 #include "lzfP.h"

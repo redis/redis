@@ -35,7 +35,7 @@
 
 #include <stdint.h>
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_types.h"
 #endif
 
 #ifndef __DICT_H
