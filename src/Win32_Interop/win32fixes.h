@@ -9,6 +9,7 @@
 #define WIN32FIXES_H
 
 #pragma warning(error: 4005)
+#pragma warning(error: 4013)
 
 #ifdef WIN32
 #ifndef _WIN32
@@ -22,12 +23,9 @@
 
 #include "win32_types.h"
 #include <stdlib.h>
-#include <stdio.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <windows.h>
-#include <fcntl.h>      /* _O_BINARY */
-#include <limits.h>     /* INT_MAX */
+#include <fcntl.h>      // for _O_BINARY
+#include <limits.h>     // for INT_MAX
 
 #include "Win32_APIs.h"
 #include "Win32_FDAPI.h"    
@@ -62,23 +60,6 @@
 #define strtod(nptr, eptr) wstrtod((nptr), (eptr))
 
 double wstrtod(const char *nptr, char **eptr);
-
-/* structs and functions for using IOCP with windows sockets */
-
-/* need callback on write complete. aeWinSendReq is used to pass parameters */
-typedef struct aeWinSendReq {
-    void *client;
-    void *data;
-    char *buf;
-    int len;
-} aeWinSendReq;
-
-int WSIOCP_ReceiveDone(int rfd);
-int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
-int WSIOCP_Listen(int rfd, int backlog);
-int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
-int WSIOCP_SocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
-int WSIOCP_SocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 // access check for executable uses X_OK. For Windows use READ access.
 #ifndef X_OK

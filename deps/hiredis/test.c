@@ -2,15 +2,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
 #include <sys/time.h>
+#else
+#include <WinSock2.h>
+#include "../../src/Win32_Interop/Win32_Time.h"
+#endif
 #include <assert.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <signal.h>
 #include <errno.h>
 #include <limits.h>
 
 #include "hiredis.h"
+
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define SIGPIPE 13
+#endif
+
 
 enum connection_type {
     CONN_TCP,
@@ -83,7 +97,11 @@ static int disconnect(redisContext *c, int keep_fd) {
     return -1;
 }
 
+#ifdef _WIN32
+static redisContext *_connect(struct config config) {
+#else
 static redisContext *connect(struct config config) {
+#endif
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
@@ -223,7 +241,7 @@ static void test_append_formatted_commands(struct config config) {
     char *cmd;
     int len;
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
 
     test("Append format command: ");
 
@@ -347,7 +365,7 @@ static void test_blocking_connection(struct config config) {
     redisContext *c;
     redisReply *reply;
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
 
     test("Is able to deliver commands: ");
     reply = redisCommand(c,"PING");
@@ -428,7 +446,7 @@ static void test_blocking_io_errors(struct config config) {
     int major, minor;
 
     /* Connect to target given by config. */
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
     {
         /* Find out Redis version to determine the path for the next test */
         const char *field = "redis_version:";
@@ -463,7 +481,7 @@ static void test_blocking_io_errors(struct config config) {
         strcmp(c->errstr,"Server closed the connection") == 0);
     redisFree(c);
 
-    c = connect(config);
+    c = IF_WIN32(_connect,connect)(config);
     test("Returns I/O error on socket timeout: ");
     struct timeval tv = { 0, 1000 };
     assert(redisSetTimeout(c,tv) == REDIS_OK);
@@ -497,7 +515,7 @@ static void test_invalid_timeout_errors(struct config config) {
 }
 
 static void test_throughput(struct config config) {
-    redisContext *c = connect(config);
+    redisContext *c = IF_WIN32(_connect,connect)(config);
     redisReply **replies;
     int i, num;
     long long t1, t2;

@@ -20,19 +20,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Credits Henry Rawas (henryr@schakra.com) */
+#ifndef WIN32_HIREDIS_H
+#define WIN32_HIREDIS_H
 
-#ifndef WIN32_INTEROP_TIME_H
-#define WIN32_INTEROP_TIME_H
+#include "../../src/Win32_Interop/Win32_Portability.h"
+#include "../../src/Win32_Interop/Win32_types_hiredis.h"
+#include "../../src/Win32_Interop/Win32_Error.h"
+#include "../../src/Win32_Interop/Win32_FDAPI.h"
+#define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defined below.
+#include <WinSock2.h>                 // For SOCKADDR_STORAGE
 
-#include <stdint.h>
+#include "hiredis.h"
 
-#define gettimeofday gettimeofday_highres
+#define snprintf    _snprintf
+#ifndef va_copy
+#define va_copy(d,s) d = (s)
+#endif
 
-void     InitTimeFunctions();
-uint64_t GetHighResRelativeTime(double scale);
-time_t   gettimeofdaysecs(unsigned int *usec);
-int      gettimeofday_highres(struct timeval *tv, struct timezone *tz);
-char*    ctime_r(const time_t *clock, char *buf);
+redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *sa);
+int redisBufferReadDone(redisContext *c, char *buf, ssize_t nread);
+int redisBufferWriteDone(redisContext *c, int nwritten, int *done);
+
+int redisContextPreConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout, SOCKADDR_STORAGE *ss);
 
 #endif

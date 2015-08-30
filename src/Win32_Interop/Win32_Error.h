@@ -20,7 +20,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#ifndef WIN32_INTEROP_ERROR_H
+#define WIN32_INTEROP_ERROR_H
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -36,4 +39,6 @@ char *wsa_strerror(int err);
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

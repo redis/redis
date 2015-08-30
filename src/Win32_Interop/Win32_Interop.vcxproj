@@ -67,9 +67,11 @@
     <ClInclude Include="Win32_Time.h" />
     <ClInclude Include="win32_types.h" />
     <ClInclude Include="Win32_Portability.h" />
+    <ClInclude Include="win32_types_hiredis.h" />
     <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_winapifamily.h" />
     <ClInclude Include="win32_wsiocp.h" />
+    <ClInclude Include="win32_wsiocp2.h" />
     <ClInclude Include="WS2tcpip.h" />
   </ItemGroup>
   <ItemGroup>

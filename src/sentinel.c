@@ -263,8 +263,8 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
 
 #ifdef _WIN32
 static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
-    redisAeEvents *e = (redisAeEvents *)req->client;
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    redisAeEvents *e = (redisAeEvents *) req->client;
 
     redisAsyncHandleWriteComplete(e->context, nwritten);
 }

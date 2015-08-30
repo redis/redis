@@ -36,11 +36,7 @@
 #ifndef _WIN32
 #include <sys/time.h> /* for struct timeval */
 #else
-    #include "../../src/Win32_Interop\Win32_FDAPI.h"
-
-    #ifndef va_copy
-      #define va_copy(d,s) d = (s)
-    #endif
+#include "../../src/Win32_Interop/win32_types_hiredis.h"
 #endif
 
 #define HIREDIS_MAJOR 0
@@ -194,11 +190,6 @@ void redisFree(redisContext *c);
 int redisFreeKeepFd(redisContext *c);
 int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
-#ifdef _WIN32
-redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *sa);
-int redisBufferReadDone(redisContext *c, char *buf, ssize_t nread);
-int redisBufferWriteDone(redisContext *c, int nwritten, int *done);
-#endif
 
 /* In a blocking context, this function first checks if there are unconsumed
  * replies to return and returns one if so. Otherwise, it flushes the output

@@ -21,7 +21,8 @@
 */
 
 
-#pragma once
+#ifndef WIN32_INTEROPA_ANSI_H
+#define WIN32_INTEROPA_ANSI_H
 
 #include <Windows.h>
 
@@ -37,4 +38,6 @@ extern "C" {
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

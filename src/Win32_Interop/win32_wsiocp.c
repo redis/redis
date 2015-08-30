@@ -37,8 +37,8 @@ static HANDLE iocph;
 static DWORD wsarecvflags;
 static char zreadchar[1];
 
-aeSockState* WSIOCP_GetExistingSocketState(int fd) {
-    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
+iocpSockState* WSIOCP_GetExistingSocketState(int fd) {
+    iocpSockState** socketState = (iocpSockState**) FDAPI_GetSocketStatePtr(fd);
     if (socketState == NULL) {
         return NULL;
     } else {
@@ -47,14 +47,14 @@ aeSockState* WSIOCP_GetExistingSocketState(int fd) {
 }
 
 /* Get the socket state. Create if not found. */
-aeSockState* WSIOCP_GetSocketState(int fd) {
-    aeSockState** socketState = (aeSockState**) FDAPI_GetSocketStatePtr(fd);
+iocpSockState* WSIOCP_GetSocketState(int fd) {
+    iocpSockState** socketState = (iocpSockState**) FDAPI_GetSocketStatePtr(fd);
     if (socketState == NULL) {
         return NULL;
     } else {
         if (*socketState == NULL) {
             // Not found. Do lazy create of socket state.
-            *socketState = (aeSockState *) CallocMemoryNoCOW(sizeof(aeSockState));
+            *socketState = (iocpSockState *) CallocMemoryNoCOW(sizeof(iocpSockState));
             if (*socketState != NULL) {
                 (*socketState)->fd = fd;
             }
@@ -65,7 +65,7 @@ aeSockState* WSIOCP_GetSocketState(int fd) {
 
 /* Closes the socket state or sets the CLOSE_PENDING mask bit.
  * Returns TRUE if closed, FALSE if pending. */
-BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
+BOOL WSIOCP_CloseSocketState(iocpSockState* socketState) {
     socketState->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
     if (socketState->wreqs == 0 &&
         (socketState->masks & (READ_QUEUED | CONNECT_PENDING)) == 0) {
@@ -82,7 +82,7 @@ BOOL WSIOCP_CloseSocketStateRFD(int rfd) {
 }
 
 /* For each asynch socket, need to associate completion port */
-int WSIOCP_SocketAttach(int fd, aeSockState *socketState) {
+int WSIOCP_SocketAttach(int fd, iocpSockState *socketState) {
     if (socketState == NULL) {
         socketState = WSIOCP_GetSocketState(fd);
     }
@@ -100,9 +100,11 @@ int WSIOCP_SocketAttach(int fd, aeSockState *socketState) {
     return -1;
 }
 
+const int ACCEPTEX_ADDRESS_BUFFER_SIZE = sizeof(struct sockaddr_storage) + 32;
+
 int WSIOCP_QueueAccept(int listenfd) {
-    aeSockState *sockstate;
-    aeSockState *accsockstate;
+    iocpSockState *sockstate;
+    iocpSockState *accsockstate;
     DWORD result, bytes;
     int acceptfd;
     aacceptreq * areq;
@@ -127,14 +129,14 @@ int WSIOCP_QueueAccept(int listenfd) {
     accsockstate->masks = SOCKET_ATTACHED;
     // Keep accept socket in buf len until accepted
     areq = (aacceptreq *) CallocMemoryNoCOW(sizeof(aacceptreq));
-    areq->buf = CallocMemoryNoCOW(sizeof(struct sockaddr_storage) * 2 + 64);
+    areq->buf = CallocMemoryNoCOW(ACCEPTEX_ADDRESS_BUFFER_SIZE * 2);
     areq->accept = acceptfd;
     areq->next = NULL;
 
     result = FDAPI_AcceptEx(listenfd, acceptfd,
                             areq->buf, 0,
-                            sizeof(struct sockaddr_storage),
-                            sizeof(struct sockaddr_storage),
+                            ACCEPTEX_ADDRESS_BUFFER_SIZE,
+                            ACCEPTEX_ADDRESS_BUFFER_SIZE,
                             &bytes, &areq->ov);
     if (SUCCEEDED_WITH_IOCP(result)){
         sockstate->masks |= ACCEPT_PENDING;
@@ -153,7 +155,7 @@ int WSIOCP_QueueAccept(int listenfd) {
 
 /* Listen using extension function to get faster accepts */
 int WSIOCP_Listen(int rfd, int backlog) {
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
     if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
@@ -176,7 +178,7 @@ int WSIOCP_Listen(int rfd, int backlog) {
 
 /* Return the queued accept socket */
 int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
     int acceptfd;
     int result;
     SOCKADDR *plocalsa = NULL;
@@ -211,8 +213,8 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     FDAPI_GetAcceptExSockaddrs(acceptfd,
                                areq->buf,
                                0,
-                               sizeof(struct sockaddr_storage),
-                               sizeof(struct sockaddr_storage),
+                               ACCEPTEX_ADDRESS_BUFFER_SIZE,
+                               ACCEPTEX_ADDRESS_BUFFER_SIZE,
                                &plocalsa, &locallen,
                                &premotesa, &remotelen);
 
@@ -244,7 +246,7 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
  * continue to check for read events.
  * This is not necessary if caller will delete read events */
 int WSIOCP_ReceiveDone(int fd) {
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
     int result;
     WSABUF zreadbuf;
     DWORD bytesReceived = 0;
@@ -286,7 +288,7 @@ int WSIOCP_ReceiveDone(int fd) {
  * Returns -1 with errno = WSA_IO_PENDING if callback will be invoked later */
 int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
                       void *client, void *data, void *proc) {
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
     int result;
     asendreq *areq;
     DWORD bytesSent = 0;
@@ -343,7 +345,7 @@ int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
 int WSIOCP_SocketConnect(int fd, const SOCKADDR_STORAGE *socketAddrStorage) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
 
     if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;
@@ -418,7 +420,7 @@ int WSIOCP_SocketConnect(int fd, const SOCKADDR_STORAGE *socketAddrStorage) {
 int WSIOCP_SocketConnectBind(int fd, const SOCKADDR_STORAGE *socketAddrStorage, const char* source_addr) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
 
     if ((sockstate = WSIOCP_GetSocketState(fd)) == NULL) {
         errno = WSAEINVAL;

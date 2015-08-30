@@ -156,6 +156,7 @@
     <ClInclude Include="..\..\deps\hiredis\hiredis.h" />
     <ClInclude Include="..\..\deps\hiredis\net.h" />
     <ClInclude Include="..\..\deps\hiredis\sds.h" />
+    <ClInclude Include="..\..\deps\hiredis\win32_hiredis.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

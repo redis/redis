@@ -58,9 +58,7 @@
 #include "net.h"
 #include "sds.h"
 #ifdef _WIN32
-  #include "../../src/Win32_Interop/Win32_Portability.h"
-  #include "../../src/Win32_Interop/Win32_Error.h"
-  #include "../../src/Win32_Interop/win32fixes.h"
+  #include "win32_hiredis.h"
   #include "mstcpip.h"
 #endif
 

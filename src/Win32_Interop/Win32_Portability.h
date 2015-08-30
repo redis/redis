@@ -20,7 +20,9 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#pragma once
+#ifndef WIN32_INTEROPA_PORTABILITY_H
+#define WIN32_INTEROPA_PORTABILITY_H
+
 
 #ifdef __cplusplus
 extern "C"
@@ -73,4 +75,6 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

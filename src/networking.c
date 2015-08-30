@@ -837,9 +837,9 @@ void freeClientsInAsyncFreeQueue(void) {
 
 #ifdef _WIN32
 void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
-    redisClient *c = (redisClient *)req->client;
-    int offset = (int)(req->buf - (char *)req->data + written);
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    redisClient *c = (redisClient *) req->client;
+    int offset = (int) (req->buf - (char *) req->data + written);
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
 
@@ -848,7 +848,7 @@ void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
         c->sentlen = 0;
     }
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        aeDeleteFileEvent(server.el, c->fd, AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) {
@@ -858,9 +858,9 @@ void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
 }
 
 void sendReplyListDone(aeEventLoop *el, int fd, void *privdata, int written) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
-    redisClient *c = (redisClient *)req->client;
-    robj *o = (robj *)req->data;
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    redisClient *c = (redisClient *) req->client;
+    robj *o = (robj *) req->data;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
 
@@ -868,7 +868,7 @@ void sendReplyListDone(aeEventLoop *el, int fd, void *privdata, int written) {
 
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        aeDeleteFileEvent(server.el, c->fd, AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & REDIS_CLOSE_AFTER_REPLY){

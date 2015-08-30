@@ -20,8 +20,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WIN32WSIOCP_H
-#define WIN32WSIOCP_H
+#ifndef WIN32_INTEROP_WSIOCP_H
+#define WIN32_INTEROP_WSIOCP_H
+
+#include "win32_wsiocp2.h"
 
 /* structs and functions for using IOCP with windows sockets */
 
@@ -31,7 +33,7 @@
 typedef struct asendreq {
     OVERLAPPED ov;
     WSABUF wbuf;
-    aeWinSendReq req;
+    WSIOCP_Request req;
     aeFileProc *proc;
     aeEventLoop *eventLoop;
 } asendreq;
@@ -48,7 +50,7 @@ typedef struct aacceptreq {
 
 
 /* per socket information */
-typedef struct aeSockState {
+typedef struct iocpSockState {
     int masks;
     int fd;
     aacceptreq *reqs;
@@ -56,7 +58,7 @@ typedef struct aeSockState {
     OVERLAPPED ov_read;
     list wreqlist;
     int unknownComplete;
-} aeSockState;
+} iocpSockState;
 
 #define READ_QUEUED         0x000100
 #define SOCKET_ATTACHED     0x000400
@@ -65,13 +67,13 @@ typedef struct aeSockState {
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void         WSIOCP_Init(HANDLE iocp);
-void         WSIOCP_Cleanup();
-aeSockState* WSIOCP_GetExistingSocketState(int fd);
-aeSockState* WSIOCP_GetSocketState(int fd);
-BOOL         WSIOCP_CloseSocketState(aeSockState* pSocketState);
+void           WSIOCP_Init(HANDLE iocp);
+void           WSIOCP_Cleanup();
+iocpSockState* WSIOCP_GetExistingSocketState(int fd);
+iocpSockState* WSIOCP_GetSocketState(int fd);
+BOOL           WSIOCP_CloseSocketState(iocpSockState* pSocketState);
 
 void* CallocMemoryNoCOW(size_t size);
-void FreeMemoryNoCOW(void * ptr);
+void  FreeMemoryNoCOW(void * ptr);
 
 #endif

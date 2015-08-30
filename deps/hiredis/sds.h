@@ -35,7 +35,7 @@
 
 #ifdef _WIN32
 #include "../../src/Win32_Interop/Win32_Portability.h"
-#include "../../src/Win32_Interop/win32_types.h"
+#include "../../src/Win32_Interop/win32_types_hiredis.h"
 #endif
 #include <sys/types.h>
 #include <stdarg.h>

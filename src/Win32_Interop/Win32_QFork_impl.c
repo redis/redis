@@ -21,7 +21,6 @@
  */
 
 #include "..\redis.h"
-#include "..\rdb.h"
 
 void SetupGlobals(LPVOID globalData, size_t globalDataSize, uint32_t dictHashSeed)
 {

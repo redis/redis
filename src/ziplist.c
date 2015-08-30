@@ -113,7 +113,7 @@
 #include "redisassert.h"
 
 #ifdef _WIN32
-#include "Win32_Interop\Win32_FDAPI.h"
+#include "Win32_Interop/Win32_FDAPI.h"
 #endif
 
 #define ZIP_END 255

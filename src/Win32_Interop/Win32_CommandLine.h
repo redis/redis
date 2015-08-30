@@ -20,7 +20,8 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#pragma once
+#ifndef WIN32_INTEROPA_COMMANDLINE_H
+#define WIN32_INTEROPA_COMMANDLINE_H
 
 #include <map>
 #include <vector>
@@ -67,3 +68,4 @@ const string cDefaultLogfile = "stdout";
 /* List of -- command arguments to be passed to redis::main() unaltered */
 const vector<string> cRedisArgsForMainC = {"help", "version", "test-memory"};
 
+#endif

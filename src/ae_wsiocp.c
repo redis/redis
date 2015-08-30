@@ -111,7 +111,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
 /* Monitor state changes for a socket */
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
-    aeSockState *sockstate = WSIOCP_GetSocketState(fd);
+    iocpSockState *sockstate = WSIOCP_GetSocketState(fd);
     if (sockstate == NULL) {
         errno = WSAEINVAL;
         return -1;
@@ -155,7 +155,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
 /* Stop monitoring state changes for a socket */
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
-    aeSockState *sockstate = WSIOCP_GetExistingSocketState(fd);
+    iocpSockState *sockstate = WSIOCP_GetExistingSocketState(fd);
     if (sockstate == NULL) {
         errno = WSAEINVAL;
         return;
@@ -169,7 +169,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
  * depending on the mask for each socket */
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = (aeApiState *) eventLoop->apidata;
-    aeSockState *sockstate;
+    iocpSockState *sockstate;
     ULONG j;
     int numevents = 0;
     ULONG numComplete = 0;

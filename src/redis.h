@@ -33,6 +33,8 @@
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/Win32_FDAPI.h"
+#include "Win32_Interop/win32_wsiocp2.h"
 #include "Win32_Interop/Win32_Signal_Process.h"
 #include "Win32_Interop/Win32_RedisLog.h"
 #include "Win32_Interop/Win32_Time.h"

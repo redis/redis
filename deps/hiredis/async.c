@@ -29,9 +29,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #ifdef _WIN32
-#include "../../src/Win32_Interop/Win32_Portability.h"
-#include "../../src/Win32_Interop/Win32_Error.h"
-#include "../../src/Win32_Interop/win32fixes.h"
+#include "win32_hiredis.h"
+#include "../../src/Win32_Interop/win32_wsiocp2.h"
 #endif
 #include "fmacros.h"
 #include <stdlib.h>
@@ -170,7 +169,7 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
     redisAsyncContext *ac = redisAsyncInitialize(c);
     if (WSIOCP_SocketConnect(ac->c.fd, &ss) != 0) {
-         ac->c.err = errno;
+        ac->c.err = errno;
         strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
     }
     __redisAsyncCopyError(ac);

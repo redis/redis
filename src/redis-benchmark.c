@@ -30,6 +30,7 @@
 #ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/win32_wsiocp2.h"
 #include "Win32_Interop/Win32_Signal_Process.h"
 #include "Win32_Interop/Win32_Time.h"
 #include "Win32_Interop/Win32_Error.h"
@@ -49,6 +50,9 @@ POSIX_ONLY(#include <sys/time.h>)
 
 #include "ae.h"
 #include "hiredis.h"
+#ifdef _WIN32
+#include "win32_hiredis.h"
+#endif
 #include "sds.h"
 #include "adlist.h"
 #include "zmalloc.h"
@@ -281,13 +285,13 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 #ifdef _WIN32
 static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
-    client c = (client)req->client;
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    client c = (client) req->client;
 
     c->written += nwritten;
     if (sdslen(c->obuf) == c->written) {
-        aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
-        aeCreateFileEvent(config.el,(int)c->context->fd,AE_READABLE,readHandler,c);
+        aeDeleteFileEvent(config.el, (int) c->context->fd, AE_WRITABLE);
+        aeCreateFileEvent(config.el, (int) c->context->fd, AE_READABLE, readHandler, c);
     }
 }
 #endif

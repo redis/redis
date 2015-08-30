@@ -20,19 +20,25 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Credits Henry Rawas (henryr@schakra.com) */
+#ifndef WIN32_INTEROP_WSIOCP2_H
+#define WIN32_INTEROP_WSIOCP2_H
 
-#ifndef WIN32_INTEROP_TIME_H
-#define WIN32_INTEROP_TIME_H
+#include <WinSock2.h>   // For SOCKADDR_STORAGE
+#include "WS2tcpip.h"   // For socklen_t
 
-#include <stdint.h>
+/* need callback on write complete. WSIOCP_Request is used to pass parameters */
+typedef struct WSIOCP_Request {
+    void *client;
+    void *data;
+    char *buf;
+    int len;
+} WSIOCP_Request;
 
-#define gettimeofday gettimeofday_highres
-
-void     InitTimeFunctions();
-uint64_t GetHighResRelativeTime(double scale);
-time_t   gettimeofdaysecs(unsigned int *usec);
-int      gettimeofday_highres(struct timeval *tv, struct timezone *tz);
-char*    ctime_r(const time_t *clock, char *buf);
+int WSIOCP_ReceiveDone(int rfd);
+int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
+int WSIOCP_Listen(int rfd, int backlog);
+int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);
+int WSIOCP_SocketConnect(int rfd, const SOCKADDR_STORAGE *ss);
+int WSIOCP_SocketConnectBind(int rfd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 #endif

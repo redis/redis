@@ -20,11 +20,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _WIN32_APIS_H
-#define _WIN32_APIS_H
+#ifndef WIN32_INTEROP_APIS_H
+#define WIN32_INTEROP_APIS_H
 
 #include "Win32_types.h"
 #include <Windows.h>
+#include <stdio.h>      // for rename
 
 // API replacement for non-fd stdio functions
 #define fseeko      _fseeki64

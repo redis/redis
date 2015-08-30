@@ -680,16 +680,16 @@ void putSlaveOnline(redisClient *slave) {
 
 #ifdef _WIN32
 void sendBulkToSlaveLenDone(aeEventLoop *el, int fd, void *privdata, int written) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
 
-    sdsfree((sds)req->buf);
+    sdsfree((sds) req->buf);
 }
 
 void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
-    aeWinSendReq *req = (aeWinSendReq *)privdata;
-    redisClient *slave = (redisClient *)req->client;
+    WSIOCP_Request *req = (WSIOCP_Request *) privdata;
+    redisClient *slave = (redisClient *) req->client;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
 
@@ -700,7 +700,7 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
         DeleteFileA(slave->replFileCopy);
         memset(slave->replFileCopy, 0, MAX_PATH);
         slave->repldbfd = -1;
-        aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
+        aeDeleteFileEvent(server.el, slave->fd, AE_WRITABLE);
         slave->replstate = REDIS_REPL_ONLINE;
         slave->repl_ack_time = server.unixtime;
         if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
@@ -708,9 +708,10 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
             freeClient(slave);
             return;
         }
-        redisLog(REDIS_NOTICE,"Synchronization with slave succeeded");
+        redisLog(REDIS_NOTICE, "Synchronization with slave succeeded");
     }
 }
+
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *slave = privdata;
     REDIS_NOTUSED(el);

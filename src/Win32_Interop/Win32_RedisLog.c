@@ -27,7 +27,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <process.h>
-#include "../redis.h"
+#include <time.h>
 #include "Win32Fixes.h"
 #include "Win32_EventLog.h"
 #include "Win32_Time.h"

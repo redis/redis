@@ -32,6 +32,7 @@
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/win32_types.h"
 #include "Win32_Interop/win32fixes.h"
+#include "Win32_Interop/win32_wsiocp2.h"
 #define ANET_NOTUSED(V) V
 #include <Mstcpip.h>
 #endif

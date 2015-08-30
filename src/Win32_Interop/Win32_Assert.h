@@ -20,8 +20,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef WIN32_ASSERT_H
-#define WIN32_ASSERT_H
+#ifndef WIN32_INTEROP_ASSERT_H
+#define WIN32_INTEROP_ASSERT_H
 
 #ifdef _DEBUG
 #define ASSERT(condition)  do { if(!(condition)){ fprintf(stderr, "Assertion failed: %s @ %s::%s (%d)\n", #condition , __FILE__, __FUNCTION__, __LINE__); DebugBreak();} } while(0)

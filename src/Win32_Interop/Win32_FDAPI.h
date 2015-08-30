@@ -20,11 +20,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
-
-#ifndef _WIN32_FDAPI_H
-#define _WIN32_FDAPI_H
-#endif
+#ifndef WIN32_INTEROP_FDAPI_H
+#define WIN32_INTEROP_FDAPI_H
 
 // fcntl flags used in Redis
 #define	F_GETFL		3
@@ -235,4 +232,5 @@ extern int FDAPI_fileno(FILE *file);
 
 #ifdef __cplusplus
 }
+#endif
 #endif
