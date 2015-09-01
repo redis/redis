@@ -109,12 +109,14 @@ int replace_rename(const char *src, const char *dst) {
             return 0;
         } else {
             errno = GetLastError();
-            if (errno != 5) break;
+            if (errno != 5) {
+                break;
+            }
             retries--;
             if (retries == 0) {
-                retries = 50;
-                Sleep(10);
+                break;
             }
+            Sleep(10);
         }
     }
     /* On error we will return generic error code without GetLastError() */
