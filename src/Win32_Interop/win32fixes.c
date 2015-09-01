@@ -661,23 +661,28 @@ char *ctime_r(const time_t *clock, char *buf)  {
 }
 
 int truncate(const char *path, PORT_LONGLONG length) {
-    LARGE_INTEGER newSize;
-    HANDLE toTruncate;
-    toTruncate = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE toTruncate = CreateFileA(path,
+                                    GENERIC_READ | GENERIC_WRITE,
+                                    FILE_SHARE_WRITE | FILE_SHARE_READ,
+                                    NULL,
+                                    OPEN_EXISTING,
+                                    0,
+                                    NULL);
     if (toTruncate != INVALID_HANDLE_VALUE) {
+        int result = 0;
+        LARGE_INTEGER newSize;
         newSize.QuadPart = length;
-        if (FALSE == (SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN) && SetEndOfFile(toTruncate))) {
+        if (FALSE == (SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN)
+                      && SetEndOfFile(toTruncate))) {
             errno = ENOENT;
-            return -1;
-        } else {
-            return 0;
+            result = -1;
         }
+        CloseHandle(toTruncate);
+        return result;
     } else {
         errno = ENOENT;
         return -1;
     }
 }
-
-
 
 #endif
