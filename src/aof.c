@@ -1399,7 +1399,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
 cleanup:
     aofRewriteBufferReset();
-    aofRemoveTempFile(server.aof_child_pid);
+    aofRemoveTempFile(IF_WIN32(getpid(), server.aof_child_pid));
     server.aof_child_pid = -1;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
