@@ -27,7 +27,7 @@
 int replace_random() {
     unsigned int x = 0;
     if (RtlGenRandom == NULL) {
-        // load proc if not loaded
+        // Load proc if not loaded
         HMODULE lib = LoadLibraryA("advapi32.dll");
         RtlGenRandom = (RtlGenRandomFunc) GetProcAddress(lib, "SystemFunction036");
         if (RtlGenRandom == NULL) return 1;
@@ -38,37 +38,46 @@ int replace_random() {
 
 /* Rename which works on Windows when file exists */
 int replace_rename(const char *src, const char *dst) {
-    /* anti-virus may lock file - error code 5. Retry until it works or get a different error */
     int retries = 50;
     while (1) {
         if (MoveFileExA(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH)) {
             return 0;
         } else {
             errno = GetLastError();
-            if (errno != 5) break;
+            // Anti-virus may lock file - error code 5.
+            if (errno != 5) {
+                break;
+            }
             retries--;
             if (retries == 0) {
-                retries = 50;
-                Sleep(10);
+                break;
             }
+            Sleep(10);
         }
     }
-    /* On error we will return generic error code without GetLastError() */
+    // On error we will return generic error code without GetLastError()
     return -1;
 }
 
 int truncate(const char *path, PORT_LONGLONG length) {
     LARGE_INTEGER newSize;
-    HANDLE toTruncate;
-    toTruncate = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE toTruncate = CreateFileA(path,
+                                    GENERIC_READ | GENERIC_WRITE,
+                                    FILE_SHARE_WRITE | FILE_SHARE_READ,
+                                    NULL,
+                                    OPEN_EXISTING,
+                                    0,
+                                    NULL);
     if (toTruncate != INVALID_HANDLE_VALUE) {
+        int result = 0;
         newSize.QuadPart = length;
-        if (FALSE == (SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN) && SetEndOfFile(toTruncate))) {
+        if (FALSE == (SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN)
+                      && SetEndOfFile(toTruncate))) {
             errno = ENOENT;
-            return -1;
-        } else {
-            return 0;
+            result = -1;
         }
+        CloseHandle(toTruncate);
+        return result;
     } else {
         errno = ENOENT;
         return -1;
