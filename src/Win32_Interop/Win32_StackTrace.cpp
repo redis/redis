@@ -173,7 +173,7 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
         try {
             const char* exDescription = "Exception code not available";
             processingException = true;
-            if (info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
+            if (info != NULL && info->ExceptionRecord != NULL && info->ExceptionRecord->ExceptionCode != NULL) {
                 exDescription = exceptionDescription(info->ExceptionRecord->ExceptionCode);
             }
 
@@ -185,14 +185,16 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
             ServerInfo();
         }
         catch (...) {}
+
         if (headerLogged) {
             BugReportEnd();
         }
-        processingException = false;
-    }
 
-    if (defaultTopLevelExceptionHandler != NULL) {
-        defaultTopLevelExceptionHandler(info);
+        if (defaultTopLevelExceptionHandler != NULL && info != NULL) {
+            defaultTopLevelExceptionHandler(info);
+        }
+
+        processingException = false;
     }
 
     return EXCEPTION_CONTINUE_SEARCH;
