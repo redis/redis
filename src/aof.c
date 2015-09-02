@@ -1413,10 +1413,6 @@ void aofUpdateCurrentSize(void) {
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
-#ifdef _WIN32
-    char tmpfile_old[256];
-#endif
-
     if (!bysignal && exitcode == 0) {
         int newfd, oldfd;
         char tmpfile[256];
@@ -1484,31 +1480,43 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
          * we don't care what the outcome or duration of that close operation
          * is, as long as the file descriptor is released again. */
 #ifdef _WIN32
+        // On Windows, if AOF is disabled and an AOF file already exists,
+        // we don't need to open it since it will have to be closed anyway
+        // before renaming the temp AOF.
         oldfd = -1; /* We'll set this to the current AOF filedes later. */
 
-        /* Close files before renaming */
-        close(newfd);
-        if (server.aof_fd != -1) close(server.aof_fd);
-        /* now rename the existing file to allow new file to be renamed */
-        snprintf(tmpfile_old,256,"temp-rewriteaof-old-%d.aof",
-            (int)server.aof_child_pid);
+        char tmpfile_win_old[256];
+        snprintf(tmpfile_win_old, 256, "temp-rewriteaof-old-%d.aof",
+                 (int)server.aof_child_pid);
+
         if (server.aof_fd != -1) {
-            if (rename(server.aof_filename, tmpfile_old) == -1) {
+            // AOF enabled, close the existing AOF file
+            close(server.aof_fd);
+            // Now rename the existing AOF file to allow the new file to be renamed
+            if (rename(server.aof_filename, tmpfile_win_old) == -1) {
                 redisLog(REDIS_WARNING,
                     "Error trying to rename the existing AOF to old tempfile: %s", strerror(errno));
+                // Let's clean the Windows-specific temp file here
+                unlink(tmpfile_win_old);
+                goto cleanup;
             }
         }
         latencyStartMonitor(latency);
+        // Close the temp AOF file before renaming it
+        close(newfd);
         if (rename(tmpfile,server.aof_filename) == -1) {
             redisLog(REDIS_WARNING,
                 "Error trying to rename the temporary AOF: %s", strerror(errno));
             if (server.aof_fd != -1) {
-                if (rename(tmpfile_old, server.aof_filename) == -1) {
+                if (rename(tmpfile_win_old, server.aof_filename) == -1) {
                     redisLog(REDIS_WARNING,
                         "Error trying to rename the existing AOF from old tempfile: %s", strerror(errno));
+                    // The Windows-specific temp file couldn't be renamed to
+                    // the configured AOF file, that should never happen but
+                    // if it happens we leave the file behind in case the user
+                    // needs it
                 }
             }
-            if (oldfd != -1) close(oldfd);
             goto cleanup;
         }
         /* now open the files again with new names */
@@ -1520,7 +1528,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         }
         if (server.aof_fd != -1) {
             server.aof_fd = open(
-                tmpfile_old,
+                tmpfile_win_old,
                 O_WRONLY|O_APPEND|O_CREAT|_O_BINARY|_O_TEMPORARY,     // _O_TEMPORARY forces delete on close flag in CreateFile call. File will be deleted in REDIS_BIO_CLOSE_FILE job.
                 0644);
         }
@@ -1600,7 +1608,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 cleanup:
     aofClosePipes();
     aofRewriteBufferReset();
-    aofRemoveTempFile(server.aof_child_pid);
+    aofRemoveTempFile(IF_WIN32(getpid(),server.aof_child_pid));
     server.aof_child_pid = -1;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
