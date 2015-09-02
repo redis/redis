@@ -1,6 +1,22 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
 
+--[ Redis on Windows 3.0.300-alpha3 ] Release date: Sep 02 2015
+
+ - [Setup] Updated version from 3.0.300-alpha2 to 3.0.300-alpha3.
+ - [Fix] Error handling and cleanup after an AOF rewrite error.
+ - [Fix] Made stack trace report more robust.
+ - [Fix] replace_rename infinite loop upon error.
+ - [Cleanup] Code refactoring, hiredis isolation (work in progress).
+ - [Cleanup] Code refactoring.
+ - [Fix] Ported fixes from 2.8.
+ - [Cleanup] Replaced aeWin prefix with WSIOCP.
+ - [Fix] Made getNextRFDAvailable more robust.
+ - [Fix] Removed aeWinCloseSocket. Sockets were not closed properly.
+ - [Fix] Optimized socket flag management.
+ - [Debug] Added custom ASSERT macro.
+
+
 --[ Redis on Windows 3.0.300-alpha2 ] Release date: Aug 20 2015
 
  - [Cleanup] Code formatting.
