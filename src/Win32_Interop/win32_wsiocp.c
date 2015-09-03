@@ -122,8 +122,8 @@ int WSIOCP_QueueAccept(int listenfd) {
     } else {
         errno = WSAGetLastError();
         sockstate->masks &= ~ACCEPT_PENDING;
-        close(acceptfd);
         accsockstate->masks = 0;
+        close(acceptfd);
         FreeMemoryNoCOW(areq->buf);
         FreeMemoryNoCOW(areq);
         return -1;
@@ -171,25 +171,24 @@ int WSIOCP_SocketAttach(int fd) {
 
 /* Listen using extension function to get faster accepts */
 int WSIOCP_Listen(int rfd, int backlog) {
-    aeSockState *sockstate;
-    const GUID wsaid_acceptex = WSAID_ACCEPTEX;
-    const GUID wsaid_acceptexaddrs = WSAID_GETACCEPTEXSOCKADDRS;
-
-    if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
+    aeSockState *sockstate = WSIOCP_GetSocketState(rfd);
+    if (sockstate == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
 
-    WSIOCP_SocketAttach(rfd);
+    if (WSIOCP_SocketAttach(rfd) != 0) {
+        return SOCKET_ERROR;
+    }
+
     sockstate->masks |= LISTEN_SOCK;
 
-    if (listen(rfd, backlog) == 0) {
-        if (WSIOCP_QueueAccept(rfd) == -1) {
-            errno = WSAGetLastError();
-            return SOCKET_ERROR;
-        }
-    } else {
-        errno = WSAGetLastError();
+    if (listen(rfd, backlog) != 0) {
+        return SOCKET_ERROR;
+    }
+
+    if (WSIOCP_QueueAccept(rfd) != 0) {
+        return SOCKET_ERROR;
     }
 
     return 0;
