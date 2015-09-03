@@ -143,8 +143,8 @@ int WSIOCP_QueueAccept(int listenfd) {
     } else {
         errno = FDAPI_WSAGetLastError();
         sockstate->masks &= ~ACCEPT_PENDING;
-        close(acceptfd);
         accsockstate->masks = 0;
+        close(acceptfd);
         FreeMemoryNoCOW(areq->buf);
         FreeMemoryNoCOW(areq);
         return -1;
@@ -155,22 +155,24 @@ int WSIOCP_QueueAccept(int listenfd) {
 
 /* Listen using extension function to get faster accepts */
 int WSIOCP_Listen(int rfd, int backlog) {
-    iocpSockState *sockstate;
-    if ((sockstate = WSIOCP_GetSocketState(rfd)) == NULL) {
+    iocpSockState *sockstate = WSIOCP_GetSocketState(rfd);
+    if (sockstate == NULL) {
         errno = WSAEINVAL;
         return SOCKET_ERROR;
     }
 
-    WSIOCP_SocketAttach(rfd, sockstate);
+    if (WSIOCP_SocketAttach(rfd, sockstate) != 0) {
+        return SOCKET_ERROR;
+    }
+
     sockstate->masks |= LISTEN_SOCK;
 
-    if (listen(rfd, backlog) == 0) {
-        if (WSIOCP_QueueAccept(rfd) == -1) {
-            errno = FDAPI_WSAGetLastError();
-            return SOCKET_ERROR;
-        }
-    } else {
-        errno = FDAPI_WSAGetLastError();
+    if (listen(rfd, backlog) != 0) {
+        return SOCKET_ERROR;
+    }
+
+    if (WSIOCP_QueueAccept(rfd) != 0) {
+        return SOCKET_ERROR;
     }
 
     return 0;
