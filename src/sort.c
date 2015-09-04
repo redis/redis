@@ -579,9 +579,9 @@ void sortCommand(client *c) {
     }
 
     /* Cleanup */
-    if (sortval->type == OBJ_LIST || sortval->type == OBJ_SET)
-        for (j = 0; j < vectorlen; j++)
-            decrRefCount(vector[j].obj);
+    for (j = 0; j < vectorlen; j++)
+        decrRefCount(vector[j].obj);
+
     decrRefCount(sortval);
     listRelease(operations);
     for (j = 0; j < vectorlen; j++) {
