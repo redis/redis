@@ -847,6 +847,43 @@ class RedisTrib
         check_cluster
     end
 
+    def rebalance_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
+        check_cluster
+        if @errors.length != 0
+            puts "*** Please fix your cluster problems before resharding"
+            exit 1
+        end
+
+        masters = @nodes.select { |n| n.has_flag?("master") }.sort_by {|m| m.slots.size }
+        masters.each { |m|
+          puts "master: #{m} slots: #{m.slots.size}"
+        }
+
+        from_master = masters[-1]
+        to_master = masters[0]
+        if opt['slots']
+            numslots = opt['slots'].to_i
+        else
+            even_split = ClusterHashSlots / masters.size
+            free_slots_on_to_master = even_split - to_master.slots.size
+            candidate_slots_on_from_master = from_master.slots.size - even_split
+            numslots = [free_slots_on_to_master, candidate_slots_on_from_master].min
+            
+            puts "even_split: #{even_split} free_slots: #{free_slots_on_to_master} candidates: #{candidate_slots_on_from_master}"
+        end
+        puts "from: #{from_master} to: #{to_master} slots: #{numslots}"
+
+        reshard_opts = {
+          'slots' => numslots,
+          'from' => from_master.info[:name],
+          'to' => to_master.info[:name],
+        }.merge opt
+        puts "reshard_opts: #{reshard_opts.inspect}" 
+        reshard_cluster_cmd(argv,reshard_opts)
+    end
+      
+
     def reshard_cluster_cmd(argv,opt)
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -1323,6 +1360,7 @@ COMMANDS={
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
+    "rebalance" => ["rebalance_cluster_cmd", 2, "host:port"],
     "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
     "del-node" => ["delnode_cluster_cmd", 3, "host:port node_id"],
     "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
@@ -1335,7 +1373,8 @@ ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false},
+    "rebalance" => {"slots" => true},
 }
 
 def show_help
