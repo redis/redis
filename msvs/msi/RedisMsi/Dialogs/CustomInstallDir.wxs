@@ -37,7 +37,8 @@ First-time install dialog sequence:
  - WixUI_WelcomeDlg
  - WixUI_LicenseAgreementDlg
  - WixUI_InstallDirDlg
- - FirwallDlg
+ - FirewallDlg
+ - MaxMemoryDlg
  - WixUI_VerifyReadyDlg
  - WixUI_DiskCostDlg
 
@@ -95,9 +96,12 @@ Patch dialog sequence:
 
             <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
             <Publish Dialog="FirewallDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="1">1</Publish>
-            <Publish Dialog="FirewallDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="1">1</Publish>
-          
-            <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="FirewallDlg" Order="1">NOT Installed</Publish>
+            <Publish Dialog="FirewallDlg" Control="Next" Event="NewDialog" Value="MaxMemoryDlg" Order="1">1</Publish>
+
+            <Publish Dialog="MaxMemoryDlg" Control="Back" Event="NewDialog" Value="FirewallDlg" Order="1">1</Publish>
+            <Publish Dialog="MaxMemoryDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="1">1</Publish>
+
+            <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaxMemoryDlg" Order="1">NOT Installed</Publish>
             <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2">Installed AND NOT PATCH</Publish>
             <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">Installed AND PATCH</Publish>
 

@@ -7,7 +7,7 @@
       Custom actions that update the redis config file during installation
     -->
     <CustomAction Id="ca_UpdateRedisConfig" BinaryKey="RedisCADLL" DllEntry="UpdateRedisConfig" Execute="deferred" Return="check" Impersonate="no" />
-    <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_serviceCONF];PORT=[PORT];" Sequence="execute" Before="ca_UpdateRedisConfig" />
+    <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_serviceCONF];PORT=[PORT];MAXMEMORY=[MAXMEMORY];USE_MAXMEMORY_LIMIT=[USE_MAXMEMORY_LIMIT];" Sequence="execute" Before="ca_UpdateRedisConfig" />
     <InstallExecuteSequence>
       <Custom Action="ca_UpdateRedisConfig" After="InstallFiles"><![CDATA[NOT Installed]]></Custom>
     </InstallExecuteSequence>

@@ -20,11 +20,39 @@ namespace RedisMsi.CustomActions
         [CustomAction]
         public static ActionResult UpdateRedisConfig(Session session)
         {
-            // Update port
-            string port = session.CustomActionData["PORT"];
             string configFilePath = session.CustomActionData["CONFIG_PATH"];
+            if (File.Exists(configFilePath))
+            {
+                string originalContent = File.ReadAllText(configFilePath);
 
-            UpdatePortSetting(port, configFilePath);
+                string port = session.CustomActionData["PORT"];
+                string updatedContent = originalContent.Replace("port 6379", "port " + port);
+
+                string useMaxMemoryLimit = session.CustomActionData["USE_MAXMEMORY_LIMIT"];
+                if (useMaxMemoryLimit == "1")
+                {
+                    string maxMemoryMB = session.CustomActionData["MAXMEMORY"];
+                    try
+                    {
+                        int intMaxMemory = Int32.Parse(maxMemoryMB);
+                        if (intMaxMemory <= 0)
+                        {
+                            maxMemoryMB = "10";
+                        }
+                    }
+                    catch
+                    {
+                        maxMemoryMB = "100";
+                    }
+                    updatedContent = updatedContent.Replace("# maxmemory <bytes>", "maxmemory " + maxMemoryMB + "mb");
+                }
+
+                File.WriteAllText(configFilePath, updatedContent);
+            }
+            else
+            {
+                throw new ApplicationException("UpdateRedisConfig: Config file not found. Could not update its settings.");
+            }
 
             return ActionResult.Success;
         }
@@ -49,25 +77,6 @@ namespace RedisMsi.CustomActions
             }
 
             return ActionResult.Success;
-        }
-
-        /// <summary>
-        /// Updates the port in the config file.
-        /// </summary>
-        /// <param name="portToUse">The port to have Redis listen at</param>
-        /// <param name="configFilePath">The path to the Redis config file</param>
-        private static void UpdatePortSetting(string portToUse, string configFilePath)
-        {
-            if (File.Exists(configFilePath))
-            {
-                string originalContent = File.ReadAllText(configFilePath);
-                string updatedContent = originalContent.Replace("port 6379", "port " + portToUse);
-                File.WriteAllText(configFilePath, updatedContent);
-            }
-            else
-            {
-                throw new ApplicationException("UpdateRedisConfig: Config file not found. Could not update its settings.");
-            }
         }
     }
 }
