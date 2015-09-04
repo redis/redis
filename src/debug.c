@@ -166,6 +166,7 @@ void computeDatasetDigest(unsigned char *final) {
                 sds sdsele;
                 while((sdsele = setTypeNextObject(si)) != NULL) {
                     xorDigest(digest,sdsele,sdslen(sdsele));
+                    sdsfree(sdsele);
                 }
                 setTypeReleaseIterator(si);
             } else if (o->type == OBJ_ZSET) {
