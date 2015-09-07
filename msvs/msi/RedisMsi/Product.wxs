@@ -41,8 +41,9 @@
         <Property Id="ADD_FIREWALL_RULE" Value="1" />
         <Property Id="FIREWALL_SERVICE_STOPPED" Value="0" />
         <Property Id="MAXMEMORY" Value="100" />
-        <Property Id="USE_MAXMEMORY_LIMIT" Value="1" />
-
+        <Property Id="MAXHEAP" Value="150" />
+        <Property Id="USE_MEMORY_LIMITS" />
+        <Property Id="ADD_INSTALLFOLDER_TO_PATH" />
 
         <!--Link-time variables-->
         <WixVariable Id="WixUILicenseRtf" Value="License.rtf"/>
@@ -66,6 +67,7 @@
     <Fragment>
         <ComponentGroup Id="SetPathComponents" Directory="INSTALLFOLDER">
             <Component Id="SetEnvironmentVariables" Guid="{33F930D5-EE5D-4D2C-9DC9-6AE1E176BDCD}" KeyPath="yes">
+                <Condition>ADD_INSTALLFOLDER_TO_PATH</Condition>
                 <Environment Action="set"
                              Id="SetPath"
                              Name="PATH"

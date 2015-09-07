@@ -28,23 +28,33 @@ namespace RedisMsi.CustomActions
                 string port = session.CustomActionData["PORT"];
                 string updatedContent = originalContent.Replace("port 6379", "port " + port);
 
-                string useMaxMemoryLimit = session.CustomActionData["USE_MAXMEMORY_LIMIT"];
+                string useMaxMemoryLimit = session.CustomActionData["USE_MEMORY_LIMITS"];
                 if (useMaxMemoryLimit == "1")
                 {
-                    string maxMemoryMB = session.CustomActionData["MAXMEMORY"];
+                    string strMaxMemoryMB = session.CustomActionData["MAXMEMORY"];
+                    string strMaxHeapMB = session.CustomActionData["MAXHEAP"];
                     try
                     {
-                        int intMaxMemory = Int32.Parse(maxMemoryMB);
+                        int intMaxMemory = Int32.Parse(strMaxMemoryMB);
                         if (intMaxMemory <= 0)
                         {
-                            maxMemoryMB = "10";
+                            strMaxMemoryMB = "100";
                         }
+
+                        int intMaxHeap = Int32.Parse(strMaxHeapMB);
+                        if (intMaxHeap <= 0)
+                        {
+                            strMaxHeapMB = "150";
+                        }
+
                     }
                     catch
                     {
-                        maxMemoryMB = "100";
+                        strMaxMemoryMB = "100";
+                        strMaxHeapMB = "150";
                     }
-                    updatedContent = updatedContent.Replace("# maxmemory <bytes>", "maxmemory " + maxMemoryMB + "mb");
+                    updatedContent = updatedContent.Replace("# maxmemory <bytes>", "maxmemory " + strMaxMemoryMB + "mb");
+                    updatedContent = updatedContent.Replace("# maxheap <bytes>", "maxheap " + strMaxHeapMB + "mb");
                 }
 
                 File.WriteAllText(configFilePath, updatedContent);
