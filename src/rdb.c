@@ -1510,12 +1510,12 @@ int rdbSaveToSlavesSockets(void) {
              * replicationSetupSlaveForFullResync() turned it into BGSAVE_END */
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
-                client *slave = ln->value;
+                redisClient *slave = ln->value;
                 int j;
 
                 for (j = 0; j < numfds; j++) {
                     if (slave->id == clientids[j]) {
-                        slave->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
+                        slave->replstate = REDIS_REPL_WAIT_BGSAVE_START;
                         break;
                     }
                 }
