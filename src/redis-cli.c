@@ -1582,7 +1582,7 @@ static redisReply *sendScan(unsigned long long *it) {
     assert(reply->element[1]->type == REDIS_REPLY_ARRAY);
 
     /* Update iterator */
-    *it = atoi(reply->element[0]->str);
+    *it = strtoull(reply->element[0]->str, NULL, 10);
 
     return reply;
 }
