@@ -1,6 +1,25 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
 
+--[ Redis on Windows 2.8.2103 ] Release date: Sep 08 2015
+
+NOTE: Two new features added to the MSI installer:
+      - select whether to add the install dir to the PATH env variable.
+      - select whether to set the maxmemory and maxheap flags.
+      Improved error reporting if the installation fails or if the service
+      fails to start: error messages logged to the Application Event Log.
+
+ - [Setup] Added maxheap settings along with the maxmemory settings.
+ - [Setup] Added a checkbox to choose whether to add the install dir to PATH.
+ - [Fix] Write errors to the Event Log during startup.
+ - [Setup] MSI: added max memory config dialog.
+ - [Setup] MSI: Redis installation folder added to the PATH environment variable.
+ - [Fix] Redis crashes at startup.
+ - [Fix] Improved error handling in WSIOCP_Listen().
+ - [Fix] Remove temp file after AOF rewrite error.
+ - [Fix] Close the file handle after truncating a file.
+ - [Fix] replace_rename() had an infinite loop upon error.
+
 --[ Redis on Windows 2.8.2102 ] Release date: Aug 25 2015
 
 IMPORTANT NOTE: the 2.8.2102 release introduces some high impact changes
