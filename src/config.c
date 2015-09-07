@@ -29,7 +29,8 @@
  */
 
 #ifdef _WIN32
-#include "win32_Interop/win32_types.h"
+#include "Win32_Interop/win32_types.h"
+#include "Win32_Interop/Win32_EventLog.h"
 #endif
 
 #include "redis.h"
@@ -237,9 +238,7 @@ void loadServerConfigFromString(char *config) {
             setSyslogIdent(server.syslog_ident);
 #endif
         } else if (!strcasecmp(argv[0], "syslog-facility") && argc == 2) {
-#ifdef _WIN32
-            // Skip error - just ignore syslog-facility
-#else
+#ifndef _WIN32 // On Windows ignore syslog-facility
             int i;
 
             for (i = 0; validSyslogFacilities[i].name; i++) {
