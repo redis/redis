@@ -406,7 +406,10 @@ start_server {tags {"hash"}} {
         foreach k [array names bighash *] {
             if {[string length $bighash($k)] ne [r hstrlen bighash $k]} {
                 set err "[string length $bighash($k)] != [r hstrlen bighash $k]"
-                break
+                puts "HSTRLEN and logical length mismatch:"
+                puts "key: $k"
+                puts "Logical content: $bighash($k)"
+                puts "Server  content: [r hget bighash $k]"
             }
         }
         set _ $err
