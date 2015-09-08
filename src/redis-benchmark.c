@@ -227,7 +227,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                             c->randptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
-                    continue;                
+                    continue;
                 }
 
                 if (config.requests_finished < config.requests)
@@ -813,6 +813,25 @@ int main(int argc, const char **argv) {
             }
             len = redisFormatCommandArgv(&cmd,21,argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("hset")) {
+            len = redisFormatCommand(&cmd,"HSET myhash field:__rand_int__ %s",data);
+            benchmark("HSET",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("hmset")) {
+            const char *argv[22];
+            argv[0] = "HMSET";
+            argv[1] = "hash:__rand_int__";
+            for (i = 2; i < 22; i += 2) {
+                argv[i] = "field:__rand_int__";
+                argv[i+1] = data;
+            }
+            len = redisFormatCommandArgv(&cmd,22,argv,NULL);
+            benchmark("HMSET (10 keys)",cmd,len);
             free(cmd);
         }
 
