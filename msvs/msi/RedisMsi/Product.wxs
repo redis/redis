@@ -42,8 +42,8 @@
         <Property Id="FIREWALL_SERVICE_STOPPED" Value="0" />
         <Property Id="MAXMEMORY" Value="100" />
         <Property Id="MAXHEAP" Value="150" />
-        <Property Id="USE_MEMORY_LIMITS" />
-        <Property Id="ADD_INSTALLFOLDER_TO_PATH" />
+        <Property Id="USE_MEMORY_LIMITS" Secure="yes" />
+        <Property Id="ADD_INSTALLFOLDER_TO_PATH" Secure="yes" />
 
         <!--Link-time variables-->
         <WixVariable Id="WixUILicenseRtf" Value="License.rtf"/>

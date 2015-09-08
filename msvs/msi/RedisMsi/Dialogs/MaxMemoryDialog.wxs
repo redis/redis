@@ -17,7 +17,7 @@
 
                 <Control Id="MaxMemoryCheckbox" Type="CheckBox" Property="USE_MEMORY_LIMITS" CheckBoxValue="1" Integer="yes" Text="Set the Max Memory and Max Heap limits" Height="10" Width="300" X="20" Y="60" />
 
-                <Control Id="MaxMemoryLabel1" Type="Text" X="20" Y="90" Width="250" Height="15" NoPrefix="yes" Text="Max Memory:">
+                <Control Id="MaxMemoryLabel1" Type="Text" X="20" Y="90" Width="250" Height="15" NoPrefix="yes" Text="Max Memory (integer values only):">
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
@@ -25,12 +25,12 @@
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
-                <Control Id="MaxMemoryLabel2" Type="Text" X="65" Y="108" Width="250" Height="20" NoPrefix="yes" Text="MB">
+                <Control Id="MaxMemoryLabel2" Type="Text" X="65" Y="108" Width="250" Height="15" NoPrefix="yes" Text="MB">
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
 
-                <Control Id="MaxHeapLabel1" Type="Text" X="20" Y="140" Width="250" Height="15" NoPrefix="yes" Text="Max Heap (at least 1.5 times the Max Memory value):">
+                <Control Id="MaxHeapLabel1" Type="Text" X="20" Y="140" Width="250" Height="15" NoPrefix="yes" Text="Max Heap (integer value at least 1.5 times the Max Memory value):">
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
@@ -38,11 +38,19 @@
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
-                <Control Id="MaxHeapLabel2" Type="Text" X="65" Y="158" Width="250" Height="20" NoPrefix="yes" Text="MB">
+                <Control Id="MaxHeapLabel2" Type="Text" X="65" Y="158" Width="250" Height="15" NoPrefix="yes" Text="MB">
                     <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
                     <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
                 </Control>
 
+                <Control Id="WarningLabel1" Type="Text" X="20" Y="190" Width="300" Height="10" NoPrefix="yes" Text="If invalid or incompatible values are detected, the default values will be used.">
+                    <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
+                    <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
+                </Control>
+                <Control Id="WarningLabel2" Type="Text" X="20" Y="200" Width="300" Height="10" NoPrefix="yes" Text="They can be changed later editing the redis.windows-service.conf file.">
+                    <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
+                    <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
+                </Control>
             </Dialog>
         </UI>
     </Fragment>
