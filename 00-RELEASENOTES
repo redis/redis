@@ -34,7 +34,7 @@ Upgrade urgency: HIGH for Redis and Sentinel. However note that in order to
         an issue reported by "GeorgeBJ" user at Github)
 * [FIX] redis-cli --scan iteration fixed when returned cursor overflows
         32 bit signed integer. (Ofir Luzon, Yuval Inbar)
-* [FIX] Senitnel: fixed a bug during the master switch process, where for a
+* [FIX] Sentinel: fixed a bug during the master switch process, where for a
         failed conditional check, the new configuration is rewritten, during
         a small window of time, in a corrupted way where the master is
         also reported to be one of the slaves. This bug is rare to trigger
