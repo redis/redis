@@ -2792,6 +2792,7 @@ void sentinelCommand(redisClient *c) {
             addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
+        if (c->argc != 2) goto numargserr;
         sentinelFlushConfig();
         addReply(c,shared.ok);
         return;
@@ -2799,6 +2800,7 @@ void sentinelCommand(redisClient *c) {
         /* SENTINEL REMOVE <name> */
         sentinelRedisInstance *ri;
 
+        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         sentinelEvent(REDIS_WARNING,"-monitor",ri,"%@");
