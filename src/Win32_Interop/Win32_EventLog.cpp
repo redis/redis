@@ -213,9 +213,8 @@ extern "C" int IsEventLogEnabled() {
     try {
         if (RedisEventLog().IsEventLogEnabled() == true) {
             return 1;
-        } else {
-            return 0;
         }
     }
     catch (...) {}
+    return 0;
 }
