@@ -9,6 +9,10 @@ NOTE: Two new features added to the MSI installer:
       Improved error reporting if the installation fails or if the service
       fails to start: error messages logged to the Application Event Log.
 
+ - [Setup] Added more information in the memory limit dialog.
+ - [Setup] Fixed warning for missing properties attributes.
+ - [Fix] Missing return code path.
+ - [Fix] Reporting error code if listen() fails.
  - [Setup] Added maxheap settings along with the maxmemory settings.
  - [Setup] Added a checkbox to choose whether to add the install dir to PATH.
  - [Fix] Write errors to the Event Log during startup.
