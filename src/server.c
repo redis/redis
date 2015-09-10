@@ -579,37 +579,37 @@ dictType shaScriptObjectDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor   /* val destructor */
+    dictObjectDestructor        /* val destructor */
 };
 
 /* Db->expires */
 dictType keyptrDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    NULL,                      /* key destructor */
-    NULL                       /* val destructor */
+    dictSdsHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCompare,          /* key compare */
+    NULL,                       /* key destructor */
+    NULL                        /* val destructor */
 };
 
 /* Command table. sds string -> command struct pointer. */
 dictType commandTableDictType = {
-    dictSdsCaseHash,           /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCaseCompare,     /* key compare */
-    dictSdsDestructor,         /* key destructor */
-    NULL                       /* val destructor */
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    NULL                        /* val destructor */
 };
 
 /* Hash type hash table (note that small hashes are represented with ziplists) */
 dictType hashDictType = {
-    dictEncObjHash,             /* hash function */
+    dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictEncObjKeyCompare,       /* key compare */
-    dictObjectDestructor,  /* key destructor */
-    dictObjectDestructor   /* val destructor */
+    dictsdsKeyCompare,          /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructor           /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
@@ -620,7 +620,7 @@ dictType keylistDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictObjKeyCompare,          /* key compare */
-    dictObjectDestructor,  /* key destructor */
+    dictObjectDestructor,       /* key destructor */
     dictListDestructor          /* val destructor */
 };
 

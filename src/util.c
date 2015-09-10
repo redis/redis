@@ -330,7 +330,16 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
- * the parsed value when appropriate. */
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a long long: no spaces or other characters before or after the string
+ * representing the number are accepted, nor zeroes at the start if not
+ * for the string "0" representing the zero number.
+ *
+ * Because of its strictness, it is safe to use this function to check if
+ * you can convert a string into a long long, and obtain back the string
+ * from the number without any loss in the string representation. */
 int string2ll(const char *s, size_t slen, long long *value) {
     const char *p = s;
     size_t plen = 0;
@@ -407,6 +416,30 @@ int string2l(const char *s, size_t slen, long *lval) {
         return 0;
 
     *lval = (long)llval;
+    return 1;
+}
+
+/* Convert a string into a double. Returns 1 if the string could be parsed
+ * into a (non-overflowing) double, 0 otherwise. The value will be set to
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a double: no spaces or other characters before or after the string
+ * representing the number are accepted. */
+int string2d(const char *s, size_t slen, double *dp) {
+    double value;
+
+    errno = 0;
+    value = strtod(o->ptr, &eptr);
+    if (isspace(((char*)o->ptr)[0]) ||
+        eptr[0] != '\0' ||
+        (errno == ERANGE &&
+            (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+        errno == EINVAL ||
+        isnan(value))
+        return 0;
+
+    if (dp) *dp = value;
     return 1;
 }
 

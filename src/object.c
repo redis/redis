@@ -635,20 +635,29 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
     return C_OK;
 }
 
+/* Helper function for getLongLongFromObject(). The function parses the string
+ * as a long long value in a strict way (no spaces before/after). On success
+ * C_OK is returned, otherwise C_ERR is returned. */
+int strict_strtoll(char *str, long long *vp) {
+    char *eptr;
+    long long value;
+
+    errno = 0;
+    value = strtoll(o->ptr, &eptr, 10);
+    if (isspace(str[0]) || eptr[0] != '\0' || errno == ERANGE) return C_ERR;
+    if (vp) *vp = value;
+    return C_OK;
+}
+
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtoll(o->ptr, &eptr, 10);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE)
-                return C_ERR;
+            if (strict_strtoll(o->ptr,&value) == C_ERR) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
