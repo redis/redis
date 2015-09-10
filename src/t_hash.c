@@ -153,7 +153,7 @@ unsigned long hashTypeLength(robj *o) {
 }
 
 hashTypeIterator *hashTypeInitIterator(robj *subject) {
-    hashTypeIterator *hi = zmalloc(sizeof(hashTypeIterator));
+    hashTypeIterator *hi = z_malloc(sizeof(hashTypeIterator));
     hi->encoding = subject->encoding;
     if (hi->encoding == REDIS_ENCODING_ZIPMAP) {
         hi->zi = zipmapRewind(subject->ptr);
@@ -169,7 +169,7 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
     if (hi->encoding == REDIS_ENCODING_HT) {
         dictReleaseIterator(hi->di);
     }
-    zfree(hi);
+    z_free(hi);
 }
 
 /* Move to the next entry in the hash. Return REDIS_OK when the next entry
@@ -263,7 +263,7 @@ void convertToRealHash(robj *o) {
     }
     o->encoding = REDIS_ENCODING_HT;
     o->ptr = dict;
-    zfree(zm);
+    z_free(zm);
 }
 
 /*-----------------------------------------------------------------------------

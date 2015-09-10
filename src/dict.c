@@ -120,7 +120,7 @@ static void _dictReset(dictht *ht)
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
-    dict *d = zmalloc(sizeof(*d));
+    dict *d = z_malloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
     return d;
@@ -166,7 +166,7 @@ int dictExpand(dict *d, unsigned long size)
     /* Allocate the new hashtable and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
-    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    n.table = z_calloc(realsize*sizeof(dictEntry*));
     n.used = 0;
 
     /* Is this the first initialization? If so it's not really a rehashing
@@ -194,7 +194,7 @@ int dictRehash(dict *d, int n) {
 
         /* Check if we already rehashed the whole table... */
         if (d->ht[0].used == 0) {
-            zfree(d->ht[0].table);
+            z_free(d->ht[0].table);
             d->ht[0] = d->ht[1];
             _dictReset(&d->ht[1]);
             d->rehashidx = -1;
@@ -271,7 +271,7 @@ int dictAdd(dict *d, void *key, void *val)
 
     /* Allocates the memory and stores key */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = zmalloc(sizeof(*entry));
+    entry = z_malloc(sizeof(*entry));
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -334,7 +334,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeEntryKey(d, he);
                     dictFreeEntryVal(d, he);
                 }
-                zfree(he);
+                z_free(he);
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -368,13 +368,13 @@ int _dictClear(dict *d, dictht *ht)
             nextHe = he->next;
             dictFreeEntryKey(d, he);
             dictFreeEntryVal(d, he);
-            zfree(he);
+            z_free(he);
             ht->used--;
             he = nextHe;
         }
     }
     /* Free the table and the allocated cache structure */
-    zfree(ht->table);
+    z_free(ht->table);
     /* Re-initialize the table */
     _dictReset(ht);
     return DICT_OK; /* never fails */
@@ -385,7 +385,7 @@ void dictRelease(dict *d)
 {
     _dictClear(d,&d->ht[0]);
     _dictClear(d,&d->ht[1]);
-    zfree(d);
+    z_free(d);
 }
 
 dictEntry *dictFind(dict *d, const void *key)
@@ -418,7 +418,7 @@ void *dictFetchValue(dict *d, const void *key) {
 
 dictIterator *dictGetIterator(dict *d)
 {
-    dictIterator *iter = zmalloc(sizeof(*iter));
+    dictIterator *iter = z_malloc(sizeof(*iter));
 
     iter->d = d;
     iter->table = 0;
@@ -471,7 +471,7 @@ void dictReleaseIterator(dictIterator *iter)
 {
     if (iter->safe && !(iter->index == -1 && iter->table == 0))
         iter->d->iterators--;
-    zfree(iter);
+    z_free(iter);
 }
 
 /* Return a random entry from the hash table. Useful to
@@ -665,7 +665,7 @@ static unsigned int _dictStringCopyHTHashFunction(const void *key)
 static void *_dictStringDup(void *privdata, const void *key)
 {
     int len = strlen(key);
-    char *copy = zmalloc(len+1);
+    char *copy = z_malloc(len+1);
     DICT_NOTUSED(privdata);
 
     memcpy(copy, key, len);
@@ -685,7 +685,7 @@ static void _dictStringDestructor(void *privdata, void *key)
 {
     DICT_NOTUSED(privdata);
 
-    zfree(key);
+    z_free(key);
 }
 
 dictType dictTypeHeapStringCopyKey = {

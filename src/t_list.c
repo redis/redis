@@ -87,7 +87,7 @@ unsigned long listTypeLength(robj *subject) {
 
 /* Initialize an iterator at the specified index. */
 listTypeIterator *listTypeInitIterator(robj *subject, int index, unsigned char direction) {
-    listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
+    listTypeIterator *li = z_malloc(sizeof(listTypeIterator));
     li->subject = subject;
     li->encoding = subject->encoding;
     li->direction = direction;
@@ -103,7 +103,7 @@ listTypeIterator *listTypeInitIterator(robj *subject, int index, unsigned char d
 
 /* Clean up the iterator. */
 void listTypeReleaseIterator(listTypeIterator *li) {
-    zfree(li);
+    z_free(li);
 }
 
 /* Stores pointer to current the entry in the provided entry structure
@@ -247,7 +247,7 @@ void listTypeConvert(robj *subject, int enc) {
         listTypeReleaseIterator(li);
 
         subject->encoding = REDIS_ENCODING_LINKEDLIST;
-        zfree(subject->ptr);
+        z_free(subject->ptr);
         subject->ptr = l;
     } else {
         redisPanic("Unsupported list conversion");
@@ -751,7 +751,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     list *l;
     int j;
 
-    c->bpop.keys = zmalloc(sizeof(robj*)*numkeys);
+    c->bpop.keys = z_malloc(sizeof(robj*)*numkeys);
     c->bpop.count = numkeys;
     c->bpop.timeout = timeout;
     c->bpop.target = target;
@@ -806,7 +806,7 @@ void unblockClientWaitingData(redisClient *c) {
     }
 
     /* Cleanup the client structure */
-    zfree(c->bpop.keys);
+    z_free(c->bpop.keys);
     c->bpop.keys = NULL;
     if (c->bpop.target) decrRefCount(c->bpop.target);
     c->bpop.target = NULL;

@@ -18,9 +18,9 @@ void freeClientMultiState(redisClient *c) {
 
         for (i = 0; i < mc->argc; i++)
             decrRefCount(mc->argv[i]);
-        zfree(mc->argv);
+        z_free(mc->argv);
     }
-    zfree(c->mstate.commands);
+    z_free(c->mstate.commands);
 }
 
 /* Add a new command into the MULTI commands queue */
@@ -28,12 +28,12 @@ void queueMultiCommand(redisClient *c) {
     multiCmd *mc;
     int j;
 
-    c->mstate.commands = zrealloc(c->mstate.commands,
+    c->mstate.commands = z_realloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    mc->argv = zmalloc(sizeof(robj*)*c->argc);
+    mc->argv = z_malloc(sizeof(robj*)*c->argc);
     memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
     for (j = 0; j < c->argc; j++)
         incrRefCount(mc->argv[j]);
@@ -171,7 +171,7 @@ void watchForKey(redisClient *c, robj *key) {
     }
     listAddNodeTail(clients,c);
     /* Add the new key to the lits of keys watched by this client */
-    wk = zmalloc(sizeof(*wk));
+    wk = z_malloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
     incrRefCount(key);
@@ -202,7 +202,7 @@ void unwatchAllKeys(redisClient *c) {
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
-        zfree(wk);
+        z_free(wk);
     }
 }
 

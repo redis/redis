@@ -245,7 +245,7 @@ void oom(const char *msg) {
 void dictVanillaFree(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
-    zfree(val);
+    z_free(val);
 }
 
 void dictListDestructor(void *privdata, void *val)
@@ -555,8 +555,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     updateLRUClock();
 
     /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used_memory();
+    if (z_malloc_used_memory() > server.stat_peak_memory)
+        server.stat_peak_memory = z_malloc_used_memory();
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -594,7 +594,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         redisLog(REDIS_VERBOSE,"%d clients connected (%d slaves), %zu bytes in use",
             listLength(server.clients)-listLength(server.slaves),
             listLength(server.slaves),
-            zmalloc_used_memory());
+            z_malloc_used_memory());
     }
 
     /* Close connections of timedout clients */
@@ -668,14 +668,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Swap a few keys on disk if we are over the memory limit and VM
      * is enbled. Try to free objects from the free list first. */
     if (vmCanSwapOut()) {
-        while (server.vm_enabled && zmalloc_used_memory() >
+        while (server.vm_enabled && z_malloc_used_memory() >
                 server.vm_max_memory)
         {
             int retval = (server.vm_max_threads == 0) ?
                         vmSwapOneObjectBlocking() :
                         vmSwapOneObjectThreaded();
             if (retval == REDIS_ERR && !(loops % 300) &&
-                zmalloc_used_memory() >
+                z_malloc_used_memory() >
                 (server.vm_max_memory+server.vm_max_memory/10))
             {
                 redisLog(REDIS_WARNING,"WARNING: vm-max-memory limit exceeded by more than 10%% but unable to swap more objects out!");
@@ -818,7 +818,7 @@ void initServerConfig() {
     server.loading = 0;
     server.logfile = NULL; /* NULL = log on standard output */
     server.syslog_enabled = 0;
-    server.syslog_ident = zstrdup("redis");
+    server.syslog_ident = z_strdup("redis");
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
     server.appendonly = 0;
@@ -832,9 +832,9 @@ void initServerConfig() {
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
-    server.pidfile = zstrdup("/var/run/redis.pid");
-    server.dbfilename = zstrdup("dump.rdb");
-    server.appendfilename = zstrdup("appendonly.aof");
+    server.pidfile = z_strdup("/var/run/redis.pid");
+    server.dbfilename = z_strdup("dump.rdb");
+    server.appendfilename = z_strdup("appendonly.aof");
     server.requirepass = NULL;
     server.rdbcompression = 1;
     server.activerehashing = 1;
@@ -844,7 +844,7 @@ void initServerConfig() {
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
     server.vm_enabled = 0;
-    server.vm_swap_file = zstrdup("/tmp/redis-%p.vm");
+    server.vm_swap_file = z_strdup("/tmp/redis-%p.vm");
     server.vm_page_size = 256;          /* 256 bytes per page */
     server.vm_pages = 1024*1024*100;    /* 104 millions of pages */
     server.vm_max_memory = 1024LL*1024*1024*1; /* 1 GB of RAM */
@@ -924,7 +924,7 @@ void initServer() {
     server.unblocked_clients = listCreate();
     createSharedObjects();
     server.el = aeCreateEventLoop();
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = z_malloc(sizeof(redisDb)*server.dbnum);
 
     if (server.port != 0) {
         server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
@@ -1269,7 +1269,7 @@ sds genRedisInfoString(void) {
     getrusage(RUSAGE_CHILDREN, &c_ru);
     getClientsMaxBuffers(&lol,&bib);
 
-    bytesToHuman(hmem,zmalloc_used_memory());
+    bytesToHuman(hmem,z_malloc_used_memory());
     bytesToHuman(peak_hmem,server.stat_peak_memory);
     info = sdscatprintf(sdsempty(),
         "redis_version:%s\r\n"
@@ -1339,12 +1339,12 @@ sds genRedisInfoString(void) {
         listLength(server.slaves),
         lol, bib,
         server.bpop_blocked_clients,
-        zmalloc_used_memory(),
+        z_malloc_used_memory(),
         hmem,
-        zmalloc_get_rss(),
+        z_malloc_get_rss(),
         server.stat_peak_memory,
         peak_hmem,
-        zmalloc_get_fragmentation_ratio(),
+        z_malloc_get_fragmentation_ratio(),
         ZMALLOC_LIB,
         server.loading,
         server.appendonly,
