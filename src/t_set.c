@@ -81,7 +81,7 @@ int setTypeIsMember(robj *subject, robj *value) {
 }
 
 setTypeIterator *setTypeInitIterator(robj *subject) {
-    setTypeIterator *si = zmalloc(sizeof(setTypeIterator));
+    setTypeIterator *si = z_malloc(sizeof(setTypeIterator));
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == REDIS_ENCODING_HT) {
@@ -97,7 +97,7 @@ setTypeIterator *setTypeInitIterator(robj *subject) {
 void setTypeReleaseIterator(setTypeIterator *si) {
     if (si->encoding == REDIS_ENCODING_HT)
         dictReleaseIterator(si->di);
-    zfree(si);
+    z_free(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -209,7 +209,7 @@ void setTypeConvert(robj *setobj, int enc) {
         setTypeReleaseIterator(si);
 
         setobj->encoding = REDIS_ENCODING_HT;
-        zfree(setobj->ptr);
+        z_free(setobj->ptr);
         setobj->ptr = d;
     } else {
         redisPanic("Unsupported set conversion");
@@ -381,7 +381,7 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
 }
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    robj **sets = z_malloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *eleobj, *dstset = NULL;
     int64_t intobj;
@@ -394,7 +394,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
             lookupKeyWrite(c->db,setkeys[j]) :
             lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            zfree(sets);
+            z_free(sets);
             if (dstkey) {
                 if (dbDelete(c->db,dstkey)) {
                     signalModifiedKey(c->db,dstkey);
@@ -407,7 +407,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
             return;
         }
         if (checkType(c,setobj,REDIS_SET)) {
-            zfree(sets);
+            z_free(sets);
             return;
         }
         sets[j] = setobj;
@@ -507,7 +507,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     } else {
         setDeferredMultiBulkLength(c,replylen,cardinality);
     }
-    zfree(sets);
+    z_free(sets);
 }
 
 void sinterCommand(redisClient *c) {
@@ -523,7 +523,7 @@ void sinterstoreCommand(redisClient *c) {
 #define REDIS_OP_INTER 2
 
 void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *dstkey, int op) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    robj **sets = z_malloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
@@ -537,7 +537,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
             continue;
         }
         if (checkType(c,setobj,REDIS_SET)) {
-            zfree(sets);
+            z_free(sets);
             return;
         }
         sets[j] = setobj;
@@ -597,7 +597,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
     }
-    zfree(sets);
+    z_free(sets);
 }
 
 void sunionCommand(redisClient *c) {

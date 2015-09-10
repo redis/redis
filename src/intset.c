@@ -63,7 +63,7 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
 
 /* Create an empty intset. */
 intset *intsetNew(void) {
-    intset *is = zmalloc(sizeof(intset));
+    intset *is = z_malloc(sizeof(intset));
     is->encoding = INTSET_ENC_INT16;
     is->length = 0;
     return is;
@@ -72,7 +72,7 @@ intset *intsetNew(void) {
 /* Resize the intset */
 static intset *intsetResize(intset *is, uint32_t len) {
     uint32_t size = len*is->encoding;
-    is = zrealloc(is,sizeof(intset)+size);
+    is = z_realloc(is,sizeof(intset)+size);
     return is;
 }
 

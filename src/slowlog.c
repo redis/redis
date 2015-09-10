@@ -15,12 +15,12 @@
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
 slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
-    slowlogEntry *se = zmalloc(sizeof(*se));
+    slowlogEntry *se = z_malloc(sizeof(*se));
     int j, slargc = argc;
 
     if (slargc > SLOWLOG_ENTRY_MAX_ARGC) slargc = SLOWLOG_ENTRY_MAX_ARGC;
     se->argc = slargc;
-    se->argv = zmalloc(sizeof(robj*)*slargc);
+    se->argv = z_malloc(sizeof(robj*)*slargc);
     for (j = 0; j < slargc; j++) {
         /* Logging too many arguments is a useless memory waste, so we stop
          * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
@@ -63,8 +63,8 @@ void slowlogFreeEntry(void *septr) {
 
     for (j = 0; j < se->argc; j++)
         decrRefCount(se->argv[j]);
-    zfree(se->argv);
-    zfree(se);
+    z_free(se->argv);
+    z_free(se);
 }
 
 /* Initialize the slow log. This function should be called a single time

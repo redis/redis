@@ -8,7 +8,7 @@ void freePubsubPattern(void *p) {
     pubsubPattern *pat = p;
 
     decrRefCount(pat->pattern);
-    zfree(pat);
+    z_free(pat);
 }
 
 int listMatchPubsubPattern(void *a, void *b) {
@@ -97,7 +97,7 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
         pubsubPattern *pat;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
-        pat = zmalloc(sizeof(*pat));
+        pat = z_malloc(sizeof(*pat));
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
         listAddNodeTail(server.pubsub_patterns,pat);

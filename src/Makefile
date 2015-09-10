@@ -49,20 +49,65 @@ endif
 ifeq ($(USE_JEMALLOC),yes)
   ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
   ALLOC_LINK=$(ALLOC_DEP) -ldl
-  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+  ALLOC_FLAGS=-DUSE_JEMALLOC
+    ifdef JEMALLOC_SHARED
+      ALLOC_DEP=
+      ALLOC_LINK=-ljemalloc
+      ALLOC_FLAGS=-DUSE_JEMALLOC -I$(SYSROOT)/usr/include
+    else
+      ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
+      ALLOC_LINK=$(ALLOC_DEP) -ldl
+      ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+    endif
+endif
+
+HIREDIS_DEP=../deps/hiredis/libhiredis.a
+HIREDIS_LINK=$(HIREDIS_DEP) -ldl
+HIREDIS_FLAGS=
+ifdef HIREDIS_SHARED
+  HIREDIS_DEP=
+  HIREDIS_LINK=-lhiredis
+  HIREDIS_FLAGS=-I$(SYSROOT)/usr/include
+else
+  HIREDIS_DEP=../deps/hiredis/libhiredis.a
+  HIREDIS_LINK=$(HIREDIS_DEP) -ldl
+  HIREDIS_FLAGS=-I../deps/hiredis
 endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
-PREFIX?=/usr/local
-INSTALL_BIN= $(PREFIX)/bin
+PREFIX?= /usr/local
+INSTALL_LIB= $(DESTDIR)$(PREFIX)/lib
+INSTALL_BIN= $(DESTDIR)$(PREFIX)/bin
 INSTALL= cp -pf
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o slowlog.o bio.o memtest.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o \
+ pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o \
+ db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o \
+ config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o \
+ slowlog.o bio.o memtest.o
+
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o ae.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 CHECKAOFOBJ = redis-check-aof.o
+LIBOBJ = ae.o zmalloc.o
+
+LIBNAME=libredis-async
+API_VERSION = 2
+MINOR_VERSION = 4
+PATCH_VERSION = 1
+
+FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
+
+# LIBOBJ contains what is needed for async client
+STATIC = $(LIBNAME).a
+SHARED = $(LIBNAME).so.$(FULL_VERSION)
+SONAME = $(LIBNAME).so.$(API_VERSION)
+LDNAME = $(LIBNAME).so
+
+# don't eneable unless you want to use polling
+#AEP_FLAGS = -DHAVE_EPOLL 
 
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
@@ -70,7 +115,7 @@ CLIPRGNAME = redis-cli
 CHECKDUMPPRGNAME = redis-check-dump
 CHECKAOFPRGNAME = redis-check-aof
 
-all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
+all: static redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
@@ -159,18 +204,18 @@ dependencies:
 	@cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-benchmark.o:
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(HIREDIS_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
 	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) $(CCLINK) $(ALLOC_LINK) $(HIREDIS_LINK)
 
 redis-cli.o:
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(HIREDIS_FLAGS) -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
-	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK) $(HIREDIS_LINK)
 
 redis-check-dump.o:
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
@@ -187,13 +232,24 @@ redis-check-aof: $(CHECKAOFOBJ)
 redis-server: $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
 
+static: $(STATIC) $(SHARED)
+
+$(LIBOBJ) : %.o : %.c %.h
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(AEP_FLAGS) -fPIC $<
+
+$(STATIC) : $(LIBOBJ)
+	ar rcs $@ $(LIBOBJ)
+
+$(SHARED) : $(LIBOBJ)
+	$(QUIET_LINK)$(CC) $(LIBOBJ) -shared -Wl,-soname,$(SONAME) -o $@
+
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object.
 %.o: %.c $(ALLOC_DEP)
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(STATIC) $(SHARED) $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 distclean: clean
 	-(cd .. && $(MAKE) clean)
@@ -230,8 +286,10 @@ noopt:
 
 install: all
 	mkdir -p $(INSTALL_BIN)
+	mkdir -p $(INSTALL_LIB)
 	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) -t $(INSTALL_LIB) $(STATIC) $(SHARED)
