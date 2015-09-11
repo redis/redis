@@ -57,6 +57,8 @@
 
 using namespace std;
 
+#define IFFAILTHROW(a,m) if(!(a)) { throw std::system_error(GetLastError(), system_category(), m); }
+
 #define MAX_GLOBAL_DATA 10000
 struct QForkBeginInfo {
     BYTE globalData[MAX_GLOBAL_DATA];
@@ -264,24 +266,33 @@ bool ReportSpecialSystemErrors(int error) {
 }
 
 BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
+    SmartHandle shParent;
+    SmartHandle shMMFile;
+    SmartFileView<QForkControl> sfvParentQForkControl;
+    SmartHandle dupHeapFileHandle;
+    SmartHandle dupOperationComplete;
+    SmartHandle dupOperationFailed;
+
     try {
-        SmartHandle shParent( 
+        shParent.Assign( 
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
-        SmartHandle shMMFile(shParent, QForkConrolMemoryMapHandle);
-        SmartFileView<QForkControl> sfvParentQForkControl(
+        shMMFile.Assign(shParent, QForkConrolMemoryMapHandle);
+        sfvParentQForkControl.Assign(
             shMMFile, 
             FILE_MAP_COPY, 
             string("Could not map view of QForkControl in child. Is system swap file large enough?"));
         g_pQForkControl = sfvParentQForkControl;
 
         // duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
-        SmartHandle dupHeapFileHandle(shParent, sfvParentQForkControl->heapMemoryMapFile);
+        dupHeapFileHandle.Assign(shParent, sfvParentQForkControl->heapMemoryMapFile);
         g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
-        SmartHandle dupOperationComplete(shParent, sfvParentQForkControl->operationComplete);
+        
+        dupOperationComplete.Assign(shParent, sfvParentQForkControl->operationComplete);
         g_pQForkControl->operationComplete = dupOperationComplete;
-        SmartHandle dupOperationFailed(shParent, sfvParentQForkControl->operationFailed);
+        
+        dupOperationFailed.Assign(shParent, sfvParentQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
 
        // create section handle on MM file
@@ -304,14 +315,14 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             g_pQForkControl->heapMemoryMap,
             FILE_MAP_COPY,
             0, 0, 
-            cAllocationGranularity, // Only map a portion of the heap . Deal with the unmapped pages with a VEH.
+            cAllocationGranularity, // Only map a portion of the heap. Deal with the unmapped pages with a VEH.
             g_pQForkControl->heapStart,
-            string("Could not map heap in forked process. Is system swap file large enough?"));
+            string("Could not map heap in forked process. Is system paging file large enough?"));
 
         // setup DLMalloc global data
-        if( SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-            throw std::runtime_error("DLMalloc global state copy failed.");
-        }
+       if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
+           throw std::runtime_error("DLMalloc global state copy failed.");
+       }
 
         // copy redis globals into fork process
         SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize, g_pQForkControl->globalData.dictHashSeed);
@@ -434,24 +445,14 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             PAGE_READWRITE,
             0, sizeof(QForkControl),
             NULL);
-        if (g_hQForkControlFileMap == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFileMapping failed");
-        }
+        IFFAILTHROW(g_hQForkControlFileMap, "QForkMasterInit: CreateFileMapping failed");
 
         g_pQForkControl = (QForkControl*)MapViewOfFile(
             g_hQForkControlFileMap, 
             FILE_MAP_ALL_ACCESS,
             0, 0,
             0);
-        if (g_pQForkControl == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "MapViewOfFile failed");
-        }
+        IFFAILTHROW(g_pQForkControl, "QForkMasterInit: MapViewOfFile failed");
 
         // This must be called only once per process! Calling it more times than that will not recreate existing 
         // section, and dlmalloc will ultimately fail with an access violation. Once is good.
@@ -534,12 +535,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
 #endif
                 LODWORD(mmSize),
                 NULL);
-        if (g_pQForkControl->heapMemoryMap == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFileMapping failed.");
-        }
+        IFFAILTHROW(g_pQForkControl->heapMemoryMap, "CreateFileMapping failed.");
             
         // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
         // to be available in the forked process.  (If this ever fails in the forked process, we will have to launch
@@ -550,18 +546,9 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             mmSize,
             MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
             PAGE_READWRITE);
-        if (pHigh == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "VirtualAllocEx failed.");
-        }
-        if (VirtualFree(pHigh, 0, MEM_RELEASE) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "VirtualFree failed.");
-        }
+        IFFAILTHROW(pHigh, "QForkMasterInit: VirtualAllocEx failed.");
+
+        IFFAILTHROW(VirtualFree(pHigh, 0, MEM_RELEASE), "QForkMasterInit: VirtualFree failed.");
 
         g_pQForkControl->heapStart = 
             MapViewOfFileEx(
@@ -570,12 +557,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 0,0,                            
                 0,  
                 pHigh);
-        if (g_pQForkControl->heapStart == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "MapViewOfFileEx failed.");
-        }
+        IFFAILTHROW(g_pQForkControl->heapStart, "MapViewOfFileEx failed.");
 
         for (int n = 0; n < cMaxBlocks; n++) {
             g_pQForkControl->heapBlockMap[n] = 
@@ -585,19 +567,10 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
 
         g_pQForkControl->typeOfOperation = OperationType::otINVALID;
         g_pQForkControl->operationComplete = CreateEvent(NULL,TRUE,FALSE,NULL);
-        if (g_pQForkControl->operationComplete == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
-        }
+        IFFAILTHROW(g_pQForkControl->operationComplete, "QForkMasterInit: CreateEvent failed.");
+
         g_pQForkControl->operationFailed = CreateEvent(NULL,TRUE,FALSE,NULL);
-        if (g_pQForkControl->operationFailed == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
-        }
+        IFFAILTHROW(g_pQForkControl->operationFailed, "QForkMasterInit: CreateEvent failed.");
 
         return TRUE;
     }
@@ -843,7 +816,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
         throw std::system_error(
             GetLastError(),
             system_category(),
-            "BeginForkOperation: VirtualProtect failed for the fork control map");
+            "CopyForkOperationData: VirtualProtect failed for the fork control map");
     }
 
     // TODO: VirtualProtec randomly fails while running the cluster tests, 
@@ -864,79 +837,55 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
                 throw std::system_error(
                     GetLastError(),
                     system_category(),
-                    "BeginForkOperation: VirtualProtect failed for the heap");
+                    "CopyForkOperationData: VirtualProtect failed for the heap");
             }
-            redisLog(REDIS_DEBUG, "BeginForkOperation: VirtualProtect failed for the heap, retrying in 100ms.");
+            redisLog(REDIS_DEBUG, "CopyForkOperationData: VirtualProtect failed for the heap, retrying in 100ms.");
             Sleep(100);
         }
     }
 }
 
-void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreationFlags = 0) {
+void CreateChildProcess(PROCESS_INFORMATION *pi, DWORD dwCreationFlags = 0) {
     // ensure events are in the correst state
-    if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
-        throw std::system_error(
-            GetLastError(),
-            system_category(), 
-            "BeginForkOperation: ResetEvent() failed.");
-    }
-    if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
-        throw std::system_error(
-            GetLastError(),
-            system_category(), 
-            "BeginForkOperation: ResetEvent() failed.");
-    }
+    IFFAILTHROW(ResetEvent(g_pQForkControl->operationComplete), "CreateChildProcess: ResetEvent() failed.");
+    IFFAILTHROW(ResetEvent(g_pQForkControl->operationFailed), "CreateChildProcess: ResetEvent() failed.");
 
     // Launch the "forked" process
     char fileName[MAX_PATH];
-    if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "Failed to get module name.");
-    }
+    IFFAILTHROW(GetModuleFileNameA(NULL, fileName, MAX_PATH), "Failed to get module name.");
 
     STARTUPINFOA si;
-    memset(&si,0, sizeof(STARTUPINFOA));
+    memset(&si, 0, sizeof(STARTUPINFOA));
     si.cb = sizeof(STARTUPINFOA);
     char arguments[_MAX_PATH];
-    memset(arguments,0,_MAX_PATH);
-    sprintf_s(
-        arguments,
-        _MAX_PATH,
-        "\"%s\" --%s %llu %lu --%s \"%s\"",
-        fileName,
-        cQFork.c_str(),
-        (uint64_t)g_hQForkControlFileMap,
-        GetCurrentProcessId(),
-        cLogfile.c_str(),
-        (logfile != NULL && logfile[0] != '\0') ? logfile : "stdout");
-    
-    if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, dwCreationFlags, NULL, NULL, &si, pi)) {
-        throw system_error( 
-            GetLastError(),
-            system_category(),
-            "Problem creating child process" );
+    memset(arguments, 0, _MAX_PATH);
+
+    const char *logfile = getLogFile();
+    if (logfile == NULL || logfile[0] == '\0') {
+        logfile = "stdout";
     }
+    sprintf_s(arguments, _MAX_PATH, "\"%s\" --%s %llu %lu --%s \"%s\"", fileName, cQFork.c_str(), (uint64_t) g_hQForkControlFileMap, GetCurrentProcessId(), cLogfile.c_str(), logfile);
+
+    IFFAILTHROW(CreateProcessA(fileName, arguments, NULL, NULL, TRUE, dwCreationFlags, NULL, NULL, &si, pi), "Problem creating slave process");
     g_hForkedProcess = pi->hProcess;
 }
 
 typedef void (*CHILD_PID_HOOK)(DWORD pid);
 
-pid_t BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, uint32_t dictHashSeed, char* logfile, CHILD_PID_HOOK pidHook = NULL) {
+pid_t BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, uint32_t dictHashSeed) {
     PROCESS_INFORMATION pi;
     try {
         pi.hProcess = INVALID_HANDLE_VALUE;
         pi.dwProcessId = -1;
 
-        if (pidHook != NULL) {
-            CreateChildProcess(&pi, logfile, CREATE_SUSPENDED);
-            pidHook(pi.dwProcessId);
+        if (type == OperationType::otSocket) {
+            CreateChildProcess(&pi, CREATE_SUSPENDED);
+            BeginForkOperation_Socket_Duplicate(pi.dwProcessId);
             CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
             ResumeThread(pi.hThread);
         } else {
             CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
-            CreateChildProcess(&pi, logfile, 0);
+            CreateChildProcess(&pi, 0);
         }
 
         CloseHandle(pi.hThread);
@@ -962,11 +911,10 @@ pid_t BeginForkOperation_Rdb(
     char *filename,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile)
+    unsigned __int32 dictHashSeed)
 {
     strcpy_s(g_pQForkControl->globalData.filename, filename);
-    return BeginForkOperation(otRDB, globalData, sizeOfGlobalData, dictHashSeed, logfile);
+    return BeginForkOperation(otRDB, globalData, sizeOfGlobalData, dictHashSeed);
 }
 
 pid_t BeginForkOperation_Aof(
@@ -976,8 +924,7 @@ pid_t BeginForkOperation_Aof(
     char *filename,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile)
+    unsigned __int32 dictHashSeed)
 {
     HANDLE aof_pipe_write_ack_handle = (HANDLE) FDAPI_get_osfhandle(aof_pipe_write_ack_to_parent);
     HANDLE aof_pipe_read_ack_handle  = (HANDLE) FDAPI_get_osfhandle(aof_pipe_read_ack_from_parent);
@@ -989,10 +936,10 @@ pid_t BeginForkOperation_Aof(
     g_pQForkControl->globalData.aof_pipe_read_data_handle = (aof_pipe_read_data_handle);
 
     strcpy_s(g_pQForkControl->globalData.filename, filename);
-    return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, dictHashSeed, logfile);
+    return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, dictHashSeed);
 }
 
-void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
+void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId) {
     WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*)dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
     g_pQForkControl->globalData.protocolInfo = protocolInfo;
     for(int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
@@ -1007,8 +954,7 @@ pid_t BeginForkOperation_Socket(
     int pipe_write_fd,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile)
+    unsigned __int32 dictHashSeed)
 {
     g_pQForkControl->globalData.fds = fds;
     g_pQForkControl->globalData.numfds = numfds;
@@ -1019,12 +965,7 @@ pid_t BeginForkOperation_Socket(
     // The handle is already inheritable so there is no need to duplicate it
     g_pQForkControl->globalData.pipe_write_handle = (pipe_write_handle);
 
-    return BeginForkOperation(otSocket,
-                              globalData,
-                              sizeOfGlobalData,
-                              dictHashSeed,
-                              logfile,
-                              BeginForkOperation_Socket_PidHook);
+    return BeginForkOperation(otSocket, globalData, sizeOfGlobalData, dictHashSeed);
 }
 
 OperationStatus GetForkOperationStatus() {
@@ -1060,12 +1001,7 @@ BOOL AbortForkOperation()
     try {
         if( g_hForkedProcess != 0 )
         {
-            if (TerminateProcess(g_hForkedProcess, 1) == FALSE) {
-                throw std::system_error(
-                    GetLastError(),
-                    system_category(),
-                    "EndForkOperation: Killing forked process failed.");
-            }
+            IFFAILTHROW(TerminateProcess(g_hForkedProcess, 1), "EndForkOperation: Killing forked process failed.");
             CloseHandle(g_hForkedProcess);
             g_hForkedProcess = 0;
         }
@@ -1074,7 +1010,6 @@ BOOL AbortForkOperation()
     }
     catch(std::system_error syserr) {
         ::redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
-
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
     }
@@ -1129,12 +1064,8 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
     {
         // Prior to Win8 unmapping the view was the only way to discard the COW pages from the view. Unfortunately this forces
         // the view to be completely flushed to disk, which is a bit inefficient.
-        if (UnmapViewOfFile(mmStart) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "RejoinCOWPages: UnmapViewOfFile failed.");
-        }
+        IFFAILTHROW(UnmapViewOfFile(mmStart), "RejoinCOWPages: UnmapViewOfFile failed.");
+
         // There is a race condition here. Something could map into the virtual address space used by the heap at the moment 
         // we are discarding local changes. There is nothing to do but report the problem and exit. This problem does not 
         // exist with the code above in Win8+ as the view is never unmapped.
@@ -1159,12 +1090,7 @@ BOOL EndForkOperation(int * pExitCode) {
         if( g_hForkedProcess != 0 )
         {
             if (WaitForSingleObject(g_hForkedProcess, cDeadForkWait) == WAIT_TIMEOUT) {
-                if (TerminateProcess(g_hForkedProcess, 1) == FALSE) {
-                    throw std::system_error(
-                        GetLastError(),
-                        system_category(),
-                        "EndForkOperation: Killing forked process failed.");
-                }
+                IFFAILTHROW(TerminateProcess(g_hForkedProcess, 1), "EndForkOperation: Killing forked process failed.");
             }
 
             if (pExitCode != NULL) {
@@ -1175,18 +1101,8 @@ BOOL EndForkOperation(int * pExitCode) {
             g_hForkedProcess = 0;
         }
 
-        if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(), 
-                "EndForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(), 
-                "EndForkOperation: ResetEvent() failed.");
-        }
+        IFFAILTHROW(ResetEvent(g_pQForkControl->operationComplete), "EndForkOperation: ResetEvent() failed.");
+        IFFAILTHROW(ResetEvent(g_pQForkControl->operationFailed), "EndForkOperation: ResetEvent() failed.");
 
         // move local changes back into memory mapped views for next fork operation
         RejoinCOWPages(

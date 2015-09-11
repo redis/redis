@@ -54,8 +54,7 @@ pid_t BeginForkOperation_Rdb(
     char* fileName,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile);
+    unsigned __int32 dictHashSeed);
 
 pid_t BeginForkOperation_Aof(
     int aof_pipe_write_ack_to_parent,
@@ -64,8 +63,7 @@ pid_t BeginForkOperation_Aof(
     char* fileName,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile);
+    unsigned __int32 dictHashSeed);
 
 pid_t BeginForkOperation_Socket(
     int *fds,
@@ -74,8 +72,9 @@ pid_t BeginForkOperation_Socket(
     int pipe_write_fd,
     LPVOID globalData,
     int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed,
-    char* logfile);
+    unsigned __int32 dictHashSeed);
+
+void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId);
 
 OperationStatus GetForkOperationStatus();
 BOOL EndForkOperation(int * pExitCode); 

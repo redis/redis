@@ -43,6 +43,7 @@ void setSyslogEnabled(int flag);
 void setSyslogIdent(const char* ident);
 void setLogVerbosityLevel(int level);
 void setLogFile (const char* logFileName);
+const char* getLogFile();
 void redisLogRaw(int level, const char *msg);
 void redisLog(int level, const char *fmt, ...);
 void redisLogFromHandler(int level, const char *msg);

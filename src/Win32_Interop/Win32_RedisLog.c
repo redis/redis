@@ -40,6 +40,7 @@ static int syslogEnabled = 0;
 static char syslogIdent[MAX_PATH];
 static HANDLE hLogFile = INVALID_HANDLE_VALUE;
 static int isStdout = 0;
+static char* logFile = NULL;
 
 void setSyslogEnabled(int flag) {
     syslogEnabled = flag;
@@ -54,11 +55,27 @@ void setLogVerbosityLevel(int level)
     verbosity = level;
 }
 
+const char * getLogFile() {
+    return logFile;
+}
+
 /* We keep the file handle open to improve performance.
 * This assumes that calls to redisLog and setLogFile will not happen concurrently.
 */
 void setLogFile(const char* logFileName)
 {
+    if (logFile != NULL) {
+        free((void*) logFile);
+        logFile = NULL;
+    }
+    logFile = (char*) malloc(strlen(logFileName) + 1);
+    if (logFile == NULL) {
+        redisLog(REDIS_WARNING, "memory allocation failure");
+        return;
+    }
+    memset(logFile, 0, strlen(logFileName) + 1);
+    strcpy(logFile, logFileName);
+
     if (hLogFile != INVALID_HANDLE_VALUE) {
         if (!isStdout) CloseHandle(hLogFile);
         hLogFile = INVALID_HANDLE_VALUE;

@@ -48,35 +48,63 @@ private:
     HANDLE m_handle;
 
 public:
-	SmartHandle() {
-		m_handle = NULL;
-	}
+    HANDLE Assign(HANDLE h)
+    {
+        Close();
+        m_handle = h;
+        if (Invalid())
+            throw std::runtime_error("invalid handle passed to constructor");
+        return h;
+    }
 
-	SmartHandle( HANDLE handle )
+    SmartHandle()
+    {
+        m_handle = NULL;
+    }
+
+    SmartHandle(HANDLE handle)
     {
         m_handle = handle;
-        if(Invalid())
+        if (Invalid())
             throw std::runtime_error("invalid handle passed to constructor");
     }
 
-    SmartHandle( HANDLE handle, string errorToReport )
+    HANDLE Assign(HANDLE h, string errorToReport)
     {
+        Close();
+        m_handle = h;
+        if (Invalid())
+            throw std::runtime_error(errorToReport);
+        return h;
+    }
+
+    SmartHandle(HANDLE handle, string errorToReport)
+    {
+        Close();
         m_handle = handle;
-        if(Invalid())
+        if (Invalid())
             throw std::runtime_error(errorToReport);
     }
 
-    SmartHandle( HANDLE parentProcess, HANDLE parentHandleToDuplicate )
+    HANDLE Assign(HANDLE parentProcess, HANDLE parentHandleToDuplicate)
     {
-        if( !DuplicateHandle(parentProcess, parentHandleToDuplicate, GetCurrentProcess(), &m_handle,  0, FALSE, DUPLICATE_SAME_ACCESS) )
+        Close();
+        if (!DuplicateHandle(parentProcess, parentHandleToDuplicate, GetCurrentProcess(), &m_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+            throw std::system_error(GetLastError(), system_category(), "handle duplication failed");
+        return m_handle;
+    }
+
+    SmartHandle(HANDLE parentProcess, HANDLE parentHandleToDuplicate)
+    {
+        if (!DuplicateHandle(parentProcess, parentHandleToDuplicate, GetCurrentProcess(), &m_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
             throw std::system_error(GetLastError(), system_category(), "handle duplication failed");
     }
 
-	operator PHANDLE () {
-		return &m_handle;
-	}
-	
-	operator HANDLE()
+    operator PHANDLE () {
+        return &m_handle;
+    }
+
+    operator HANDLE()
     {
         return m_handle;
     }
@@ -88,12 +116,12 @@ public:
 
     BOOL Invalid()
     {
-        return (m_handle == INVALID_HANDLE_VALUE)  ||  (m_handle == NULL);
+        return (m_handle == INVALID_HANDLE_VALUE) || (m_handle == NULL);
     }
 
     void Close()
     {
-        if( Valid() )
+        if (Valid())
         {
             CloseHandle(m_handle);
             m_handle = INVALID_HANDLE_VALUE;
@@ -123,36 +151,74 @@ public:
         return m_viewPtr;
     }
 
-    SmartFileView( HANDLE fileMapHandle, DWORD desiredAccess, string errorToReport )
+    SmartFileView()
     {
-        m_viewPtr = (T*)MapViewOfFile( fileMapHandle, desiredAccess, 0, 0, sizeof(T) );
-        if(Invalid()) {
+        m_viewPtr = NULL;
+    }
+
+    T* Assign(HANDLE fileMapHandle, DWORD desiredAccess, string errorToReport)
+    {
+        UnmapViewOfFile();
+        m_viewPtr = (T*) MapViewOfFile(fileMapHandle, desiredAccess, 0, 0, sizeof(T));
+        if (Invalid()) {
+            if (IsDebuggerPresent()) DebugBreak();
+            throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
+        }
+        return m_viewPtr;
+    }
+
+    SmartFileView(HANDLE fileMapHandle, DWORD desiredAccess, string errorToReport)
+    {
+        m_viewPtr = (T*) MapViewOfFile(fileMapHandle, desiredAccess, 0, 0, sizeof(T));
+        if (Invalid()) {
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
 
-    SmartFileView( HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, string errorToReport )
+    T* Assign(HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, string errorToReport)
     {
-        m_viewPtr = (T*)MapViewOfFile( fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap );
-        if(Invalid()) {
+        UnmapViewOfFile();
+        m_viewPtr = (T*) MapViewOfFile(fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap);
+        if (Invalid()) {
+            if (IsDebuggerPresent()) DebugBreak();
+            throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
+        }
+        return m_viewPtr;
+    }
+
+    SmartFileView(HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, string errorToReport)
+    {
+        m_viewPtr = (T*) MapViewOfFile(fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap);
+        if (Invalid()) {
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
 
-    SmartFileView( HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, LPVOID baseAddress, string errorToReport )
+    T* Assign(HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, LPVOID baseAddress, string errorToReport)
     {
-        m_viewPtr = (T*)MapViewOfFileEx( fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap, baseAddress );
-        if(Invalid()) {
+        UnmapViewOfFile();
+        m_viewPtr = (T*) MapViewOfFileEx(fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap, baseAddress);
+        if (Invalid()) {
+            if (IsDebuggerPresent()) DebugBreak();
+            throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
+        }
+        return m_viewPtr;
+    }
+
+    SmartFileView(HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, LPVOID baseAddress, string errorToReport)
+    {
+        m_viewPtr = (T*) MapViewOfFileEx(fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap, baseAddress);
+        if (Invalid()) {
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
 
-    void Remap( HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, LPVOID baseAddress, string errorToReport )
+    void Remap(HANDLE fileMapHandle, DWORD desiredAccess, DWORD fileOffsetHigh, DWORD fileOffsetLow, SIZE_T bytesToMap, LPVOID baseAddress, string errorToReport)
     {
-        if( Valid() )
-            throw new invalid_argument( "m_viewPtr still valid" );
-        m_viewPtr = (T*)MapViewOfFileEx( fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap, baseAddress );
-        if(Invalid()) {
+        if (Valid())
+            throw new invalid_argument("m_viewPtr still valid");
+        m_viewPtr = (T*) MapViewOfFileEx(fileMapHandle, desiredAccess, fileOffsetHigh, fileOffsetLow, bytesToMap, baseAddress);
+        if (Invalid()) {
             throw std::system_error(GetLastError(), system_category(), errorToReport.c_str());
         }
     }
@@ -169,10 +235,10 @@ public:
 
     void UnmapViewOfFile()
     {
-        if( m_viewPtr != NULL )
+        if (m_viewPtr != NULL)
         {
-            if( !::UnmapViewOfFile(m_viewPtr) )
-                throw system_error(GetLastError(), system_category(), "UnmapViewOfFile failed" );
+            if (!::UnmapViewOfFile(m_viewPtr))
+                throw system_error(GetLastError(), system_category(), "UnmapViewOfFile failed");
 
             m_viewPtr = NULL;
         }
@@ -180,13 +246,7 @@ public:
 
     ~SmartFileView()
     {
-        if( m_viewPtr != NULL )
-        {
-            if( !::UnmapViewOfFile(m_viewPtr) )
-                throw system_error(GetLastError(), system_category(), "UnmapViewOfFile failed" );
-
-            m_viewPtr = NULL;
-        }
+        UnmapViewOfFile();
     }
 };
 
@@ -202,11 +262,32 @@ public:
         return m_handle;
     }
 
-    SmartFileMapHandle( HANDLE mmFile, DWORD protectionFlags, DWORD maxSizeHigh, DWORD maxSizeLow, string errorToReport )
+    SmartFileMapHandle()
     {
-        m_handle = CreateFileMapping( mmFile, NULL, protectionFlags, maxSizeHigh, maxSizeLow, NULL );
-        if(Invalid())
+        m_handle = INVALID_HANDLE_VALUE;
+    }
+
+    HANDLE Assign(HANDLE mmFile, DWORD protectionFlags, DWORD maxSizeHigh, DWORD maxSizeLow, string errorToReport)
+    {
+        Unmap();
+        m_handle = CreateFileMapping(mmFile, NULL, protectionFlags, maxSizeHigh, maxSizeLow, NULL);
+        if (Invalid()) {
+            if (IsDebuggerPresent()) DebugBreak();
             throw std::system_error(GetLastError(), system_category(), errorToReport);
+        }
+
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        systemAllocationGranularity = si.dwAllocationGranularity;
+        return m_handle;
+    }
+
+    SmartFileMapHandle(HANDLE mmFile, DWORD protectionFlags, DWORD maxSizeHigh, DWORD maxSizeLow, string errorToReport)
+    {
+        m_handle = CreateFileMapping(mmFile, NULL, protectionFlags, maxSizeHigh, maxSizeLow, NULL);
+        if (Invalid()) {
+            throw std::system_error(GetLastError(), system_category(), errorToReport);
+        }
 
         SYSTEM_INFO si;
         GetSystemInfo(&si);
@@ -215,18 +296,18 @@ public:
 
     void Unmap()
     {
-        if( m_handle == NULL || m_handle == INVALID_HANDLE_VALUE )
-            throw std::invalid_argument("m_handle == NULL");
-
-        CloseHandle(m_handle);
+        if (Valid()) {
+            CloseHandle(m_handle);
+        }
         m_handle = NULL;
     }
 
-    void Remap( HANDLE mmFile, DWORD protectionFlags, DWORD maxSizeHigh, DWORD maxSizeLow, string errorToReport )
+    void Remap(HANDLE mmFile, DWORD protectionFlags, DWORD maxSizeHigh, DWORD maxSizeLow, string errorToReport)
     {
-        m_handle = CreateFileMapping( mmFile, NULL, protectionFlags, maxSizeHigh, maxSizeLow, NULL );
-        if(Invalid())
+        m_handle = CreateFileMapping(mmFile, NULL, protectionFlags, maxSizeHigh, maxSizeLow, NULL);
+        if (Invalid()) {
             throw std::system_error(GetLastError(), system_category(), errorToReport);
+        }
     }
 
     BOOL Valid()
@@ -236,7 +317,7 @@ public:
 
     BOOL Invalid()
     {
-        return (m_handle == INVALID_HANDLE_VALUE)  ||  (m_handle == NULL);
+        return (m_handle == INVALID_HANDLE_VALUE) || (m_handle == NULL);
     }
 
     ~SmartFileMapHandle()
@@ -246,7 +327,6 @@ public:
     }
 
 } SmartFileMapHandle;
-
 
 
 typedef class SmartVirtualMemoryPtr
@@ -260,19 +340,19 @@ public:
         return m_ptr;
     }
 
-    SmartVirtualMemoryPtr( LPVOID startAddress, SIZE_T length, string errorToReport )
+    SmartVirtualMemoryPtr(LPVOID startAddress, SIZE_T length, string errorToReport)
     {
-        m_ptr = VirtualAllocEx( GetCurrentProcess(), startAddress, length, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
-        if(Invalid())
+        m_ptr = VirtualAllocEx(GetCurrentProcess(), startAddress, length, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (Invalid())
         {
             throw std::system_error(GetLastError(), system_category(), errorToReport);
         }
     }
 
-    SmartVirtualMemoryPtr( LPVOID startAddress, SIZE_T length, DWORD flAllocationType, DWORD flProtect, string errorToReport )
+    SmartVirtualMemoryPtr(LPVOID startAddress, SIZE_T length, DWORD flAllocationType, DWORD flProtect, string errorToReport)
     {
-        m_ptr = VirtualAllocEx( GetCurrentProcess(), startAddress, length, flAllocationType, flProtect );
-        if(Invalid())
+        m_ptr = VirtualAllocEx(GetCurrentProcess(), startAddress, length, flAllocationType, flProtect);
+        if (Invalid())
         {
             throw std::system_error(GetLastError(), system_category(), errorToReport);
         }
@@ -280,10 +360,10 @@ public:
 
     void Free()
     {
-        if( m_ptr != NULL )
+        if (m_ptr != NULL)
         {
-            if( !VirtualFree(m_ptr,0, MEM_RELEASE) )
-                throw system_error(GetLastError(),  system_category(), "VirtualFree failed" );
+            if (!VirtualFree(m_ptr, 0, MEM_RELEASE))
+                throw system_error(GetLastError(), system_category(), "VirtualFree failed");
 
             m_ptr = NULL;
         }
@@ -309,83 +389,83 @@ public:
 typedef class SmartServiceHandle
 {
 private:
-	SC_HANDLE m_handle;
+    SC_HANDLE m_handle;
 
 public:
-	operator SC_HANDLE()
-	{
-		return m_handle;
-	}
+    operator SC_HANDLE()
+    {
+        return m_handle;
+    }
 
-	SmartServiceHandle & operator= (const SC_HANDLE handle)
-	{
-		m_handle = handle;
-		return *this;
-	}
+    SmartServiceHandle & operator= (const SC_HANDLE handle)
+    {
+        m_handle = handle;
+        return *this;
+    }
 
-	SmartServiceHandle()
-	{
-		m_handle = NULL;
-	}
+    SmartServiceHandle()
+    {
+        m_handle = NULL;
+    }
 
-	SmartServiceHandle(const SC_HANDLE handle)
-	{
-		m_handle = handle;
-	}
+    SmartServiceHandle(const SC_HANDLE handle)
+    {
+        m_handle = handle;
+    }
 
-	BOOL Valid()
-	{
-		return (m_handle != NULL);
-	}
+    BOOL Valid()
+    {
+        return (m_handle != NULL);
+    }
 
-	BOOL Invalid()
-	{
-		return (m_handle == NULL);
-	}
+    BOOL Invalid()
+    {
+        return (m_handle == NULL);
+    }
 
-	~SmartServiceHandle()
-	{
-		CloseServiceHandle(m_handle);
-		m_handle = NULL;
-	}
+    ~SmartServiceHandle()
+    {
+        CloseServiceHandle(m_handle);
+        m_handle = NULL;
+    }
 } SmartServiceHandle;
 
 typedef class SmartRegistryHandle {
 private:
-	HKEY m_handle;
+    HKEY m_handle;
 
 public:
-	operator HKEY() {
-		return m_handle;
-	}
+    operator HKEY() {
+        return m_handle;
+    }
 
-	operator HKEY* () {
-		return &m_handle;
-	}
+    operator HKEY* () {
+        return &m_handle;
+    }
 
-	SmartRegistryHandle & operator= (const HKEY handle) {
-		m_handle = handle;
-		return *this;
-	}
+    SmartRegistryHandle & operator= (const HKEY handle) {
+        m_handle = handle;
+        return *this;
+    }
 
-	SmartRegistryHandle() {
-		m_handle = NULL;
-	}
+    SmartRegistryHandle() {
+        m_handle = NULL;
+    }
 
-	SmartRegistryHandle(const HKEY handle) {
-		m_handle = handle;
-	}
+    SmartRegistryHandle(const HKEY handle) {
+        m_handle = handle;
+    }
 
-	BOOL Valid() {
-		return (m_handle != NULL);
-	}
+    BOOL Valid() {
+        return (m_handle != NULL);
+    }
 
-	BOOL Invalid() {
-		return (m_handle == NULL);
-	}
+    BOOL Invalid() {
+        return (m_handle == NULL);
+    }
 
-	~SmartRegistryHandle() {
-		RegCloseKey(m_handle);
-		m_handle = NULL;
-	}
+    ~SmartRegistryHandle() {
+        RegCloseKey(m_handle);
+        m_handle = NULL;
+    }
 } SmartRegistryHandle;
