@@ -608,6 +608,9 @@ class RedisTrib
         # all nodes will be used.
         assignment_verbose = false
 
+        # Reverse remaining slaves for more even distribution
+        interleaved = interleaved.reverse()
+
         [:requested,:unused].each do |assign|
             masters.each do |m|
                 assigned_replicas = 0
