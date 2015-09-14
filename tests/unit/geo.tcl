@@ -64,6 +64,11 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 2 DESC
     } {{wtc one} q4}
 
+    test {GEORADIUS HUGE, issue #2767} {
+        r geoadd users -47.271613776683807 -54.534504198047678 user_000000
+        llength [r GEORADIUS users 0 0 50000 km WITHCOORD]
+    } {1}
+
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
     } {{wtc one} {union square} {central park n/q/r} 4545 {lic market}}

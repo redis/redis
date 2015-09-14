@@ -319,7 +319,7 @@ int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, 
 /* Search all eight neighbors + self geohash box */
 int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoArray *ga) {
     GeoHashBits neighbors[9];
-    unsigned int i, count = 0;
+    unsigned int i, count = 0, last_processed = 0;
 
     neighbors[0] = n.hash;
     neighbors[1] = n.neighbors.north;
@@ -336,7 +336,17 @@ int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, d
     for (i = 0; i < sizeof(neighbors) / sizeof(*neighbors); i++) {
         if (HASHISZERO(neighbors[i]))
             continue;
+
+        /* When a huge Radius (in the 5000 km range or more) is used,
+         * adjacent neighbors can be the same, leading to duplicated
+         * elements. Skip every range which is the same as the one
+         * processed previously. */
+        if (last_processed &&
+            neighbors[i].bits == neighbors[last_processed].bits &&
+            neighbors[i].step == neighbors[last_processed].step)
+            continue;
         count += membersOfGeoHashBox(zobj, neighbors[i], ga, lon, lat, radius);
+        last_processed = i;
     }
     return count;
 }
