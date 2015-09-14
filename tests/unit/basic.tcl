@@ -433,6 +433,19 @@ start_server {tags {"basic"}} {
         set e
     } {*ERR*index out of range}
 
+    test {MOVE can move key expire metadata as well} {
+        r select 10
+        r flushdb
+        r select 9
+        r set mykey foo ex 100
+        r move mykey 10
+        assert {[r ttl mykey] == -2}
+        r select 10
+        assert {[r ttl mykey] > 0 && [r ttl mykey] <= 100}
+        assert {[r get mykey] eq "foo"}
+        r select 9
+    }
+
     test {SET/GET keys in different DBs} {
         r set a hello
         r set b world
