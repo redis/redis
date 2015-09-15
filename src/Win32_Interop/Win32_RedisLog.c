@@ -40,7 +40,7 @@ static int syslogEnabled = 0;
 static char syslogIdent[MAX_PATH];
 static HANDLE hLogFile = INVALID_HANDLE_VALUE;
 static int isStdout = 0;
-static char* logFile = NULL;
+static char* logFilename = NULL;
 
 void setSyslogEnabled(int flag) {
     syslogEnabled = flag;
@@ -55,33 +55,37 @@ void setLogVerbosityLevel(int level)
     verbosity = level;
 }
 
-const char * getLogFile() {
-    return logFile;
+const char* getLogFilename() {
+    if (logFilename == NULL || logFilename[0] == '\0') {
+        return "stdout";
+    } else {
+        return logFilename;
+    }
 }
 
 /* We keep the file handle open to improve performance.
 * This assumes that calls to redisLog and setLogFile will not happen concurrently.
 */
-void setLogFile(const char* logFileName)
+void setLogFilename(const char* filename)
 {
-    if (logFile != NULL) {
-        free((void*) logFile);
-        logFile = NULL;
+    if (logFilename != NULL) {
+        free((void*) logFilename);
+        logFilename = NULL;
     }
-    logFile = (char*) malloc(strlen(logFileName) + 1);
-    if (logFile == NULL) {
+    logFilename = (char*) malloc(strlen(filename) + 1);
+    if (logFilename == NULL) {
         redisLog(REDIS_WARNING, "memory allocation failure");
         return;
     }
-    memset(logFile, 0, strlen(logFileName) + 1);
-    strcpy(logFile, logFileName);
+    memset(logFilename, 0, strlen(filename) + 1);
+    strcpy(logFilename, filename);
 
     if (hLogFile != INVALID_HANDLE_VALUE) {
         if (!isStdout) CloseHandle(hLogFile);
         hLogFile = INVALID_HANDLE_VALUE;
     }
 
-    if (logFileName == NULL || (logFileName[0] == '\0') || (_stricmp(logFileName, "stdout") == 0)) {
+    if (filename == NULL || (filename[0] == '\0') || (_stricmp(filename, "stdout") == 0)) {
         hLogFile = GetStdHandle(STD_OUTPUT_HANDLE);
         isStdout = 1;
     }
@@ -91,9 +95,9 @@ void setLogFile(const char* logFileName)
         wchar_t *widePath;
 
         /* Convert the path from ansi to unicode, to support paths longer than MAX_PATH */
-        if ((len = MultiByteToWideChar(codePage, 0, logFileName, -1, 0, 0)) == 0) return;
+        if ((len = MultiByteToWideChar(codePage, 0, filename, -1, 0, 0)) == 0) return;
         if ((widePath = (wchar_t*)malloc(len * sizeof(wchar_t))) == NULL) return;
-        if (MultiByteToWideChar(codePage, 0, logFileName, -1, widePath, len) == 0) {
+        if (MultiByteToWideChar(codePage, 0, filename, -1, widePath, len) == 0) {
             free(widePath);
             return;
         }
@@ -113,7 +117,7 @@ void setLogFile(const char* logFileName)
             LPSTR messageBuffer = NULL;
             FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                 NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
-            fprintf(stderr, "Could not open logfile %s: %s\n", logFileName, messageBuffer);
+            fprintf(stderr, "Could not open logfile %s: %s\n", filename, messageBuffer);
             LocalFree(messageBuffer);
         }
 

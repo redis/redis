@@ -25,7 +25,6 @@
 
 #include "Win32_variadicFunctor.h"
 #include "Win32_CommandLine.h"
-#include "Win32_FDAPI.h"
 
 // Win32_FDAPI.h includes modified winsock definitions that are useful in BindParam below. It
 // also redefines the CRT close(FD) call as a macro. This conflicts with the fstream close 
@@ -270,7 +269,6 @@ public:
 
 } BindParams;
 
-
 static BindParams bp = BindParams();
 
 typedef class SentinelParams : public  ParamExtractor {
@@ -351,7 +349,7 @@ static SentinelParams sp = SentinelParams();
 static RedisParamterMapper g_redisArgMap =
 {
     // QFork flags
-    { cQFork,                           &fp2 },    // qfork [QForkConrolMemoryMap handle] [parent process id]
+    { cQFork,                           &fp2 },    // qfork [QForkControlMemoryMap handle] [parent process id]
     { cMaxHeap,                         &fp1 },    // maxheap [number]
     { cHeapDir,                         &fp1 },    // heapdir [path]
     { cPersistenceAvailable,            &fp1 },    // persistence-available [yes/no]
@@ -515,9 +513,6 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     string line;
     string value;
 
-//#ifdef _DEBUG
-//    cout << "processing " << confFile << endl;
-//#endif
     char fullConfFilePath[MAX_PATH];
     if (PathIsRelativeA(confFile.c_str())) {
         if (NULL == PathCombineA(fullConfFilePath, cwd.c_str(), confFile.c_str())) {
@@ -595,7 +590,9 @@ void ValidateCommandlineCombinations() {
 }
 
 void ParseCommandLineArguments(int argc, char** argv) {
-    if (argc < 2) return;
+    if (argc < 2) {
+        return;
+    }
 
     bool confFile = false;
     string confFilePath;
@@ -680,27 +677,6 @@ void ParseCommandLineArguments(int argc, char** argv) {
         fileCreationDirectory = fullPath;
     }
     g_pathsAccessed.push_back(fileCreationDirectory);
-
-//#ifdef _DEBUG
-//    cout << "arguments seen:" << endl;
-//    for (auto key : g_argMap) {
-//        cout << key.first << endl;
-//        bool first = true;
-//        for (auto params : key.second) {
-//            cout << "\t";
-//            bool firstParam = true;
-//            for (auto param : params) {
-//                if (firstParam == true) {
-//                    firstParam = false;
-//                } else {
-//                    cout << ", ";
-//                }
-//                cout << param;
-//            }
-//            cout << endl;
-//        }
-//    }
-//#endif
 
     ValidateCommandlineCombinations();
 }

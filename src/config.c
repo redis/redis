@@ -217,7 +217,7 @@ void loadServerConfigFromString(char *config) {
                     goto loaderr;
 #ifdef _WIN32
                 } else {
-                    setLogFile( server.logfile );
+                    setLogFilename(server.logfile);
 #endif
                 }
 

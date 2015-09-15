@@ -100,7 +100,7 @@ public:
             throw std::system_error(GetLastError(), system_category(), "handle duplication failed");
     }
 
-    operator PHANDLE () {
+    operator PHANDLE() {
         return &m_handle;
     }
 
@@ -327,63 +327,6 @@ public:
     }
 
 } SmartFileMapHandle;
-
-
-typedef class SmartVirtualMemoryPtr
-{
-private:
-    LPVOID m_ptr;
-
-public:
-    operator LPVOID()
-    {
-        return m_ptr;
-    }
-
-    SmartVirtualMemoryPtr(LPVOID startAddress, SIZE_T length, string errorToReport)
-    {
-        m_ptr = VirtualAllocEx(GetCurrentProcess(), startAddress, length, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-        if (Invalid())
-        {
-            throw std::system_error(GetLastError(), system_category(), errorToReport);
-        }
-    }
-
-    SmartVirtualMemoryPtr(LPVOID startAddress, SIZE_T length, DWORD flAllocationType, DWORD flProtect, string errorToReport)
-    {
-        m_ptr = VirtualAllocEx(GetCurrentProcess(), startAddress, length, flAllocationType, flProtect);
-        if (Invalid())
-        {
-            throw std::system_error(GetLastError(), system_category(), errorToReport);
-        }
-    }
-
-    void Free()
-    {
-        if (m_ptr != NULL)
-        {
-            if (!VirtualFree(m_ptr, 0, MEM_RELEASE))
-                throw system_error(GetLastError(), system_category(), "VirtualFree failed");
-
-            m_ptr = NULL;
-        }
-    }
-
-    BOOL Valid()
-    {
-        return (m_ptr != NULL);
-    }
-
-    BOOL Invalid()
-    {
-        return (m_ptr == NULL);
-    }
-
-    ~SmartVirtualMemoryPtr()
-    {
-        Free();
-    }
-} SmartVirtualMemoryPtr;
 
 
 typedef class SmartServiceHandle
