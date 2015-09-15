@@ -2,8 +2,8 @@ start_server {tags {"hash"}} {
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
-            set key [randstring 0 8 alpha]
-            set val [randstring 0 8 alpha]
+            set key __avoid_collisions__[randstring 0 8 alpha]
+            set val __avoid_collisions__[randstring 0 8 alpha]
             if {[info exists smallhash($key)]} {
                 incr i -1
                 continue
@@ -21,8 +21,8 @@ start_server {tags {"hash"}} {
     test {HSET/HLEN - Big hash creation} {
         array set bighash {}
         for {set i 0} {$i < 1024} {incr i} {
-            set key [randstring 0 8 alpha]
-            set val [randstring 0 8 alpha]
+            set key __avoid_collisions__[randstring 0 8 alpha]
+            set val __avoid_collisions__[randstring 0 8 alpha]
             if {[info exists bighash($key)]} {
                 incr i -1
                 continue
@@ -33,7 +33,7 @@ start_server {tags {"hash"}} {
         list [r hlen bighash]
     } {1024}
 
-    test {Is the big hash encoded with a ziplist?} {
+    test {Is the big hash encoded with an hash table?} {
         assert_encoding hashtable bighash
     }
 
