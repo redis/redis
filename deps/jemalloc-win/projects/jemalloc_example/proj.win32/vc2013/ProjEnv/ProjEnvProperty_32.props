@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <MsvcPlatformToolset>vc2013</MsvcPlatformToolset>
+    <MsvcPlatformShortName>x86</MsvcPlatformShortName>
+  </PropertyGroup>
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.40219.1</_ProjectFileVersion>
+    <_PropertySheetDisplayName>ProjEnvProperty</_PropertySheetDisplayName>
+  </PropertyGroup>
+  <ItemGroup>
+    <BuildMacro Include="MsvcPlatformToolset">
+      <Value>$(MsvcPlatformToolset)</Value>
+    </BuildMacro>
+    <BuildMacro Include="MsvcPlatformShortName">
+      <Value>$(MsvcPlatformShortName)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>

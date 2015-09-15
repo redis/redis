@@ -1,0 +1,198 @@
+/*.gcov.*
+
+/autom4te.cache/
+
+# /bin/jemalloc.sh
+
+/config.stamp
+/config.log
+/config.status
+# /configure
+
+# /VERSION
+
+/doc/html.xsl
+/doc/manpages.xsl
+/doc/jemalloc.xml
+/doc/jemalloc.html
+/doc/jemalloc.3
+
+/lib/
+
+/Makefile
+
+# /include/jemalloc/internal/jemalloc_internal.h
+# /include/jemalloc/internal/jemalloc_internal_defs.h
+# /include/jemalloc/internal/private_namespace.h
+# /include/jemalloc/internal/private_unnamespace.h
+# /include/jemalloc/internal/public_namespace.h
+# /include/jemalloc/internal/public_symbols.txt
+# /include/jemalloc/internal/public_unnamespace.h
+# /include/jemalloc/internal/size_classes.h
+# /include/jemalloc/jemalloc.h
+# /include/jemalloc/jemalloc_defs.h
+# /include/jemalloc/jemalloc_macros.h
+# /include/jemalloc/jemalloc_mangle.h
+# /include/jemalloc/jemalloc_mangle_jet.h
+# /include/jemalloc/jemalloc_protos.h
+# /include/jemalloc/jemalloc_protos_jet.h
+# /include/jemalloc/jemalloc_rename.h
+
+/src/*.[od]
+/src/*.gcda
+/src/*.gcno
+
+# /test/test.sh
+# test/include/test/jemalloc_test.h
+# test/include/test/jemalloc_test_defs.h
+
+/test/integration/[A-Za-z]*
+!/test/integration/[A-Za-z]*.*
+/test/integration/*.[od]
+/test/integration/*.gcda
+/test/integration/*.gcno
+/test/integration/*.out
+
+/test/src/*.[od]
+/test/src/*.gcda
+/test/src/*.gcno
+
+/test/stress/[A-Za-z]*
+!/test/stress/[A-Za-z]*.*
+/test/stress/*.[od]
+/test/stress/*.gcda
+/test/stress/*.gcno
+/test/stress/*.out
+
+/test/unit/[A-Za-z]*
+!/test/unit/[A-Za-z]*.*
+/test/unit/*.[od]
+/test/unit/*.gcda
+/test/unit/*.gcno
+/test/unit/*.out
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Editors leave these lying around
+\#*\#
+.#*
+*~
+*.swp
+
+# For Visual Studio files on Windows
+*.user
+*.ncb
+*.aps
+*.idb
+*.pdb
+*.dep
+*.obj
+*.ilk
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.rsp
+*.pgc
+*.pgd
+*.meta
+*.manifest
+*.intermediate.manifest
+*.suo
+*.sdf
+*.opensdf
+*.sln.old
+*.sln_old
+# *.vcxproj.user
+/Debug/
+/Release/
+/x86-Debug/
+/x86-Release/
+/x64-Debug/
+/x64-Release/
+!/deps/
+
+# For Visual Studio Update File
+UpgradeLog.XML
+UpgradeLog.htm
+/Backup/
+
+# For log file
+*.log
+
+# For CodeBlocks project files
+*.layout
+*.depend
+
+# For text file
+!ReadMe.txt
+!readme.txt
+*.txt
+
+# For Intel C++ Compiler Log File & Project File
+IcUpdateLog.htm
+*.icproj
+
+# For AStyle backup file
+*.orig
+
+# For Code::Blocks backup file
+*.sav
+
+# For Sublime Text 2 dump file
+*.dump
+
+# tmp and obj files
+/obj/
+/gen/
+/tmp/
+/temp/
+
+# For Visual Studio 2013 temp files on Windows
+*.tlog
+
+# For Visual Studio C# files on Windows
+*.cache
+
+# Zip or Rar files
+*.zip
+*.rar
+
+# Some files on Windows
+.DS_Store*
+ehthumbs.db
+Icon?
+Thumbs.db
+
+# Other files
+/.metadata
+/169.254.0.1
+/ipch/
+/cmake/
+/Simulator/
+/Simulator-Coverage/
+/Simulator-Profile/
+/Device-Debug/
+/Device-Coverage/
+/Device-Profile/
+/Device-Release/
