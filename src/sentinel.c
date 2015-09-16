@@ -193,6 +193,8 @@ typedef struct sentinelRedisInstance {
     unsigned int quorum;/* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & slaves. */
+    char *config_cmd;   /* Name of the CONFIG command to use for master & slaves. */
+    char *slaveof_cmd;  /* Name of the SLAVEOF command to use for master & slaves. */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -1187,6 +1189,8 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
                             SENTINEL_DEFAULT_DOWN_AFTER;
     ri->master_link_down_time = 0;
     ri->auth_pass = NULL;
+    ri->config_cmd = NULL;
+    ri->slaveof_cmd = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
@@ -1244,6 +1248,8 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->slave_master_host);
     sdsfree(ri->leader);
     sdsfree(ri->auth_pass);
+    sdsfree(ri->config_cmd);
+    sdsfree(ri->slaveof_cmd);
     sdsfree(ri->info);
     releaseSentinelAddr(ri->addr);
 
@@ -1618,6 +1624,16 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->auth_pass = sdsnew(argv[2]);
+   } else if (!strcasecmp(argv[0],"config-command") && argc == 3) {
+        /* config-command <name> <command> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->config_cmd = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"slaveof-command") && argc == 3) {
+        /* slaveof-command <name> <command> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->slaveof_cmd = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"current-epoch") && argc == 2) {
         /* current-epoch <epoch> */
         unsigned long long current_epoch = strtoull(argv[1],NULL,10);
@@ -1755,6 +1771,22 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel auth-pass %s %s",
                 master->name, master->auth_pass);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
+        /* sentinel config-command */
+        if (master->config_cmd) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel config-command %s %s",
+                master->name, master->config_cmd);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
+        /* sentinel slaveof-command */
+        if (master->slaveof_cmd) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel slaveof-command %s %s",
+                master->name, master->slaveof_cmd);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
@@ -3324,6 +3356,16 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             changes++;
+       } else if (!strcasecmp(option,"config-command")) {
+            /* config-command <command> */
+            sdsfree(ri->config_cmd);
+            ri->config_cmd = strlen(value) ? sdsnew(value) : NULL;
+            changes++;
+       } else if (!strcasecmp(option,"slaveof-command")) {
+            /* slaveof-command <command> */
+            sdsfree(ri->slaveof_cmd);
+            ri->slaveof_cmd = strlen(value) ? sdsnew(value) : NULL;
+            changes++;
        } else if (!strcasecmp(option,"quorum")) {
             /* quorum <count> */
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
@@ -3709,6 +3751,12 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     char portstr[32];
     int retval;
 
+    char *config_cmd = (ri->flags & SRI_MASTER) ? ri->config_cmd :
+                                                  ri->master->config_cmd;
+
+    char *slaveof_cmd = (ri->flags & SRI_MASTER) ? ri->slaveof_cmd :
+                                                   ri->master->slaveof_cmd;
+
     ll2string(portstr,sizeof(portstr),port);
 
     /* If host is NULL we send SLAVEOF NO ONE that will turn the instance
@@ -3734,12 +3782,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     ri->link->pending_commands++;
 
     retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "SLAVEOF %s %s", host, portstr);
+        sentinelDiscardReplyCallback, NULL, "%s %s %s",
+        slaveof_cmd ? slaveof_cmd : "SLAVEOF", host, portstr);
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
     retval = redisAsyncCommand(ri->link->cc,
-        sentinelDiscardReplyCallback, ri, "CONFIG REWRITE");
+        sentinelDiscardReplyCallback, NULL, "%s REWRITE",
+        config_cmd ? config_cmd : "CONFIG");
     if (retval == C_ERR) return retval;
     ri->link->pending_commands++;
 
