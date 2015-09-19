@@ -75,10 +75,18 @@
  * is zero. */
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
     long long tval;
+    long double ftval;
 
-    if (getLongLongFromObjectOrReply(c,object,&tval,
-        "timeout is not an integer or out of range") != C_OK)
-        return C_ERR;
+    if (unit == UNIT_SECONDS) {
+        if (getLongDoubleFromObjectOrReply(c,object,&ftval,
+            "timeout is not an float or out of range") != C_OK)
+            return C_ERR;
+        tval = (long long) (ftval * 1000.0);
+    } else {
+        if (getLongLongFromObjectOrReply(c,object,&tval,
+            "timeout is not an integer or out of range") != C_OK)
+            return C_ERR;
+    }
 
     if (tval < 0) {
         addReplyError(c,"timeout is negative");
@@ -86,7 +94,6 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     }
 
     if (tval > 0) {
-        if (unit == UNIT_SECONDS) tval *= 1000;
         tval += mstime();
     }
     *timeout = tval;
