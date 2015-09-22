@@ -418,10 +418,10 @@ void scanCallback(void *privdata, const dictEntry *de) {
         sds keysds = dictGetKey(de);
         key = createStringObject(keysds,sdslen(keysds));
     } else if (o->type == OBJ_HASH) {
-        key = dictGetKey(de);
-        incrRefCount(key);
-        val = dictGetVal(de);
-        incrRefCount(val);
+        sds sdskey = dictGetKey(de);
+        sds sdsval = dictGetVal(de);
+        key = createStringObject(keysds,sdslen(keysds));
+        val = createStringObject(valsds,sdslen(valsds));
     } else if (o->type == OBJ_ZSET) {
         sds keysds = dictGetKey(de);
         key = createStringObject(keysds,sdslen(keysds));

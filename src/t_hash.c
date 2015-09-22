@@ -545,8 +545,6 @@ void hincrbyCommand(client *c) {
     server.dirty++;
 }
 
-/* XXX From here. */
-
 void hincrbyfloatCommand(client *c) {
     double value, incr;
     long long ll;
@@ -593,7 +591,9 @@ void hincrbyfloatCommand(client *c) {
     decrRefCount(newobj);
 }
 
-static void addHashFieldToReply(client *c, robj *o, robj *field) {
+/* XXX From here. */
+
+static void addHashFieldToReply(client *c, robj *o, sds field) {
     int ret;
 
     if (o == NULL) {
@@ -618,15 +618,11 @@ static void addHashFieldToReply(client *c, robj *o, robj *field) {
         }
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        robj *value;
-
-        ret = hashTypeGetFromHashTable(o, field, &value);
-        if (ret < 0) {
+        sds value = hashTypeGetFromHashTable(o, field);
+        if (value == NULL)
             addReply(c, shared.nullbulk);
-        } else {
-            addReplyBulk(c, value);
-        }
-
+        else
+            addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -638,7 +634,7 @@ void hgetCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addHashFieldToReply(c, o, c->argv[2]);
+    addHashFieldToReply(c, o, c->argv[2]->ptr);
 }
 
 void hmgetCommand(client *c) {
@@ -655,7 +651,7 @@ void hmgetCommand(client *c) {
 
     addReplyMultiBulkLen(c, c->argc-2);
     for (i = 2; i < c->argc; i++) {
-        addHashFieldToReply(c, o, c->argv[i]);
+        addHashFieldToReply(c, o, c->argv[i]->ptr);
     }
 }
 
@@ -667,7 +663,7 @@ void hdelCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j])) {
+        if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o) == 0) {
                 dbDelete(c->db,c->argv[1]);
@@ -701,7 +697,7 @@ void hstrlenCommand(client *c) {
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
-    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
+    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]->ptr));
 }
 
 static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
@@ -711,18 +707,13 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
-        if (vstr) {
+        if (vstr)
             addReplyBulkCBuffer(c, vstr, vlen);
-        } else {
+        else
             addReplyBulkLongLong(c, vll);
-        }
-
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        robj *value;
-
-        hashTypeCurrentFromHashTable(hi, what, &value);
-        addReplyBulk(c, value);
-
+        sds value = hashTypeCurrentFromHashTable(hi, what);
+        addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -776,7 +767,7 @@ void hexistsCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
+    addReply(c, hashTypeExists(o,c->argv[2]->ptr) ? shared.cone : shared.czero);
 }
 
 void hscanCommand(client *c) {
