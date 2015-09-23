@@ -613,7 +613,7 @@ int strict_strtoll(char *str, long long *vp) {
     long long value;
 
     errno = 0;
-    value = strtoll(o->ptr, &eptr, 10);
+    value = strtoll(str, &eptr, 10);
     if (isspace(str[0]) || eptr[0] != '\0' || errno == ERANGE) return C_ERR;
     if (vp) *vp = value;
     return C_OK;

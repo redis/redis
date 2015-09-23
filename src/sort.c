@@ -112,9 +112,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     if (fieldobj) {
         if (o->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. This operation
-         * already increases the refcount of the returned object. */
-        o = hashTypeGetObject(o, fieldobj);
+        /* Retrieve value from hash by the field name. The returend object
+         * is a new object with refcount already incremented. */
+        o = hashTypeGetValueObject(o, fieldobj->ptr);
     } else {
         if (o->type != OBJ_STRING) goto noobj;
 

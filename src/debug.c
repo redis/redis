@@ -222,20 +222,18 @@ void computeDatasetDigest(unsigned char *final) {
                     serverPanic("Unknown sorted set encoding");
                 }
             } else if (o->type == OBJ_HASH) {
-                hashTypeIterator *hi;
-                robj *obj;
-
-                hi = hashTypeInitIterator(o);
+                hashTypeIterator *hi = hashTypeInitIterator(o);
                 while (hashTypeNext(hi) != C_ERR) {
                     unsigned char eledigest[20];
+                    sds sdsele;
 
                     memset(eledigest,0,20);
-                    obj = hashTypeCurrentObject(hi,OBJ_HASH_KEY);
-                    mixObjectDigest(eledigest,obj);
-                    decrRefCount(obj);
-                    obj = hashTypeCurrentObject(hi,OBJ_HASH_VALUE);
-                    mixObjectDigest(eledigest,obj);
-                    decrRefCount(obj);
+                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+                    mixDigest(eledigest,sdsele,sdslen(sdsele));
+                    sdsfree(sdsele);
+                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+                    mixDigest(eledigest,sdsele,sdslen(sdsele));
+                    sdsfree(sdsele);
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);

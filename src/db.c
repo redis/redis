@@ -420,11 +420,11 @@ void scanCallback(void *privdata, const dictEntry *de) {
     } else if (o->type == OBJ_HASH) {
         sds sdskey = dictGetKey(de);
         sds sdsval = dictGetVal(de);
-        key = createStringObject(keysds,sdslen(keysds));
-        val = createStringObject(valsds,sdslen(valsds));
+        key = createStringObject(sdskey,sdslen(sdskey));
+        val = createStringObject(sdsval,sdslen(sdsval));
     } else if (o->type == OBJ_ZSET) {
-        sds keysds = dictGetKey(de);
-        key = createStringObject(keysds,sdslen(keysds));
+        sds sdskey = dictGetKey(de);
+        key = createStringObject(sdskey,sdslen(sdskey));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");

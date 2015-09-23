@@ -928,17 +928,13 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
-        if (vstr) {
+        if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
-        } else {
+        else
             return rioWriteBulkLongLong(r, vll);
-        }
-
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        robj *value;
-
-        hashTypeCurrentFromHashTable(hi, what, &value);
-        return rioWriteBulkObject(r, value);
+        sds value = hashTypeCurrentFromHashTable(hi, what);
+        return rioWriteBulkString(r, value, sdslen(value));
     }
 
     serverPanic("Unknown hash encoding");

@@ -427,12 +427,17 @@ int string2l(const char *s, size_t slen, long *lval) {
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
 int string2d(const char *s, size_t slen, double *dp) {
+    char buf[256];
     double value;
+    char *eptr;
+
+    if (slen >= sizeof(buf)) return 0;
+    memcpy(buf,s,slen);
+    buf[slen] = '\0';
 
     errno = 0;
-    value = strtod(o->ptr, &eptr);
-    if (isspace(((char*)o->ptr)[0]) ||
-        eptr[0] != '\0' ||
+    value = strtod(buf, &eptr);
+    if (isspace(buf[0]) || eptr[0] != '\0' ||
         (errno == ERANGE &&
             (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
         errno == EINVAL ||
@@ -493,7 +498,6 @@ int d2string(char *buf, size_t len, double value) {
  * The function returns the length of the string or zero if there was not
  * enough buffer room to store it. */
 int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
-    char buf[256];
     size_t l;
 
     if (isinf(value)) {

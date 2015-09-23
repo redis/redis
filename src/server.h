@@ -1333,10 +1333,9 @@ void setTypeConvert(robj *subject, int enc);
 void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
-robj *hashTypeGetObject(robj *o, robj *key);
-int hashTypeExists(robj *o, robj *key);
-int hashTypeSet(robj *o, robj *key, robj *value);
-int hashTypeDelete(robj *o, robj *key);
+int hashTypeExists(robj *o, sds key);
+int hashTypeSet(robj *o, sds key, sds value);
+int hashTypeDelete(robj *o, sds key);
 unsigned long hashTypeLength(robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
@@ -1345,9 +1344,11 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 unsigned char **vstr,
                                 unsigned int *vlen,
                                 long long *vll);
-void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, robj **dst);
-robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
+sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
+void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
+sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
+robj *hashTypeGetValueObject(robj *o, sds field);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
