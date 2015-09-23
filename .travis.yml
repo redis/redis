@@ -4,6 +4,9 @@ compiler:
   - clang
   - gcc
 
+before_script:
+ - sudo apt-get install tclsh
+
 script:
   - make
   - make test
