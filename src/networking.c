@@ -47,7 +47,7 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     switch(o->encoding) {
     case REDIS_ENCODING_RAW: return zmalloc_size_sds(o->ptr);
-    case REDIS_ENCODING_EMBSTR: return sdslen(o->ptr);
+    case REDIS_ENCODING_EMBSTR: return sdslen(o->ptr)+sizeof(struct sdshdr)+1;
     default: return 0; /* Just integer encoding for now. */
     }
 }
