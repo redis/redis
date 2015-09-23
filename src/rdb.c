@@ -651,16 +651,17 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *key = dictGetKey(de);
-                robj *val = dictGetVal(de);
+                sds field = dictGetKey(de);
+                sds value = dictGetVal(de);
 
-                if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)field,
+                        sdslen(field))) == -1) return -1;
                 nwritten += n;
-                if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
+                if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
+                        sdslen(value))) == -1) return -1;
                 nwritten += n;
             }
             dictReleaseIterator(di);
-
         } else {
             serverPanic("Unknown hash encoding");
         }
@@ -1044,6 +1045,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
     } else if (rdbtype == RDB_TYPE_HASH) {
         size_t len;
         int ret;
+        sds field, value;
 
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
@@ -1056,46 +1058,40 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* Load every field and value into the ziplist */
         while (o->encoding == OBJ_ENCODING_ZIPLIST && len > 0) {
-            robj *field, *value;
-
             len--;
             /* Load raw strings */
-            field = rdbLoadStringObject(rdb);
-            if (field == NULL) return NULL;
-            serverAssert(sdsEncodedObject(field));
-            value = rdbLoadStringObject(rdb);
-            if (value == NULL) return NULL;
-            serverAssert(sdsEncodedObject(value));
+            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
+                return NULL;
+            if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
+                return NULL;
 
             /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, (unsigned char*)field,
+                    sdslen(field), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, (unsigned char*)value,
+                    sdslen(value), ZIPLIST_TAIL);
+
             /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
-                sdslen(value->ptr) > server.hash_max_ziplist_value)
+            if (sdslen(field) > server.hash_max_ziplist_value ||
+                sdslen(value) > server.hash_max_ziplist_value)
             {
-                decrRefCount(field);
-                decrRefCount(value);
+                sdsfree(field);
+                sdsfree(value);
                 hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             }
-            decrRefCount(field);
-            decrRefCount(value);
+            sdsfree(field);
+            sdsfree(value);
         }
 
         /* Load remaining fields and values into the hash table */
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
-            robj *field, *value;
-
             len--;
             /* Load encoded strings */
-            field = rdbLoadEncodedStringObject(rdb);
-            if (field == NULL) return NULL;
-            value = rdbLoadEncodedStringObject(rdb);
-            if (value == NULL) return NULL;
-
-            field = tryObjectEncoding(field);
-            value = tryObjectEncoding(value);
+            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
+                return NULL;
+            if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
+                return NULL;
 
             /* Add pair to hash table */
             ret = dictAdd((dict*)o->ptr, field, value);
