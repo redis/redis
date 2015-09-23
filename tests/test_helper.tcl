@@ -59,6 +59,7 @@ set ::host 127.0.0.1
 set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
+set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
 set ::denytags {}
