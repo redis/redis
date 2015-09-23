@@ -1,4 +1,7 @@
 #include "server.h"
+#include "bio.h"
+
+static int lazyfree_threaded = 1; /* Use a thread to reclaim objects. */
 
 /* Initialization of the lazy free engine. Must be called only once at server
  * startup. */
@@ -97,7 +100,17 @@ size_t lazyfreeFastStep(void) {
 
 /* Handles slow or fast collection steps. */
 size_t lazyfreeStep(int type) {
-    if (type == LAZYFREE_STEP_FAST) return lazyfreeFastStep();
+    /* Threaded implementaiton: only block for STEP_OOM. */
+    if (lazyfree_threaded) {
+        if (type == LAZYFREE_STEP_OOM)
+            return bioWaitStepOfType(BIO_LAZY_FREE);
+        return 0;
+    }
+
+    /* Non threaded implementation: free things incrementally avoiding
+     * to block. */
+    if (type == LAZYFREE_STEP_FAST ||
+        type == LAZYFREE_STEP_OOM) return lazyfreeFastStep();
 
     size_t totalwork = 0;
     mstime_t end = mstime()+2;
@@ -130,8 +143,12 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* If releasing the object is too much work, let's put it into the
          * lazy free list. */
         if (free_effort > LAZYFREE_THRESHOLD) {
-            listAddNodeTail(server.lazyfree_obj,val);
-            server.lazyfree_elements += free_effort;
+            if (lazyfree_threaded) {
+                bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
+            } else {
+                listAddNodeTail(server.lazyfree_obj,val);
+                server.lazyfree_elements += free_effort;
+            }
             dictSetVal(db->dict,de,NULL);
         }
     }
@@ -164,6 +181,9 @@ int lazyfreeCron(struct aeEventLoop *eventLoop, long long id, void *clientData)
     UNUSED(eventLoop);
     UNUSED(id);
     UNUSED(clientData);
+
+    /* Threaded lazy free does not need a timer, unregister the timer event. */
+    if (lazyfree_threaded) return AE_NOMORE;
 
     static size_t prev_mem;
     static int timer_period = 1000; /* Defauls to 1HZ */

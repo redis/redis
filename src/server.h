@@ -1402,9 +1402,14 @@ void slotToKeyAdd(robj *key);
 void slotToKeyDel(robj *key);
 void slotToKeyFlush(void);
 
-/* Lazy free */
-#define LAZYFREE_STEP_SLOW 0
-#define LAZYFREE_STEP_FAST 1
+/* Lazy free. Note that SLOW and FAST are only useful when incremental
+ * lazy free is active. For threaded lazy free the actual freeing of objects
+ * happens in the background. Only STEP_OOM is used since it blocks waiting
+ * for the freeing thread to do some work before returning. */
+#define LAZYFREE_STEP_SLOW 0    /* Take 1-2 milliseconds to reclaim memory. */
+#define LAZYFREE_STEP_FAST 1    /* Free a few elements ASAP and return. */
+#define LAZYFREE_STEP_OOM 2     /* Free a few elements at any cost if there
+                                   is something to free: we are out of memory */
 int dbAsyncDelete(redisDb *db, robj *key);
 void initLazyfreeEngine(void);
 size_t lazyfreeStep(int type);

@@ -3330,7 +3330,7 @@ int freeMemoryIfNeeded(void) {
         latencyStartMonitor(eviction_latency);
         while (mem_freed < mem_tofree) {
             delta = (long long) zmalloc_used_memory();
-            size_t workdone = lazyfreeStep(LAZYFREE_STEP_FAST);
+            size_t workdone = lazyfreeStep(LAZYFREE_STEP_OOM);
             delta -= (long long) zmalloc_used_memory();
             mem_freed += delta;
             if (!workdone) break; /* Lazy free list is empty. */

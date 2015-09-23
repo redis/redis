@@ -185,6 +185,8 @@ void *bioProcessBackgroundJobs(void *arg) {
             close((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
             aof_fsync((long)job->arg1);
+        } else if (type == BIO_LAZY_FREE) {
+            decrRefCount((robj*)job->arg1);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
