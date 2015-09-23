@@ -391,6 +391,7 @@ proc send_data_packet {fd status data} {
 proc print_help_screen {} {
     puts [join {
         "--valgrind         Run the test over valgrind."
+        "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
@@ -417,6 +418,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
+    } elseif {$opt eq {--stack-logging}} {
+        if {[string match {*Darwin*} [exec uname -a]]} {
+            set ::stack_logging 1
+        }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
     } elseif {$opt eq {--host}} {
