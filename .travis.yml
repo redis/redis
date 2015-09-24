@@ -8,8 +8,8 @@ compiler:
   - gcc
 
 before_script:
-    - if [$TRAVIS_OS_NAME = linux]; then  sudo apt-get install -qq tcl8.5; fi
-    - if [$TRAVIS_OS_NAME = osx] ; then brew update; brew tap homebrew/dupes; brew install tcl-tk;fi
+    - if [$TRAVIS_OS_NAME == linux]; then  sudo apt-get install -qq tcl8.5; fi
+    - if [$TRAVIS_OS_NAME == osx] ; then brew update; brew tap homebrew/dupes; brew install tcl-tk;fi
 
 script:
   - make
