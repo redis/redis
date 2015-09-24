@@ -1,11 +1,14 @@
 language: c 
+os:
+   - linux
+   - osx
 
 compiler:
   - clang
   - gcc
 
 before_script:
- - sudo apt-get install -qq tcl8.5
+    - if [$TRAVIS_OS_NAME = linux]; then  sudo apt-get install -qq tcl8.5; fi
 
 script:
   - make
