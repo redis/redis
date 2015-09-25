@@ -1,10 +1,18 @@
+uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 STD=
 WARN= -Wall
 OPT= -Os
 
-R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
+
+ifeq ($(uname_S),AIX)
+  DEBUG=-qdbxextra -qtbtable=full
+  R_CFLAGS=-qcheck=all -qpic=large -qlanglvl=extc99 $(DEBUG) $(CFLAGS)  
+else
+  R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
+  DEBUG= -g
+endif
+
 R_LDFLAGS= $(LDFLAGS)
-DEBUG= -g
 
 R_CC=$(CC) $(R_CFLAGS)
 R_LD=$(CC) $(R_LDFLAGS)

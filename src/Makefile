@@ -68,10 +68,12 @@ ifeq ($(uname_S),Darwin)
 	# Darwin (nothing to do)
 else
 ifeq ($(uname_S),AIX)
-        # AIX
-        FINAL_LDFLAGS+= -Wl,-bexpall
-        FINAL_LIBS+= -pthread -lcrypt -lbsd
-
+  # AIX
+  INSTALL=cp -pf
+  DEBUG=-qdbxextra -qtbtable=full
+  FINAL_LDFLAGS+= -Wl,-bexpall
+  FINAL_LIBS+= -lpthread -lcrypt -lbsd
+  FINAL_CFLAGS=-qcheck=all -qpic=large -qlanglvl=extc99 $(DEBUG) -I../deps/geohash-int
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic

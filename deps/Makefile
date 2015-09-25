@@ -67,9 +67,16 @@ LUA_LDFLAGS+= $(LDFLAGS)
 AR=ar
 ARFLAGS=rcu
 
+
+ifeq ($(uname_S),AIX)
+  LUA_TRG=aix
+else
+  LUA_TRG=all
+endif
+
 lua: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd lua/src && $(MAKE) all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" AR="$(AR) $(ARFLAGS)"
+	cd lua/src && $(MAKE) $(LUA_TRG) CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" AR="$(AR) $(ARFLAGS)"
 
 .PHONY: lua
 

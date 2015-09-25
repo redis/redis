@@ -47,6 +47,14 @@ ifeq ($(uname_S),SunOS)
   DYLIB_MAKE_CMD=$(CC) -G -o $(DYLIBNAME) -h $(DYLIB_MINOR_NAME) $(LDFLAGS)
   INSTALL= cp -r
 endif
+
+ifeq ($(uname_S),AIX)
+  # AIX system
+  DEBUG=-qdbxextra -qtbtable=full
+  REAL_CFLAGS=-qcheck=all -qpic=large -qlanglvl=extc99 $(DEBUG) 
+  STLIB_MAKE_CMD=ar -rc $(STLIBNAME)
+endif
+
 ifeq ($(uname_S),Darwin)
   DYLIBSUFFIX=dylib
   DYLIB_MINOR_NAME=$(LIBNAME).$(HIREDIS_MAJOR).$(HIREDIS_MINOR).$(DYLIBSUFFIX)
@@ -114,8 +122,13 @@ check: hiredis-test
 			( kill `cat /tmp/hiredis-test-redis.pid` && false )
 	kill `cat /tmp/hiredis-test-redis.pid`
 
+ifeq ($(uname_S),AIX)
 .c.o:
-	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
+	$(CC) -c $(REAL_CFLAGS) $<
+else
+.c.o:
+        $(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
+endif
 
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(TESTS) examples/hiredis-example* *.o *.gcda *.gcno *.gcov
