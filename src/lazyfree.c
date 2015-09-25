@@ -1,10 +1,9 @@
 #include "server.h"
 #include "bio.h"
+#include "atomicvar.h"
 
 static size_t lazyfree_objects = 0;
-static size_t lazyfree_dbs = 0;
 pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t lazyfree_objects_dbs = PTHREAD_MUTEX_INITIALIZER;
 
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
@@ -60,6 +59,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* If releasing the object is too much work, let's put it into the
          * lazy free list. */
         if (free_effort > LAZYFREE_THRESHOLD) {
+            atomicIncr(lazyfree_objects,1,&lazyfree_objects_mutex);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
         }
@@ -73,4 +73,11 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     } else {
         return 0;
     }
+}
+
+/* Implementation of function to release a single object called from the
+ * lazyfree thread from bio.c. */
+void lazyfreeFreeObjectFromBioThread(robj *o) {
+    decrRefCount(o);
+    atomicDecr(lazyfree_objects,1,&lazyfree_objects_mutex);
 }

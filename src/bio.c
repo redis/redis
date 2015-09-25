@@ -84,6 +84,7 @@ struct bio_job {
 };
 
 void *bioProcessBackgroundJobs(void *arg);
+void lazyfreeFreeObjectFromBioThread(robj *o);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -186,7 +187,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         } else if (type == BIO_AOF_FSYNC) {
             aof_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {
-            decrRefCount((robj*)job->arg1);
+            lazyfreeFreeObjectFromBioThread(job->arg1);
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
