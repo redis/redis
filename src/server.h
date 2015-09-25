@@ -704,10 +704,6 @@ struct redisServer {
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
-    /* Lazy free */
-    list *lazyfree_dbs;         /* List of DBs to free in background. */
-    list *lazyfree_obj;         /* List of objects to free in background. */
-    size_t lazyfree_elements;   /* Number of logical element in obj list. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1411,9 +1407,6 @@ void slotToKeyFlush(void);
 #define LAZYFREE_STEP_OOM 2     /* Free a few elements at any cost if there
                                    is something to free: we are out of memory */
 int dbAsyncDelete(redisDb *db, robj *key);
-void initLazyfreeEngine(void);
-size_t lazyfreeStep(int type);
-int lazyfreeCron(struct aeEventLoop *eventLoop, long long id, void *clientData);
 
 /* API to get key arguments from commands */
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);

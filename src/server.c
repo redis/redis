@@ -1298,11 +1298,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * later in this function. */
     if (server.cluster_enabled) clusterBeforeSleep();
 
-    /* Lazy free a few objects before to return to the event loop, this way
-     * if there is activity in the server (that may generate writes) we
-     * reclaim memory at a faster rate. */
-    lazyfreeStep(LAZYFREE_STEP_FAST);
-
     /* Run a fast expire cycle (the called function will return
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && server.masterhost == NULL)
@@ -1812,7 +1807,6 @@ void initServer(void) {
     server.system_memory_size = zmalloc_get_memory_size();
 
     createSharedObjects();
-    initLazyfreeEngine();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
@@ -1879,8 +1873,7 @@ void initServer(void) {
 
     /* Create out timers, that's our main way to process background
      * operations. */
-    if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR ||
-       aeCreateTimeEvent(server.el, 1, lazyfreeCron, NULL, NULL) == AE_ERR) {
+    if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
     }
@@ -3285,18 +3278,19 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 }
 
 int freeMemoryIfNeeded(void) {
-    size_t mem_used, mem_tofree, mem_freed;
+    size_t mem_reported, mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
     mstime_t latency, eviction_latency;
     long long delta;
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
-    mem_used = zmalloc_used_memory();
-    if (mem_used <= server.maxmemory) return C_OK;
+    mem_reported = zmalloc_used_memory();
+    if (mem_reported <= server.maxmemory) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
+    mem_used = mem_reported;
     if (slaves) {
         listIter li;
         listNode *ln;
@@ -3323,28 +3317,8 @@ int freeMemoryIfNeeded(void) {
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
 
-    /* Let's start reclaiming memory from the lazy free list: those
-     * objects are logically freed so this is the first thing we want
-     * to get rid of. */
-    if (listLength(server.lazyfree_dbs) || listLength(server.lazyfree_obj)) {
-        latencyStartMonitor(eviction_latency);
-        while (mem_freed < mem_tofree) {
-            delta = (long long) zmalloc_used_memory();
-            size_t workdone = lazyfreeStep(LAZYFREE_STEP_OOM);
-            delta -= (long long) zmalloc_used_memory();
-            mem_freed += delta;
-            if (!workdone) break; /* Lazy free list is empty. */
-        }
-        latencyEndMonitor(eviction_latency);
-        latencyAddSampleIfNeeded("eviction-lazyfree",eviction_latency);
-    }
-
-    /* If after lazy freeing we are alraedy back to our limit, no need
-     * to evict keys. Return to the caller. */
-    if (mem_freed >= mem_tofree) return C_OK;
-
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
-        return C_ERR; /* We need to free memory, but policy forbids. */
+        goto cant_free; /* We need to free memory, but policy forbids. */
 
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
@@ -3465,12 +3439,23 @@ int freeMemoryIfNeeded(void) {
         if (!keys_freed) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("eviction-cycle",latency);
-            return C_ERR; /* nothing to free... */
+            goto cant_free; /* nothing to free... */
         }
     }
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);
     return C_OK;
+
+cant_free:
+    /* We are here if we are not able to reclaim memory. There is only one
+     * last thing we can try: check if the lazyfree thread has jobs in queue
+     * and wait... */
+    while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
+        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
+            break;
+        usleep(1000);
+    }
+    return C_ERR;
 }
 
 /* =================================== Main! ================================ */
