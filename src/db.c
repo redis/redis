@@ -247,7 +247,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
- * EMPTYDB_ASYCN if we want the memory to be freed in a different thread
+ * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
  * and the function to return ASAP.
  *
  * On success the fuction returns the number of keys removed from the
@@ -310,18 +310,49 @@ void signalFlushedDb(int dbid) {
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
+/* Return the set of flags to use for the emptyDb() call for FLUSHALL
+ * and FLUSHDB commands.
+ *
+ * Currently the command just attempts to parse the "ASYNC" option. It
+ * also checks if the command arity is wrong.
+ *
+ * On success C_OK is returned and the flags are stored in *flags, otherwise
+ * C_ERR is returned and the function sends an error to the client. */
+int getFlushCommandFlags(client *c, int *flags) {
+    /* Parse the optional ASYNC option. */
+    if (c->argc > 1) {
+        if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
+            addReply(c,shared.syntaxerr);
+            return C_ERR;
+        }
+        *flags = EMPTYDB_ASYNC;
+    } else {
+        *flags = EMPTYDB_NO_FLAGS;
+    }
+    return C_OK;
+}
+
+/* FLUSHDB [ASYNC]
+ *
+ * Flushes the currently SELECTed Redis DB. */
 void flushdbCommand(client *c) {
-    server.dirty += dictSize(c->db->dict);
+    int flags;
+
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict,NULL);
-    dictEmpty(c->db->expires,NULL);
-    if (server.cluster_enabled) slotToKeyFlush();
+    server.dirty += emptyDb(c->db->id,flags,NULL);
     addReply(c,shared.ok);
 }
 
+/* FLUSHALL [ASYNC]
+ *
+ * Flushes the whole server data set. */
 void flushallCommand(client *c) {
+    int flags;
+
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     signalFlushedDb(-1);
-    server.dirty += emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
+    server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
