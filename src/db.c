@@ -263,7 +263,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     }
 
     for (j = 0; j < server.dbnum; j++) {
-        if (dbnum != 1 && dbnum != j) continue;
+        if (dbnum != -1 && dbnum != j) continue;
         removed += dictSize(server.db[j].dict);
         if (async) {
             emptyDbAsync(&server.db[j]);
