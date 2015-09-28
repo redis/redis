@@ -818,7 +818,7 @@ void freeClientsInAsyncFreeQueue(void) {
 
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
-int writeToClient(int fd, client *c) {
+int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
     size_t objmem;
@@ -892,7 +892,7 @@ int writeToClient(int fd, client *c) {
     }
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
@@ -907,7 +907,7 @@ int writeToClient(int fd, client *c) {
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
-    writeToClient(fd,privdata);
+    writeToClient(fd,privdata,1);
 }
 
 /* This function is called just before entering the event loop, in the hope
@@ -925,7 +925,7 @@ void handleClientsWithPendingWrites(void) {
         listDelNode(server.clients_pending_write,ln);
 
         /* Try to write buffers to the client socket. */
-        if (writeToClient(c->fd,c) == C_ERR) continue;
+        if (writeToClient(c->fd,c,0) == C_ERR) continue;
 
         /* If there is nothing left, do nothing. Otherwise install
          * the write handler. */
