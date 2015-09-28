@@ -260,6 +260,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 #define CLIENT_PREVENT_PROP (1<<19)  /* Don't propagate to AOF / Slaves. */
+#define CLIENT_PENDING_WRITE (1<<20) /* Client has output to send but a write
+                                        handler is yet not installed. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -714,6 +716,7 @@ struct redisServer {
     int cfd_count;              /* Used slots in cfd[] */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
+    list *clients_pending_write; /* There is to write or install handler. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client; /* Current client, only used on crash report */
     int clients_paused;         /* True if clients are currently paused */

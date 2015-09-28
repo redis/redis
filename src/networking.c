@@ -166,16 +166,18 @@ int prepareClientToWrite(client *c) {
     /* Only install the handler if not already installed and, in case of
      * slaves, if the client can actually receive writes. */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
+        !(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
          (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
     {
-        /* Try to install the write handler. */
-        if (aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
-                sendReplyToClient, c) == AE_ERR)
-        {
-            freeClientAsync(c);
-            return C_ERR;
-        }
+        /* Here instead of installing the write handler, we just flag the
+         * client and put it into a list of clients that have something
+         * to write to the socket. This way before re-entering the event
+         * loop, we can try to directly write to the client sockets avoiding
+         * a system call. We'll only really install the write handler if
+         * we'll not be able to write the whole reply at once. */
+        c->flags |= CLIENT_PENDING_WRITE;
+        listAddNodeTail(server.clients_pending_write,c);
     }
 
     /* Authorize the caller to queue in the output buffer of this client. */
@@ -737,6 +739,12 @@ void freeClient(client *c) {
         ln = listSearchKey(server.clients,c);
         serverAssert(ln != NULL);
         listDelNode(server.clients,ln);
+    }
+
+    /* Remove from the list of pending writes if needed. */
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        ln = listSearchKey(server.clients_pending_write,c);
+        listDelNode(server.clients_pending_write,ln);
     }
 
     /* When client was just unblocked because of a blocking operation,

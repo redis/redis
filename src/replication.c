@@ -1857,6 +1857,12 @@ void replicationCacheMaster(client *c) {
     serverAssert(ln != NULL);
     listDelNode(server.clients,ln);
 
+    /* Remove from the list of clients with pending writes as well. */
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        ln = listSearchKey(server.clients_pending_write,c);
+        if (ln) listDelNode(server.clients_pending_write,ln);
+    }
+
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */
     server.cached_master = server.master;
