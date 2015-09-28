@@ -3,7 +3,6 @@ STD=
 WARN= -Wall
 OPT= -Os
 
-
 ifeq ($(uname_S),AIX)
   DEBUG=-qdbxextra -qtbtable=full
   R_CFLAGS=-qcheck=all -qpic=large -qlanglvl=extc99 $(DEBUG) $(CFLAGS)  

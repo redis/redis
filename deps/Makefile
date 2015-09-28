@@ -67,7 +67,6 @@ LUA_LDFLAGS+= $(LDFLAGS)
 AR=ar
 ARFLAGS=rcu
 
-
 ifeq ($(uname_S),AIX)
   LUA_TRG=aix
 else

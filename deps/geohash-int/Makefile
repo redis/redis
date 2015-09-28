@@ -1,4 +1,3 @@
-
 uname_S:= $(shell sh -c 'uname -s 2>/dev/null || echo not')
 STD=
 WARN= -Wall
@@ -11,7 +10,6 @@ else
   R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
   DEBUG= -g
 endif
-
 
 R_LDFLAGS= $(LDFLAGS)
 R_CC=$(CC) $(R_CFLAGS)
