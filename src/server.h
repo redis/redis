@@ -1414,6 +1414,7 @@ void slotToKeyFlush(void);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void slotToKeyFlushAsync(void);
+size_t lazyfreeGetPendingObjectsCount(void);
 
 /* API to get key arguments from commands */
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
