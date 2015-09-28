@@ -1050,6 +1050,7 @@ extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
 extern dictType replScriptCacheDictType;
+extern dictType keyptrDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -1384,7 +1385,11 @@ robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
-long long emptyDb(void(callback)(void*));
+
+#define EMPTYDB_NO_FLAGS 0      /* No flags. */
+#define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
+long long emptyDb(int dbnum, int flags, void(callback)(void*));
+
 int selectDb(client *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
@@ -1407,6 +1412,8 @@ void slotToKeyFlush(void);
 #define LAZYFREE_STEP_OOM 2     /* Free a few elements at any cost if there
                                    is something to free: we are out of memory */
 int dbAsyncDelete(redisDb *db, robj *key);
+void emptyDbAsync(redisDb *db);
+void slotToKeyFlushAsync(void);
 
 /* API to get key arguments from commands */
 int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);

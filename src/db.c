@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "atomicvar.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -238,16 +239,46 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
-long long emptyDb(void(callback)(void*)) {
-    int j;
+/* Remove all keys from all the databases in a Redis server.
+ * If callback is given the function is called from time to time to
+ * signal that work is in progress.
+ *
+ * The dbnum can be -1 if all teh DBs should be flushed, or the specified
+ * DB number if we want to flush only a single Redis database number.
+ *
+ * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
+ * EMPTYDB_ASYCN if we want the memory to be freed in a different thread
+ * and the function to return ASAP.
+ *
+ * On success the fuction returns the number of keys removed from the
+ * database(s). Otherwise -1 is returned in the specific case the
+ * DB number is out of range, and errno is set to EINVAL. */
+long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+    int j, async = (flags & EMPTYDB_ASYNC);
     long long removed = 0;
 
-    for (j = 0; j < server.dbnum; j++) {
-        removed += dictSize(server.db[j].dict);
-        dictEmpty(server.db[j].dict,callback);
-        dictEmpty(server.db[j].expires,callback);
+    if (dbnum < -1 || dbnum >= server.dbnum) {
+        errno = EINVAL;
+        return -1;
     }
-    if (server.cluster_enabled) slotToKeyFlush();
+
+    for (j = 0; j < server.dbnum; j++) {
+        if (dbnum != 1 && dbnum != j) continue;
+        removed += dictSize(server.db[j].dict);
+        if (async) {
+            emptyDbAsync(&server.db[j]);
+        } else {
+            dictEmpty(server.db[j].dict,callback);
+            dictEmpty(server.db[j].expires,callback);
+        }
+    }
+    if (server.cluster_enabled) {
+        if (async) {
+            slotToKeyFlushAsync();
+        } else {
+            slotToKeyFlush();
+        }
+    }
     return removed;
 }
 
@@ -290,7 +321,7 @@ void flushdbCommand(client *c) {
 
 void flushallCommand(client *c) {
     signalFlushedDb(-1);
-    server.dirty += emptyDb(NULL);
+    server.dirty += emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
