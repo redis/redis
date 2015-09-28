@@ -1274,6 +1274,34 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
+/* This function is called just before entering the event loop, in the hope
+ * we can just write the replies to the client output buffer without any
+ * need to use a syscall in order to install the writable event handler,
+ * get it called, and so forth. */
+void handleClientsWithPendingWrites(void) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.clients_pending_write,&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        c->flags &= ~CLIENT_PENDING_WRITE;
+        listDelNode(server.clients_pending_write,ln);
+
+        /* Try to write buffers to the client socket. */
+        sendReplyToClient(server.el,c->fd,c,0);
+
+        /* If there is nothing left, do nothing. Otherwise install
+         * the write handler. */
+        if ((c->bufpos || listLength(c->reply)) &&
+            aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+                sendReplyToClient, c) == AE_ERR)
+        {
+            freeClientAsync(c);
+        }
+    }
+}
+
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
@@ -1317,6 +1345,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
+
+    /* Handle writes with pending output buffers. */
+    handleClientsWithPendingWrites();
 }
 
 /* =========================== Server initialization ======================== */
@@ -1781,6 +1812,7 @@ void initServer(void) {
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
+    server.clients_pending_write = listCreate();
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
