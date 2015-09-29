@@ -1,16 +1,6 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+This is the testing branch. It will become Redis 3.2 after more fixes
+and possibly more features will be added.
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
-
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
-
-    http://download.redis.io/releases/redis-stable.tar.gz
-
-More information is available at http://redis.io
-
-Happy hacking!
+All the potentially very unstable work will go into the "unstable" branch.
+Fixes and safe features will be back ported here into "testing" for some
+time, then RC1 will be released and we'll freeze the code base.
