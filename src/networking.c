@@ -1751,7 +1751,7 @@ void flushSlavesOutputBuffers(void) {
             slave->replstate == SLAVE_STATE_ONLINE &&
             listLength(slave->reply))
         {
-            sendReplyToClient(server.el,slave->fd,slave,0);
+            writeToClient(slave->fd,slave,0);
         }
     }
 }
