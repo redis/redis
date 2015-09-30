@@ -685,11 +685,49 @@ void disconnectSlaves(void) {
     }
 }
 
-void freeClient(client *c) {
+/* Remove the specified client from global lists where the client could
+ * be referenced, not including the Pub/Sub channels.
+ * This is used by freeClient() and replicationCacheMaster(). */
+void unlinkClient(client *c) {
     listNode *ln;
 
-    /* If this is marked as current client unset it */
+    /* If this is marked as current client unset it. */
     if (server.current_client == c) server.current_client = NULL;
+
+    /* Certain operations must be done only if the client has an active socket.
+     * If the client was already unlinked or if it's a "fake client" the
+     * fd is already set to -1. */
+    if (c->fd != -1) {
+        /* Remove from the list of active clients. */
+        ln = listSearchKey(server.clients,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients,ln);
+
+        /* Unregister async I/O handlers and close the socket. */
+        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        close(c->fd);
+        c->fd = -1;
+    }
+
+    /* Remove from the list of pending writes if needed. */
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        ln = listSearchKey(server.clients_pending_write,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients_pending_write,ln);
+    }
+
+    /* When client was just unblocked because of a blocking operation,
+     * remove it from the list of unblocked clients. */
+    if (c->flags & CLIENT_UNBLOCKED) {
+        ln = listSearchKey(server.unblocked_clients,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.unblocked_clients,ln);
+    }
+}
+
+void freeClient(client *c) {
+    listNode *ln;
 
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
@@ -732,36 +770,14 @@ void freeClient(client *c) {
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
 
-    /* Close socket, unregister events, and remove list of replies and
-     * accumulated arguments. */
-    if (c->fd != -1) {
-        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
-        close(c->fd);
-    }
+    /* Free data structures. */
     listRelease(c->reply);
     freeClientArgv(c);
 
-    /* Remove from the list of clients */
-    if (c->fd != -1) {
-        ln = listSearchKey(server.clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
-    }
-
-    /* Remove from the list of pending writes if needed. */
-    if (c->flags & CLIENT_PENDING_WRITE) {
-        ln = listSearchKey(server.clients_pending_write,c);
-        listDelNode(server.clients_pending_write,ln);
-    }
-
-    /* When client was just unblocked because of a blocking operation,
-     * remove it from the list of unblocked clients. */
-    if (c->flags & CLIENT_UNBLOCKED) {
-        ln = listSearchKey(server.unblocked_clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.unblocked_clients,ln);
-    }
+    /* Unlink the client: this will close the socket, remove the I/O
+     * handlers, and remove references of the client from different
+     * places where active clients may be referenced. */
+    unlinkClient(c);
 
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
