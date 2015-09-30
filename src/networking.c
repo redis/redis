@@ -938,9 +938,10 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
-void handleClientsWithPendingWrites(void) {
+int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
+    int processed = listLength(server.clients_pending_write);
 
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
@@ -960,6 +961,7 @@ void handleClientsWithPendingWrites(void) {
             freeClientAsync(c);
         }
     }
+    return processed;
 }
 
 /* resetClient prepare the client to process the next command */
@@ -1821,7 +1823,9 @@ int processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
     int count = 0;
     while (iterations--) {
-        int events = aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        int events = 0;
+        events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        events += handleClientsWithPendingWrites();
         if (!events) break;
         count += events;
     }
