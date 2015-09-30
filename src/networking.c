@@ -163,9 +163,11 @@ int prepareClientToWrite(client *c) {
 
     if (c->fd <= 0) return C_ERR; /* Fake client for AOF loading. */
 
-    /* Only install the handler if not already installed and, in case of
-     * slaves, if the client can actually receive writes. */
-    if (c->bufpos == 0 && listLength(c->reply) == 0 &&
+    /* Schedule the client to write the output buffers to the socket only
+     * if not already done (there were no pending writes alreday and the client
+     * was yet not flagged), and, for slaves, if the slave can actually
+     * receive writes at this stage. */
+    if (!clientHasPendingReplies(c) &&
         !(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
          (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
@@ -591,6 +593,12 @@ void copyClientOutputBuffer(client *dst, client *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
+/* Return true if the specified client has pending reply buffers to write to
+ * the socket. */
+int clientHasPendingReplies(client *c) {
+    return c->bufpos || listLength(c->reply);
+}
+
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags) {
     client *c;
@@ -824,7 +832,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
     size_t objmem;
     robj *o;
 
-    while(c->bufpos > 0 || listLength(c->reply)) {
+    while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
@@ -890,7 +898,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * We just rely on data / pings received for timeout detection. */
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
-    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+    if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
         if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 
@@ -929,7 +937,7 @@ void handleClientsWithPendingWrites(void) {
 
         /* If there is nothing left, do nothing. Otherwise install
          * the write handler. */
-        if ((c->bufpos || listLength(c->reply)) &&
+        if (clientHasPendingReplies(c) &&
             aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
                 sendReplyToClient, c) == AE_ERR)
         {
