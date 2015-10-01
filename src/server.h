@@ -63,6 +63,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
 #include "quicklist.h"
+#include "rio.h"     /* Io object for rollback */
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
@@ -672,6 +673,15 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+/* Defines the information necessary to restore a key that (may have) changed as
+ * part of a Lua script execution under the EVALTXN or EVALSHATXN commands. */
+typedef struct {
+    robj *key;
+    long long ttl;
+    rio *dump;
+    void *next;
+} rollbackItem;
+
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -939,6 +949,13 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    int lua_all_transactions; /* True if all scripts should be executed as a
+                                 transaction. */
+    rollbackItem* lua_rollback;  /* The list of commands to execute to restore
+                                   the keyspace state to just prior to the Lua
+                                   script execution. */
+    int lua_rolled_back;  /* The last Lua call got rolled back, don't propagate
+                             this call. */
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;

@@ -463,6 +463,34 @@ start_server {tags {"scripting"}} {
               end
         } 0
     }
+    test {ROLLBACK inside txn script rolls back changes } {
+        r set rb_a original
+        catch { r evaltxn {
+            redis.call('set', 'rb_a', 'new')
+            redis.ROLLBACK()
+        } 0 } e
+        r get rb_a
+    } {original}
+    test {ROLLBACK call inside txn script rolls back changes and causes error } {
+        r set rb_a original
+        catch { r evaltxn {
+            redis.call('set', 'rb_a', 'new')
+            redis.call('script', 'rollback')
+        } 0 } e
+        assert_match {*all writes rolled back*} $e
+        assert_match {*not allowed from scripts*} $e
+        r get rb_a
+    } {original}
+    test {ROLLBACK outside txn script rolls back changes } {
+        r set rb_b original
+        set rd [redis_deferring_client]
+        $rd evaltxn {redis.call('set', 'rb_b', 'new'); while true do end} 0
+        after 200
+        r script rollback
+        after 200
+        assert_equal [r ping] "PONG"
+        r get rb_b
+    } {original}
 }
 
 # Start a new server since the last test in this stanza will kill the

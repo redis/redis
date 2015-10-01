@@ -4440,6 +4440,110 @@ void restoreCommand(client *c) {
     server.dirty++;
 }
 
+void prepareRollback(struct redisCommand *cmd, client *c) {
+    /* We need to get the list of keys being used by this command to
+     * determine which keys we have or have not persisted yet. */
+    int *keys, numkeys, j, skip;
+    rollbackItem* rb;
+    robj *o;
+
+    /* Todo: switch to using a dict instead of a singly-linked list. */
+    keys = getKeysFromCommand(cmd, c->argv, c->argc, &numkeys);
+    for (j = 0; j < numkeys; j++) {
+        skip = 0;
+        for (rb = server.lua_rollback; rb != (rollbackItem*)(1); rb = rb->next) {
+            if (strcmp(c->argv[keys[j]]->ptr, rb->key->ptr) == 0) {
+                skip = 1;
+                break;
+            }
+        }
+        if (skip) continue;
+
+        rb = zmalloc(sizeof(rollbackItem));
+        /* Set the key. */
+        rb->key = c->argv[keys[j]];
+        rb->key->refcount++;
+
+        if ((o = lookupKeyRead(c->db,c->argv[keys[j]])) != NULL) {
+            /* Get the dump, data is: rb->dump->io.buffer.ptr */
+            rb->dump = zmalloc(sizeof(rio));
+            createDumpPayload(rb->dump, o);
+
+            /* Get the ttl. */
+            rb->ttl = getExpire(c->db, rb->key);
+            if (rb->ttl != -1) rb->ttl -= mstime();
+            if (rb->ttl < 0) rb->ttl = 0;
+        } else {
+            /* No key, no dump. */
+            rb->dump = NULL;
+            rb->ttl = 0;
+        }
+        /* Update the rollback pointer. */
+        rb->next = server.lua_rollback;
+        server.lua_rollback = rb;
+    }
+    getKeysFreeResult(keys);
+}
+
+void cleanRollbackItem() {
+    rollbackItem *current = server.lua_rollback;
+    if (current && current != (rollbackItem*)(1)) {
+        if (current->dump != NULL) {
+            /* Handle dump cleanup. */
+            sdsfree(current->dump->io.buffer.ptr);
+            zfree(current->dump);
+        }
+
+        /* Handle key and rollback item cleanup. */
+        decrRefCount(current->key);
+        server.lua_rollback = current->next;
+        zfree(current);
+    }
+}
+
+void restoreFromRollback(client *c) {
+    int type;
+    robj *obj;
+
+    /* Ensure this is called from a transaction. */
+    if (server.lua_rollback != NULL) {
+        while (server.lua_rollback != (rollbackItem*)(1)) {
+            /* Delete the modified key as necessary. */
+            dbDelete(c->db, server.lua_rollback->key);
+
+            if (server.lua_rollback->dump != NULL) {
+                /* Restore the old data. */
+                server.lua_rollback->dump->io.buffer.pos = 0;
+                type = rdbLoadObjectType(server.lua_rollback->dump);
+                obj = rdbLoadObject(type, server.lua_rollback->dump);
+
+                /* Create the key and set the TTL if any. */
+                dbAdd(c->db, server.lua_rollback->key, obj);
+                if (server.lua_rollback->ttl) {
+                    setExpire(c->db, server.lua_rollback->key, mstime() + server.lua_rollback->ttl);
+                }
+            }
+            /* Clean up the item we just finished rolling back. */
+            cleanRollbackItem();
+        }
+    }
+    /* Done rolling back. */
+    server.lua_rolled_back = server.lua_rollback != NULL;
+    server.lua_rollback = NULL;
+}
+
+void cleanRollbackBuffer() {
+    if (server.lua_rollback != NULL) {
+        while (server.lua_rollback != (rollbackItem*)(1)) {
+            /* Clean up this item. */
+            cleanRollbackItem();
+        }
+    }
+    /* Done cleaning up rollback buffer. */
+    server.lua_rollback = NULL;
+}
+
+
 /* MIGRATE socket cache implementation.
  *
  * We take a map between host:ip and a TCP socket that we used to connect

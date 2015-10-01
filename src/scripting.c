@@ -351,7 +351,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
-    if (cmd->flags & CMD_WRITE) server.lua_write_dirty = 1;
+    if (cmd->flags & CMD_WRITE) {
+        server.lua_write_dirty = 1;
+        if (server.lua_rollback) prepareRollback(cmd, c);
+    }
+
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
@@ -434,6 +438,8 @@ cleanup:
         argv_size = 0;
     }
 
+    /* Handle rollback. */
+    raise_error = raise_error || server.lua_kill;
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
          * form of a table with an "err" field. Extract the string to
@@ -537,6 +543,11 @@ int luaLogCommand(lua_State *lua) {
     return 0;
 }
 
+int luaRollbackCommand(lua_State *lua) {
+    lua_pushstring(lua,"Rolling back due to script request.");
+    return lua_error(lua);
+}
+
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     long long elapsed;
     UNUSED(ar);
@@ -551,12 +562,21 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
          * we need to mask the client executing the script from the event loop.
          * If we don't do that the client may disconnect and could no longer be
          * here when the EVAL command will return. */
-         aeDeleteFileEvent(server.el, server.lua_caller->fd, AE_READABLE);
+        if (!server.lua_rollback) {
+            /* If server.lua_rollback is nonzero here, then we've already
+             * handled this part, so we can skip it. */
+            aeDeleteFileEvent(server.el, server.lua_caller->fd, AE_READABLE);
+        }
     }
-    if (server.lua_timedout) processEventsWhileBlocked();
+    if (server.lua_timedout || server.lua_rollback) processEventsWhileBlocked();
     if (server.lua_kill) {
-        serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
-        lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
+        if (server.lua_write_dirty) {
+            serverLog(LL_WARNING,"Lua script killed by user with SCRIPT ROLLBACK.");
+            lua_pushstring(lua,"Script killed by user with SCRIPT ROLLBACK...");
+        } else {
+            serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+            lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
+        }
         lua_error(lua);
     }
 }
@@ -682,6 +702,11 @@ void scriptingInit(void) {
 
     lua_pushstring(lua,"LL_WARNING");
     lua_pushnumber(lua,LL_WARNING);
+    lua_settable(lua,-3);
+
+    /* internal rollback support */
+    lua_pushstring(lua,"ROLLBACK");
+    lua_pushcfunction(lua,luaRollbackCommand);
     lua_settable(lua,-3);
 
     /* redis.sha1hex */
@@ -924,7 +949,10 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
-    int delhook = 0, err;
+    int delhook = 0, err, txn = server.lua_all_transactions;
+    if (evalsha) txn = txn || strcasecmp(c->argv[0]->ptr,"evalshatxn") == 0;
+    else txn = txn || strcasecmp(c->argv[0]->ptr,"evaltxn") == 0;
+
 
     /* We want the same PRNG sequence at every call so that our PRNG is
      * not affected by external state. */
@@ -940,6 +968,7 @@ void evalGenericCommand(client *c, int evalsha) {
      * is called after a random command was used. */
     server.lua_random_dirty = 0;
     server.lua_write_dirty = 0;
+    server.lua_rollback = (rollbackItem*)(long long)txn;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -1009,14 +1038,21 @@ void evalGenericCommand(client *c, int evalsha) {
 
     /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
-     * We set the hook only if the time limit is enabled as the hook will
-     * make the Lua script execution slower. */
+     * We set the hook if the time limit is enabled or if transactions are
+     * enabled, as the hook will make the Lua script execution slower. */
     server.lua_caller = c;
     server.lua_time_start = mstime();
     server.lua_kill = 0;
-    if (server.lua_time_limit > 0 && server.masterhost == NULL) {
+    if ((txn || server.lua_time_limit > 0) && server.masterhost == NULL) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
+        if (txn) {
+            /* We'll disable the read here for the same reason why we disable
+             * it above in luaMaskCountHook on command timeout, we're just
+             * doing it early here because a transaction can be killed at any
+             * time. */
+            aeDeleteFileEvent(server.el, server.lua_caller->fd, AE_READABLE);
+        }
     }
 
     /* At this point whether this script was never seen before or if it was
@@ -1026,7 +1062,7 @@ void evalGenericCommand(client *c, int evalsha) {
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
-    if (server.lua_timedout) {
+    if (server.lua_timedout || txn) {
         server.lua_timedout = 0;
         /* Restore the readable handler that was unregistered when the
          * script timeout was detected. */
@@ -1053,15 +1089,28 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 
     if (err) {
-        addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
-            funcname, lua_tostring(lua,-1));
+        if (server.lua_rollback != NULL) {
+            /* When running the script as a transaction, we revert any writes
+             * that occurred if there was an error during script execution. This
+             * also allows us to kill a script as it is executing, even if the
+             * script has already written to Redis. */
+            restoreFromRollback(c);
+            addReplyErrorFormat(c,"Error running script, all writes rolled back (call to %s): %s\n",
+                funcname, lua_tostring(lua,-1));
+        } else {
+            addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
+                funcname, lua_tostring(lua,-1));
+        }
         lua_pop(lua,2); /* Consume the Lua reply and remove error handler. */
     } else {
-        /* On success convert the Lua return value into Redis protocol, and
-         * send it to * the client. */
-        luaReplyToRedisReply(c,lua); /* Convert and consume the reply. */
-        lua_pop(lua,1); /* Remove the error handler. */
-    }
+        /* Clean out the Lua rollback buffer as necessary. */
+        cleanRollbackBuffer();
+
+         /* On success convert the Lua return value into Redis protocol, and
+         * send it to the client. */
+         luaReplyToRedisReply(c,lua); /* Convert and consume the reply. */
+         lua_pop(lua,1); /* Remove the error handler. */
+     }
 
     /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
      * we are sure that the script was already in the context of all the
@@ -1187,6 +1236,15 @@ void scriptCommand(client *c) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
         } else if (server.lua_write_dirty) {
+            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
+        } else {
+            server.lua_kill = 1;
+            addReply(c,shared.ok);
+        }
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"rollback")) {
+        if (server.lua_caller == NULL) {
+            addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
+        } else if (server.lua_write_dirty && !server.lua_rollback) {
             addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
         } else {
             server.lua_kill = 1;
