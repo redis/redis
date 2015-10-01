@@ -62,7 +62,6 @@ using namespace std;
 #define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
 #endif
 
-const int64_t cSentinelHeapSize = 30 * 1024 * 1024;
 extern "C" int checkForSentinelMode(int argc, char **argv);
 extern "C" void InitTimeFunctions();
 
@@ -661,7 +660,6 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
     bool foundChildFlag = false;
-    int sentinelMode = checkForSentinelMode(argc, argv);
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
@@ -738,17 +736,12 @@ StartupStatus QForkStartup(int argc, char** argv) {
         }
     }
 
-    if( maxheapBytes == -1 ) {
-        if (sentinelMode == 1) {
-            // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
-            maxheapBytes = cSentinelHeapSize;
-        } else {
+    if (maxheapBytes == -1) {
 #ifdef _WIN64
-            maxheapBytes = perfinfo.PhysicalTotal * Globals::pageSize;
+        maxheapBytes = perfinfo.PhysicalTotal * Globals::pageSize;
 #else
-            maxheapBytes = cDefaultmaxHeap32Bit;
+        maxheapBytes = cDefaultmaxHeap32Bit;
 #endif
-        }
     }
 
     if (foundChildFlag) {
@@ -1342,6 +1335,7 @@ extern "C"
                 FILE_ATTRIBUTE_NORMAL,
                 NULL);
 #endif
+            int sentinelMode = checkForSentinelMode(argc, argv);
 
             // service commands do not launch an instance of redis directly
             if (HandleServiceCommands(argc, argv) == TRUE) {
@@ -1349,7 +1343,7 @@ extern "C"
             }
 
             // Setup memory allocation scheme for persistence mode
-            if (IsPersistenceAvailable() == TRUE) {
+            if (IsPersistenceAvailable() == TRUE && sentinelMode == 0) {
                 g_malloc = dlmalloc;
                 g_calloc = dlcalloc;
                 g_realloc = dlrealloc;
@@ -1363,7 +1357,7 @@ extern "C"
                 g_msize = _msize;
             }
 
-            if (IsPersistenceAvailable() == TRUE) {
+            if (IsPersistenceAvailable() == TRUE && sentinelMode == 0) {
                   StartupStatus status = QForkStartup(argc, argv);
                   if (status == ssCONTINUE_AS_PARENT) {
                       int retval = redis_main(argc, argv);
