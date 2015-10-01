@@ -193,6 +193,10 @@ BOOL FDAPI_AcceptEx(int listenRFD, int acceptRFD, PVOID lpOutputBuffer,
 const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
 #endif
 
+#ifndef _WIN32_WINNT_WIN8
+#define _WIN32_WINNT_WIN8 0x0602
+#endif
+
 void EnableFastLoopback(SOCKET socket) {
     // if Win8+, use fast path option on loopback 
     if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN8), LOBYTE(_WIN32_WINNT_WIN8), 0)) {
