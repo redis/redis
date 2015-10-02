@@ -136,6 +136,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD 0
+#define CONFIG_DEFAULT_SLAVE_LAZY_FLUSH 0
+#define CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION 0
+#define CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE 0
+#define CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL 0
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -611,8 +615,8 @@ struct sharedObjectsStruct {
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
-    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan,
+    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
+    *rpop, *lpop, *lpush, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -878,6 +882,7 @@ struct redisServer {
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     char repl_master_runid[CONFIG_RUN_ID_SIZE+1];  /* Master run id for PSYNC. */
     long long repl_master_initial_offset;         /* Master PSYNC offset. */
+    int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     /* Replication script cache. */
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
@@ -911,8 +916,8 @@ struct redisServer {
     int list_max_ziplist_size;
     int list_compress_depth;
     /* time cache */
-    time_t unixtime;        /* Unix time sampled every cron cycle. */
-    long long mstime;       /* Like 'unixtime' but with milliseconds resolution. */
+    time_t unixtime;    /* Unix time sampled every cron cycle. */
+    long long mstime;   /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
@@ -941,6 +946,10 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    /* Lazy free */
+    int lazyfree_lazy_eviction;
+    int lazyfree_lazy_expire;
+    int lazyfree_lazy_server_del;
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
@@ -1368,7 +1377,7 @@ int rewriteConfig(char *path);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
-void propagateExpire(redisDb *db, robj *key);
+void propagateExpire(redisDb *db, robj *key, int lazy);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(redisDb *db, robj *key, long long when);
@@ -1402,15 +1411,6 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long *cursor);
 void slotToKeyAdd(robj *key);
 void slotToKeyDel(robj *key);
 void slotToKeyFlush(void);
-
-/* Lazy free. Note that SLOW and FAST are only useful when incremental
- * lazy free is active. For threaded lazy free the actual freeing of objects
- * happens in the background. Only STEP_OOM is used since it blocks waiting
- * for the freeing thread to do some work before returning. */
-#define LAZYFREE_STEP_SLOW 0    /* Take 1-2 milliseconds to reclaim memory. */
-#define LAZYFREE_STEP_FAST 1    /* Free a few elements ASAP and return. */
-#define LAZYFREE_STEP_OOM 2     /* Free a few elements at any cost if there
-                                   is something to free: we are out of memory */
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void slotToKeyFlushAsync(void);
