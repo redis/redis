@@ -847,6 +847,25 @@ class RedisTrib
         check_cluster
     end
 
+    def is_master(node, exit_required: false)
+        if !node || node.has_flag?("slave")
+            xputs "*** The specified node is not known or is not a master, please retry."
+            if exit_required
+                exit 1
+            end
+            return false
+        end
+        true
+    end
+
+    def is_src_target_diff(src, target)
+        if src.info[:name] == target.info[:name]
+            xputs "*** It is not possible to use the target node as source node."
+            return false
+        end
+        true
+    end
+
     def reshard_cluster_cmd(argv,opt)
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -858,7 +877,7 @@ class RedisTrib
         # Get number of slots
         if opt['slots']
             numslots = opt['slots'].to_i
-        else
+        elsif !opt['target_slot']
             numslots = 0
             while numslots <= 0 or numslots > ClusterHashSlots
                 print "How many slots do you want to move (from 1 to #{ClusterHashSlots})? "
@@ -866,20 +885,20 @@ class RedisTrib
             end
         end
 
+        if opt['target_slot']
+            target_slot = opt['target_slot'].to_i
+        end
+
         # Get the target instance
         if opt['to']
             target = get_node_by_name(opt['to'])
-            if !target || target.has_flag?("slave")
-                xputs "*** The specified node is not known or not a master, please retry."
-                exit 1
-            end
+            is_master(target, exit_required: true)
         else
             target = nil
             while not target
                 print "What is the receiving node ID? "
                 target = get_node_by_name(STDIN.gets.chop)
-                if !target || target.has_flag?("slave")
-                    xputs "*** The specified node is not known or not a master, please retry."
+                if !is_master(target)
                     target = nil
                 end
             end
@@ -894,13 +913,13 @@ class RedisTrib
                     break
                 end
                 src = get_node_by_name(node_id)
-                if !src || src.has_flag?("slave")
-                    xputs "*** The specified node is not known or is not a master, please retry."
-                    exit 1
-                end
+                is_master(src, exit_required: true)
                 sources << src
+                if target_slot
+                    break
+                end
             }
-        else
+        elsif numslots
             xputs "Please enter all the source node IDs."
             xputs "  Type 'all' to use all the nodes as source nodes for the hash slots."
             xputs "  Type 'done' once you entered all the source nodes IDs."
@@ -913,12 +932,22 @@ class RedisTrib
                 elsif line == "all"
                     sources = "all"
                     break
-                elsif !src || src.has_flag?("slave")
-                    xputs "*** The specified node is not known or is not a master, please retry."
-                elsif src.info[:name] == target.info[:name]
-                    xputs "*** It is not possible to use the target node as source node."
-                else
-                    sources << src
+                elsif is_master(src)
+                    if is_src_target_diff(src, target)
+                        sources << src
+                    end
+                end
+            end
+        else
+            print "Please input a source node ID: "
+            while true
+                line = STDIN.gets.chop
+                src = get_node_by_name(line)
+                if is_master(src)
+                    if is_src_target_diff(src, target)
+                        sources = [src]
+                        break
+                    end
                 end
             end
         end
@@ -944,22 +973,33 @@ class RedisTrib
             exit 1
         end
 
-        puts "\nReady to move #{numslots} slots."
-        puts "  Source nodes:"
-        sources.each{|s| puts "    "+s.info_string}
-        puts "  Destination node:"
-        puts "    #{target.info_string}"
-        reshard_table = compute_reshard_table(sources,numslots)
-        puts "  Resharding plan:"
-        show_reshard_table(reshard_table)
-        if !opt['yes']
-            print "Do you want to proceed with the proposed reshard plan (yes/no)? "
-            yesno = STDIN.gets.chop
-            exit(1) if (yesno != "yes")
+        if numslots
+            puts "\nReady to move #{numslots} slots."
+            puts "  Source nodes:"
+            sources.each{|s| puts "    "+s.info_string}
+            puts "  Destination node:"
+            puts "    #{target.info_string}"
+            reshard_table = compute_reshard_table(sources,numslots)
+            puts "  Resharding plan:"
+            show_reshard_table(reshard_table)
+            if !opt['yes']
+                print "Do you want to proceed with the proposed reshard plan (yes/no)? "
+                yesno = STDIN.gets.chop
+                exit(1) if (yesno != "yes")
+            end
+            reshard_table.each{|e|
+                move_slot(e[:source],target,e[:slot],:verbose=>true)
+            }
+        elsif target_slot
+            src = sources[0]
+            puts "\nReady to move #{target_slot} from #{src} to #{target}"
+            if !opt['yes']
+                print "Do you want to proceed with the operation (yes/no)? "
+                yesno = STDIN.gets.chop
+                exit(1) if (yesno != "yes")
+            end
+            move_slot(src, target, target_slot, :verbose=>true)
         end
-        reshard_table.each{|e|
-            move_slot(e[:source],target,e[:slot],:verbose=>true)
-        }
     end
 
     # This is an helper function for create_cluster_cmd that verifies if
@@ -1335,7 +1375,7 @@ ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "target_slot" => true}
 }
 
 def show_help
