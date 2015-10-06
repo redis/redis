@@ -2,6 +2,14 @@
 
 #define	NTHREADS 10
 
+static bool have_dss =
+#ifdef JEMALLOC_DSS
+    true
+#else
+    false
+#endif
+    ;
+
 void *
 thd_start(void *arg)
 {
@@ -18,13 +26,16 @@ thd_start(void *arg)
 		size_t mib[3];
 		size_t miblen = sizeof(mib) / sizeof(size_t);
 		const char *dss_precs[] = {"disabled", "primary", "secondary"};
-		const char *dss = dss_precs[thread_ind %
-		    (sizeof(dss_precs)/sizeof(char*))];
+		unsigned prec_ind = thread_ind %
+		    (sizeof(dss_precs)/sizeof(char*));
+		const char *dss = dss_precs[prec_ind];
+		int expected_err = (have_dss || prec_ind == 0) ? 0 : EFAULT;
 		assert_d_eq(mallctlnametomib("arena.0.dss", mib, &miblen), 0,
 		    "Error in mallctlnametomib()");
 		mib[1] = arena_ind;
 		assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, (void *)&dss,
-		    sizeof(const char *)), 0, "Error in mallctlbymib()");
+		    sizeof(const char *)), expected_err,
+		    "Error in mallctlbymib()");
 	}
 
 	p = mallocx(1, MALLOCX_ARENA(arena_ind));
@@ -34,7 +45,7 @@ thd_start(void *arg)
 	return (NULL);
 }
 
-TEST_BEGIN(test_ALLOCM_ARENA)
+TEST_BEGIN(test_MALLOCX_ARENA)
 {
 	thd_t thds[NTHREADS];
 	unsigned i;
@@ -54,5 +65,5 @@ main(void)
 {
 
 	return (test(
-	    test_ALLOCM_ARENA));
+	    test_MALLOCX_ARENA));
 }

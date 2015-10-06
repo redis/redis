@@ -1,4 +1,9 @@
-#include "prof_accum.h"
+#include "test/jemalloc_test.h"
+
+#define	NTHREADS		4
+#define	NALLOCS_PER_THREAD	50
+#define	DUMP_INTERVAL		1
+#define	BT_COUNT_CHECK_INTERVAL	5
 
 #ifdef JEMALLOC_PROF
 const char *malloc_conf =
@@ -20,7 +25,7 @@ static void *
 alloc_from_permuted_backtrace(unsigned thd_ind, unsigned iteration)
 {
 
-	return (alloc_0(thd_ind*NALLOCS_PER_THREAD + iteration));
+	return (btalloc(1, thd_ind*NALLOCS_PER_THREAD + iteration));
 }
 
 static void *

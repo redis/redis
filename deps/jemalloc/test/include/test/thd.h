@@ -1,4 +1,4 @@
-/* Abstraction layer for threading in tests */
+/* Abstraction layer for threading in tests. */
 #ifdef _WIN32
 typedef HANDLE thd_t;
 #else

@@ -2,11 +2,11 @@
 
 # Copyright (c) 1998-2007, Google Inc.
 # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
 # met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 # notice, this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above
@@ -16,7 +16,7 @@
 #     * Neither the name of Google Inc. nor the names of its
 # contributors may be used to endorse or promote products derived from
 # this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -40,28 +40,28 @@
 #
 # Examples:
 #
-# % tools/pprof "program" "profile"
+# % tools/jeprof "program" "profile"
 #   Enters "interactive" mode
 #
-# % tools/pprof --text "program" "profile"
+# % tools/jeprof --text "program" "profile"
 #   Generates one line per procedure
 #
-# % tools/pprof --gv "program" "profile"
+# % tools/jeprof --gv "program" "profile"
 #   Generates annotated call-graph and displays via "gv"
 #
-# % tools/pprof --gv --focus=Mutex "program" "profile"
+# % tools/jeprof --gv --focus=Mutex "program" "profile"
 #   Restrict to code paths that involve an entry that matches "Mutex"
 #
-# % tools/pprof --gv --focus=Mutex --ignore=string "program" "profile"
+# % tools/jeprof --gv --focus=Mutex --ignore=string "program" "profile"
 #   Restrict to code paths that involve an entry that matches "Mutex"
 #   and does not match "string"
 #
-# % tools/pprof --list=IBF_CheckDocid "program" "profile"
+# % tools/jeprof --list=IBF_CheckDocid "program" "profile"
 #   Generates disassembly listing of all routines with at least one
 #   sample that match the --list=<regexp> pattern.  The listing is
 #   annotated with the flat and cumulative sample counts at each line.
 #
-# % tools/pprof --disasm=IBF_CheckDocid "program" "profile"
+# % tools/jeprof --disasm=IBF_CheckDocid "program" "profile"
 #   Generates disassembly listing of all routines with at least one
 #   sample that match the --disasm=<regexp> pattern.  The listing is
 #   annotated with the flat and cumulative sample counts at each PC value.
@@ -72,10 +72,11 @@ use strict;
 use warnings;
 use Getopt::Long;
 
+my $JEPROF_VERSION = "@jemalloc_version@";
 my $PPROF_VERSION = "2.0";
 
 # These are the object tools we use which can come from a
-# user-specified location using --tools, from the PPROF_TOOLS
+# user-specified location using --tools, from the JEPROF_TOOLS
 # environment variable, or from the environment.
 my %obj_tool_map = (
   "objdump" => "objdump",
@@ -144,13 +145,13 @@ my $sep_address = undef;
 sub usage_string {
   return <<EOF;
 Usage:
-pprof [options] <program> <profiles>
+jeprof [options] <program> <profiles>
    <profiles> is a space separated list of profile names.
-pprof [options] <symbolized-profiles>
+jeprof [options] <symbolized-profiles>
    <symbolized-profiles> is a list of profile files where each file contains
    the necessary symbol mappings  as well as profile data (likely generated
    with --raw).
-pprof [options] <profile>
+jeprof [options] <profile>
    <profile> is a remote form.  Symbols are obtained from host:port$SYMBOL_PAGE
 
    Each name can be:
@@ -161,9 +162,9 @@ pprof [options] <profile>
                          $GROWTH_PAGE, $CONTENTION_PAGE, /pprof/wall,
                          $CENSUSPROFILE_PAGE, or /pprof/filteredprofile.
    For instance:
-     pprof http://myserver.com:80$HEAP_PAGE
+     jeprof http://myserver.com:80$HEAP_PAGE
    If /<service> is omitted, the service defaults to $PROFILE_PAGE (cpu profiling).
-pprof --symbols <program>
+jeprof --symbols <program>
    Maps addresses to symbol names.  In this mode, stdin should be a
    list of library mappings, in the same format as is found in the heap-
    and cpu-profile files (this loosely matches that of /proc/self/maps
@@ -202,7 +203,7 @@ Output type:
    --pdf               Generate PDF to stdout
    --svg               Generate SVG to stdout
    --gif               Generate GIF to stdout
-   --raw               Generate symbolized pprof data (useful with remote fetch)
+   --raw               Generate symbolized jeprof data (useful with remote fetch)
 
 Heap-Profile Options:
    --inuse_space       Display in-use (mega)bytes [default]
@@ -223,6 +224,7 @@ Call-graph Options:
    --edgefraction=<f>  Hide edges below <f>*total [default=.001]
    --maxdegree=<n>     Max incoming/outgoing edges per node [default=8]
    --focus=<regexp>    Focus on nodes matching <regexp>
+   --thread=<n>        Show profile for thread <n>
    --ignore=<regexp>   Ignore nodes matching <regexp>
    --scale=<n>         Set GV scaling [default=0]
    --heapcheck         Make nodes with non-0 object counts
@@ -235,34 +237,34 @@ Miscellaneous:
    --version           Version information
 
 Environment Variables:
-   PPROF_TMPDIR        Profiles directory. Defaults to \$HOME/pprof
-   PPROF_TOOLS         Prefix for object tools pathnames
+   JEPROF_TMPDIR        Profiles directory. Defaults to \$HOME/jeprof
+   JEPROF_TOOLS         Prefix for object tools pathnames
 
 Examples:
 
-pprof /bin/ls ls.prof
+jeprof /bin/ls ls.prof
                        Enters "interactive" mode
-pprof --text /bin/ls ls.prof
+jeprof --text /bin/ls ls.prof
                        Outputs one line per procedure
-pprof --web /bin/ls ls.prof
+jeprof --web /bin/ls ls.prof
                        Displays annotated call-graph in web browser
-pprof --gv /bin/ls ls.prof
+jeprof --gv /bin/ls ls.prof
                        Displays annotated call-graph via 'gv'
-pprof --gv --focus=Mutex /bin/ls ls.prof
+jeprof --gv --focus=Mutex /bin/ls ls.prof
                        Restricts to code paths including a .*Mutex.* entry
-pprof --gv --focus=Mutex --ignore=string /bin/ls ls.prof
+jeprof --gv --focus=Mutex --ignore=string /bin/ls ls.prof
                        Code paths including Mutex but not string
-pprof --list=getdir /bin/ls ls.prof
+jeprof --list=getdir /bin/ls ls.prof
                        (Per-line) annotated source listing for getdir()
-pprof --disasm=getdir /bin/ls ls.prof
+jeprof --disasm=getdir /bin/ls ls.prof
                        (Per-PC) annotated disassembly for getdir()
 
-pprof http://localhost:1234/
+jeprof http://localhost:1234/
                        Enters "interactive" mode
-pprof --text localhost:1234
+jeprof --text localhost:1234
                        Outputs one line per procedure for localhost:1234
-pprof --raw localhost:1234 > ./local.raw
-pprof --text ./local.raw
+jeprof --raw localhost:1234 > ./local.raw
+jeprof --text ./local.raw
                        Fetches a remote profile for later analysis and then
                        analyzes it in text mode.
 EOF
@@ -270,7 +272,8 @@ EOF
 
 sub version_string {
   return <<EOF
-pprof (part of gperftools $PPROF_VERSION)
+jeprof (part of jemalloc $JEPROF_VERSION)
+based on pprof (part of gperftools $PPROF_VERSION)
 
 Copyright 1998-2007 Google Inc.
 
@@ -293,8 +296,8 @@ sub Init() {
   # Setup tmp-file name and handler to clean it up.
   # We do this in the very beginning so that we can use
   # error() and cleanup() function anytime here after.
-  $main::tmpfile_sym = "/tmp/pprof$$.sym";
-  $main::tmpfile_ps = "/tmp/pprof$$";
+  $main::tmpfile_sym = "/tmp/jeprof$$.sym";
+  $main::tmpfile_ps = "/tmp/jeprof$$";
   $main::next_tmpfile = 0;
   $SIG{'INT'} = \&sighandler;
 
@@ -332,6 +335,7 @@ sub Init() {
   $main::opt_edgefraction = 0.001;
   $main::opt_maxdegree = 8;
   $main::opt_focus = '';
+  $main::opt_thread = undef;
   $main::opt_ignore = '';
   $main::opt_scale = 0;
   $main::opt_heapcheck = 0;
@@ -402,6 +406,7 @@ sub Init() {
              "edgefraction=f" => \$main::opt_edgefraction,
              "maxdegree=i"    => \$main::opt_maxdegree,
              "focus=s"        => \$main::opt_focus,
+             "thread=s"       => \$main::opt_thread,
              "ignore=s"       => \$main::opt_ignore,
              "scale=i"        => \$main::opt_scale,
              "heapcheck"      => \$main::opt_heapcheck,
@@ -562,6 +567,86 @@ sub Init() {
   }
 }
 
+sub FilterAndPrint {
+  my ($profile, $symbols, $libs, $thread) = @_;
+
+  # Get total data in profile
+  my $total = TotalProfile($profile);
+
+  # Remove uniniteresting stack items
+  $profile = RemoveUninterestingFrames($symbols, $profile);
+
+  # Focus?
+  if ($main::opt_focus ne '') {
+    $profile = FocusProfile($symbols, $profile, $main::opt_focus);
+  }
+
+  # Ignore?
+  if ($main::opt_ignore ne '') {
+    $profile = IgnoreProfile($symbols, $profile, $main::opt_ignore);
+  }
+
+  my $calls = ExtractCalls($symbols, $profile);
+
+  # Reduce profiles to required output granularity, and also clean
+  # each stack trace so a given entry exists at most once.
+  my $reduced = ReduceProfile($symbols, $profile);
+
+  # Get derived profiles
+  my $flat = FlatProfile($reduced);
+  my $cumulative = CumulativeProfile($reduced);
+
+  # Print
+  if (!$main::opt_interactive) {
+    if ($main::opt_disasm) {
+      PrintDisassembly($libs, $flat, $cumulative, $main::opt_disasm);
+    } elsif ($main::opt_list) {
+      PrintListing($total, $libs, $flat, $cumulative, $main::opt_list, 0);
+    } elsif ($main::opt_text) {
+      # Make sure the output is empty when have nothing to report
+      # (only matters when --heapcheck is given but we must be
+      # compatible with old branches that did not pass --heapcheck always):
+      if ($total != 0) {
+        printf("Total%s: %s %s\n",
+               (defined($thread) ? " (t$thread)" : ""),
+               Unparse($total), Units());
+      }
+      PrintText($symbols, $flat, $cumulative, -1);
+    } elsif ($main::opt_raw) {
+      PrintSymbolizedProfile($symbols, $profile, $main::prog);
+    } elsif ($main::opt_callgrind) {
+      PrintCallgrind($calls);
+    } else {
+      if (PrintDot($main::prog, $symbols, $profile, $flat, $cumulative, $total)) {
+        if ($main::opt_gv) {
+          RunGV(TempName($main::next_tmpfile, "ps"), "");
+        } elsif ($main::opt_evince) {
+          RunEvince(TempName($main::next_tmpfile, "pdf"), "");
+        } elsif ($main::opt_web) {
+          my $tmp = TempName($main::next_tmpfile, "svg");
+          RunWeb($tmp);
+          # The command we run might hand the file name off
+          # to an already running browser instance and then exit.
+          # Normally, we'd remove $tmp on exit (right now),
+          # but fork a child to remove $tmp a little later, so that the
+          # browser has time to load it first.
+          delete $main::tempnames{$tmp};
+          if (fork() == 0) {
+            sleep 5;
+            unlink($tmp);
+            exit(0);
+          }
+        }
+      } else {
+        cleanup();
+        exit(1);
+      }
+    }
+  } else {
+    InteractiveMode($profile, $symbols, $libs, $total);
+  }
+}
+
 sub Main() {
   Init();
   $main::collected_profile = undef;
@@ -605,9 +690,6 @@ sub Main() {
     $symbol_map = MergeSymbols($symbol_map, $base->{symbols});
   }
 
-  # Get total data in profile
-  my $total = TotalProfile($profile);
-
   # Collect symbols
   my $symbols;
   if ($main::use_symbolized_profile) {
@@ -622,75 +704,17 @@ sub Main() {
     $symbols = ExtractSymbols($libs, $pcs);
   }
 
-  # Remove uniniteresting stack items
-  $profile = RemoveUninterestingFrames($symbols, $profile);
-
-  # Focus?
-  if ($main::opt_focus ne '') {
-    $profile = FocusProfile($symbols, $profile, $main::opt_focus);
+  if (!defined($main::opt_thread)) {
+    FilterAndPrint($profile, $symbols, $libs);
   }
-
-  # Ignore?
-  if ($main::opt_ignore ne '') {
-    $profile = IgnoreProfile($symbols, $profile, $main::opt_ignore);
-  }
-
-  my $calls = ExtractCalls($symbols, $profile);
-
-  # Reduce profiles to required output granularity, and also clean
-  # each stack trace so a given entry exists at most once.
-  my $reduced = ReduceProfile($symbols, $profile);
-
-  # Get derived profiles
-  my $flat = FlatProfile($reduced);
-  my $cumulative = CumulativeProfile($reduced);
-
-  # Print
-  if (!$main::opt_interactive) {
-    if ($main::opt_disasm) {
-      PrintDisassembly($libs, $flat, $cumulative, $main::opt_disasm);
-    } elsif ($main::opt_list) {
-      PrintListing($total, $libs, $flat, $cumulative, $main::opt_list, 0);
-    } elsif ($main::opt_text) {
-      # Make sure the output is empty when have nothing to report
-      # (only matters when --heapcheck is given but we must be
-      # compatible with old branches that did not pass --heapcheck always):
-      if ($total != 0) {
-        printf("Total: %s %s\n", Unparse($total), Units());
-      }
-      PrintText($symbols, $flat, $cumulative, -1);
-    } elsif ($main::opt_raw) {
-      PrintSymbolizedProfile($symbols, $profile, $main::prog);
-    } elsif ($main::opt_callgrind) {
-      PrintCallgrind($calls);
-    } else {
-      if (PrintDot($main::prog, $symbols, $profile, $flat, $cumulative, $total)) {
-        if ($main::opt_gv) {
-          RunGV(TempName($main::next_tmpfile, "ps"), "");
-        } elsif ($main::opt_evince) {
-          RunEvince(TempName($main::next_tmpfile, "pdf"), "");
-        } elsif ($main::opt_web) {
-          my $tmp = TempName($main::next_tmpfile, "svg");
-          RunWeb($tmp);
-          # The command we run might hand the file name off
-          # to an already running browser instance and then exit.
-          # Normally, we'd remove $tmp on exit (right now),
-          # but fork a child to remove $tmp a little later, so that the
-          # browser has time to load it first.
-          delete $main::tempnames{$tmp};
-          if (fork() == 0) {
-            sleep 5;
-            unlink($tmp);
-            exit(0);
-          }
-        }
-      } else {
-        cleanup();
-        exit(1);
+  if (defined($data->{threads})) {
+    foreach my $thread (sort { $a <=> $b } keys(%{$data->{threads}})) {
+      if (defined($main::opt_thread) &&
+          ($main::opt_thread eq '*' || $main::opt_thread == $thread)) {
+        my $thread_profile = $data->{threads}{$thread};
+        FilterAndPrint($thread_profile, $symbols, $libs, $thread);
       }
     }
-  } else {
-    InteractiveMode($profile, $symbols, $libs, $total);
   }
 
   cleanup();
@@ -780,14 +804,14 @@ sub InteractiveMode {
   $| = 1;  # Make output unbuffered for interactive mode
   my ($orig_profile, $symbols, $libs, $total) = @_;
 
-  print STDERR "Welcome to pprof!  For help, type 'help'.\n";
+  print STDERR "Welcome to jeprof!  For help, type 'help'.\n";
 
   # Use ReadLine if it's installed and input comes from a console.
   if ( -t STDIN &&
        !ReadlineMightFail() &&
        defined(eval {require Term::ReadLine}) ) {
-    my $term = new Term::ReadLine 'pprof';
-    while ( defined ($_ = $term->readline('(pprof) '))) {
+    my $term = new Term::ReadLine 'jeprof';
+    while ( defined ($_ = $term->readline('(jeprof) '))) {
       $term->addhistory($_) if /\S/;
       if (!InteractiveCommand($orig_profile, $symbols, $libs, $total, $_)) {
         last;    # exit when we get an interactive command to quit
@@ -795,7 +819,7 @@ sub InteractiveMode {
     }
   } else {       # don't have readline
     while (1) {
-      print STDERR "(pprof) ";
+      print STDERR "(jeprof) ";
       $_ = <STDIN>;
       last if ! defined $_ ;
       s/\r//g;         # turn windows-looking lines into unix-looking lines
@@ -988,7 +1012,7 @@ sub ProcessProfile {
 
 sub InteractiveHelpMessage {
   print STDERR <<ENDOFHELP;
-Interactive pprof mode
+Interactive jeprof mode
 
 Commands:
   gv
@@ -1031,7 +1055,7 @@ Commands:
       Generates callgrind file. If no filename is given, kcachegrind is called.
 
   help - This listing
-  quit or ^D - End pprof
+  quit or ^D - End jeprof
 
 For commands that accept optional -ignore tags, samples where any routine in
 the stack trace matches the regular expression in any of the -ignore
@@ -1476,7 +1500,7 @@ h1 {
 }
 </style>
 <script type="text/javascript">
-function pprof_toggle_asm(e) {
+function jeprof_toggle_asm(e) {
   var target;
   if (!e) e = window.event;
   if (e.target) target = e.target;
@@ -1683,23 +1707,23 @@ sub PrintSource {
                         HtmlPrintNumber($c2),
                         UnparseAddress($offset, $e->[0]),
                         CleanDisassembly($e->[3]));
-      
+
       # Append the most specific source line associated with this instruction
       if (length($dis) < 80) { $dis .= (' ' x (80 - length($dis))) };
       $dis = HtmlEscape($dis);
       my $f = $e->[5];
       my $l = $e->[6];
       if ($f ne $last_dis_filename) {
-        $dis .= sprintf("<span class=disasmloc>%s:%d</span>", 
+        $dis .= sprintf("<span class=disasmloc>%s:%d</span>",
                         HtmlEscape(CleanFileName($f)), $l);
       } elsif ($l ne $last_dis_linenum) {
         # De-emphasize the unchanged file name portion
         $dis .= sprintf("<span class=unimportant>%s</span>" .
-                        "<span class=disasmloc>:%d</span>", 
+                        "<span class=disasmloc>:%d</span>",
                         HtmlEscape(CleanFileName($f)), $l);
       } else {
         # De-emphasize the entire location
-        $dis .= sprintf("<span class=unimportant>%s:%d</span>", 
+        $dis .= sprintf("<span class=unimportant>%s:%d</span>",
                         HtmlEscape(CleanFileName($f)), $l);
       }
       $last_dis_filename = $f;
@@ -1745,7 +1769,7 @@ sub PrintSource {
 
   if ($html) {
     printf $output (
-      "<h1>%s</h1>%s\n<pre onClick=\"pprof_toggle_asm()\">\n" .
+      "<h1>%s</h1>%s\n<pre onClick=\"jeprof_toggle_asm()\">\n" .
       "Total:%6s %6s (flat / cumulative %s)\n",
       HtmlEscape(ShortFunctionName($routine)),
       HtmlEscape(CleanFileName($filename)),
@@ -1788,8 +1812,8 @@ sub PrintSource {
         if (defined($dis) && $dis ne '') {
           $asm = "<span class=\"asm\">" . $dis . "</span>";
         }
-        my $source_class = (($n1 + $n2 > 0) 
-                            ? "livesrc" 
+        my $source_class = (($n1 + $n2 > 0)
+                            ? "livesrc"
                             : (($asm ne "") ? "deadsrc" : "nop"));
         printf $output (
           "<span class=\"line\">%5d</span> " .
@@ -2811,9 +2835,15 @@ sub RemoveUninterestingFrames {
                       'free',
                       'memalign',
                       'posix_memalign',
+                      'aligned_alloc',
                       'pvalloc',
                       'valloc',
                       'realloc',
+                      'mallocx', # jemalloc
+                      'rallocx', # jemalloc
+                      'xallocx', # jemalloc
+                      'dallocx', # jemalloc
+                      'sdallocx', # jemalloc
                       'tc_calloc',
                       'tc_cfree',
                       'tc_malloc',
@@ -2923,6 +2953,10 @@ sub RemoveUninterestingFrames {
       if (exists($symbols->{$a})) {
         my $func = $symbols->{$a}->[0];
         if ($skip{$func} || ($func =~ m/$skip_regexp/)) {
+          # Throw away the portion of the backtrace seen so far, under the
+          # assumption that previous frames were for functions internal to the
+          # allocator.
+          @path = ();
           next;
         }
       }
@@ -3401,7 +3435,7 @@ sub FetchDynamicProfile {
       $profile_file .= $suffix;
     }
 
-    my $profile_dir = $ENV{"PPROF_TMPDIR"} || ($ENV{HOME} . "/pprof");
+    my $profile_dir = $ENV{"JEPROF_TMPDIR"} || ($ENV{HOME} . "/jeprof");
     if (! -d $profile_dir) {
       mkdir($profile_dir)
           || die("Unable to create profile directory $profile_dir: $!\n");
@@ -3617,7 +3651,7 @@ BEGIN {
 # Reads the top, 'header' section of a profile, and returns the last
 # line of the header, commonly called a 'header line'.  The header
 # section of a profile consists of zero or more 'command' lines that
-# are instructions to pprof, which pprof executes when reading the
+# are instructions to jeprof, which jeprof executes when reading the
 # header.  All 'command' lines start with a %.  After the command
 # lines is the 'header line', which is a profile-specific line that
 # indicates what type of profile it is, and perhaps other global
@@ -3680,6 +3714,7 @@ sub IsSymbolizedProfileFile {
 #      $result->{version}     Version number of profile file
 #      $result->{period}      Sampling period (in microseconds)
 #      $result->{profile}     Profile object
+#      $result->{threads}     Map of thread IDs to profile objects
 #      $result->{map}         Memory map info from profile
 #      $result->{pcs}         Hash of all PC values seen, key is hex address
 sub ReadProfile {
@@ -3728,6 +3763,9 @@ sub ReadProfile {
   } elsif ($header =~ m/^heap profile:/) {
     $main::profile_type = 'heap';
     $result =  ReadHeapProfile($prog, *PROFILE, $header);
+  } elsif ($header =~ m/^heap/) {
+    $main::profile_type = 'heap';
+    $result = ReadThreadedHeapProfile($prog, $fname, $header);
   } elsif ($header =~ m/^--- *$contention_marker/o) {
     $main::profile_type = 'contention';
     $result = ReadSynchProfile($prog, *PROFILE);
@@ -3870,11 +3908,7 @@ sub ReadCPUProfile {
   return $r;
 }
 
-sub ReadHeapProfile {
-  my $prog = shift;
-  local *PROFILE = shift;
-  my $header = shift;
-
+sub HeapProfileIndex {
   my $index = 1;
   if ($main::opt_inuse_space) {
     $index = 1;
@@ -3885,6 +3919,84 @@ sub ReadHeapProfile {
   } elsif ($main::opt_alloc_objects) {
     $index = 2;
   }
+  return $index;
+}
+
+sub ReadMappedLibraries {
+  my $fh = shift;
+  my $map = "";
+  # Read the /proc/self/maps data
+  while (<$fh>) {
+    s/\r//g;         # turn windows-looking lines into unix-looking lines
+    $map .= $_;
+  }
+  return $map;
+}
+
+sub ReadMemoryMap {
+  my $fh = shift;
+  my $map = "";
+  # Read /proc/self/maps data as formatted by DumpAddressMap()
+  my $buildvar = "";
+  while (<PROFILE>) {
+    s/\r//g;         # turn windows-looking lines into unix-looking lines
+    # Parse "build=<dir>" specification if supplied
+    if (m/^\s*build=(.*)\n/) {
+      $buildvar = $1;
+    }
+
+    # Expand "$build" variable if available
+    $_ =~ s/\$build\b/$buildvar/g;
+
+    $map .= $_;
+  }
+  return $map;
+}
+
+sub AdjustSamples {
+  my ($sample_adjustment, $sampling_algorithm, $n1, $s1, $n2, $s2) = @_;
+  if ($sample_adjustment) {
+    if ($sampling_algorithm == 2) {
+      # Remote-heap version 2
+      # The sampling frequency is the rate of a Poisson process.
+      # This means that the probability of sampling an allocation of
+      # size X with sampling rate Y is 1 - exp(-X/Y)
+      if ($n1 != 0) {
+        my $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
+        my $scale_factor = 1/(1 - exp(-$ratio));
+        $n1 *= $scale_factor;
+        $s1 *= $scale_factor;
+      }
+      if ($n2 != 0) {
+        my $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
+        my $scale_factor = 1/(1 - exp(-$ratio));
+        $n2 *= $scale_factor;
+        $s2 *= $scale_factor;
+      }
+    } else {
+      # Remote-heap version 1
+      my $ratio;
+      $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
+      if ($ratio < 1) {
+        $n1 /= $ratio;
+        $s1 /= $ratio;
+      }
+      $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
+      if ($ratio < 1) {
+        $n2 /= $ratio;
+        $s2 /= $ratio;
+      }
+    }
+  }
+  return ($n1, $s1, $n2, $s2);
+}
+
+sub ReadHeapProfile {
+  my $prog = shift;
+  local *PROFILE = shift;
+  my $header = shift;
+
+  my $index = HeapProfileIndex();
 
   # Find the type of this profile.  The header line looks like:
   #    heap profile:   1246:  8800744 [  1246:  8800744] @ <heap-url>/266053
@@ -3974,29 +4086,12 @@ sub ReadHeapProfile {
   while (<PROFILE>) {
     s/\r//g;         # turn windows-looking lines into unix-looking lines
     if (/^MAPPED_LIBRARIES:/) {
-      # Read the /proc/self/maps data
-      while (<PROFILE>) {
-        s/\r//g;         # turn windows-looking lines into unix-looking lines
-        $map .= $_;
-      }
+      $map .= ReadMappedLibraries(*PROFILE);
       last;
     }
 
     if (/^--- Memory map:/) {
-      # Read /proc/self/maps data as formatted by DumpAddressMap()
-      my $buildvar = "";
-      while (<PROFILE>) {
-        s/\r//g;         # turn windows-looking lines into unix-looking lines
-        # Parse "build=<dir>" specification if supplied
-        if (m/^\s*build=(.*)\n/) {
-          $buildvar = $1;
-        }
-
-        # Expand "$build" variable if available
-        $_ =~ s/\$build\b/$buildvar/g;
-
-        $map .= $_;
-      }
+      $map .= ReadMemoryMap(*PROFILE);
       last;
     }
 
@@ -4007,42 +4102,8 @@ sub ReadHeapProfile {
     if (m/^\s*(\d+):\s+(\d+)\s+\[\s*(\d+):\s+(\d+)\]\s+@\s+(.*)$/) {
       my $stack = $5;
       my ($n1, $s1, $n2, $s2) = ($1, $2, $3, $4);
-
-      if ($sample_adjustment) {
-        if ($sampling_algorithm == 2) {
-          # Remote-heap version 2
-          # The sampling frequency is the rate of a Poisson process.
-          # This means that the probability of sampling an allocation of
-          # size X with sampling rate Y is 1 - exp(-X/Y)
-          if ($n1 != 0) {
-            my $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
-            my $scale_factor = 1/(1 - exp(-$ratio));
-            $n1 *= $scale_factor;
-            $s1 *= $scale_factor;
-          }
-          if ($n2 != 0) {
-            my $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
-            my $scale_factor = 1/(1 - exp(-$ratio));
-            $n2 *= $scale_factor;
-            $s2 *= $scale_factor;
-          }
-        } else {
-          # Remote-heap version 1
-          my $ratio;
-          $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
-          if ($ratio < 1) {
-            $n1 /= $ratio;
-            $s1 /= $ratio;
-          }
-          $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
-          if ($ratio < 1) {
-            $n2 /= $ratio;
-            $s2 /= $ratio;
-          }
-        }
-      }
-
-      my @counts = ($n1, $s1, $n2, $s2);
+      my @counts = AdjustSamples($sample_adjustment, $sampling_algorithm,
+                                 $n1, $s1, $n2, $s2);
       AddEntries($profile, $pcs, FixCallerAddresses($stack), $counts[$index]);
     }
   }
@@ -4051,6 +4112,83 @@ sub ReadHeapProfile {
   $r->{version} = "heap";
   $r->{period} = 1;
   $r->{profile} = $profile;
+  $r->{libs} = ParseLibraries($prog, $map, $pcs);
+  $r->{pcs} = $pcs;
+  return $r;
+}
+
+sub ReadThreadedHeapProfile {
+  my ($prog, $fname, $header) = @_;
+
+  my $index = HeapProfileIndex();
+  my $sampling_algorithm = 0;
+  my $sample_adjustment = 0;
+  chomp($header);
+  my $type = "unknown";
+  # Assuming a very specific type of header for now.
+  if ($header =~ m"^heap_v2/(\d+)") {
+    $type = "_v2";
+    $sampling_algorithm = 2;
+    $sample_adjustment = int($1);
+  }
+  if ($type ne "_v2" || !defined($sample_adjustment)) {
+    die "Threaded heap profiles require v2 sampling with a sample rate\n";
+  }
+
+  my $profile = {};
+  my $thread_profiles = {};
+  my $pcs = {};
+  my $map = "";
+  my $stack = "";
+
+  while (<PROFILE>) {
+    s/\r//g;
+    if (/^MAPPED_LIBRARIES:/) {
+      $map .= ReadMappedLibraries(*PROFILE);
+      last;
+    }
+
+    if (/^--- Memory map:/) {
+      $map .= ReadMemoryMap(*PROFILE);
+      last;
+    }
+
+    # Read entry of the form:
+    # @ a1 a2 ... an
+    #   t*: <count1>: <bytes1> [<count2>: <bytes2>]
+    #   t1: <count1>: <bytes1> [<count2>: <bytes2>]
+    #     ...
+    #   tn: <count1>: <bytes1> [<count2>: <bytes2>]
+    s/^\s*//;
+    s/\s*$//;
+    if (m/^@\s+(.*)$/) {
+      $stack = $1;
+    } elsif (m/^\s*(t(\*|\d+)):\s+(\d+):\s+(\d+)\s+\[\s*(\d+):\s+(\d+)\]$/) {
+      if ($stack eq "") {
+        # Still in the header, so this is just a per-thread summary.
+        next;
+      }
+      my $thread = $2;
+      my ($n1, $s1, $n2, $s2) = ($3, $4, $5, $6);
+      my @counts = AdjustSamples($sample_adjustment, $sampling_algorithm,
+                                 $n1, $s1, $n2, $s2);
+      if ($thread eq "*") {
+        AddEntries($profile, $pcs, FixCallerAddresses($stack), $counts[$index]);
+      } else {
+        if (!exists($thread_profiles->{$thread})) {
+          $thread_profiles->{$thread} = {};
+        }
+        AddEntries($thread_profiles->{$thread}, $pcs,
+                   FixCallerAddresses($stack), $counts[$index]);
+      }
+    }
+  }
+
+  my $r = {};
+  $r->{version} = "heap";
+  $r->{period} = 1;
+  $r->{profile} = $profile;
+  $r->{threads} = $thread_profiles;
   $r->{libs} = ParseLibraries($prog, $map, $pcs);
   $r->{pcs} = $pcs;
   return $r;
@@ -4120,10 +4258,10 @@ sub ReadSynchProfile {
       } elsif ($variable eq "sampling period") {
         $sampling_period = $value;
       } elsif ($variable eq "ms since reset") {
-        # Currently nothing is done with this value in pprof
+        # Currently nothing is done with this value in jeprof
         # So we just silently ignore it for now
       } elsif ($variable eq "discarded samples") {
-        # Currently nothing is done with this value in pprof
+        # Currently nothing is done with this value in jeprof
         # So we just silently ignore it for now
       } else {
         printf STDERR ("Ignoring unnknown variable in /contention output: " .
@@ -4429,7 +4567,7 @@ sub ParseLibraries {
 }
 
 # Add two hex addresses of length $address_length.
-# Run pprof --test for unit test if this is changed.
+# Run jeprof --test for unit test if this is changed.
 sub AddressAdd {
   my $addr1 = shift;
   my $addr2 = shift;
@@ -4483,7 +4621,7 @@ sub AddressAdd {
 
 
 # Subtract two hex addresses of length $address_length.
-# Run pprof --test for unit test if this is changed.
+# Run jeprof --test for unit test if this is changed.
 sub AddressSub {
   my $addr1 = shift;
   my $addr2 = shift;
@@ -4535,7 +4673,7 @@ sub AddressSub {
 }
 
 # Increment a hex addresses of length $address_length.
-# Run pprof --test for unit test if this is changed.
+# Run jeprof --test for unit test if this is changed.
 sub AddressInc {
   my $addr = shift;
   my $sum;
@@ -4747,7 +4885,7 @@ sub MapToSymbols {
 	}
       }
     }
-    
+
     # Prepend to accumulated symbols for pcstr
     # (so that caller comes before callee)
     my $sym = $symbols->{$pcstr};
@@ -4853,7 +4991,7 @@ sub UnparseAddress {
 # 32-bit or ELF 64-bit executable file.  The location of the tools
 # is determined by considering the following options in this order:
 #   1) --tools option, if set
-#   2) PPROF_TOOLS environment variable, if set
+#   2) JEPROF_TOOLS environment variable, if set
 #   3) the environment
 sub ConfigureObjTools {
   my $prog_file = shift;
@@ -4886,7 +5024,7 @@ sub ConfigureObjTools {
     # For windows, we provide a version of nm and addr2line as part of
     # the opensource release, which is capable of parsing
     # Windows-style PDB executables.  It should live in the path, or
-    # in the same directory as pprof.
+    # in the same directory as jeprof.
     $obj_tool_map{"nm_pdb"} = "nm-pdb";
     $obj_tool_map{"addr2line_pdb"} = "addr2line-pdb";
   }
@@ -4905,20 +5043,20 @@ sub ConfigureObjTools {
 }
 
 # Returns the path of a caller-specified object tool.  If --tools or
-# PPROF_TOOLS are specified, then returns the full path to the tool
+# JEPROF_TOOLS are specified, then returns the full path to the tool
 # with that prefix.  Otherwise, returns the path unmodified (which
 # means we will look for it on PATH).
 sub ConfigureTool {
   my $tool = shift;
   my $path;
 
-  # --tools (or $PPROF_TOOLS) is a comma separated list, where each
+  # --tools (or $JEPROF_TOOLS) is a comma separated list, where each
   # item is either a) a pathname prefix, or b) a map of the form
   # <tool>:<path>.  First we look for an entry of type (b) for our
   # tool.  If one is found, we use it.  Otherwise, we consider all the
   # pathname prefixes in turn, until one yields an existing file.  If
   # none does, we use a default path.
-  my $tools = $main::opt_tools || $ENV{"PPROF_TOOLS"} || "";
+  my $tools = $main::opt_tools || $ENV{"JEPROF_TOOLS"} || "";
   if ($tools =~ m/(,|^)\Q$tool\E:([^,]*)/) {
     $path = $2;
     # TODO(csilvers): sanity-check that $path exists?  Hard if it's relative.
@@ -4932,16 +5070,16 @@ sub ConfigureTool {
     }
     if (!$path) {
       error("No '$tool' found with prefix specified by " .
-            "--tools (or \$PPROF_TOOLS) '$tools'\n");
+            "--tools (or \$JEPROF_TOOLS) '$tools'\n");
     }
   } else {
     # ... otherwise use the version that exists in the same directory as
-    # pprof.  If there's nothing there, use $PATH.
+    # jeprof.  If there's nothing there, use $PATH.
     $0 =~ m,[^/]*$,;     # this is everything after the last slash
     my $dirname = $`;    # this is everything up to and including the last slash
     if (-x "$dirname$tool") {
       $path = "$dirname$tool";
-    } else { 
+    } else {
       $path = $tool;
     }
   }
@@ -4966,7 +5104,7 @@ sub cleanup {
   unlink($main::tmpfile_sym);
   unlink(keys %main::tempnames);
 
-  # We leave any collected profiles in $HOME/pprof in case the user wants
+  # We leave any collected profiles in $HOME/jeprof in case the user wants
   # to look at them later.  We print a message informing them of this.
   if ((scalar(@main::profile_files) > 0) &&
       defined($main::collected_profile)) {
@@ -4975,7 +5113,7 @@ sub cleanup {
     }
     print STDERR "If you want to investigate this profile further, you can do:\n";
     print STDERR "\n";
-    print STDERR "  pprof \\\n";
+    print STDERR "  jeprof \\\n";
     print STDERR "    $main::prog \\\n";
     print STDERR "    $main::collected_profile\n";
     print STDERR "\n";
@@ -5160,7 +5298,7 @@ sub GetProcedureBoundaries {
 # The test vectors for AddressAdd/Sub/Inc are 8-16-nibble hex strings.
 # To make them more readable, we add underscores at interesting places.
 # This routine removes the underscores, producing the canonical representation
-# used by pprof to represent addresses, particularly in the tested routines.
+# used by jeprof to represent addresses, particularly in the tested routines.
 sub CanonicalHex {
   my $arg = shift;
   return join '', (split '_',$arg);
