@@ -483,7 +483,7 @@ void georadiusGeneric(client *c, int type) {
                 sort = SORT_ASC;
             } else if (!strcasecmp(arg, "desc")) {
                 sort = SORT_DESC;
-            } else if (!strcasecmp(arg, "count") && remaining > 0) {
+            } else if (!strcasecmp(arg, "count") && (i+1) < remaining) {
                 if (getLongLongFromObjectOrReply(c, c->argv[base_args+i+1],
                     &count, NULL) != C_OK) return;
                 if (count <= 0) {
