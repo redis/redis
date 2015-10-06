@@ -54,7 +54,7 @@ thd_sender_start(void *arg)
 		mq_msg_t *msg;
 		void *p;
 		p = mallocx(sizeof(mq_msg_t), 0);
-		assert_ptr_not_null(p, "Unexpected allocm() failure");
+		assert_ptr_not_null(p, "Unexpected mallocx() failure");
 		msg = (mq_msg_t *)p;
 		mq_put(mq, msg);
 	}
@@ -85,6 +85,7 @@ TEST_END
 int
 main(void)
 {
+
 	return (test(
 	    test_mq_basic,
 	    test_mq_threaded));

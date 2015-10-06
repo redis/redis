@@ -3,6 +3,12 @@
 #define	MAX_REL_ERR 1.0e-9
 #define	MAX_ABS_ERR 1.0e-9
 
+#include <float.h>
+
+#ifndef INFINITY
+#define	INFINITY (DBL_MAX + DBL_MAX)
+#endif
+
 static bool
 double_eq_rel(double a, double b, double max_rel_err, double max_abs_err)
 {

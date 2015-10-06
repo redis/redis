@@ -5,7 +5,7 @@ static test_status_t	test_counts[test_status_count] = {0, 0, 0};
 static test_status_t	test_status = test_status_pass;
 static const char *	test_name = "";
 
-JEMALLOC_ATTR(format(printf, 1, 2))
+JEMALLOC_FORMAT_PRINTF(1, 2)
 void
 test_skip(const char *format, ...)
 {
@@ -18,7 +18,7 @@ test_skip(const char *format, ...)
 	test_status = test_status_skip;
 }
 
-JEMALLOC_ATTR(format(printf, 1, 2))
+JEMALLOC_FORMAT_PRINTF(1, 2)
 void
 test_fail(const char *format, ...)
 {
@@ -61,13 +61,26 @@ p_test_fini(void)
 }
 
 test_status_t
-p_test(test_t* t, ...)
+p_test(test_t *t, ...)
 {
-	test_status_t ret = test_status_pass;
+	test_status_t ret;
 	va_list ap;
 
+	/*
+	 * Make sure initialization occurs prior to running tests.  Tests are
+	 * special because they may use internal facilities prior to triggering
+	 * initialization as a side effect of calling into the public API.  This
+	 * is a final safety that works even if jemalloc_constructor() doesn't
+	 * run, as for MSVC builds.
+	 */
+	if (nallocx(1, 0) == 0) {
+		malloc_printf("Initialization error");
+		return (test_status_fail);
+	}
+
+	ret = test_status_pass;
 	va_start(ap, t);
-	for (; t != NULL; t = va_arg(ap, test_t*)) {
+	for (; t != NULL; t = va_arg(ap, test_t *)) {
 		t();
 		if (test_status > ret)
 			ret = test_status;

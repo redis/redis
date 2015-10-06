@@ -1,40 +1,42 @@
 #include "test/jemalloc_test.h"
 
-#define	CHUNK 0x400000
-#define	MAXALIGN (((size_t)1) << 25)
-#define	NITER 4
-
 TEST_BEGIN(test_basic)
 {
-	size_t nsz, rsz, sz;
-	void *p;
+#define	MAXSZ (((size_t)1) << 26)
+	size_t sz;
 
-	sz = 42;
-	nsz = nallocx(sz, 0);
-	assert_zu_ne(nsz, 0, "Unexpected nallocx() error");
-	p = mallocx(sz, 0);
-	assert_ptr_not_null(p, "Unexpected mallocx() error");
-	rsz = sallocx(p, 0);
-	assert_zu_ge(rsz, sz, "Real size smaller than expected");
-	assert_zu_eq(nsz, rsz, "nallocx()/sallocx() size mismatch");
-	dallocx(p, 0);
+	for (sz = 1; sz < MAXSZ; sz = nallocx(sz, 0) + 1) {
+		size_t nsz, rsz;
+		void *p;
+		nsz = nallocx(sz, 0);
+		assert_zu_ne(nsz, 0, "Unexpected nallocx() error");
+		p = mallocx(sz, 0);
+		assert_ptr_not_null(p, "Unexpected mallocx() error");
+		rsz = sallocx(p, 0);
+		assert_zu_ge(rsz, sz, "Real size smaller than expected");
+		assert_zu_eq(nsz, rsz, "nallocx()/sallocx() size mismatch");
+		dallocx(p, 0);
 
-	p = mallocx(sz, 0);
-	assert_ptr_not_null(p, "Unexpected mallocx() error");
-	dallocx(p, 0);
+		p = mallocx(sz, 0);
+		assert_ptr_not_null(p, "Unexpected mallocx() error");
+		dallocx(p, 0);
 
-	nsz = nallocx(sz, MALLOCX_ZERO);
-	assert_zu_ne(nsz, 0, "Unexpected nallocx() error");
-	p = mallocx(sz, MALLOCX_ZERO);
-	assert_ptr_not_null(p, "Unexpected mallocx() error");
-	rsz = sallocx(p, 0);
-	assert_zu_eq(nsz, rsz, "nallocx()/sallocx() rsize mismatch");
-	dallocx(p, 0);
+		nsz = nallocx(sz, MALLOCX_ZERO);
+		assert_zu_ne(nsz, 0, "Unexpected nallocx() error");
+		p = mallocx(sz, MALLOCX_ZERO);
+		assert_ptr_not_null(p, "Unexpected mallocx() error");
+		rsz = sallocx(p, 0);
+		assert_zu_eq(nsz, rsz, "nallocx()/sallocx() rsize mismatch");
+		dallocx(p, 0);
+	}
+#undef MAXSZ
 }
 TEST_END
 
 TEST_BEGIN(test_alignment_and_size)
 {
+#define	MAXALIGN (((size_t)1) << 25)
+#define	NITER 4
 	size_t nsz, rsz, sz, alignment, total;
 	unsigned i;
 	void *ps[NITER];
@@ -84,6 +86,8 @@ TEST_BEGIN(test_alignment_and_size)
 			}
 		}
 	}
+#undef MAXALIGN
+#undef NITER
 }
 TEST_END
 
