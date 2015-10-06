@@ -1,10 +1,10 @@
 Unless otherwise specified, files in the jemalloc source distribution are
 subject to the following license:
 --------------------------------------------------------------------------------
-Copyright (C) 2002-2014 Jason Evans <jasone@canonware.com>.
+Copyright (C) 2002-2015 Jason Evans <jasone@canonware.com>.
 All rights reserved.
 Copyright (C) 2007-2012 Mozilla Foundation.  All rights reserved.
-Copyright (C) 2009-2014 Facebook, Inc.  All rights reserved.
+Copyright (C) 2009-2015 Facebook, Inc.  All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
