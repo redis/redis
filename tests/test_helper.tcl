@@ -470,8 +470,11 @@ proc attach_to_replication_stream {} {
     flush $s
 
     # Get the count
-    set count [gets $s]
-    set prefix [string range $count 0 0]
+    while 1 {
+        set count [gets $s]
+        set prefix [string range $count 0 0]
+        if {$prefix ne {}} break; # Newlines are allowed as PINGs.
+    }
     if {$prefix ne {$}} {
         error "attach_to_replication_stream error. Received '$count' as count."
     }
