@@ -790,7 +790,7 @@ class RedisTrib
     # Move slots between source and target nodes using MIGRATE.
     #
     # Options:
-    # :verbose -- Print a dot for every moved key.
+    # :verbose -- Print count of moved keys for every iteration.
     # :fix     -- We are moving in the context of a fix. Use REPLACE.
     # :cold    -- Move keys without opening / reconfiguring the nodes.
     def move_slot(source,target,slot,o={})
@@ -798,33 +798,57 @@ class RedisTrib
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected
         # to the target node that does not yet know it is importing this slot.
-        print "Moving slot #{slot} from #{source} to #{target}: "; STDOUT.flush
+        print "Moving slot #{slot} from #{source} to #{target} "; STDOUT.flush
         if !o[:cold]
             target.r.cluster("setslot",slot,"importing",source.info[:name])
             source.r.cluster("setslot",slot,"migrating",target.info[:name])
         end
         # Migrate all the keys from source to target using the MIGRATE command
+        iter_num = 1
         while true
-            keys = source.r.cluster("getkeysinslot",slot,10)
+            keys = source.r.cluster("getkeysinslot",slot,10000)
             break if keys.length == 0
-            keys.each{|key|
-                begin
-                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
-                rescue => e
-                    if o[:fix] && e.to_s =~ /BUSYKEY/
-                        xputs "*** Target key #{key} exists. Replace it for FIX."
-                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000,:replace])
-                    else
-                        puts ""
-                        xputs "[ERR] #{e}"
-                        exit 1
-                    end
-                end
-                print "." if o[:verbose]
-                STDOUT.flush
-            }
-        end
 
+            # Decide whether it needs new line or not
+            puts "" if iter_num == 1
+
+            migrated_keys = 0
+            futures = []
+            begin
+                source.r.pipelined do
+                    keys.each {|key| 
+                        futures << source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
+                    }
+                end
+                # No exception occurs here
+                migrated_keys = futures.length
+            rescue => e
+                # If fix is not turned on or error is not BUSYKEY, just treat as failed
+                if !o[:fix] || e.to_s !~ /BUSYKEY/
+                    puts ""
+                    xputs "[ERR] #{e}"
+                    exit 1
+                end
+
+                # Find first failed command (it should be existed)
+                broken = futures.index {|x| x.value == "ERR" rescue "ERR" }
+                raise "Shouldn't reach here" if broken == nil
+
+                xputs "*** Target key #{keys[broken]} exists. Replace it for FIX."
+
+                # Should we catch Exception again?
+                source.r.client.call(["migrate",target.info[:host],target.info[:port],keys[broken],0,15000,:replace])
+
+                migrated_keys = broken + 1
+            end
+
+            if o[:verbose]
+                xputs "iteration #{iter_num} ended, migrated count = #{migrated_keys}"
+                STDOUT.flush
+            end
+
+            iter_num += 1
+        end
         puts
         # Set the new node as the owner of the slot in all the known nodes.
         if !o[:cold]
