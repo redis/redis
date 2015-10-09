@@ -496,6 +496,10 @@ class RedisTrib
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
             move_slot(migrating[0],importing[0],slot,:verbose=>true,:fix=>true)
+        # Case 2: There are multiple nodes that claim the slot as importing,
+        # they probably got keys about the slot after a restart so opened
+        # the slot. In this case we just move all the keys to the owner
+        # according to the configuration.
         elsif migrating.length == 0 && importing.length > 0
             xputs ">>> Moving all the #{slot} slot keys to its owner #{owner}"
             importing.each {|node|
@@ -504,8 +508,14 @@ class RedisTrib
                 xputs ">>> Setting #{slot} as STABLE in #{node}"
                 node.r.cluster("setslot",slot,"stable")
             }
+        # Case 3: There are no slots claiming to be in importing state, but
+        # there is a migrating node that actually don't have any key. We
+        # can just close the slot, probably a reshard interrupted in the middle.
+        elsif importing.length == 0 && migrating.length == 1 &&
+              migrating[0].r.cluster("getkeysinslot",slot,10).length == 0
+            migrating[0].r.cluster("setslot",slot,"stable")
         else
-            xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
+            xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress). Slot is set as migrating in #{migrating.join(",")}, as importing in #{importing.join(",")}, owner is #{owner}"
         end
     end
 
@@ -812,7 +822,7 @@ class RedisTrib
                     source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
                 rescue => e
                     if o[:fix] && e.to_s =~ /BUSYKEY/
-                        xputs "*** Target key #{key} exists. Replace it for FIX."
+                        xputs "*** Target key #{key} exists. Replacing it for FIX."
                         source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000,:replace])
                     else
                         puts ""
