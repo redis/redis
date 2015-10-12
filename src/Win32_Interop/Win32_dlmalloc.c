@@ -1698,7 +1698,7 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 /* Win32 MMAP via VirtualAlloc */
 static FORCEINLINE void* win32mmap(size_t size) {
 #ifdef USE_COW
-  void* ptr = AllocHeapBlock(size,FALSE);
+  void* ptr = AllocHeapBlock(size, FALSE);
 #else
   void* ptr = VirtualAlloc(0, size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 #endif
@@ -1715,36 +1715,17 @@ static FORCEINLINE void* win32direct_mmap(size_t size) {
   return (ptr != 0)? ptr: MFAIL;
 }
 
-/* This function supports releasing coalesed segments */
+/* This function supports releasing coalesced segments */
 static FORCEINLINE int win32munmap(void* ptr, size_t size) {
-  char* cptr = (char*)ptr;
-
-if (FreeHeapBlock(cptr,size) == 0)
-    return -1;
-else 
-    return 0;
-/*
-  MEMORY_BASIC_INFORMATION minfo;
-  while (size) {
-    if (VirtualQuery(cptr, &minfo, sizeof(minfo)) == 0)
-      return -1;
-    if (minfo.BaseAddress != cptr || minfo.AllocationBase != cptr ||
-        minfo.State != MEM_COMMIT || minfo.RegionSize > size)
-      return -1;
-    
 #ifdef USE_COW
-    if (FreeHeapBlock(cptr) == 0)
+  if (FreeHeapBlock(ptr, size) == FALSE)
 #else
-    if (VirtualFree(cptr, 0, MEM_RELEASE) == 0)
+  if (VirtualFree(ptr, 0, MEM_RELEASE) == FALSE)
 #endif
-    {
-        return -1;
-    }
-    cptr += minfo.RegionSize;
-    size -= minfo.RegionSize;
+  {
+    return -1;
   }
   return 0;
-*/
 }
 
 #define MMAP_DEFAULT(s)             win32mmap(s)

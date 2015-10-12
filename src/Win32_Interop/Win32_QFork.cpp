@@ -190,7 +190,6 @@ struct QForkControl {
     HANDLE heapMemoryMapFile;
     HANDLE heapMemoryMap;
     int availableBlocksInHeap;                 // number of blocks in blockMap (dynamically determined at run time)
-    SIZE_T heapBlockSize;           
     BlockState heapBlockMap[cMaxBlocks];
     LPVOID heapStart;
 
@@ -261,6 +260,15 @@ bool ReportSpecialSystemErrors(int error) {
     
         default:
             return false;
+    }
+}
+
+BOOL DLMallocInizialized = false;
+void DLMallocInit() {
+    // This must be called only once per process
+    if (DLMallocInizialized == FALSE) {
+        IFFAILTHROW(dlmallopt(M_GRANULARITY, cAllocationGranularity), "DLMalloc failed initializing allocation granularity.");
+        DLMallocInizialized = TRUE;
     }
 }
 
@@ -452,16 +460,6 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             0);
         IFFAILTHROW(g_pQForkControl, "QForkMasterInit: MapViewOfFile failed");
 
-        // This must be called only once per process! Calling it more times than that will not recreate existing 
-        // section, and dlmalloc will ultimately fail with an access violation. Once is good.
-        if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "DLMalloc failed initializing allocation granularity.");
-        }
-        g_pQForkControl->heapBlockSize = cAllocationGranularity;
-
         // ensure the number of blocks is a multiple of cAllocationGranularity
         SIZE_T allocationBlocks = (SIZE_T)maxheapBytes / cAllocationGranularity;
         allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
@@ -591,7 +589,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
         info->ExceptionRecord->NumberParameters == 2) {
         intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
         intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
-        intptr_t heapEnd = heapStart + ((SIZE_T)g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize);
+        intptr_t heapEnd = heapStart + ((SIZE_T) g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
         if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd)
         {
             intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
@@ -812,7 +810,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
     while (TRUE){
         BOOL result = VirtualProtect(
             g_pQForkControl->heapStart,
-            g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize,
+            g_pQForkControl->availableBlocksInHeap * cAllocationGranularity,
             PAGE_WRITECOPY,
             &oldProtect);
 
@@ -1112,18 +1110,13 @@ BOOL EndForkOperation(int * pExitCode) {
     return FALSE;
 }
 
-int blocksMapped = 0;
-int totalAllocCalls = 0;
-int totalFreeCalls = 0;
-
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    totalAllocCalls++;
     LPVOID retPtr = (LPVOID)NULL;
-    if (size % g_pQForkControl->heapBlockSize != 0 ) {
+    if (size % cAllocationGranularity != 0) {
         errno = EINVAL;
         return retPtr;
     }
-    int contiguousBlocksToAllocate = (int)(size / g_pQForkControl->heapBlockSize);
+    int contiguousBlocksToAllocate = (int) (size / cAllocationGranularity);
 
     if (contiguousBlocksToAllocate > g_pQForkControl->availableBlocksInHeap) {
         errno = ENOMEM;
@@ -1162,11 +1155,10 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
         int allocationStart = blockIndex + (allocateHigh ? 1 - contiguousBlocksToAllocate : 0);
         LPVOID blockStart = 
             reinterpret_cast<byte*>(g_pQForkControl->heapStart) + 
-            (g_pQForkControl->heapBlockSize * allocationStart);
+            (cAllocationGranularity * allocationStart);
         for(int n = 0; n < contiguousBlocksToAllocate; n++ ) {
             g_pQForkControl->heapBlockMap[allocationStart+n] = BlockState::bsMAPPED;
-            blocksMapped++;
-            mapped += g_pQForkControl->heapBlockSize; 
+            mapped += cAllocationGranularity;
         }
         retPtr = blockStart;
     }
@@ -1178,22 +1170,21 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 }
 
 BOOL FreeHeapBlock(LPVOID block, size_t size) {
-    totalFreeCalls++;
     if (size == 0) {
         return FALSE;
     }
 
     INT_PTR ptrDiff = reinterpret_cast<byte*>(block) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
-    if (ptrDiff < 0 || (ptrDiff % g_pQForkControl->heapBlockSize) != 0) {
+    if (ptrDiff < 0 || (ptrDiff % cAllocationGranularity) != 0) {
         return FALSE;
     }
 
-    int blockIndex = (int)(ptrDiff / g_pQForkControl->heapBlockSize);
+    int blockIndex = (int) (ptrDiff / cAllocationGranularity);
     if (blockIndex >= g_pQForkControl->availableBlocksInHeap) {
         return FALSE;
     }
 
-    int contiguousBlocksToFree = (int)(size / g_pQForkControl->heapBlockSize);
+    int contiguousBlocksToFree = (int) (size / cAllocationGranularity);
 
     if (VirtualUnlock(block, size) == FALSE) {
         DWORD err = GetLastError();
@@ -1202,7 +1193,6 @@ BOOL FreeHeapBlock(LPVOID block, size_t size) {
         }
     };
     for (int n = 0; n < contiguousBlocksToFree; n++ ) {
-        blocksMapped--;
         g_pQForkControl->heapBlockMap[blockIndex + n] = BlockState::bsUNMAPPED;
     }
     return TRUE;
@@ -1278,6 +1268,8 @@ extern "C"
             if (HandleServiceCommands(argc, argv) == TRUE) {
                 return 0;
             }
+
+            DLMallocInit();
 
             int sentinelMode = checkForSentinelMode(argc, argv);
 
