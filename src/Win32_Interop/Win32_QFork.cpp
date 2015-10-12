@@ -172,7 +172,6 @@ BOOL WriteToProcmon(wstring message)
   #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
 #endif
 
-
 #define IFFAILTHROW(a,m) if(!(a)) { throw system_error(GetLastError(), system_category(), m); }
 
 #define MAX_GLOBAL_DATA 10000
@@ -210,7 +209,6 @@ extern "C"
 
 const size_t cAllocationGranularity = 1 << 18;      // 256KB per heap block (matches large block allocation threshold of dlmalloc)
 const int    cMaxBlocks = 1 << 24;                  // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
-const char*  cMapFileBaseName = "RedisQFork";
 const int    cDeadForkWait = 30000;
 
 #ifndef _WIN64
@@ -220,7 +218,6 @@ size_t cDefaultmaxHeap32Bit = 1 << 29;              // 512MB
 enum class BlockState : uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
 
 struct QForkControl {
-    HANDLE heapMemoryMapFile;
     HANDLE heapMemoryMap;
     int availableBlocksInHeap;                      // Number of blocks in blockMap (dynamically determined at run time)
     BlockState heapBlockMap[cMaxBlocks];
@@ -245,6 +242,7 @@ int g_ChildExitCode = 0; // For child process
 bool ReportSpecialSystemErrors(int error) {
     switch (error)
     {
+        case ERROR_NO_SYSTEM_RESOURCES:
         case ERROR_COMMITMENT_LIMIT:
         {
             redisLog(
@@ -267,30 +265,6 @@ bool ReportSpecialSystemErrors(int error) {
                 );
             return true;
         }
-
-        case ERROR_DISK_FULL:
-        {
-            redisLog(
-                REDIS_WARNING,
-                "\n"
-                "The Windows version of Redis allocates a large memory mapped file for sharing\n" 
-                "the heap with the forked process used in persistence operations. This file\n" 
-                "will be created in the current working directory or the directory specified by\n"
-                "the 'heapdir' directive in the .conf file. Windows is reporting that there is \n"
-                "insufficient disk space available for this file (Windows error 0x70).\n"
-                "\n" 
-                "You may fix this problem by either reducing the size of the Redis heap with\n"
-                "the --maxheap flag, or by moving the heap file to a local drive with sufficient\n"
-                "space."
-                "\n"
-                "Please see the documentation included with the binary distributions for more \n"
-                "details on the --maxheap and --heapdir flags.\n"
-                "\n"
-                "Redis can not continue. Exiting."
-                );
-            return true;
-        }
-    
         default:
             return false;
     }
@@ -307,9 +281,8 @@ void DLMallocInit() {
 
 BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     SmartHandle shParent;
-    SmartHandle shMMFile;
+    SmartHandle shHeapMap;
     SmartFileView<QForkControl> sfvParentQForkControl;
-    SmartHandle dupHeapFileHandle;
     SmartHandle dupOperationComplete;
     SmartHandle dupOperationFailed;
 
@@ -318,16 +291,14 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
-        shMMFile.Assign(shParent, QForkControlMemoryMapHandle);
+        shHeapMap.Assign(shParent, QForkControlMemoryMapHandle);
         sfvParentQForkControl.Assign(
-            shMMFile, 
+            shHeapMap,
             FILE_MAP_COPY, 
             string("Could not map view of QForkControl in child. Is system swap file large enough?"));
         g_pQForkControl = sfvParentQForkControl;
 
         // Duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
-        dupHeapFileHandle.Assign(shParent, sfvParentQForkControl->heapMemoryMapFile);
-        g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
         
         dupOperationComplete.Assign(shParent, sfvParentQForkControl->operationComplete);
         g_pQForkControl->operationComplete = dupOperationComplete;
@@ -335,19 +306,9 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
         dupOperationFailed.Assign(shParent, sfvParentQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
 
-        // Create section handle on MM file
-        size_t mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
-        SmartFileMapHandle sfmhMapFile(
-            g_pQForkControl->heapMemoryMapFile,
-            PAGE_WRITECOPY,
-#ifdef _WIN64
-            HIDWORD(mmSize),
-#else
-            0,
-#endif
-            LODWORD(mmSize),
-            string("Could not open file mapping object in child"));
-        g_pQForkControl->heapMemoryMap = sfmhMapFile;
+        SmartHandle shDupHeapMemoryMap;
+        shDupHeapMemoryMap.Assign(shParent, sfvParentQForkControl->heapMemoryMap);
+        g_pQForkControl->heapMemoryMap = shDupHeapMemoryMap;
 
         // The key to mapping a heap larger than physical memory is to not map it all at once.
         SmartFileView<byte> sfvHeap(
@@ -422,59 +383,6 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
-string GetLocalAppDataFolder() {
-    char localAppDataPath[_MAX_PATH];
-    HRESULT hr;
-    if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, localAppDataPath))) {
-        throw system_error(hr, system_category(), "SHGetFolderPathA failed");
-    }
-    char redisAppDataPath[_MAX_PATH];
-    if (NULL == PathCombineA(redisAppDataPath, localAppDataPath, "Redis")) {
-        throw system_error(hr, system_category(), "PathCombineA failed");
-    }
-
-    if (PathIsDirectoryA(redisAppDataPath) == FALSE) {
-        if (CreateDirectoryA(redisAppDataPath, NULL) == FALSE) {
-            throw system_error(hr, system_category(), "CreateDirectoryA failed");
-        }
-    }
-
-    return redisAppDataPath;
-}
-
-string g_MMFDir;
-string GetWorkingDirectory() {
-    if (g_MMFDir.length() == 0) {
-        string workingDir;
-        if (g_argMap.find(cHeapDir) != g_argMap.end()) {
-            workingDir = g_argMap[cHeapDir][0][0];
-            replace(workingDir.begin(), workingDir.end(), '/', '\\');
-
-            if (PathIsRelativeA(workingDir.c_str())) {
-                char cwd[MAX_PATH];
-                if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
-                    throw system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
-                }
-                char fullPath[_MAX_PATH];
-                if (NULL == PathCombineA(fullPath, cwd, workingDir.c_str())) {
-                    throw system_error(GetLastError(), system_category(), "PathCombineA failed");
-                }
-                workingDir = fullPath;
-            }
-        } else {
-            workingDir = GetLocalAppDataFolder();
-        }
-
-        if (workingDir.at(workingDir.length() - 1) != '\\') {
-            workingDir = workingDir.append("\\");
-        }
-
-        g_MMFDir = workingDir;
-    }
-
-    return g_MMFDir;
-}
-
 BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
         // Allocate file map for qfork control so it can be passed to the forked process
@@ -503,58 +411,12 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 "Invalid number of heap blocks.");
         }
 
-        string workingDir = GetWorkingDirectory();
-
-        // FILE_FLAG_DELETE_ON_CLOSE will not clean up files in the case of a BSOD or power failure.
-        // Clean up anything we can to prevent excessive disk usage.
-        char heapMemoryMapWildCard[MAX_PATH];
-        WIN32_FIND_DATAA fd;
-        sprintf_s(
-            heapMemoryMapWildCard,
-            MAX_PATH,
-            "%s%s_*.dat",
-            workingDir.c_str(),
-            cMapFileBaseName);
-        HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
-        while (hFind != INVALID_HANDLE_VALUE) {
-            // Failure likely means the file is in use by another redis instance.
-            DeleteFileA(fd.cFileName);
-
-            if (FALSE == FindNextFileA(hFind, &fd)) {
-                FindClose(hFind);
-                hFind = INVALID_HANDLE_VALUE;
-            }
-        }
-
-        char heapMemoryMapPath[MAX_PATH];
-        sprintf_s(
-            heapMemoryMapPath,
-            MAX_PATH,
-            "%s%s_%d.dat",
-            workingDir.c_str(),
-            cMapFileBaseName, 
-            GetCurrentProcessId());
-
-        g_pQForkControl->heapMemoryMapFile = 
-            CreateFileA( 
-                heapMemoryMapPath,
-                GENERIC_READ | GENERIC_WRITE,
-                0,
-                NULL,
-                CREATE_ALWAYS,
-                FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
-                NULL );
-        if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFileW failed.");
-        }
-
-        size_t mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
+        // Add +1 to the availableBlocksInHeap value since later we are going to adjust
+        // the startHeap value to meet the alignment requirements
+        size_t mmSize = (g_pQForkControl->availableBlocksInHeap + 1) * cAllocationGranularity;
         g_pQForkControl->heapMemoryMap = 
             CreateFileMappingW( 
-                g_pQForkControl->heapMemoryMapFile,
+                INVALID_HANDLE_VALUE,
                 NULL,
                 PAGE_READWRITE,
 #ifdef _WIN64           
@@ -573,11 +435,14 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             GetCurrentProcess(),
             NULL,
             mmSize,
-            MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
+            MEM_RESERVE | MEM_TOP_DOWN,
             PAGE_READWRITE);
         IFFAILTHROW(pHigh, "QForkMasterInit: VirtualAllocEx failed.");
 
         IFFAILTHROW(VirtualFree(pHigh, 0, MEM_RELEASE), "QForkMasterInit: VirtualFree failed.");
+
+        // Need to adjust the heap start address to align on allocation granularity offset
+        g_pQForkControl->heapStart = (LPVOID) (((uint64_t) pHigh + cAllocationGranularity) - ((uint64_t) pHigh % cAllocationGranularity));
 
         g_pQForkControl->heapStart = 
             MapViewOfFileEx(
@@ -721,7 +586,7 @@ StartupStatus QForkStartup() {
 
     if (maxheapBytes == -1) {
 #ifdef _WIN64
-        maxheapBytes = perfinfo.PhysicalTotal * Globals::pageSize;
+        maxheapBytes = (perfinfo.PhysicalTotal * Globals::pageSize * 3) / 2;
 #else
         maxheapBytes = cDefaultmaxHeap32Bit;
 #endif
@@ -760,7 +625,6 @@ BOOL QForkShutdown() {
         CloseEventHandle(&g_pQForkControl->operationComplete);
         CloseEventHandle(&g_pQForkControl->operationFailed);
         CloseEventHandle(&g_pQForkControl->heapMemoryMap);
-        CloseEventHandle(&g_pQForkControl->heapMemoryMapFile);
 
         if (g_pQForkControl->heapStart != NULL) {
             UnmapViewOfFile(g_pQForkControl->heapStart);

@@ -76,6 +76,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         puts $cfg "port $port"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
+        puts $cfg "maxheap 100mb"                                           ;# WIN_PORT_FIX
         # Add additional config files
         foreach directive $conf {
             puts $cfg $directive
