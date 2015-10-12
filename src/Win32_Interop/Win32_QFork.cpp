@@ -20,6 +20,88 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+Redis is an in memory DB. We need to share the redis database with a quasi-forked process so that we can do the RDB and AOF saves
+without halting the main redis process, or crashing due to code that was never designed to be thread safe. Essentially we need to
+replicate the COW behavior of fork() on Windows, but we don't actually need a complete fork() implementation. A complete fork()
+implementation would require subsystem level support to make happen. The following is required to make this quasi-fork scheme work:
+
+DLMalloc (http://g.oswego.edu/dl/html/malloc.html):
+- replaces malloc/realloc/free, either by manual patching of the zmalloc code in Redis or by patching the CRT routines at link time
+- partitions space into segments that it allocates from (currently configured as 64MB chunks)
+- we map/unmap these chunks as requested into a memory map (unmapping allows the system to decide how to reduce the physical memory
+pressure on system)
+
+DLMallocMemoryMap:
+- An uncomitted memory map whose size is the total physical memory on the system less some memory for the rest of the system so that
+we avoid excessive swapping.
+- This is reserved high in VM space so that it can be mapped at a specific address in the child qforked process (ASLR must be
+disabled for these processes)
+- This must be mapped in exactly the same virtual memory space in both forker and forkee.
+
+QForkControlMemoryMap:
+- contains a map of the allocated segments in the DLMallocMemoryMap
+- contains handles for inter-process synchronization
+- contains pointers to some of the global data in the parent process if mapped into DLMallocMemoryMap, and a copy of any other
+required global data
+
+QFork process:
+- a copy of the parent process with a command line specifying QFork behavior
+- when a COW operation is requested via an event signal
+- opens the DLMAllocMemoryMap with PAGE_WRITECOPY
+- reserve space for DLMAllocMemoryMap at the memory location specified in ControlMemoryMap
+- locks the DLMalloc segments as specified in QForkControlMemoryMap
+- maps global data from the QForkControlMEmoryMap into this process
+- executes the requested operation
+- unmaps all the mm views (discarding any writes)
+- signals the parent when the operation is complete
+
+How the parent invokes the QFork process:
+- protects mapped memory segments with VirtualProtect using PAGE_WRITECOPY (both the allocated portions of DLMAllocMemoryMap and
+the QForkControlMemoryMap)
+- QForked process is signaled to process command
+- Parent waits (asynchronously) until QForked process signals that operation is complete, then as an atomic operation:
+- signals and waits for the forked process to terminate
+- resotres protection status on mapped blocks
+- determines which pages have been modified and copies these to a buffer
+- unmaps the view of the heap (discarding COW changes form the view)
+- remaps the view
+- copies the changes back into the view
+*/
+
+/*
+Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not
+bounded by heap usage, and the heap size equal to the size of physical memory.
+
+Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap
+exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by
+the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up
+to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
+increase the heap further than this.
+
+If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
+(rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
+this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This
+has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
+than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
+
+Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
+size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
+For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or
+maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough
+space available on the disk where redis is being launched from for this file.
+
+During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both
+forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
+is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly
+maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment
+will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
+expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.
+The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default
+heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring
+either Redis or the machine (max comittment of (3 * physical)).
+*/
+
 #include "win32_types.h"
 #include "Win32_FDAPI.h"
 #include "Win32_Common.h"
@@ -57,7 +139,41 @@
 
 using namespace std;
 
-#define IFFAILTHROW(a,m) if(!(a)) { throw std::system_error(GetLastError(), system_category(), m); }
+//#define DEBUG_WITH_PROCMON
+#ifdef DEBUG_WITH_PROCMON
+#define FILE_DEVICE_PROCMON_LOG 0x00009535
+#define IOCTL_EXTERNAL_LOG_DEBUGOUT (ULONG) CTL_CODE( FILE_DEVICE_PROCMON_LOG, 0x81, METHOD_BUFFERED, FILE_WRITE_ACCESS )
+
+HANDLE hProcMonDevice = INVALID_HANDLE_VALUE;
+BOOL WriteToProcmon(wstring message)
+{
+    if (hProcMonDevice != INVALID_HANDLE_VALUE) {
+        DWORD nb = 0;
+        return DeviceIoControl(
+            hProcMonDevice,
+            IOCTL_EXTERNAL_LOG_DEBUGOUT,
+            (LPVOID) (message.c_str()),
+            (DWORD) (message.length() * sizeof(wchar_t)),
+            NULL,
+            0,
+            &nb,
+            NULL);
+    } else {
+        return FALSE;
+    }
+}
+#endif
+
+#ifndef LODWORD
+  #define LODWORD(_qw)    ((DWORD)(_qw))
+#endif
+
+#ifndef HIDWORD
+  #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
+#endif
+
+
+#define IFFAILTHROW(a,m) if(!(a)) { throw system_error(GetLastError(), system_category(), m); }
 
 #define MAX_GLOBAL_DATA 10000
 struct QForkBeginInfo {
@@ -79,117 +195,34 @@ struct QForkBeginInfo {
 #define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
 #endif
 
-extern "C" int checkForSentinelMode(int argc, char **argv);
-extern "C" void InitTimeFunctions();
-
 extern "C"
 {
-  void*(*g_malloc)(size_t) = nullptr;
-  void*(*g_calloc)(size_t, size_t) = nullptr;
-  void*(*g_realloc)(void*, size_t) = nullptr;
-  void(*g_free)(void*) = nullptr;
-  size_t(*g_msize)(void*) = nullptr;
-  
-  // forward def from util.h. 
-  PORT_LONGLONG memtoll(const char *p, int *err);
+    int checkForSentinelMode(int argc, char **argv);
+    void InitTimeFunctions();
+    PORT_LONGLONG memtoll(const char *p, int *err);     // Forward def from util.h
+
+    void*(*g_malloc)(size_t) = nullptr;
+    void*(*g_calloc)(size_t, size_t) = nullptr;
+    void*(*g_realloc)(void*, size_t) = nullptr;
+    void(*g_free)(void*) = nullptr;
+    size_t(*g_msize)(void*) = nullptr;
 }
 
-//#define DEBUG_WITH_PROCMON
-#ifdef DEBUG_WITH_PROCMON
-#define FILE_DEVICE_PROCMON_LOG 0x00009535
-#define IOCTL_EXTERNAL_LOG_DEBUGOUT (ULONG) CTL_CODE( FILE_DEVICE_PROCMON_LOG, 0x81, METHOD_BUFFERED, FILE_WRITE_ACCESS )
-
-HANDLE hProcMonDevice = INVALID_HANDLE_VALUE;
-BOOL WriteToProcmon (wstring message)
-{
-    if (hProcMonDevice != INVALID_HANDLE_VALUE) {
-        DWORD nb = 0;
-        return DeviceIoControl(
-            hProcMonDevice, 
-            IOCTL_EXTERNAL_LOG_DEBUGOUT,
-            (LPVOID)(message.c_str()),
-            (DWORD)(message.length() * sizeof(wchar_t)),
-            NULL,
-            0,
-            &nb,
-            NULL);
-    } else {
-        return FALSE;
-    }
-}
-#endif
-
-/*
-Redis is an in memory DB. We need to share the redis database with a quasi-forked process so that we can do the RDB and AOF saves 
-without halting the main redis process, or crashing due to code that was never designed to be thread safe. Essentially we need to
-replicate the COW behavior of fork() on Windows, but we don't actually need a complete fork() implementation. A complete fork() 
-implementation would require subsystem level support to make happen. The following is required to make this quasi-fork scheme work:
-
-DLMalloc (http://g.oswego.edu/dl/html/malloc.html):
-    - replaces malloc/realloc/free, either by manual patching of the zmalloc code in Redis or by patching the CRT routines at link time
-    - partitions space into segments that it allocates from (currently configured as 64MB chunks)
-    - we map/unmap these chunks as requested into a memory map (unmapping allows the system to decide how to reduce the physical memory 
-      pressure on system)
-
-DLMallocMemoryMap:
-   - An uncomitted memory map whose size is the total physical memory on the system less some memory for the rest of the system so that 
-     we avoid excessive swapping.
-   - This is reserved high in VM space so that it can be mapped at a specific address in the child qforked process (ASLR must be 
-     disabled for these processes)
-   - This must be mapped in exactly the same virtual memory space in both forker and forkee.
-
-QForkControlMemoryMap:
-   - contains a map of the allocated segments in the DLMallocMemoryMap
-   - contains handles for inter-process synchronization
-   - contains pointers to some of the global data in the parent process if mapped into DLMallocMemoryMap, and a copy of any other 
-     required global data
-
-QFork process:
-    - a copy of the parent process with a command line specifying QFork behavior
-    - when a COW operation is requested via an event signal
-        - opens the DLMAllocMemoryMap with PAGE_WRITECOPY
-        - reserve space for DLMAllocMemoryMap at the memory location specified in ControlMemoryMap
-        - locks the DLMalloc segments as specified in QForkControlMemoryMap
-        - maps global data from the QForkControlMEmoryMap into this process
-        - executes the requested operation
-        - unmaps all the mm views (discarding any writes)
-        - signals the parent when the operation is complete
-
-How the parent invokes the QFork process:
-    - protects mapped memory segments with VirtualProtect using PAGE_WRITECOPY (both the allocated portions of DLMAllocMemoryMap and 
-      the QForkControlMemoryMap)
-    - QForked process is signaled to process command
-    - Parent waits (asynchronously) until QForked process signals that operation is complete, then as an atomic operation:
-        - signals and waits for the forked process to terminate
-        - resotres protection status on mapped blocks
-        - determines which pages have been modified and copies these to a buffer
-        - unmaps the view of the heap (discarding COW changes form the view)
-        - remaps the view
-        - copies the changes back into the view
-*/
-
-#ifndef LODWORD
-    #define LODWORD(_qw)    ((DWORD)(_qw))
-#endif
-#ifndef HIDWORD
-    #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
-#endif
-
-const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
-const int cMaxBlocks = 1 << 24;                                   // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
-const char* cMapFileBaseName = "RedisQFork";
-const int cDeadForkWait = 30000;
+const size_t cAllocationGranularity = 1 << 18;      // 256KB per heap block (matches large block allocation threshold of dlmalloc)
+const int    cMaxBlocks = 1 << 24;                  // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
+const char*  cMapFileBaseName = "RedisQFork";
+const int    cDeadForkWait = 30000;
 
 #ifndef _WIN64
-size_t cDefaultmaxHeap32Bit = 1 << 29;                          // 512MB
+size_t cDefaultmaxHeap32Bit = 1 << 29;              // 512MB
 #endif
 
-enum class BlockState : std::uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
+enum class BlockState : uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
 
 struct QForkControl {
     HANDLE heapMemoryMapFile;
     HANDLE heapMemoryMap;
-    int availableBlocksInHeap;                 // number of blocks in blockMap (dynamically determined at run time)
+    int availableBlocksInHeap;                      // Number of blocks in blockMap (dynamically determined at run time)
     BlockState heapBlockMap[cMaxBlocks];
     LPVOID heapStart;
 
@@ -197,7 +230,7 @@ struct QForkControl {
     HANDLE operationComplete;
     HANDLE operationFailed;
 
-    // global data pointers to be passed to the forked process
+    // Global data pointers to be passed to the forked process
     QForkBeginInfo globalData;
     BYTE DLMallocGlobalState[1000];
     size_t DLMallocGlobalStateSize;
@@ -214,7 +247,7 @@ bool ReportSpecialSystemErrors(int error) {
     {
         case ERROR_COMMITMENT_LIMIT:
         {
-            ::redisLog(
+            redisLog(
                 REDIS_WARNING,
                 "\n"
                 "The Windows version of Redis allocates a memory mapped heap for sharing with\n"
@@ -237,7 +270,7 @@ bool ReportSpecialSystemErrors(int error) {
 
         case ERROR_DISK_FULL:
         {
-            ::redisLog(
+            redisLog(
                 REDIS_WARNING,
                 "\n"
                 "The Windows version of Redis allocates a large memory mapped file for sharing\n" 
@@ -292,7 +325,7 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
             string("Could not map view of QForkControl in child. Is system swap file large enough?"));
         g_pQForkControl = sfvParentQForkControl;
 
-        // duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
+        // Duplicate handles and stuff into control structure (parent protected by PAGE_WRITECOPY)
         dupHeapFileHandle.Assign(shParent, sfvParentQForkControl->heapMemoryMapFile);
         g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
         
@@ -302,8 +335,8 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
         dupOperationFailed.Assign(shParent, sfvParentQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
 
-        // create section handle on MM file
-        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
+        // Create section handle on MM file
+        size_t mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
         SmartFileMapHandle sfmhMapFile(
             g_pQForkControl->heapMemoryMapFile,
             PAGE_WRITECOPY,
@@ -325,15 +358,15 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
             g_pQForkControl->heapStart,
             string("Could not map heap in forked process. Is system paging file large enough?"));
 
-        // setup DLMalloc global data
+        // Setup DLMalloc global data
         if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-            throw std::runtime_error("DLMalloc global state copy failed.");
+            throw runtime_error("DLMalloc global state copy failed.");
         }
 
-        // copy redis globals into fork process
+        // Copy redis globals into fork process
         SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize, g_pQForkControl->globalData.dictHashSeed);
 
-        // execute requested operation
+        // Execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
             g_ChildExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
@@ -365,19 +398,19 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
             throw runtime_error("unexpected operation type");
         }
 
-        // let parent know we are done
+        // Let parent know we are done
         SetEvent(g_pQForkControl->operationComplete);
 
         g_pQForkControl = NULL;
         return TRUE;
     }
-    catch(std::system_error syserr) {
+    catch(system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
-            ::redisLog(REDIS_WARNING, "QForkChildInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+            redisLog(REDIS_WARNING, "QForkChildInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
     }
-    catch(std::runtime_error runerr) {
-        ::redisLog(REDIS_WARNING, "QForkChildInit: runtime error caught. message=%s\n", runerr.what());
+    catch(runtime_error runerr) {
+        redisLog(REDIS_WARNING, "QForkChildInit: runtime error caught. message=%s\n", runerr.what());
     }
     
     if (g_pQForkControl != NULL) {
@@ -393,16 +426,16 @@ string GetLocalAppDataFolder() {
     char localAppDataPath[_MAX_PATH];
     HRESULT hr;
     if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, localAppDataPath))) {
-        throw std::system_error(hr, system_category(), "SHGetFolderPathA failed");
+        throw system_error(hr, system_category(), "SHGetFolderPathA failed");
     }
     char redisAppDataPath[_MAX_PATH];
     if (NULL == PathCombineA(redisAppDataPath, localAppDataPath, "Redis")) {
-        throw std::system_error(hr, system_category(), "PathCombineA failed");
+        throw system_error(hr, system_category(), "PathCombineA failed");
     }
 
     if (PathIsDirectoryA(redisAppDataPath) == FALSE) {
         if (CreateDirectoryA(redisAppDataPath, NULL) == FALSE) {
-            throw std::system_error(hr, system_category(), "CreateDirectoryA failed");
+            throw system_error(hr, system_category(), "CreateDirectoryA failed");
         }
     }
 
@@ -415,16 +448,16 @@ string GetWorkingDirectory() {
         string workingDir;
         if (g_argMap.find(cHeapDir) != g_argMap.end()) {
             workingDir = g_argMap[cHeapDir][0][0];
-            std::replace(workingDir.begin(), workingDir.end(), '/', '\\');
+            replace(workingDir.begin(), workingDir.end(), '/', '\\');
 
             if (PathIsRelativeA(workingDir.c_str())) {
                 char cwd[MAX_PATH];
                 if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
-                    throw std::system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
+                    throw system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
                 }
                 char fullPath[_MAX_PATH];
                 if (NULL == PathCombineA(fullPath, cwd, workingDir.c_str())) {
-                    throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+                    throw system_error(GetLastError(), system_category(), "PathCombineA failed");
                 }
                 workingDir = fullPath;
             }
@@ -444,7 +477,7 @@ string GetWorkingDirectory() {
 
 BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
-        // allocate file map for qfork control so it can be passed to the forked process
+        // Allocate file map for qfork control so it can be passed to the forked process
         g_hQForkControlFileMap = CreateFileMappingW(
             INVALID_HANDLE_VALUE,
             NULL,
@@ -460,13 +493,13 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             0);
         IFFAILTHROW(g_pQForkControl, "QForkMasterInit: MapViewOfFile failed");
 
-        // ensure the number of blocks is a multiple of cAllocationGranularity
-        SIZE_T allocationBlocks = (SIZE_T)maxheapBytes / cAllocationGranularity;
+        // Ensure the number of blocks is a multiple of cAllocationGranularity
+        size_t allocationBlocks = (size_t)maxheapBytes / cAllocationGranularity;
         allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
 
         g_pQForkControl->availableBlocksInHeap = (int)allocationBlocks;
         if (g_pQForkControl->availableBlocksInHeap <= 0) {
-            throw std::runtime_error(
+            throw runtime_error(
                 "Invalid number of heap blocks.");
         }
 
@@ -512,13 +545,13 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
                 NULL );
         if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
-            throw std::system_error(
+            throw system_error(
                 GetLastError(),
                 system_category(),
                 "CreateFileW failed.");
         }
 
-        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
+        size_t mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
         g_pQForkControl->heapMemoryMap = 
             CreateFileMappingW( 
                 g_pQForkControl->heapMemoryMapFile,
@@ -534,7 +567,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         IFFAILTHROW(g_pQForkControl->heapMemoryMap, "CreateFileMapping failed.");
             
         // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
-        // to be available in the forked process.  (If this ever fails in the forked process, we will have to launch
+        // to be available in the forked process. (If this ever fails in the forked process, we will have to launch
         // the forked process and negotiate for a shared memory address here.)
         LPVOID pHigh = VirtualAllocEx( 
             GetCurrentProcess(),
@@ -570,16 +603,16 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
 
         return TRUE;
     }
-    catch(std::system_error syserr) {
+    catch(system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
-            ::redisLog(REDIS_WARNING, "QForkParentInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+            redisLog(REDIS_WARNING, "QForkParentInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
     }
-    catch(std::runtime_error runerr) {
-        ::redisLog(REDIS_WARNING, "QForkParentInit: runtime error caught. message=%s\n", runerr.what());
+    catch(runtime_error runerr) {
+        redisLog(REDIS_WARNING, "QForkParentInit: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
-        ::redisLog(REDIS_WARNING, "QForkParentInit: other exception caught.\n");
+        redisLog(REDIS_WARNING, "QForkParentInit: other exception caught.\n");
     }
     return FALSE;
 }
@@ -589,7 +622,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
         info->ExceptionRecord->NumberParameters == 2) {
         intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
         intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
-        intptr_t heapEnd = heapStart + ((SIZE_T) g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
+        intptr_t heapEnd = heapStart + ((size_t) g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
         if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd)
         {
             intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
@@ -614,22 +647,22 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
             else
             {
                 DWORD err = GetLastError();
-                ::redisLog(REDIS_WARNING, "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
-                ::redisLog(REDIS_WARNING, "--- FATAL ERROR MAPPING VIEW OF MAP FILE");
-                ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X.", err);
-                ::redisLog(REDIS_WARNING, "\t startOfMapping 0x%p", startOfMapping);
-                ::redisLog(REDIS_WARNING, "\t heapStart 0x%p", heapStart);
-                ::redisLog(REDIS_WARNING, "\t heapEnd 0x%p", heapEnd);
-                ::redisLog(REDIS_WARNING, "\t failing access location 0x%p", failingMemoryAddress);
-                ::redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%p", mmfOffset);
-                ::redisLog(REDIS_WARNING, "\t start of new mapping 0x%p", startOfMapping);
-                ::redisLog(REDIS_WARNING, "\t bytes to map 0x%p\n", bytesToMap);
+                redisLog(REDIS_WARNING, "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+                redisLog(REDIS_WARNING, "--- FATAL ERROR MAPPING VIEW OF MAP FILE");
+                redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X.", err);
+                redisLog(REDIS_WARNING, "\t startOfMapping 0x%p", startOfMapping);
+                redisLog(REDIS_WARNING, "\t heapStart 0x%p", heapStart);
+                redisLog(REDIS_WARNING, "\t heapEnd 0x%p", heapEnd);
+                redisLog(REDIS_WARNING, "\t failing access location 0x%p", failingMemoryAddress);
+                redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%p", mmfOffset);
+                redisLog(REDIS_WARNING, "\t start of new mapping 0x%p", startOfMapping);
+                redisLog(REDIS_WARNING, "\t bytes to map 0x%p\n", bytesToMap);
                 if (err == 0x000005AF) {
-                    ::redisLog(REDIS_WARNING, "The system paging file is too small for this operation to complete.");
-                    ::redisLog(REDIS_WARNING, "See https://github.com/MSOpenTech/redis/wiki/Memory-Configuration");
-                    ::redisLog(REDIS_WARNING, "for more information on configuring the system paging file for Redis.");
+                    redisLog(REDIS_WARNING, "The system paging file is too small for this operation to complete.");
+                    redisLog(REDIS_WARNING, "See https://github.com/MSOpenTech/redis/wiki/Memory-Configuration");
+                    redisLog(REDIS_WARNING, "for more information on configuring the system paging file for Redis.");
                 }
-                ::redisLog(REDIS_WARNING, "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n");
+                redisLog(REDIS_WARNING, "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n");
                 // Call exit to avoid executing the Unhandled Exceptiont Handler since we don't need a call stack
                 exit(1);
             }
@@ -679,38 +712,6 @@ StartupStatus QForkStartup() {
     }
     Globals::pageSize = perfinfo.PageSize;
 
-    /*
-    Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not
-    bounded by heap usage, and the heap size equal to the size of physical memory.
-
-    Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap
-    exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by
-    the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up
-    to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
-    increase the heap further than this.
-
-    If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
-    (rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
-    this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This
-    has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
-    than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
-
-    Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
-    size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
-    For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or
-    maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough
-    space available on the disk where redis is being launched from for this file.
-
-    During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both
-    forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
-    is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly
-    maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment
-    will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
-    expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.
-    The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default
-    heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring
-    either Redis or the machine (max comittment of (3 * physical)).
-    */
     int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
     if (maxmemoryBytes != -1) {
         if (maxheapBytes < maxMemoryPlusHalf) {
@@ -778,10 +779,10 @@ BOOL QForkShutdown() {
 }
 
 void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlobalData, uint32_t dictHashSeed) {
-    // copy operation data
+    // Copy operation data
     g_pQForkControl->typeOfOperation = type;
     if (sizeOfGlobalData > MAX_GLOBAL_DATA) {
-        throw std::runtime_error("Global state too large.");
+        throw runtime_error("Global state too large.");
     }
     memcpy(&(g_pQForkControl->globalData.globalData), globalData, sizeOfGlobalData);
     g_pQForkControl->globalData.globalDataSize = sizeOfGlobalData;
@@ -789,16 +790,16 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
 
     GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
     if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {
-        throw std::runtime_error("DLMalloc global state too large.");
+        throw runtime_error("DLMalloc global state too large.");
     }
     if(GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-        throw std::runtime_error("DLMalloc global state copy failed.");
+        throw runtime_error("DLMalloc global state copy failed.");
     }
 
-    // protect both the heap and the fork control map from propagating local changes 
+    // Protect both the heap and the fork control map from propagating local changes 
     DWORD oldProtect = 0;
     if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect) == FALSE) {
-        throw std::system_error(
+        throw system_error(
             GetLastError(),
             system_category(),
             "CopyForkOperationData: VirtualProtect failed for the fork control map");
@@ -819,7 +820,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
         } else {
             ++retries;
             if (retries > 10) {
-                throw std::system_error(
+                throw system_error(
                     GetLastError(),
                     system_category(),
                     "CopyForkOperationData: VirtualProtect failed for the heap");
@@ -831,7 +832,7 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
 }
 
 void CreateChildProcess(PROCESS_INFORMATION *pi, DWORD dwCreationFlags = 0) {
-    // ensure events are in the correst state
+    // Ensure events are in the correst state
     IFFAILTHROW(ResetEvent(g_pQForkControl->operationComplete), "CreateChildProcess: ResetEvent() failed.");
     IFFAILTHROW(ResetEvent(g_pQForkControl->operationFailed), "CreateChildProcess: ResetEvent() failed.");
 
@@ -873,14 +874,14 @@ pid_t BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobal
 
         return pi.dwProcessId;
     }
-    catch(std::system_error syserr) {
-        ::redisLog(REDIS_WARNING, "BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+    catch(system_error syserr) {
+        redisLog(REDIS_WARNING, "BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
     }
-    catch(std::runtime_error runerr) {
-        ::redisLog(REDIS_WARNING, "BeginForkOperation: runtime error caught. message=%s\n", runerr.what());
+    catch(runtime_error runerr) {
+        redisLog(REDIS_WARNING, "BeginForkOperation: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
-        ::redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
+        redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
     }
     if (pi.hProcess != INVALID_HANDLE_VALUE) {
         TerminateProcess(pi.hProcess, 1);
@@ -988,13 +989,13 @@ BOOL AbortForkOperation() {
 
         return EndForkOperation(NULL);
     }
-    catch(std::system_error syserr) {
-        ::redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
+    catch(system_error syserr) {
+        redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
     }
-    catch( ... ) {
-        ::redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
+    catch(...) {
+        redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
         exit(1);
     }
     return FALSE;
@@ -1037,7 +1038,7 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
         // restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
         if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
-            throw std::system_error(GetLastError(), std::system_category(), "RejoinCOWPages: COW cull failed");
+            throw system_error(GetLastError(), system_category(), "RejoinCOWPages: COW cull failed");
         }
     } else
 #endif
@@ -1057,7 +1058,7 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
             0,
             mmStart);
         if (remapped == NULL) {
-            throw std::system_error(
+            throw system_error(
                 GetLastError(),
                 system_category(),
                 "RejoinCOWPages: MapViewOfFileEx failed.");
@@ -1067,14 +1068,13 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
 
 BOOL EndForkOperation(int * pExitCode) {
     try {
-        if( g_hForkedProcess != 0 )
-        {
+        if (g_hForkedProcess != 0) {
             if (WaitForSingleObject(g_hForkedProcess, cDeadForkWait) == WAIT_TIMEOUT) {
                 IFFAILTHROW(TerminateProcess(g_hForkedProcess, 1), "EndForkOperation: Killing forked process failed.");
             }
 
             if (pExitCode != NULL) {
-                GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
+                GetExitCodeProcess(g_hForkedProcess, (DWORD*) pExitCode);
             }
 
             CloseHandle(g_hForkedProcess);
@@ -1084,34 +1084,34 @@ BOOL EndForkOperation(int * pExitCode) {
         IFFAILTHROW(ResetEvent(g_pQForkControl->operationComplete), "EndForkOperation: ResetEvent() failed.");
         IFFAILTHROW(ResetEvent(g_pQForkControl->operationFailed), "EndForkOperation: ResetEvent() failed.");
 
-        // move local changes back into memory mapped views for next fork operation
+        // Move local changes back into memory mapped views for next fork operation
         RejoinCOWPages(
             g_pQForkControl->heapMemoryMap,
-            (byte*)g_pQForkControl->heapStart,
+            (byte*) g_pQForkControl->heapStart,
             g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
 
         RejoinCOWPages(
             g_hQForkControlFileMap,
-            (byte*)g_pQForkControl,
+            (byte*) g_pQForkControl,
             sizeof(QForkControl));
 
         return TRUE;
     }
-    catch(std::system_error syserr) {
-        ::redisLog(REDIS_WARNING, "EndForkOperation: 0x%08x - %s\n", syserr.code().value(), syserr.what());
+    catch (system_error syserr) {
+        redisLog(REDIS_WARNING, "EndForkOperation: 0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
     }
-    catch( ... ) {
-        ::redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
+    catch (...) {
+        redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
         exit(1);
     }
     return FALSE;
 }
 
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    LPVOID retPtr = (LPVOID)NULL;
+    LPVOID retPtr = (LPVOID) NULL;
     if (size % cAllocationGranularity != 0) {
         errno = EINVAL;
         return retPtr;
@@ -1126,13 +1126,13 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
     size_t mapped = 0;
     int startIndex = allocateHigh ? g_pQForkControl->availableBlocksInHeap - 1 : 0;
     int endIndex = allocateHigh ?
-                   contiguousBlocksToAllocate - 2 : 
-                   g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
+        contiguousBlocksToAllocate - 2 :
+        g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
     int direction = allocateHigh ? -1 : 1;
     int blockIndex = 0;
     int contiguousBlocksFound = 0;
-    for(blockIndex = startIndex; 
-        blockIndex != endIndex; 
+    for (blockIndex = startIndex;
+        blockIndex != endIndex;
         blockIndex += direction) {
         for (int n = 0; n < contiguousBlocksToAllocate; n++) {
             assert((blockIndex + n * direction >= 0) &&
@@ -1140,8 +1140,7 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 
             if (g_pQForkControl->heapBlockMap[blockIndex + n * direction] == BlockState::bsUNMAPPED) {
                 contiguousBlocksFound++;
-            }
-            else {
+            } else {
                 contiguousBlocksFound = 0;
                 break;
             }
@@ -1153,16 +1152,15 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 
     if (contiguousBlocksFound == contiguousBlocksToAllocate) {
         int allocationStart = blockIndex + (allocateHigh ? 1 - contiguousBlocksToAllocate : 0);
-        LPVOID blockStart = 
-            reinterpret_cast<byte*>(g_pQForkControl->heapStart) + 
+        LPVOID blockStart =
+            reinterpret_cast<byte*>(g_pQForkControl->heapStart) +
             (cAllocationGranularity * allocationStart);
-        for(int n = 0; n < contiguousBlocksToAllocate; n++ ) {
-            g_pQForkControl->heapBlockMap[allocationStart+n] = BlockState::bsMAPPED;
+        for (int n = 0; n < contiguousBlocksToAllocate; n++) {
+            g_pQForkControl->heapBlockMap[allocationStart + n] = BlockState::bsMAPPED;
             mapped += cAllocationGranularity;
         }
         retPtr = blockStart;
-    }
-    else {
+    } else {
         errno = ENOMEM;
     }
 
@@ -1191,7 +1189,7 @@ BOOL FreeHeapBlock(LPVOID block, size_t size) {
         if (err != ERROR_NOT_LOCKED) {
             return FALSE;
         }
-    };
+    }
     for (int n = 0; n < contiguousBlocksToFree; n++ ) {
         g_pQForkControl->heapBlockMap[blockIndex + n] = BlockState::bsUNMAPPED;
     }
@@ -1252,6 +1250,7 @@ extern "C"
         }
 
         try {
+
 #ifdef DEBUG_WITH_PROCMON
             hProcMonDevice =
                 CreateFile(
@@ -1264,7 +1263,7 @@ extern "C"
                 NULL);
 #endif
 
-            // service commands do not launch an instance of redis directly
+            // Service commands do not launch an instance of redis directly
             if (HandleServiceCommands(argc, argv) == TRUE) {
                 return 0;
             }
@@ -1295,28 +1294,28 @@ extern "C"
                     QForkShutdown();
                     return retval;
                 } else if (status == ssCHILD_EXIT) {
-                    // child is done - clean up and exit
+                    // Child is done - clean up and exit
                     QForkShutdown();
                     return g_ChildExitCode;
                 } else if (status == ssFAILED) {
-                    // parent or child failed initialization
+                    // Parent or child failed initialization
                     return 1;
                 } else {
-                    // unexpected status return
+                    // Unexpected status return
                     return 2;
                 }
             } else {
                 return redis_main(argc, argv);
             }
         }
-        catch (std::system_error syserr) {
-            ::redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+        catch (system_error syserr) {
+            redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
-        catch (std::runtime_error runerr) {
-            ::redisLog(REDIS_WARNING, "main: runtime error caught. message=%s\n", runerr.what());
+        catch (runtime_error runerr) {
+            redisLog(REDIS_WARNING, "main: runtime error caught. message=%s\n", runerr.what());
         }
         catch (...) {
-            ::redisLog(REDIS_WARNING, "main: other exception caught.\n");
+            redisLog(REDIS_WARNING, "main: other exception caught.\n");
         }
     }
 }
