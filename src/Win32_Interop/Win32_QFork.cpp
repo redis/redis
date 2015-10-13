@@ -70,51 +70,30 @@ the QForkControlMemoryMap)
 */
 
 /*
-Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not
-bounded by heap usage, and the heap size equal to the size of physical memory.
+Not specifying the maxmemory flag will result in the default behavior of: new key generation not bounded by heap usage,
+and the heap size equal to the size of physical memory.
 
 Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap
 exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by
-the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up
-to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
-increase the heap further than this.
+the heap allocator. To allow for this extra space we allow the heap to allocate 10 times the physical memory.
 
-If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
-(rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
-this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This
-has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
-than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
+Since the heap is entirely contained in the system paging file, the size of the system paging file needs to be large accordingly.
 
-Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
-size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
-For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or
-maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough
-space available on the disk where redis is being launched from for this file.
-
-During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both
-forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
-is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly
-maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment
-will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
-expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.
-The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default
-heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring
-either Redis or the machine (max comittment of (3 * physical)).
+During forking the system paging file is used for managing virtual memory sharing and the copy on write pages for both
+forker and forkee. There must be sufficient system paging space availability for this. By default Windows will dynamically
+allocate a system paging file that will expand up to about (3.5 * physical).
 */
 
 #include "win32_types.h"
 #include "Win32_FDAPI.h"
 #include "Win32_Common.h"
+#include "Win32_Assert.h"
 
 #include <Windows.h>
 #include <WinNT.h>
 #include <errno.h>
-#include <stdio.h>
-#include <wchar.h>
 #include <Psapi.h>
-#include <ShlObj.h>
-#include <Shlwapi.h>
-#include <assert.h>
+#include <iostream>
 
 #define QFORK_MAIN_IMPL
 #include "Win32_QFork.h"
@@ -127,15 +106,6 @@ either Redis or the machine (max comittment of (3 * physical)).
 #include "Win32_RedisLog.h"
 #include "Win32_StackTrace.h"
 #include "Win32_ThreadControl.h"
-
-#include <vector>
-#include <map>
-#include <iostream>
-#include <sstream>
-#include <stdint.h>
-#include <exception>
-#include <algorithm>
-#include <memory>
 
 using namespace std;
 
@@ -172,6 +142,10 @@ BOOL WriteToProcmon(wstring message)
   #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
 #endif
 
+#ifndef PAGE_REVERT_TO_FILE_MAP
+  #define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
+#endif
+
 #define IFFAILTHROW(a,m) if(!(a)) { throw system_error(GetLastError(), system_category(), m); }
 
 #define MAX_GLOBAL_DATA 10000
@@ -190,10 +164,6 @@ struct QForkBeginInfo {
     LPVOID protocolInfo;
 };
 
-#ifndef PAGE_REVERT_TO_FILE_MAP
-#define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
-#endif
-
 extern "C"
 {
     int checkForSentinelMode(int argc, char **argv);
@@ -208,20 +178,27 @@ extern "C"
 }
 
 const size_t cAllocationGranularity = 1 << 18;      // 256KB per heap block (matches large block allocation threshold of dlmalloc)
-const int    cMaxBlocks = 1 << 24;                  // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
-const int    cDeadForkWait = 30000;
-
-#ifndef _WIN64
-size_t cDefaultmaxHeap32Bit = 1 << 29;              // 512MB
+#ifdef _WIN64
+  const int  cMaxBlocks = 1 << 22;                  // 256KB * 4M heap blocks = 1TB
+#else
+  const int  cMaxBlocks = 1 << 13;                  // 256KB * 8K heap blocks = 2GB
 #endif
 
-enum class BlockState : uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
+const int    cDeadForkWait = 30000;
+
+enum class BlockState : uint8_t { bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED_IN_USE = 2, bsMAPPED_FREE = 3 };
+
+struct heapBlockInfo {
+    HANDLE heapMap;
+    BlockState state;
+};
 
 struct QForkControl {
-    HANDLE heapMemoryMap;
-    int availableBlocksInHeap;                      // Number of blocks in blockMap (dynamically determined at run time)
-    BlockState heapBlockMap[cMaxBlocks];
     LPVOID heapStart;
+    int maxAvailableBlocks;
+    int numMappedBlocks;
+    int blockSearchStart;
+    heapBlockInfo heapBlockList[cMaxBlocks];
 
     OperationType typeOfOperation;
     HANDLE operationComplete;
@@ -236,7 +213,6 @@ struct QForkControl {
 QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
-DWORD g_systemAllocationGranularity;
 int g_ChildExitCode = 0; // For child process
 
 bool ReportSpecialSystemErrors(int error) {
@@ -248,18 +224,12 @@ bool ReportSpecialSystemErrors(int error) {
             redisLog(
                 REDIS_WARNING,
                 "\n"
-                "The Windows version of Redis allocates a memory mapped heap for sharing with\n"
-                "the forked process used for persistence operations. In order to share this\n"
-                "memory, Windows allocates from the system paging file a portion equal to the\n"
-                "size of the Redis heap. At this time there is insufficient contiguous free\n"
-                "space available in the system paging file for this operation (Windows error \n"
-                "0x5AF). To work around this you may either increase the size of the system\n"
-                "paging file, or decrease the size of the Redis heap with the --maxheap flag.\n"
-                "Sometimes a reboot will defragment the system paging file sufficiently for \n"
+                "The Windows version of Redis reserves heap memory from the system paging file\n"
+                "for sharing with the forked process used for persistence operations."
+                "At this time there is insufficient contiguous free space available in the\n"
+                "system paging file. You may increase the size of the system paging file.\n"
+                "Sometimes a reboot will defragment the system paging file sufficiently for\n"
                 "this operation to complete successfully.\n"
-                "\n"
-                "Please see the documentation included with the binary distributions for more \n"
-                "details on the --maxheap flag.\n"
                 "\n"
                 "Redis can not continue. Exiting."
                 );
@@ -281,7 +251,7 @@ void DLMallocInit() {
 
 BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     SmartHandle shParent;
-    SmartHandle shHeapMap;
+    SmartHandle shQForkControlHeapMap;
     SmartFileView<QForkControl> sfvParentQForkControl;
     SmartHandle dupOperationComplete;
     SmartHandle dupOperationFailed;
@@ -291,9 +261,9 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
-        shHeapMap.Assign(shParent, QForkControlMemoryMapHandle);
+        shQForkControlHeapMap.Assign(shParent, QForkControlMemoryMapHandle);
         sfvParentQForkControl.Assign(
-            shHeapMap,
+            shQForkControlHeapMap,
             FILE_MAP_COPY, 
             string("Could not map view of QForkControl in child. Is system swap file large enough?"));
         g_pQForkControl = sfvParentQForkControl;
@@ -306,18 +276,25 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
         dupOperationFailed.Assign(shParent, sfvParentQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
 
-        SmartHandle shDupHeapMemoryMap;
-        shDupHeapMemoryMap.Assign(shParent, sfvParentQForkControl->heapMemoryMap);
-        g_pQForkControl->heapMemoryMap = shDupHeapMemoryMap;
+        vector<SmartHandle> dupHeapHandle(g_pQForkControl->numMappedBlocks);
+        vector<SmartFileView<byte>> sfvHeap(g_pQForkControl->numMappedBlocks);
+        for (int i = 0; i < g_pQForkControl->numMappedBlocks; i++) {
+            if (sfvParentQForkControl->heapBlockList[i].state == BlockState::bsMAPPED_IN_USE) {
+                dupHeapHandle[i].Assign(shParent, sfvParentQForkControl->heapBlockList[i].heapMap);
+                g_pQForkControl->heapBlockList[i].heapMap = dupHeapHandle[i];
 
-        // The key to mapping a heap larger than physical memory is to not map it all at once.
-        SmartFileView<byte> sfvHeap(
-            g_pQForkControl->heapMemoryMap,
-            FILE_MAP_COPY,
-            0, 0, 
-            cAllocationGranularity, // Only map a portion of the heap. Deal with the unmapped pages with a VEH.
-            g_pQForkControl->heapStart,
-            string("Could not map heap in forked process. Is system paging file large enough?"));
+                sfvHeap[i].Assign(g_pQForkControl->heapBlockList[i].heapMap,
+                    FILE_MAP_COPY,
+                    0,
+                    0,
+                    cAllocationGranularity,
+                    (byte*) g_pQForkControl->heapStart + i * cAllocationGranularity,
+                    string("QForkChildInit: could not map heap in forked process"));
+            } else {
+                g_pQForkControl->heapBlockList[i].heapMap = NULL;
+                g_pQForkControl->heapBlockList[i].state = BlockState::bsINVALID;
+            }
+        }
 
         // Setup DLMalloc global data
         if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
@@ -383,7 +360,7 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
-BOOL QForkParentInit(__int64 maxheapBytes) {
+BOOL QForkParentInit() {
     try {
         // Allocate file map for qfork control so it can be passed to the forked process
         g_hQForkControlFileMap = CreateFileMappingW(
@@ -401,41 +378,34 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             0);
         IFFAILTHROW(g_pQForkControl, "QForkMasterInit: MapViewOfFile failed");
 
-        // Ensure the number of blocks is a multiple of cAllocationGranularity
-        size_t allocationBlocks = (size_t)maxheapBytes / cAllocationGranularity;
-        allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
+        MEMORYSTATUSEX memstatus;
+        memstatus.dwLength = sizeof(MEMORYSTATUSEX);
+        IFFAILTHROW(GlobalMemoryStatusEx(&memstatus), "QForkMasterInit: cannot get global memory status");
 
-        g_pQForkControl->availableBlocksInHeap = (int)allocationBlocks;
-        if (g_pQForkControl->availableBlocksInHeap <= 0) {
-            throw runtime_error(
-                "Invalid number of heap blocks.");
+        // On x86 the limit is always (cAllocationGranularity * cMaxBlocks)
+        size_t max_heap_allocation = memstatus.ullTotalPhys * 10;
+        if (max_heap_allocation > cAllocationGranularity * cMaxBlocks) {
+            max_heap_allocation = cAllocationGranularity * cMaxBlocks;
         }
 
-        // Add +1 to the availableBlocksInHeap value since later we are going to adjust
-        // the startHeap value to meet the alignment requirements
-        size_t mmSize = (g_pQForkControl->availableBlocksInHeap + 1) * cAllocationGranularity;
-        g_pQForkControl->heapMemoryMap = 
-            CreateFileMappingW( 
-                INVALID_HANDLE_VALUE,
-                NULL,
-                PAGE_READWRITE,
-#ifdef _WIN64           
-                HIDWORD(mmSize),
-#else      
-                0,
-#endif
-                LODWORD(mmSize),
-                NULL);
-        IFFAILTHROW(g_pQForkControl->heapMemoryMap, "CreateFileMapping failed.");
-            
-        // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
-        // to be available in the forked process. (If this ever fails in the forked process, we will have to launch
-        // the forked process and negotiate for a shared memory address here.)
+        // maxAvailableBlocks is guaranteed to be <= cMaxBlocks
+        // On x86 maxAvailableBlocks = cMaxBlocks
+        g_pQForkControl->maxAvailableBlocks = (int) (max_heap_allocation / cAllocationGranularity);
+        g_pQForkControl->blockSearchStart = 0;
+        g_pQForkControl->numMappedBlocks = 0;
+
+        // Find a place in the virtual memory space where we can reserve space for
+        // our allocations that is likely to be available in the forked process.
         LPVOID pHigh = VirtualAllocEx( 
             GetCurrentProcess(),
             NULL,
-            mmSize,
+            // the +1 is needed since we will align the heap start address
+            (g_pQForkControl->maxAvailableBlocks + 1) * cAllocationGranularity,
+#ifdef _WIN64
             MEM_RESERVE | MEM_TOP_DOWN,
+#else
+            MEM_RESERVE
+#endif
             PAGE_READWRITE);
         IFFAILTHROW(pHigh, "QForkMasterInit: VirtualAllocEx failed.");
 
@@ -444,19 +414,19 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         // Need to adjust the heap start address to align on allocation granularity offset
         g_pQForkControl->heapStart = (LPVOID) (((uint64_t) pHigh + cAllocationGranularity) - ((uint64_t) pHigh % cAllocationGranularity));
 
-        g_pQForkControl->heapStart = 
-            MapViewOfFileEx(
-                g_pQForkControl->heapMemoryMap,
-                FILE_MAP_ALL_ACCESS,
-                0,0,                            
-                0,  
-                pHigh);
-        IFFAILTHROW(g_pQForkControl->heapStart, "MapViewOfFileEx failed.");
+        // Reserve the heap memory that will be mapped on demand in AllocHeapBlock()
+        for (int i = 0; i < g_pQForkControl->maxAvailableBlocks; i++) {
+            LPVOID addr = (byte*) g_pQForkControl->heapStart + i * cAllocationGranularity;
+            IFFAILTHROW(VirtualAlloc(addr, cAllocationGranularity, MEM_RESERVE, PAGE_READWRITE),
+                "QForkMasterInit: VirtualAlloc of reserve segment failed");
+        }
 
-        for (int n = 0; n < cMaxBlocks; n++) {
-            g_pQForkControl->heapBlockMap[n] = 
-                ((n < g_pQForkControl->availableBlocksInHeap) ?
-                BlockState::bsUNMAPPED : BlockState::bsINVALID);
+        for (int i = 0; i < g_pQForkControl->maxAvailableBlocks; i++) {
+            g_pQForkControl->heapBlockList[i].state = BlockState::bsUNMAPPED;
+            g_pQForkControl->heapBlockList[i].heapMap = NULL;
+        }
+        for (int i = g_pQForkControl->maxAvailableBlocks; i < cMaxBlocks; i++) {
+            g_pQForkControl->heapBlockList[i].state = BlockState::bsINVALID;
         }
 
         g_pQForkControl->typeOfOperation = OperationType::otINVALID;
@@ -482,73 +452,12 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
     return FALSE;
 }
 
-LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
-    if (info->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION && 
-        info->ExceptionRecord->NumberParameters == 2) {
-        intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
-        intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
-        intptr_t heapEnd = heapStart + ((size_t) g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
-        if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd)
-        {
-            intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
-            intptr_t mmfOffset = startOfMapping - heapStart;
-            size_t bytesToMap = min((size_t)g_systemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
-            LPVOID pMapped =  MapViewOfFileEx( 
-                g_pQForkControl->heapMemoryMap, 
-                FILE_MAP_COPY,
-#ifdef _WIN64           
-                HIDWORD(mmfOffset),
-#else      
-                0,
-#endif
-                LODWORD(mmfOffset),
-                bytesToMap,
-                (LPVOID)startOfMapping);
-
-            if(pMapped != NULL)
-            {
-                return EXCEPTION_CONTINUE_EXECUTION;
-            }
-            else
-            {
-                DWORD err = GetLastError();
-                redisLog(REDIS_WARNING, "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
-                redisLog(REDIS_WARNING, "--- FATAL ERROR MAPPING VIEW OF MAP FILE");
-                redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X.", err);
-                redisLog(REDIS_WARNING, "\t startOfMapping 0x%p", startOfMapping);
-                redisLog(REDIS_WARNING, "\t heapStart 0x%p", heapStart);
-                redisLog(REDIS_WARNING, "\t heapEnd 0x%p", heapEnd);
-                redisLog(REDIS_WARNING, "\t failing access location 0x%p", failingMemoryAddress);
-                redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%p", mmfOffset);
-                redisLog(REDIS_WARNING, "\t start of new mapping 0x%p", startOfMapping);
-                redisLog(REDIS_WARNING, "\t bytes to map 0x%p\n", bytesToMap);
-                if (err == 0x000005AF) {
-                    redisLog(REDIS_WARNING, "The system paging file is too small for this operation to complete.");
-                    redisLog(REDIS_WARNING, "See https://github.com/MSOpenTech/redis/wiki/Memory-Configuration");
-                    redisLog(REDIS_WARNING, "for more information on configuring the system paging file for Redis.");
-                }
-                redisLog(REDIS_WARNING, "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n");
-                // Call exit to avoid executing the Unhandled Exceptiont Handler since we don't need a call stack
-                exit(1);
-            }
-        }
-    }
-
-    return EXCEPTION_CONTINUE_SEARCH;
-}
-
-// QFork API
 StartupStatus QForkStartup() {
     bool foundChildFlag = false;
     HANDLE QForkControlMemoryMapHandle = NULL;
     DWORD PPID = 0;
-    __int64 maxheapBytes = -1;
-    __int64 maxmemoryBytes = -1;
-    int memtollerr = 0;
 
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    g_systemAllocationGranularity = si.dwAllocationGranularity;
+    // TODO: consider moving the argument parsing into ParseCommandLineArguments()
 
     // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent pid]
     if (g_argMap.find(cQFork) != g_argMap.end()) {
@@ -557,15 +466,6 @@ StartupStatus QForkStartup() {
         QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), &endPtr, 10);
         char* end = NULL;
         PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), &end, 10);
-    } else {
-        if (g_argMap.find(cMaxHeap) != g_argMap.end()) {
-            int mtollerr = 0;
-            maxheapBytes = memtoll(g_argMap[cMaxHeap].at(0).at(0).c_str(), &memtollerr);
-        }
-        if (g_argMap.find(cMaxMemory) != g_argMap.end()) {
-            int mtollerr = 0;
-            maxmemoryBytes = memtoll(g_argMap[cMaxMemory].at(0).at(0).c_str(), &memtollerr);
-        }
     }
 
     PERFORMANCE_INFORMATION perfinfo;
@@ -577,32 +477,10 @@ StartupStatus QForkStartup() {
     }
     Globals::pageSize = perfinfo.PageSize;
 
-    int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
-    if (maxmemoryBytes != -1) {
-        if (maxheapBytes < maxMemoryPlusHalf) {
-            maxheapBytes = maxMemoryPlusHalf;
-        }
-    }
-
-    if (maxheapBytes == -1) {
-#ifdef _WIN64
-        maxheapBytes = (perfinfo.PhysicalTotal * Globals::pageSize * 3) / 2;
-#else
-        maxheapBytes = cDefaultmaxHeap32Bit;
-#endif
-    }
-
     if (foundChildFlag) {
-        LPVOID exceptionHandler = AddVectoredExceptionHandler(1, VectoredHeapMapper);
-        StartupStatus retVal = StartupStatus::ssFAILED;
-        try {
-            retVal = QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
-        }
-        catch (...) {}
-        RemoveVectoredExceptionHandler(exceptionHandler);
-        return retVal;
+        return QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
     } else {
-        return QForkParentInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
+        return QForkParentInit() ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
     }
 }
 
@@ -624,7 +502,12 @@ BOOL QForkShutdown() {
     {
         CloseEventHandle(&g_pQForkControl->operationComplete);
         CloseEventHandle(&g_pQForkControl->operationFailed);
-        CloseEventHandle(&g_pQForkControl->heapMemoryMap);
+
+        for (int i = 0; i < g_pQForkControl->numMappedBlocks; i++) {
+            if (g_pQForkControl->heapBlockList[i].state != BlockState::bsUNMAPPED) {
+                CloseEventHandle(&g_pQForkControl->heapBlockList[i].heapMap);
+            }
+        }
 
         if (g_pQForkControl->heapStart != NULL) {
             UnmapViewOfFile(g_pQForkControl->heapStart);
@@ -660,37 +543,19 @@ void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlob
         throw runtime_error("DLMalloc global state copy failed.");
     }
 
-    // Protect both the heap and the fork control map from propagating local changes 
+    // Protect the qfork control map from propagating local changes
     DWORD oldProtect = 0;
-    if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect) == FALSE) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "CopyForkOperationData: VirtualProtect failed for the fork control map");
-    }
+    IFFAILTHROW(VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect),
+                "CopyForkOperationData: VirtualProtect failed for QForkControl");
 
-    // TODO: VirtualProtec randomly fails while running the cluster tests, 
-    // retrying the call is just a workaround for the alpha release.
-    int retries = 0;
-    while (TRUE){
-        BOOL result = VirtualProtect(
-            g_pQForkControl->heapStart,
-            g_pQForkControl->availableBlocksInHeap * cAllocationGranularity,
-            PAGE_WRITECOPY,
-            &oldProtect);
-
-        if (result == TRUE) {
-            break;
-        } else {
-            ++retries;
-            if (retries > 10) {
-                throw system_error(
-                    GetLastError(),
-                    system_category(),
-                    "CopyForkOperationData: VirtualProtect failed for the heap");
-            }
-            redisLog(REDIS_DEBUG, "CopyForkOperationData: VirtualProtect failed for the heap, retrying in 100ms.");
-            Sleep(100);
+    // Protect the heap map from propagating local changes
+    for (int i = 0; i < g_pQForkControl->numMappedBlocks; i++) {
+        if (g_pQForkControl->heapBlockList[i].state == BlockState::bsMAPPED_IN_USE) {
+            oldProtect = 0;
+            VirtualProtect((byte*) g_pQForkControl->heapStart + i * cAllocationGranularity,
+                cAllocationGranularity,
+                PAGE_WRITECOPY,
+                &oldProtect);
         }
     }
 }
@@ -949,10 +814,13 @@ BOOL EndForkOperation(int * pExitCode) {
         IFFAILTHROW(ResetEvent(g_pQForkControl->operationFailed), "EndForkOperation: ResetEvent() failed.");
 
         // Move local changes back into memory mapped views for next fork operation
-        RejoinCOWPages(
-            g_pQForkControl->heapMemoryMap,
-            (byte*) g_pQForkControl->heapStart,
-            g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
+        for (int i = 0; i < g_pQForkControl->numMappedBlocks; i++) {
+            if (g_pQForkControl->heapBlockList[i].state == BlockState::bsMAPPED_IN_USE) {
+                RejoinCOWPages(g_pQForkControl->heapBlockList[i].heapMap,
+                    (byte*) g_pQForkControl->heapStart + (cAllocationGranularity * i),
+                    cAllocationGranularity);
+            }
+        }
 
         RejoinCOWPages(
             g_hQForkControlFileMap,
@@ -974,89 +842,132 @@ BOOL EndForkOperation(int * pExitCode) {
     return FALSE;
 }
 
+HANDLE CreateBlockMap(int blockIndex) {
+    try {
+        HANDLE map = CreateFileMappingW(INVALID_HANDLE_VALUE,
+                                        NULL,
+                                        PAGE_READWRITE,
+                                        HIDWORD(cAllocationGranularity),
+                                        LODWORD(cAllocationGranularity),
+                                        NULL);
+        IFFAILTHROW(map, "PhysicalMapMemory: CreateFileMapping failed");
+
+        LPVOID addr = (byte*) g_pQForkControl->heapStart + blockIndex * cAllocationGranularity;
+
+        // Free the memory that was reserved in QForkParentInit() before mapping it
+        IFFAILTHROW(VirtualFree(addr, 0, MEM_RELEASE), "PhysicalMapMemory: VirtualFree failed");
+
+        LPVOID realAddr = MapViewOfFileEx(map, FILE_MAP_ALL_ACCESS, 0, 0, 0, addr);
+        IFFAILTHROW(realAddr, "PhysicalMapMemory: MapViewOfFileEx failed");
+
+        DWORD old;
+        IFFAILTHROW(VirtualProtect(realAddr, cAllocationGranularity, PAGE_READWRITE, &old), "PhysicalMapMemory: VirtualProtect failed");
+
+        return map;
+    }
+    catch (system_error syserr) {
+        redisLog(REDIS_WARNING, "PhysicalMapMemory: system error 0x%08x - %s", syserr.code().value(), syserr.what());
+    }
+    catch (runtime_error runerr) {
+        redisLog(REDIS_WARNING, "PhysicalMapMemory: runtime error - %s", runerr.what());
+    }
+    catch (...) {
+        redisLog(REDIS_WARNING, "PhysicalMapMemory: exception caught");
+    }
+
+    return NULL;
+}
+
+/* NOTE: The allocateHigh parameter is ignored in this implementation */
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    LPVOID retPtr = (LPVOID) NULL;
     if (size % cAllocationGranularity != 0) {
         errno = EINVAL;
-        return retPtr;
+        return NULL;
     }
+
     int contiguousBlocksToAllocate = (int) (size / cAllocationGranularity);
 
-    if (contiguousBlocksToAllocate > g_pQForkControl->availableBlocksInHeap) {
-        errno = ENOMEM;
-        return retPtr;
-    }
-
-    size_t mapped = 0;
-    int startIndex = allocateHigh ? g_pQForkControl->availableBlocksInHeap - 1 : 0;
-    int endIndex = allocateHigh ?
-        contiguousBlocksToAllocate - 2 :
-        g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
-    int direction = allocateHigh ? -1 : 1;
-    int blockIndex = 0;
+    int startSearch = g_pQForkControl->blockSearchStart;
+    int endSearch = g_pQForkControl->maxAvailableBlocks - contiguousBlocksToAllocate;
     int contiguousBlocksFound = 0;
-    for (blockIndex = startIndex;
-        blockIndex != endIndex;
-        blockIndex += direction) {
-        for (int n = 0; n < contiguousBlocksToAllocate; n++) {
-            assert((blockIndex + n * direction >= 0) &&
-                   (blockIndex + n * direction < g_pQForkControl->availableBlocksInHeap));
+    int allocationStartIndex = 0;
 
-            if (g_pQForkControl->heapBlockMap[blockIndex + n * direction] == BlockState::bsUNMAPPED) {
+    for (int startIdx = startSearch; startIdx < endSearch; startIdx++) {
+        for (int i = 0; i < contiguousBlocksToAllocate; i++) {
+            if (g_pQForkControl->heapBlockList[startIdx + i].state == BlockState::bsUNMAPPED ||
+                g_pQForkControl->heapBlockList[startIdx + i].state == BlockState::bsMAPPED_FREE) {
                 contiguousBlocksFound++;
             } else {
                 contiguousBlocksFound = 0;
+                startIdx += i; // restart searching from there
                 break;
             }
         }
         if (contiguousBlocksFound == contiguousBlocksToAllocate) {
+            allocationStartIndex = startIdx;
             break;
         }
     }
 
-    if (contiguousBlocksFound == contiguousBlocksToAllocate) {
-        int allocationStart = blockIndex + (allocateHigh ? 1 - contiguousBlocksToAllocate : 0);
-        LPVOID blockStart =
-            reinterpret_cast<byte*>(g_pQForkControl->heapStart) +
-            (cAllocationGranularity * allocationStart);
-        for (int n = 0; n < contiguousBlocksToAllocate; n++) {
-            g_pQForkControl->heapBlockMap[allocationStart + n] = BlockState::bsMAPPED;
-            mapped += cAllocationGranularity;
-        }
-        retPtr = blockStart;
-    } else {
+    if (contiguousBlocksFound != contiguousBlocksToAllocate) {
         errno = ENOMEM;
+        return NULL;
+    }
+
+    ASSERT(allocationStartIndex + contiguousBlocksToAllocate < g_pQForkControl->maxAvailableBlocks);
+
+    for (int i = 0; i < contiguousBlocksToAllocate; i++) {
+        int index = allocationStartIndex + i;
+        if (g_pQForkControl->heapBlockList[index].state == BlockState::bsUNMAPPED) {
+            g_pQForkControl->heapBlockList[index].heapMap = CreateBlockMap(index);
+            g_pQForkControl->numMappedBlocks += 1;
+        } else {
+            // The current block state is bsMAPPED_FREE, therefore it needs to be
+            // zeroed (bsUNMAPPED blocks don't need to be zeroed since newly mapped
+            // blocked have zeroed memory by default)
+            LPVOID ptr = reinterpret_cast<byte*>(g_pQForkControl->heapStart) + (cAllocationGranularity * index);
+            ZeroMemory(ptr, cAllocationGranularity);
+        }
+        g_pQForkControl->heapBlockList[index].state = BlockState::bsMAPPED_IN_USE;
+    }
+
+    LPVOID retPtr = reinterpret_cast<byte*>(g_pQForkControl->heapStart) + (cAllocationGranularity * allocationStartIndex);
+    if (allocationStartIndex == g_pQForkControl->blockSearchStart) {
+        g_pQForkControl->blockSearchStart = allocationStartIndex + contiguousBlocksToAllocate;
     }
 
     return retPtr;
 }
 
-BOOL FreeHeapBlock(LPVOID block, size_t size) {
+BOOL FreeHeapBlock(LPVOID addr, size_t size) {
     if (size == 0) {
         return FALSE;
     }
 
-    INT_PTR ptrDiff = reinterpret_cast<byte*>(block) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
+    // TODO: check addr is in heap
+
+    size_t ptrDiff = reinterpret_cast<byte*>(addr) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
     if (ptrDiff < 0 || (ptrDiff % cAllocationGranularity) != 0) {
         return FALSE;
     }
 
-    int blockIndex = (int) (ptrDiff / cAllocationGranularity);
-    if (blockIndex >= g_pQForkControl->availableBlocksInHeap) {
+    int blockStartIndex = (int) (ptrDiff / cAllocationGranularity);
+    if (blockStartIndex >= g_pQForkControl->numMappedBlocks) {
         return FALSE;
     }
 
     int contiguousBlocksToFree = (int) (size / cAllocationGranularity);
 
-    if (VirtualUnlock(block, size) == FALSE) {
-        DWORD err = GetLastError();
-        if (err != ERROR_NOT_LOCKED) {
-            return FALSE;
-        }
+    for (int i = 0; i < contiguousBlocksToFree; i++) {
+        g_pQForkControl->heapBlockList[blockStartIndex + i].state = BlockState::bsMAPPED_FREE;
     }
-    for (int n = 0; n < contiguousBlocksToFree; n++ ) {
-        g_pQForkControl->heapBlockMap[blockIndex + n] = BlockState::bsUNMAPPED;
+
+    // TODO: use a linked list of free blocks
+
+    if (g_pQForkControl->blockSearchStart > blockStartIndex) {
+        g_pQForkControl->blockSearchStart = blockStartIndex;
     }
+
     return TRUE;
 }
 

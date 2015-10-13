@@ -350,7 +350,6 @@ static RedisParamterMapper g_redisArgMap =
 {
     // QFork flags
     { cQFork,                           &fp2 },    // qfork [QForkControlMemoryMap handle] [parent process id]
-    { cMaxHeap,                         &fp1 },    // maxheap [number]
     { cPersistenceAvailable,            &fp1 },    // persistence-available [yes/no]
 
     // service commands
@@ -662,7 +661,7 @@ void ParseCommandLineArguments(int argc, char** argv) {
         ParseConfFile(confFilePath, cwd, g_argMap);
     }
 
-    // grab directory where RDB/AOF/DAT files will be created so that service install can add access allowed ACE to path
+    // grab directory where RDB/AOF files will be created so that service install can add access allowed ACE to path
     string fileCreationDirectory = ".\\";
     if (g_argMap.find(cDir) != g_argMap.end()) {
         fileCreationDirectory = g_argMap[cDir][0][0];

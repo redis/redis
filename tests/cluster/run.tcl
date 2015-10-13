@@ -15,7 +15,6 @@ proc main {} {
     spawn_instance redis $::redis_base_port $::instances_count {
         "cluster-enabled yes"
         "appendonly yes"
-        "maxheap 150mb"
     }
     run_tests
     cleanup

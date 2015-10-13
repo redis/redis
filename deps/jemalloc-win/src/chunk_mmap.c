@@ -10,7 +10,7 @@ static void	*chunk_alloc_mmap_slow(size_t size, size_t alignment,
     bool *zero);
 
 extern LPVOID AllocHeapBlockMap(LPVOID addr, size_t size, BOOL zero);
-extern int FreeHeapBlockMap(LPVOID block, size_t size);
+extern int FreeHeapBlockMap(LPVOID addr, size_t size);
 extern bool PurgeHeapBlockMap(LPVOID addr, size_t length);
 
 /******************************************************************************/

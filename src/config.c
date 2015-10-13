@@ -583,8 +583,6 @@ void loadServerConfigFromString(char *config) {
                 if (err) goto loaderr;
             }
 #ifdef _WIN32
-        } else if (!strcasecmp(argv[0],"maxheap")) {
-            // ignore. This is taken care of in the qfork code.
         } else if (!strcasecmp(argv[0], "service-name")) {
 	        // ignore. This is taken care of in the win32_service code.
         } else if (!strcasecmp(argv[0], "persistence-available")) {

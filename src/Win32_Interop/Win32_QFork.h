@@ -82,7 +82,7 @@ BOOL AbortForkOperation();
 
 // For DLMalloc use only
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
-BOOL FreeHeapBlock(LPVOID block, size_t size);
+BOOL FreeHeapBlock(LPVOID addr, size_t size);
 
 // for no persistence optimization/feature
 extern void*(*g_malloc)(size_t);
