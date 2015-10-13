@@ -1579,6 +1579,9 @@ extern char **environ;
 /* Restart the server, executing the same executable that started this
  * instance, with the same arguments and configuration file.
  *
+ * The function is designed to directly call execve() so that the new
+ * server instance will retain the PID of the previous one.
+ *
  * The list of flags, that may be bitwise ORed together, alter the
  * behavior of this function:
  *
