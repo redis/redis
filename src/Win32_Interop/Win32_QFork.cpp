@@ -214,6 +214,7 @@ QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
 int g_ChildExitCode = 0; // For child process
+BOOL g_isForkedProcess;
 
 bool ReportSpecialSystemErrors(int error) {
     switch (error)
@@ -453,15 +454,15 @@ BOOL QForkParentInit() {
 }
 
 StartupStatus QForkStartup() {
-    bool foundChildFlag = false;
     HANDLE QForkControlMemoryMapHandle = NULL;
     DWORD PPID = 0;
 
+    g_isForkedProcess = FALSE;
     // TODO: consider moving the argument parsing into ParseCommandLineArguments()
 
     // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent pid]
     if (g_argMap.find(cQFork) != g_argMap.end()) {
-        foundChildFlag = true;
+        g_isForkedProcess = TRUE;
         char* endPtr;
         QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), &endPtr, 10);
         char* end = NULL;
@@ -477,7 +478,7 @@ StartupStatus QForkStartup() {
     }
     Globals::pageSize = perfinfo.PageSize;
 
-    if (foundChildFlag) {
+    if (g_isForkedProcess) {
         return QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
     } else {
         return QForkParentInit() ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
@@ -880,6 +881,10 @@ HANDLE CreateBlockMap(int blockIndex) {
 
 /* NOTE: The allocateHigh parameter is ignored in this implementation */
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
+    if (g_isForkedProcess) {
+        return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    }
+
     if (size % cAllocationGranularity != 0) {
         errno = EINVAL;
         return NULL;
@@ -940,6 +945,10 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 }
 
 BOOL FreeHeapBlock(LPVOID addr, size_t size) {
+    if (g_isForkedProcess) {
+        return VirtualFree(addr, 0, MEM_RELEASE);
+    }
+
     if (size == 0) {
         return FALSE;
     }
