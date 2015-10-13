@@ -1419,6 +1419,7 @@ void initServerConfig(void) {
 
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.configfile = NULL;
+    server.executable = NULL;
     server.hz = CONFIG_DEFAULT_HZ;
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
@@ -1571,6 +1572,50 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+}
+
+extern char **environ;
+
+/* Restart the server, executing the same executable that started this
+ * instance, with the same arguments and configuration file.
+ *
+ * The list of flags, that may be bitwise ORed together, alter the
+ * behavior of this function:
+ *
+ * RESTART_SERVER_NONE              No flags.
+ * RESTART_SERVER_GRACEFULLY        Do a proper shutdown before restarting.
+ * RESTART_SERVER_CONFIG_REWRITE    Rewrite the config file before restarting.
+ *
+ * On success the function does not return, because the process turns into
+ * a different process. On error C_ERR is returned. */
+int restartServer(int flags, mstime_t delay) {
+    int j;
+
+    /* Check if we still have accesses to the executable that started this
+     * server instance. */
+    if (access(server.executable,X_OK) == -1) return C_ERR;
+
+    /* Config rewriting. */
+    if (flags & RESTART_SERVER_CONFIG_REWRITE &&
+        server.configfile &&
+        rewriteConfig(server.configfile) == -1) return C_ERR;
+
+    /* Perform a proper shutdown. */
+    if (flags & RESTART_SERVER_GRACEFULLY &&
+        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK) return C_ERR;
+
+    /* Close all file descriptors, with the exception of stdin, stdout, strerr
+     * which are useful if we restart a Redis server which is not daemonized. */
+    for (j = 3; j < (int)server.maxclients + 1024; j++) close(j);
+
+    /* Execute the server with the original command line. */
+    if (delay) usleep(delay*1000);
+    execve(server.executable,server.exec_argv,environ);
+
+    /* If an error occurred here, there is nothing we can do, but exit. */
+    _exit(1);
+
+    return C_ERR; /* Never reached. */
 }
 
 /* This function will try to raise the max number of open files accordingly to
@@ -2708,6 +2753,7 @@ sds genRedisInfoString(char *section) {
             "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
             "lru_clock:%ld\r\n"
+            "executable:%s\r\n"
             "config_file:%s\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
@@ -2729,6 +2775,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)(uptime/(3600*24)),
             server.hz,
             (unsigned long) server.lruclock,
+            server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
     }
 
@@ -3750,6 +3797,7 @@ int redisIsSupervised(int mode) {
 
 int main(int argc, char **argv) {
     struct timeval tv;
+    int j;
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -3790,6 +3838,13 @@ int main(int argc, char **argv) {
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
 
+    /* Store the executable path and arguments in a safe place in order
+     * to be able to restart the server later. */
+    server.executable = getAbsolutePath(argv[0]);
+    server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
+    server.exec_argv[argc] = NULL;
+    for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
+
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
@@ -3805,7 +3860,7 @@ int main(int argc, char **argv) {
         exit(redis_check_rdb_main(argv,argc));
 
     if (argc >= 2) {
-        int j = 1; /* First option to parse in argv[] */
+        j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
         char *configfile = NULL;
 
@@ -3826,8 +3881,16 @@ int main(int argc, char **argv) {
         }
 
         /* First argument is the config file name? */
-        if (argv[j][0] != '-' || argv[j][1] != '-')
-            configfile = argv[j++];
+        if (argv[j][0] != '-' || argv[j][1] != '-') {
+            configfile = argv[j];
+            server.configfile = getAbsolutePath(configfile);
+            /* Replace the config file in server.exec_argv with
+             * its absoulte path. */
+            zfree(server.exec_argv[j]);
+            server.exec_argv[j] = zstrdup(server.configfile);
+            j++;
+        }
+
         /* All the other options are parsed and conceptually appended to the
          * configuration file. For instance --port 6380 will generate the
          * string "port 6380\n" to be parsed after the actual file name
@@ -3857,7 +3920,6 @@ int main(int argc, char **argv) {
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
-        if (configfile) server.configfile = getAbsolutePath(configfile);
         resetServerSaveParams();
         loadServerConfig(configfile,options);
         sdsfree(options);

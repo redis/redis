@@ -688,6 +688,8 @@ struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
     char *configfile;           /* Absolute config file path, or NULL */
+    char *executable;           /* Absolute executable file path. */
+    char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table */
@@ -1305,6 +1307,11 @@ void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
 const char *maxmemoryToString(void);
+
+#define RESTART_SERVER_NONE 0
+#define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
+#define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
+int restartServer(int flags, mstime_t delay);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
