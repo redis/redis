@@ -1149,7 +1149,8 @@ class RedisTrib
     def import_cluster_cmd(argv,opt)
         source_addr = opt['from']
         xputs ">>> Importing data from #{source_addr} to cluster #{argv[1]}"
-
+        use_copy = opt['copy']
+        use_replace = opt['replace']
         # Check the existing cluster.
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -1184,7 +1185,10 @@ class RedisTrib
                 print "Migrating #{k} to #{target}: "
                 STDOUT.flush
                 begin
-                    source.client.call(["migrate",target.info[:host],target.info[:port],k,0,15000])
+                    cmd = ["migrate",target.info[:host],target.info[:port],k,0,15000]
+                    cmd << :copy if use_copy
+                    cmd << :replace if use_replace
+                    source.client.call(cmd)
                 rescue => e
                     puts e
                 else
@@ -1344,7 +1348,7 @@ COMMANDS={
 ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
-    "import" => {"from" => :required},
+    "import" => {"from" => :required, "copy" => false, "replace" => false},
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
 }
 
