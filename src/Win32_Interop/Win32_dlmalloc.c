@@ -542,6 +542,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
   improvement at the expense of carrying around more memory.
 */
 
+#ifdef USE_DLMALLOC
 #include "win32_types.h"
 
 /* Version identifier to allow people to support multiple versions */
@@ -1693,7 +1694,9 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 
 #else /* WIN32 */
 
+#ifdef USE_DLMALLOC
 #define USE_COW
+#endif
 
 /* Win32 MMAP via VirtualAlloc */
 static FORCEINLINE void* win32mmap(size_t size) {
@@ -6028,6 +6031,8 @@ int SetDLMallocGlobalState(size_t bufferSize, LPVOID buffer) {
         return 0;
     }
 }
+
+#endif /* USE_DLMALLOC */
 
 /* -------------------- Alternative MORECORE functions ------------------- */
 

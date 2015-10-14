@@ -41,6 +41,7 @@
   * If MSPACES is defined, declarations for mspace versions are included.
 */
 
+#ifdef USE_DLMALLOC
 #ifndef MALLOC_280_H
 #define MALLOC_280_H
 
@@ -651,3 +652,4 @@ void mspace_inspect_all(mspace msp,
 #endif
 
 #endif /* MALLOC_280_H */
+#endif /* USE_DLMALLOC */

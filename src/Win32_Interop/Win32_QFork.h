@@ -80,16 +80,19 @@ OperationStatus GetForkOperationStatus();
 BOOL EndForkOperation(int * pExitCode); 
 BOOL AbortForkOperation();
 
-// For DLMalloc use only
-LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
+#ifdef USE_DLMALLOC
+  LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
+  // for no persistence optimization/feature when using dlmalloc
+  extern void*(*g_malloc)(size_t);
+  extern void*(*g_calloc)(size_t, size_t);
+  extern void*(*g_realloc)(void*, size_t);
+  extern void(*g_free)(void*);
+  extern size_t(*g_msize)(void*);
+#elif USE_JEMALLOC
+  LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero);
+  BOOL PurgePages(LPVOID addr, size_t length);
+#endif
 BOOL FreeHeapBlock(LPVOID addr, size_t size);
-
-// for no persistence optimization/feature
-extern void*(*g_malloc)(size_t);
-extern void*(*g_calloc)(size_t, size_t);
-extern void*(*g_realloc)(void*, size_t);
-extern void(*g_free)(void*);
-extern size_t(*g_msize)(void*);
 
 #ifndef NO_QFORKIMPL
 #ifdef QFORK_MAIN_IMPL

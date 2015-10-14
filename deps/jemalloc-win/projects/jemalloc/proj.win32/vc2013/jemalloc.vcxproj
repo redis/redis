@@ -153,6 +153,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4267;4244;4090;4334</DisableSpecificWarnings>
     </ClCompile>
     <Lib>
       <AdditionalLibraryDirectories>..\..\..\..\lib\$(MsvcPlatformToolset)\$(MsvcPlatformShortName);..\..\..\..\lib;..\..\..\..\deps;$(SolutionDir)lib\$(MsvcPlatformToolset)\$(MsvcPlatformShortName);$(SolutionDir)lib;$(SolutionDir)deps;.\lib\$(MsvcPlatformToolset)\$(MsvcPlatformShortName);.\lib;.\deps;$(ProjectDir)lib\$(MsvcPlatformToolset)\$(MsvcPlatformShortName);$(ProjectDir)lib;$(ProjectDir)deps;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -171,6 +172,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4267;4244;4090;4334</DisableSpecificWarnings>
     </ClCompile>
     <Lib>
       <AdditionalLibraryDirectories>

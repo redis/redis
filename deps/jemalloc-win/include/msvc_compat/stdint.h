@@ -49,6 +49,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#  include "../../src/Win32_Interop/win32_types.h"
 #  include <wchar.h>
 #ifdef __cplusplus
 }

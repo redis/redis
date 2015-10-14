@@ -159,8 +159,8 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_STATIC;USE_JEMALLOC;_OFF_T_DEFINED;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);LACKS_STDLIB_H;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src;$(ProjectDir)..\..\deps\jemalloc-win\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -179,8 +179,8 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_STATIC;USE_JEMALLOC;_OFF_T_DEFINED;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);LACKS_STDLIB_H;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src;$(ProjectDir)..\..\deps\jemalloc-win\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -204,8 +204,8 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_STATIC;USE_JEMALLOC;_OFF_T_DEFINED;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);LACKS_STDLIB_H;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src;$(ProjectDir)..\..\deps\jemalloc-win\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <WholeProgramOptimization>true</WholeProgramOptimization>
     </ClCompile>
@@ -228,8 +228,8 @@ link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_OFF_T_DEFINED;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_STATIC;USE_JEMALLOC;_OFF_T_DEFINED;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);LACKS_STDLIB_H;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src;$(ProjectDir)..\..\deps\jemalloc-win\include</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
