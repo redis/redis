@@ -979,7 +979,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             o = createSetObject();
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
-            if (len > DICT_HT_INITIAL_SIZE)
+            if (len > server.dict_ht_initial_size)
                 dictExpand(o->ptr,len);
         } else {
             o = createIntsetObject();

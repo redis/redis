@@ -348,6 +348,11 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"dict-ht-initial-size") && argc == 2) {
+            server.dict_ht_initial_size = atoi(argv[1]);
+            if (server.dict_ht_initial_size < DICT_HT_INITIAL_SIZE) {
+                server.dict_ht_initial_size = DICT_HT_INITIAL_SIZE;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
             server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -1102,6 +1107,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("repl-timeout",server.repl_timeout);
     config_get_numerical_field("repl-backlog-size",server.repl_backlog_size);
     config_get_numerical_field("repl-backlog-ttl",server.repl_backlog_time_limit);
+    config_get_numerical_field("dict-ht-initial-size",server.dict_ht_initial_size);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);

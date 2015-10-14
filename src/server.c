@@ -672,6 +672,10 @@ dictType replScriptCacheDictType = {
 int htNeedsResize(dict *dict) {
     long long size, used;
 
+    if (server.dict_ht_initial_size != DICT_HT_INITIAL_SIZE) {
+        return 0;
+    }
+
     size = dictSlots(dict);
     used = dictSize(dict);
     return (size && used && size > DICT_HT_INITIAL_SIZE &&
@@ -1593,6 +1597,8 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+
+    server.dict_ht_initial_size = DICT_HT_INITIAL_SIZE;
 }
 
 /* This function will try to raise the max number of open files accordingly to
@@ -1846,6 +1852,9 @@ void initServer(void) {
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
+        if (server.dict_ht_initial_size != DICT_HT_INITIAL_SIZE) {
+            dictExpand(server.db[j].dict, server.dict_ht_initial_size);
+        }
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
