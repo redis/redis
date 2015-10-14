@@ -1,5 +1,19 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.300-beta1 ] Release date: Oct 14 2015
+
+ - [Change] Switched from dlmalloc to jemalloc.
+ - [Change] Child process can allocate memory from the system heap.
+ - [Build] Removed the proprocessor defs: _WIN32IOCP, WIN32_IOCP.
+ - [Change] Heap allocation on demand.
+ - [Change] Removed the memory mapped file.
+ - [Cleanup] Comments and code formatting/cleanup/consistency.
+ - [Code cleanup] Minor code changes preparatory for jemalloc support.
+ - [Change] Sentinel mode doesn't require a memory mapped file.
+ - [Cleanup] Code refactoring, fixed typos, formatting.
+ - [New] Added jemalloc-win project.
+ - [Cleanup] Code refactoring (some from azure porting).
+ - [Fix] Redis crashes at startup.
 
 --[ Redis on Windows 3.0.300-alpha3 ] Release date: Sep 02 2015
 
