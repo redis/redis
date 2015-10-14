@@ -1151,6 +1151,7 @@ class RedisTrib
         xputs ">>> Importing data from #{source_addr} to cluster #{argv[1]}"
         use_copy = opt['copy']
         use_replace = opt['replace']
+        
         # Check the existing cluster.
         load_cluster_info_from_node(argv[0])
         check_cluster
