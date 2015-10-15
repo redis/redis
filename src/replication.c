@@ -41,6 +41,7 @@ void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
 void replicationSendAck(void);
 void putSlaveOnline(redisClient *slave);
+int serverInHandshakeState(int repl_state);
 
 /* --------------------------- Utility functions ---------------------------- */
 
@@ -1190,6 +1191,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
             return sdscatprintf(sdsempty(),"-Reading from master: %s",
                     strerror(errno));
         }
+        server.repl_transfer_lastio = server.unixtime;
         return sdsnew(buf);
     }
     return NULL;
@@ -1619,7 +1621,7 @@ void undoConnectWithMaster(void) {
     int fd = server.repl_transfer_s;
 
     redisAssert(server.repl_state == REDIS_REPL_CONNECTING ||
-                server.repl_state == REDIS_REPL_RECEIVE_PONG);
+                serverInHandshakeState(server.repl_state));
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
     close(fd);
     server.repl_transfer_s = -1;
@@ -1638,7 +1640,7 @@ int cancelReplicationHandshake(void) {
     if (server.repl_state == REDIS_REPL_TRANSFER) {
         replicationAbortSyncTransfer();
     } else if (server.repl_state == REDIS_REPL_CONNECTING ||
-             server.repl_state == REDIS_REPL_RECEIVE_PONG)
+             serverInHandshakeState(server.repl_state))
     {
         undoConnectWithMaster();
     } else {
@@ -1808,6 +1810,20 @@ void roleCommand(redisClient *c) {
         addReplyBulkCString(c,slavestate);
         addReplyLongLong(c,server.master ? server.master->reploff : -1);
     }
+}
+
+/* Returns 1 if the given replication state is a handshake state,
+ * 0 otherwise. */
+int serverInHandshakeState(int repl_state) {
+    return repl_state == REDIS_REPL_RECEIVE_PONG ||
+           repl_state == REDIS_REPL_SEND_AUTH ||
+           repl_state == REDIS_REPL_RECEIVE_AUTH ||
+           repl_state == REDIS_REPL_SEND_PORT ||
+           repl_state == REDIS_REPL_RECEIVE_PORT ||
+           repl_state == REDIS_REPL_SEND_CAPA ||
+           repl_state == REDIS_REPL_RECEIVE_CAPA ||
+           repl_state == REDIS_REPL_SEND_PSYNC ||
+           repl_state == REDIS_REPL_RECEIVE_PSYNC;
 }
 
 /* Send a REPLCONF ACK command to the master to inform it about the current
@@ -2045,7 +2061,7 @@ void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
         (server.repl_state == REDIS_REPL_CONNECTING ||
-         server.repl_state == REDIS_REPL_RECEIVE_PONG) &&
+         serverInHandshakeState(server.repl_state)) &&
         (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"Timeout connecting to the MASTER...");
