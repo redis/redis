@@ -14,6 +14,25 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.23 ] Release date: 15 Oct 2015
+
+Upgrade urgency: MODERATE, the most important thing is a fix in the replication
+                 code that may make the slave hanging forever if the master
+                 remains with an open socket even if it is no longer able to
+                 reply.
+
+* [FIX] MOVE now moves the TTL as well. A bug lasting forever... finally
+        fixed thanks to Andy Grunwald that reported it.
+        (reported by Andy Grunwald, fixed by Salvatore Sanfilippo)
+* [FIX] Fix a false positive in HSTRLEN test.
+* [FIX] Fix a bug in redis-cli --pipe mode that was not able to read back
+        replies from the server incrementally. Now a mass import will use
+        a lot less memory, and you can use --pipe to do incremental streaming.
+        (reported by Twitter user @fsaintjacques, fixed by Salvatore
+        Sanfilippo)
+* [FIX] Slave detection of master timeout. (fixed by Kevin McGehee, refactoring
+        and regression test by Salvatore Sanfilippo)
+
 --[ Redis 2.8.22 ] Release date: 8 Sep 2015
 
 Upgrade urgency: HIGH for Redis and Sentinel. However note that in order to
