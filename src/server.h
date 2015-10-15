@@ -288,6 +288,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_NONE 0 /* No active replication */
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
 #define REPL_STATE_CONNECTING 2 /* Connecting to master */
+/* --- Handshake states, must be ordered --- */
 #define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
 #define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
@@ -297,6 +298,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_RECEIVE_CAPA 9 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_PSYNC 10 /* Send PSYNC */
 #define REPL_STATE_RECEIVE_PSYNC 11 /* Wait for PSYNC reply */
+/* --- End of handshake states --- */
 #define REPL_STATE_TRANSFER 12 /* Receiving .rdb from master */
 #define REPL_STATE_CONNECTED 13 /* Connected to master */
 
