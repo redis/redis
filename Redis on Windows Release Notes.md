@@ -1,6 +1,17 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
 
+--[ Redis on Windows 2.8.2104 ] Release date: Oct 15 2015
+
+NOTE: When runnig as a sentinel, redis-server.exe is not creating any more
+      the RedisQFork_*.dat file.
+
+ - [PR] Updated list of sentinel commands: announce-ip and announce-port. (by @rpannell)
+ - [PR] Updated x86 debug and release configurations for all projects. (by @laurencee)
+ - [PR] Changed Nuget package structure to support VS 2015 (by @Cybermaxs)
+ - [Build] Fixed a build break (regression).
+ - [Fix] Sentinel mode doesn't need to create a memory mapped file.
+
 --[ Redis on Windows 2.8.2103 ] Release date: Sep 08 2015
 
 NOTE: Two new features added to the MSI installer:
