@@ -853,10 +853,14 @@ int FDAPI_listen(int rfd, int backlog) {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
         if (socket != INVALID_SOCKET) {
             EnableFastLoopback(socket);
-            return f_listen(socket, backlog);
+            int result = f_listen(socket, backlog);
+            if (result != 0){
+                errno = f_WSAGetLastError();
+            }
+            return result;
         } else {
             errno = EBADF;
-            return 0;
+            return -1;
         }
     } CATCH_AND_REPORT();
 
