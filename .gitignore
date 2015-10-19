@@ -43,4 +43,5 @@ msvs/RedisServer.opensdf
 !msvs/RedisWaInst/bin/RedisPkgBin/*
 msvs/RedisWAInst/src/RedisInstBin/
 msvs/RedisWAInst/src/RedisInstWA/app.config
+msvs/jemalloc
 
