@@ -44,6 +44,8 @@
     <Compile Include="CustomActions.wxs" />
     <Compile Include="Dialogs\CustomInstallDir.wxs" />
     <Compile Include="Dialogs\FirewallDialog.wxs" />
+    <Compile Include="Dialogs\MaxMemoryDialog.wxs" />
+    <Compile Include="Dialogs\CustomInstallDirDlg.wxs" />
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>

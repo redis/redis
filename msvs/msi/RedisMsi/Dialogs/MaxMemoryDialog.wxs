@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <UI>
+            <Dialog Id="MaxMemoryDlg" Width="370" Height="270" Title="[ProductName] Setup">
+                <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
+                <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="Select whether to use a memory limit or not." />
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Memory Limit" />
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+                <Control Id="MaxMemoryCheckbox" Type="CheckBox" Property="USE_MEMORY_LIMITS" CheckBoxValue="1" Integer="yes" Text="Set the Max Memory limit" Height="10" Width="300" X="20" Y="60" />
+
+                <Control Id="MaxMemoryLabel1" Type="Text" X="20" Y="102" Width="50" Height="17" NoPrefix="yes" Text="Max Memory:">
+                    <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
+                    <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
+                </Control>
+                <Control Id="MaxMemoryEdit" Type="Edit" X="75" Y="100" Width="40" Height="17" Property="MAXMEMORY" >
+                    <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
+                    <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
+                </Control>
+                <Control Id="MaxMemoryLabel2" Type="Text" X="120" Y="102" Width="20" Height="17" NoPrefix="yes" Text="MB">
+                    <Condition Action="enable" >USE_MEMORY_LIMITS = 1</Condition>
+                    <Condition Action="disable"><![CDATA[USE_MEMORY_LIMITS <>1]]></Condition>
+                </Control>
+
+            </Dialog>
+        </UI>
+    </Fragment>
+</Wix>
