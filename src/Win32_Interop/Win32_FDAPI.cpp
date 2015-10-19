@@ -34,6 +34,7 @@
 #include "Win32_RedisLog.h"
 #include "Win32_Common.h"
 #include "Win32_Assert.h"
+
 using namespace std;
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}
@@ -193,13 +194,9 @@ BOOL FDAPI_AcceptEx(int listenRFD, int acceptRFD, PVOID lpOutputBuffer,
 const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
 #endif
 
-#ifndef _WIN32_WINNT_WIN8
-#define _WIN32_WINNT_WIN8 0x0602
-#endif
-
 void EnableFastLoopback(SOCKET socket) {
     // if Win8+, use fast path option on loopback 
-    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN8), LOBYTE(_WIN32_WINNT_WIN8), 0)) {
+    if (WindowsVersion::getInstance().IsAtLeast_6_2()) {
         int enabled = 1;
         DWORD result_byte_count = -1;
         int result = f_WSAIoctl(socket,
@@ -502,7 +499,7 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
             pollCopy[n].revents = fds[n].revents;
         }
 
-        if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+        if (WindowsVersion::getInstance().IsAtLeast_6_0()) {
             static auto f_WSAPoll = dllfunctor_stdcall<int, WSAPOLLFD*, ULONG, INT>("ws2_32.dll", "WSAPoll");
 
             // WSAPoll will wait forever if timeout = -1 and the endpoint is not reachable
@@ -1098,7 +1095,7 @@ int redis_getaddrinfo_impl(const char *node, const char *service, const struct a
 }
 
 const char* redis_inet_ntop_impl(int af, const void *src, char *dst, size_t size) {
-    if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN6), LOBYTE(_WIN32_WINNT_WIN6), 0)) {
+    if (WindowsVersion::getInstance().IsAtLeast_6_0()) {
         static auto f_inet_ntop = dllfunctor_stdcall<const char*, int, const void*, char*, size_t>("ws2_32.dll", "inet_ntop");
         return f_inet_ntop(af, src, dst, size);
     } else {

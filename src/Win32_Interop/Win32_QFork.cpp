@@ -1070,8 +1070,8 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize, bool useVirtu
     }
 
     // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
-    if (useVirtualProtect && IsWindowsVersionAtLeast(6, 2, 0)) {
-        // restores all page protections on the view and culls the COW pages.
+    if (useVirtualProtect && WindowsVersion::getInstance().IsAtLeast_6_2()) {
+        // Restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
         if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
             throw std::system_error(GetLastError(), std::system_category(), "RejoinCOWPages: COW cull failed");
