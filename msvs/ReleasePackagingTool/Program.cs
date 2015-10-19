@@ -29,7 +29,7 @@ namespace ReleasePackagingTool
                 string version;
                 version = p.GetRedisVersion();
                 p.UpdateNuSpecFiles(version);
-                p.BuildReleasePackage(version);
+                p.BuildReleasePackage(version, "x64");
                 
                 Console.Write("Release packaging complete.");
                 Environment.ExitCode = 0;
@@ -76,29 +76,29 @@ namespace ReleasePackagingTool
             }
         }
 
-        void UpdateNuSpecFiles(string redisVersion)
+        void UpdateNuSpecFiles(string version)
         {
             string chocTemplate = Path.Combine(rootPath, @"msvs\setups\chocolatey\template\redis.nuspec.template");
             string chocDocument = Path.Combine(rootPath, @"msvs\setups\chocolatey\redis.nuspec");
-            CreateTextFileFromTemplate(chocTemplate, chocDocument, versionReplacementText, redisVersion);
+            CreateTextFileFromTemplate(chocTemplate, chocDocument, versionReplacementText, version);
 
             string nugetTemplate = Path.Combine(rootPath, @"msvs\setups\nuget\template\redis.nuspec.template");
             string nugetDocument = Path.Combine(rootPath, @"msvs\setups\nuget\redis.nuspec");
-            CreateTextFileFromTemplate(nugetTemplate, nugetDocument, versionReplacementText, redisVersion);
+            CreateTextFileFromTemplate(nugetTemplate, nugetDocument, versionReplacementText, version);
         }
 
-        void BuildReleasePackage(string version)
+        void BuildReleasePackage(string version, string platform)
         {
-            string releasePackageDir = Path.Combine(rootPath, @"bin\Release\");
+            string releasePackageDir = Path.Combine(rootPath, @"msvs\BuildRelease\Redis-" + version + @"\");
             if (Directory.Exists(releasePackageDir) == false)
             {
                 Directory.CreateDirectory(releasePackageDir);
             }
 
-            string releasePackagePath = Path.Combine(rootPath, @"bin\Release\Redis-x64-" + version + ".zip");
+            string releasePackagePath = Path.Combine(rootPath, releasePackageDir + "Redis-" + platform + "-" + version + ".zip");
             ForceFileErase(releasePackagePath);
 
-            string executablesRoot = Path.Combine(rootPath, @"msvs\x64\Release");
+            string executablesRoot = Path.Combine(rootPath, @"msvs\" + platform + @"\Release");
             List<string> executableNames = new List<string>()
             {
                 "redis-benchmark.exe",

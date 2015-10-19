@@ -35,7 +35,7 @@ deps/lua/src/liblua.a
 *.exe
 *.sdf
 *.suo
-msvs/ReleasePackagingT
+msvs/ReleasePackagingTool
 msvs/ipch
 msvs/RedisServer.opensdf
 !msvs/RedisWaInst/bin/*
@@ -44,4 +44,6 @@ msvs/RedisServer.opensdf
 msvs/RedisWAInst/src/RedisInstBin/
 msvs/RedisWAInst/src/RedisInstWA/app.config
 msvs/jemalloc
+msvs/BuildRelease
+msvs/Documentation
 
