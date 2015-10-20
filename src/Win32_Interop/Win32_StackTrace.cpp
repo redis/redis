@@ -188,11 +188,12 @@ LONG WINAPI UnhandledExceptiontHandler(PEXCEPTION_POINTERS info) {
         if (headerLogged) {
             BugReportEnd();
         }
-        processingException = false;
-    }
 
-    if (defaultTopLevelExceptionHandler != NULL) {
-        defaultTopLevelExceptionHandler(info);
+        if (defaultTopLevelExceptionHandler != NULL) {
+            defaultTopLevelExceptionHandler(info);
+        }
+
+        processingException = false;
     }
 
     return EXCEPTION_CONTINUE_SEARCH;
