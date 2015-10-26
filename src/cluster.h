@@ -116,9 +116,9 @@ typedef struct clusterState {
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
     int failover_auth_rank;     /* This slave rank for current auth request. */
-    uint64_t failover_auth_epoch; /* Epoch of the current election. */
     int cant_failover_reason;   /* Why a slave is currently not able to
                                    failover. See the CANT_FAILOVER_* macros. */
+    uint64_t failover_auth_epoch; /* Epoch of the current election. */
     /* Manual failover state in common. */
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
@@ -127,11 +127,11 @@ typedef struct clusterState {
     /* Manual failover state of slave. */
     long long mf_master_offset; /* Master offset the slave needs to start MF
                                    or zero if stil not received. */
-    int mf_can_start;           /* If non-zero signal that the manual failover
-                                   can start requesting masters vote. */
     /* The followign fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    int mf_can_start;           /* If non-zero signal that the manual failover
+                                   can start requesting masters vote. */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
     long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
 } clusterState;
