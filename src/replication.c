@@ -359,8 +359,8 @@ PORT_LONGLONG addReplyReplicationBacklog(redisClient *c, PORT_LONGLONG offset) {
  * from the slave. The returned value is only valid immediately after
  * the BGSAVE process started and before executing any other command
  * from clients. */
-long long getPsyncInitialOffset(void) {
-    long long psync_offset = server.master_repl_offset;
+PORT_LONGLONG getPsyncInitialOffset(void) {
+    PORT_LONGLONG psync_offset = server.master_repl_offset;
     /* Add 1 to psync_offset if it the replication backlog does not exists
      * as when it will be created later we'll increment the offset by one. */
     if (server.repl_backlog == NULL) psync_offset++;
@@ -383,7 +383,7 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(redisClient *slave, long long offset) {
+int replicationSetupSlaveForFullResync(redisClient *slave, PORT_LONGLONG offset) {
     char buf[128];
     int buflen;
 
@@ -802,14 +802,7 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
         memset(slave->replFileCopy, 0, MAX_PATH);
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el, slave->fd, AE_WRITABLE);
-        slave->replstate = REDIS_REPL_ONLINE;
-        slave->repl_ack_time = server.unixtime;
-        if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
-            sendReplyToClient, slave) == AE_ERR) {
-            freeClient(slave);
-            return;
-        }
-        redisLog(REDIS_NOTICE, "Synchronization with slave succeeded");
+        putSlaveOnline(slave);
     }
 }
 
@@ -1428,6 +1421,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             aeDeleteFileEvent(server.el,fd,AE_READABLE);
             return PSYNC_WRITE_ERROR;
         }
+        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1437,6 +1431,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
         sdsfree(reply);
+        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1538,6 +1533,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
          * that will take care about this. */
         err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PING",NULL);
         if (err) goto write_error;
+        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
         return;
     }
 
@@ -1561,6 +1557,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
+        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
         sdsfree(err);
         server.repl_state = REDIS_REPL_SEND_AUTH;
     }
@@ -2325,7 +2322,7 @@ PORT_LONGLONG replicationGetSlaveOffset(void) {
 
 /* Replication cron function, called 1 time per second. */
 void replicationCron(void) {
-    static long long replication_cron_loops = 0;
+    static PORT_LONGLONG replication_cron_loops = 0;
 
     /* Non blocking connection timeout? */
     if (server.masterhost &&
@@ -2400,8 +2397,8 @@ void replicationCron(void) {
              server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
         {
 #ifdef _WIN32
-                  if (WSIOCP_SocketSend(slave->fd, "\n", 1, server.el,
-                                        NULL, NULL, NULL) == -1) {
+            if (WSIOCP_SocketSend(slave->fd, "\n", 1, server.el,
+                                  NULL, NULL, NULL) == -1) {
 #else
             if (write(slave->fd, "\n", 1) == -1) {
 #endif
