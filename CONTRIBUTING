@@ -12,15 +12,17 @@ each source file that you contribute.
 
   PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
   bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support in the Redis Google Group.
+  all the support Reddit sub:
 
-  Redis Google Group address:
-  
-      https://groups.google.com/forum/?fromgroups#!forum/redis-db
+      http://reddit.com/r/redis
+
+  There is also an active community of Redis users at Stack Overflow:
+
+      http://stackoverflow.com/questions/tagged/redis
 
 # How to provide a patch for a new feature
 
-1. Drop a message to the Redis Google Group with a proposal of semantics/API.
+1. If it is a major feature or a semantical change, please post it as a new submission in r/redis on Reddit at http://reddit.com/r/redis. Try to be passionate about why the feature is needed, make users upvote your proposal to gain traction and so forth. Read feedbacks about the community. But in this first step **please don't write code yet**.
 
 2. If in step 1 you get an acknowledge from the project leaders, use the
    following procedure to submit a patch:
@@ -30,5 +32,7 @@ each source file that you contribute.
     c. Push to your branch (git push origin my_branch)
     d. Initiate a pull request on github ( http://help.github.com/send-pull-requests/ )
     e. Done :)
+
+For minor fixes just open a pull request on Github.
 
 Thanks!
