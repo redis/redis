@@ -1,3 +1,56 @@
+proc log_file_matches {log pattern} {
+    set fp [open $log r]
+    set content [read $fp]
+    close $fp
+    string match $pattern $content
+}
+
+start_server {tags {"repl"}} {
+    set slave [srv 0 client]
+    set slave_host [srv 0 host]
+    set slave_port [srv 0 port]
+    set slave_log [srv 0 stdout]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        # Configure the master in order to hang waiting for the BGSAVE
+        # operation, so that the slave remains in the handshake state.
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 1000
+
+        # Use a short replication timeout on the slave, so that if there
+        # are no bugs the timeout is triggered in a reasonable amount
+        # of time.
+        $slave config set repl-timeout 5
+
+        # Start the replication process...
+        $slave slaveof $master_host $master_port
+
+        test {Slave enters handshake} {
+            wait_for_condition 50 1000 {
+                [string match *handshake* [$slave role]]
+            } else {
+                fail "Slave does not enter handshake state"
+            }
+        }
+
+        # But make the master unable to send
+        # the periodic newlines to refresh the connection. The slave
+        # should detect the timeout.
+        $master debug sleep 10
+
+        test {Slave is able to detect timeout during handshake} {
+            wait_for_condition 50 1000 {
+                [log_file_matches $slave_log "*Timeout connecting to the MASTER*"]
+            } else {
+                fail "Slave is not able to detect timeout"
+            }
+        }
+    }
+}
+
 start_server {tags {"repl"}} {
     set A [srv 0 client]
     set A_host [srv 0 host]

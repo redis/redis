@@ -1440,6 +1440,7 @@ static void getRDB(void) {
  * Bulk import (pipe) mode
  *--------------------------------------------------------------------------- */
 
+#define PIPEMODE_WRITE_LOOP_MAX_BYTES (128*1024)
 static void pipeMode(void) {
     int fd = (int)context->fd;
     PORT_LONGLONG errors = 0, replies = 0, obuf_len = 0, obuf_pos = 0;
@@ -1521,6 +1522,8 @@ static void pipeMode(void) {
 
         /* Handle the writable state: we can send protocol to the server. */
         if (mask & AE_WRITABLE) {
+            ssize_t loop_nwritten = 0;
+
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
@@ -1537,6 +1540,7 @@ static void pipeMode(void) {
                     }
                     obuf_len -= nwritten;
                     obuf_pos += nwritten;
+                    loop_nwritten += nwritten;
                     if (obuf_len != 0) break; /* Can't accept more data. */
                 }
                 /* If buffer is empty, load from stdin. */
@@ -1572,7 +1576,8 @@ static void pipeMode(void) {
                         obuf_pos = 0;
                     }
                 }
-                if (obuf_len == 0 && eof) break;
+                if ((obuf_len == 0 && eof) ||
+                    loop_nwritten > PIPEMODE_WRITE_LOOP_MAX_BYTES) break;
             }
         }
 
@@ -1630,7 +1635,7 @@ static redisReply *sendScan(PORT_ULONGLONG *it) {
     assert(reply->element[1]->type == REDIS_REPLY_ARRAY);
 
     /* Update iterator */
-    *it = atoi(reply->element[0]->str);
+    *it = strtoull(reply->element[0]->str, NULL, 10);
 
     return reply;
 }

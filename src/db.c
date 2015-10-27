@@ -722,7 +722,7 @@ void moveCommand(redisClient *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    PORT_LONGLONG dbid;
+    PORT_LONGLONG dbid, expire;
 
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
@@ -756,6 +756,7 @@ void moveCommand(redisClient *c) {
         addReply(c,shared.czero);
         return;
     }
+    expire = getExpire(c->db,c->argv[1]);
 
     /* Return zero if the key already exists in the target DB */
     if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
@@ -763,6 +764,7 @@ void moveCommand(redisClient *c) {
         return;
     }
     dbAdd(dst,c->argv[1],o);
+    if (expire != -1) setExpire(dst,c->argv[1],expire);
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
