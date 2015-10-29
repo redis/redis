@@ -747,7 +747,7 @@ struct redisServer {
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand;
+                        *rpopCommand, *sremCommand, *execCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -952,6 +952,8 @@ struct redisServer {
                              execution of the current script. */
     int lua_random_dirty; /* True if a random command was called during the
                              execution of the current script. */
+    int lua_replicate_commands; /* True if we are doing single commands repl. */
+    int lua_multi_emitted;/* True if we already proagated MULTI. */
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
@@ -1173,6 +1175,7 @@ void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
+void execCommandPropagateMulti(client *c);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

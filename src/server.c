@@ -1580,6 +1580,7 @@ void initServerConfig(void) {
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
     server.sremCommand = lookupCommandByCString("srem");
+    server.execCommand = lookupCommandByCString("exec");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
