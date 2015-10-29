@@ -2171,9 +2171,12 @@ void call(client *c, int flags) {
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
 
-    /* Call the command. */
-    c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL);
+    /* Initialization: clear the flags that must be set by the command on
+     * demand, and initialize the array for additional commands propagation. */
+    c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     redisOpArrayInit(&server.also_propagate);
+
+    /* Call the command. */
     dirty = server.dirty;
     start = ustime();
     c->cmd->proc(c);
@@ -2221,7 +2224,7 @@ void call(client *c, int flags) {
             propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
     }
 
-    /* Restore the old replication flags, since call can be executed
+    /* Restore the old replication flags, since call() can be executed
      * recursively. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
