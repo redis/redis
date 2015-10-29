@@ -2135,6 +2135,16 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
+/* AOF specific version of preventCommandPropagation(). */
+void preventCommandAOF(client *c) {
+    c->flags |= CLIENT_PREVENT_AOF_PROP;
+}
+
+/* Replication specific version of preventCommandPropagation(). */
+void preventCommandReplication(client *c) {
+    c->flags |= CLIENT_PREVENT_REPL_PROP;
+}
+
 /* Call() is the core of Redis execution of a command */
 void call(client *c, int flags) {
     long long dirty, start, duration;
@@ -2194,10 +2204,24 @@ void call(client *c, int flags) {
     if (flags & CMD_CALL_PROPAGATE && (c->flags & CLIENT_PREVENT_PROP) == 0) {
         int flags = PROPAGATE_NONE;
 
-        if (c->flags & CLIENT_FORCE_REPL) flags |= PROPAGATE_REPL;
-        if (c->flags & CLIENT_FORCE_AOF) flags |= PROPAGATE_AOF;
+        /* Check if the command operated changes in the data set. If so
+         * set for replication / AOF propagation. */
         if (dirty)
             flags |= (PROPAGATE_REPL | PROPAGATE_AOF);
+
+        /* If the command forced AOF / replication of the command, set
+         * the flags regardless of the command effects on the data set. */
+        if (c->flags & CLIENT_FORCE_REPL) flags |= PROPAGATE_REPL;
+        if (c->flags & CLIENT_FORCE_AOF) flags |= PROPAGATE_AOF;
+
+        /* However calls to preventCommandPropagation() or its selective
+         * variants preventCommandAOF() and preventCommandReplicaiton()
+         * will clear the flags to avoid propagation. */
+        if (c->flags & CLIENT_PREVENT_REPL_PROP) flags &= ~PROPAGATE_REPL;
+        if (c->flags & CLIENT_PREVENT_AOF_PROP) flags &= ~PROPAGATE_AOF;
+
+        /* Call propagate() only if at least one of AOF / replication
+         * propagation is needed. */
         if (flags != PROPAGATE_NONE)
             propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
     }
