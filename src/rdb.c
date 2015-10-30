@@ -901,6 +901,7 @@ int rdbSaveBackground(char *filename) {
         int retval;
 
         /* Child */
+        closeInheritSockets();
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename);

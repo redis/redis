@@ -1322,6 +1322,7 @@ void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
 void adjustOpenFilesLimit(void);
+void closeInheritSockets(void);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(void);
 void resetServerStats(void);

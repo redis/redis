@@ -2436,6 +2436,30 @@ int processCommand(client *c) {
 
 /*================================== Shutdown =============================== */
 
+void closeInheritSockets(void) {
+    int i, num;
+    listIter li;
+    listNode *ln;
+    client *c;
+
+    list *inhert_lists[] = {
+        server.clients,
+        server.slaves,
+        server.monitors,
+        server.clients_to_close,
+        server.unblocked_clients,
+        server.clients_pending_write
+    }; 
+    num = sizeof(inhert_lists) / sizeof(inhert_lists[0]);
+    for (i = 0; i < num; i++) {
+        listRewind(inhert_lists[i], &li);
+        while((ln = listNext(&li))) {
+            c = listNodeValue(ln);
+            close(c->fd);
+        }
+    }
+}
+
 /* Close listening sockets. Also unlink the unix domain socket if
  * unlink_unix_socket is non-zero. */
 void closeListeningSockets(int unlink_unix_socket) {
