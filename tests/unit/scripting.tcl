@@ -463,6 +463,15 @@ start_server {tags {"scripting"}} {
               end
         } 0
     }
+
+    test {Functions in the Redis namespace are able to report errors} {
+        catch {
+            r eval {
+                  redis.sha1hex()
+            } 0
+        } e
+        set e
+    } {*wrong number*}
 }
 
 # Start a new server since the last test in this stanza will kill the
