@@ -2213,8 +2213,8 @@ void call(client *c, int flags) {
 
         /* If the command forced AOF / replication of the command, set
          * the flags regardless of the command effects on the data set. */
-        if (c->flags & CLIENT_FORCE_REPL) flags |= PROPAGATE_REPL;
-        if (c->flags & CLIENT_FORCE_AOF) flags |= PROPAGATE_AOF;
+        if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
+        if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
          * implementatino called preventCommandPropagation() or similar,
