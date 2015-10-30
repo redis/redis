@@ -242,12 +242,14 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
 #define CLIENT_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define CLIENT_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
-#define CLIENT_PREVENT_PROP (1<<19)  /* Don't propagate to AOF / Slaves. */
-#define CLIENT_PENDING_WRITE (1<<20) /* Client has output to send but a write
+#define CLIENT_PREVENT_AOF_PROP (1<<19)  /* Don't propagate to AOF. */
+#define CLIENT_PREVENT_REPL_PROP (1<<20)  /* Don't propagate to slaves. */
+#define CLIENT_PREVENT_PROP (CLIENT_PREVENT_AOF_PROP|CLIENT_PREVENT_REPL_PROP)
+#define CLIENT_PENDING_WRITE (1<<21) /* Client has output to send but a write
                                         handler is yet not installed. */
-#define CLIENT_REPLY_OFF (1<<21)   /* Don't send replies to client. */
-#define CLIENT_REPLY_SKIP_NEXT (1<<22)  /* Set CLIENT_REPLY_SKIP for next cmd */
-#define CLIENT_REPLY_SKIP (1<<23)  /* Don't send just this reply. */
+#define CLIENT_REPLY_OFF (1<<22)   /* Don't send replies to client. */
+#define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
+#define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -380,9 +382,11 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* Command call flags, see call() function */
 #define CMD_CALL_NONE 0
-#define CMD_CALL_SLOWLOG 1
-#define CMD_CALL_STATS 2
-#define CMD_CALL_PROPAGATE 4
+#define CMD_CALL_SLOWLOG (1<<0)
+#define CMD_CALL_STATS (1<<1)
+#define CMD_CALL_PROPAGATE_AOF (1<<2)
+#define CMD_CALL_PROPAGATE_REPL (1<<3)
+#define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
 
 /* Command propagation flags, see propagate() function */
@@ -745,7 +749,7 @@ struct redisServer {
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand;
+                        *rpopCommand, *sremCommand, *execCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -938,7 +942,7 @@ struct redisServer {
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
-                                          there is at least an uncovered slot. */
+                                          there is at least an uncovered slot.*/
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
@@ -950,9 +954,13 @@ struct redisServer {
                              execution of the current script. */
     int lua_random_dirty; /* True if a random command was called during the
                              execution of the current script. */
+    int lua_replicate_commands; /* True if we are doing single commands repl. */
+    int lua_multi_emitted;/* True if we already proagated MULTI. */
+    int lua_repl;         /* Script replication flags for redis.set_repl(). */
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    int lua_always_replicate_commands; /* Default replication type. */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -1171,6 +1179,7 @@ void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
+void execCommandPropagateMulti(client *c);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);
@@ -1306,6 +1315,8 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int fl
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
+void preventCommandAOF(client *c);
+void preventCommandReplication(client *c);
 int prepareForShutdown();
 #ifdef __GNUC__
 void serverLog(int level, const char *fmt, ...)

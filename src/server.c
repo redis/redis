@@ -1512,6 +1512,7 @@ void initServerConfig(void) {
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
+    server.lua_always_replicate_commands = 0; /* Only DEBUG can change it. */
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -1580,6 +1581,7 @@ void initServerConfig(void) {
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
     server.sremCommand = lookupCommandByCString("srem");
+    server.execCommand = lookupCommandByCString("exec");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
@@ -2157,6 +2159,16 @@ void preventCommandPropagation(client *c) {
     c->flags |= CLIENT_PREVENT_PROP;
 }
 
+/* AOF specific version of preventCommandPropagation(). */
+void preventCommandAOF(client *c) {
+    c->flags |= CLIENT_PREVENT_AOF_PROP;
+}
+
+/* Replication specific version of preventCommandPropagation(). */
+void preventCommandReplication(client *c) {
+    c->flags |= CLIENT_PREVENT_REPL_PROP;
+}
+
 /* Call() is the core of Redis execution of a command */
 void call(client *c, int flags) {
     long long dirty, start, duration;
@@ -2171,9 +2183,12 @@ void call(client *c, int flags) {
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
 
-    /* Call the command. */
-    c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL);
+    /* Initialization: clear the flags that must be set by the command on
+     * demand, and initialize the array for additional commands propagation. */
+    c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     redisOpArrayInit(&server.also_propagate);
+
+    /* Call the command. */
     dirty = server.dirty;
     start = ustime();
     c->cmd->proc(c);
@@ -2210,18 +2225,37 @@ void call(client *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
-    if (flags & CMD_CALL_PROPAGATE && (c->flags & CLIENT_PREVENT_PROP) == 0) {
-        int flags = PROPAGATE_NONE;
+    if (flags & CMD_CALL_PROPAGATE &&
+        (c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+    {
+        int propagate_flags = PROPAGATE_NONE;
 
-        if (c->flags & CLIENT_FORCE_REPL) flags |= PROPAGATE_REPL;
-        if (c->flags & CLIENT_FORCE_AOF) flags |= PROPAGATE_AOF;
-        if (dirty)
-            flags |= (PROPAGATE_REPL | PROPAGATE_AOF);
-        if (flags != PROPAGATE_NONE)
-            propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
+        /* Check if the command operated changes in the data set. If so
+         * set for replication / AOF propagation. */
+        if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
+
+        /* If the command forced AOF / replication of the command, set
+         * the flags regardless of the command effects on the data set. */
+        if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
+        if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
+
+        /* However prevent AOF / replication propagation if the command
+         * implementatino called preventCommandPropagation() or similar,
+         * or if we don't have the call() flags to do so. */
+        if (c->flags & CLIENT_PREVENT_REPL_PROP ||
+            !(flags & CMD_CALL_PROPAGATE_REPL))
+                propagate_flags &= ~PROPAGATE_REPL;
+        if (c->flags & CLIENT_PREVENT_AOF_PROP ||
+            !(flags & CMD_CALL_PROPAGATE_AOF))
+                propagate_flags &= ~PROPAGATE_AOF;
+
+        /* Call propagate() only if at least one of AOF / replication
+         * propagation is needed. */
+        if (propagate_flags != PROPAGATE_NONE)
+            propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
 
-    /* Restore the old replication flags, since call can be executed
+    /* Restore the old replication flags, since call() can be executed
      * recursively. */
     c->flags &= ~(CLIENT_FORCE_AOF|CLIENT_FORCE_REPL|CLIENT_PREVENT_PROP);
     c->flags |= client_old_flags &
@@ -2237,7 +2271,12 @@ void call(client *c, int flags) {
         if (flags & CMD_CALL_PROPAGATE) {
             for (j = 0; j < server.also_propagate.numops; j++) {
                 rop = &server.also_propagate.ops[j];
-                propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,rop->target);
+                int target = rop->target;
+                /* Whatever the command wish is, we honor the call() flags. */
+                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
+                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
+                if (target)
+                    propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
             }
         }
         redisOpArrayFree(&server.also_propagate);
