@@ -542,7 +542,7 @@ foreach cmdrepl {0 1} {
                 r eval {return redis.call('incr',KEYS[1])} 1 x
             } {2}
 
-            test "Connect a slave to the main instance $rt" {
+            test "Connect a slave to the master instance $rt" {
                 r -1 slaveof [srv 0 host] [srv 0 port]
                 wait_for_condition 50 100 {
                     [s -1 role] eq {slave} &&
@@ -622,3 +622,109 @@ foreach cmdrepl {0 1} {
         }
     }
 }
+
+start_server {tags {"scripting repl"}} {
+    start_server {overrides {appendonly yes}} {
+        test "Connect a slave to the master instance" {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            wait_for_condition 50 100 {
+                [s -1 role] eq {slave} &&
+                [string match {*master_link_status:up*} [r -1 info replication]]
+            } else {
+                fail "Can't turn the instance into a slave"
+            }
+        }
+
+        test "Redis.replicate_commands() must be issued before any write" {
+            r eval {
+                redis.call('set','foo','bar');
+                return redis.replicate_commands();
+            } 0
+        } {}
+
+        test "Redis.replicate_commands() must be issued before any write (2)" {
+            r eval {
+                return redis.replicate_commands();
+            } 0
+        } {1}
+
+        test "Redis.set_repl() must be issued after replicate_commands()" {
+            catch {
+                r eval {
+                    redis.set_repl(redis.REPL_ALL);
+                } 0
+            } e
+            set e
+        } {*only after turning on*}
+
+        test "Redis.set_repl() don't accept invalid values" {
+            catch {
+                r eval {
+                    redis.replicate_commands();
+                    redis.set_repl(12345);
+                } 0
+            } e
+            set e
+        } {*Invalid*flags*}
+
+        test "Test selective replication of certain Redis commands from Lua" {
+            r del a b c d
+            r eval {
+                redis.replicate_commands();
+                redis.call('set','a','1');
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('set','b','2');
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('set','c','3');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('set','d','4');
+            } 0
+
+            wait_for_condition 50 100 {
+                [r -1 mget a b c d] eq {1 {} {} 4}
+            } else {
+                fail "Only a and c should be replicated to slave"
+            }
+
+            # Master should have everything right now
+            assert {[r mget a b c d] eq {1 2 3 4}}
+
+            # After an AOF reload only a, c and d should exist
+            r debug loadaof
+
+            assert {[r mget a b c d] eq {1 {} 3 4}}
+        }
+
+        test "PRNG is seeded randomly for command replication" {
+            set a [
+                r eval {
+                    redis.replicate_commands();
+                    return math.random()*100000;
+                } 0
+            ]
+            set b [
+                r eval {
+                    redis.replicate_commands();
+                    return math.random()*100000;
+                } 0
+            ]
+            assert {$a ne $b}
+        }
+
+        test "Using side effects is not a problem with command replication" {
+            r eval {
+                redis.replicate_commands();
+                redis.call('set','time',redis.call('time')[1])
+            } 0
+
+            assert {[r get time] ne {}}
+
+            wait_for_condition 50 100 {
+                [r get time] eq [r -1 get time]
+            } else {
+                fail "Time key does not match between master and slave"
+            }
+        }
+    }
+}
+
