@@ -953,6 +953,7 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    int lua_always_replicate_commands; /* Default replication type. */
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
