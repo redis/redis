@@ -7,7 +7,7 @@
  * atomicDecr(var,count,mutex) -- Decrement the atomic counter
  * atomicGet(var,dstvar,mutex) -- Fetch the atomic counter value
  *
- * If atomic primitives are availble (tested in config.h) the mutex
+ * If atomic primitives are available (tested in config.h) the mutex
  * is not used.
  *
  * Never use return value from the macros. To update and get use instead:
