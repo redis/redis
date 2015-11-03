@@ -15,10 +15,10 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the Redis official documentation. http://redis.io/documentation
+* [Introduction to Redis data types][4].
+* [Try Redis directly inside your browser][5].
+* [The full list of Redis commands][6].
+* [There is much more inside the Redis official documentation][7].
 
 Building Redis
 --------------
@@ -189,3 +189,8 @@ Enjoy!
 
 [1]: https://github.com/antirez/redis/blob/unstable/COPYING
 [2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
+[3]: http://redis.io
+[4]: http://redis.io/topics/data-types-intro
+[5]: http://try.redis.io
+[6]: http://redis.io/commands
+[7]: http://redis.io/documentation
