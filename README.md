@@ -355,8 +355,8 @@ db.c
 ---
 
 Certain Redis commands operate on specific data types, others are general.
-Examples of general operations are `DEL` and `EXPIRE`. They operate on keys
-and not on their values specifically. All those generic operations are
+Examples of generic commands are `DEL` and `EXPIRE`. They operate on keys
+and not on their values specifically. All those generic commands are
 defined inside `db.c`.
 
 Moreover `db.c` implements an API in order to perform certain operations
