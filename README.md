@@ -354,7 +354,7 @@ the functions that in turn will write the commands into the AOF.
 db.c
 ---
 
-Certain Redis operations operate on specific data types, others are general.
+Certain Redis commands operate on specific data types, others are general.
 Examples of general operations are `DEL` and `EXPIRE`. They operate on keys
 and not on their values specifically. All those generic operations are
 defined inside `db.c`.
