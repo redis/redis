@@ -195,7 +195,7 @@ If you are reading this README you are likely in front of a Github page
 or you just untarred the Redis distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
 the Redis source code layout, what is in each file as a general idea, the
-most important funcitons and structures inside the Redis server and so forth.
+most important functions and structures inside the Redis server and so forth.
 We keep all the discussion at an high level without digging into the details
 since this document would be huge otherwise, and our code base changes
 continuously, but a general idea should be a good starting point to
@@ -216,19 +216,19 @@ Inside the root directory the are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory, your system needs to provide just the `libc`, a POSIX compatible interface, and a C compiler. Notaly `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. an Exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory, your system needs to provide just the `libc`, a POSIX compatible interface, and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. an Exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
 exploring what there is inside each file. The order in which files are
-exposed is the logical one to follow in order to discose differet layers
+exposed is the logical one to follow in order to disclose different layers
 of complexity incrementally.
 
 Note: lately Redis was refactored quite a bit. Function names and file
 names changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance in Redis 3.0 the `server.c`
 and `server.h` where called `redis.c` and `redis.h`. However the overall
-structure is the same. Keep in mind that all the new developmetns and pull
+structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
 sever.h
@@ -275,7 +275,7 @@ The client structure defines a *connected client*:
 
 As you can see in the client structure above, arguments in a command
 are described as `robj` structures. The following is the full `robj`
-strucutre, which defines a *Redis object*:
+structure, which defines a *Redis object*:
 
     typedef struct redisObject {
         unsigned type:4;
@@ -375,7 +375,7 @@ The rest of the file implements the generic commands exposed to the client.
 object.c
 ---
 
-The `robj` structure defined Redis objects was alraedy described. Inside
+The `robj` structure defined Redis objects was already described. Inside
 `object.c` there are all the functions that operate with Redis objects at
 a basic level, like functions to allocate new objects, handle the reference
 counting and so forth. Notable functions inside this file:
