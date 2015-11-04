@@ -515,4 +515,11 @@ start_server {tags {"hash"}} {
             assert {[r object encoding myhash] eq {hashtable}}
         }
     }
+
+    test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
+        r del myhash
+        assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
+        assert {[r hincrbyfloat myhash float 0.77] eq {2}}
+        assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
+    }
 }
