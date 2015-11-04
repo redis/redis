@@ -375,7 +375,7 @@ The rest of the file implements the generic commands exposed to the client.
 object.c
 ---
 
-The `robj` structure defined Redis objects was already described. Inside
+The `robj` structure defining Redis objects was already described. Inside
 `object.c` there are all the functions that operate with Redis objects at
 a basic level, like functions to allocate new objects, handle the reference
 counting and so forth. Notable functions inside this file:
@@ -404,13 +404,15 @@ slaves, or to continue the replication after a disconnection.
 Other C files
 ---
 
-* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contain the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
+* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
 * `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self contained from the rest of the implementation and is simple enough to understand.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base.
+* `scripting.c` implements Lua scripting. It is completely self contained from the rest of the Redis implementation and is simple enough to understand if you are familar with the Lua API.
+* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
+
+[3]: http://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---
@@ -430,16 +432,15 @@ In the above example `2` is the number of arguments the command takes,
 while `"rtF"` are the command flags, as documented in the command table
 top comment inside `server.c`.
 
-After the command operated in some way, it returns a reply to the client,
-usually using `addReply()` or a similar function defined inside
-`networking.c`.
+After the command operates in some way, it returns a reply to the client,
+usually using `addReply()` or a similar function defined inside `networking.c`.
 
 There are tons of commands implementations inside th Redis source code
 that can serve as examples of actual commands implementations. To write
 a few toy commands can be a good exercise to familiarize with the code base.
 
 There are also many other files not described here,  but it is useless to
-cover everything here, we want just to help you with the first steps,
+cover everything, we want just to help you with the first steps,
 eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
