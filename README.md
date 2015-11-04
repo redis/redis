@@ -231,7 +231,7 @@ and `server.h` files were renamed `redis.c` and `redis.h`. However the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
-sever.h
+server.h
 ---
 
 The simplest way to understand how a program works, is to understand the
