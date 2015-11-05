@@ -1468,7 +1468,7 @@ int redis_check_rdb(char *rdbfilename);
 int redis_check_rdb_main(char **argv, int argc);
 
 /* Scripting */
-void scriptingInit(void);
+void scriptingInit(int setup);
 
 /* Blocked clients */
 void processUnblockedClients(void);
