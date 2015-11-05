@@ -754,24 +754,36 @@ void sentinelRunPendingScripts(void) {
 
 #ifdef _WIN32
         {
-            PROCESS_INFORMATION pi;
+            /* The notification script is called passing two arguments:
+             * - the first argument doesn't contain spaces
+             * - the second argument contains spaces therefore we quote it */
             char args[1024];
             int j = 0;
             int pos = 0;
-            while(sj->argv[j]) {
-                int arglen = (int)strlen(sj->argv[j]);
-                memcpy(args+pos, sj->argv[j], arglen);
+            while (sj->argv[j]) {
+                if (j == 2) {
+                    memcpy(args + pos, "\"", 1);
+                    pos += 1;
+                }
+                int arglen = (int) strlen(sj->argv[j]);
+                memcpy(args + pos, sj->argv[j], arglen);
                 pos += arglen;
-                memcpy(args+pos, " ", 1);
-                pos += 1;
-                j++;
+                if (j == 2) {
+                    memcpy(args + pos, "\"\0", 2);
+                    break;
+                } else {
+                    memcpy(args + pos, " ", 1);
+                    pos += 1;
+                    j++;
+                }
             }
-            args[pos - 1] = NULL;
 
+            PROCESS_INFORMATION pi;
             STARTUPINFO si;
             ZeroMemory(&si, sizeof(si));
             si.cb = sizeof(si);
-            if(TRUE == CreateProcessA(NULL, args, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+            if (TRUE == CreateProcessA(NULL, args, NULL, NULL, FALSE, 0,
+                                       NULL, NULL, &si, &pi)) {
                 sj->hScriptProcess = pi.hProcess;
                 sj->pid = pi.dwProcessId;
                 CloseHandle( pi.hThread );
