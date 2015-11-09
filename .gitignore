@@ -25,4 +25,5 @@ deps/lua/src/luac
 deps/lua/src/liblua.a
 .make-*
 .prerequisites
+.idea
 *.dSYM
