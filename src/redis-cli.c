@@ -381,6 +381,7 @@ static int cliConnect(int force) {
              * debugging session. */
             if (config.eval_ldb) {
                 config.eval_ldb = 0;
+                config.output = OUTPUT_STANDARD;
                 cliRefreshPrompt();
             }
         }
@@ -834,6 +835,7 @@ static int parseOptions(int argc, char **argv) {
             config.eval = argv[++i];
         } else if (!strcmp(argv[i],"--ldb")) {
             config.eval_ldb = 1;
+            config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"-c")) {
             config.cluster_mode = 1;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
