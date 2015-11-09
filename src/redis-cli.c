@@ -375,8 +375,15 @@ static int cliSelect(void) {
  * even if there is already a connected socket. */
 static int cliConnect(int force) {
     if (context == NULL || force) {
-        if (context != NULL)
+        if (context != NULL) {
             redisFree(context);
+            /* Disconnection from the server signals end of EVAL
+             * debugging session. */
+            if (config.eval_ldb) {
+                config.eval_ldb = 0;
+                cliRefreshPrompt();
+            }
+        }
 
         if (config.hostsocket == NULL) {
             context = redisConnect(config.hostip,config.hostport);
@@ -637,7 +644,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     size_t *argvlen;
     int j, output_raw;
 
-    if (!strcasecmp(command,"help") || !strcasecmp(command,"?")) {
+    if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
+        (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
         cliOutputHelp(--argc, ++argv);
         return REDIS_OK;
     }
