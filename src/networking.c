@@ -1757,7 +1757,9 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
 }
 
 /* Helper function used by freeMemoryIfNeeded() in order to flush slaves
- * output buffers without returning control to the event loop. */
+ * output buffers without returning control to the event loop.
+ * This is also called by SHUTDOWN for a best-effort attempt to send
+ * slaves the latest writes. */
 void flushSlavesOutputBuffers(void) {
     listIter li;
     listNode *ln;
