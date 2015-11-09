@@ -1776,7 +1776,7 @@ void flushSlavesOutputBuffers(void) {
         events = aeGetFileEvents(server.el,slave->fd);
         if (events & AE_WRITABLE &&
             slave->replstate == SLAVE_STATE_ONLINE &&
-            listLength(slave->reply))
+            clientHasPendingReplies(slave))
         {
             writeToClient(slave->fd,slave,0);
         }
