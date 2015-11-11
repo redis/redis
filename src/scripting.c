@@ -1794,6 +1794,9 @@ char *ldbRedisProtocolToHuman(sds *o, char *reply) {
     return p;
 }
 
+/* The following functions are helpers for ldbRedisProtocolToHuman(), each
+ * take care of a given Redis return type. */
+
 char *ldbRedisProtocolToHuman_Int(sds *o, char *reply) {
     char *p = strchr(reply+1,'\r');
     *o = sdscatlen(*o,reply+1,p-reply-1);
