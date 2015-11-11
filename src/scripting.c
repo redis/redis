@@ -1881,7 +1881,15 @@ void ldbPrint(lua_State *lua, char *varname) {
             }
         }
     }
-    ldbLog(sdsnew("No such variable."));
+
+    /* Let's try with global vars in two selected cases */
+    if (!strcmp(varname,"ARGV") || !strcmp(varname,"KEYS")) {
+        lua_getglobal(lua, varname);
+        ldbLogStackValue(lua,"<value> ");
+        lua_pop(lua,1);
+    } else {
+        ldbLog(sdsnew("No such variable."));
+    }
 }
 
 /* Implements the break command to list, add and remove breakpoints. */
@@ -1982,7 +1990,7 @@ ldbLog(sdsnew("[n]ext          Alias for step."));
 ldbLog(sdsnew("[c]continue     Run till next breakpoint."));
 ldbLog(sdsnew("[l]list [line]  List source code, around [line] if specified"));
 ldbLog(sdsnew("                you can use another arg for context size."));
-ldbLog(sdsnew("[p]rint <var>   Show the value of the specified local variable."));
+ldbLog(sdsnew("[p]rint <var>   Show the value of the specified variable."));
 ldbLog(sdsnew("[b]eark         Show all breakpoints."));
 ldbLog(sdsnew("[b]eark <line>  Add a breakpoint to the specified line."));
 ldbLog(sdsnew("[b]eark -<line> Remove breakpoint from the specified line."));
