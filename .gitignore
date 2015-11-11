@@ -46,4 +46,5 @@ msvs/RedisWAInst/src/RedisInstWA/app.config
 msvs/jemalloc
 msvs/BuildRelease
 msvs/Documentation
+tests/tmp/
 
