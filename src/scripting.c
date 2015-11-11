@@ -2018,6 +2018,26 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
     lua_pop(lua,1);
 }
 
+/* Implement the debugger "redis" command. We use a trick in order to make
+ * the implementation very simple: we just call the Lua redis.call() command
+ * implementation, with ldb.step enabled, so as a side effect the Redis command
+ * and its reply are logged. */
+void ldbRedis(lua_State *lua, sds *argv, int argc) {
+    int j, saved_rc = server.lua_replicate_commands;
+
+    lua_getglobal(lua,"redis");
+    lua_pushstring(lua,"call");
+    lua_gettable(lua,-2);       /* Stack: redis, redis.call */
+    for (j = 1; j < argc; j++)
+        lua_pushlstring(lua,argv[j],sdslen(argv[j]));
+    ldb.step = 1;               /* Force redis.call() to log. */
+    server.lua_replicate_commands = 1;
+    lua_pcall(lua,argc-1,1,0);  /* Stack: redis, result */
+    ldb.step = 0;               /* Disable logging. */
+    server.lua_replicate_commands = saved_rc;
+    lua_pop(lua,2);             /* Discard the result and clean the stack. */
+}
+
 /* Read debugging commands from client. */
 void ldbRepl(lua_State *lua) {
     sds *argv;
@@ -2057,7 +2077,8 @@ ldbLog(sdsnew("[b]eark         Show all breakpoints."));
 ldbLog(sdsnew("[b]eark <line>  Add a breakpoint to the specified line."));
 ldbLog(sdsnew("[b]eark -<line> Remove breakpoint from the specified line."));
 ldbLog(sdsnew("[b]eark 0       Remove all breakpoints."));
-ldbLog(sdsnew("[e]eval <code>  Execute some Lua code in a new callframe."));
+ldbLog(sdsnew("[e]eval <code>  Execute some Lua code (in a different callframe)."));
+ldbLog(sdsnew("[r]edis <cmd>   Execute a Redis command."));
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"s") || !strcasecmp(argv[0],"step") ||
                    !strcasecmp(argv[0],"n") || !strcasecmp(argv[0],"next")) {
@@ -2070,6 +2091,10 @@ ldbLog(sdsnew("[e]eval <code>  Execute some Lua code in a new callframe."));
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"e") || !strcasecmp(argv[0],"eval")) {
             ldbEval(lua,argv,argc);
+            ldbSendLogs();
+        } else if (argc > 1 &&
+                   (!strcasecmp(argv[0],"r") || !strcasecmp(argv[0],"redis"))) {
+            ldbRedis(lua,argv,argc);
             ldbSendLogs();
         } else if (argc == 2 &&
                    (!strcasecmp(argv[0],"p") || !strcasecmp(argv[0],"print")))
