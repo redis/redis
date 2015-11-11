@@ -1976,7 +1976,7 @@ void ldbBreak(sds *argv, int argc) {
                         ldbLog(sdsnew("Wrong line number."));
                     }
                 } else if (line < 0) {
-                    if (ldbDelBreakpoint(line))
+                    if (ldbDelBreakpoint(-line))
                         ldbLog(sdsnew("Breakpoint removed."));
                     else
                         ldbLog(sdsnew("No breakpoint in the specified line."));
