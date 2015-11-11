@@ -526,11 +526,9 @@ sds sdsCatColorizedLdbReply(sds o, char *s, size_t len) {
     if (strstr(s,"<reply>")) color = "cyan";
     if (strstr(s,"<error>")) color = "red";
     if (strstr(s,"<value>")) color = "magenta";
-    if (isdigit(s[0])) {
-        char *p = s+1;
-        while(isdigit(*p)) p++;
-        if (*p == '*') color = "yellow"; /* Current line. */
-        else if (*p == '#') color = "bold"; /* Break point. */
+    if (len > 4 && isdigit(s[3])) {
+        if (s[1] == '>') color = "yellow"; /* Current line. */
+        else if (s[2] == '#') color = "bold"; /* Break point. */
     }
     return sdscatcolor(o,s,len,color);
 }
@@ -1030,6 +1028,28 @@ static int issueCommand(int argc, char **argv) {
     return issueCommandRepeat(argc, argv, config.repeat);
 }
 
+/* Split the user provided command into multiple SDS arguments.
+ * This function normally uses sdssplitargs() from sds.c which is able
+ * to understand "quoted strings", escapes and so forth. However when
+ * we are in Lua debugging mode and the "eval" command is used, we want
+ * the remaining Lua script (after "e " or "eval ") to be passed verbatim
+ * as a single big argument. */
+static sds *cliSplitArgs(char *line, int *argc) {
+    if (config.eval_ldb && (strstr(line,"eval ") == line ||
+                            strstr(line,"e ") == line))
+    {
+        sds *argv = zmalloc(sizeof(sds)*2);
+        *argc = 2;
+        int len = strlen(line);
+        int elen = line[1] == ' ' ? 2 : 5; /* "e " or "eval "? */
+        argv[0] = sdsnewlen(line,elen-1);
+        argv[1] = sdsnewlen(line+elen,len-elen);
+        return argv;
+    } else {
+        return sdssplitargs(line,argc);
+    }
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -1053,7 +1073,7 @@ static void repl(void) {
     cliRefreshPrompt();
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
-            argv = sdssplitargs(line,&argc);
+            argv = cliSplitArgs(line,&argc);
             if (history) linenoiseHistoryAdd(line);
             if (historyfile) linenoiseHistorySave(historyfile);
 
