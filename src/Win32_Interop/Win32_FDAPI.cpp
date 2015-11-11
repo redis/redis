@@ -143,6 +143,23 @@ BOOL FDAPI_WSAGetOverlappedResult(int rfd, LPWSAOVERLAPPED lpOverlapped, LPDWORD
     return SOCKET_ERROR;
 }
 
+/* This method should only be called to close the sockets duplicated
+ * by the child process.
+ */
+BOOL FDAPI_CloseDuplicatedSocket(int rfd) {
+    try {
+        SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);
+        if (socket != INVALID_SOCKET) {
+            RFDMap::getInstance().removeRFDToSocketInfo(rfd);
+            RFDMap::getInstance().removeSocketToRFD(socket);
+            return f_closesocket(socket);
+        }
+    } CATCH_AND_REPORT();
+
+    errno = EBADF;
+    return FALSE;
+}
+
 int FDAPI_WSADuplicateSocket(int rfd, DWORD dwProcessId, LPWSAPROTOCOL_INFO lpProtocolInfo) {
     try {
         SOCKET socket = RFDMap::getInstance().lookupSocket(rfd);

@@ -363,6 +363,12 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
                                             g_pQForkControl->globalData.numfds,
                                             g_pQForkControl->globalData.clientids,
                                             pipe_write_fd);
+            // After the socket replication has finished, close the duplicated sockets.
+            // Failing to close the sockets properly will produce a socket read error
+            // on both the parent process and the slave.
+            for (int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
+                FDAPI_CloseDuplicatedSocket(g_pQForkControl->globalData.fds[i]);
+            }
         } else {
             throw runtime_error("unexpected operation type");
         }
