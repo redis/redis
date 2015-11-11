@@ -1992,14 +1992,23 @@ void ldbBreak(sds *argv, int argc) {
 void ldbEval(lua_State *lua, sds *argv, int argc) {
     /* Glue the script together if it is composed of multiple arguments. */
     sds code = sdsjoinsds(argv+1,argc-1," ",1);
+    sds expr = sdscatsds(sdsnew("return "),code);
 
-    if (luaL_loadbuffer(lua,code,sdslen(code),"@ldb_eval")) {
-        ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
+    /* Try to compile it as an expression, prepending "return ". */
+    if (luaL_loadbuffer(lua,expr,sdslen(expr),"@ldb_eval")) {
         lua_pop(lua,1);
-        sdsfree(code);
-        return;
+        /* Failed? Try as a statement. */
+        if (luaL_loadbuffer(lua,code,sdslen(code),"@ldb_eval")) {
+            ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
+            lua_pop(lua,1);
+            sdsfree(code);
+            return;
+        }
     }
+
+    /* Call it. */
     sdsfree(code);
+    sdsfree(expr);
     if (lua_pcall(lua,0,1,0)) {
         ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
         lua_pop(lua,1);
