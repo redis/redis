@@ -112,7 +112,7 @@ const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
 
 void EnableFastLoopback(SOCKET socket) {
     // If Win8+ (6.2), use fast path option on loopback
-    if (IsWindowsVersionAtLeast(6, 2, 0)) {
+    if (WindowsVersion::getInstance().IsAtLeast_6_2()) {
         int enabled = 1;
         DWORD result_byte_count = -1;
         int result = f_WSAIoctl(socket, SIO_LOOPBACK_FAST_PATH, &enabled, sizeof(enabled), NULL, 0, &result_byte_count, NULL, NULL);
@@ -637,7 +637,7 @@ int FDAPI_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
             pollCopy[n].revents = fds[n].revents;
         }
 
-        if (IsWindowsVersionAtLeast(6, 0, 0)) {
+        if (WindowsVersion::getInstance().IsAtLeast_6_0()) {
             static auto f_WSAPoll = dllfunctor_stdcall<int, WSAPOLLFD*, ULONG, INT>("ws2_32.dll", "WSAPoll");
 
             // WSAPoll implementation has a bug that cause the client
@@ -1090,7 +1090,7 @@ int FDAPI_getaddrinfo(const char *node, const char *service, const struct addrin
 }
 
 const char* FDAPI_inet_ntop(int af, const void *src, char *dst, size_t size) {
-    if (IsWindowsVersionAtLeast(6, 0, 0)) {
+    if (WindowsVersion::getInstance().IsAtLeast_6_0()) {
         static auto f_inet_ntop = dllfunctor_stdcall<const char*, int, const void*, char*, size_t>("ws2_32.dll", "inet_ntop");
         return f_inet_ntop(af, src, dst, size);
     } else {
@@ -1109,7 +1109,7 @@ const char* FDAPI_inet_ntop(int af, const void *src, char *dst, size_t size) {
 }
 
 int FDAPI_inet_pton(int family, const char* src, void* dst) {
-    if (IsWindowsVersionAtLeast(6, 0, 0)) {
+    if (WindowsVersion::getInstance().IsAtLeast_6_0()) {
         static auto f_inet_pton = dllfunctor_stdcall<int, int, const char*, const void*>("ws2_32.dll", "inet_pton");
         return f_inet_pton(family, src, dst);
     } else {

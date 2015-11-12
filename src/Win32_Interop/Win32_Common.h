@@ -33,4 +33,31 @@ namespace Globals {
 void EnsureMemoryIsMapped(const void *buffer, size_t size);
 bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor);
 
+class WindowsVersion {
+private:
+    bool isAtLeast_6_0;
+    bool isAtLeast_6_2;
+
+    WindowsVersion() {
+        isAtLeast_6_0 = IsWindowsVersionAtLeast(6, 0, 0);
+        isAtLeast_6_2 = IsWindowsVersionAtLeast(6, 2, 0);
+    }
+
+    WindowsVersion(WindowsVersion const&);      // Don't implement to guarantee singleton semantics
+    void operator=(WindowsVersion const&);      // Don't implement to guarantee singleton semantics
+
+public:
+    static WindowsVersion& getInstance() {
+        static WindowsVersion instance;         // Instantiated on first use. Guaranteed to be destroyed.
+        return instance;
+    }
+
+    bool IsAtLeast_6_0() {
+        return isAtLeast_6_0;
+    }
+
+    bool IsAtLeast_6_2() {
+        return isAtLeast_6_2;
+    }
+};
 #endif
