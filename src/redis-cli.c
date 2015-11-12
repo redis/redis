@@ -523,6 +523,7 @@ sds sdscatcolor(sds o, char *s, size_t len, char *color) {
 sds sdsCatColorizedLdbReply(sds o, char *s, size_t len) {
     char *color = "white";
 
+    if (strstr(s,"<debug>")) color = "bold";
     if (strstr(s,"<redis>")) color = "green";
     if (strstr(s,"<reply>")) color = "cyan";
     if (strstr(s,"<error>")) color = "red";
