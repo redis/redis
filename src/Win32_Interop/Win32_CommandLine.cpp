@@ -290,9 +290,9 @@ public:
             { "current-epoch",              &fp1 },    // sentinel current-epoch <epoch>
             { "leader-epoch",               &fp2 },    // sentinel leader-epoch [name] [epoch]
             { "known-slave",                &fp3 },    // sentinel known-slave <name> <ip> <port>
-			{ "known-sentinel",				&fp4 },     // sentinel known-sentinel <name> <ip> <port> [runid]
-			{ "announce-ip",				&fp1 },    // sentinel announce-ip <ip>
-			{ "announce-port",				&fp1 }     // sentinel announce-port <port>
+            { "known-sentinel",             &fp4 },    // sentinel known-sentinel <name> <ip> <port> [runid]
+            { "announce-ip",                &fp1 },    // sentinel announce-ip <ip>
+            { "announce-port",              &fp1 }     // sentinel announce-port <port>
         };
     }
 
