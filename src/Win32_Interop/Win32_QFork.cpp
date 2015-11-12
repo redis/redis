@@ -261,6 +261,7 @@ bool ReportSpecialSystemErrors(int error) {
                 "\n"
                 "Redis can not continue. Exiting."
                 );
+            RedisEventLog().LogError("Failed to reserves heap memory from the system paging file.");
             return true;
         }
         default:
@@ -382,10 +383,12 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     }
     catch(system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
+            RedisEventLog().LogError("QForkChildInit: system error. " + string(syserr.what()));
             redisLog(REDIS_WARNING, "QForkChildInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
     }
     catch(runtime_error runerr) {
+        RedisEventLog().LogError("QForkChildInit: runtime error. " + string(runerr.what()));
         redisLog(REDIS_WARNING, "QForkChildInit: runtime error caught. message=%s\n", runerr.what());
     }
     
@@ -478,13 +481,16 @@ BOOL QForkParentInit() {
     }
     catch(system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
+            RedisEventLog().LogError("QForkParentInit: system error. " + string(syserr.what()));
             redisLog(REDIS_WARNING, "QForkParentInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
     }
     catch(runtime_error runerr) {
+        RedisEventLog().LogError("QForkParentInit: runtime error. " + string(runerr.what()));
         redisLog(REDIS_WARNING, "QForkParentInit: runtime error caught. message=%s\n", runerr.what());
     }
-    catch(...) {
+    catch (exception ex) {
+        RedisEventLog().LogError("QForkParentInit: an exception occurred. " + string(ex.what()));
         redisLog(REDIS_WARNING, "QForkParentInit: other exception caught.\n");
     }
     return FALSE;
@@ -1142,18 +1148,27 @@ extern "C"
             InitThreadControl();
         }
         catch (system_error syserr) {
+            string errMsg = string("System error during startup: ") + syserr.what();
+            RedisEventLog().LogError(errMsg);
+            cout << errMsg << endl;
             exit(-1);
         }
         catch (runtime_error runerr) {
-            cout << runerr.what() << endl;
+            string errMsg = string("System error during startup: ") + runerr.what();
+            RedisEventLog().LogError(errMsg);
+            cout << errMsg << endl;
             exit(-1);
         }
         catch (invalid_argument &iaerr) {
-            cout << iaerr.what() << endl;
+            string errMsg = string("Invalid argument during startup: ") + iaerr.what();
+            RedisEventLog().LogError(errMsg);
+            cout << errMsg << endl;
             exit(-1);
         }
         catch (exception othererr) {
-            cout << othererr.what() << endl;
+            string errMsg = string("An exception occurred during startup: ") + othererr.what();
+            RedisEventLog().LogError(errMsg);
+            cout << errMsg << endl;
             exit(-1);
         }
 
@@ -1224,12 +1239,15 @@ extern "C"
             }
         }
         catch (system_error syserr) {
+            RedisEventLog().LogError(string("Main: system error. ") + syserr.what());
             redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         }
         catch (runtime_error runerr) {
+            RedisEventLog().LogError(string("Main: runtime error. ") + runerr.what());
             redisLog(REDIS_WARNING, "main: runtime error caught. message=%s\n", runerr.what());
         }
-        catch (...) {
+        catch (exception ex) {
+            RedisEventLog().LogError(string("Main: an exception occurred. ") + ex.what());
             redisLog(REDIS_WARNING, "main: other exception caught.\n");
         }
     }
