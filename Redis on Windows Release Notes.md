@@ -1,5 +1,28 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.500-rc1 ] Release date: Nov 12 2015
+
+ - [Fix] Improved the error reporting on startup errors.
+ - [Code cleanup] Event log code refactoring. Code formatting.
+ - [Code cleanup] Fixed tabs.
+ - [Code cleanup] Renamed WSIOCP_ReceiveDone to WSIOCP_QueueNextRead.
+ - [Code refactoring] IsWindowsVersionAtLeast optimization.
+ - [Fix] Sentinel notification-script 2nd argument needs quotes.
+ - [PR] Passed STARTUPINFO parameter to CreateProcessA instead of NULL. (by @flavius-m)
+ - [Test] Removed a Windows-specific workaround.
+ - [Fix] Duplicated sockets need to be closed properly.
+ - [Fix] Windows-specific fixes for the 3.0.5 merge.
+ - Merged tag 3.0.5 from antirez/3.0
+ - [Sample] Removed the maxheap flag from the configuration samples.
+ - [Fix] Reporting the error code if listen() fails.
+ - [Tools] Changed the ReleasePackagingTool output folder.
+ - [Setup] Added the max memory dialog.
+ - [Build] Unified output folders for the jemalloc project.
+ - [PR] Updated list of sentinel commands: announce-ip and announce-port. (by @rpannell)
+ - [PR] Updated x86 debug and release configurations for all projects. (by @laurencee)
+ - [PR] Changed Nuget package structure to support VS 2015. (by @Cybermaxs)
+ - [Seup] Updated nuget and chocolatey setup files.
+
 --[ Redis on Windows 3.0.300-beta1 ] Release date: Oct 14 2015
 
  - [Change] Switched from dlmalloc to jemalloc.
