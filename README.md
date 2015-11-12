@@ -9,30 +9,30 @@
 Redis on Windows 
 ===
 
-## Redis 2.8 Branch
+## Redis 3.0 Branch
 
-- This is a port for Windows based on Redis 2.8.
+- This is a port for Windows based on Redis 3.0.
 - There is support for the 64-bit version. We have dropped official support for the 32-bit version, though you can build it from source if desired.
-- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases "Release page"). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
+- The latest unsigned binaries are available from the [Release Page](http://github.com/MSOpenTech/redis/releases "Release page").
 - Signed binaries can be downloaded using Nuget and Chocolatey.
-- There is a replacement for the UNIX fork() API that simulates the copy-on-write behavior using a memory mapped file.
-- Because Redis makes some assumptions about the values of File Descriptors, we have built a virtual file descriptor mapping layer. 
-- Redis can be installed as a Windows Service.
+- Redis on Windows uses a replacement for the UNIX fork() API that simulates the copy-on-write behavior using the system paging file.
+- Because Redis makes some assumptions about the values of file descriptors, we have built a virtual file descriptor mapping layer. 
+- Redis on Windows can be installed as a Windows Service.
 
-## Redis 2.8 release notes
+## Redis 3.0 release notes
 
-- Redis on UNIX [release notes](https://raw.githubusercontent.com/antirez/redis/2.8/00-RELEASENOTES)
-- Redis on Windows [release notes](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows%20Release%20Notes.md)
+- Redis on UNIX [release notes](https://raw.githubusercontent.com/antirez/redis/3.0/00-RELEASENOTES)
+- Redis on Windows [release notes](https://raw.githubusercontent.com/MSOpenTech/redis/3.0/Redis%20on%20Windows%20Release%20Notes.md)
 
 ## How to configure and deploy Redis on Windows
 
-- [Memory Configuration](https://github.com/MSOpenTech/redis/wiki/Memory-Configuration "Memory Configuration")
-- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Redis%20on%20Windows.md "Redis on Windows")
-- [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/2.8/Windows%20Service%20Documentation.md "Windows Service Documentation")
+- [Memory Configuration](https://github.com/MSOpenTech/redis/wiki/Memory-Configuration-For-Redis-3.0 "Memory Configuration")
+- [Redis on Windows](https://raw.githubusercontent.com/MSOpenTech/redis/3.0/Redis%20on%20Windows.md "Redis on Windows")
+- [Windows Service Documentation](https://raw.githubusercontent.com/MSOpenTech/redis/3.0/Windows%20Service%20Documentation.md "Windows Service Documentation")
 
 ## How to build Redis using Visual Studio
 
-You can use the free Visual Studio Community edition available at http://www.visualstudio.com/products/visual-studio-community-vs.
+You can use the free [Visual Studio Community edition](http://www.visualstudio.com/products/visual-studio-community-vs).
 
 - Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (x64) then build.
 
