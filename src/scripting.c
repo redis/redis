@@ -1593,6 +1593,10 @@ int ldbStartSession(client *c) {
 /* End a debugging session after the EVAL call with debugging enabled
  * returned. */
 void ldbEndSession(client *c) {
+    /* Emit the remaining logs and an <endsession> mark. */
+    ldbLog(sdsnew("<endsession>"));
+    ldbSendLogs();
+
     /* If it's a fork()ed session, we just exit. */
     if (ldb.forked) {
         writeToClient(c->fd, c, 0);
