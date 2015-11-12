@@ -258,7 +258,7 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
-    WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
 }
 
 #ifdef _WIN32

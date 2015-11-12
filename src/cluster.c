@@ -2080,7 +2080,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 WIN32_ONLY(done:)
-    WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
 }
 
 /* Put stuff into the send buffer.

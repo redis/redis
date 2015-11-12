@@ -34,7 +34,7 @@ typedef struct WSIOCP_Request {
     int len;
 } WSIOCP_Request;
 
-int WSIOCP_ReceiveDone(int rfd);
+int WSIOCP_QueueNextRead(int rfd);
 int WSIOCP_SocketSend(int rfd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
 int WSIOCP_Listen(int rfd, int backlog);
 int WSIOCP_Accept(int rfd, struct sockaddr *sa, socklen_t *len);

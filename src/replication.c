@@ -1086,7 +1086,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
 
-        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
 
         if (buf[0] == '-') {
             redisLog(REDIS_WARNING,
@@ -1156,7 +1156,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         replicationAbortSyncTransfer();
         return;
     }
-    WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
     server.stat_net_input_bytes += nread;
 
     /* When a mark is used, we want to detect EOF asap in order to avoid
@@ -1421,7 +1421,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             aeDeleteFileEvent(server.el,fd,AE_READABLE);
             return PSYNC_WRITE_ERROR;
         }
-        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1431,7 +1431,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
         sdsfree(reply);
-        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1533,7 +1533,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
          * that will take care about this. */
         err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PING",NULL);
         if (err) goto write_error;
-        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return;
     }
 
@@ -1557,7 +1557,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
-        WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         sdsfree(err);
         server.repl_state = REDIS_REPL_SEND_AUTH;
     }

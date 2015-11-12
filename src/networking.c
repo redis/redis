@@ -1334,7 +1334,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
-    WIN32_ONLY(WSIOCP_ReceiveDone(fd);)
+    WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;

@@ -244,10 +244,10 @@ int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len) {
     return acceptfd;
 }
 
-/* After doing read caller needs to call done so that we can 
- * continue to check for read events.
- * This is not necessary if caller will delete read events */
-int WSIOCP_ReceiveDone(int fd) {
+/* After doing a read, the caller needs to call this method in
+ * order to continue to check for read events.
+ * This is not necessary if the caller will delete read events */
+int WSIOCP_QueueNextRead(int fd) {
     iocpSockState *sockstate;
     int result;
     WSABUF zreadbuf;
