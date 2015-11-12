@@ -1318,7 +1318,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 #ifdef WIN32_IOCP
-    WSIOCP_ReceiveDone(fd);
+    WSIOCP_QueueNextRead(fd);
 #endif
     if (nread) {
         sdsIncrLen(c->querybuf,nread);

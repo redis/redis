@@ -290,7 +290,7 @@ typedef struct aeWinSendReq {
     int len;
 } aeWinSendReq;
 
-int WSIOCP_ReceiveDone(int fd);
+int WSIOCP_QueueNextRead(int fd);
 int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop, void *client, void *data, void *proc);
 int WSIOCP_Listen(int rfd, int backlog);
 int WSIOCP_Accept(int fd, struct sockaddr *sa, socklen_t *len);

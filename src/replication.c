@@ -991,7 +991,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
 #ifdef WIN32_IOCP
-        WSIOCP_ReceiveDone(fd);
+        WSIOCP_QueueNextRead(fd);
 #endif
         if (buf[0] == '-') {
             redisLog(REDIS_WARNING,
@@ -1065,7 +1065,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         replicationAbortSyncTransfer();
         return;
     }
-    WSIOCP_ReceiveDone(fd);
+    WSIOCP_QueueNextRead(fd);
 #else
     nread = read(fd,buf,readlen);
     if (nread <= 0) {

@@ -227,7 +227,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         errno = WSAGetLastError();
         if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
             errno = EAGAIN;
-            WSIOCP_ReceiveDone((int) c->context->fd);
+            WSIOCP_QueueNextRead((int) c->context->fd);
             return;
         } else {
             fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -241,7 +241,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         exit(1);
     } else {
 #ifdef WIN32_IOCP
-        WSIOCP_ReceiveDone((int) c->context->fd);
+        WSIOCP_QueueNextRead((int) c->context->fd);
 #endif
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {

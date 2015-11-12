@@ -129,7 +129,7 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
             } else {
                 if ((sockstate->masks & READ_QUEUED) == 0) {
                     // Queue up a 0 byte read
-                    WSIOCP_ReceiveDone(fd);
+                    WSIOCP_QueueNextRead(fd);
                 }
             }
         }
