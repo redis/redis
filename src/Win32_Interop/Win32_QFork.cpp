@@ -105,6 +105,7 @@ allocate a system paging file that will expand up to about (3.5 * physical).
 #include "Win32_RedisLog.h"
 #include "Win32_StackTrace.h"
 #include "Win32_ThreadControl.h"
+#include "Win32_EventLog.h"
 
 #ifdef USE_DLMALLOC
   #include "Win32_dlmalloc.h"
@@ -1110,11 +1111,11 @@ void SetupLogging() {
     string syslogIdent = (g_argMap.find(cSyslogIdent) != g_argMap.end() ? g_argMap[cSyslogIdent].at(0).at(0) : cDefaultSyslogIdent);
     string logFileName = (g_argMap.find(cLogfile) != g_argMap.end() ? g_argMap[cLogfile].at(0).at(0) : cDefaultLogfile);
 
-    setSyslogEnabled(syslogEnabled);
+    RedisEventLog().EnableEventLog(syslogEnabled);
     if (syslogEnabled) {
-        setSyslogIdent(syslogIdent.c_str());
+        RedisEventLog().SetEventLogIdentity(syslogIdent.c_str());
     } else {
-        setLogFilename(logFileName.c_str());
+        setLogFile(logFileName.c_str());
     }
 }
 

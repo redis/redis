@@ -33,10 +33,16 @@ public:
     void InstallEventLogSource(string appPath);
     void UninstallEventLogSource();
 
-    void LogMessageToEventLog(LPCSTR msg, const WORD type);
+    void SetEventLogIdentity(const char* identity);
+
+    void LogMessage(LPCSTR msg, const WORD type);
+    void LogError(string msg);
+
+    string GetEventLogIdentity();
+    void EnableEventLog(bool enabled);
+    bool IsEventLogEnabled();
 
 private:
-
     const string eventLogName = "redis";
     const string cEventLogPath = "SYSTEM\\CurrentControlSet\\Services\\EventLog\\";
     const string cEventLogApplicitonPath = cEventLogPath + "Application\\";
@@ -50,7 +56,10 @@ private:
 extern "C" {
 #endif
 
-    void WriteEventLog(const char* sysLogInstance, const char* msg);
+    void setSyslogEnabled(int enabled);
+    void setSyslogIdent(char* identity);
+    int IsEventLogEnabled();
+    void WriteEventLog(const char* msg);
 
 #ifdef __cplusplus
 }

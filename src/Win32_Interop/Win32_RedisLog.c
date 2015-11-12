@@ -36,19 +36,9 @@
 static const char ellipsis[] = "[...]";
 static const char ellipsisWithNewLine[] = "[...]\n";
 static int verbosity = REDIS_WARNING;
-static int syslogEnabled = 0;
-static char syslogIdent[MAX_PATH];
 static HANDLE hLogFile = INVALID_HANDLE_VALUE;
 static int isStdout = 0;
 static char* logFilename = NULL;
-
-void setSyslogEnabled(int flag) {
-    syslogEnabled = flag;
-}
-
-void setSyslogIdent(const char* ident) {
-    strcpy_s(syslogIdent, MAX_PATH, ident);
-}
 
 void setLogVerbosityLevel(int level)
 {
@@ -64,9 +54,10 @@ const char* getLogFilename() {
 }
 
 /* We keep the file handle open to improve performance.
-* This assumes that calls to redisLog and setLogFile will not happen concurrently.
-*/
-void setLogFilename(const char* filename)
+ * This assumes that calls to redisLog and setLogFile will not happen
+ * concurrently.
+ */
+void setLogFile(const char* filename)
 {
     if (logFilename != NULL) {
         free((void*) logFilename);
@@ -187,7 +178,9 @@ void redisLogRaw(int level, const char *msg) {
     FlushFileBuffers(hLogFile);
 #endif
 
-    if (syslogEnabled) WriteEventLog(syslogIdent, msg);
+    if (IsEventLogEnabled() == 1) {
+        WriteEventLog(msg);
+    }
 }
 
 /* Like redisLogRaw() but with printf-alike support. This is the function that

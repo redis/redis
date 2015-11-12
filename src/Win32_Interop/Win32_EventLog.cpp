@@ -32,6 +32,13 @@ using namespace std;
 #include "Win32_SmartHandle.h"
 #include "EventLog.h"
 
+static bool eventLogEnabled = true;
+static string eventLogIdentity = "redis";
+
+void RedisEventLog::SetEventLogIdentity(const char* identity) {
+    eventLogIdentity = string(identity);
+}
+
 void RedisEventLog::UninstallEventLogSource() {
     SmartRegistryHandle appKey;
     if (ERROR_SUCCESS == RegOpenKeyA(HKEY_LOCAL_MACHINE, cEventLogApplicitonPath.c_str(), appKey)) {
@@ -82,20 +89,20 @@ void RedisEventLog::InstallEventLogSource(string appPath) {
     DWORD type = REG_DWORD;
     DWORD size = sizeof(DWORD);
     if (ERROR_SUCCESS != RegQueryValueExA(redisserver, cTypesSupported.c_str(), 0, &type, NULL, &size)) {
-        if (ERROR_SUCCESS != RegSetValueExA(redisserver, cTypesSupported.c_str(), 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD))) {
+        if (ERROR_SUCCESS != RegSetValueExA(redisserver, cTypesSupported.c_str(), 0, REG_DWORD, (const BYTE*) &value, sizeof(DWORD))) {
             throw std::system_error(GetLastError(), system_category(), "RegSetValueExA failed");
         }
     }
     type = REG_SZ;
     size = 0;
     if (ERROR_SUCCESS != RegQueryValueExA(redisserver, cEventMessageFile.c_str(), 0, &type, NULL, &size)) {
-        if (ERROR_SUCCESS != RegSetValueExA(redisserver, cEventMessageFile.c_str(), 0, REG_SZ, (BYTE*)appPath.c_str(), (DWORD)appPath.length())) {
+        if (ERROR_SUCCESS != RegSetValueExA(redisserver, cEventMessageFile.c_str(), 0, REG_SZ, (BYTE*) appPath.c_str(), (DWORD) appPath.length())) {
             throw std::system_error(GetLastError(), system_category(), "RegSetValueExA failed");
         }
     }
 
     SmartRegistryHandle application;
-    if (ERROR_SUCCESS != RegOpenKeyA(eventLogKey, cApplication.c_str() , application)) {
+    if (ERROR_SUCCESS != RegOpenKeyA(eventLogKey, cApplication.c_str(), application)) {
         throw std::system_error(GetLastError(), system_category(), "RegCreateKeyA failed");
     }
     SmartRegistryHandle redis2;
@@ -107,18 +114,18 @@ void RedisEventLog::InstallEventLogSource(string appPath) {
     type = REG_DWORD;
     size = 0;
     if (ERROR_SUCCESS != RegQueryValueExA(redis2, cTypesSupported.c_str(), 0, &type, NULL, &size)) {
-        if (ERROR_SUCCESS != RegSetValueExA(redis2, cTypesSupported.c_str(), 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD))) {
+        if (ERROR_SUCCESS != RegSetValueExA(redis2, cTypesSupported.c_str(), 0, REG_DWORD, (const BYTE*) &value, sizeof(DWORD))) {
             throw std::system_error(GetLastError(), system_category(), "RegSetValueExA failed");
         }
     }
     if (ERROR_SUCCESS != RegQueryValueExA(redis2, cEventMessageFile.c_str(), 0, &type, NULL, &size)) {
-        if (ERROR_SUCCESS != RegSetValueExA(redis2, cEventMessageFile.c_str(), 0, REG_SZ, (BYTE*)appPath.c_str(), (DWORD)appPath.length())) {
+        if (ERROR_SUCCESS != RegSetValueExA(redis2, cEventMessageFile.c_str(), 0, REG_SZ, (BYTE*) appPath.c_str(), (DWORD) appPath.length())) {
             throw std::system_error(GetLastError(), system_category(), "RegSetValueExA failed");
         }
     }
 }
 
-void RedisEventLog::LogMessageToEventLog(LPCSTR msg, const WORD type) {
+void RedisEventLog::LogMessage(LPCSTR msg, const WORD type) {
     DWORD eventID;
     switch (type) {
         case EVENTLOG_ERROR_TYPE:
@@ -141,7 +148,7 @@ void RedisEventLog::LogMessageToEventLog(LPCSTR msg, const WORD type) {
     if (0 == hEventLog) {
         std::cerr << "Failed open source '" << this->eventLogName << "': " << GetLastError() << endl;
     } else {
-        if (FALSE == ReportEventA( hEventLog, type, 0, eventID, 0, 1, 0, &msg, 0)) {
+        if (FALSE == ReportEventA(hEventLog, type, 0, eventID, 0, 1, 0, &msg, 0)) {
             std::cerr << "Failed to write message: " << GetLastError() << endl;
         }
 
@@ -149,12 +156,65 @@ void RedisEventLog::LogMessageToEventLog(LPCSTR msg, const WORD type) {
     }
 }
 
-extern "C" void WriteEventLog(const char* sysLogInstance, const char* msg) {
+void RedisEventLog::LogError(string msg) {
+    try {
+        if (eventLogEnabled == true) {
+            stringstream ss;
+            ss << "syslog-ident = " << eventLogIdentity << endl;
+            ss << msg;
+            RedisEventLog().LogMessage(ss.str().c_str(), EVENTLOG_ERROR_TYPE);
+        }
+    }
+    catch (...) {
+    }
+}
+
+string RedisEventLog::GetEventLogIdentity() {
+    return eventLogIdentity;
+}
+
+void RedisEventLog::EnableEventLog(bool enabled) {
+    eventLogEnabled = enabled;
+}
+
+bool RedisEventLog::IsEventLogEnabled() {
+    return eventLogEnabled;
+}
+
+extern "C" void setSyslogEnabled(int enabled) {
+    try {
+        if (enabled == 1) {
+            RedisEventLog().EnableEventLog(true);
+        } else {
+            RedisEventLog().EnableEventLog(false);
+        }
+    }
+    catch (...) {}
+}
+
+extern "C" void setSyslogIdent(char* identity) {
+    try {
+        RedisEventLog().SetEventLogIdentity(identity);
+    }
+    catch (...) {}
+}
+
+extern "C" void WriteEventLog(const char* msg) {
     try {
         stringstream ss;
-        ss << "syslog-ident = " << sysLogInstance << endl;
+        ss << "syslog-ident = " << RedisEventLog().GetEventLogIdentity() << endl;
         ss << msg;
-        RedisEventLog().LogMessageToEventLog(ss.str().c_str(),EVENTLOG_INFORMATION_TYPE);
-    } catch (...) {
+        RedisEventLog().LogMessage(ss.str().c_str(), EVENTLOG_INFORMATION_TYPE);
     }
+    catch (...) {}
+}
+
+extern "C" int IsEventLogEnabled() {
+    try {
+        if (RedisEventLog().IsEventLogEnabled() == true) {
+            return 1;
+        }
+    }
+    catch (...) {}
+    return 0;
 }
