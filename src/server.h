@@ -1471,6 +1471,8 @@ int redis_check_rdb_main(char **argv, int argc);
 
 /* Scripting */
 void scriptingInit(int setup);
+int ldbRemoveChild(pid_t pid);
+void ldbKillForkedSessions(void);
 
 /* Blocked clients */
 void processUnblockedClients(void);
