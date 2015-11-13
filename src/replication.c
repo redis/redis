@@ -1436,6 +1436,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             aeDeleteFileEvent(server.el,fd,AE_READABLE);
             return PSYNC_WRITE_ERROR;
         }
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1445,6 +1446,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         /* The master may send empty newlines after it receives PSYNC
          * and before to reply, just to keep the connection alive. */
         sdsfree(reply);
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return PSYNC_WAIT_REPLY;
     }
 
@@ -1546,6 +1548,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
          * that will take care about this. */
         err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PING",NULL);
         if (err) goto write_error;
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return;
     }
 
@@ -1579,6 +1582,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"AUTH",server.masterauth,NULL);
             if (err) goto write_error;
             server.repl_state = REDIS_REPL_RECEIVE_AUTH;
+            WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
             return;
         } else {
             server.repl_state = REDIS_REPL_SEND_PORT;
@@ -1633,6 +1637,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (err) goto write_error;
         sdsfree(err);
         server.repl_state = REDIS_REPL_RECEIVE_CAPA;
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return;
     }
 
