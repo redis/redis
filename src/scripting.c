@@ -1540,6 +1540,7 @@ void ldbSendLogs(void) {
         listDelNode(ldb.logs,ln);
     }
     write(ldb.fd,proto,sdslen(proto));
+    sdsfree(proto);
 }
 
 /* Start a debugging session before calling EVAL implementation.
