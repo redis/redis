@@ -1113,7 +1113,7 @@ int rewriteAppendOnlyFileBackground(void) {
         char tmpfile[256];
 
 #ifndef _WIN32
-		/* Child */
+        /* Child */
         closeListeningSockets(0);
         redisSetProcTitle("redis-aof-rewrite");
 #endif

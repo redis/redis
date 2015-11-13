@@ -171,7 +171,7 @@ BOOL RelaunchAsElevatedProcess(int argc, char** argv) {
             while (WaitForSingleObject(sei.hProcess, 0) != WAIT_OBJECT_0) {
                 DWORD result = ReadFile(pipe, buffer, messageBufferSize, &bytesRead, NULL);
                 if (result != 0 && bytesRead > 0) {
-                    buffer[bytesRead] = '\0';	// ensure received message is null terminated;
+                    buffer[bytesRead] = '\0';    // ensure received message is null terminated;
                     ::redisLog(REDIS_WARNING, (const char*)buffer);
                 }
             }
@@ -637,7 +637,7 @@ void ServiceRun() {
 
 void BuildServiceRunArguments(int argc, char** argv) {
     InitializeServiceName();
-	string serviceNameFullArgument = "--" + cServiceName;
+    string serviceNameFullArgument = "--" + cServiceName;
 
     // build argument list to be used by ServiceRun
     for (int n = 0; n < argc; n++) {
@@ -653,7 +653,7 @@ void BuildServiceRunArguments(int argc, char** argv) {
             // bypass --service-run argument
             continue;
         } else {
-			if (_stricmp(argv[n], serviceNameFullArgument.c_str()) == 0) {
+            if (_stricmp(argv[n], serviceNameFullArgument.c_str()) == 0) {
                 // bypass --service-name argument and the name of the service
                 n++;
                 continue; 

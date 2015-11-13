@@ -323,7 +323,7 @@ int WSIOCP_SocketSend(int fd, char *buf, int len, void *eventLoop,
     if (sockstate == NULL ||
         (sockstate->masks & SOCKET_ATTACHED) == 0 ||
         proc == NULL) {
-		result = (int)write(fd, buf, len);
+        result = (int) write(fd, buf, len);
         if (result == SOCKET_ERROR) {
             errno = WSAGetLastError();
         }

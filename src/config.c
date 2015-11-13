@@ -546,12 +546,12 @@ void loadServerConfigFromString(char *config) {
                 if (err) goto loaderr;
             }
 #ifdef _WIN32
-		} else if (!strcasecmp(argv[0],"maxheap")) {
-			// ignore. This is taken care of in the qfork code.
+        } else if (!strcasecmp(argv[0],"maxheap")) {
+            // ignore. This is taken care of in the qfork code.
         } else if (!strcasecmp(argv[0], "heapdir")) {
             // ignore. This is taken care of in the qfork code.
         } else if (!strcasecmp(argv[0], "service-name")) {
-			// ignore. This is taken care of in the win32_service code.
+            // ignore. This is taken care of in the win32_service code.
         } else if (!strcasecmp(argv[0], "persistence-available")) {
             if (strcasecmp(argv[1], "no") == 0) {
                 //remove BGSAVE and BGREWRITEAOF when persistence is disabled
@@ -571,7 +571,7 @@ void loadServerConfigFromString(char *config) {
                 sdsfree(bgrewriteaof);
             }
 #endif
-		} else {
+        } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
@@ -1736,16 +1736,16 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     int fd = open(configfile,O_RDWR|O_CREAT,0644);
     int content_size = (int)sdslen(content), padding = 0;
 #ifdef _WIN32
-	struct _stat64 sb;  //BUGBUG: won't work on Win32
+    struct _stat64 sb;  //BUGBUG: won't work on Win32
 #else
-	struct stat sb;
+    struct stat sb;
 #endif
     sds content_padded;
 
     /* 1) Open the old file (or create a new one if it does not
      *    exist), get the size. */
     if (fd == -1) return -1; /* errno set by open(). */
-	if (fstat(fd,&sb) == -1) {
+    if (fstat(fd,&sb) == -1) {
         close(fd);
         return -1; /* errno set by fstat(). */
     }

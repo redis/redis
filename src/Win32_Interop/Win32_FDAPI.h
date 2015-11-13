@@ -27,9 +27,9 @@
 #endif
 
 // fcntl flags used in Redis
-#define	F_GETFL		3
-#define	F_SETFL		4
-#define	O_NONBLOCK	0x0004
+#define F_GETFL     3
+#define F_SETFL     4
+#define O_NONBLOCK  0x0004
 
 typedef unsigned long nfds_t;
 

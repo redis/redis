@@ -30,35 +30,35 @@
 using namespace std;
 
 DLLMap& DLLMap::getInstance() {
-	static DLLMap    instance; // Instantiated on first use. Guaranteed to be destroyed.
-	return instance;
+    static DLLMap    instance; // Instantiated on first use. Guaranteed to be destroyed.
+    return instance;
 }
 
 DLLMap::DLLMap() { };
 
 LPVOID DLLMap::getProcAddress(string dll, string functionName)
 {
-	if (find(dll) == end()) {
-		HMODULE mod = LoadLibraryA(dll.c_str());
-		if (mod == NULL) {
-			throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
-		}
-		(*this)[dll] = mod;
-	}
+    if (find(dll) == end()) {
+        HMODULE mod = LoadLibraryA(dll.c_str());
+        if (mod == NULL) {
+            throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
+        }
+        (*this)[dll] = mod;
+    }
 
-	HMODULE mod = (*this)[dll];
-	LPVOID fp = GetProcAddress(mod, functionName.c_str());
-	if (fp == nullptr) {
-		throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
-	}
+    HMODULE mod = (*this)[dll];
+    LPVOID fp = GetProcAddress(mod, functionName.c_str());
+    if (fp == nullptr) {
+        throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
+    }
 
-	return fp;
+    return fp;
 }
 
 DLLMap::~DLLMap()
 {
-	for each(auto modPair in (*this))
-	{
-		FreeLibrary(modPair.second);
-	}
+    for each(auto modPair in (*this))
+    {
+        FreeLibrary(modPair.second);
+    }
 }

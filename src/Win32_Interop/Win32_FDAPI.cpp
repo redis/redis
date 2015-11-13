@@ -191,7 +191,7 @@ BOOL FDAPI_AcceptEx(int listenRFD, int acceptRFD, PVOID lpOutputBuffer,
 }
 
 #ifndef SIO_LOOPBACK_FAST_PATH
-const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
+const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;    // from Win8 SDK
 #endif
 
 void EnableFastLoopback(SOCKET socket) {
@@ -1224,8 +1224,8 @@ private:
         f_WSACleanup();
     }
 
-    Win32_FDSockMap(Win32_FDSockMap const&);	  // Don't implement to guarantee singleton semantics
-    void operator=(Win32_FDSockMap const&); // Don't implement to guarantee singleton semantics
+    Win32_FDSockMap(Win32_FDSockMap const&);    // Don't implement to guarantee singleton semantics
+    void operator=(Win32_FDSockMap const&);     // Don't implement to guarantee singleton semantics
 };
 
 // guarantee global initialization

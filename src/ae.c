@@ -378,9 +378,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
-#ifdef _WIN32	
-	if (ServiceStopIssued() == TRUE)
-		aeStop(eventLoop);
+#ifdef _WIN32
+    if (ServiceStopIssued() == TRUE)
+        aeStop(eventLoop);
 #endif
 
     /* Nothing to do? return ASAP */
@@ -436,7 +436,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
             fe = &eventLoop->events[eventLoop->fired[j].fd];
 
-	    /* note the fe->mask & mask & ... code: maybe an already processed
+            /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
             if (fe->mask & mask & AE_READABLE) {
@@ -471,7 +471,7 @@ int aeWait(int fd, int mask, PORT_LONGLONG milliseconds) {
     if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+    if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
         if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
         return retmask;
     } else {

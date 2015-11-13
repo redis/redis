@@ -918,7 +918,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
              zmalloc_used_memory() < server.maxmemory)) break;
     }
 #ifndef _WIN32
-	if (totwritten > 0) c->lastinteraction = server.unixtime;
+    if (totwritten > 0) c->lastinteraction = server.unixtime;
 #else
     if (totwritten > 0) {
 		/* For clients representing masters we don't count sending data
@@ -1397,7 +1397,7 @@ int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
         /* TCP client. */
         int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
 #ifndef _WIN32
-		formatPeerId(peerid,peerid_len,ip,port);
+        formatPeerId(peerid,peerid_len,ip,port);
 #else
         if (retval == -1 && client->flags & REDIS_MASTER) {
             formatPeerId(peerid, peerid_len, "MASTER", 0);

@@ -59,7 +59,7 @@ extern "C" {
     void setSyslogEnabled(int enabled);
     void setSyslogIdent(char* identity);
     int IsEventLogEnabled();
-	void WriteEventLog(const char* msg);
+    void WriteEventLog(const char* msg);
 
 #ifdef __cplusplus
 }
