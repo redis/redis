@@ -52,27 +52,27 @@ typedef enum startupStatus {
 // For parent process use only
 pid_t BeginForkOperation_Rdb(
     char* fileName,
-    LPVOID globalData,
-    int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed);
+    LPVOID redisData,
+    int sizeOfRedisData,
+    uint32_t dictHashSeed);
 
 pid_t BeginForkOperation_Aof(
     int aof_pipe_write_ack_to_parent,
     int aof_pipe_read_ack_from_parent,
     int aof_pipe_read_data_from_parent,
     char* fileName,
-    LPVOID globalData,
-    int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed);
+    LPVOID redisData,
+    int sizeOfRedisData,
+    uint32_t dictHashSeed);
 
 pid_t BeginForkOperation_Socket(
     int *fds,
     int numfds,
     uint64_t *clientids,
     int pipe_write_fd,
-    LPVOID globalData,
-    int sizeOfGlobalData,
-    unsigned __int32 dictHashSeed);
+    LPVOID redisData,
+    int sizeOfRedisData,
+    uint32_t dictHashSeed);
 
 void BeginForkOperation_Socket_Duplicate(DWORD dwProcessId);
 

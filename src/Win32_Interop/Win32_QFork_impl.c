@@ -22,10 +22,10 @@
 
 #include "..\redis.h"
 
-void SetupGlobals(LPVOID globalData, size_t globalDataSize, uint32_t dictHashSeed)
+void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint32_t dictHashSeed)
 {
 #ifndef NO_QFORKIMPL
-    memcpy(&server, globalData, globalDataSize);
+    memcpy(&server, redisData, redisDataSize);
     dictSetHashFunctionSeed(dictHashSeed);
 #endif
 }
