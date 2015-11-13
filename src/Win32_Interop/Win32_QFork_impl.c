@@ -21,6 +21,7 @@
  */
 
 #include "..\redis.h"
+#include "Win32_Portability.h"
 
 void SetupRedisGlobals(LPVOID redisData, size_t redisDataSize, uint32_t dictHashSeed)
 {
@@ -74,12 +75,13 @@ int do_rdbSaveToSlavesSockets(int *fds, int numfds, uint64_t *clientids)
     server.rdb_child_pid = GetCurrentProcessId();
 
     rioInitWithFdset(&slave_sockets,fds,numfds);
-    zfree(fds);
+    // On Windows we need to use the fds after do_socketSave2 has finished
+    // so we don't free them here, moreover since we allocate the fds in
+    // QFork.cpp it's better to use malloc instead of zmalloc.
+    POSIX_ONLY(zfree(fds););
 
     // On Windows we haven't duplicated the listening sockets so we shouldn't close them
-#ifndef _WIN32
-    closeListeningSockets(0);
-#endif
+    POSIX_ONLY(closeListeningSockets(0);)
 
     redisSetProcTitle("redis-rdb-to-slaves");
     
