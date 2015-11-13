@@ -542,7 +542,7 @@ typedef struct redisClient {
     PORT_LONGLONG reploff;      /* replication offset if this is our master */
     PORT_LONGLONG repl_ack_off; /* replication ack offset, if this is a slave */
     PORT_LONGLONG repl_ack_time;/* replication ack time, if this is a slave */
-    long long psync_initial_offset; /* FULLRESYNC reply offset other slaves
+    PORT_LONGLONG psync_initial_offset; /* FULLRESYNC reply offset other slaves
                                        copying this slave output buffer
                                        should use. */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
@@ -1129,8 +1129,8 @@ void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void replicationSendNewlineToMaster(void);
 char *replicationGetSlaveName(redisClient *c);
-long long getPsyncInitialOffset(void);
-int replicationSetupSlaveForFullResync(redisClient *slave, long long offset);
+PORT_LONGLONG getPsyncInitialOffset(void);
+int replicationSetupSlaveForFullResync(redisClient *slave, PORT_LONGLONG offset);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);

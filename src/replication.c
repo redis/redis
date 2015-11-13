@@ -359,8 +359,8 @@ PORT_LONGLONG addReplyReplicationBacklog(redisClient *c, PORT_LONGLONG offset) {
  * from the slave. The returned value is only valid immediately after
  * the BGSAVE process started and before executing any other command
  * from clients. */
-long long getPsyncInitialOffset(void) {
-    long long psync_offset = server.master_repl_offset;
+PORT_LONGLONG getPsyncInitialOffset(void) {
+    PORT_LONGLONG psync_offset = server.master_repl_offset;
     /* Add 1 to psync_offset if it the replication backlog does not exists
      * as when it will be created later we'll increment the offset by one. */
     if (server.repl_backlog == NULL) psync_offset++;
@@ -383,7 +383,7 @@ long long getPsyncInitialOffset(void) {
  * Normally this function should be called immediately after a successful
  * BGSAVE for replication was started, or when there is one already in
  * progress that we attached our slave to. */
-int replicationSetupSlaveForFullResync(redisClient *slave, long long offset) {
+int replicationSetupSlaveForFullResync(redisClient *slave, PORT_LONGLONG offset) {
     char buf[128];
     int buflen;
 
@@ -2198,7 +2198,7 @@ int replicationScriptCacheExists(sds sha1) {
 
 /* Replication cron function, called 1 time per second. */
 void replicationCron(void) {
-    static long long replication_cron_loops = 0;
+    static PORT_LONGLONG replication_cron_loops = 0;
 
     /* Non blocking connection timeout? */
     if (server.masterhost &&
