@@ -1650,6 +1650,12 @@ int ldbRemoveChild(pid_t pid) {
     return 0;
 }
 
+/* Return the number of children we still did not received termination
+ * acknowledge via wait() in the parent process. */
+int ldbPendingChildren(void) {
+    return listLength(ldb.children);
+}
+
 /* Kill all the forked sessions. */
 void ldbKillForkedSessions(void) {
     listIter li;
