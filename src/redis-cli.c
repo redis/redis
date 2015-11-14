@@ -78,10 +78,10 @@ int spectrum_palette_size;
 static redisContext *context;
 static struct config {
     char *hostip;
-    int hostport;
     char *hostsocket;
     long repeat;
     long interval;
+    int hostport;
     int dbnum;
     int interactive;
     int shutdown;
@@ -108,10 +108,10 @@ static struct config {
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
     int output; /* output mode, see OUTPUT_* defines */
+    int last_cmd_type;
     sds mb_delim;
     char prompt[128];
     char *eval;
-    int last_cmd_type;
 } config;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
