@@ -1465,6 +1465,7 @@ void scriptCommand(client *c) {
         }
         if (!strcasecmp(c->argv[2]->ptr,"no")) {
             ldbDisable(c);
+            addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"yes")) {
             ldbEnable(c);
             addReply(c,shared.ok);
