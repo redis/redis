@@ -39,7 +39,7 @@ You can run a 32 bit Redis binary using:
 
     % make 32bit
 
-After building Redis is a good idea to test it, using:
+After building Redis, it is a good idea to test it using:
 
     % make test
 
@@ -47,8 +47,8 @@ Fixing build problems with dependencies or cached build options
 ---------
 
 Redis has some dependencies which are included into the `deps` directory.
-`make` does not rebuild dependencies automatically, even if something in the
-source code of dependencies is changed.
+`make` does not rebuild dependencies automatically, even if something in
+source code of the dependencies changes.
 
 When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
@@ -109,14 +109,14 @@ To run Redis with the default configuration just type:
 
     % cd src
     % ./redis-server
-    
+
 If you want to provide your redis.conf, you have to run it using an additional
 parameter (the path of the configuration file):
 
     % cd src
     % ./redis-server /path/to/redis.conf
 
-It is possible to alter the Redis configuration passing parameters directly
+It is possible to alter the Redis configuration by passing parameters directly
 as options using the command line. Examples:
 
     % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
@@ -174,7 +174,7 @@ You'll be able to stop and start Redis using the script named
 `/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
 Code contributions
----
+-----------------
 
 Note: by contributing code to the Redis project in any form, including sending
 a pull request via Github, a code fragment or patch via private email or
@@ -206,13 +206,13 @@ Source code layout
 ---
 
 The Redis root directory just contains this README, the Makefile which
-actually calls the real Makefile inside the `src` directory, an example
+actually calls the real Makefile inside the `src` directory and an example
 configuration for Redis and Sentinel. Finally you can find a few shell
 scripts that are used in order to execute the Redis, Redis Cluster and
 Redis Sentinel unit tests, which are implemented inside the `tests`
 directory.
 
-Inside the root directory the are the following important directories:
+Inside the root directory following are the important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
@@ -225,16 +225,16 @@ exposed is the logical one to follow in order to disclose different layers
 of complexity incrementally.
 
 Note: lately Redis was refactored quite a bit. Function names and file
-names changed, so you may find that this documentation reflects the
+names have been changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance in Redis 3.0 the `server.c`
-and `server.h` files were renamed `redis.c` and `redis.h`. However the overall
+and `server.h` files were renamed to `redis.c` and `redis.h`. However the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
 server.h
 ---
 
-The simplest way to understand how a program works, is to understand the
+The simplest way to understand how a program works is to understand the
 data structures it uses. So we'll start from the main header file of
 Redis, which is `server.h`.
 
@@ -252,7 +252,7 @@ the structure definition.
 
 Another important Redis data structure is the one defining a client.
 In the past it was called `redisClient`, now just `client`. The structure
-has many fields, here we'll show just the main ones:
+has many fields, here we'll just show the main ones:
 
     struct client {
         int fd;
@@ -297,7 +297,7 @@ Redis objects are used extensively in the Redis internals, however in order
 to avoid the overhead of indirect accesses, recently in many places
 we just use plain dynamic strings not wrapped inside a Redis object.
 
-sever.c
+server.c
 ---
 
 This is the entry point of the Redis server, where the `main()` function
@@ -444,4 +444,3 @@ cover everything, we want just to help you with the first steps,
 eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
-
