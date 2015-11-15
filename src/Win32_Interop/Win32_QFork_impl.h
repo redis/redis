@@ -26,7 +26,7 @@
 extern "C" {
 #endif
 
-    void SetupGlobals(LPVOID globalData, size_t globalDataSize, unsigned __int32 dictHashKey);
+    void SetupRedisGlobals(LPVOID globalData, size_t globalDataSize, unsigned __int32 dictHashKey);
     int do_rdbSave(char* filename);
     int do_aofSave(char* filename);
     int do_socketSave(int *fds, int numfds, uint64_t *clientids, int pipe_write_fd);

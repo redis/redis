@@ -48,19 +48,6 @@ typedef enum startupStatus {
     ssCONTINUE_AS_PARENT = 1,     // Parent qfork initialization complete, continue as parent instance. Call QForkShutdown when exiting.
     ssCHILD_EXIT = 2              // Child completed operation. Call QForkShutdown and exit.
 } StartupStatus;
-
-#define MAX_GLOBAL_DATA 10000
-typedef struct QForkBeginInfo {
-    BYTE globalData[MAX_GLOBAL_DATA];
-    size_t globalDataSize;
-    unsigned __int32 dictHashSeed;
-    char filename[MAX_PATH];
-    int *fds;
-    int numfds;
-    uint64_t *clientids;
-    HANDLE pipe_write_handle;
-    LPVOID protocolInfo;
-} QForkStartupInfo;
     
 StartupStatus QForkStartup(int argc, char** argv);
 BOOL QForkShutdown();
@@ -68,15 +55,15 @@ BOOL QForkShutdown();
 // For parent process use only
 pid_t BeginForkOperation_Rdb(
     char* fileName,
-    LPVOID globalData,
-    int sizeOfGlobalData,
+    LPVOID redisGlobals,
+    int redisGlobalsSize,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
 pid_t BeginForkOperation_Aof(
     char* fileName,
-    LPVOID globalData,
-    int sizeOfGlobalData,
+    LPVOID redisGlobals,
+    int redisGlobalsSize,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
@@ -85,8 +72,8 @@ pid_t BeginForkOperation_Socket(
     int numfds,
     uint64_t *clientids,
     int pipe_write_fd,
-    LPVOID globalData,
-    int sizeOfGlobalData,
+    LPVOID redisGlobals,
+    int redisGlobalsSize,
     unsigned __int32 dictHashSeed,
     char* logfile);
 
