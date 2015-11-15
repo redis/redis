@@ -329,16 +329,17 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         } else if (g_pQForkControl->typeOfOperation == OperationType::otSocket) {
             LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->forkData.protocolInfo;
             int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->forkData.pipe_write_handle, _O_APPEND);
+            int* fds = (int*) malloc(sizeof(int) * g_pQForkControl->forkData.numfds);
             for (int i = 0; i < g_pQForkControl->forkData.numfds; i++) {
-                g_pQForkControl->forkData.fds[i] = FDAPI_WSASocket(FROM_PROTOCOL_INFO,
-                                                                   FROM_PROTOCOL_INFO,
-                                                                   FROM_PROTOCOL_INFO,
-                                                                   &lpProtocolInfo[i],
-                                                                   0,
-                                                                   WSA_FLAG_OVERLAPPED);
+                fds[i] = FDAPI_WSASocket(FROM_PROTOCOL_INFO,
+                                         FROM_PROTOCOL_INFO,
+                                         FROM_PROTOCOL_INFO,
+                                         &lpProtocolInfo[i],
+                                         0,
+                                         WSA_FLAG_OVERLAPPED);
             }
 
-            g_ChildExitCode = do_socketSave(g_pQForkControl->forkData.fds,
+            g_ChildExitCode = do_socketSave(fds,
                                             g_pQForkControl->forkData.numfds,
                                             g_pQForkControl->forkData.clientids,
                                             pipe_write_fd);
@@ -346,8 +347,9 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             // Failing to close the sockets properly will produce a socket read error
             // on both the parent process and the slave.
             for (int i = 0; i < g_pQForkControl->forkData.numfds; i++) {
-                FDAPI_CloseDuplicatedSocket(g_pQForkControl->forkData.fds[i]);
+                FDAPI_CloseDuplicatedSocket(fds[i]);
             }
+            free(fds);
         } else {
             throw runtime_error("unexpected operation type");
         }
