@@ -2151,8 +2151,12 @@ ldbLog(sdsnew("[h]elp               Show this help."));
 ldbLog(sdsnew("[s]tep               Run current line and stop again."));
 ldbLog(sdsnew("[n]ext               Alias for step."));
 ldbLog(sdsnew("[c]continue          Run till next breakpoint."));
-ldbLog(sdsnew("[l]list [line]       List source code, around [line] if specified"));
-ldbLog(sdsnew("                     you can use another arg for context size."));
+ldbLog(sdsnew("[l]list              List source code around current line."));
+ldbLog(sdsnew("[l]list [line]       List source code around [line]."));
+ldbLog(sdsnew("                     line = 0 means: current position."));
+ldbLog(sdsnew("[l]list [line] [ctx] In this form [ctx] specifies how many lines"));
+ldbLog(sdsnew("                     to show before/after [line]."));
+ldbLog(sdsnew("[w]hole              List all source code. Alias for 'list 1 1000000'."));
 ldbLog(sdsnew("[p]rint <var>        Show the value of the specified variable."));
 ldbLog(sdsnew("[b]reak              Show all breakpoints."));
 ldbLog(sdsnew("[b]reak <line>       Add a breakpoint to the specified line."));
@@ -2193,10 +2197,16 @@ ldbLog(sdsnew("                     in the next line of code."));
             ldbPrint(lua,argv[1]);
             ldbSendLogs();
         } else if (!strcasecmp(argv[0],"l") || !strcasecmp(argv[0],"list")){
-            int around = 0, ctx = 5;
-            if (argc > 1) around = atoi(argv[1]);
+            int around = ldb.currentline, ctx = 5;
+            if (argc > 1) {
+                int num = atoi(argv[1]);
+                if (num > 0) around = num;
+            }
             if (argc > 2) ctx = atoi(argv[2]);
             ldbList(around,ctx);
+            ldbSendLogs();
+        } else if (!strcasecmp(argv[0],"w") || !strcasecmp(argv[0],"whole")){
+            ldbList(1,1000000);
             ldbSendLogs();
         } else {
             ldbLog(sdsnew("<error> Unknown Redis Lua debugger command or "
