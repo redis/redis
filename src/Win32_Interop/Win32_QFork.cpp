@@ -381,12 +381,12 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 }
 
 string GetLocalAppDataFolder() {
-    char localAppDataPath[_MAX_PATH];
+    char localAppDataPath[MAX_PATH];
     HRESULT hr;
     if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, localAppDataPath))) {
         throw system_error(hr, system_category(), "SHGetFolderPathA failed");
     }
-    char redisAppDataPath[_MAX_PATH];
+    char redisAppDataPath[MAX_PATH];
     if (NULL == PathCombineA(redisAppDataPath, localAppDataPath, "Redis")) {
         throw system_error(hr, system_category(), "PathCombineA failed");
     }
@@ -400,16 +400,14 @@ string GetLocalAppDataFolder() {
     return redisAppDataPath;
 }
 
-string g_MMFDir;
 string GetWorkingDirectory() {
-    if (g_MMFDir.length() == 0) {
-        string workingDir;
-        if (g_argMap.find(cHeapDir) != g_argMap.end()) {
-            workingDir = g_argMap[cHeapDir][0][0];
-            replace(workingDir.begin(), workingDir.end(), '/', '\\');
+    string workingDir;
+    if (g_argMap.find(cHeapDir) != g_argMap.end()) {
+        workingDir = g_argMap[cHeapDir][0][0];
+        replace(workingDir.begin(), workingDir.end(), '/', '\\');
 
-            if (PathIsRelativeA(workingDir.c_str())) {
-                char cwd[MAX_PATH];
+        if (PathIsRelativeA(workingDir.c_str())) {
+            char cwd[MAX_PATH];
                 if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
                     throw system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
                 }
@@ -417,25 +415,58 @@ string GetWorkingDirectory() {
                 if (NULL == PathCombineA(fullPath, cwd, workingDir.c_str())) {
                     throw system_error(GetLastError(), system_category(), "PathCombineA failed");
                 }
-                workingDir = fullPath;
-            }
-        } else {
-            workingDir = GetLocalAppDataFolder();
+            workingDir = fullPath;
         }
-
-        if (workingDir.at(workingDir.length() - 1) != '\\') {
-            workingDir = workingDir.append("\\");
-        }
-
-        g_MMFDir = workingDir;
+    } else {
+        workingDir = GetLocalAppDataFolder();
     }
 
-    return g_MMFDir;
+    if (workingDir.at(workingDir.length() - 1) != '\\') {
+        workingDir = workingDir.append("\\");
+    }
+
+    return workingDir;
+}
+
+/* In the case of a BSOD or power failure the mapped memory file is not
+ * deleted automatically, make sure all leftover files are removed.
+ */
+void CleanupWorkingDir(string workingDir) {
+    try {
+        char heapMemoryMapWildCard[MAX_PATH];
+        WIN32_FIND_DATAA fd;
+
+        sprintf_s(
+            heapMemoryMapWildCard,
+            MAX_PATH,
+            "%s%s_*.dat",
+            workingDir.c_str(),
+            cMapFileBaseName);
+
+        HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
+
+        while (hFind != INVALID_HANDLE_VALUE) {
+            string filePath;
+            filePath.append(workingDir.c_str()).append(fd.cFileName);
+            // Failure likely means the file is in use by another redis instance
+            DeleteFileA(filePath.c_str());
+
+            if (FALSE == FindNextFileA(hFind, &fd)) {
+                FindClose(hFind);
+                hFind = INVALID_HANDLE_VALUE;
+            }
+        }
+    }
+    catch (...) {}
 }
 
 BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
-        // allocate file map for qfork control so it can be passed to the forked process
+        string workingDir = GetWorkingDirectory();
+        CleanupWorkingDir(workingDir);
+
+        // Allocate file map for qfork control so it can be passed to the
+        // forked process.
         g_hQForkControlFileMap = CreateFileMappingW(
             INVALID_HANDLE_VALUE,
             NULL,
@@ -461,8 +492,8 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 "MapViewOfFile failed");
         }
 
-        // This must be called only once per process! Calling it more times than that will not recreate existing 
-        // section, and dlmalloc will ultimately fail with an access violation. Once is good.
+        // This must be called only once per process. Calling it more times
+        // will not recreate existing section, and dlmalloc will ultimately
         if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
             throw system_error(
                 GetLastError(),
@@ -470,7 +501,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 "DLMalloc failed initializing allocation granularity.");
         }
 
-        // ensure the number of blocks is a multiple of cAllocationGranularity
+        // Ensure the number of blocks is a multiple of cAllocationGranularity
         SIZE_T allocationBlocks = (SIZE_T) maxheapBytes / cAllocationGranularity;
         allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
 
@@ -479,29 +510,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             throw runtime_error("Invalid number of heap blocks.");
         }
 
-        // FILE_FLAG_DELETE_ON_CLOSE will not clean up files in the case of a BSOD or power failure.
-        // Clean up anything we can to prevent excessive disk usage.
-        char heapMemoryMapWildCard[MAX_PATH];
-        WIN32_FIND_DATAA fd;
-        sprintf_s(
-            heapMemoryMapWildCard,
-            MAX_PATH,
-            "%s%s_*.dat",
-            GetWorkingDirectory().c_str(),
-            cMapFileBaseName);
-        HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
-        while (hFind != INVALID_HANDLE_VALUE) {
-            // Failure likely means the file is in use by another redis instance.
-            DeleteFileA(fd.cFileName);
-
-            if (FALSE == FindNextFileA(hFind, &fd)) {
-                FindClose(hFind);
-                hFind = INVALID_HANDLE_VALUE;
-            }
-        }
-
-        string workingDir = GetWorkingDirectory();
-
+        // Create the memory mapped file
         char heapMemoryMapPath[MAX_PATH];
         sprintf_s(
             heapMemoryMapPath,
@@ -519,7 +528,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 NULL,
                 CREATE_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
-                NULL );
+                NULL);
         if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
             throw system_error(
                 GetLastError(),
@@ -547,9 +556,10 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 "CreateFileMapping failed.");
         }
             
-        // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
-        // to be available in the forked process.  (If this ever fails in the forked process, we will have to launch
-        // the forked process and negotiate for a shared memory address here.)
+        // Find a place in the virtual memory space where we can reserve space
+        // for our allocations that is likely to be available in the forked process.
+        // If this ever fails in the forked process, we will have to launch
+        // the forked process and negotiate for a shared memory address here.
         LPVOID pHigh = VirtualAllocEx( 
             GetCurrentProcess(),
             NULL,
@@ -890,11 +900,11 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     STARTUPINFOA si;
     memset(&si,0, sizeof(STARTUPINFOA));
     si.cb = sizeof(STARTUPINFOA);
-    char arguments[_MAX_PATH];
-    memset(arguments,0,_MAX_PATH);
+    char arguments[MAX_PATH];
+    memset(arguments, 0, MAX_PATH);
     sprintf_s(
         arguments,
-        _MAX_PATH,
+        MAX_PATH,
         "\"%s\" --%s %llu %lu --%s \"%s\"",
         fileName,
         cQFork.c_str(),
