@@ -102,6 +102,9 @@ BOOL WriteToProcmon (wstring message)
 }
 #endif
 
+void ThrowLastError(const char* msg) {
+    throw system_error(GetLastError(), system_category(), msg);
+}
 /*
 Redis is an in memory DB. We need to share the redis database with a quasi-forked process so that we can do the RDB and AOF saves 
 without halting the main redis process, or crashing due to code that was never designed to be thread safe. Essentially we need to
@@ -314,7 +317,7 @@ BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             string("Could not map heap in forked process. Is system swap file large enough?"));
 
         // Setup DLMalloc global data
-        if( SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
+        if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
             throw runtime_error("DLMalloc global state copy failed.");
         }
 
@@ -388,12 +391,12 @@ string GetLocalAppDataFolder() {
     }
     char redisAppDataPath[MAX_PATH];
     if (NULL == PathCombineA(redisAppDataPath, localAppDataPath, "Redis")) {
-        throw system_error(hr, system_category(), "PathCombineA failed");
+        throw runtime_error("PathCombineA failed");
     }
 
     if (PathIsDirectoryA(redisAppDataPath) == FALSE) {
         if (CreateDirectoryA(redisAppDataPath, NULL) == FALSE) {
-            throw system_error(hr, system_category(), "CreateDirectoryA failed");
+            ThrowLastError("CreateDirectoryA failed");
         }
     }
 
@@ -408,13 +411,14 @@ string GetWorkingDirectory() {
 
         if (PathIsRelativeA(workingDir.c_str())) {
             char cwd[MAX_PATH];
-                if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
-                    throw system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
-                }
-                char fullPath[_MAX_PATH];
-                if (NULL == PathCombineA(fullPath, cwd, workingDir.c_str())) {
-                    throw system_error(GetLastError(), system_category(), "PathCombineA failed");
-                }
+            if (GetCurrentDirectoryA(MAX_PATH, cwd) == 0) {
+                ThrowLastError("GetCurrentDirectoryA failed");
+            }
+
+            char fullPath[MAX_PATH];
+            if (PathCombineA(fullPath, cwd, workingDir.c_str()) == NULL) {
+                ThrowLastError("PathCombineA failed");
+            }
             workingDir = fullPath;
         }
     } else {
@@ -474,10 +478,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             0, sizeof(QForkControl),
             NULL);
         if (g_hQForkControlFileMap == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFileMapping failed");
+            ThrowLastError("CreateFileMapping failed");
         }
 
         g_pQForkControl = (QForkControl*)MapViewOfFile(
@@ -486,19 +487,13 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             0, 0,
             0);
         if (g_pQForkControl == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "MapViewOfFile failed");
+            ThrowLastError("MapViewOfFile failed");
         }
 
         // This must be called only once per process. Calling it more times
         // will not recreate existing section, and dlmalloc will ultimately
         if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "DLMalloc failed initializing allocation granularity.");
+            ThrowLastError("DLMalloc failed initializing allocation granularity.");
         }
 
         // Ensure the number of blocks is a multiple of cAllocationGranularity
@@ -530,10 +525,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
                 NULL);
         if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFile failed");
+            ThrowLastError("CreateFile failed");
         }
 
         SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
@@ -550,10 +542,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 LODWORD(mmSize),
                 NULL);
         if (g_pQForkControl->heapMemoryMap == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateFileMapping failed.");
+            ThrowLastError("CreateFileMapping failed.");
         }
             
         // Find a place in the virtual memory space where we can reserve space
@@ -567,16 +556,11 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
             PAGE_READWRITE);
         if (pHigh == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "VirtualAllocEx failed.");
+            ThrowLastError("VirtualAllocEx failed.");
         }
+
         if (VirtualFree(pHigh, 0, MEM_RELEASE) == FALSE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "VirtualFree failed.");
+            ThrowLastError("VirtualFree failed.");
         }
 
         g_pQForkControl->heapStart = 
@@ -587,10 +571,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 0,  
                 pHigh);
         if (g_pQForkControl->heapStart == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "MapViewOfFileEx failed.");
+            ThrowLastError("MapViewOfFileEx failed.");
         }
 
         for (int n = 0; n < cMaxBlocks; n++) {
@@ -602,17 +583,12 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         g_pQForkControl->typeOfOperation = OperationType::otINVALID;
         g_pQForkControl->operationComplete = CreateEvent(NULL,TRUE,FALSE,NULL);
         if (g_pQForkControl->operationComplete == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
+            ThrowLastError("CreateEvent failed.");
         }
+
         g_pQForkControl->operationFailed = CreateEvent(NULL,TRUE,FALSE,NULL);
         if (g_pQForkControl->operationFailed == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
+            ThrowLastError("CreateEvent failed.");
         }
 
         return TRUE;
@@ -855,46 +831,34 @@ void CopyForkOperationData(OperationType type, LPVOID redisGlobals, int redisGlo
 
     // protect both the heap and the fork control map from propagating local changes 
     DWORD oldProtect = 0;
-    if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect) == FALSE) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "BeginForkOperation: VirtualProtect failed for the fork control map");
+    if (VirtualProtect(g_pQForkControl,
+                       sizeof(QForkControl),
+                       PAGE_WRITECOPY,
+                       &oldProtect) == FALSE) {
+        ThrowLastError("BeginForkOperation: VirtualProtect failed for the fork control map");
     }
-    if (VirtualProtect( 
-        g_pQForkControl->heapStart, 
-        g_pQForkControl->availableBlocksInHeap * cAllocationGranularity, 
-        PAGE_WRITECOPY, 
-        &oldProtect) == FALSE ) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "BeginForkOperation: VirtualProtect failed for the heap");
+    if (VirtualProtect(g_pQForkControl->heapStart,
+                       g_pQForkControl->availableBlocksInHeap * cAllocationGranularity,
+                       PAGE_WRITECOPY,
+                       &oldProtect) == FALSE) {
+        ThrowLastError("BeginForkOperation: VirtualProtect failed for the heap");
     }
 }
 
 void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreationFlags = 0) {
     // ensure events are in the correst state
-    if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
-        throw system_error(
-            GetLastError(),
-            system_category(), 
-            "BeginForkOperation: ResetEvent() failed.");
+    if (ResetEvent(g_pQForkControl->operationComplete) == FALSE) {
+        ThrowLastError("BeginForkOperation: ResetEvent() failed.");
     }
-    if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
-        throw system_error(
-            GetLastError(),
-            system_category(), 
-            "BeginForkOperation: ResetEvent() failed.");
+
+    if (ResetEvent(g_pQForkControl->operationFailed) == FALSE) {
+        ThrowLastError("BeginForkOperation: ResetEvent() failed.");
     }
 
     // Launch the "forked" process
     char fileName[MAX_PATH];
-    if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "Failed to get module name.");
+    if (GetModuleFileNameA(NULL, fileName, MAX_PATH) == 0) {
+        ThrowLastError("Failed to get module name.");
     }
 
     STARTUPINFOA si;
@@ -913,18 +877,23 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
         cLogfile.c_str(),
         (logfile != NULL && logfile[0] != '\0') ? logfile : "stdout");
     
-    if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, dwCreationFlags, NULL, NULL, &si, pi)) {
-        throw system_error( 
-            GetLastError(),
-            system_category(),
-            "Problem creating child process" );
+    if (CreateProcessA(fileName, arguments, NULL, NULL, TRUE,
+                       dwCreationFlags, NULL, NULL, &si, pi) == FALSE) {
+        ThrowLastError("Problem creating child process");
     }
     g_hForkedProcess = pi->hProcess;
 }
 
 typedef void (*CHILD_PID_HOOK)(DWORD pid);
 
-pid_t BeginForkOperation(OperationType type, LPVOID redisGlobals, int redisGlobalsSize, uint32_t dictHashSeed, char* logfile, CHILD_PID_HOOK pidHook = NULL) {
+pid_t BeginForkOperation(
+    OperationType type,
+    LPVOID redisGlobals,
+    int redisGlobalsSize,
+    uint32_t dictHashSeed,
+    char* logfile,
+    CHILD_PID_HOOK pidHook = NULL)
+{
     PROCESS_INFORMATION pi;
     try {
         pi.hProcess = INVALID_HANDLE_VALUE;
@@ -1028,8 +997,8 @@ OperationStatus GetForkOperationStatus() {
     if (g_hForkedProcess) {
         // Verify if the child process is still running
         if (WaitForSingleObject(g_hForkedProcess, 0) == WAIT_OBJECT_0) {
-            // The child process is not running, close the handle and report the status
-            // setting the operationFailed event
+            // The child process is not running, close the handle and report
+            // the status setting the operationFailed event
             CloseHandle(g_hForkedProcess);
             g_hForkedProcess = 0;
             if (g_pQForkControl->operationFailed != NULL) {
@@ -1048,21 +1017,18 @@ BOOL AbortForkOperation() {
     try {
         if (g_hForkedProcess != 0) {
             if (TerminateProcess(g_hForkedProcess, 1) == FALSE) {
-                throw system_error(
-                    GetLastError(),
-                    system_category(),
-                    "EndForkOperation: Killing forked process failed.");
+                ThrowLastError("EndForkOperation: Killing forked process failed.");
             }
             CloseHandle(g_hForkedProcess);
             g_hForkedProcess = 0;
         }
-
         return EndForkOperation(NULL);
     }
     catch (system_error syserr) {
         redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
 
-        // If we can not properly restore fork state, then another fork operation is not possible. 
+        // If we can not properly restore fork state,
+        // then another fork operation is not possible.
         exit(1);
     }
     catch (...) {
@@ -1083,14 +1049,8 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize, bool useVirtu
 
     for (byte* mmAddress = mmStart; mmAddress < mmStart + mmSize; ) {
         MEMORY_BASIC_INFORMATION memInfo;
-        if (!VirtualQuery(
-            mmAddress,
-            &memInfo,
-            sizeof(memInfo))) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "RejoinCOWPages: VirtualQuery failure");
+        if (VirtualQuery(mmAddress, &memInfo, sizeof(memInfo)) == 0) {
+            ThrowLastError("RejoinCOWPages: VirtualQuery failure");
         }
 
         byte* regionEnd = (byte*)memInfo.BaseAddress + memInfo.RegionSize;
@@ -1102,37 +1062,28 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize, bool useVirtu
         mmAddress = regionEnd;
     }
 
-    // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
+    // If the COWs are not discarded, then there is no way of propagating
+    // changes into subsequent fork operations.
     if (useVirtualProtect && WindowsVersion::getInstance().IsAtLeast_6_2()) {
         // Restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
-        if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
-            throw system_error(GetLastError(), system_category(), "RejoinCOWPages: COW cull failed");
-        }
+        if (VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP,
+                           &oldProtect) == FALSE)
+            ThrowLastError("RejoinCOWPages: COW cull failed");
     } else {
-        // Prior to Win8 unmapping the view was the only way to discard the COW pages from the view. Unfortunately this forces
-        // the view to be completely flushed to disk, which is a bit inefficient.
+        // Prior to Windows 8 unmapping the view was the only way to discard
+        // the COW pages from the view. Unfortunately this forces the view to
+        // be completely flushed to disk, which is a bit inefficient.
         if (UnmapViewOfFile(mmStart) == FALSE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "RejoinCOWPages: UnmapViewOfFile failed.");
+            ThrowLastError("RejoinCOWPages: UnmapViewOfFile failed.");
         }
-        // There is a race condition here. Something could map into the virtual address space used by the heap at the moment 
-        // we are discarding local changes. There is nothing to do but report the problem and exit. This problem does not 
-        // exist with the code above in Win8+ as the view is never unmapped.
-        LPVOID remapped =
-            MapViewOfFileEx(
-            mmHandle,
-            FILE_MAP_ALL_ACCESS,
-            0, 0,
-            0,
-            mmStart);
-        if (remapped == NULL) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "RejoinCOWPages: MapViewOfFileEx failed.");
+        // There may be a race condition here. Something could map into the
+        // virtual address space used by the heap at the moment we are
+        // discarding local changes. There is nothing to do but report the
+        // problem and exit. This problem does not exist with the code above
+        // in Windows 8+ as the view is never unmapped.
+        if (MapViewOfFileEx(mmHandle, FILE_MAP_ALL_ACCESS, 0, 0, 0, mmStart) == NULL) {
+            ThrowLastError("RejoinCOWPages: MapViewOfFileEx failed.");
         }
     }
 }
@@ -1142,10 +1093,7 @@ BOOL EndForkOperation(int * pExitCode) {
         if (g_hForkedProcess != 0) {
             if (WaitForSingleObject(g_hForkedProcess, cDeadForkWait) == WAIT_TIMEOUT) {
                 if (TerminateProcess(g_hForkedProcess, 1) == FALSE) {
-                    throw system_error(
-                        GetLastError(),
-                        system_category(),
-                        "EndForkOperation: Killing forked process failed.");
+                    ThrowLastError("EndForkOperation: Killing forked process failed.");
                 }
             }
 
@@ -1158,25 +1106,22 @@ BOOL EndForkOperation(int * pExitCode) {
         }
 
         if (ResetEvent(g_pQForkControl->operationComplete) == FALSE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "EndForkOperation: ResetEvent() failed.");
+            ThrowLastError("EndForkOperation: ResetEvent() failed.");
         }
         if (ResetEvent(g_pQForkControl->operationFailed) == FALSE) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "EndForkOperation: ResetEvent() failed.");
+            ThrowLastError("EndForkOperation: ResetEvent() failed.");
         }
 
-        // move local changes back into memory mapped views for next fork operation
+        // Move local changes back into memory mapped views for next fork operation
+        // Use the VirtualProtect optimization for the memory mapped file
         RejoinCOWPages(
             g_pQForkControl->heapMemoryMap,
             (byte*) g_pQForkControl->heapStart,
             g_pQForkControl->availableBlocksInHeap * cAllocationGranularity,
             true);
 
+        // g_hQForkControlFileMap uses the system paging file, therefore
+        // we can't use the VirtualProtect optimization
         RejoinCOWPages(
             g_hQForkControlFileMap,
             (byte*) g_pQForkControl,
@@ -1198,12 +1143,7 @@ BOOL EndForkOperation(int * pExitCode) {
     return FALSE;
 }
 
-int blocksMapped = 0;
-int totalAllocCalls = 0;
-int totalFreeCalls = 0;
-
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    totalAllocCalls++;
     LPVOID retPtr = (LPVOID)NULL;
     if (size % cAllocationGranularity != 0 ) {
         errno = EINVAL;
@@ -1251,7 +1191,6 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
             (cAllocationGranularity * allocationStart);
         for(int n = 0; n < contiguousBlocksToAllocate; n++ ) {
             g_pQForkControl->heapBlockMap[allocationStart+n] = BlockState::bsMAPPED;
-            blocksMapped++;
             mapped += cAllocationGranularity; 
         }
         retPtr = blockStart;
@@ -1264,7 +1203,6 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 }
 
 BOOL FreeHeapBlock(LPVOID block, size_t size) {
-    totalFreeCalls++;
     if (size == 0) {
         return FALSE;
     }
@@ -1288,7 +1226,6 @@ BOOL FreeHeapBlock(LPVOID block, size_t size) {
         }
     }
     for (int n = 0; n < contiguousBlocksToFree; n++ ) {
-        blocksMapped--;
         g_pQForkControl->heapBlockMap[blockIndex + n] = BlockState::bsUNMAPPED;
     }
     return TRUE;
