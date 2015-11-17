@@ -236,11 +236,11 @@ int g_ChildExitCode = 0; // For child process
 BOOL g_isForkedProcess;
 BOOL g_SentinelMode;
 
-/* The system heap is used instead of the system paging file heap one of
-   the following case is true:
-   - Redis is running as a sentinel
-   - the current instance is a forked (child) process 
-   - the persistence-available configuration flag value is 'no' */
+/* The system heap is used instead of the system paging file heap if
+ * one of the following case is true:
+ * - Redis is running as a sentinel
+ * - the current instance is a forked (child) process 
+ * - the persistence-available configuration flag value is 'no' */
 BOOL g_UseSystemHeap;
 
 bool ReportSpecialSystemErrors(int error) {
