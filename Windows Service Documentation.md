@@ -82,14 +82,14 @@ This optional argument may be used with any of the preceding commands to set the
 
 The following would install and start three separate instances of Redis as a service:
 
-redis-server --service-install –service-name redisService1 –port 10001
+redis-server --service-install --service-name redisService1 --port 10001
 
-redis-server --service-start –service-name redisService1
+redis-server --service-start --service-name redisService1
 
-redis-server --service-install –service-name redisService2 –port 10002
+redis-server --service-install --service-name redisService2 --port 10002
 
-redis-server --service-start –service-name redisService2
+redis-server --service-start --service-name redisService2
 
-redis-server --service-install –service-name redisService3 –port 10003
+redis-server --service-install --service-name redisService3 --port 10003
 
-redis-server --service-start –service-name redisService3
+redis-server --service-start --service-name redisService3
