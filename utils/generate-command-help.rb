@@ -12,7 +12,9 @@ GROUPS = [
   "connection",
   "server",
   "scripting",
-  "hyperloglog"
+  "hyperloglog",
+  "cluster",
+  "geo"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*
