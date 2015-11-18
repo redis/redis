@@ -47,8 +47,8 @@ Fixing build problems with dependencies or cached build options
 ---------
 
 Redis has some dependencies which are included into the `deps` directory.
-`make` does not rebuild dependencies automatically, even if something in
-source code of the dependencies changes.
+`make` does not automatically rebuild dependencies even if dependency's source
+changes.
 
 When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
