@@ -266,16 +266,20 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
     struct timeval tv;
+    client *conn = c;
 
     gettimeofday(&tv,NULL);
     cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
-    if (c->flags & CLIENT_LUA) {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
-    } else if (c->flags & CLIENT_UNIX_SOCKET) {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
+    if (c->flags & CLIENT_LUA)
+        conn = server.lua_caller;
+    if (conn->name) {
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s",dictid,(char *)conn->name->ptr);
+    } else if (conn->flags & CLIENT_UNIX_SOCKET) {
+        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s",dictid,server.unixsocket);
     } else {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s",dictid,getClientPeerId(conn));
     }
+    cmdrepr = sdscatprintf(cmdrepr, "%s] ", (c->flags & CLIENT_LUA) ? "/lua" : "");
 
     for (j = 0; j < argc; j++) {
         if (argv[j]->encoding == OBJ_ENCODING_INT) {
