@@ -78,7 +78,12 @@ BOOL WSIOCP_CloseSocketState(aeSockState* socketState) {
 }
 
 BOOL WSIOCP_CloseSocketStateRFD(int rfd) {
-    return WSIOCP_CloseSocketState(WSIOCP_GetExistingSocketState(rfd));
+    aeSockState* socketState = WSIOCP_GetExistingSocketState(rfd);
+    if (socketState != NULL) {
+        return WSIOCP_CloseSocketState(socketState);
+    } else {
+        return FALSE;
+    }
 }
 
 int WSIOCP_QueueAccept(int listenfd) {
