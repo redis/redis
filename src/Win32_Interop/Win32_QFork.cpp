@@ -403,39 +403,39 @@ string GetLocalAppDataFolder() {
     return redisAppDataPath;
 }
 
-string GetWorkingDirectory() {
-    string workingDir;
+string GetHeapDirPath() {
+    string heapDirPath;
     if (g_argMap.find(cHeapDir) != g_argMap.end()) {
-        workingDir = g_argMap[cHeapDir][0][0];
-        replace(workingDir.begin(), workingDir.end(), '/', '\\');
+        heapDirPath = g_argMap[cHeapDir][0][0];
+        replace(heapDirPath.begin(), heapDirPath.end(), '/', '\\');
 
-        if (PathIsRelativeA(workingDir.c_str())) {
+        if (PathIsRelativeA(heapDirPath.c_str())) {
             char cwd[MAX_PATH];
             if (GetCurrentDirectoryA(MAX_PATH, cwd) == 0) {
                 ThrowLastError("GetCurrentDirectoryA failed");
             }
 
             char fullPath[MAX_PATH];
-            if (PathCombineA(fullPath, cwd, workingDir.c_str()) == NULL) {
+            if (PathCombineA(fullPath, cwd, heapDirPath.c_str()) == NULL) {
                 ThrowLastError("PathCombineA failed");
             }
-            workingDir = fullPath;
+            heapDirPath = fullPath;
         }
     } else {
-        workingDir = GetLocalAppDataFolder();
+        heapDirPath = GetLocalAppDataFolder();
     }
 
-    if (workingDir.at(workingDir.length() - 1) != '\\') {
-        workingDir = workingDir.append("\\");
+    if (heapDirPath.length() > 0 && heapDirPath.at(heapDirPath.length() - 1) != '\\') {
+        heapDirPath = heapDirPath.append("\\");
     }
 
-    return workingDir;
+    return heapDirPath;
 }
 
-/* In the case of a BSOD or power failure the mapped memory file is not
+/* In the case of a BSOD or power failure the memory map file is not
  * deleted automatically, make sure all leftover files are removed.
  */
-void CleanupWorkingDir(string workingDir) {
+void CleanupHeapDir(string heapDir) {
     try {
         char heapMemoryMapWildCard[MAX_PATH];
         WIN32_FIND_DATAA fd;
@@ -444,14 +444,14 @@ void CleanupWorkingDir(string workingDir) {
             heapMemoryMapWildCard,
             MAX_PATH,
             "%s%s_*.dat",
-            workingDir.c_str(),
+            heapDir.c_str(),
             cMapFileBaseName);
 
         HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
 
         while (hFind != INVALID_HANDLE_VALUE) {
             string filePath;
-            filePath.append(workingDir.c_str()).append(fd.cFileName);
+            filePath.append(heapDir.c_str()).append(fd.cFileName);
             // Failure likely means the file is in use by another redis instance
             DeleteFileA(filePath.c_str());
 
@@ -466,8 +466,8 @@ void CleanupWorkingDir(string workingDir) {
 
 BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
-        string workingDir = GetWorkingDirectory();
-        CleanupWorkingDir(workingDir);
+        string heapDirPath = GetHeapDirPath();
+        CleanupHeapDir(heapDirPath);
 
         // Allocate file map for qfork control so it can be passed to the
         // forked process.
@@ -511,7 +511,7 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             heapMemoryMapPath,
             MAX_PATH,
             "%s%s_%d.dat",
-            workingDir.c_str(),
+            heapDirPath.c_str(),
             cMapFileBaseName, 
             GetCurrentProcessId());
 
