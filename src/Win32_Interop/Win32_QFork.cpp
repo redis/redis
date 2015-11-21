@@ -449,7 +449,7 @@ BOOL QForkParentInit() {
 #ifdef _WIN64
             MEM_RESERVE | MEM_TOP_DOWN,
 #else
-            MEM_RESERVE
+            MEM_RESERVE,
 #endif
             PAGE_READWRITE);
         IFFAILTHROW(pHigh, "QForkMasterInit: VirtualAllocEx failed.");

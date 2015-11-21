@@ -31,7 +31,7 @@
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
-#ifdef WIN32
+#ifdef _WIN32
 #include "Win32_Interop/Win32_Portability.h"
 #endif
 
