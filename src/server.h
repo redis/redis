@@ -538,6 +538,7 @@ typedef struct blockingState {
                              * operation such as BLPOP. Otherwise NULL. */
     robj *target;           /* The key that should receive the element,
                              * for BRPOPLPUSH. */
+    long long limit;		/* The limit for number of elements to pop. */
 
     /* BLOCKED_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
@@ -1591,6 +1592,10 @@ void multiCommand(client *c);
 void execCommand(client *c);
 void discardCommand(client *c);
 void blpopCommand(client *c);
+void mlpopCommand(client *c);
+void bmlpopCommand(client *c);
+void mrpopCommand(client *c);
+void bmrpopCommand(client *c);
 void brpopCommand(client *c);
 void brpoplpushCommand(client *c);
 void appendCommand(client *c);

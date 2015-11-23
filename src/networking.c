@@ -119,6 +119,7 @@ client *createClient(int fd) {
     c->bpop.timeout = 0;
     c->bpop.keys = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->bpop.target = NULL;
+    c->bpop.limit = -1;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
