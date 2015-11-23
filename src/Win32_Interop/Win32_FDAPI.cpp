@@ -753,8 +753,7 @@ int redis_listen_impl(int rfd, int backlog) {
 }
 
 int redis_ftruncate_impl(int rfd, PORT_LONGLONG length) {
-    try
-    {
+    try {
         int crt_fd = RFDMap::getInstance().lookupCrtFD(rfd);
         if (crt_fd != INVALID_FD) {
             HANDLE h = (HANDLE) crtget_osfhandle(crt_fd);
@@ -766,10 +765,16 @@ int redis_ftruncate_impl(int rfd, PORT_LONGLONG length) {
             LARGE_INTEGER l, o;
             l.QuadPart = length;
 
-            if (!SetFilePointerEx(h, l, &o, FILE_BEGIN)) return -1;
-            if (!SetEndOfFile(h)) return -1;
+            if (!SetFilePointerEx(h, l, &o, FILE_BEGIN)) {
+                return -1;
+            }
+
+            if (!SetEndOfFile(h)) {
+                return -1;
+            }
+
+            return 0;
         }
-        return 0;
     } CATCH_AND_REPORT();
 
     errno = EBADF;
