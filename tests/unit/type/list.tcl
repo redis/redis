@@ -146,6 +146,56 @@ start_server {
             assert_equal d [r rpop target]
             assert_equal "a b $large c" [r lrange blist 0 -1]
         }
+
+        test "BMLPOP, BMRPOP: testing - $type" {
+            set rd [redis_deferring_client]
+            create_list blist "a b $large c d"
+
+            $rd bmlpop blist 2 1
+            assert_equal "blist a blist b" [$rd read]
+            $rd bmrpop blist 2 1
+            assert_equal "blist d blist c" [$rd read]
+
+            create_list blist "a b $large c d"
+
+            $rd bmlpop blist 2 1
+            assert_equal "blist a blist b" [$rd read]
+            $rd bmrpop blist 0 1
+            assert_equal "blist d blist c blist $large" [$rd read]
+
+
+            create_list blist "a b $large c d"
+
+            $rd bmrpop blist 3 1
+            assert_equal "blist d blist c blist $large" [$rd read]
+            $rd bmlpop blist 0 1
+            assert_equal "blist a blist b" [$rd read]
+        }
+
+        test "MLPOP, MRPOP: testing - $type" {
+            set rd [redis_deferring_client]
+            create_list blist "a b $large c d"
+
+            $rd mlpop blist 2
+            assert_equal "blist a blist b" [$rd read]
+            $rd mrpop blist 2
+            assert_equal "blist d blist c" [$rd read]
+
+            create_list blist "a b $large c d"
+
+            $rd mlpop blist 2
+            assert_equal "blist a blist b" [$rd read]
+            $rd mrpop blist 0
+            assert_equal "blist d blist c blist $large" [$rd read]
+
+
+            create_list blist "a b $large c d"
+
+            $rd mrpop blist 3
+            assert_equal "blist d blist c blist $large" [$rd read]
+            $rd mlpop blist 0
+            assert_equal "blist a blist b" [$rd read]
+        }
     }
 
     test "BLPOP, LPUSH + DEL should not awake blocked client" {
