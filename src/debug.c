@@ -499,6 +499,7 @@ void bugReportStart(void) {
         redisLog(REDIS_WARNING,
             "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
         server.bug_report_start = 1;
+        WIN32_ONLY(redisLog(REDIS_WARNING, "Redis version: %s", REDIS_VERSION);)
     }
 }
 
