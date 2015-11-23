@@ -29,19 +29,6 @@
 #include <cstdint>
 using namespace std;
 
-#if INTPTR_MAX == INT32_MAX
-    #define BUILD_IS_32BIT
-#else
-    #define BUILD_IS_64BIT
-#endif
-
-#ifndef LODWORD
-    #define LODWORD(_qw)    ((DWORD)(_qw))
-#endif
-#ifndef HIDWORD
-    #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
-#endif
-
 typedef class SmartHandle
 {
 private:

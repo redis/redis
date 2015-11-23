@@ -140,14 +140,6 @@ BOOL WriteToProcmon(wstring message)
 }
 #endif
 
-#ifndef LODWORD
-  #define LODWORD(_qw)    ((DWORD)(_qw))
-#endif
-
-#ifndef HIDWORD
-  #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
-#endif
-
 #ifndef PAGE_REVERT_TO_FILE_MAP
   #define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
 #endif
@@ -190,18 +182,18 @@ extern "C"
   #ifdef _WIN64
     const int  cMaxBlocks = 1 << 22;                // 256KB * 4M heap blocks = 1TB
   #else
-    const int  cMaxBlocks = 1 << 13;                // 256KB * 8K heap blocks = 2GB
+    const int  cMaxBlocks = 1 << 12;                // 256KB * 4K heap blocks = 1GB
   #endif
 #elif USE_JEMALLOC
   const size_t cAllocationGranularity = 1 << 22;    // 4MB per heap block (matches the default allocation threshold of jemalloc)
   #ifdef _WIN64
     const int  cMaxBlocks = 1 << 18;                // 4MB * 256K heap blocks = 1TB
   #else
-    const int  cMaxBlocks = 1 << 9;                 // 4MB * 512 heap blocks = 2GB
+    const int  cMaxBlocks = 1 << 8;                 // 4MB * 256 heap blocks = 1GB
   #endif
 #endif
 
-const int    cDeadForkWait = 30000;
+const int cDeadForkWait = 30000;
 
 enum class BlockState : uint8_t { bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED_IN_USE = 2, bsMAPPED_FREE = 3 };
 
@@ -427,11 +419,15 @@ BOOL QForkParentInit() {
         memstatus.dwLength = sizeof(MEMORYSTATUSEX);
         IFFAILTHROW(GlobalMemoryStatusEx(&memstatus), "QForkMasterInit: cannot get global memory status");
 
-        // On x86 the limit is always (cAllocationGranularity * cMaxBlocks)
+#ifdef _WIN64
         size_t max_heap_allocation = memstatus.ullTotalPhys * 10;
         if (max_heap_allocation > cAllocationGranularity * cMaxBlocks) {
             max_heap_allocation = cAllocationGranularity * cMaxBlocks;
         }
+#else
+        // On x86 the limit is always cAllocationGranularity * cMaxBlocks
+        size_t max_heap_allocation = cAllocationGranularity * cMaxBlocks;
+#endif
 
         // maxAvailableBlocks is guaranteed to be <= cMaxBlocks
         // On x86 maxAvailableBlocks = cMaxBlocks
@@ -898,11 +894,13 @@ BOOL EndForkOperation(int * pExitCode) {
 
 HANDLE CreateBlockMap(int blockIndex) {
     try {
+        // cAllocationGranularity is guaranteed to be < 2^31
+        ASSERT(cAllocationGranularity < (1 << 31));
         HANDLE map = CreateFileMappingW(INVALID_HANDLE_VALUE,
                                         NULL,
                                         PAGE_READWRITE,
-                                        HIDWORD(cAllocationGranularity),
-                                        LODWORD(cAllocationGranularity),
+                                        0,
+                                        cAllocationGranularity,
                                         NULL);
         IFFAILTHROW(map, "PhysicalMapMemory: CreateFileMapping failed");
 
