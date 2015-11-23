@@ -824,24 +824,19 @@ void handleClientsBlockedOnLists(void) {
                                         receiver->lastcmd->proc == bmlpopCommand )) ?
                                     LIST_HEAD : LIST_TAIL;
 
-                        // TODO should we modify bpop.limit value after this ? (I dont think so)
                         if (limit >= 0) {
                             long long cnt = listTypeLength(o);
-                            // TODO should we assert that dstkey is NULL ? (This shouldn't happen as dstkey is done in other commands than bmlpop/bmrpop)
                             if (cnt != 0) {
                                 robj *argv[3];
                                 unblockClient(receiver);
-                                // TODO is this the correct way or should we break this down for micro lpop/rpop calls ?
                                 /* Propagate the M[LR]POP operation. */
-                                // TODO put this in shared
-                                argv[0] = (where == LIST_HEAD) ? createStringObject("MLPOP",5) : createStringObject("MRPOP",5);
+                                argv[0] = (where == LIST_HEAD) ? shared.mlpop : shared.mrpop;
                                 argv[1] = rl->key;
-                                // TODO ref count ? (does propogate lower it in the end ?)
                                 argv[2] = createStringObjectFromLongLong(limit);
-                                // TODO put this in server (is there any other effects where the command in clients can be different maybe ?)
                                 propagate((where == LIST_HEAD) ?
-                                    lookupCommandByCString("mlpop") : lookupCommandByCString("mrpop"),
+                                    server.mlpopCommand : server.mrpopCommand,
                                     rl->db->id,argv,3,PROPAGATE_AOF|PROPAGATE_REPL);
+                                decrRefCount(argv[2]);
                             } else {
                                 break;
                             }
@@ -1134,8 +1129,7 @@ void blockingPopLimitCommand(client *c, int where) {
                 }
             }
         }
-        // TODO put this in shared
-        rewriteClientCommandArgument(c, 1, (where == LIST_HEAD) ? createStringObject("MLPOP",5) : createStringObject("MRPOP",5));
+        rewriteClientCommandArgument(c, 1, (where == LIST_HEAD) ? shared.mlpop : shared.mrpop);
         return;
     }
 
