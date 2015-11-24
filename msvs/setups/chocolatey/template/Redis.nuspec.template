@@ -11,6 +11,8 @@
 [Redis](http://redis.io/) is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.  
 
 This package will install the Redis binaries in the default Chocolatey lib directory (i.e. C:\\ProgramData\\chocolatey\\lib\\redis-64).
+
+To report an issue please follow our [wiki's instructions](https://github.com/MSOpenTech/redis/wiki/Submitting-an-Issue).
     </description>
     <projectUrl>https://msopentech.com/opentech-projects/redis/</projectUrl>
     <tags>Redis nosql cache</tags>
