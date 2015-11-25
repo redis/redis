@@ -36,6 +36,7 @@
 #include "Win32_Interop/Win32_Portability.h"
 #include "Win32_Interop/Win32_Time.h"
 #include "Win32_Interop/win32fixes.h"
+extern BOOL g_IsForkedProcess;
 #endif
 
 #include "fmacros.h"
@@ -250,6 +251,11 @@ int dictExpand(dict *d,PORT_ULONG size)
  * will visit at max N*10 empty buckets in total, otherwise the amount of
  * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
+
+    // On Windows we choose not to execute the dict rehash since it's not
+    // necessary and it may have a performance impact.
+    WIN32_ONLY(if (g_IsForkedProcess) return 0;)
+
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 

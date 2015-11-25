@@ -97,7 +97,6 @@ allocate a system paging file that will expand up to about (3.5 * physical).
 
 #define QFORK_MAIN_IMPL
 #include "Win32_QFork.h"
-
 #include "Win32_QFork_impl.h"
 #include "Win32_SmartHandle.h"
 #include "Win32_Service.h"
@@ -204,6 +203,7 @@ struct heapBlockInfo {
 
 struct QForkControl {
     LPVOID heapStart;
+    LPVOID heapEnd;
     int maxAvailableBlocks;
     int numMappedBlocks;
     int blockSearchStart;
@@ -225,15 +225,16 @@ QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
 int g_ChildExitCode = 0; // For child process
-BOOL g_isForkedProcess;
 BOOL g_SentinelMode;
-
-/* The system heap is used instead of the system paging file heap if
- * one of the following case is true:
- * - Redis is running as a sentinel
- * - the current instance is a forked (child) process 
- * - the persistence-available configuration flag value is 'no' */
-BOOL g_UseSystemHeap;
+BOOL g_PersistenceDisabled;
+/* If g_IsForkedProcess || g_PersistenceDisabled || g_SentinelMode is true
+ * memory is not allocated from the memory map heap, instead the system heap
+ * is used */
+BOOL g_BypassMemoryMapOnAlloc;
+/* g_HasMemoryMappedHeap is true if g_PersistenceDisabled and g_SentinelMode
+ * are both false, so it is true for the parent process and the child process
+ * when persistence is available */
+BOOL g_HasMemoryMappedHeap;
 
 bool ReportSpecialSystemErrors(int error) {
     switch (error)
@@ -453,7 +454,8 @@ BOOL QForkParentInit() {
         IFFAILTHROW(VirtualFree(pHigh, 0, MEM_RELEASE), "QForkMasterInit: VirtualFree failed.");
 
         // Need to adjust the heap start address to align on allocation granularity offset
-        g_pQForkControl->heapStart = (LPVOID) (((uint64_t) pHigh + cAllocationGranularity) - ((uint64_t) pHigh % cAllocationGranularity));
+        g_pQForkControl->heapStart = (LPVOID) (((uintptr_t) pHigh + cAllocationGranularity) - ((uintptr_t) pHigh % cAllocationGranularity));
+        g_pQForkControl->heapEnd = (LPVOID) ((uintptr_t) g_pQForkControl->heapStart + (g_pQForkControl->maxAvailableBlocks + 1) * cAllocationGranularity);
 
         // Reserve the heap memory that will be mapped on demand in AllocHeapBlock()
         for (int i = 0; i < g_pQForkControl->maxAvailableBlocks; i++) {
@@ -497,21 +499,6 @@ BOOL QForkParentInit() {
 }
 
 StartupStatus QForkStartup() {
-    HANDLE QForkControlMemoryMapHandle = NULL;
-    DWORD PPID = 0;
-
-    g_isForkedProcess = FALSE;
-    // TODO: consider moving the argument parsing into ParseCommandLineArguments()
-
-    // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent pid]
-    if (g_argMap.find(cQFork) != g_argMap.end()) {
-        g_isForkedProcess = TRUE;
-        char* endPtr;
-        QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), &endPtr, 10);
-        char* end = NULL;
-        PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), &end, 10);
-    }
-
     PERFORMANCE_INFORMATION perfinfo;
     perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
     if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
@@ -521,8 +508,10 @@ StartupStatus QForkStartup() {
     }
     Globals::pageSize = perfinfo.PageSize;
 
-    if (g_isForkedProcess) {
-        g_UseSystemHeap = TRUE;
+    if (g_IsForkedProcess) {
+        // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent pid]
+        HANDLE QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), NULL, 10);
+        DWORD PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), NULL, 10);
         return QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
     } else {
         return QForkParentInit() ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
@@ -935,7 +924,7 @@ HANDLE CreateBlockMap(int blockIndex) {
 #ifdef USE_DLMALLOC
 /* NOTE: The allocateHigh parameter is ignored in this implementation */
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
-    if (g_UseSystemHeap) {
+    if (g_BypassMemoryMapOnAlloc) {
         return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     }
 
@@ -1001,7 +990,7 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 #elif USE_JEMALLOC
 
 LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero) {
-    if (g_UseSystemHeap) {
+    if (g_BypassMemoryMapOnAlloc) {
         return VirtualAlloc(addr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     }
 
@@ -1068,18 +1057,32 @@ LPVOID AllocHeapBlock(LPVOID addr, size_t size, BOOL zero) {
 #endif
 
 BOOL FreeHeapBlock(LPVOID addr, size_t size) {
-    if (g_UseSystemHeap) {
-        return VirtualFree(addr, 0, MEM_RELEASE);
-    }
-
     if (size == 0) {
         return FALSE;
     }
 
-    // TODO: check addr is in heap
+    // If g_HasMemoryMappedHeap is FALSE this can only be a system heap address
+    if (!g_HasMemoryMappedHeap) {
+        return VirtualFree(addr, 0, MEM_RELEASE);
+    }
 
+    // Check if the address belongs to the memory map heap or to the system heap
+    BOOL addressInRedisHeap = (addr >= g_pQForkControl->heapStart && addr < g_pQForkControl->heapEnd);
+
+    // g_BypassMemoryMapOnAlloc is true for the forked process, in this case
+    // we need to handle the address differently based on the heap that was 
+    // used to allocate it.
+    if (g_BypassMemoryMapOnAlloc) {
+        if (!addressInRedisHeap) {
+            return VirtualFree(addr, 0, MEM_RELEASE);
+        } else {
+            redisLog(REDIS_DEBUG, "FreeHeapBlock: address in memory map heap 0x%p", addr);
+        }
+    }
+
+    // Check the address alignment and that belongs to the memory map heap
     size_t ptrDiff = reinterpret_cast<byte*>(addr) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
-    if (ptrDiff < 0 || (ptrDiff % cAllocationGranularity) != 0) {
+    if ((ptrDiff % cAllocationGranularity) != 0 || !addressInRedisHeap) {
         return FALSE;
     }
 
@@ -1104,11 +1107,8 @@ BOOL FreeHeapBlock(LPVOID addr, size_t size) {
 }
 
 BOOL PurgePages(LPVOID addr, size_t length) {
-    if (g_UseSystemHeap) {
-        VirtualAlloc(addr, length, MEM_RESET, PAGE_READWRITE);
-        return TRUE;
-    }
-
+    // VirtualAlloc is called for all cases regardless the value of
+    // g_BypassMemoryMapOnAlloc and g_HasMemoryMappedHeap
     VirtualAlloc(addr, length, MEM_RESET, PAGE_READWRITE);
     return TRUE;
 }
@@ -1128,16 +1128,35 @@ void SetupLogging() {
     }
 }
 
+BOOL IsPersistenceDisabled() {
+    if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
+        return (g_argMap[cPersistenceAvailable].at(0).at(0) == cNo);
+    } else {
+        return FALSE;
+    }
+}
+
+BOOL IsForkedProcess() {
+    if (g_argMap.find(cQFork) != g_argMap.end()) {
+        return TRUE;
+    } else {
+        return FALSE;
+    }
+}
+
+void SetupQForkGlobals(int argc, char* argv[]) {
+    // To check sentinel mode we use the antirez code to avoid duplicating code
+    g_SentinelMode = checkForSentinelMode(argc, argv);
+
+    g_IsForkedProcess = IsForkedProcess();
+    g_PersistenceDisabled = IsPersistenceDisabled();
+
+    g_BypassMemoryMapOnAlloc = g_IsForkedProcess || g_PersistenceDisabled || g_SentinelMode;
+    g_HasMemoryMappedHeap = !g_PersistenceDisabled && !g_SentinelMode;
+}
+
 extern "C"
 {
-    BOOL IsPersistenceAvailable() {
-        if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
-            return (g_argMap[cPersistenceAvailable].at(0).at(0) != cNo);
-        } else {
-            return TRUE;
-        }
-    }
-
     // The external main() is redefined as redis_main() by Win32_QFork.h.
     // The CRT will call this replacement main() before the previous main()
     // is invoked so that the QFork allocator can be setup prior to anything 
@@ -1146,6 +1165,7 @@ extern "C"
         try {
             InitTimeFunctions();
             ParseCommandLineArguments(argc, argv);
+            SetupQForkGlobals(argc, argv);
             SetupLogging();
             StackTraceInit();
             InitThreadControl();
@@ -1194,13 +1214,6 @@ extern "C"
                 return 0;
             }
 
-            BOOL persistenceAvailable = IsPersistenceAvailable();
-            g_SentinelMode = checkForSentinelMode(argc, argv);
-
-            if (g_SentinelMode == TRUE || persistenceAvailable == FALSE) {
-                g_UseSystemHeap = TRUE;
-            }
-
 #ifdef USE_DLMALLOC
             DLMallocInit();
             // Setup memory allocation scheme
@@ -1220,7 +1233,9 @@ extern "C"
 #elif USE_JEMALLOC
             je_init();
 #endif
-            if (persistenceAvailable == TRUE && g_SentinelMode == FALSE) {
+            if (g_PersistenceDisabled || g_SentinelMode) {
+                return redis_main(argc, argv);
+            } else {
                 StartupStatus status = QForkStartup();
                 if (status == ssCONTINUE_AS_PARENT) {
                     int retval = redis_main(argc, argv);
@@ -1237,8 +1252,6 @@ extern "C"
                     // Unexpected status return
                     return 2;
                 }
-            } else {
-                return redis_main(argc, argv);
             }
         }
         catch (system_error syserr) {
