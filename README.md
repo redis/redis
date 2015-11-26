@@ -196,9 +196,9 @@ or you just untarred the Redis distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
 the Redis source code layout, what is in each file as a general idea, the
 most important functions and structures inside the Redis server and so forth.
-We keep all the discussion at an high level without digging into the details
-since this document would be huge otherwise, and our code base changes
-continuously, but a general idea should be a good starting point to
+We keep all the discussion at a high level without digging into the details
+since this document would be huge otherwise and our code base changes
+continuously but a general idea should be a good starting point to
 understand more. Moreover most of the code is heavily commented and easy
 to follow.
 
@@ -207,7 +207,7 @@ Source code layout
 
 The Redis root directory just contains this README, the Makefile which
 actually calls the real Makefile inside the `src` directory and an example
-configuration for Redis and Sentinel. Finally you can find a few shell
+configuration for Redis and Sentinel. Also, you can find a few shell
 scripts that are used in order to execute the Redis, Redis Cluster and
 Redis Sentinel unit tests, which are implemented inside the `tests`
 directory.
@@ -216,7 +216,7 @@ Inside the root directory following are the important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory, your system needs to provide just the `libc`, a POSIX compatible interface, and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. an exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. An exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -240,14 +240,14 @@ Redis, which is `server.h`.
 
 All the server configuration and in general all the shared state is
 defined in a global structure called `server`, of type `struct redisServer`.
-A few important fields in this structure:
+A few important fields in this structure are:
 
 * `server.db` is an array of Redis databases, where data is stored.
 * `server.commands` is the command table.
 * `server.clients` is a linked list of clients connected to the server.
 * `server.master` is a special client, the master, if the instance is a slave.
 
-There are tons of other fields, most fields are commented directly inside
+There are tons of other fields. Most fields are commented directly inside
 the structure definition.
 
 Another important Redis data structure is the one defining a client.
@@ -270,7 +270,7 @@ The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
 * `argc` and `argv` are populated with the command the client is executing, so that functions implementing a given Redis command can read the arguments.
-* `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol, and executed calling the implementations of the commands the client is executing.
+* `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
 * `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writable.
 
 As you can see in the client structure above, arguments in a command
@@ -288,9 +288,9 @@ structure, which defines a *Redis object*:
 Basically this structure can represent all the basic Redis data types like
 strings, lists, sets, sorted sets and so forth. The interesting thing is that
 it has a `type` field, so that it is possible to know what type a given
-object is, and a `refcount`, so that the same object can be referenced
+object has, and a `refcount`, so that the same object can be referenced
 in multiple places without allocating it multiple times. Finally the `ptr`
-field points to the actual representation of the object, that may vary
+field points to the actual representation of the object; that may vary
 even for the same type, depending on the `encoding` used.
 
 Redis objects are used extensively in the Redis internals, however in order
@@ -306,7 +306,7 @@ the Redis server.
 
 * `initServerConfig()` setups the default values of the `server` structure.
 * `initServer()` allocates the data structures needed to operate, setup the listening socket, and so forth.
-* `aeMain()` enters the event loop listening for new connections.
+* `aeMain()` starts the event loop which listens for new connections.
 
 There are two special functions called periodically by the event loop:
 
@@ -328,7 +328,7 @@ This file defines all the I/O functions with clients, masters and slaves
 
 * `createClient()` allocates and initializes a new client.
 * the `addReply*()` family of functions are used by commands implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
-* `writeToClient()` transmits the data pending in the output buffers to the client, and is called by the *writable event handler* `sendReplyToClient()`.
+* `writeToClient()` transmits the data pending in the output buffers to the client and is called by the *writable event handler* `sendReplyToClient()`.
 * `readQueryFromClient()` is the *readable event handler* and accumulates data from read from the client into the query buffer.
 * `processInputBuffer()` is the entry point in order to parse the client query buffer according to the Redis protocol. Once commands are ready to be processed, it calls `processCommand()` which is defined inside `server.c` in order to actually execute the command.
 * `freeClient()` deallocates, disconnects and removes a client.
@@ -439,8 +439,8 @@ There are tons of commands implementations inside th Redis source code
 that can serve as examples of actual commands implementations. To write
 a few toy commands can be a good exercise to familiarize with the code base.
 
-There are also many other files not described here,  but it is useless to
-cover everything, we want just to help you with the first steps,
-eventually you'll find your way inside the Redis code base :-)
+There are also many other files not described here, but it is useless to
+cover everything. We want to just help you with the first steps.
+Eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
