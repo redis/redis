@@ -246,7 +246,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
-    /* Send to clients listening to matching channels */
+    /* Send to clients listening to matching patterns */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
