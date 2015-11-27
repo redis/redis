@@ -2624,8 +2624,10 @@ void clusterLogCantFailover(int reason) {
         (mstime() - myself->slaveof->fail_time) < nolog_fail_time) return;
 
     switch(reason) {
-    case REDIS_CLUSTER_CANT_FAILOVER_DATA_AGE:
-        msg = "Disconnected from master for longer than allowed.";
+    case CLUSTER_CANT_FAILOVER_DATA_AGE:
+        msg = "Disconnected from master for longer than allowed. "
+              "Please check the 'cluster-slave-validity-factor' configuration "
+              "option.";
         break;
     case REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY:
         msg = "Waiting the delay before I can start a new failover.";
