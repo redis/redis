@@ -926,19 +926,19 @@ void scriptingInit(int setup) {
     lua_pushcfunction(lua,luaLogCommand);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LL_DEBUG");
+    lua_pushstring(lua,"LOG_DEBUG");
     lua_pushnumber(lua,LL_DEBUG);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LL_VERBOSE");
+    lua_pushstring(lua,"LOG_VERBOSE");
     lua_pushnumber(lua,LL_VERBOSE);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LL_NOTICE");
+    lua_pushstring(lua,"LOG_NOTICE");
     lua_pushnumber(lua,LL_NOTICE);
     lua_settable(lua,-3);
 
-    lua_pushstring(lua,"LL_WARNING");
+    lua_pushstring(lua,"LOG_WARNING");
     lua_pushnumber(lua,LL_WARNING);
     lua_settable(lua,-3);
 
