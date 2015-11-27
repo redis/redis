@@ -167,7 +167,7 @@ int prepareClientToWrite(client *c) {
     if (c->fd <= 0) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket only
-     * if not already done (there were no pending writes alreday and the client
+     * if not already done (there were no pending writes already and the client
      * was yet not flagged), and, for slaves, if the slave can actually
      * receive writes at this stage. */
     if (!clientHasPendingReplies(c) &&
