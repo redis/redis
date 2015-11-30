@@ -258,6 +258,14 @@ sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
+/* Export the allocator used by SDS to the program using SDS.
+ * Sometimes the program SDS is linked to, may use a different set of
+ * allocators, but may want to allocate or free things that SDS will
+ * respectively free or allocate. */
+void *sds_malloc(size_t size);
+void *sds_realloc(void *ptr, size_t size);
+void sds_free(void *ptr);
+
 #ifdef REDIS_TEST
 int sdsTest(int argc, char *argv[]);
 #endif

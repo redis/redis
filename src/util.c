@@ -426,9 +426,9 @@ int string2l(const char *s, size_t slen, long *lval) {
  * Note that this function demands that the string strictly represents
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
-int string2d(const char *s, size_t slen, double *dp) {
+int string2ld(const char *s, size_t slen, long double *dp) {
     char buf[256];
-    double value;
+    long double value;
     char *eptr;
 
     if (slen >= sizeof(buf)) return 0;
@@ -436,7 +436,7 @@ int string2d(const char *s, size_t slen, double *dp) {
     buf[slen] = '\0';
 
     errno = 0;
-    value = strtod(buf, &eptr);
+    value = strtold(buf, &eptr);
     if (isspace(buf[0]) || eptr[0] != '\0' ||
         (errno == ERANGE &&
             (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||

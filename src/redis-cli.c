@@ -111,6 +111,9 @@ static struct config {
     sds mb_delim;
     char prompt[128];
     char *eval;
+    int eval_ldb;
+    int eval_ldb_sync;  /* Ask for synchronous mode of the Lua debugger. */
+    int eval_ldb_end;   /* Lua debugging session ended. */
     int last_cmd_type;
 } config;
 
@@ -141,6 +144,7 @@ static long long mstime(void) {
 static void cliRefreshPrompt(void) {
     int len;
 
+    if (config.eval_ldb) return;
     if (config.hostsocket != NULL)
         len = snprintf(config.prompt,sizeof(config.prompt),"redis %s",
                        config.hostsocket);
@@ -373,8 +377,9 @@ static int cliSelect(void) {
  * even if there is already a connected socket. */
 static int cliConnect(int force) {
     if (context == NULL || force) {
-        if (context != NULL)
+        if (context != NULL) {
             redisFree(context);
+        }
 
         if (config.hostsocket == NULL) {
             context = redisConnect(config.hostip,config.hostport);
@@ -458,7 +463,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             _prefix = sdscat(sdsnew(prefix),_prefixlen);
 
             /* Setup prefix format for every entry */
-            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%dd) ",idxlen);
+            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%ud) ",idxlen);
 
             for (i = 0; i < r->elements; i++) {
                 /* Don't use the prefix for the first element, as the parent
@@ -480,6 +485,51 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     return out;
 }
 
+int isColorTerm(void) {
+    char *t = getenv("TERM");
+    return t != NULL && strstr(t,"xterm") != NULL;
+}
+
+/* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
+ * to an SDS string. */
+sds sdscatcolor(sds o, char *s, size_t len, char *color) {
+    if (!isColorTerm()) return sdscatlen(o,s,len);
+
+    int bold = strstr(color,"bold") != NULL;
+    int ccode = 37; /* Defaults to white. */
+    if (strstr(color,"red")) ccode = 31;
+    else if (strstr(color,"red")) ccode = 31;
+    else if (strstr(color,"green")) ccode = 32;
+    else if (strstr(color,"yellow")) ccode = 33;
+    else if (strstr(color,"blue")) ccode = 34;
+    else if (strstr(color,"magenta")) ccode = 35;
+    else if (strstr(color,"cyan")) ccode = 36;
+    else if (strstr(color,"white")) ccode = 37;
+
+    o = sdscatfmt(o,"\033[%i;%i;49m",bold,ccode);
+    o = sdscatlen(o,s,len);
+    o = sdscat(o,"\033[0m");
+    return o;
+}
+
+/* Colorize Lua debugger status replies according to the prefix they
+ * have. */
+sds sdsCatColorizedLdbReply(sds o, char *s, size_t len) {
+    char *color = "white";
+
+    if (strstr(s,"<debug>")) color = "bold";
+    if (strstr(s,"<redis>")) color = "green";
+    if (strstr(s,"<reply>")) color = "cyan";
+    if (strstr(s,"<error>")) color = "red";
+    if (strstr(s,"<hint>")) color = "bold";
+    if (strstr(s,"<value>") || strstr(s,"<retval>")) color = "magenta";
+    if (len > 4 && isdigit(s[3])) {
+        if (s[1] == '>') color = "yellow"; /* Current line. */
+        else if (s[2] == '#') color = "bold"; /* Break point. */
+    }
+    return sdscatcolor(o,s,len,color);
+}
+
 static sds cliFormatReplyRaw(redisReply *r) {
     sds out = sdsempty(), tmp;
     size_t i;
@@ -494,7 +544,23 @@ static sds cliFormatReplyRaw(redisReply *r) {
         break;
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_STRING:
-        out = sdscatlen(out,r->str,r->len);
+        if (r->type == REDIS_REPLY_STATUS && config.eval_ldb) {
+            /* The Lua debugger replies with arrays of simple (status)
+             * strings. We colorize the output for more fun if this
+             * is a debugging session. */
+
+            /* Detect the end of a debugging session. */
+            if (strstr(r->str,"<endsession>") == r->str) {
+                config.eval_ldb = 0;
+                config.eval_ldb_end = 1; /* Signal the caller session ended. */
+                config.output = OUTPUT_STANDARD;
+                cliRefreshPrompt();
+            } else {
+                out = sdsCatColorizedLdbReply(out,r->str,r->len);
+            }
+        } else {
+            out = sdscatlen(out,r->str,r->len);
+        }
         break;
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
@@ -635,7 +701,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     size_t *argvlen;
     int j, output_raw;
 
-    if (!strcasecmp(command,"help") || !strcasecmp(command,"?")) {
+    if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
+        (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
         cliOutputHelp(--argc, ++argv);
         return REDIS_OK;
     }
@@ -822,6 +889,13 @@ static int parseOptions(int argc, char **argv) {
             config.bigkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
             config.eval = argv[++i];
+        } else if (!strcmp(argv[i],"--ldb")) {
+            config.eval_ldb = 1;
+            config.output = OUTPUT_RAW;
+        } else if (!strcmp(argv[i],"--ldb-sync-mode")) {
+            config.eval_ldb = 1;
+            config.eval_ldb_sync = 1;
+            config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"-c")) {
             config.cluster_mode = 1;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
@@ -843,6 +917,13 @@ static int parseOptions(int argc, char **argv) {
                 break;
             }
         }
+    }
+
+    /* --ldb requires --eval. */
+    if (config.eval_ldb && config.eval == NULL) {
+        fprintf(stderr,"Options --ldb and --ldb-sync-mode require --eval.\n");
+        fprintf(stderr,"Try %s --help for more information.\n", argv[0]);
+        exit(1);
     }
     return i;
 }
@@ -904,6 +985,10 @@ static void usage(void) {
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
 "                     The test will run for the specified amount of seconds.\n"
 "  --eval <file>      Send an EVAL command using the Lua script at <file>.\n"
+"  --ldb              Used with --eval enable the Redis Lua debugger.\n"
+"  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
+"                     this mode the server is blocked and script changes are\n"
+"                     are not rolled back from the server memory.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
 "\n"
@@ -963,6 +1048,28 @@ static int issueCommand(int argc, char **argv) {
     return issueCommandRepeat(argc, argv, config.repeat);
 }
 
+/* Split the user provided command into multiple SDS arguments.
+ * This function normally uses sdssplitargs() from sds.c which is able
+ * to understand "quoted strings", escapes and so forth. However when
+ * we are in Lua debugging mode and the "eval" command is used, we want
+ * the remaining Lua script (after "e " or "eval ") to be passed verbatim
+ * as a single big argument. */
+static sds *cliSplitArgs(char *line, int *argc) {
+    if (config.eval_ldb && (strstr(line,"eval ") == line ||
+                            strstr(line,"e ") == line))
+    {
+        sds *argv = sds_malloc(sizeof(sds)*2);
+        *argc = 2;
+        int len = strlen(line);
+        int elen = line[1] == ' ' ? 2 : 5; /* "e " or "eval "? */
+        argv[0] = sdsnewlen(line,elen-1);
+        argv[1] = sdsnewlen(line+elen,len-elen);
+        return argv;
+    } else {
+        return sdssplitargs(line,argc);
+    }
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -986,7 +1093,7 @@ static void repl(void) {
     cliRefreshPrompt();
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
-            argv = sdssplitargs(line,&argc);
+            argv = cliSplitArgs(line,&argc);
             if (history) linenoiseHistoryAdd(line);
             if (historyfile) linenoiseHistorySave(historyfile);
 
@@ -999,6 +1106,14 @@ static void repl(void) {
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
+                } else if (strcasecmp(argv[0],"restart") == 0) {
+                    if (config.eval) {
+                        config.eval_ldb = 1;
+                        config.output = OUTPUT_RAW;
+                        return; /* Return to evalMode to restart the session. */
+                    } else {
+                        printf("Use 'restart' only in Lua debugging mode.");
+                    }
                 } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                     sdsfree(config.hostip);
                     config.hostip = sdsnew(argv[1]);
@@ -1019,6 +1134,16 @@ static void repl(void) {
                     }
 
                     issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
+
+                    /* If our debugging session ended, show the EVAL final
+                     * reply. */
+                    if (config.eval_ldb_end) {
+                        config.eval_ldb_end = 0;
+                        cliReadReply(0);
+                        printf("\n(Lua debugging session ended%s)\n\n",
+                            config.eval_ldb_sync ? "" :
+                            " -- dataset changes rolled back");
+                    }
 
                     elapsed = mstime()-start_time;
                     if (elapsed >= 500) {
@@ -1052,41 +1177,86 @@ static int noninteractive(int argc, char **argv) {
  *--------------------------------------------------------------------------- */
 
 static int evalMode(int argc, char **argv) {
-    sds script = sdsempty();
+    sds script = NULL;
     FILE *fp;
     char buf[1024];
     size_t nread;
     char **argv2;
-    int j, got_comma = 0, keys = 0;
+    int j, got_comma, keys;
+    int retval = REDIS_OK;
 
-    /* Load the script from the file, as an sds string. */
-    fp = fopen(config.eval,"r");
-    if (!fp) {
-        fprintf(stderr,
-            "Can't open file '%s': %s\n", config.eval, strerror(errno));
-        exit(1);
-    }
-    while((nread = fread(buf,1,sizeof(buf),fp)) != 0) {
-        script = sdscatlen(script,buf,nread);
-    }
-    fclose(fp);
-
-    /* Create our argument vector */
-    argv2 = zmalloc(sizeof(sds)*(argc+3));
-    argv2[0] = sdsnew("EVAL");
-    argv2[1] = script;
-    for (j = 0; j < argc; j++) {
-        if (!got_comma && argv[j][0] == ',' && argv[j][1] == 0) {
-            got_comma = 1;
-            continue;
+    while(1) {
+        if (config.eval_ldb) {
+            printf(
+            "Lua debugging session started, please use:\n"
+            "quit    -- End the session.\n"
+            "restart -- Restart the script in debug mode again.\n"
+            "help    -- Show Lua script debugging commands.\n\n"
+            );
         }
-        argv2[j+3-got_comma] = sdsnew(argv[j]);
-        if (!got_comma) keys++;
-    }
-    argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
-    /* Call it */
-    return issueCommand(argc+3-got_comma, argv2);
+        sdsfree(script);
+        script = sdsempty();
+        got_comma = 0;
+        keys = 0;
+
+        /* Load the script from the file, as an sds string. */
+        fp = fopen(config.eval,"r");
+        if (!fp) {
+            fprintf(stderr,
+                "Can't open file '%s': %s\n", config.eval, strerror(errno));
+            exit(1);
+        }
+        while((nread = fread(buf,1,sizeof(buf),fp)) != 0) {
+            script = sdscatlen(script,buf,nread);
+        }
+        fclose(fp);
+
+        /* If we are debugging a script, enable the Lua debugger. */
+        if (config.eval_ldb) {
+            redisReply *reply = redisCommand(context,
+                    config.eval_ldb_sync ?
+                    "SCRIPT DEBUG sync": "SCRIPT DEBUG yes");
+            if (reply) freeReplyObject(reply);
+        }
+
+        /* Create our argument vector */
+        argv2 = zmalloc(sizeof(sds)*(argc+3));
+        argv2[0] = sdsnew("EVAL");
+        argv2[1] = script;
+        for (j = 0; j < argc; j++) {
+            if (!got_comma && argv[j][0] == ',' && argv[j][1] == 0) {
+                got_comma = 1;
+                continue;
+            }
+            argv2[j+3-got_comma] = sdsnew(argv[j]);
+            if (!got_comma) keys++;
+        }
+        argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
+
+        /* Call it */
+        int eval_ldb = config.eval_ldb; /* Save it, may be reverteed. */
+        retval = issueCommand(argc+3-got_comma, argv2);
+        if (eval_ldb) {
+            if (!config.eval_ldb) {
+                /* If the debugging session ended immediately, there was an
+                 * error compiling the script. Show it and don't enter
+                 * the REPL at all. */
+                printf("Eval debugging session can't start:\n");
+                cliReadReply(0);
+                break; /* Return to the caller. */
+            } else {
+                strncpy(config.prompt,"lua debugger> ",sizeof(config.prompt));
+                repl();
+                /* Restart the session if repl() returned. */
+                cliConnect(1);
+                printf("\n");
+            }
+        } else {
+            break; /* Return to the caller. */
+        }
+    }
+    return retval;
 }
 
 /*------------------------------------------------------------------------------
@@ -1880,7 +2050,7 @@ void bytesToHuman(char *s, long long n) {
     }
     if (n < 1024) {
         /* Bytes */
-        sprintf(s,"%lluB",n);
+        sprintf(s,"%lldB",n);
         return;
     } else if (n < (1024*1024)) {
         d = (double)n/(1024);
@@ -2210,6 +2380,9 @@ int main(int argc, char **argv) {
     config.stdinarg = 0;
     config.auth = NULL;
     config.eval = NULL;
+    config.eval_ldb = 0;
+    config.eval_ldb_end = 0;
+    config.eval_ldb_sync = 0;
     config.last_cmd_type = -1;
 
     spectrum_palette = spectrum_palette_color;

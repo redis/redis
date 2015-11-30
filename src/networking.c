@@ -171,7 +171,7 @@ int prepareClientToWrite(client *c) {
     if (c->fd <= 0) return C_ERR; /* Fake client for AOF loading. */
 
     /* Schedule the client to write the output buffers to the socket only
-     * if not already done (there were no pending writes alreday and the client
+     * if not already done (there were no pending writes already and the client
      * was yet not flagged), and, for slaves, if the slave can actually
      * receive writes at this stage. */
     if (!clientHasPendingReplies(c) &&
@@ -1732,7 +1732,9 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
 }
 
 /* Helper function used by freeMemoryIfNeeded() in order to flush slaves
- * output buffers without returning control to the event loop. */
+ * output buffers without returning control to the event loop.
+ * This is also called by SHUTDOWN for a best-effort attempt to send
+ * slaves the latest writes. */
 void flushSlavesOutputBuffers(void) {
     listIter li;
     listNode *ln;
@@ -1751,7 +1753,7 @@ void flushSlavesOutputBuffers(void) {
         events = aeGetFileEvents(server.el,slave->fd);
         if (events & AE_WRITABLE &&
             slave->replstate == SLAVE_STATE_ONLINE &&
-            listLength(slave->reply))
+            clientHasPendingReplies(slave))
         {
             writeToClient(slave->fd,slave,0);
         }

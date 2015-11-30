@@ -265,7 +265,7 @@ struct redisCommand redisCommandTable[] = {
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"w",0,NULL,0,0,0,0,0},
+    {"migrate",migrateCommand,-6,"w",0,NULL,3,3,1,0,0},
     {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
@@ -1186,7 +1186,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
-    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
+    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1 ||
+        ldbPendingChildren())
+    {
         int statloc;
         pid_t pid;
 
@@ -1196,14 +1198,22 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
-            if (pid == server.rdb_child_pid) {
+            if (pid == -1) {
+                serverLog(LL_WARNING,"wait3() returned an error: %s. "
+                    "rdb_child_pid = %d, aof_child_pid = %d",
+                    strerror(errno),
+                    (int) server.rdb_child_pid,
+                    (int) server.aof_child_pid);
+            } else if (pid == server.rdb_child_pid) {
                 backgroundSaveDoneHandler(exitcode,bysignal);
             } else if (pid == server.aof_child_pid) {
                 backgroundRewriteDoneHandler(exitcode,bysignal);
             } else {
-                serverLog(LL_WARNING,
-                    "Warning, detected child with unmatched pid: %ld",
-                    (long)pid);
+                if (!ldbRemoveChild(pid)) {
+                    serverLog(LL_WARNING,
+                        "Warning, detected child with unmatched pid: %ld",
+                        (long)pid);
+                }
             }
             updateDictResizePolicy();
         }
@@ -1508,11 +1518,6 @@ void initServerConfig(void) {
     server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
-    server.lua_caller = NULL;
-    server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
-    server.lua_client = NULL;
-    server.lua_timedout = 0;
-    server.lua_always_replicate_commands = 0; /* Only DEBUG can change it. */
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -1973,7 +1978,7 @@ void initServer(void) {
 
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
-    scriptingInit();
+    scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
     bioInit();
@@ -2169,7 +2174,43 @@ void preventCommandReplication(client *c) {
     c->flags |= CLIENT_PREVENT_REPL_PROP;
 }
 
-/* Call() is the core of Redis execution of a command */
+/* Call() is the core of Redis execution of a command.
+ *
+ * The following flags can be passed:
+ * CMD_CALL_NONE        No flags.
+ * CMD_CALL_SLOWLOG     Check command speed and log in the slow log if needed.
+ * CMD_CALL_STATS       Populate command stats.
+ * CMD_CALL_PROPAGATE_AOF   Append command to AOF if it modified the dataset
+ *                          or if the client flags are forcing propagation.
+ * CMD_CALL_PROPAGATE_REPL  Send command to salves if it modified the dataset
+ *                          or if the client flags are forcing propagation.
+ * CMD_CALL_PROPAGATE   Alias for PROPAGATE_AOF|PROPAGATE_REPL.
+ * CMD_CALL_FULL        Alias for SLOWLOG|STATS|PROPAGATE.
+ *
+ * The exact propagation behavior depends on the client flags.
+ * Specifically:
+ *
+ * 1. If the client flags CLIENT_FORCE_AOF or CLIENT_FORCE_REPL are set
+ *    and assuming the corresponding CMD_CALL_PROPAGATE_AOF/REPL is set
+ *    in the call flags, then the command is propagated even if the
+ *    dataset was not affected by the command.
+ * 2. If the client flags CLIENT_PREVENT_REPL_PROP or CLIENT_PREVENT_AOF_PROP
+ *    are set, the propagation into AOF or to slaves is not performed even
+ *    if the command modified the dataset.
+ *
+ * Note that regardless of the client flags, if CMD_CALL_PROPAGATE_AOF
+ * or CMD_CALL_PROPAGATE_REPL are not set, then respectively AOF or
+ * slaves propagation will never occur.
+ *
+ * Client flags are modified by the implementation of a given command
+ * using the following API:
+ *
+ * forceCommandPropagation(client *c, int flags);
+ * preventCommandPropagation(client *c);
+ * preventCommandAOF(client *c);
+ * preventCommandReplication(client *c);
+ *
+ */
 void call(client *c, int flags) {
     long long dirty, start, duration;
     int client_old_flags = c->flags;
@@ -2234,7 +2275,7 @@ void call(client *c, int flags) {
          * set for replication / AOF propagation. */
         if (dirty) propagate_flags |= (PROPAGATE_AOF|PROPAGATE_REPL);
 
-        /* If the command forced AOF / replication of the command, set
+        /* If the client forced AOF / replication of the command, set
          * the flags regardless of the command effects on the data set. */
         if (c->flags & CLIENT_FORCE_REPL) propagate_flags |= PROPAGATE_REPL;
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
@@ -2419,7 +2460,7 @@ int processCommand(client *c) {
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
         c->cmd->proc != punsubscribeCommand) {
-        addReplyError(c,"only (P)SUBSCRIBE / (P)UNSUBSCRIBE / QUIT allowed in this context");
+        addReplyError(c,"only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in this context");
         return C_OK;
     }
 
@@ -2495,6 +2536,10 @@ int prepareForShutdown(int flags) {
     int nosave = flags & SHUTDOWN_NOSAVE;
 
     serverLog(LL_WARNING,"User requested shutdown...");
+
+    /* Kill all the Lua debugger forked sessions. */
+    ldbKillForkedSessions();
+
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
@@ -2503,6 +2548,7 @@ int prepareForShutdown(int flags) {
         kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
     }
+
     if (server.aof_state != AOF_OFF) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */
@@ -2521,6 +2567,8 @@ int prepareForShutdown(int flags) {
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         aof_fsync(server.aof_fd);
     }
+
+    /* Create a new RDB file before exiting. */
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
@@ -2534,10 +2582,17 @@ int prepareForShutdown(int flags) {
             return C_ERR;
         }
     }
+
+    /* Remove the pid file if possible and needed. */
     if (server.daemonize || server.pidfile) {
         serverLog(LL_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
+
+    /* Best effort flush of slave output buffers, so that we hopefully
+     * send them pending writes. */
+    flushSlavesOutputBuffers();
+
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
