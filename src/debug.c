@@ -507,7 +507,7 @@ static void *getMcontextEip(ucontext_t *uc) {
     #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
     #else /* other Linux for example Linux arm */
-    redisLog(REDIS_DEBUG, "%x", (unsigned int)uc);
+    (void)uc;
     return NULL;
     #endif
 #else
