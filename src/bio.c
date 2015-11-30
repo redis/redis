@@ -152,6 +152,7 @@ void *bioProcessBackgroundJobs(void *arg) {
      * receive the watchdog signal. */
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGALRM);
+    sigaddset(&sigset, SIGCHLD);
     if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
         redisLog(REDIS_WARNING,
             "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));

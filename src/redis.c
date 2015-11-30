@@ -1761,7 +1761,8 @@ void initServer(void) {
     int j;
 
     signal(SIGHUP, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
+    signal(SIGPIPE, SIG_IGN); /* No write(2) generated signals. */
+    signal(SIGCHLD, SIG_DFL); /* We want zombies to queue for waitpid(). */
     setupSignalHandlers();
 
     if (server.syslog_enabled) {
