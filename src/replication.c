@@ -1557,7 +1557,6 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
-        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         sdsfree(err);
         server.repl_state = REDIS_REPL_SEND_AUTH;
     }
@@ -1568,6 +1567,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"AUTH",server.masterauth,NULL);
             if (err) goto write_error;
             server.repl_state = REDIS_REPL_RECEIVE_AUTH;
+            WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
             return;
         } else {
             server.repl_state = REDIS_REPL_SEND_PORT;
@@ -1622,6 +1622,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (err) goto write_error;
         sdsfree(err);
         server.repl_state = REDIS_REPL_RECEIVE_CAPA;
+        WIN32_ONLY(WSIOCP_QueueNextRead(fd);)
         return;
     }
 
