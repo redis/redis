@@ -1,3 +1,37 @@
+proc log_file_matches {log pattern} {
+    set fp [open $log r]
+    set content [read $fp]
+    close $fp
+    string match $pattern $content
+}
+
+start_server {tags {"regression"}} {
+    set slave [srv 0 client]
+    set slave_host [srv 0 host]
+    set slave_port [srv 0 port]
+    set slave_log [srv 0 stdout]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        # Set the AUTH password
+        $master config set requirepass mypwd
+        $slave config set masterauth mypwd
+
+        # Start the replication process...
+        $slave slaveof $master_host $master_port
+
+        test {Slave is able to sync with master when AUTH is on} {
+            wait_for_condition 50 100 {
+                [log_file_matches $slave_log "*Finished with success*"]
+            } else {
+                fail "Slave is not able to sync with master when AUTH is on"
+            }
+        }
+    }
+}
+
 start_server {tags {"regression"}} {
     set A [srv 0 client]
     set A_host [srv 0 host]
