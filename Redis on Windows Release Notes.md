@@ -1,5 +1,24 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.500-rc2 ] Release date: Dec 03 2015
+
+ - [Docs] Updated the README.
+ - [Test] Added regression test for replication when AUTH is on.
+ - [Fix] Replication I/O bug when AUTH is enabled.
+ - [Fix] FreeHeapBlock should check if the addr is in the redis heap.
+ - [Fix] Disable replication if persistence is not available.
+ - [Setup] Updated the command to push the chocolatey package.
+ - Removed the HiredisExample project since it will be placed in the stand-alone hiredis repository.
+ - [Debug] Added Redis version at the top of the crash report.
+ - [Build] Added platform in the destination folder path for the x86 build.
+ - [Fix] 32 bit support.
+ - [PR] Unable to build Redis 3.0 on 32 bit. (by @Jens-G )
+ - [PR] Switching 3.0 to x86 results in LNK errors. (by @Jens-G )
+ - [Comment] Fixed comment.
+ - [PR] replace argument sign '-' to '--'. (by @Hawkeyes0)
+ - [Fix] Duplicated sockets management for diskless replication.
+ - [Code cleanup] Code refactoring, formatting, comments, error logging.
+
 --[ Redis on Windows 3.0.500-rc1 ] Release date: Nov 12 2015
 
  - [Fix] Improved the error reporting on startup errors.
