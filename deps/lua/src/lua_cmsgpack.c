@@ -424,6 +424,7 @@ void mp_encode_lua_table_as_map(lua_State *L, mp_buf *buf, int level) {
  * of elements, without any hole in the middle. */
 int table_is_an_array(lua_State *L) {
     int count = 0, max = 0;
+    int test;
 #if LUA_VERSION_NUM < 503
     lua_Number n;
 #else
@@ -441,11 +442,12 @@ int table_is_an_array(lua_State *L) {
         lua_pop(L,1); /* Stack: ... key */
         /* The <= 0 check is valid here because we're comparing indexes. */
 #if LUA_VERSION_NUM < 503
-        if ((LUA_TNUMBER != lua_type(L,-1)) || (n = lua_tonumber(L, -1)) <= 0 ||
-            !IS_INT_EQUIVALENT(n))
+        test = (LUA_TNUMBER != lua_type(L,-1)) || (n = lua_tonumber(L, -1)) <= 0 ||
+            !IS_INT_EQUIVALENT(n);
 #else
-        if (!lua_isinteger(L,-1) || (n = lua_tointeger(L, -1)) <= 0)
+        test = !lua_isinteger(L,-1) || (n = lua_tointeger(L, -1)) <= 0;
 #endif
+        if (test)
         {
             lua_settop(L, stacktop);
             return 0;
