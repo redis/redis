@@ -667,20 +667,6 @@ void disconnectSlaves(void) {
     }
 }
 
-/* This function is called when the slave lose the connection with the
- * master into an unexpected way. */
-void replicationHandleMasterDisconnection(void) {
-    server.master = NULL;
-    server.repl_state = REDIS_REPL_CONNECT;
-    server.repl_down_since = server.unixtime;
-    /* We lost connection with our master, force our slaves to resync
-     * with us as well to load the new data set.
-     *
-     * If server.masterhost is NULL the user called SLAVEOF NO ONE so
-     * slave resync is not needed. */
-    if (server.masterhost != NULL) disconnectSlaves();
-}
-
 void freeClient(redisClient *c) {
     listNode *ln;
 
@@ -1680,6 +1666,12 @@ void flushSlavesOutputBuffers(void) {
         redisClient *slave = listNodeValue(ln);
         int events;
 
+        /* Note that the following will not flush output buffers of slaves
+         * in STATE_ONLINE but having put_online_on_ack set to true: in this
+         * case the writable event is never installed, since the purpose
+         * of put_online_on_ack is to postpone the moment it is installed.
+         * This is what we want since slaves in this state should not receive
+         * writes before the first ACK. */
         events = aeGetFileEvents(server.el,slave->fd);
         if (events & AE_WRITABLE &&
             slave->replstate == REDIS_REPL_ONLINE &&

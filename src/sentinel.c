@@ -1157,7 +1157,9 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
  * 1) Remove all slaves.
  * 2) Remove all sentinels.
  * 3) Remove most of the flags resulting from runtime operations.
- * 4) Reset timers to their default value.
+ * 4) Reset timers to their default value. For example after a reset it will be
+ *    possible to failover again the same master ASAP, without waiting the
+ *    failover timeout delay.
  * 5) In the process of doing this undo the failover if in progress.
  * 6) Disconnect the connections with the master (will reconnect automatically).
  */
@@ -1180,7 +1182,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     }
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = 0;
-    ri->failover_start_time = 0;
+    ri->failover_start_time = 0; /* We can failover again ASAP. */
     ri->promoted_slave = NULL;
     sdsfree(ri->runid);
     sdsfree(ri->slave_master_host);
@@ -1544,7 +1546,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                 slave_addr = master->addr;
             line = sdscatprintf(sdsempty(),
                 "sentinel known-slave %s %s %d",
-                master->name, ri->addr->ip, ri->addr->port);
+                master->name, slave_addr->ip, slave_addr->port);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
         dictReleaseIterator(di2);
@@ -2790,6 +2792,7 @@ void sentinelCommand(redisClient *c) {
             addReply(c,shared.ok);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
+        if (c->argc != 2) goto numargserr;
         sentinelFlushConfig();
         addReply(c,shared.ok);
         return;
@@ -2797,6 +2800,7 @@ void sentinelCommand(redisClient *c) {
         /* SENTINEL REMOVE <name> */
         sentinelRedisInstance *ri;
 
+        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         sentinelEvent(REDIS_WARNING,"-monitor",ri,"%@");
@@ -2808,6 +2812,7 @@ void sentinelCommand(redisClient *c) {
         sentinelRedisInstance *ri;
         int usable;
 
+        if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         int result = sentinelIsQuorumReachable(ri,&usable);

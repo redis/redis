@@ -374,7 +374,10 @@ long long getPsyncInitialOffset(void) {
  * 3) Force the replication stream to re-emit a SELECT statement so
  *    the new slave incremental differences will start selecting the
  *    right database number.
- */
+ *
+ * Normally this function should be called immediately after a successful
+ * BGSAVE for replication was started, or when there is one already in
+ * progress that we attached our slave to. */
 int replicationSetupSlaveForFullResync(redisClient *slave, long long offset) {
     char buf[128];
     int buflen;
@@ -487,18 +490,63 @@ need_full_resync:
  * of the slaves waiting for this BGSAVE, so represents the slave capabilities
  * all the slaves support. Can be tested via SLAVE_CAPA_* macros.
  *
+ * Side effects, other than starting a BGSAVE:
+ *
+ * 1) Handle the slaves in WAIT_START state, by preparing them for a full
+ *    sync if the BGSAVE was succesfully started, or sending them an error
+ *    and dropping them from the list of slaves.
+ *
+ * 2) Flush the Lua scripting script cache if the BGSAVE was actually
+ *    started.
+ *
  * Returns REDIS_OK on success or REDIS_ERR otherwise. */
 int startBgsaveForReplication(int mincapa) {
     int retval;
     int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
+    listIter li;
+    listNode *ln;
 
-    redisLog(REIDS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
+    redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "slaves sockets" : "disk");
 
     if (socket_target)
         retval = rdbSaveToSlavesSockets();
     else
         retval = rdbSaveBackground(server.rdb_filename);
+
+    /* If we failed to BGSAVE, remove the slaves waiting for a full
+     * resynchorinization from the list of salves, inform them with
+     * an error about what happened, close the connection ASAP. */
+    if (retval == REDIS_ERR) {
+        redisLog(REDIS_WARNING,"BGSAVE for replication failed");
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
+                slave->flags &= ~REDIS_SLAVE;
+                listDelNode(server.slaves,ln);
+                addReplyError(slave,
+                    "BGSAVE failed, replication can't continue");
+                slave->flags |= REDIS_CLOSE_AFTER_REPLY;
+            }
+        }
+        return retval;
+    }
+
+    /* If the target is socket, rdbSaveToSlavesSockets() already setup
+     * the salves for a full resync. Otherwise for disk target do it now.*/
+    if (!socket_target) {
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
+                    replicationSetupSlaveForFullResync(slave,
+                            getPsyncInitialOffset());
+            }
+        }
+    }
 
     /* Flush the script cache, since we need that slave differences are
      * accumulated without requiring slaves to match our cached scripts. */
@@ -562,8 +610,14 @@ void syncCommand(redisClient *c) {
     /* Full resynchronization. */
     server.stat_sync_full++;
 
-    /* Here we need to check if there is a background saving operation
-     * in progress, or if it is required to start one */
+    /* Setup the slave as one waiting for BGSAVE to start. The following code
+     * paths will change the state if we handle the slave differently. */
+    c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
+    if (server.repl_disable_tcp_nodelay)
+        anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
+    c->repldbfd = -1;
+    c->flags |= REDIS_SLAVE;
+    listAddNodeTail(server.slaves,c);
 
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.rdb_child_pid != -1 &&
@@ -592,7 +646,6 @@ void syncCommand(redisClient *c) {
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
              * register differences. */
-            c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
             redisLog(REDIS_NOTICE,"Waiting for next BGSAVE for SYNC");
         }
 
@@ -603,7 +656,6 @@ void syncCommand(redisClient *c) {
         /* There is an RDB child process but it is writing directly to
          * children sockets. We need to wait for the next BGSAVE
          * in order to synchronize. */
-        c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
         redisLog(REDIS_NOTICE,"Waiting for next BGSAVE for SYNC");
 
     /* CASE 3: There is no BGSAVE is progress. */
@@ -612,27 +664,16 @@ void syncCommand(redisClient *c) {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
-            c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
             if (server.repl_diskless_sync_delay)
                 redisLog(REDIS_NOTICE,"Delay next BGSAVE for SYNC");
         } else {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (startBgsaveForReplication(c->slave_capa) != C_OK) {
-                redisLog(REDIS_NOTICE,"Replication failed, can't BGSAVE");
-                addReplyError(c,"Unable to perform background save");
-                return;
-            }
-            replicationSetupSlaveForFullResync(c,getPsyncInitialOffset());
+            if (startBgsaveForReplication(c->slave_capa) != REDIS_OK) return;
         }
     }
 
-    if (server.repl_disable_tcp_nodelay)
-        anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
-    c->repldbfd = -1;
-    c->flags |= REDIS_SLAVE;
-    listAddNodeTail(server.slaves,c);
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL)
         createReplicationBacklog();
     return;
@@ -817,7 +858,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             startbgsave = 1;
             mincapa = (mincapa == -1) ? slave->slave_capa :
                                         (mincapa & slave->slave_capa);
-            replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
         } else if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
@@ -864,23 +904,17 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             }
         }
     }
-    if (startbgsave) {
-        if (startBgsaveForReplication(mincapa) != REDIS_OK) {
-            listIter li;
-
-            listRewind(server.slaves,&li);
-            redisLog(REDIS_WARNING,"SYNC failed. BGSAVE failed");
-            while((ln = listNext(&li))) {
-                redisClient *slave = ln->value;
-
-                if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START)
-                    freeClient(slave);
-            }
-        }
-    }
+    if (startbgsave) startBgsaveForReplication(mincapa);
 }
 
 /* ----------------------------------- SLAVE -------------------------------- */
+
+/* Returns 1 if the given replication state is a handshake state,
+ * 0 otherwise. */
+int slaveIsInHandshakeState(void) {
+    return server.repl_state >= REDIS_REPL_RECEIVE_PONG &&
+           server.repl_state <= REDIS_REPL_RECEIVE_PSYNC;
+}
 
 /* Abort the async download of the bulk dataset while SYNC-ing with master */
 void replicationAbortSyncTransfer(void) {
@@ -1169,6 +1203,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
             return sdscatprintf(sdsempty(),"-Reading from master: %s",
                     strerror(errno));
         }
+        server.repl_transfer_lastio = server.unixtime;
         return sdsnew(buf);
     }
     return NULL;
@@ -1504,6 +1539,13 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
+    /* PSYNC failed or is not supported: we want our slaves to resync with us
+     * as well, if we have any (chained replication case). The mater may
+     * transfer us an entirely different data set and we have no way to
+     * incrementally feed our slaves after that. */
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.repl_master_runid and repl_master_initial_offset are
      * already populated. */
@@ -1592,7 +1634,7 @@ void undoConnectWithMaster(void) {
     int fd = server.repl_transfer_s;
 
     redisAssert(server.repl_state == REDIS_REPL_CONNECTING ||
-                server.repl_state == REDIS_REPL_RECEIVE_PONG);
+                slaveIsInHandshakeState());
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
     close(fd);
     server.repl_transfer_s = -1;
@@ -1611,7 +1653,7 @@ int cancelReplicationHandshake(void) {
     if (server.repl_state == REDIS_REPL_TRANSFER) {
         replicationAbortSyncTransfer();
     } else if (server.repl_state == REDIS_REPL_CONNECTING ||
-             server.repl_state == REDIS_REPL_RECEIVE_PONG)
+               slaveIsInHandshakeState())
     {
         undoConnectWithMaster();
     } else {
@@ -1657,6 +1699,17 @@ void replicationUnsetMaster(void) {
     server.repl_state = REDIS_REPL_NONE;
 }
 
+/* This function is called when the slave lose the connection with the
+ * master into an unexpected way. */
+void replicationHandleMasterDisconnection(void) {
+    server.master = NULL;
+    server.repl_state = REDIS_REPL_CONNECT;
+    server.repl_down_since = server.unixtime;
+    /* We lost connection with our master, don't disconnect slaves yet,
+     * maybe we'll be able to PSYNC with our master later. We'll disconnect
+     * the slaves only if we'll have to do a full resync with our master. */
+}
+
 void slaveofCommand(redisClient *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */
@@ -1671,7 +1724,10 @@ void slaveofCommand(redisClient *c) {
         !strcasecmp(c->argv[2]->ptr,"one")) {
         if (server.masterhost) {
             replicationUnsetMaster();
-            redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
+            sds client = catClientInfoString(sdsempty(),c);
+            redisLog(REDIS_NOTICE,
+                "MASTER MODE enabled (user request from '%s')",client);
+            sdsfree(client);
         }
     } else {
         long port;
@@ -1689,8 +1745,10 @@ void slaveofCommand(redisClient *c) {
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
-        redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
-            server.masterhost, server.masterport);
+        sds client = catClientInfoString(sdsempty(),c);
+        redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request from '%s')",
+            server.masterhost, server.masterport, client);
+        sdsfree(client);
     }
     addReply(c,shared.ok);
 }
@@ -1730,22 +1788,17 @@ void roleCommand(redisClient *c) {
         addReplyBulkCBuffer(c,"slave",5);
         addReplyBulkCString(c,server.masterhost);
         addReplyLongLong(c,server.masterport);
-        switch(server.repl_state) {
-        case REDIS_REPL_NONE: slavestate = "none"; break;
-        case REDIS_REPL_CONNECT: slavestate = "connect"; break;
-        case REDIS_REPL_CONNECTING: slavestate = "connecting"; break;
-        case REDIS_REPL_RECEIVE_PONG:
-        case REDIS_REPL_SEND_AUTH:
-        case REDIS_REPL_RECEIVE_AUTH:
-        case REDIS_REPL_SEND_PORT:
-        case REDIS_REPL_RECEIVE_PORT:
-        case REDIS_REPL_SEND_CAPA:
-        case REDIS_REPL_RECEIVE_CAPA:
-        case REDIS_REPL_SEND_PSYNC:
-        case REDIS_REPL_RECEIVE_PSYNC: slavestate = "handshake"; break;
-        case REDIS_REPL_TRANSFER: slavestate = "sync"; break;
-        case REDIS_REPL_CONNECTED: slavestate = "connected"; break;
-        default: slavestate = "unknown"; break;
+        if (slaveIsInHandshakeState()) {
+            slavestate = "handshake";
+        } else {
+            switch(server.repl_state) {
+            case REDIS_REPL_NONE: slavestate = "none"; break;
+            case REDIS_REPL_CONNECT: slavestate = "connect"; break;
+            case REDIS_REPL_CONNECTING: slavestate = "connecting"; break;
+            case REDIS_REPL_TRANSFER: slavestate = "sync"; break;
+            case REDIS_REPL_CONNECTED: slavestate = "connected"; break;
+            default: slavestate = "unknown"; break;
+            }
         }
         addReplyBulkCString(c,slavestate);
         addReplyLongLong(c,server.master ? server.master->reploff : -1);
@@ -2136,8 +2189,8 @@ void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
         (server.repl_state == REDIS_REPL_CONNECTING ||
-         server.repl_state == REDIS_REPL_RECEIVE_PONG) &&
-        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
+         slaveIsInHandshakeState()) &&
+         (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"Timeout connecting to the MASTER...");
         undoConnectWithMaster();
@@ -2286,21 +2339,7 @@ void replicationCron(void) {
         if (slaves_waiting && max_idle > server.repl_diskless_sync_delay) {
             /* Start a BGSAVE. Usually with socket target, or with disk target
              * if there was a recent socket -> disk config change. */
-            if (startBgsaveForReplication(mincapa) == REDIS_OK) {
-                /* It started! We need to change the state of slaves
-                 * from WAIT_BGSAVE_START to WAIT_BGSAVE_END in case
-                 * the current target is disk. Otherwise it was already done
-                 * by rdbSaveToSlavesSockets() which is called by
-                 * startBgsaveForReplication(). */
-                listRewind(server.slaves,&li);
-                while((ln = listNext(&li))) {
-                    redisClient *slave = ln->value;
-                    if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
-                        replicationSetupSlaveForFullResync(slave,
-                            getPsyncInitialOffset());
-                    }
-                }
-            }
+            startBgsaveForReplication(mincapa);
         }
     }
 
