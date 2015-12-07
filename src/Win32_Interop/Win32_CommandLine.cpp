@@ -353,7 +353,7 @@ static SentinelParams sp = SentinelParams();
 static RedisParamterMapper g_redisArgMap =
 {
     // QFork flags
-    { cQFork,                           &fp2 },    // qfork [QForkConrolMemoryMap handle] [parent process id]
+    { cQFork,                           &fp2 },    // qfork [QForkControlMemoryMap handle] [parent process id]
     { cMaxHeap,                         &fp1 },    // maxheap [number]
     { cHeapDir,                         &fp1 },    // heapdir [path]
     { cPersistenceAvailable,            &fp1 },    // persistence-available [yes/no]

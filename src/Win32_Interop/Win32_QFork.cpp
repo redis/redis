@@ -124,7 +124,7 @@ DLMallocMemoryMap:
      disabled for these processes)
    - This must be mapped in exactly the same virtual memory space in both forker and forkee.
 
-QForkConrolMemoryMap:
+QForkControlMemoryMap:
    - contains a map of the allocated segments in the DLMallocMemoryMap
    - contains handles for inter-process synchronization
    - contains pointers to some of the global data in the parent process if mapped into DLMallocMemoryMap, and a copy of any other 
@@ -135,15 +135,15 @@ QFork process:
     - when a COW operation is requested via an event signal
         - opens the DLMAllocMemoryMap with PAGE_WRITECOPY
         - reserve space for DLMAllocMemoryMap at the memory location specified in ControlMemoryMap
-        - locks the DLMalloc segments as specified in QForkConrolMemoryMap 
-        - maps global data from the QForkConrolMEmoryMap into this process
+        - locks the DLMalloc segments as specified in QForkControlMemoryMap
+        - maps global data from the QForkControlMemoryMap into this process
         - executes the requested operation
         - unmaps all the mm views (discarding any writes)
         - signals the parent when the operation is complete
 
 How the parent invokes the QFork process:
     - protects mapped memory segments with VirtualProtect using PAGE_WRITECOPY (both the allocated portions of DLMAllocMemoryMap and 
-      the QForkConrolMemoryMap)
+      the QForkControlMemoryMap)
     - QForked process is signaled to process command
     - Parent waits (asynchronously) until QForked process signals that operation is complete, then as an atomic operation:
         - signals and waits for the forked process to terminate
@@ -271,13 +271,13 @@ bool ReportSpecialSystemErrors(int error) {
     }
 }
 
-BOOL QForkChildInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
+BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     try {
         SmartHandle shParent( 
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
-        SmartHandle shMMFile(shParent, QForkConrolMemoryMapHandle);
+        SmartHandle shMMFile(shParent, QForkControlMemoryMapHandle);
         SmartFileView<QForkControl> sfvParentQForkControl(
             shMMFile, 
             FILE_MAP_COPY, 
@@ -671,7 +671,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
     bool foundChildFlag = false;
-    HANDLE QForkConrolMemoryMapHandle = NULL;
+    HANDLE QForkControlMemoryMapHandle = NULL;
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
     __int64 maxmemoryBytes = -1;
@@ -682,10 +682,10 @@ StartupStatus QForkStartup(int argc, char** argv) {
     g_systemAllocationGranularity = si.dwAllocationGranularity;
 
     if (g_argMap.find(cQFork) != g_argMap.end()) {
-        // Child command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
+        // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent process id]
         foundChildFlag = true;
         char* endPtr;
-        QForkConrolMemoryMapHandle = (HANDLE)strtoul(g_argMap[cQFork].at(0).at(0).c_str(),&endPtr,10);
+        QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), &endPtr, 10);
         char* end = NULL;
         PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), &end, 10);
     } else {
@@ -759,7 +759,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
         LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );
         StartupStatus retVal = StartupStatus::ssFAILED;
         try {
-            retVal = QForkChildInit(QForkConrolMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
+            retVal = QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
         } catch (...) { }
         RemoveVectoredExceptionHandler(exceptionHandler);       
         return retVal;
