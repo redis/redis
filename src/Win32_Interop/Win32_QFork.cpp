@@ -158,7 +158,7 @@ How the parent invokes the QFork process:
     #define LODWORD(_qw)    ((DWORD)(_qw))
 #endif
 #ifndef HIDWORD
-    #define HIDWORD(_qw)    ((DWORD)(((_qw) >> (sizeof(DWORD)*8)) & DWORD(~0)))
+    #define HIDWORD(_qw)    ((DWORD)((_qw) >> (sizeof(DWORD)*8)))
 #endif
 
 const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
