@@ -135,8 +135,8 @@ How the parent invokes the QFork process:
       the QForkControlMemoryMap)
     - QForked process is signaled to process command
     - Parent waits (asynchronously) until QForked process signals that operation is complete, then as an atomic operation:
-        - signals and waits for the forked process to terminate
-        - resotres protection status on mapped blocks
+        - signals and waits for the child process to terminate
+        - restores protection status on mapped blocks
         - determines which pages have been modified and copies these to a buffer
         - unmaps the view of the heap (discarding COW changes form the view)
         - remaps the view
@@ -150,13 +150,13 @@ How the parent invokes the QFork process:
     #define HIDWORD(_qw)    ((DWORD)((_qw) >> (sizeof(DWORD)*8)))
 #endif
 
-const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
-const int cMaxBlocks = 1 << 24;                                   // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
+const SIZE_T cAllocationGranularity = 1 << 18;      // 256KB per heap block (matches large block allocation threshold of dlmalloc)
+const int cMaxBlocks = 1 << 24;                     // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
 const char* cMapFileBaseName = "RedisQFork";
 const int cDeadForkWait = 30000;
 
 #ifndef _WIN64
-size_t cDefaultmaxHeap32Bit = pow(2, 29);
+size_t cDefaultmaxHeap32Bit = pow(2, 29);           // 512MB
 #endif
 
 enum class BlockState : uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
@@ -209,10 +209,8 @@ BOOL g_PersistenceDisabled;
 BOOL g_BypassMemoryMapOnAlloc;
 
 bool ReportSpecialSystemErrors(int error) {
-    switch (error)
-    {
-        case ERROR_COMMITMENT_LIMIT:
-        {
+    switch (error) {
+        case ERROR_COMMITMENT_LIMIT: {
             redisLog(
                 REDIS_WARNING,
                 "\n"
@@ -235,8 +233,7 @@ bool ReportSpecialSystemErrors(int error) {
             return true;
         }
 
-        case ERROR_DISK_FULL:
-        {
+        case ERROR_DISK_FULL: {
             redisLog(
                 REDIS_WARNING,
                 "\n"
@@ -300,22 +297,27 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
        g_pQForkControl->heapMemoryMap = sfmhMapFile;
 
 
-       // The key to mapping a heap larger than physical memory is to not map it all at once. 
+       // The key to mapping a heap larger than physical memory is to not map it
+       // all at once, deal with the unmapped pages with VectoredHeapMapper.
        SmartFileView<byte> sfvHeap(
             g_pQForkControl->heapMemoryMap,
             FILE_MAP_COPY,
-            0, 0, 
-            cAllocationGranularity, // Only map a portion of the heap . Deal with the unmapped pages with a VEH.
+            0,
+            0,
+            cAllocationGranularity, // Only map a portion of the heap.
             g_pQForkControl->heapStart,
             string("Could not map heap in forked process. Is system swap file large enough?"));
 
         // Setup DLMalloc global data
-        if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
+        if (SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize,
+                                   g_pQForkControl->DLMallocGlobalState) != 0) {
             throw runtime_error("DLMalloc global state copy failed.");
         }
 
         // Copy redis globals into fork process
-        SetupRedisGlobals(g_pQForkControl->forkData.redisGlobals, g_pQForkControl->forkData.redisGlobalsSize, g_pQForkControl->forkData.dictHashSeed);
+        SetupRedisGlobals(g_pQForkControl->forkData.redisGlobals,
+                          g_pQForkControl->forkData.redisGlobalsSize,
+                          g_pQForkControl->forkData.dictHashSeed);
 
         // Execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
@@ -376,6 +378,7 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
+/* The default location for the memory mapped file is the local app data. */
 string GetLocalAppDataFolder() {
     char localAppDataPath[MAX_PATH];
     HRESULT hr;
@@ -396,6 +399,7 @@ string GetLocalAppDataFolder() {
     return redisAppDataPath;
 }
 
+/* Get the location where the memory mapped file will be saved. */
 string GetHeapDirPath() {
     string heapDirPath;
     if (g_argMap.find(cHeapDir) != g_argMap.end()) {
@@ -459,16 +463,24 @@ void CleanupHeapDir(string heapDir) {
 
 BOOL QForkParentInit(__int64 maxheapBytes) {
     try {
+        // Remove old .dat memory mapped files if present
         string heapDirPath = GetHeapDirPath();
         CleanupHeapDir(heapDirPath);
 
-        // Allocate file map for qfork control so it can be passed to the
-        // forked process.
+        // This must be called only once per process. The child process will
+        // get this information from the parent through DLMallocGlobalState
+        if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
+            ThrowLastError("DLMalloc failed initializing allocation granularity.");
+        }
+
+        // Allocate file map for QForkControl so it can be passed to the
+        // child process.
         g_hQForkControlFileMap = CreateFileMappingW(
             INVALID_HANDLE_VALUE,
             NULL,
             PAGE_READWRITE,
-            0, sizeof(QForkControl),
+            0,
+            sizeof(QForkControl),
             NULL);
         if (g_hQForkControlFileMap == NULL) {
             ThrowLastError("CreateFileMapping failed");
@@ -477,16 +489,11 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         g_pQForkControl = (QForkControl*)MapViewOfFile(
             g_hQForkControlFileMap, 
             FILE_MAP_ALL_ACCESS,
-            0, 0,
+            0,
+            0,
             0);
         if (g_pQForkControl == NULL) {
             ThrowLastError("MapViewOfFile failed");
-        }
-
-        // This must be called only once per process. Calling it more times
-        // will not recreate existing section, and dlmalloc will ultimately
-        if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
-            ThrowLastError("DLMalloc failed initializing allocation granularity.");
         }
 
         // Ensure the number of blocks is a multiple of cAllocationGranularity
@@ -527,9 +534,9 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
                 g_pQForkControl->heapMemoryMapFile,
                 NULL,
                 PAGE_READWRITE,
-#ifdef _WIN64           
+#ifdef _WIN64
                 HIDWORD(mmSize),
-#else      
+#else
                 0,
 #endif
                 LODWORD(mmSize),
@@ -560,8 +567,9 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
             MapViewOfFileEx(
                 g_pQForkControl->heapMemoryMap,
                 FILE_MAP_ALL_ACCESS,
-                0,0,                            
-                0,  
+                0,
+                0,
+                0,
                 pHigh);
         if (g_pQForkControl->heapStart == NULL) {
             ThrowLastError("MapViewOfFileEx failed.");
@@ -603,19 +611,22 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
     return FALSE;
 }
 
+/* VectoredHeapMapper is used by the child process. The child process doesn't
+ * map the memory mapped file pages all at once since it may have a significant
+ * performance impact, therefore an exception handler is used to map the pages
+ * on demand. */
 LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
-    if (info->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION && 
+    if (info->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION &&
         info->ExceptionRecord->NumberParameters == 2) {
         intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
-        intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
-        intptr_t heapEnd = heapStart + ((SIZE_T)g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
-        if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd)
-        {
+        intptr_t heapStart = (intptr_t) g_pQForkControl->heapStart;
+        intptr_t heapEnd = heapStart + ((SIZE_T) g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
+        if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd) {
             intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_SystemAllocationGranularity;
             intptr_t mmfOffset = startOfMapping - heapStart;
-            size_t bytesToMap = min((size_t)g_SystemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
-            LPVOID pMapped =  MapViewOfFileEx( 
-                g_pQForkControl->heapMemoryMap, 
+            size_t bytesToMap = min((size_t) g_SystemAllocationGranularity, (size_t) (heapEnd - startOfMapping));
+            LPVOID pMapped = MapViewOfFileEx(
+                g_pQForkControl->heapMemoryMap,
                 FILE_MAP_COPY,
 #ifdef _WIN64           
                 HIDWORD(mmfOffset),
@@ -624,14 +635,11 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 #endif
                 LODWORD(mmfOffset),
                 bytesToMap,
-                (LPVOID)startOfMapping);
+                (LPVOID) startOfMapping);
 
-            if(pMapped != NULL)
-            {
+            if (pMapped != NULL) {
                 return EXCEPTION_CONTINUE_EXECUTION;
-            }
-            else
-            {
+            } else {
                 DWORD err = GetLastError();
                 redisLog(REDIS_WARNING, "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
                 redisLog(REDIS_WARNING, "--- FATAL ERROR MAPPING VIEW OF MAP FILE");
@@ -657,12 +665,10 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
             }
         }
     }
-
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-// QFork API
-StartupStatus QForkStartup(int argc, char** argv) {
+StartupStatus QForkStartup() {
     bool foundChildFlag = false;
     HANDLE QForkControlMemoryMapHandle = NULL;
     DWORD PPID = 0;
@@ -748,6 +754,13 @@ StartupStatus QForkStartup(int argc, char** argv) {
     }
 }
 
+void SmartCloseHandle(HANDLE* ptrHandle) {
+    if (*ptrHandle != NULL) {
+        CloseHandle(*ptrHandle);
+        *ptrHandle = NULL;
+    }
+}
+
 BOOL QForkShutdown() {
     if(g_hForkedProcess != NULL) {
         TerminateProcess(g_hForkedProcess, -1);
@@ -755,44 +768,34 @@ BOOL QForkShutdown() {
         g_hForkedProcess = NULL;
     }
 
-    if( g_pQForkControl != NULL )
-    {
-        if (g_pQForkControl->operationComplete != NULL) {
-            CloseHandle(g_pQForkControl->operationComplete);
-            g_pQForkControl->operationComplete = NULL;
-        }
-        if (g_pQForkControl->operationFailed != NULL) {
-            CloseHandle(g_pQForkControl->operationFailed);
-            g_pQForkControl->operationFailed = NULL;
-        }
-        if (g_pQForkControl->heapMemoryMap != NULL) {
-            CloseHandle(g_pQForkControl->heapMemoryMap);
-            g_pQForkControl->heapMemoryMap = NULL;
-        }
+    if (g_pQForkControl != NULL) {
+        SmartCloseHandle(&g_pQForkControl->operationComplete);
+        SmartCloseHandle(&g_pQForkControl->operationFailed);
+        SmartCloseHandle(&g_pQForkControl->heapMemoryMap);
+
         if (g_pQForkControl->heapMemoryMapFile != INVALID_HANDLE_VALUE) {
             CloseHandle(g_pQForkControl->heapMemoryMapFile);
             g_pQForkControl->heapMemoryMapFile = INVALID_HANDLE_VALUE;
         }
+
         if (g_pQForkControl->heapStart != NULL) {
             UnmapViewOfFile(g_pQForkControl->heapStart);
             g_pQForkControl->heapStart = NULL;
         }
 
-        if(g_pQForkControl != NULL) {
+        if (g_pQForkControl != NULL) {
             UnmapViewOfFile(g_pQForkControl);
             g_pQForkControl = NULL;
         }
-        if (g_hQForkControlFileMap != NULL) {
-            CloseHandle(g_hQForkControlFileMap);
-            g_hQForkControlFileMap = NULL;
-        };
+
+        SmartCloseHandle(&g_hQForkControlFileMap);
     }
 
     return TRUE;
 }
 
 void CopyForkOperationData(OperationType type, LPVOID redisGlobals, int redisGlobalsSize, uint32_t dictHashSeed) {
-    // copy operation data
+    // Copy operation data
     g_pQForkControl->typeOfOperation = type;
     if (redisGlobalsSize > REDIS_GLOBALS_MAX_SIZE) {
         throw runtime_error("Global state too large.");
@@ -805,11 +808,12 @@ void CopyForkOperationData(OperationType type, LPVOID redisGlobals, int redisGlo
     if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {
         throw runtime_error("DLMalloc global state too large.");
     }
-    if(GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
+    if (GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize,
+                               g_pQForkControl->DLMallocGlobalState) != 0) {
         throw runtime_error("DLMalloc global state copy failed.");
     }
 
-    // protect both the heap and the fork control map from propagating local changes 
+    // Protect both the heap and the fork control map from propagating local changes 
     DWORD oldProtect = 0;
     if (VirtualProtect(g_pQForkControl,
                        sizeof(QForkControl),
@@ -826,7 +830,7 @@ void CopyForkOperationData(OperationType type, LPVOID redisGlobals, int redisGlo
 }
 
 void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreationFlags = 0) {
-    // ensure events are in the correst state
+    // Ensure events are in the correst state
     if (ResetEvent(g_pQForkControl->operationComplete) == FALSE) {
         ThrowLastError("BeginForkOperation: ResetEvent() failed.");
     }
@@ -835,7 +839,7 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
         ThrowLastError("BeginForkOperation: ResetEvent() failed.");
     }
 
-    // Launch the "forked" process
+    // Launch the child process
     char fileName[MAX_PATH];
     if (GetModuleFileNameA(NULL, fileName, MAX_PATH) == 0) {
         ThrowLastError("Failed to get module name.");
@@ -859,7 +863,7 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     
     if (CreateProcessA(fileName, arguments, NULL, NULL, TRUE,
                        dwCreationFlags, NULL, NULL, &si, pi) == FALSE) {
-        ThrowLastError("Problem creating child process");
+        ThrowLastError("Problem creating child process.");
     }
     g_hForkedProcess = pi->hProcess;
 }
@@ -879,6 +883,7 @@ pid_t BeginForkOperation(
         pi.hProcess = INVALID_HANDLE_VALUE;
         pi.dwProcessId = -1;
 
+        // The pidHook is passed only by the Socket-save operation (diskless replication)
         if (pidHook != NULL) {
             CreateChildProcess(&pi, logfile, CREATE_SUSPENDED);
             pidHook(pi.dwProcessId);
@@ -930,6 +935,8 @@ pid_t BeginForkOperation_Aof(
     return BeginForkOperation(otAOF, redisGlobals, redisGlobalsSize, dictHashSeed, logfile);
 }
 
+/* Used by diskless replication to duplicate the sockets created by
+ * the master to communicate with the slave */
 void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
     WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*)dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->forkData.numfds);
     g_pQForkControl->forkData.protocolInfo = protocolInfo;
@@ -938,6 +945,9 @@ void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
     }
 }
 
+/* Diskless replication: in the Windows implementation is not strictly diskless
+ * since the QFork architecture uses a memory mapped file to simulate the unix
+ * fork */
 pid_t BeginForkOperation_Socket(
     int *fds,
     int numfds,
@@ -965,6 +975,7 @@ pid_t BeginForkOperation_Socket(
                               BeginForkOperation_Socket_PidHook);
 }
 
+/* Called by the parent process serverCron to monitor the child status */
 OperationStatus GetForkOperationStatus() {
     if (WaitForSingleObject(g_pQForkControl->operationComplete, 0) == WAIT_OBJECT_0) {
         return OperationStatus::osCOMPLETE;
@@ -997,7 +1008,7 @@ BOOL AbortForkOperation() {
     try {
         if (g_hForkedProcess != 0) {
             if (TerminateProcess(g_hForkedProcess, 1) == FALSE) {
-                ThrowLastError("EndForkOperation: Killing forked process failed.");
+                ThrowLastError("AbortForkOperation: Killing forked process failed.");
             }
             CloseHandle(g_hForkedProcess);
             g_hForkedProcess = 0;
@@ -1005,7 +1016,7 @@ BOOL AbortForkOperation() {
         return EndForkOperation(NULL);
     }
     catch (system_error syserr) {
-        redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
+        redisLog(REDIS_WARNING, "AbortForkOperation: 0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state,
         // then another fork operation is not possible.
@@ -1326,7 +1337,7 @@ extern "C"
                 // QFork architecture
                 return redis_main(argc, argv);
             } else {
-                StartupStatus status = QForkStartup(argc, argv);
+                StartupStatus status = QForkStartup();
                 if (status == ssCONTINUE_AS_PARENT) {
                     int retval = redis_main(argc, argv);
                     QForkShutdown();
