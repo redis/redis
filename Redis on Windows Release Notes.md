@@ -1,5 +1,9 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.500 ] Release date: Dec 07 2015
+
+ - [Release] 3.0.500 stable.
+
 --[ Redis on Windows 3.0.500-rc2 ] Release date: Dec 03 2015
 
  - [Docs] Updated the README.
