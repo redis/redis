@@ -64,18 +64,7 @@ using namespace std;
 
 extern "C" int checkForSentinelMode(int argc, char **argv);
 extern "C" void InitTimeFunctions();
-
-extern "C"
-{
-  void*(*g_malloc)(size_t) = nullptr;
-  void*(*g_calloc)(size_t, size_t) = nullptr;
-  void*(*g_realloc)(void*, size_t) = nullptr;
-  void(*g_free)(void*) = nullptr;
-  size_t(*g_msize)(void*) = nullptr;
-  
-  // forward def from util.h. 
-  PORT_LONGLONG memtoll(const char *p, int *err);
-}
+extern "C" PORT_LONGLONG memtoll(const char *p, int *err); // forward def from util.h
 
 //#define DEBUG_WITH_PROCMON
 #ifdef DEBUG_WITH_PROCMON
@@ -214,6 +203,10 @@ HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
 DWORD g_systemAllocationGranularity;
 int g_ChildExitCode = 0; // For child process
+BOOL g_IsChildProcess;
+BOOL g_SentinelMode;
+BOOL g_PersistenceDisabled;
+BOOL g_BypassMemoryMapOnAlloc;
 
 bool ReportSpecialSystemErrors(int error) {
     switch (error)
@@ -1144,6 +1137,10 @@ BOOL EndForkOperation(int * pExitCode) {
 }
 
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
+    if (g_BypassMemoryMapOnAlloc) {
+        return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    }
+
     LPVOID retPtr = (LPVOID)NULL;
     if (size % cAllocationGranularity != 0 ) {
         errno = EINVAL;
@@ -1207,6 +1204,10 @@ BOOL FreeHeapBlock(LPVOID block, size_t size) {
         return FALSE;
     }
 
+    if (g_BypassMemoryMapOnAlloc) {
+        return VirtualFree(block, 0, MEM_RELEASE);
+    }
+
     INT_PTR ptrDiff = reinterpret_cast<byte*>(block) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
     if (ptrDiff < 0 || (ptrDiff % cAllocationGranularity) != 0) {
         return FALSE;
@@ -1246,16 +1247,27 @@ void SetupLogging() {
     }
 }
 
+BOOL IsPersistenceDisabled() {
+    if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
+        return (g_argMap[cPersistenceAvailable].at(0).at(0) == cNo);
+    } else {
+        return FALSE;
+    }
+}
+
+BOOL IsChildProcess() {
+    return (g_argMap.find(cQFork) != g_argMap.end());
+}
+
+void SetupQForkGlobals(int argc, char* argv[]) {
+    g_SentinelMode = checkForSentinelMode(argc, argv);
+    g_IsChildProcess = IsChildProcess();
+    g_PersistenceDisabled = IsPersistenceDisabled();
+    g_BypassMemoryMapOnAlloc = g_PersistenceDisabled || g_SentinelMode;
+}
+
 extern "C"
 {
-    BOOL IsPersistenceAvailable() {
-        if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
-            return (g_argMap[cPersistenceAvailable].at(0).at(0) != cNo);
-        } else {
-            return true;
-        }
-    }
-
     // The external main() is redefined as redis_main() by Win32_QFork.h.
     // The CRT will call this replacement main() before the previous main()
     // is invoked so that the QFork allocator can be setup prior to anything 
@@ -1301,47 +1313,34 @@ extern "C"
                 FILE_ATTRIBUTE_NORMAL,
                 NULL);
 #endif
-            int sentinelMode = checkForSentinelMode(argc, argv);
-
             // service commands do not launch an instance of redis directly
             if (HandleServiceCommands(argc, argv) == TRUE) {
                 return 0;
             }
 
-            // Setup memory allocation scheme for persistence mode
-            if (IsPersistenceAvailable() == TRUE && sentinelMode == 0) {
-                g_malloc = dlmalloc;
-                g_calloc = dlcalloc;
-                g_realloc = dlrealloc;
-                g_free = dlfree;
-                g_msize = reinterpret_cast<size_t(*)(void*)>(dlmalloc_usable_size);
-            } else {
-                g_malloc = malloc;
-                g_calloc = calloc;
-                g_realloc = realloc;
-                g_free = free;
-                g_msize = _msize;
-            }
+            SetupQForkGlobals(argc, argv);
 
-            if (IsPersistenceAvailable() == TRUE && sentinelMode == 0) {
-                  StartupStatus status = QForkStartup(argc, argv);
-                  if (status == ssCONTINUE_AS_PARENT) {
-                      int retval = redis_main(argc, argv);
-                      QForkShutdown();
-                      return retval;
-                  } else if (status == ssCHILD_EXIT) {
-                      // child is done - clean up and exit
-                      QForkShutdown();
-                      return g_ChildExitCode;
-                  } else if (status == ssFAILED) {
-                      // parent or child failed initialization
-                      return 1;
-                  } else {
-                      // unexpected status return
-                      return 2;
-                  }
-            } else {
+            if (g_PersistenceDisabled || g_SentinelMode) {
+                // Sentinel mode and Redis with persistence off don't use the
+                // QFork architecture
                 return redis_main(argc, argv);
+            } else {
+                StartupStatus status = QForkStartup(argc, argv);
+                if (status == ssCONTINUE_AS_PARENT) {
+                    int retval = redis_main(argc, argv);
+                    QForkShutdown();
+                    return retval;
+                } else if (status == ssCHILD_EXIT) {
+                    // child is done - clean up and exit
+                    QForkShutdown();
+                    return g_ChildExitCode;
+                } else if (status == ssFAILED) {
+                    // parent or child failed initialization
+                    return 1;
+                } else {
+                    // unexpected status return
+                    return 2;
+                }
             }
         } catch (system_error syserr) {
             RedisEventLog().LogError(string("Main: system error. ") + syserr.what());

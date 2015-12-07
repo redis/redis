@@ -75,10 +75,10 @@ void zlibc_free(void *ptr) {
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
 #elif defined(USE_DLMALLOC)
-#define malloc(size) g_malloc(size)
-#define calloc(count,size) g_calloc(count,size)
-#define realloc(ptr,size) g_realloc(ptr,size)
-#define free(ptr) g_free(ptr)
+#define malloc(size) dlmalloc(size)
+#define calloc(count,size) dlcalloc(count,size)
+#define realloc(ptr,size) dlrealloc(ptr,size)
+#define free(ptr) dlfree(ptr)
 #endif
 
 #if defined(__ATOMIC_RELAXED)
