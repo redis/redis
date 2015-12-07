@@ -28,6 +28,7 @@
 namespace Globals {
     // forward declarations only
     extern size_t pageSize;
+    extern size_t memoryPhysicalTotal;
 }
 
 void EnsureMemoryIsMapped(const void *buffer, size_t size);

@@ -24,6 +24,7 @@
 namespace Globals
 {
     size_t pageSize = 0;
+    size_t memoryPhysicalTotal = 0;
 }
 
 /* This function is used to force the VEH on the entire size of the buffer length,

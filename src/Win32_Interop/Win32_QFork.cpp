@@ -201,7 +201,7 @@ struct QForkControl {
 QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
-DWORD g_systemAllocationGranularity;
+DWORD g_SystemAllocationGranularity;
 int g_ChildExitCode = 0; // For child process
 BOOL g_IsChildProcess;
 BOOL g_SentinelMode;
@@ -611,9 +611,9 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
         intptr_t heapEnd = heapStart + ((SIZE_T)g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
         if (failingMemoryAddress >= heapStart && failingMemoryAddress < heapEnd)
         {
-            intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
+            intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_SystemAllocationGranularity;
             intptr_t mmfOffset = startOfMapping - heapStart;
-            size_t bytesToMap = min((size_t)g_systemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
+            size_t bytesToMap = min((size_t)g_SystemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
             LPVOID pMapped =  MapViewOfFileEx( 
                 g_pQForkControl->heapMemoryMap, 
                 FILE_MAP_COPY,
@@ -670,10 +670,6 @@ StartupStatus QForkStartup(int argc, char** argv) {
     __int64 maxmemoryBytes = -1;
     int memtollerr = 0;
 
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    g_systemAllocationGranularity = si.dwAllocationGranularity;
-
     if (g_argMap.find(cQFork) != g_argMap.end()) {
         // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent process id]
         foundChildFlag = true;
@@ -691,15 +687,6 @@ StartupStatus QForkStartup(int argc, char** argv) {
             maxmemoryBytes = memtoll(g_argMap[cMaxMemory].at(0).at(0).c_str(), &memtollerr);
         }
     }
-
-    PERFORMANCE_INFORMATION perfinfo;
-    perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
-    if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
-        redisLog(REDIS_WARNING, "GetPerformanceInfo failed.\n");
-        redisLog(REDIS_WARNING, "Failing startup.\n");
-        return StartupStatus::ssFAILED;
-    }
-    Globals::pageSize = perfinfo.PageSize;
 
     /*
     Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not 
@@ -742,7 +729,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
 
     if (maxheapBytes == -1) {
 #ifdef _WIN64
-        maxheapBytes = perfinfo.PhysicalTotal * Globals::pageSize;
+        maxheapBytes = Globals::memoryPhysicalTotal * Globals::pageSize;
 #else
         maxheapBytes = cDefaultmaxHeap32Bit;
 #endif
@@ -1264,6 +1251,20 @@ void SetupQForkGlobals(int argc, char* argv[]) {
     g_IsChildProcess = IsChildProcess();
     g_PersistenceDisabled = IsPersistenceDisabled();
     g_BypassMemoryMapOnAlloc = g_PersistenceDisabled || g_SentinelMode;
+
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    g_SystemAllocationGranularity = si.dwAllocationGranularity;
+
+    PERFORMANCE_INFORMATION perfinfo;
+    perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
+    if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
+        redisLog(REDIS_WARNING, "GetPerformanceInfo failed.\n");
+        redisLog(REDIS_WARNING, "Failing startup.\n");
+        exit(1);
+    }
+    Globals::pageSize = perfinfo.PageSize;
+    Globals::memoryPhysicalTotal = perfinfo.PhysicalTotal;
 }
 
 extern "C"
