@@ -206,7 +206,7 @@ struct QForkControl {
     // Shared data pointers to be passed to the forked process
     QForkStartupData forkData;
     BYTE DLMallocGlobalState[1000];
-    SIZE_T DLMallocGlobalStateSize;
+    size_t DLMallocGlobalStateSize;
 };
 
 QForkControl* g_pQForkControl;
