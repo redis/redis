@@ -76,6 +76,7 @@ void clusterDelNode(clusterNode *delnode);
 sds representRedisNodeFlags(sds ci, uint16_t flags);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
+void slotsStatus(int* slots_assigned, int* slots_ok, int* slots_fail, int* slots_pfail);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -1539,6 +1540,7 @@ int clusterProcessPacket(clusterLink *link) {
     uint16_t type = ntohs(hdr->type);
     uint16_t flags = ntohs(hdr->flags);
     uint64_t senderCurrentEpoch = 0, senderConfigEpoch = 0;
+    uint32_t meet_slots_assigned = 0;
     clusterNode *sender;
 
     server.cluster->stats_bus_messages_received++;
@@ -1558,6 +1560,16 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += (sizeof(clusterMsgDataGossip)*count);
+        if (type == CLUSTERMSG_TYPE_MEET) {
+            /*
+             * if totlen == explen: message from redis in previous versions
+             * which doesnt include slots_assigned, assume it as 0
+             */
+            if (totlen != explen) {
+                meet_slots_assigned = ntohl(*(uint32_t*) (((unsigned char*) link->rcvbuf) + explen));
+                explen += sizeof(uint32_t);
+            }
+        }
         if (totlen != explen) return 1;
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
@@ -1653,6 +1665,12 @@ int clusterProcessPacket(clusterLink *link) {
          * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
+            int slots_assigned, slots_ok, slots_pfail, slots_fail;
+            slotsStatus(&slots_assigned, &slots_ok, &slots_fail, &slots_pfail);
+            // if both the other cluster/node and this cluster contain slots, dont merge
+            if (meet_slots_assigned != 0 && slots_assigned != 0) {
+                return 1;
+            }
 
             node = createClusterNode(NULL,REDIS_NODE_HANDSHAKE);
             nodeIp2String(node->ip,link);
@@ -2207,10 +2225,10 @@ void clusterSendPing(clusterLink *link, int type) {
      * later according to the number of gossip sections we really were able
      * to put inside the packet. */
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    totlen += (sizeof(clusterMsgDataGossip)*wanted);
+    totlen += (sizeof(clusterMsgDataGossip)*wanted) + sizeof(uint32_t);
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
-    if (totlen < (int)sizeof(clusterMsg)) totlen = sizeof(clusterMsg);
+    if (totlen < (int)sizeof(clusterMsg)) totlen = sizeof(clusterMsg) + sizeof(uint32_t);
     buf = zcalloc(totlen);
     hdr = (clusterMsg*) buf;
 
@@ -2273,6 +2291,12 @@ void clusterSendPing(clusterLink *link, int type) {
      * output buffer. */
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
+    if (type == CLUSTERMSG_TYPE_MEET) {
+        int slots_assigned, slots_ok, slots_pfail, slots_fail;
+        slotsStatus(&slots_assigned, &slots_ok, &slots_fail, &slots_pfail);
+        *(uint32_t*)(buf + totlen) = htonl((uint32_t) slots_assigned);
+        totlen += sizeof(uint32_t);
+    }
     hdr->count = htons(gossipcount);
     hdr->totlen = htonl(totlen);
     clusterSendMessage(link,buf,totlen);
@@ -3806,6 +3830,25 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
     setDeferredMultiBulkLength(c, slot_replylen, num_masters);
 }
 
+void slotsStatus(int* slots_assigned, int* slots_ok, int* slots_fail, int* slots_pfail) {
+    int j;
+    *slots_assigned = *slots_ok = *slots_fail = *slots_pfail = 0;
+
+    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        clusterNode *n = server.cluster->slots[j];
+
+        if (n == NULL) continue;
+        ++*slots_assigned;
+        if (nodeFailed(n)) {
+            ++*slots_fail;
+        } else if (nodeTimedOut(n)) {
+            ++*slots_pfail;
+        } else {
+            ++*slots_ok;
+        }
+    }
+}
+
 void clusterCommand(redisClient *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -3997,23 +4040,9 @@ void clusterCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
         char *statestr[] = {"ok","fail","needhelp"};
-        int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
+        int slots_assigned, slots_ok, slots_pfail, slots_fail;
         uint64_t myepoch;
-        int j;
-
-        for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-            clusterNode *n = server.cluster->slots[j];
-
-            if (n == NULL) continue;
-            slots_assigned++;
-            if (nodeFailed(n)) {
-                slots_fail++;
-            } else if (nodeTimedOut(n)) {
-                slots_pfail++;
-            } else {
-                slots_ok++;
-            }
-        }
+        slotsStatus(&slots_assigned, &slots_ok, &slots_fail, &slots_pfail);
 
         myepoch = (nodeIsSlave(myself) && myself->slaveof) ?
                   myself->slaveof->configEpoch : myself->configEpoch;
