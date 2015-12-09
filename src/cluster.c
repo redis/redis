@@ -4784,7 +4784,7 @@ void readwriteCommand(client *c) {
  * not bound to any node. In this case the cluster global state should be
  * already "down" but it is fragile to rely on the update of the global state,
  * so we also handle it here. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
+clusterNode *getNodeByQuery(client *c, struct serverCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
     int multiple_keys = 0;
@@ -4817,7 +4817,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
     for (i = 0; i < ms->count; i++) {
-        struct redisCommand *mcmd;
+        struct serverCommand *mcmd;
         robj **margv;
         int margc, *keyindex, numkeys, j;
 

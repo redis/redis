@@ -347,7 +347,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
-    struct redisCommand *cmd;
+    struct serverCommand *cmd;
     client *c = server.lua_client;
     sds reply;
 

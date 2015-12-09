@@ -942,7 +942,7 @@ int handleClientsWithPendingWrites(void) {
 
 /* resetClient prepare the client to process the next command */
 void resetClient(client *c) {
-    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
+    serverCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
     freeClientArgv(c);
     c->reqtype = 0;

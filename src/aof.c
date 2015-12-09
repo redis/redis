@@ -465,7 +465,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
  * This command is used in order to translate EXPIRE and PEXPIRE commands
  * into PEXPIREAT command so that we retain precision in the append only
  * file, and the time is always absolute and not relative. */
-sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, robj *seconds) {
+sds catAppendOnlyExpireAtCommand(sds buf, struct serverCommand *cmd, robj *key, robj *seconds) {
     long long when;
     robj *argv[3];
 
@@ -495,7 +495,7 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
     return buf;
 }
 
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
+void feedAppendOnlyFile(struct serverCommand *cmd, int dictid, robj **argv, int argc) {
     sds buf = sdsempty();
     robj *tmpargv[3];
 
@@ -629,7 +629,7 @@ int loadAppendOnlyFile(char *filename) {
         robj **argv;
         char buf[128];
         sds argsds;
-        struct redisCommand *cmd;
+        struct serverCommand *cmd;
 
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
@@ -1252,7 +1252,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
         /* Child */
         closeListeningSockets(0);
-        redisSetProcTitle("redis-aof-rewrite");
+        serverSetProcTitle("redis-aof-rewrite");
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();

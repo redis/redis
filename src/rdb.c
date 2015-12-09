@@ -902,7 +902,7 @@ int rdbSaveBackground(char *filename) {
 
         /* Child */
         closeListeningSockets(0);
-        redisSetProcTitle("redis-rdb-bgsave");
+        serverSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename);
         if (retval == C_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
@@ -1598,7 +1598,7 @@ int rdbSaveToSlavesSockets(void) {
         zfree(fds);
 
         closeListeningSockets(0);
-        redisSetProcTitle("redis-rdb-to-slaves");
+        serverSetProcTitle("redis-rdb-to-slaves");
 
         retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL);
         if (retval == C_OK && rioFlush(&slave_sockets) == 0)

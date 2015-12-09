@@ -422,7 +422,7 @@ void sentinelSetCommand(client *c);
 void sentinelPublishCommand(client *c);
 void sentinelRoleCommand(client *c);
 
-struct redisCommand sentinelcmds[] = {
+struct serverCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
     {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0},
@@ -451,7 +451,7 @@ void initSentinel(void) {
     dictEmpty(server.commands,NULL);
     for (j = 0; j < sizeof(sentinelcmds)/sizeof(sentinelcmds[0]); j++) {
         int retval;
-        struct redisCommand *cmd = sentinelcmds+j;
+        struct serverCommand *cmd = sentinelcmds+j;
 
         retval = dictAdd(server.commands, sdsnew(cmd->name), cmd);
         serverAssert(retval == DICT_OK);

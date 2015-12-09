@@ -1093,7 +1093,7 @@ void persistCommand(client *c) {
 
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step). */
-int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
+int *getKeysUsingCommandTable(struct serverCommand *cmd,robj **argv, int argc, int *numkeys) {
     int j, i = 0, last, *keys;
     UNUSED(argv);
 
@@ -1118,12 +1118,12 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
  * so the actual return value is an heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
  *
- * 'cmd' must be point to the corresponding entry into the redisCommand
+ * 'cmd' must be point to the corresponding entry into the serverCommand
  * table, according to the command name in argv[0].
  *
  * This function uses the command table if a command-specific helper function
  * is not required, otherwise it calls the command-specific function. */
-int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *getKeysFromCommand(struct serverCommand *cmd, robj **argv, int argc, int *numkeys) {
     if (cmd->getkeys_proc) {
         return cmd->getkeys_proc(cmd,argv,argc,numkeys);
     } else {
@@ -1139,7 +1139,7 @@ void getKeysFreeResult(int *result) {
 /* Helper function to extract keys from following commands:
  * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
  * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
-int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *zunionInterGetKeys(struct serverCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     UNUSED(cmd);
 
@@ -1168,7 +1168,7 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
 /* Helper function to extract keys from the following commands:
  * EVAL <script> <num-keys> <key> <key> ... <key> [more stuff]
  * EVALSHA <script> <num-keys> <key> <key> ... <key> [more stuff] */
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *evalGetKeys(struct serverCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     UNUSED(cmd);
 
@@ -1196,7 +1196,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. */
-int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+int *sortGetKeys(struct serverCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, j, num, *keys, found_store = 0;
     UNUSED(cmd);
 

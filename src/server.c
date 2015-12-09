@@ -122,7 +122,7 @@ struct redisServer server; /* server global state */
  *    Note that commands that may trigger a DEL as a side effect (like SET)
  *    are not fast commands.
  */
-struct redisCommand redisCommandTable[] = {
+struct serverCommand serverCommandTable[] = {
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
@@ -1988,10 +1988,10 @@ void initServer(void) {
  * we have on top of redis.c file. */
 void populateCommandTable(void) {
     int j;
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    int numcommands = sizeof(serverCommandTable)/sizeof(struct serverCommand);
 
     for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = redisCommandTable+j;
+        struct serverCommand *c = serverCommandTable+j;
         char *f = c->sflags;
         int retval1, retval2;
 
@@ -2024,11 +2024,11 @@ void populateCommandTable(void) {
 }
 
 void resetCommandTableStats(void) {
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    int numcommands = sizeof(serverCommandTable)/sizeof(struct serverCommand);
     int j;
 
     for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = redisCommandTable+j;
+        struct serverCommand *c = serverCommandTable+j;
 
         c->microseconds = 0;
         c->calls = 0;
@@ -2042,7 +2042,7 @@ void redisOpArrayInit(redisOpArray *oa) {
     oa->numops = 0;
 }
 
-int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
+int redisOpArrayAppend(redisOpArray *oa, struct serverCommand *cmd, int dbid,
                        robj **argv, int argc, int target)
 {
     redisOp *op;
@@ -2074,12 +2074,12 @@ void redisOpArrayFree(redisOpArray *oa) {
 
 /* ====================== Commands lookup and execution ===================== */
 
-struct redisCommand *lookupCommand(sds name) {
+struct serverCommand *lookupCommand(sds name) {
     return dictFetchValue(server.commands, name);
 }
 
-struct redisCommand *lookupCommandByCString(char *s) {
-    struct redisCommand *cmd;
+struct serverCommand *lookupCommandByCString(char *s) {
+    struct serverCommand *cmd;
     sds name = sdsnew(s);
 
     cmd = dictFetchValue(server.commands, name);
@@ -2094,8 +2094,8 @@ struct redisCommand *lookupCommandByCString(char *s) {
  * This is used by functions rewriting the argument vector such as
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
-struct redisCommand *lookupCommandOrOriginal(sds name) {
-    struct redisCommand *cmd = dictFetchValue(server.commands, name);
+struct serverCommand *lookupCommandOrOriginal(sds name) {
+    struct serverCommand *cmd = dictFetchValue(server.commands, name);
 
     if (!cmd) cmd = dictFetchValue(server.orig_commands,name);
     return cmd;
@@ -2112,7 +2112,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
  * This should not be used inside commands implementation. Use instead
  * alsoPropagate(), preventCommandPropagation(), forceCommandPropagation().
  */
-void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+void propagate(struct serverCommand *cmd, int dbid, robj **argv, int argc,
                int flags)
 {
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
@@ -2133,7 +2133,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function autoamtically increments ref count of
  * passed objects, so the caller does not need to. */
-void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+void alsoPropagate(struct serverCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
 {
     robj **argvcopy;
@@ -2697,7 +2697,7 @@ void timeCommand(client *c) {
 }
 
 /* Helper function for addReplyCommand() to output flags. */
-int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply) {
+int addReplyCommandFlag(client *c, struct serverCommand *cmd, int f, char *reply) {
     if (cmd->flags & f) {
         addReplyStatus(c, reply);
         return 1;
@@ -2706,7 +2706,7 @@ int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply)
 }
 
 /* Output the representation of a Redis command. Used by the COMMAND command. */
-void addReplyCommand(client *c, struct redisCommand *cmd) {
+void addReplyCommand(client *c, struct serverCommand *cmd) {
     if (!cmd) {
         addReply(c, shared.nullbulk);
     } else {
@@ -2763,7 +2763,7 @@ void commandCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
         addReplyLongLong(c, dictSize(server.commands));
     } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
-        struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
+        struct serverCommand *cmd = lookupCommand(c->argv[2]->ptr);
         int *keys, numkeys, j;
 
         if (!cmd) {
@@ -3245,9 +3245,9 @@ sds genRedisInfoString(char *section) {
     if (allsections || !strcasecmp(section,"commandstats")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
-        numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+        numcommands = sizeof(serverCommandTable)/sizeof(struct serverCommand);
         for (j = 0; j < numcommands; j++) {
-            struct redisCommand *c = redisCommandTable+j;
+            struct serverCommand *c = serverCommandTable+j;
 
             if (!c->calls) continue;
             info = sdscatprintf(info,
@@ -3823,7 +3823,7 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     serverPanic("Redis aborting for OUT OF MEMORY");
 }
 
-void redisSetProcTitle(char *title) {
+void serverSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     char *server_mode = "";
     if (server.cluster_enabled) server_mode = " [cluster]";
@@ -3843,7 +3843,7 @@ void redisSetProcTitle(char *title) {
  * Check whether systemd or upstart have been used to start redis.
  */
 
-int redisSupervisedUpstart(void) {
+int serverSupervisedUpstart(void) {
     const char *upstart_job = getenv("UPSTART_JOB");
 
     if (!upstart_job) {
@@ -3858,7 +3858,7 @@ int redisSupervisedUpstart(void) {
     return 1;
 }
 
-int redisSupervisedSystemd(void) {
+int serverSupervisedSystemd(void) {
     const char *notify_socket = getenv("NOTIFY_SOCKET");
     int fd = 1;
     struct sockaddr_un su;
@@ -3915,20 +3915,20 @@ int redisSupervisedSystemd(void) {
     return 1;
 }
 
-int redisIsSupervised(int mode) {
+int serverIsSupervised(int mode) {
     if (mode == SUPERVISED_AUTODETECT) {
         const char *upstart_job = getenv("UPSTART_JOB");
         const char *notify_socket = getenv("NOTIFY_SOCKET");
 
         if (upstart_job) {
-            redisSupervisedUpstart();
+            serverSupervisedUpstart();
         } else if (notify_socket) {
-            redisSupervisedSystemd();
+            serverSupervisedSystemd();
         }
     } else if (mode == SUPERVISED_UPSTART) {
-        return redisSupervisedUpstart();
+        return serverSupervisedUpstart();
     } else if (mode == SUPERVISED_SYSTEMD) {
-        return redisSupervisedSystemd();
+        return serverSupervisedSystemd();
     }
 
     return 0;
@@ -4067,13 +4067,13 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
 
-    server.supervised = redisIsSupervised(server.supervised_mode);
+    server.supervised = serverIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
     initServer();
     if (background || server.pidfile) createPidFile();
-    redisSetProcTitle(argv[0]);
+    serverSetProcTitle(argv[0]);
     redisAsciiArt();
     checkTcpBacklogSettings();
 

@@ -479,7 +479,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"hll-sparse-max-bytes") && argc == 2) {
             server.hll_sparse_max_bytes = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
-            struct redisCommand *cmd = lookupCommand(argv[1]);
+            struct serverCommand *cmd = lookupCommand(argv[1]);
             int retval;
 
             if (!cmd) {

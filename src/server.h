@@ -516,7 +516,7 @@ typedef struct redisDb {
 typedef struct multiCmd {
     robj **argv;
     int argc;
-    struct redisCommand *cmd;
+    struct serverCommand *cmd;
 } multiCmd;
 
 typedef struct multiState {
@@ -572,7 +572,7 @@ typedef struct client {
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
-    struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    struct serverCommand *cmd, *lastcmd;  /* Last command executed. */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
@@ -674,7 +674,7 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
 typedef struct redisOp {
     robj **argv;
     int argc, dbid, target;
-    struct redisCommand *cmd;
+    struct serverCommand *cmd;
 } redisOp;
 
 /* Defines an array of Redis operations. There is an API to add to this
@@ -750,7 +750,7 @@ struct redisServer {
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
+    struct serverCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
                         *rpopCommand, *sremCommand, *execCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
@@ -985,27 +985,22 @@ typedef struct pubsubPattern {
     robj *pattern;
 } pubsubPattern;
 
-typedef void redisCommandProc(client *c);
-typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-struct redisCommand {
+typedef void serverCommandProc(client *c);
+typedef int *serverGetKeysProc(struct serverCommand *cmd, robj **argv, int argc, int *numkeys);
+struct serverCommand {
     char *name;
-    redisCommandProc *proc;
+    serverCommandProc *proc;
     int arity;
     char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
-    redisGetKeysProc *getkeys_proc;
+    serverGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* The first argument that's a key (0 = no keys) */
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
-};
-
-struct redisFunctionSym {
-    char *name;
-    unsigned long pointer;
 };
 
 typedef struct _redisSortObject {
@@ -1088,8 +1083,7 @@ long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-size_t redisPopcount(void *s, long count);
-void redisSetProcTitle(char *title);
+void serverSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(int fd);
@@ -1267,7 +1261,7 @@ void stopLoading(void);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
-void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc);
+void feedAppendOnlyFile(struct serverCommand *cmd, int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
 int loadAppendOnlyFile(char *filename);
@@ -1310,12 +1304,12 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int freeMemoryIfNeeded(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
-struct redisCommand *lookupCommand(sds name);
-struct redisCommand *lookupCommandByCString(char *s);
-struct redisCommand *lookupCommandOrOriginal(sds name);
+struct serverCommand *lookupCommand(sds name);
+struct serverCommand *lookupCommandByCString(char *s);
+struct serverCommand *lookupCommandOrOriginal(sds name);
 void call(client *c, int flags);
-void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
-void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
+void propagate(struct serverCommand *cmd, int dbid, robj **argv, int argc, int flags);
+void alsoPropagate(struct serverCommand *cmd, int dbid, robj **argv, int argc, int target);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
@@ -1443,11 +1437,11 @@ void slotToKeyFlushAsync(void);
 size_t lazyfreeGetPendingObjectsCount(void);
 
 /* API to get key arguments from commands */
-int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int *getKeysFromCommand(struct serverCommand *cmd, robj **argv, int argc, int *numkeys);
 void getKeysFreeResult(int *result);
-int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys);
-int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
-int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int *zunionInterGetKeys(struct serverCommand *cmd,robj **argv, int argc, int *numkeys);
+int *evalGetKeys(struct serverCommand *cmd, robj **argv, int argc, int *numkeys);
+int *sortGetKeys(struct serverCommand *cmd, robj **argv, int argc, int *numkeys);
 
 /* Cluster */
 void clusterInit(void);
