@@ -718,6 +718,7 @@ void unlinkClient(client *c) {
         ln = listSearchKey(server.clients_pending_write,c);
         serverAssert(ln != NULL);
         listDelNode(server.clients_pending_write,ln);
+        c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
     /* When client was just unblocked because of a blocking operation,
@@ -726,6 +727,7 @@ void unlinkClient(client *c) {
         ln = listSearchKey(server.unblocked_clients,c);
         serverAssert(ln != NULL);
         listDelNode(server.unblocked_clients,ln);
+        c->flags &= ~CLIENT_UNBLOCKED;
     }
 }
 
