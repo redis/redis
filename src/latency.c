@@ -342,7 +342,7 @@ sds createLatencyReport(void) {
         }
 
         if (!strcasecmp(event,"aof-fstat") ||
-            !strcasecmp(event,"rdb-unlik-temp-file")) {
+            !strcasecmp(event,"rdb-unlink-temp-file")) {
             advise_disk_contention = 1;
             advise_local_disk = 1;
             advices += 2;
