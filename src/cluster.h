@@ -53,7 +53,7 @@ typedef struct clusterLink {
 #define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
-#define REDIS_NODE_PROMOTED 256 /* Master was a slave promoted by failover */
+#define REDIS_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & REDIS_NODE_MASTER)
