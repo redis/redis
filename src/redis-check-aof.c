@@ -75,7 +75,7 @@ int readLong(FILE *fp, char prefix, PORT_LONG *target) {
         ERROR("Expected prefix '%c', got: '%c'",buf[0],prefix);
         return 0;
     }
-    *target = strtol(buf+1,&eptr,10);
+    *target = PORT_STRTOL(buf+1,&eptr,10);
     return consumeNewline(eptr);
 }
 

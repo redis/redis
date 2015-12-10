@@ -75,3 +75,9 @@ typedef double                  PORT_LONGDOUBLE;
 #define MAX_SIZE_T          (~(size_t)0)
 
 typedef int                 pid_t;
+
+#ifdef _WIN64
+  #define PORT_STRTOL       strtoll
+#else
+  #define PORT_STRTOL       strtol
+#endif
