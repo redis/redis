@@ -202,7 +202,6 @@ QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess = 0;
 DWORD g_SystemAllocationGranularity;
-int g_ChildExitCode = 0; // For child process
 BOOL g_IsChildProcess;
 BOOL g_SentinelMode;
 BOOL g_PersistenceDisabled;
@@ -261,10 +260,19 @@ bool ReportSpecialSystemErrors(int error) {
     }
 }
 
-BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
+/* QForkChildRun is the core of the QFork implementation for the child process,
+ * it initializes all the required data structures and runs the background
+ * command (i.e. RDB save, AOF save or SOCKET save).
+ * Returns 0 if succeeds, -1 otherwise */
+int QForkChildRun() {
+    int returnValue = -1;
     try {
+        // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent process id]
+        HANDLE QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), NULL, 10);
+        DWORD PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), NULL, 10);
+
         SmartHandle shParent( 
-            OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
+            OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, PPID),
             string("Could not open parent process"));
 
         SmartHandle shMMFile(shParent, QForkControlMemoryMapHandle);
@@ -321,9 +329,9 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
 
         // Execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
-            g_ChildExitCode = do_rdbSave(g_pQForkControl->forkData.filename);
+            returnValue = do_rdbSave(g_pQForkControl->forkData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
-            g_ChildExitCode = do_aofSave(g_pQForkControl->forkData.filename);
+            returnValue = do_aofSave(g_pQForkControl->forkData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otSocket) {
             LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->forkData.protocolInfo;
             int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->forkData.pipe_write_handle, _O_APPEND);
@@ -337,10 +345,10 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
                                          WSA_FLAG_OVERLAPPED);
             }
 
-            g_ChildExitCode = do_socketSave(fds,
-                                            g_pQForkControl->forkData.numfds,
-                                            g_pQForkControl->forkData.clientids,
-                                            pipe_write_fd);
+            returnValue = do_socketSave(fds,
+                                        g_pQForkControl->forkData.numfds,
+                                        g_pQForkControl->forkData.clientids,
+                                        pipe_write_fd);
             // After the socket replication has finished, close the duplicated sockets.
             // Failing to close the sockets properly will produce a socket read error
             // on both the parent process and the slave.
@@ -356,17 +364,17 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
         SetEvent(g_pQForkControl->operationComplete);
 
         g_pQForkControl = NULL;
-        return TRUE;
+        return returnValue;
     }
     catch(system_error syserr) {
         if (ReportSpecialSystemErrors(syserr.code().value()) == false) {
-            RedisEventLog().LogError("QForkChildInit: system error. " + string(syserr.what()));
-            redisLog(REDIS_WARNING, "QForkChildInit: system error. ErrCode: 0x%08x, ErrMsg: %s\n", syserr.code().value(), syserr.what());
+            RedisEventLog().LogError("QForkChildRun: system error. " + string(syserr.what()));
+            redisLog(REDIS_WARNING, "QForkChildRun: system error. ErrCode: 0x%08x, ErrMsg: %s\n", syserr.code().value(), syserr.what());
         }
     }
     catch(runtime_error runerr) {
-        RedisEventLog().LogError("QForkChildInit: runtime error. " + string(runerr.what()));
-        redisLog(REDIS_WARNING, "QForkChildInit: runtime error. ErrMsg: %s\n", runerr.what());
+        RedisEventLog().LogError("QForkChildRun: runtime error. " + string(runerr.what()));
+        redisLog(REDIS_WARNING, "QForkChildRun: runtime error. ErrMsg: %s\n", runerr.what());
     }
     
     if (g_pQForkControl != NULL) {
@@ -375,7 +383,7 @@ BOOL QForkChildInit(HANDLE QForkControlMemoryMapHandle, DWORD ParentProcessID) {
         }
         g_pQForkControl = NULL;
     }
-    return FALSE;
+    return -1;
 }
 
 /* The default location for the memory mapped file is the local app data. */
@@ -461,7 +469,7 @@ void CleanupHeapDir(string heapDir) {
     catch (...) {}
 }
 
-BOOL QForkParentInit(__int64 maxheapBytes) {
+BOOL QForkParentInit() {
     try {
         // Remove old .dat memory mapped files if present
         string heapDirPath = GetHeapDirPath();
@@ -471,6 +479,63 @@ BOOL QForkParentInit(__int64 maxheapBytes) {
         // get this information from the parent through DLMallocGlobalState
         if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
             ThrowLastError("DLMalloc failed initializing allocation granularity.");
+        }
+
+        /*
+        Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not
+        bounded by heap usage, and the heap size equal to the size of physical memory.
+
+        Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap
+        exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by
+        the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up
+        to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
+        increase the heap further than this.
+
+        If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
+        (rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
+        this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This
+        has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
+        than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
+
+        Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
+        size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
+        For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or
+        maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough
+        space available on the disk where redis is being launched from for this file.
+
+        During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both
+        forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
+        is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly
+        maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment
+        will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
+        expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.
+        The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default
+        heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring
+        either Redis or the machine (max comittment of (3 * physical)).
+        */
+
+        __int64 maxheapBytes = -1;
+        __int64 maxmemoryBytes = -1;
+
+        if (g_argMap.find(cMaxHeap) != g_argMap.end()) {
+            maxheapBytes = memtoll(g_argMap[cMaxHeap].at(0).at(0).c_str(), NULL);
+        }
+        if (g_argMap.find(cMaxMemory) != g_argMap.end()) {
+            maxmemoryBytes = memtoll(g_argMap[cMaxMemory].at(0).at(0).c_str(), NULL);
+        }
+        int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
+        if (maxmemoryBytes != -1) {
+            if (maxheapBytes < maxMemoryPlusHalf) {
+                maxheapBytes = maxMemoryPlusHalf;
+            }
+        }
+
+        if (maxheapBytes == -1) {
+#ifdef _WIN64
+            maxheapBytes = Globals::memoryPhysicalTotal * Globals::pageSize;
+#else
+            maxheapBytes = cDefaultmaxHeap32Bit;
+#endif
         }
 
         // Allocate file map for QForkControl so it can be passed to the
@@ -656,7 +721,7 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
                     redisLog(REDIS_WARNING, "See https://github.com/MSOpenTech/redis/wiki/Memory-Configuration");
                     redisLog(REDIS_WARNING, "for more information on configuring the system paging file for Redis.");
 
-                    RedisEventLog().LogError("QForkParentInit: an exception occurred. The system paging file is too small for this operation to complete.");
+                    RedisEventLog().LogError("VectoredHeapMapper: an exception occurred. The system paging file is too small for this operation to complete.");
                 }
                 redisLog(REDIS_WARNING, "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n");
 
@@ -668,90 +733,15 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-StartupStatus QForkStartup() {
-    bool foundChildFlag = false;
-    HANDLE QForkControlMemoryMapHandle = NULL;
-    DWORD PPID = 0;
-    __int64 maxheapBytes = -1;
-    __int64 maxmemoryBytes = -1;
-    int memtollerr = 0;
-
-    if (g_argMap.find(cQFork) != g_argMap.end()) {
-        // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent process id]
-        foundChildFlag = true;
-        char* endPtr;
-        QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), &endPtr, 10);
-        char* end = NULL;
-        PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), &end, 10);
-    } else {
-        if (g_argMap.find(cMaxHeap) != g_argMap.end()) {
-            int mtollerr = 0;
-            maxheapBytes = memtoll(g_argMap[cMaxHeap].at(0).at(0).c_str(), &memtollerr);
-        }
-        if (g_argMap.find(cMaxMemory) != g_argMap.end()) {
-            int mtollerr = 0;
-            maxmemoryBytes = memtoll(g_argMap[cMaxMemory].at(0).at(0).c_str(), &memtollerr);
-        }
+int QForkStartup() {
+    LPVOID exceptionHandler = AddVectoredExceptionHandler(1, VectoredHeapMapper);
+    int returnValue = -1;
+    try {
+        returnValue = QForkChildRun();
     }
-
-    /*
-    Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not 
-    bounded by heap usage, and the heap size equal to the size of physical memory.
-
-    Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap 
-    exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by 
-    the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up 
-    to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
-    increase the heap further than this. 
-
-    If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
-    (rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
-    this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This 
-    has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
-    than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
-
-    Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
-    size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
-    For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or 
-    maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough 
-    space available on the disk where redis is being launched from for this file.
-
-    During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both 
-    forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
-    is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly 
-    maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment 
-    will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
-    expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.  
-    The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default 
-    heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring  
-    either Redis or the machine (max comittment of (3 * physical)).
-    */
-    int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
-    if( maxmemoryBytes != -1 ) {
-        if (maxheapBytes < maxMemoryPlusHalf) {
-            maxheapBytes = maxMemoryPlusHalf;
-        }
-    }
-
-    if (maxheapBytes == -1) {
-#ifdef _WIN64
-        maxheapBytes = Globals::memoryPhysicalTotal * Globals::pageSize;
-#else
-        maxheapBytes = cDefaultmaxHeap32Bit;
-#endif
-    }
-
-    if (foundChildFlag) {
-        LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );
-        StartupStatus retVal = StartupStatus::ssFAILED;
-        try {
-            retVal = QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
-        } catch (...) { }
-        RemoveVectoredExceptionHandler(exceptionHandler);       
-        return retVal;
-    } else {
-        return QForkParentInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_PARENT : StartupStatus::ssFAILED;
-    }
+    catch (...) {}
+    RemoveVectoredExceptionHandler(exceptionHandler);
+    return returnValue;
 }
 
 void SmartCloseHandle(HANDLE* ptrHandle) {
@@ -1325,7 +1315,7 @@ extern "C"
                 FILE_ATTRIBUTE_NORMAL,
                 NULL);
 #endif
-            // service commands do not launch an instance of redis directly
+            // Service commands do not launch an instance of redis directly
             if (HandleServiceCommands(argc, argv) == TRUE) {
                 return 0;
             }
@@ -1334,25 +1324,23 @@ extern "C"
 
             if (g_PersistenceDisabled || g_SentinelMode) {
                 // Sentinel mode and Redis with persistence off don't use the
-                // QFork architecture
+                // QFork architecture, the redis main can be called directly
                 return redis_main(argc, argv);
             } else {
-                StartupStatus status = QForkStartup();
-                if (status == ssCONTINUE_AS_PARENT) {
-                    int retval = redis_main(argc, argv);
-                    QForkShutdown();
-                    return retval;
-                } else if (status == ssCHILD_EXIT) {
-                    // child is done - clean up and exit
-                    QForkShutdown();
-                    return g_ChildExitCode;
-                } else if (status == ssFAILED) {
-                    // parent or child failed initialization
-                    return 1;
+                int result = -1;
+                if (g_IsChildProcess) {
+                    // Initialize and run the child process
+                    result = QForkStartup();
                 } else {
-                    // unexpected status return
-                    return 2;
+                    // Initialize the parent data structures
+                    if (QForkParentInit()) {
+                        // Run the parent process
+                        result = redis_main(argc, argv);
+                    }
                 }
+                // Cleanup and exit
+                QForkShutdown();
+                return result;
             }
         } catch (system_error syserr) {
             RedisEventLog().LogError(string("Main: system error. ") + syserr.what());
