@@ -1072,7 +1072,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
- * The data structure used is a hash table with an sds string representing
+ * The data structure used is a hash table with a sds string representing
  * the node ID as key, and the time when it is ok to re-add the node as
  * value.
  * -------------------------------------------------------------------------- */
@@ -1117,7 +1117,7 @@ void clusterBlacklistAddNode(clusterNode *node) {
 }
 
 /* Return non-zero if the specified node ID exists in the blacklist.
- * You don't need to pass an sds string here, any pointer to 40 bytes
+ * You don't need to pass a sds string here, any pointer to 40 bytes
  * will work. */
 int clusterBlacklistExists(char *nodeid) {
     sds id = sdsnewlen(nodeid,CLUSTER_NAMELEN);
@@ -1233,12 +1233,12 @@ int clusterHandshakeInProgress(char *ip, int port) {
     return de != NULL;
 }
 
-/* Start an handshake with the specified address if there is not one
+/* Start a handshake with the specified address if there is not one
  * already in progress. Returns non-zero if the handshake was actually
  * started. On error zero is returned and errno is set to one of the
  * following values:
  *
- * EAGAIN - There is already an handshake in progress for this address.
+ * EAGAIN - There is already a handshake in progress for this address.
  * EINVAL - IP or port are not valid. */
 int clusterStartHandshake(char *ip, int port) {
     clusterNode *n;
@@ -3634,7 +3634,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 /* Generate a csv-alike representation of the specified cluster node.
  * See clusterGenNodesDescription() top comment for more information.
  *
- * The function returns the string representation as an SDS string. */
+ * The function returns the string representation as a SDS string. */
 sds clusterGenNodeDescription(clusterNode *node) {
     int j, start;
     sds ci;
@@ -3700,7 +3700,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
- * including the "myself" node, and return an SDS string containing the
+ * including the "myself" node, and return a SDS string containing the
  * representation (it is up to the caller to free it).
  *
  * All the nodes matching at least one of the node flags specified in
@@ -4932,7 +4932,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     }
 
     /* Handle the read-only client case reading from a slave: if this
-     * node is a slave and the request is about an hash slot our master
+     * node is a slave and the request is about a hash slot our master
      * is serving, we can reply without redirection. */
     if (c->flags & CLIENT_READONLY &&
         cmd->flags & CMD_READONLY &&
@@ -4987,7 +4987,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * 3) The client may remain blocked forever (or up to the max timeout time)
  *    waiting for a key change that will never happen.
  *
- * If the client is found to be blocked into an hash slot this node no
+ * If the client is found to be blocked into a hash slot this node no
  * longer handles, the client is sent a redirection error, and the function
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {

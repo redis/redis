@@ -949,7 +949,7 @@ instanceLink *createInstanceLink(void) {
     return link;
 }
 
-/* Disconnect an hiredis connection in the context of an instance link. */
+/* Disconnect a hiredis connection in the context of an instance link. */
 void instanceLinkCloseConnection(instanceLink *link, redisAsyncContext *c) {
     if (c == NULL) return;
 
@@ -1080,7 +1080,7 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
     return reconfigured;
 }
 
-/* This function is called when an hiredis connection reported an error.
+/* This function is called when a hiredis connection reported an error.
  * We set it to NULL and mark the link as disconnected so that it will be
  * reconnected again.
  *
@@ -2305,7 +2305,7 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
         ri->last_pub_time = mstime();
 }
 
-/* Process an hello message received via Pub/Sub in master or slave instance,
+/* Process a hello message received via Pub/Sub in master or slave instance,
  * or sent directly to this sentinel via the (fake) PUBLISH command of Sentinel.
  *
  * If the master name specified in the message is not known, the message is
@@ -2428,7 +2428,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     sentinelProcessHelloMessage(r->element[2]->str, r->element[2]->len);
 }
 
-/* Send an "Hello" message via Pub/Sub to the specified 'ri' Redis
+/* Send a "Hello" message via Pub/Sub to the specified 'ri' Redis
  * instance in order to broadcast the current configuraiton for this
  * master, and to advertise the existence of this Sentinel at the same time.
  *
@@ -2480,7 +2480,7 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
 }
 
 /* Reset last_pub_time in all the instances in the specified dictionary
- * in order to force the delivery of an Hello update ASAP. */
+ * in order to force the delivery of a Hello update ASAP. */
 void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
     dictIterator *di;
     dictEntry *de;
@@ -2494,7 +2494,7 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
     dictReleaseIterator(di);
 }
 
-/* This function forces the delivery of an "Hello" message (see
+/* This function forces the delivery of a "Hello" message (see
  * sentinelSendHello() top comment for further information) to all the Redis
  * and Sentinel instances related to the specified 'master'.
  *

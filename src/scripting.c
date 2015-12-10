@@ -555,7 +555,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * output buffers. */
     if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
         /* This is a fast path for the common case of a reply inside the
-         * client static buffer. Don't create an SDS string but just use
+         * client static buffer. Don't create a SDS string but just use
          * the client buffer directly. */
         c->buf[c->bufpos] = '\0';
         reply = c->buf;
@@ -619,7 +619,7 @@ cleanup:
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
-         * form of a table with an "err" field. Extract the string to
+         * form of a table with a "err" field. Extract the string to
          * return the plain error. */
         inuse--;
         return luaRaiseError(lua);
@@ -1242,7 +1242,7 @@ void evalGenericCommand(client *c, int evalsha) {
         /* Hash the code if this is an EVAL call */
         sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
     } else {
-        /* We already have the SHA if it is a EVALSHA */
+        /* We already have the SHA if it is an EVALSHA */
         int j;
         char *sha = c->argv[1]->ptr;
 
@@ -1534,7 +1534,7 @@ void ldbLog(sds entry) {
 }
 
 /* A version of ldbLog() which prevents producing logs greater than
- * ldb.maxlen. The first time the limit is reached an hint is generated
+ * ldb.maxlen. The first time the limit is reached a hint is generated
  * to inform the user that reply trimming can be disabled using the
  * debugger "maxlen" command. */
 void ldbLogWithMaxLen(sds entry) {
@@ -1637,7 +1637,7 @@ int ldbStartSession(client *c) {
 /* End a debugging session after the EVAL call with debugging enabled
  * returned. */
 void ldbEndSession(client *c) {
-    /* Emit the remaining logs and an <endsession> mark. */
+    /* Emit the remaining logs and a <endsession> mark. */
     ldbLog(sdsnew("<endsession>"));
     ldbSendLogs();
 
@@ -1835,7 +1835,7 @@ void ldbList(int around, int context) {
     }
 }
 
-/* Append an human readable representation of the Lua value at position 'idx'
+/* Append a human readable representation of the Lua value at position 'idx'
  * on the stack of the 'lua' state, to the SDS string passed as argument.
  * The new SDS string with the represented value attached is returned.
  * Used in order to implement ldbLogStackValue().
@@ -2002,7 +2002,7 @@ char *ldbRedisProtocolToHuman_MultiBulk(sds *o, char *reply) {
     return p;
 }
 
-/* Log a Redis reply as debugger output, in an human readable format.
+/* Log a Redis reply as debugger output, in a human readable format.
  * If the resulting string is longer than 'len' plus a few more chars
  * used as prefix, it gets truncated. */
 void ldbLogRedisReply(char *reply) {

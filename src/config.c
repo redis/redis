@@ -962,7 +962,7 @@ void configSetCommand(client *c) {
       "cluster-slave-validity-factor",server.cluster_slave_validity_factor,0,LLONG_MAX) {
     } config_set_numerical_field(
       "hz",server.hz,0,LLONG_MAX) {
-        /* Hz is more an hint from the user, so we accept values out of range
+        /* Hz is more a hint from the user, so we accept values out of range
          * but cap them to reasonable values. */
         if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
         if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
@@ -1502,7 +1502,7 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, char *option
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
-/* Rewrite a octal option. */
+/* Rewrite an octal option. */
 void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %o",option,value);

@@ -193,7 +193,7 @@ sds setTypeNextObject(setTypeIterator *si) {
 }
 
 /* Return random element from a non empty set.
- * The returned element can be a int64_t value if the set is encoded
+ * The returned element can be an int64_t value if the set is encoded
  * as an "intset" blob of integers, or an SDS string if the set
  * is a regular set.
  *
@@ -426,7 +426,7 @@ void spopWithCountCommand(client *c) {
 
     size = setTypeSize(set);
 
-    /* Generate an SPOP keyspace notification */
+    /* Generate a SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += count;
 
@@ -441,7 +441,7 @@ void spopWithCountCommand(client *c) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* Propagate this command as an DEL operation */
+        /* Propagate this command as a DEL operation */
         rewriteClientCommandVector(c,2,shared.del,c->argv[1]);
         signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
@@ -484,7 +484,7 @@ void spopWithCountCommand(client *c) {
                 setTypeRemove(set,sdsele);
             }
 
-            /* Replicate/AOF this command as an SREM operation */
+            /* Replicate/AOF this command as a SREM operation */
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
@@ -531,7 +531,7 @@ void spopWithCountCommand(client *c) {
                 objele = createStringObject(sdsele,sdslen(sdsele));
             }
 
-            /* Replicate/AOF this command as an SREM operation */
+            /* Replicate/AOF this command as a SREM operation */
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
@@ -542,7 +542,7 @@ void spopWithCountCommand(client *c) {
     }
 
     /* Don't propagate the command itself even if we incremented the
-     * dirty counter. We don't want to propagate an SPOP command since
+     * dirty counter. We don't want to propagate a SPOP command since
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
     decrRefCount(propargv[0]);
@@ -582,7 +582,7 @@ void spopCommand(client *c) {
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
-    /* Replicate/AOF this command as an SREM operation */
+    /* Replicate/AOF this command as a SREM operation */
     aux = createStringObject("SREM",4);
     rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
     decrRefCount(aux);
@@ -979,7 +979,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
+     * is not NULL (that is, we are inside a SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 

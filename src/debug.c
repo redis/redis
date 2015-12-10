@@ -367,7 +367,7 @@ void debugCommand(client *c) {
         key = dictGetKey(de);
 
         if (val->type != OBJ_STRING || !sdsEncodedObject(val)) {
-            addReplyError(c,"Not an sds encoded string.");
+            addReplyError(c,"Not a sds encoded string.");
         } else {
             addReplyStatusFormat(c,
                 "key_sds_len:%lld, key_sds_avail:%lld, "

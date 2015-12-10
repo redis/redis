@@ -188,7 +188,7 @@ int _dictInit(dict *d, dictType *type,
 }
 
 /* Resize the table to the minimal size that contains all the elements,
- * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
+ * but with the invariant of an USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
     int minimal;

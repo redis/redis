@@ -224,7 +224,7 @@ sds createLatencyReport(void) {
     int advise_data_writeback = 0;  /* data=writeback. */
     int advise_no_appendfsync = 0;  /* don't fsync during rewrites. */
     int advise_local_disk = 0;      /* Avoid remote disks. */
-    int advise_ssd = 0;             /* Use an SSD drive. */
+    int advise_ssd = 0;             /* Use a SSD drive. */
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
@@ -395,7 +395,7 @@ sds createLatencyReport(void) {
         /* Better VM. */
         report = sdscat(report,"\nI have a few advices for you:\n\n");
         if (advise_better_vm) {
-            report = sdscat(report,"- If you are using a virtual machine, consider upgrading it with a faster one using an hypervisior that provides less latency during fork() calls. Xen is known to have poor fork() performance. Even in the context of the same VM provider, certain kinds of instances can execute fork faster than others.\n");
+            report = sdscat(report,"- If you are using a virtual machine, consider upgrading it with a faster one using a hypervisior that provides less latency during fork() calls. Xen is known to have poor fork() performance. Even in the context of the same VM provider, certain kinds of instances can execute fork faster than others.\n");
         }
 
         /* Slow log. */
@@ -431,7 +431,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_data_writeback) {
-            report = sdscat(report,"- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have an half-written command at the end and will require to be repaired before Redis restarts.\n");
+            report = sdscat(report,"- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have a half-written command at the end and will require to be repaired before Redis restarts.\n");
         }
 
         if (advise_disk_contention) {
@@ -439,7 +439,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_no_appendfsync) {
-            report = sdscat(report,"- Assuming from the point of view of data safety this is viable in your environment, you could try to enable the 'no-appendfsync-on-rewrite' option, so that fsync will not be performed while there is a child rewriting the AOF file or producing an RDB file (the moment where there is high disk contention).\n");
+            report = sdscat(report,"- Assuming from the point of view of data safety this is viable in your environment, you could try to enable the 'no-appendfsync-on-rewrite' option, so that fsync will not be performed while there is a child rewriting the AOF file or producing a RDB file (the moment where there is high disk contention).\n");
         }
 
         if (advise_relax_fsync_policy && server.aof_fsync == AOF_FSYNC_ALWAYS) {
@@ -561,7 +561,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  *
  * LATENCY SAMPLES: return time-latency samples for the specified event.
  * LATENCY LATEST: return the latest latency for all the events classes.
- * LATENCY DOCTOR: returns an human readable analysis of instance latency.
+ * LATENCY DOCTOR: returns a human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  */
 void latencyCommand(client *c) {

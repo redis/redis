@@ -444,7 +444,7 @@ void appendCommand(client *c) {
         if (checkType(c,o,OBJ_STRING))
             return;
 
-        /* "append" is an argument, so always an sds */
+        /* "append" is an argument, so always a sds */
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
         if (checkStringLength(c,totlen) != C_OK)

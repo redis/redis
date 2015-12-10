@@ -491,7 +491,7 @@ int isColorTerm(void) {
 }
 
 /* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
- * to an SDS string. */
+ * to a SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
 
@@ -974,7 +974,7 @@ static void usage(void) {
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --slave            Simulate a slave showing commands received from the master.\n"
-"  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
+"  --rdb <filename>   Transfer a RDB dump from remote server to local file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -1200,7 +1200,7 @@ static int evalMode(int argc, char **argv) {
         got_comma = 0;
         keys = 0;
 
-        /* Load the script from the file, as an sds string. */
+        /* Load the script from the file, as a sds string. */
         fp = fopen(config.eval,"r");
         if (!fp) {
             fprintf(stderr,
@@ -1321,7 +1321,7 @@ struct distsamples {
 };
 
 /* Helper function for latencyDistMode(). Performs the spectrum visualization
- * of the collected samples targeting an xterm 256 terminal.
+ * of the collected samples targeting a xterm 256 terminal.
  *
  * Takes an array of distsamples structures, ordered from smaller to bigger
  * 'max' value. Last sample max must be 0, to mean that it olds all the
@@ -1334,7 +1334,7 @@ struct distsamples {
 void showLatencyDistSamples(struct distsamples *samples, long long tot) {
     int j;
 
-     /* We convert samples into a index inside the palette
+     /* We convert samples into an index inside the palette
      * proportional to the percentage a given bucket represents.
      * This way intensity of the different parts of the spectrum
      * don't change relative to the number of requests, which avoids to
@@ -2275,7 +2275,7 @@ static void LRUTestMode(void) {
  * Intrisic latency mode.
  *
  * Measure max latency of a running process that does not result from
- * syscalls. Basically this software should provide an hint about how much
+ * syscalls. Basically this software should provide a hint about how much
  * time the kernel leaves the process without a chance to run.
  *--------------------------------------------------------------------------- */
 

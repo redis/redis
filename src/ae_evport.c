@@ -232,7 +232,7 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
         /*
          * ENOMEM is a potentially transient condition, but the kernel won't
          * generally return it unless things are really bad.  EAGAIN indicates
-         * we've reached an resource limit, for which it doesn't make sense to
+         * we've reached a resource limit, for which it doesn't make sense to
          * retry (counter-intuitively).  All other errors indicate a bug.  In any
          * of these cases, the best we can do is to abort.
          */

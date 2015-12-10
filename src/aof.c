@@ -263,7 +263,7 @@ int startAppendOnly(void) {
  * About the 'force' argument:
  *
  * When the fsync policy is set to 'everysec' we may delay the flush if there
- * is still an fsync() going on in the background thread, since for instance
+ * is still a fsync() going on in the background thread, since for instance
  * on Linux write(2) will be blocked by the background fsync anyway.
  * When this happens we remember that there is some aof buffer to be
  * flushed ASAP, and will try to do that in the serverCron() function.
@@ -458,7 +458,7 @@ sds catAppendOnlyGenericCommand(sds dst, int argc, robj **argv) {
     return dst;
 }
 
-/* Create the sds representation of an PEXPIREAT command, using
+/* Create the sds representation of a PEXPIREAT command, using
  * 'seconds' as time to live and 'cmd' to understand what command
  * we are translating into a PEXPIREAT.
  *
@@ -1376,7 +1376,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
          *
          * There are two possible scenarios:
          *
-         * 1) AOF is DISABLED and this was a one time rewrite. The temporary
+         * 1) AOF is DISABLED and this was one time rewrite. The temporary
          * file will be renamed to the configured file. When this file already
          * exists, it will be unlinked, which may block the server.
          *

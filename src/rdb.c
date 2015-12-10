@@ -65,7 +65,7 @@ int rdbSaveType(rio *rdb, unsigned char type) {
     return rdbWriteRaw(rdb,&type,1);
 }
 
-/* Load a "type" in RDB format, that is a one byte unsigned integer.
+/* Load a "type" in RDB format, that is one byte unsigned integer.
  * This function is not only used to load object types, but also special
  * "types" like the end-of-file type, the EXPIRE type, and so forth. */
 int rdbLoadType(rio *rdb) {
@@ -121,7 +121,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
 }
 
 /* Load an encoded length. The "isencoded" argument is set to 1 if the length
- * is not actually a length but an "encoding type". See the RDB_ENC_*
+ * is not actually a length but a "encoding type". See the RDB_ENC_*
  * definitions in rdb.h for more information. */
 uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
     unsigned char buf[2];
@@ -216,7 +216,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
 }
 
 /* String objects in the form "2391" "-100" without any space and with a
- * range of values that can fit in an 8, 16 or 32 bit signed value can be
+ * range of values that can fit in a 8, 16 or 32 bit signed value can be
  * encoded as integers to save space */
 int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
@@ -277,7 +277,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     return nwritten;
 }
 
-/* Load an LZF compressed string in RDB format. The returned value
+/* Load a LZF compressed string in RDB format. The returned value
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
 void *rdbLoadLzfStringObject(rio *rdb, int flags) {
@@ -382,16 +382,16 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     }
 }
 
-/* Load a string object from an RDB file according to flags:
+/* Load a string object from a RDB file according to flags:
  *
- * RDB_LOAD_NONE (no flags): load an RDB object, unencoded.
+ * RDB_LOAD_NONE (no flags): load a RDB object, unencoded.
  * RDB_LOAD_ENC: If the returned type is a Redis object, try to
  *               encode it in a special way to be more memory
  *               efficient. When this flag is passed the function
- *               no longer guarantees that obj->ptr is an SDS string.
+ *               no longer guarantees that obj->ptr is a SDS string.
  * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
  *                 instead of a Redis object.
- * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
+ * RDB_LOAD_SDS: Return a SDS string instead of a Redis object.
  */
 void *rdbGenericLoadStringObject(rio *rdb, int flags) {
     int encode = flags & RDB_LOAD_ENC;
@@ -1355,7 +1355,7 @@ int rdbLoad(char *filename) {
         /* Read value */
         if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
         /* Check if the key already expired. This function is used when loading
-         * an RDB file from disk, either at startup, or when an RDB was
+         * a RDB file from disk, either at startup, or when a RDB was
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
@@ -1541,7 +1541,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     }
 }
 
-/* Spawn an RDB child that writes the RDB to the sockets of the slaves
+/* Spawn a RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
 int rdbSaveToSlavesSockets(void) {
     int *fds;
