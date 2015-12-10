@@ -801,7 +801,7 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
         sizeof(clusterNode*)*(master->numslaves+1));
     master->slaves[master->numslaves] = slave;
     master->numslaves++;
-    master->flags |= CLUSTER_NODE_MIGRATE_TO;
+    master->flags |= REDIS_NODE_MIGRATE_TO;
     return REDIS_OK;
 }
 
@@ -2928,7 +2928,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
         /* We want to migrate only if this master used to have slaves or
          * if failed over a master that had slaves. This way we only migrate
          * to instances that were supposed to have replicas. */
-        if (!(node->flags & CLUSTER_NODE_MIGRATE_TO)) continue;
+        if (!(node->flags & REDIS_NODE_MIGRATE_TO)) continue;
         okslaves = clusterCountNonFailingSlaves(node);
 
         if (okslaves == 0 && target == NULL && node->numslots > 0)
@@ -3178,7 +3178,7 @@ void clusterCron(void) {
              * slots, have no working slaves, but used to have at least one
              * slave, or failed over a master that used to have slaves. */
             if (okslaves == 0 && node->numslots > 0 &&
-                node->flags & CLUSTER_NODE_MIGRATE_TO)
+                node->flags & REDIS_NODE_MIGRATE_TO)
             {
                 orphaned_masters++;
             }
