@@ -2857,7 +2857,7 @@ void clusterHandleSlaveFailover(void) {
                 (unsigned long long) myself->configEpoch);
         }
 
-        /* Take responsability for the cluster slots. */
+        /* Take responsibility for the cluster slots. */
         clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
@@ -2912,7 +2912,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
      * masters with the greatest number of ok slaves, I'm the one with the
      * smaller node ID.
      *
-     * Note that this means that eventually a replica migration will occurr
+     * Note that this means that eventually a replica migration will occur
      * since slaves that are reachable again always have their FAIL flag
      * cleared. At the same time this does not mean that there are no
      * race conditions possible (two slaves migrating at the same time), but
