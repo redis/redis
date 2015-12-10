@@ -32,7 +32,7 @@ Redis on Windows
 
 ## How to build Redis using Visual Studio
 
-You can use the free [Visual Studio Community edition](http://www.visualstudio.com/products/visual-studio-community-vs).
+You can use the free [Visual Studio Community edition](http://www.visualstudio.com/products/visual-studio-community-vs). If you use Microsoft Visual Studio 2013 (standard), make sure you have updated to Update 5, otherwise you will get a " illegal use of this type as an expression" error.
 
 - Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (x64) then build.
 
