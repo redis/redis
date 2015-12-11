@@ -46,6 +46,7 @@ int d2string(char *buf, size_t len, double value);
 int ld2string(char *buf, size_t len, long double value, int humanfriendly);
 sds getAbsolutePath(char *filename);
 int pathIsBaseName(char *path);
+int pathIsFrobiddenName(char *path);
 
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv);

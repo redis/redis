@@ -731,6 +731,12 @@ void configSetCommand(client *c) {
             addReplyError(c, "dbfilename can't be a path, just a filename");
             return;
         }
+
+        if (pathIsForbiddenName((char*)o->ptr)) {
+            addReplyError(c, "not allowed dbfilename");
+            return;
+        }
+
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
@@ -814,6 +820,11 @@ void configSetCommand(client *c) {
         }
         sdsfreesplitres(v,vlen);
     } config_set_special_field("dir") {
+        if (pathIsForbiddenName((char*)o->ptr)) {
+            addReplyErrorFormat(c,"not allowed directory name");
+            return;
+        }
+
         if (chdir((char*)o->ptr) == -1) {
             addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
             return;

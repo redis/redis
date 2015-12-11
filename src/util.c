@@ -673,6 +673,10 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
+int pathIsForbiddenName(char *path) {
+    return strstr(path,".ssh") != NULL || strstr(path,"authorized_keys") != NULL;
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
 
