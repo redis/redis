@@ -1532,7 +1532,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
     robj *oldval;
 
-    redisAssertWithInfo(c,NULL,i < c->argc);
+    if (i >= c->argc) c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
     oldval = c->argv[i];
     c->argv[i] = newval;
     incrRefCount(newval);
