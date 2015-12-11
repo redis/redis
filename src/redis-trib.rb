@@ -818,22 +818,20 @@ class RedisTrib
         while true
             keys = source.r.cluster("getkeysinslot",slot,10)
             break if keys.length == 0
-            keys.each{|key|
-                begin
-                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,@timeout])
-                rescue => e
-                    if o[:fix] && e.to_s =~ /BUSYKEY/
-                        xputs "*** Target key #{key} exists. Replacing it for FIX."
-                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,@timeout,:replace])
-                    else
-                        puts ""
-                        xputs "[ERR] #{e}"
-                        exit 1
-                    end
+            begin
+                source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:keys,*keys])
+            rescue => e
+                if o[:fix] && e.to_s =~ /BUSYKEY/
+                    xputs "*** Target key #{key} exists. Replacing it for FIX."
+                    source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:replace,:keys,*keys])
+                else
+                    puts ""
+                    xputs "[ERR] #{e}"
+                    exit 1
                 end
-                print "." if o[:verbose]
-                STDOUT.flush
-            }
+            end
+            print "."*keys.length if o[:verbose]
+            STDOUT.flush
         end
 
         puts
