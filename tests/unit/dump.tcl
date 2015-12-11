@@ -271,4 +271,41 @@ start_server {tags {"dump"}} {
             assert {[$second get key3] eq {v3}}
         }
     }
+
+    test {MIGRATE with multiple keys: stress command rewriting} {
+        set first [srv 0 client]
+        r flushdb
+        r mset a 1 b 2 c 3 d 4 c 5 e 6 f 7 g 8 h 9 i 10 l 11 m 12 n 13 o 14 p 15 q 16
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            set ret [r -1 migrate $second_host $second_port "" 9 5000 keys a b c d e f g h i l m n o p q]
+
+            assert {[$first dbsize] == 0}
+            assert {[$second dbsize] == 15}
+        }
+    }
+
+    test {MIGRATE with multiple keys: delete just ack keys} {
+        set first [srv 0 client]
+        r flushdb
+        r mset a 1 b 2 c 3 d 4 c 5 e 6 f 7 g 8 h 9 i 10 l 11 m 12 n 13 o 14 p 15 q 16
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $second mset c _ d _; # Two busy keys and no REPLACE used
+
+            catch {r -1 migrate $second_host $second_port "" 9 5000 keys a b c d e f g h i l m n o p q} e
+
+            assert {[$first dbsize] == 2}
+            assert {[$second dbsize] == 15}
+            assert {[$first exists c] == 1}
+            assert {[$first exists d] == 1}
+        }
+    }
+
 }
