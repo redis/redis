@@ -130,6 +130,10 @@ void bioInit(void) {
 
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     struct bio_job *job = zmalloc(sizeof(*job));
+    if (!job) {
+        serverLog(LL_WARNING, "Fatal error: malloc bio job memory fail.");
+        exit(1);
+    }
 
     job->time = time(NULL);
     job->arg1 = arg1;
