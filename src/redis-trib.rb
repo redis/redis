@@ -288,6 +288,7 @@ class RedisTrib
         @nodes = []
         @fix = false
         @errors = []
+        @timeout = 15000
     end
 
     def check_arity(req_args, num_args)
@@ -819,11 +820,11 @@ class RedisTrib
             break if keys.length == 0
             keys.each{|key|
                 begin
-                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
+                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,@timeout])
                 rescue => e
                     if o[:fix] && e.to_s =~ /BUSYKEY/
                         xputs "*** Target key #{key} exists. Replacing it for FIX."
-                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000,:replace])
+                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,@timeout,:replace])
                     else
                         puts ""
                         xputs "[ERR] #{e}"
@@ -853,6 +854,8 @@ class RedisTrib
 
     def fix_cluster_cmd(argv,opt)
         @fix = true
+        @timeout = opt['timeout'].to_i if opt['timeout']
+
         load_cluster_info_from_node(argv[0])
         check_cluster
     end
@@ -864,6 +867,8 @@ class RedisTrib
             puts "*** Please fix your cluster problems before resharding"
             exit 1
         end
+
+        @timeout = opt['timeout'].to_i if opt['timeout'].to_i
 
         # Get number of slots
         if opt['slots']
@@ -1186,7 +1191,7 @@ class RedisTrib
                 print "Migrating #{k} to #{target}: "
                 STDOUT.flush
                 begin
-                    cmd = ["migrate",target.info[:host],target.info[:port],k,0,15000]
+                    cmd = ["migrate",target.info[:host],target.info[:port],k,0,@timeout]
                     cmd << :copy if use_copy
                     cmd << :replace if use_replace
                     source.client.call(cmd)
@@ -1350,7 +1355,8 @@ ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required, "copy" => false, "replace" => false},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => 15000},
+    "fix" => {"timeout" => 15000},
 }
 
 def show_help
