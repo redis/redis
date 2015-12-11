@@ -1601,7 +1601,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
 
-    serverAssertWithInfo(c,NULL,i < c->argc);
+    if (i >= c->argc) c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
     oldval = c->argv[i];
     c->argv[i] = newval;
     incrRefCount(newval);
