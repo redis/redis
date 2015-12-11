@@ -1160,6 +1160,33 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     return keys;
 }
 
+int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, first, *keys;
+    UNUSED(cmd);
+
+    /* Assume the obvious form. */
+    first = 3;
+    num = 1;
+
+    /* But check for the extended one with the KEYS option. */
+    if (argc > 6) {
+        for (i = 6; i < argc; i++) {
+            if (!strcasecmp(argv[i]->ptr,"keys") &&
+                sdslen(argv[3]->ptr) == 0)
+            {
+                first = i+1;
+                num = argc-first;
+                break;
+            }
+        }
+    }
+
+    keys = zmalloc(sizeof(int)*num);
+    for (i = 0; i < num; i++) keys[i] = first+i;
+    *numkeys = num;
+    return keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
