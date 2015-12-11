@@ -4601,6 +4601,7 @@ void migrateCommand(client *c) {
     long long ttl, expireat;
     robj *o;
     rio cmd, payload;
+    int backup_errno = 0;
     int retry_num = 0;
 
 try_again:
@@ -4734,17 +4735,19 @@ try_again:
     return;
 
 socket_wr_err:
+    backup_errno = errno;
     sdsfree(cmd.io.buffer.ptr);
     migrateCloseSocket(c->argv[1],c->argv[2]);
-    if (errno != ETIMEDOUT && retry_num++ == 0) goto try_again;
+    if (backup_errno != ETIMEDOUT && retry_num++ == 0) goto try_again;
     addReplySds(c,
         sdsnew("-IOERR error or timeout writing to target instance\r\n"));
     return;
 
 socket_rd_err:
+    backup_errno = errno;
     sdsfree(cmd.io.buffer.ptr);
     migrateCloseSocket(c->argv[1],c->argv[2]);
-    if (errno != ETIMEDOUT && retry_num++ == 0) goto try_again;
+    if (backup_errno != ETIMEDOUT && retry_num++ == 0) goto try_again;
     addReplySds(c,
         sdsnew("-IOERR error or timeout reading from target node\r\n"));
     return;
