@@ -403,7 +403,7 @@ mstime_t mstime(void) {
     return ustime()/1000;
 }
 
-/* After a RDB dump or AOF rewrite we exit from children using _exit() instead of
+/* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
  * used in order to obtain the right coverage information. */
@@ -962,7 +962,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms) {
     return 0;
 }
 
-/* The client query buffer is a sds.c string that can end with a lot of
+/* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
  * The function always returns 0 as it never terminates the client. */
@@ -1118,7 +1118,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
-     * So we use a (eventually wrapping) LRU clock.
+     * So we use an (eventually wrapping) LRU clock.
      *
      * Note that even if the counter wraps it's not a big problem,
      * everything will still work but some object will appear younger
@@ -2104,7 +2104,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name) {
 /* Propagate the specified command (in the context of the specified database id)
  * to AOF and Slaves.
  *
- * flags are a xor between:
+ * flags are an xor between:
  * + PROPAGATE_NONE (no propagation of command at all)
  * + PROPAGATE_AOF (propagate into the AOF file if is enabled)
  * + PROPAGATE_REPL (propagate into the replication link)
@@ -2544,7 +2544,7 @@ int prepareForShutdown(int flags) {
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
-        serverLog(LL_WARNING,"There is a child saving a .rdb. Killing it!");
+        serverLog(LL_WARNING,"There is a child saving an .rdb. Killing it!");
         kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
     }
@@ -3995,7 +3995,7 @@ int main(int argc, char **argv) {
 
     /* Check if we need to start in redis-check-rdb mode. We just execute
      * the program main. However the program is part of the Redis executable
-     * so that we can easily execute a RDB check on loading errors. */
+     * so that we can easily execute an RDB check on loading errors. */
     if (strstr(argv[0],"redis-check-rdb") != NULL)
         exit(redis_check_rdb_main(argv,argc));
 

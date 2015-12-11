@@ -613,7 +613,7 @@ void getRandomHexChars(char *p, unsigned int len) {
     }
 }
 
-/* Given the filename, return the absolute path as a SDS string, or NULL
+/* Given the filename, return the absolute path as an SDS string, or NULL
  * if it fails for some reason. Note that "filename" may be an absolute path
  * already, this will be detected and handled correctly.
  *

@@ -750,10 +750,10 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      *
      * The other cases are more complex: our register requires to be updated
      * and is either currently represented by a VAL opcode with len > 1,
-     * by a ZERO opcode with len > 1, or by a XZERO opcode.
+     * by a ZERO opcode with len > 1, or by an XZERO opcode.
      *
      * In those cases the original opcode must be split into muliple
-     * opcodes. The worst case is a XZERO split in the middle resuling into
+     * opcodes. The worst case is an XZERO split in the middle resuling into
      * XZERO - VAL - XZERO, so the resulting sequence max length is
      * 5 bytes.
      *
@@ -1084,7 +1084,7 @@ int hllMerge(uint8_t *max, robj *hll) {
 
 /* ========================== HyperLogLog commands ========================== */
 
-/* Create a HLL object. We always create the HLL using sparse encoding.
+/* Create an HLL object. We always create the HLL using sparse encoding.
  * This will be upgraded to the dense representation as needed. */
 robj *createHLLObject(void) {
     robj *o;
@@ -1205,7 +1205,7 @@ void pfcountCommand(client *c) {
         uint8_t max[HLL_HDR_SIZE+HLL_REGISTERS], *registers;
         int j;
 
-        /* Compute a HLL with M[i] = MAX(M[i]_j). */
+        /* Compute an HLL with M[i] = MAX(M[i]_j). */
         memset(max,0,sizeof(max));
         hdr = (struct hllhdr*) max;
         hdr->encoding = HLL_RAW; /* Special internal-only encoding. */
@@ -1287,7 +1287,7 @@ void pfmergeCommand(client *c) {
     struct hllhdr *hdr;
     int j;
 
-    /* Compute a HLL with M[i] = MAX(M[i]_j).
+    /* Compute an HLL with M[i] = MAX(M[i]_j).
      * We we the maximum into the max array of registers. We'll write
      * it to the target variable later. */
     memset(max,0,sizeof(max));

@@ -1629,7 +1629,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
     unsigned long list_item_size = sizeof(listNode)+5;
-    /* The +5 above means we assume a sds16 hdr, may not be true
+    /* The +5 above means we assume an sds16 hdr, may not be true
      * but is not going to be a problem. */
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));

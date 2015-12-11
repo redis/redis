@@ -629,7 +629,7 @@ void hincrbyfloatCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
-    /* Always replicate HINCRBYFLOAT as a HSET command with the final value
+    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting
      * will not create differences in replicas or after an AOF restart. */
     robj *aux, *newobj;

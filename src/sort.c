@@ -222,7 +222,7 @@ void sortCommand(client *c) {
     else
         sortval = createQuicklistObject();
 
-    /* The SORT command has a SQL-alike syntax, parse it */
+    /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
         int leftargs = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"asc")) {

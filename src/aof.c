@@ -263,7 +263,7 @@ int startAppendOnly(void) {
  * About the 'force' argument:
  *
  * When the fsync policy is set to 'everysec' we may delay the flush if there
- * is still a fsync() going on in the background thread, since for instance
+ * is still an fsync() going on in the background thread, since for instance
  * on Linux write(2) will be blocked by the background fsync anyway.
  * When this happens we remember that there is some aof buffer to be
  * flushed ASAP, and will try to do that in the serverCron() function.

@@ -491,7 +491,7 @@ int isColorTerm(void) {
 }
 
 /* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
- * to a SDS string. */
+ * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
 
@@ -974,7 +974,7 @@ static void usage(void) {
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --slave            Simulate a slave showing commands received from the master.\n"
-"  --rdb <filename>   Transfer a RDB dump from remote server to local file.\n"
+"  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -1200,7 +1200,7 @@ static int evalMode(int argc, char **argv) {
         got_comma = 0;
         keys = 0;
 
-        /* Load the script from the file, as a sds string. */
+        /* Load the script from the file, as an sds string. */
         fp = fopen(config.eval,"r");
         if (!fp) {
             fprintf(stderr,
@@ -1321,7 +1321,7 @@ struct distsamples {
 };
 
 /* Helper function for latencyDistMode(). Performs the spectrum visualization
- * of the collected samples targeting a xterm 256 terminal.
+ * of the collected samples targeting an xterm 256 terminal.
  *
  * Takes an array of distsamples structures, ordered from smaller to bigger
  * 'max' value. Last sample max must be 0, to mean that it olds all the

@@ -426,7 +426,7 @@ void spopWithCountCommand(client *c) {
 
     size = setTypeSize(set);
 
-    /* Generate a SPOP keyspace notification */
+    /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += count;
 
@@ -484,7 +484,7 @@ void spopWithCountCommand(client *c) {
                 setTypeRemove(set,sdsele);
             }
 
-            /* Replicate/AOF this command as a SREM operation */
+            /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
@@ -531,7 +531,7 @@ void spopWithCountCommand(client *c) {
                 objele = createStringObject(sdsele,sdslen(sdsele));
             }
 
-            /* Replicate/AOF this command as a SREM operation */
+            /* Replicate/AOF this command as an SREM operation */
             propargv[2] = objele;
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,
                 PROPAGATE_AOF|PROPAGATE_REPL);
@@ -542,7 +542,7 @@ void spopWithCountCommand(client *c) {
     }
 
     /* Don't propagate the command itself even if we incremented the
-     * dirty counter. We don't want to propagate a SPOP command since
+     * dirty counter. We don't want to propagate an SPOP command since
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
     decrRefCount(propargv[0]);
@@ -582,7 +582,7 @@ void spopCommand(client *c) {
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
-    /* Replicate/AOF this command as a SREM operation */
+    /* Replicate/AOF this command as an SREM operation */
     aux = createStringObject("SREM",4);
     rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
     decrRefCount(aux);
@@ -979,7 +979,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* We need a temp set object to store our union. If the dstkey
-     * is not NULL (that is, we are inside a SUNIONSTORE operation) then
+     * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
     dstset = createIntsetObject();
 

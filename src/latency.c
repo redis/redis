@@ -224,7 +224,7 @@ sds createLatencyReport(void) {
     int advise_data_writeback = 0;  /* data=writeback. */
     int advise_no_appendfsync = 0;  /* don't fsync during rewrites. */
     int advise_local_disk = 0;      /* Avoid remote disks. */
-    int advise_ssd = 0;             /* Use a SSD drive. */
+    int advise_ssd = 0;             /* Use an SSD drive. */
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
@@ -439,7 +439,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_no_appendfsync) {
-            report = sdscat(report,"- Assuming from the point of view of data safety this is viable in your environment, you could try to enable the 'no-appendfsync-on-rewrite' option, so that fsync will not be performed while there is a child rewriting the AOF file or producing a RDB file (the moment where there is high disk contention).\n");
+            report = sdscat(report,"- Assuming from the point of view of data safety this is viable in your environment, you could try to enable the 'no-appendfsync-on-rewrite' option, so that fsync will not be performed while there is a child rewriting the AOF file or producing an RDB file (the moment where there is high disk contention).\n");
         }
 
         if (advise_relax_fsync_policy && server.aof_fsync == AOF_FSYNC_ALWAYS) {

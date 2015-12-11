@@ -71,7 +71,7 @@ static inline char sdsReqType(size_t string_size) {
  * If NULL is used for 'init' the string is initialized with zero bytes.
  *
  * The string is always null-termined (all the sds strings are, always) so
- * even if you create a sds string with:
+ * even if you create an sds string with:
  *
  * mystring = sdsnewlen("abc",3);
  *
@@ -146,12 +146,12 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
-/* Duplicate a sds string. */
+/* Duplicate an sds string. */
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
 
-/* Free a sds string. No operation is performed if 's' is NULL. */
+/* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfree(sds s) {
     if (s == NULL) return;
     s_free((char*)s-sdsHdrSize(s[-1]));
@@ -176,7 +176,7 @@ void sdsupdatelen(sds s) {
     sdssetlen(s, reallen);
 }
 
-/* Modify a sds string in-place to make it empty (zero length).
+/* Modify an sds string in-place to make it empty (zero length).
  * However all the existing buffer is not discarded but set as free space
  * so that next append operations will not require allocations up to the
  * number of bytes previously available. */
@@ -486,7 +486,7 @@ int sdsull2str(char *s, unsigned long long v) {
     return l;
 }
 
-/* Create a sds string from a long long value. It is much faster than:
+/* Create an sds string from a long long value. It is much faster than:
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
@@ -1064,7 +1064,7 @@ sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
 }
 
 /* Join an array of C strings using the specified separator (also a C string).
- * Returns the result as a sds string. */
+ * Returns the result as an sds string. */
 sds sdsjoin(char **argv, int argc, char *sep) {
     sds join = sdsempty();
     int j;

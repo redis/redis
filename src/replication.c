@@ -654,7 +654,7 @@ void syncCommand(client *c) {
     } else if (server.rdb_child_pid != -1 &&
                server.rdb_child_type == RDB_CHILD_TYPE_SOCKET)
     {
-        /* There is a RDB child process but it is writing directly to
+        /* There is an RDB child process but it is writing directly to
          * children sockets. We need to wait for the next BGSAVE
          * in order to synchronize. */
         serverLog(LL_NOTICE,"Waiting for next BGSAVE for SYNC");
@@ -862,9 +862,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
-            /* If this was a RDB on disk save, we have to prepare to send
+            /* If this was an RDB on disk save, we have to prepare to send
              * the RDB from disk to the slave socket. Otherwise if this was
-             * already a RDB -> Slaves socket transfer, used in the case of
+             * already an RDB -> Slaves socket transfer, used in the case of
              * diskless replication, our work is trivial, we can just put
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
@@ -1155,7 +1155,7 @@ error:
 /* Send a synchronous command to the master. Used to send AUTH and
  * REPLCONF commands before starting the replication with SYNC.
  *
- * The command returns a sds string representing the result of the
+ * The command returns an sds string representing the result of the
  * operation. On error the first byte is a "-".
  */
 #define SYNC_CMD_READ (1<<0)

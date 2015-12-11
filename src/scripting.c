@@ -555,7 +555,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * output buffers. */
     if (listLength(c->reply) == 0 && c->bufpos < PROTO_REPLY_CHUNK_BYTES) {
         /* This is a fast path for the common case of a reply inside the
-         * client static buffer. Don't create a SDS string but just use
+         * client static buffer. Don't create an SDS string but just use
          * the client buffer directly. */
         c->buf[c->bufpos] = '\0';
         reply = c->buf;
@@ -619,7 +619,7 @@ cleanup:
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
-         * form of a table with a "err" field. Extract the string to
+         * form of a table with an "err" field. Extract the string to
          * return the plain error. */
         inuse--;
         return luaRaiseError(lua);
@@ -1637,7 +1637,7 @@ int ldbStartSession(client *c) {
 /* End a debugging session after the EVAL call with debugging enabled
  * returned. */
 void ldbEndSession(client *c) {
-    /* Emit the remaining logs and a <endsession> mark. */
+    /* Emit the remaining logs and an <endsession> mark. */
     ldbLog(sdsnew("<endsession>"));
     ldbSendLogs();
 

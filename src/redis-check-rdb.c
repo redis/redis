@@ -71,7 +71,7 @@ static errors_t errors;
     errors.level++; \
 }
 
-/* Data type to hold opcode with optional key name a success status */
+/* Data type to hold opcode with optional key name an success status */
 typedef struct {
     char* key;
     int type;

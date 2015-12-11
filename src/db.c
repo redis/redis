@@ -225,7 +225,7 @@ int dbDelete(redisDb *db, robj *key) {
  * o = dbUnshareStringValue(db,key,o);
  *
  * At this point the caller is ready to modify the object, for example
- * using a sdscat() call to append some data, or anything else.
+ * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     serverAssert(o->type == OBJ_STRING);

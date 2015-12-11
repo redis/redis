@@ -1072,7 +1072,7 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
  * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
- * The data structure used is a hash table with a sds string representing
+ * The data structure used is a hash table with an sds string representing
  * the node ID as key, and the time when it is ok to re-add the node as
  * value.
  * -------------------------------------------------------------------------- */
@@ -1117,7 +1117,7 @@ void clusterBlacklistAddNode(clusterNode *node) {
 }
 
 /* Return non-zero if the specified node ID exists in the blacklist.
- * You don't need to pass a sds string here, any pointer to 40 bytes
+ * You don't need to pass an sds string here, any pointer to 40 bytes
  * will work. */
 int clusterBlacklistExists(char *nodeid) {
     sds id = sdsnewlen(nodeid,CLUSTER_NAMELEN);
@@ -3634,7 +3634,7 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 /* Generate a csv-alike representation of the specified cluster node.
  * See clusterGenNodesDescription() top comment for more information.
  *
- * The function returns the string representation as a SDS string. */
+ * The function returns the string representation as an SDS string. */
 sds clusterGenNodeDescription(clusterNode *node) {
     int j, start;
     sds ci;
@@ -3700,7 +3700,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
 }
 
 /* Generate a csv-alike representation of the nodes we are aware of,
- * including the "myself" node, and return a SDS string containing the
+ * including the "myself" node, and return an SDS string containing the
  * representation (it is up to the caller to free it).
  *
  * All the nodes matching at least one of the node flags specified in
@@ -4327,7 +4327,7 @@ void createDumpPayload(rio *payload, robj *o) {
     unsigned char buf[2];
     uint64_t crc;
 
-    /* Serialize the object in a RDB-like format. It consist of an object type
+    /* Serialize the object in an RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
     serverAssert(rdbSaveObjectType(payload,o));

@@ -898,7 +898,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     signalModifiedKey(c->db,c->argv[j]);
                     server.dirty++;
 
-                    /* Replicate it as a [LR]POP instead of B[LR]POP. */
+                    /* Replicate it as an [LR]POP instead of B[LR]POP. */
                     rewriteClientCommandVector(c,2,
                         (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                         c->argv[j]);
