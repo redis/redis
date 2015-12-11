@@ -4760,8 +4760,6 @@ try_again:
             }
         } else {
             if (!copy) {
-                robj *aux;
-
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,kv[j]);
                 signalModifiedKey(c->db,kv[j]);
@@ -4769,6 +4767,7 @@ try_again:
 
                 /* Populate the argument vector to replace the old one. */
                 newargv[del_idx++] = kv[j];
+                incrRefCount(kv[j]);
             }
         }
     }
@@ -4777,7 +4776,7 @@ try_again:
         /* Translate MIGRATE as DEL for replication/AOF. */
         if (del_idx > 1) {
             newargv[0] = createStringObject("DEL",3);
-            replaceClientCommandVector(c,newargv,del_idx);
+            replaceClientCommandVector(c,del_idx,newargv);
         } else {
             /* No key transfer acknowledged, no need to rewrite as DEL. */
             zfree(newargv);
