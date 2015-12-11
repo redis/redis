@@ -288,7 +288,7 @@ class RedisTrib
         @nodes = []
         @fix = false
         @errors = []
-        @timeout = 15000
+        @timeout = 60000
     end
 
     def check_arity(req_args, num_args)
