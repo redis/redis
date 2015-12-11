@@ -142,6 +142,11 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
             int numblocks;
 
             block = zmalloc(sizeof(*block));
+            if (!block) {
+                serverLog(LL_WARNING, "Fatal error: malloc block memory fail: %s", strerror(errno));
+                return;
+            }
+
             block->free = AOF_RW_BUF_BLOCK_SIZE;
             block->used = 0;
             listAddNodeTail(server.aof_rewrite_buf_blocks,block);
@@ -554,6 +559,11 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 struct client *createFakeClient(void) {
     struct client *c = zmalloc(sizeof(*c));
 
+    if (!c) {
+        serverLog(LL_WARNING, "Fatal error: malloc client memory fail: %s", strerror(errno));
+        return NULL;
+    }	
+	
     selectDb(c,0);
     c->fd = -1;
     c->name = NULL;
@@ -621,6 +631,11 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
+    if (!fakeClient) {
+        serverLog(LL_WARNING, "Fatal error: create fake client fail.");
+        exit(1);
+    }
+
     startLoading(fp);
 
     while(1) {
@@ -649,6 +664,11 @@ int loadAppendOnlyFile(char *filename) {
         if (argc < 1) goto fmterr;
 
         argv = zmalloc(sizeof(robj*)*argc);
+        if (!argv) {
+            serverLog(LL_WARNING, "Fatal error: malloc robj memory fail: %s", strerror(errno));
+            exit(1);
+        }
+
         fakeClient->argc = argc;
         fakeClient->argv = argv;
 
