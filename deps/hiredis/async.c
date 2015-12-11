@@ -648,7 +648,7 @@ static char *nextArgument(char *start, char **str, size_t *len) {
         if (p == NULL) return NULL;
     }
 
-    *len = (int)strtol(p+1,NULL,10);
+    *len = (int)PORT_STRTOL(p+1,NULL,10);
     p = strchr(p,'\r');
     assert(p);
     *str = p+2;

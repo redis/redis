@@ -674,7 +674,7 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
             }
             if (buf[0] != '$') goto fmterr;
-            len = strtol(buf+1,NULL,10);
+            len = PORT_STRTOL(buf+1,NULL,10);
             argsds = sdsnewlen(NULL,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);

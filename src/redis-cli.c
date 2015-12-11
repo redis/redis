@@ -1909,7 +1909,7 @@ static PORT_LONG getLongInfoField(char *info, char *field) {
     PORT_LONG l;
 
     if (!value) return PORT_LONG_MIN;
-    l = strtol(value,NULL,10);
+    l = PORT_STRTOL(value, NULL, 10);
     free(value);
     return l;
 }

@@ -70,4 +70,10 @@ typedef int               pid_t;
 typedef unsigned __int32  u_int32_t;
 #endif
 
+#ifdef _WIN64
+#define PORT_STRTOL     strtoll
+#else
+#define PORT_STRTOL     strtol
+#endif
+
 #endif
