@@ -1133,7 +1133,7 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
 
 int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, first, *keys;
-    UNUSED(cmd);
+    REDIS_NOTUSED(cmd);
 
     /* Assume the obvious form. */
     first = 3;

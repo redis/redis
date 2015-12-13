@@ -1527,6 +1527,16 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     va_end(ap);
 }
 
+/* Completely replace the client command vector with the provided one. */
+void replaceClientCommandVector(redisClient *c, int argc, robj **argv) {
+    freeClientArgv(c);
+    zfree(c->argv);
+    c->argv = argv;
+    c->argc = argc;
+    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
+    redisAssertWithInfo(c,NULL,c->cmd != NULL);
+}
+
 /* Rewrite a single item in the command vector.
  * The new val ref count is incremented, and the old decremented.
  *
