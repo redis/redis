@@ -334,6 +334,22 @@ class RedisTrib
         check_slots_coverage
     end
 
+    def show_cluster_info
+        masters = 0
+        keys = 0
+        @nodes.each{|n|
+            if n.has_flag?("master")
+                puts "#{n} -> #{n.r.dbsize} keys | #{n.slots.length} slots | "+
+                     "#{n.info[:replicas].length} slaves."
+                masters += 1
+                keys += n.r.dbsize
+            end
+        }
+        xputs "[OK] #{keys} keys in #{masters} masters."
+        keys_per_slot = sprintf("%.2f",keys/16384.0)
+        puts "#{keys_per_slot} keys per slot on average."
+    end
+
     # Merge slots of every known node. If the resulting slots are equal
     # to ClusterHashSlots, then all slots are served.
     def covered_slots
@@ -850,6 +866,11 @@ class RedisTrib
         check_cluster
     end
 
+    def info_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
+        show_cluster_info
+    end
+
     def fix_cluster_cmd(argv,opt)
         @fix = true
         @timeout = opt['timeout'].to_i if opt['timeout']
@@ -1339,6 +1360,7 @@ end
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
     "check"   => ["check_cluster_cmd", 2, "host:port"],
+    "info"    => ["info_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
     "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
