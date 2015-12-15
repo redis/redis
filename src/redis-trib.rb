@@ -928,7 +928,17 @@ class RedisTrib
                 elsif src.info[:name] == target.info[:name]
                     xputs "*** It is not possible to use the target node as source node."
                 else
-                    sources << src
+                    found = false
+                    sources.each{|s|
+                        if s.info[:name] == src.info[:name]
+                            xputs "*** It is not possible to specify the same source node."
+                            found = true
+                            break
+                        end
+                    }
+                    if !found
+                        sources << src
+                    end
                 end
             end
         end
