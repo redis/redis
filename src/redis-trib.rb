@@ -943,7 +943,7 @@ class RedisTrib
 
         # Sort nodes by their slots balance.
         sn = @nodes.select{|n|
-            n.has_flag?("master")
+            n.has_flag?("master") && n.info[:w]
         }.sort{|a,b|
             a.info[:balance] <=> b.info[:balance]
         }
@@ -974,12 +974,16 @@ class RedisTrib
                     xputs "*** Assertio failed: Reshard table != number of slots"
                     exit 1
                 end
-                reshard_table.each{|e|
-                    move_slot(e[:source],dst,e[:slot],
-                        :quiet=>true,:dots=>false,:update=>true)
-                    print "#"
-                    STDOUT.flush
-                }
+                if opt['simulate']
+                    print "#"*reshard_table.length
+                else
+                    reshard_table.each{|e|
+                        move_slot(e[:source],dst,e[:slot],
+                            :quiet=>true,:dots=>false,:update=>true)
+                        print "#"
+                        STDOUT.flush
+                    }
+                end
                 puts
             end
 
@@ -1512,7 +1516,7 @@ ALLOWED_OPTIONS={
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required, "copy" => false, "replace" => false},
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => MigrateDefaultTimeout},
-    "rebalance" => {"weight" => [], "auto-weights" => false, "threshold" => RebalanceDefaultThreshold, "use-empty-masters" => false, "timeout" => MigrateDefaultTimeout},
+    "rebalance" => {"weight" => [], "auto-weights" => false, "threshold" => RebalanceDefaultThreshold, "use-empty-masters" => false, "timeout" => MigrateDefaultTimeout, "simulate" => false},
     "fix" => {"timeout" => MigrateDefaultTimeout},
 }
 
