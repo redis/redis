@@ -316,11 +316,27 @@ class RedisTrib
         xputs msg
     end
 
+    # Return the node with the specified ID or Nil.
     def get_node_by_name(name)
         @nodes.each{|n|
             return n if n.info[:name] == name.downcase
         }
         return nil
+    end
+
+    # Like get_node_by_name but the specified name can be just the first
+    # part of the node ID as long as the prefix in unique across the
+    # cluster.
+    def get_node_by_abbreviated_name(name)
+        l = name.length
+        candidates = []
+        @nodes.each{|n|
+            if n.info[:name][0...l] == name.downcase
+                candidates << n
+            end
+        }
+        return nil if candidates.length != 1
+        candidates[0]
     end
 
     # This function returns the master that has the least number of replicas
@@ -347,7 +363,7 @@ class RedisTrib
         keys = 0
         @nodes.each{|n|
             if n.has_flag?("master")
-                puts "#{n} -> #{n.r.dbsize} keys | #{n.slots.length} slots | "+
+                puts "#{n} (#{n.info[:name][0...8]}...) -> #{n.r.dbsize} keys | #{n.slots.length} slots | "+
                      "#{n.info[:replicas].length} slaves."
                 masters += 1
                 keys += n.r.dbsize
@@ -900,12 +916,12 @@ class RedisTrib
         weights = {}
         opt['weight'].each{|w|
             fields = w.split("=")
-            node = get_node_by_name(fields[0])
+            node = get_node_by_abbreviated_name(fields[0])
             if !node || !node.has_flag?("master")
                 puts "*** No such master node #{fields[0]}"
                 exit 1
             end
-            weights[fields[0]] = fields[1].to_f
+            weights[node.info[:name]] = fields[1].to_f
         } if opt['weight']
         useempty = opt['use-empty-masters']
 
