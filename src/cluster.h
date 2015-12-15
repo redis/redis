@@ -234,6 +234,7 @@ typedef struct {
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
+    char announceIp[NET_IP_STR_LEN]; /* Ip of the cluster server making a call */
     char notused1[32];  /* 32 bytes reserved for future usage. */
     uint16_t port;      /* Sender TCP base port */
     uint16_t flags;     /* Sender node flags */

@@ -1382,7 +1382,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
  *
  * The function returns 0 if the node address is still the same,
  * otherwise 1 is returned. */
-int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
+int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port, char *hdrAnnounceIp) {
     char ip[NET_IP_STR_LEN] = {0};
 
     /* We don't proceed if the link is the same as the sender link, as this
@@ -1393,7 +1393,16 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
      * it is safe to call during packet processing. */
     if (link == node->link) return 0;
 
-    nodeIp2String(ip,link);
+    if (hdrAnnounceIp) {
+        //copy the ip address from header 
+        serverLog(LL_DEBUG,"announce ip in header is: %s",
+            hdrAnnounceIp);
+        memcpy(ip, hdrAnnounceIp, NET_IP_STR_LEN);
+
+    } else {
+        nodeIp2String(ip,link);
+    }
+
     if (node->port == port && strcmp(ip,node->ip) == 0) return 0;
 
     /* IP / port is different, update it. */
@@ -1662,7 +1671,17 @@ int clusterProcessPacket(clusterLink *link) {
             clusterNode *node;
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            nodeIp2String(node->ip,link);
+
+            if (hdr->announceIp) {
+                serverLog(LL_DEBUG,"nodeip: after createClusterNode and hdr announce ip: %s",
+                    hdr->announceIp);
+
+                //copy the ip address from header
+                memcpy(node->ip, hdr->announceIp, sizeof(hdr->announceIp));
+            } else {
+                nodeIp2String(node->ip,link);
+            }
+            
             node->port = ntohs(hdr->port);
             clusterAddNode(node);
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -1693,7 +1712,7 @@ int clusterProcessPacket(clusterLink *link) {
                     serverLog(LL_VERBOSE,
                         "Handshake: we already know node %.40s, "
                         "updating the address if needed.", sender->name);
-                    if (nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port)))
+                    if (nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port),hdr->announceIp))
                     {
                         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                              CLUSTER_TODO_UPDATE_STATE);
@@ -1731,7 +1750,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Update the node address if it changed. */
         if (sender && type == CLUSTERMSG_TYPE_PING &&
             !nodeInHandshake(sender) &&
-            nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port)))
+            nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port),hdr->announceIp))
         {
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                  CLUSTER_TODO_UPDATE_STATE);
@@ -2136,6 +2155,8 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
     hdr->port = htons(server.port);
+    if (server.cluster_announce_my_ip)
+        memcpy(hdr->announceIp, server.cluster_announce_my_ip, NET_IP_STR_LEN);
     hdr->flags = htons(myself->flags);
     hdr->state = server.cluster->state;
 

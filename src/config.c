@@ -521,6 +521,12 @@ void loadServerConfigFromString(char *config) {
             if (server.cluster_node_timeout <= 0) {
                 err = "cluster node timeout must be 1 or greater"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-announce-my-ip") && argc == 2) {
+            if (strlen(argv[1]) > NET_IP_STR_LEN) {
+                err = "Announce IP is longer than NET_IP_STR_LEN";
+                goto loaderr;
+            }
+            server.cluster_announce_my_ip= zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"cluster-migration-barrier")
                    && argc == 2)
         {
@@ -1832,6 +1838,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigYesNoOption(state,"cluster-require-full-coverage",server.cluster_require_full_coverage,CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE);
     rewriteConfigNumericalOption(state,"cluster-node-timeout",server.cluster_node_timeout,CLUSTER_DEFAULT_NODE_TIMEOUT);
+    rewriteConfigStringOption(state,"cluster-announce-my-ip",server.cluster_announce_my_ip,NULL);
     rewriteConfigNumericalOption(state,"cluster-migration-barrier",server.cluster_migration_barrier,CLUSTER_DEFAULT_MIGRATION_BARRIER);
     rewriteConfigNumericalOption(state,"cluster-slave-validity-factor",server.cluster_slave_validity_factor,CLUSTER_DEFAULT_SLAVE_VALIDITY);
     rewriteConfigNumericalOption(state,"slowlog-log-slower-than",server.slowlog_log_slower_than,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
