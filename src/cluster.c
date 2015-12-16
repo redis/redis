@@ -4743,7 +4743,7 @@ try_again:
     /* Read the RESTORE replies. */
     int error_from_target = 0;
     int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
-    robj **newargv;
+    robj **newargv = NULL;
 
     if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys+1));
 
