@@ -1886,8 +1886,9 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
             repr1 = ldbCatStackValue(repr1,lua,-1);
             repr1 = sdscatlen(repr1,"; ",2);
             /* Full repr. */
+            repr2 = sdscatlen(repr2,"[",1);
             repr2 = ldbCatStackValue(repr2,lua,-2);
-            repr2 = sdscatlen(repr2,"=",1);
+            repr2 = sdscatlen(repr2,"]=",2);
             repr2 = ldbCatStackValue(repr2,lua,-1);
             repr2 = sdscatlen(repr2,"; ",2);
             lua_pop(lua,1); /* Stack: table, key. Ready for next iteration. */
