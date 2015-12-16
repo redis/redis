@@ -196,7 +196,7 @@ or you just untarred the Redis distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
 the Redis source code layout, what is in each file as a general idea, the
 most important functions and structures inside the Redis server and so forth.
-We keep all the discussion at an high level without digging into the details
+We keep all the discussion at a high level without digging into the details
 since this document would be huge otherwise, and our code base changes
 continuously, but a general idea should be a good starting point to
 understand more. Moreover most of the code is heavily commented and easy
