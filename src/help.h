@@ -354,7 +354,7 @@ struct commandHelp {
     "1.0.0" },
     { "GETBIT",
     "key offset",
-    "Returns the bit value at offset in the string value stored at key",
+    "Returns the bit values at offset in the string value stored at key",
     1,
     "2.2.0" },
     { "GETRANGE",
