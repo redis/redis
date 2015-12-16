@@ -774,10 +774,10 @@ void logStackTrace(ucontext_t *uc) {
     if (getMcontextEip(uc) != NULL) {
         char *msg1 = "EIP:\n";
         char *msg2 = "\nBacktrace:\n";
-        write(fd,msg1,strlen(msg1));
+        if (write(fd,msg1,strlen(msg1)) == -1) {/* Avoid warning. */};
         trace[0] = getMcontextEip(uc);
         backtrace_symbols_fd(trace, 1, fd);
-        write(fd,msg2,strlen(msg2));
+        if (write(fd,msg2,strlen(msg2)) == -1) {/* Avoid warning. */};
     }
 
     /* Write symbols to log file */

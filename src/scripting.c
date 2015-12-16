@@ -1566,7 +1566,11 @@ void ldbSendLogs(void) {
         proto = sdscatlen(proto,"\r\n",2);
         listDelNode(ldb.logs,ln);
     }
-    write(ldb.fd,proto,sdslen(proto));
+    if (write(ldb.fd,proto,sdslen(proto)) == -1) {
+        /* Avoid warning. We don't check the return value of write()
+         * since the next read() will catch the I/O error and will
+         * close the debugging session. */
+    }
     sdsfree(proto);
 }
 
