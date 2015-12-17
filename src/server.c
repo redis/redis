@@ -2308,9 +2308,9 @@ void call(client *c, int flags) {
  * processCommand() execute the command or prepare the
  * server for a bulk read from the client.
  *
- * If 1 is returned the client is still alive and valid and
+ * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
- * if 0 is returned the client was destroyed (i.e. after QUIT). */
+ * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
