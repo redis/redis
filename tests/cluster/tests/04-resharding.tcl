@@ -13,6 +13,24 @@ test "Cluster is up" {
     assert_cluster_state ok
 }
 
+test "Enable AOF in all the instances" {
+    foreach_redis_id id {
+        R $id config set appendonly yes
+        # We use "appendfsync no" because it's fast but also guarantees that
+        # write(2) is performed before replying to client.
+        R $id config set appendfsync no
+    }
+
+    foreach_redis_id id {
+        wait_for_condition 1000 500 {
+            [RI $id aof_rewrite_in_progress] == 0 &&
+            [RI $id aof_enabled] == 1
+        } else {
+            fail "Failed to enable AOF on instance #$id"
+        }
+    }
+}
+
 # Return nno-zero if the specified PID is about a process still in execution,
 # otherwise 0 is returned.
 proc process_is_running {pid} {
@@ -98,5 +116,29 @@ test "Verify $numkeys keys for consistency with logical content" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
         assert {[$cluster lrange $key 0 -1] eq $value}
+    }
+}
+
+test "Crash and restart all the instances" {
+    foreach_redis_id id {
+        kill_instance redis $id
+        restart_instance redis $id
+    }
+}
+
+test "Cluster should eventually be up again" {
+    assert_cluster_state ok
+}
+
+test "Verify $numkeys keys after the crash & restart" {
+    # Check that the Redis Cluster content matches our logical content.
+    foreach {key value} [array get content] {
+        assert {[$cluster lrange $key 0 -1] eq $value}
+    }
+}
+
+test "Disable AOF in all the instances" {
+    foreach_redis_id id {
+        R $id config set appendonly no
     }
 }
