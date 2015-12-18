@@ -142,3 +142,26 @@ test "Disable AOF in all the instances" {
         R $id config set appendonly no
     }
 }
+
+test "Verify slaves consistency" {
+    set verified_masters 0
+    foreach_redis_id id {
+        set role [R $id role]
+        lassign $role myrole myoffset slaves
+        if {$myrole eq {slave}} continue
+        set masterport [get_instance_attrib redis $id port]
+        set masterdigest [R $id debug digest]
+        foreach_redis_id sid {
+            set srole [R $sid role]
+            if {[lindex $srole 0] eq {master}} continue
+            if {[lindex $srole 2] != $masterport} continue
+            wait_for_condition 1000 500 {
+                [R $sid debug digest] eq $masterdigest
+            } else {
+                fail "Master and slave data digest are different"
+            }
+            incr verified_masters
+        }
+    }
+    assert {$verified_masters >= 5}
+}
