@@ -913,7 +913,10 @@ class RedisTrib
     end
 
     def rebalance_cluster_cmd(argv,opt)
-        opt = {'pipeline' => MigrateDefaultPipeline}.merge(opt)
+        opt = {
+            'pipeline' => MigrateDefaultPipeline,
+            'threshold' => RebalanceDefaultThreshold
+        }.merge(opt)
 
         # Load nodes info before parsing options, otherwise we can't
         # handle --weight.
@@ -956,15 +959,34 @@ class RedisTrib
         # Calculate the slots balance for each node. It's the number of
         # slots the node should lose (if positive) or gain (if negative)
         # in order to be balanced.
+        threshold = opt['threshold'].to_f
+        threshold_reached = false
         @nodes.each{|n|
             if n.has_flag?("master")
                 next if !n.info[:w]
                 expected = ((ClusterHashSlots.to_f / total_weight) *
                             n.info[:w]).to_i
                 n.info[:balance] = n.slots.length - expected
+                # Compute the percentage of difference between the
+                # expected number of slots and the real one, to see
+                # if it's over the threshold specified by the user.
+                over_threshold = false
+                if threshold > 0
+                    if n.slots.length > 0
+                        err_perc = (100-(100.0*expected/n.slots.length)).abs
+                        over_threshold = true if err_perc > threshold
+                    elsif expected > 0
+                        over_threshold = true
+                    end
+                end
                 puts "#{n} balance is #{n.info[:balance]} slots" if $verbose
+                threshold_reached = true if over_threshold
             end
         }
+        if !threshold_reached
+            xputs "*** No rebalancing needed! All nodes are within the #{threshold}% threshold."
+            return
+        end
 
         # Sort nodes by their slots balance.
         sn = @nodes.select{|n|
@@ -1548,7 +1570,7 @@ ALLOWED_OPTIONS={
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required, "copy" => false, "replace" => false},
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
-    "rebalance" => {"weight" => [], "auto-weights" => false, "threshold" => RebalanceDefaultThreshold, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true},
+    "rebalance" => {"weight" => [], "auto-weights" => false, "threshold" => RebalanceDefaultThreshold, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
     "fix" => {"timeout" => MigrateDefaultTimeout},
 }
 
