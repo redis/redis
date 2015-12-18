@@ -2070,7 +2070,7 @@ int processCommand(redisClient *c) {
 
         /* It was impossible to free enough memory, and the command the client
          * is trying to execute is denied during OOM conditions? Error. */
-        if ((c->cmd->flags & CMD_DENYOOM) && retval == REDIS_ERR) {
+        if ((c->cmd->flags & REDIS_CMD_DENYOOM) && retval == REDIS_ERR) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
             return REDIS_OK;
