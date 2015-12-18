@@ -12,7 +12,7 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 
 --[ Redis 3.0.6 ] Release date: 18 Dec 2015
 
-Upgrade urgency: MODERTE. We fixed a crash that happens very rarely, so
+Upgrade urgency: MODERATE. We fixed a crash that happens very rarely, so
                  updating does not hurt, but most users are unlikely to
                  experience this condition because it requires some odd
                  timing. However if you are a Redis Cluster user, upgrading
