@@ -109,7 +109,7 @@ To run Redis with the default configuration just type:
 
     % cd src
     % ./redis-server
-    
+
 If you want to provide your redis.conf, you have to run it using an additional
 parameter (the path of the configuration file):
 
