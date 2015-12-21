@@ -297,7 +297,7 @@ Redis objects are used extensively in the Redis internals, however in order
 to avoid the overhead of indirect accesses, recently in many places
 we just use plain dynamic strings not wrapped inside a Redis object.
 
-sever.c
+server.c
 ---
 
 This is the entry point of the Redis server, where the `main()` function
