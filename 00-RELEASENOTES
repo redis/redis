@@ -23,6 +23,9 @@ General changes:
 * [NEW] Lua scripts "effect replication". Makes possible to write scripts
         with side effects, use of random commands, and so forth.
         (Salvatore Sanfilippo)
+* [NEW] Lua scripts selective replication. Makes possible to replicate to
+        slaves and AOF only selected parts of a script. (Design by
+        Yossi Gottlieb and Salvatore Sanfilippo, implemented by Salvatore)
 * [NEW] Geo indexing support via GEOADD, GEORADIUS and other commands.
         See http://redis.io/commands/geoadd for more information.
         (Initially implemented in a fork of Redis called "Ardb".
@@ -32,6 +35,8 @@ General changes:
          and unified the duplicated code with t_zset.c)
 * [NEW] Lua debugger. A complete stepping, remote debugger for Lua scripts.
         Video here: https://www.youtube.com/watch?v=IMvRfStaoyM
+        (Salvatore Sanfilippo with many feedbacks and testing from
+         Itamar Haber)
 * [NEW] SDS improvements for speed and maximum string length.
         This makes Redis more memory efficient in different use cases.
         (Design and implementation by Oran Agra, some additional work
@@ -72,8 +77,16 @@ General changes:
 
 Redis Cluster changes:
 
-* All the Redis Cluster changes in 3.2 were backported to 3.0, so there is
-  technically nothing new for now in this release.
+All the Redis Cluster changes in 3.2 were backported to 3.0, so there is
+technically nothing new for now in this release. The most important things
+are:
+
+* Cluster rebalancing.
+* A pipelined MIGRATE command which is 10x faster and makes resharding
+  and rebalancing faster.
+* Improved replicas migration.
+* As a side effect of quicklists encoding (see above items), moving big
+  lists between nodes is now a lot faster.
 
 Redis Sentinel changes:
 
