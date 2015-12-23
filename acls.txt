@@ -1,0 +1,3 @@
+antirez "my password" +#all
+charsyam "passwd" +scan +zscan
+default ""
