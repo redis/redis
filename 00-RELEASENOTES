@@ -1,6 +1,110 @@
-This is the testing branch. It will become Redis 3.2 after more fixes
-and possibly more features will be added.
+Redis 3.2 release notes
+=======================
 
-All the potentially very unstable work will go into the "unstable" branch.
-Fixes and safe features will be back ported here into "testing" for some
-time, then RC1 will be released and we'll freeze the code base.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+--------------------------------------------------------------------------------
+
+--[ Redis 3.2.0 RC1 (version 3.1.101) ] Release date: 23 dec 2015
+
+This is the first release candidate of Redis 3.2. The changelog above shows
+what's new in this release. In the next of the following weeks we'll test
+in depth every feature and we'll release new RCs as bugs are discovered
+and fixed. Note that while 3.2 looks solid already, it contains many changes
+to its internals. It's still fresh code compared to 3.0.
+
+General changes:
+
+* [NEW] Lua scripts "effect replication". Makes possible to write scripts
+        with side effects, use of random commands, and so forth.
+        (Salvatore Sanfilippo)
+* [NEW] Geo indexing support via GEOADD, GEORADIUS and other commands.
+        See http://redis.io/commands/geoadd for more information.
+        (Initially implemented in a fork of Redis called "Ardb".
+         Matt Stancliff "imported back" the work to Redis and created the
+         initial API and implementation. Salvatore Sanfilippo modified
+         the API and the implementation, fixed bugs, improved performances
+         and unified the duplicated code with t_zset.c)
+* [NEW] Lua debugger. A complete stepping, remote debugger for Lua scripts.
+        Video here: https://www.youtube.com/watch?v=IMvRfStaoyM
+* [NEW] SDS improvements for speed and maximum string length.
+        This makes Redis more memory efficient in different use cases.
+        (Design and implementation by Oran Agra, some additional work
+         by Salvatore Sanfilippo)
+* [NEW] Modify Jemalloc size classes to make certain Redis objects fit
+        better, improving memory efficiency. (Oran Agra)
+* [NEW] Better consistency behavior between masters and slaves for expired
+        keys. The slaves are only able to logically consider a key expired
+        even before receiving the `DEL` command from the master. This avoids
+        the delay there is sometimes between the natural expire of the key
+        and the moment the slave is notified. (Salvatore Sanfilippo)
+* [NEW] Support daemon supervision by upstart or systemd (Pierre-Yves Ritschard)
+* [NEW] New encoding for the List type: Quicklists. Very important memory
+        savings and storage space in RDB gains (up to 10x sometimes).
+        (Design and implementation by Matt Stancliff. RDB storage reworked
+         by Salvatore Sanfilippo)
+* [NEW] SPOP with optional count argument. (Initial implementation by
+        Alon Diamant, mostly reimplemented by Salvatore Sanfilippo for speed
+        and in order to make the replication of a this class of commands,
+        having as logical effect the execution of multiple commands, possible).
+* [NEW] Support for RDB AUX fields. Now RDB files contain additional info
+        like the creation date, version of Redis generating it and so forth.
+        (Salvatore Sanfilippo)
+* [NEW] Faster RDB loading via the RESIZEDB opcode to avoid useless hash tables
+        rehashings. (Salvatore Sanfilippo)
+* [NEW] HSTRLEN command. (@landmime and Salvatore Sanfilippo)
+* [NEW] CONFIG SET/GET implementations refactored, partially rewritten,
+        now exposing more config options. (Salvatore Sanfilippo)
+* [NEW] CLUSTER NODES major speedup. (Salvatore Sanfilippo)
+* [NEW] CLIENT KILL TYPE MASTER, to kill (disconnect) masters from slaves.
+        (Salvatore Sanfilippo)
+* [NEW] Jemalloc updated to 4.0.3 (Salvatore Sanfilippo)
+* [NEW] DEBUG RESTART/CRASH-AND-RECOVER [delay] (Salvatore Sanfilippo)
+* [NEW] CLIENT REPLY command implemented: ON, OFF and SKIP modes.
+        (Salvatore Sanfilippo)
+* [NEW] Crash report produced by Redis on crash improved. (Salvatore Sanfilippo)
+* [NEW] Better memory test on crash. (Salvatore Sanfilippo)
+
+Redis Cluster changes:
+
+* All the Redis Cluster changes in 3.2 were backported to 3.0, so there is
+  technically nothing new for now in this release.
+
+Redis Sentinel changes:
+
+* [NEW] Sentinel connection sharing. Makes Sentinels able to scale to
+        monitor many masters. (Salvatore Sanfilippo)
+* [NEW] New SENTINEL INFO-CACHE command. (Matt Stancliff)
+* More things backported to Redis 3.0 in the past, so no longer news of 3.2.
+
+Migrating from 3.0 to 3.2
+=========================
+
+Redis 3.0 is mostly a strict subset of 3.2, you should not have any problem
+upgrading your application from 3.0 to 3.2. However this is a list of small
+non-backward compatible changes introduced in the 3.2 release:
+
+* The default configuration file now binds to 127.0.0.1.
+* Slaves try to no longer expose stale data about already expired keys.
+* The RDB format changed. Redis 3.2 is still able to read 3.0 (and all the
+  past versions) files, but not the other way around.
+* Behavior on crash may be different. The crash log format changed and
+  the memory test executed is now different.
+
+--------------------------------------------------------------------------------
+
+Credits: For each release, a list of changes with the relative author is
+provided. Where not specified the implementation and design is done by
+Salvatore Sanfilippo. Thanks to Redis Labs for making all this possible.
+Also many thanks to all the other contributors and the amazing community
+we have.
+
+Commit messages may contain additional credits.
+
+Cheers,
+Salvatore
