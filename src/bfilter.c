@@ -15,14 +15,18 @@ typedef struct {
     uint32_t k;
 } __attribute__((packed)) bfHeader;
 
+static inline size_t bflen(uint64_t m) {
+    return sizeof(bfHeader) + (m >> 3) + ((m & 0x7) > 0);
+}
+
 void bfcreateCommand(client *c){
     robj *o;
     long m,k;
-    int byte;
+    size_t byte;
     bfHeader* header;
 
     if (C_OK != getLongFromObjectOrReply(c, c->argv[2],&m,
-                    "filter bits is not an positive integer or out of rage"))
+                    "filter bits is not an integer or out of range"))
         return;
     if (m <= 0) {
         addReplyError(c,"filter bits is not an positive integer");
@@ -30,14 +34,14 @@ void bfcreateCommand(client *c){
     }
 
     if (C_OK != getLongFromObjectOrReply(c, c->argv[3],&k,
-                    "hash times is not an positive integer or out of rage"))
+                    "hash times is not an integer or out of range"))
         return;
     if (k <= 0) {
         addReplyError(c,"hash times is not an positive integer");
         return;
     }
 
-    byte = (m >> 3) + sizeof(bfHeader) + 1;
+    byte = bflen(m);
     if (byte > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
         return;
@@ -58,6 +62,7 @@ void bfcreateCommand(client *c){
     header->k=(uint32_t)k;
 
     signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_STRING,"bfcreate",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -66,7 +71,7 @@ void bfaddCommand(client *c) {
     robj *o;
     char *err = "invalid filter format", *buf;
     size_t len, byte;
-    int i;
+    int i, updated = 0;;
     uint32_t j;
     bfHeader *header;
 
@@ -89,13 +94,12 @@ void bfaddCommand(client *c) {
     }
 
     header = (bfHeader*)o->ptr;
-    byte = (header->m >> 3) + sizeof(bfHeader) + 1;
+    byte = bflen(header->m);
     buf = (char*)(header + 1);
     if ((len != byte) || (header->magic != 0xDEADBEEF)) {
         addReplyError(c,err);
         return;
     }
-
 
     for (i = 2; i < c->argc; i++) {
         uint64_t hash1 = crc64_hash(c->argv[i]->ptr),
@@ -104,12 +108,16 @@ void bfaddCommand(client *c) {
             uint64_t bit = (hash1 + j * hash2) % header->m,
                      byteoffset = bit >> 3,
                      bitoffset = 7 - (bit & 0x7);
+            updated |= !(buf[byteoffset] & (1 << bitoffset));
             buf[byteoffset] |= (1 << bitoffset);
         }
     }
 
-    signalModifiedKey(c->db,c->argv[1]);
-    server.dirty++;
+    if (updated) {
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_STRING,"bfadd",c->argv[1],c->db->id);
+        server.dirty++;
+    }
     addReply(c,shared.ok);
 }
 
@@ -140,7 +148,7 @@ void bfmatchCommand(client *c) {
     }
 
     header = (bfHeader*)o->ptr;
-    byte = (header->m >> 3) + sizeof(bfHeader) + 1;
+    byte = bflen(header->m);
     buf = (char*)(header + 1);
     if ((len != byte) || (header->magic != 0xDEADBEEF)) {
         addReplyError(c,err);
@@ -149,7 +157,7 @@ void bfmatchCommand(client *c) {
 
     addReplyMultiBulkLen(c,c->argc-2);
     for (i = 2; i < c->argc; i++) {
-        unsigned int hash1 = crc64_hash(c->argv[i]->ptr),
+        uint64_t hash1 = crc64_hash(c->argv[i]->ptr),
             hash2 = murmurHash(c->argv[i]->ptr);
         for (j = 0; j < header->k; j++) {
             uint64_t bit = (hash1 + j * hash2) % header->m,
