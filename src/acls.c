@@ -11,29 +11,30 @@ aclGroup aclGroups[] = {
     {"all", {0, 0, 0, 0}}
 };
 
-void initAcls(unsigned long long acls[ACL_ARRAY_NUM]) {
-    memset(acls, 0, sizeof(unsigned long long) * ACL_ARRAY_NUM);
+void initAcls(acl_t acls[ACL_ARRAY_NUM]) {
+    memset(acls, 0, sizeof(acl_t) * ACL_ARRAY_NUM);
 }
 
-void setAcls(unsigned long long tar[ACL_ARRAY_NUM], unsigned long long src[ACL_ARRAY_NUM]) {
-    memcpy(tar, src, sizeof(unsigned long long) * ACL_ARRAY_NUM);
+void setAcls(acl_t tar[ACL_ARRAY_NUM], acl_t src[ACL_ARRAY_NUM]) {
+    memcpy(tar, src, sizeof(acl_t) * ACL_ARRAY_NUM);
 }
 
-static void addAcls(unsigned long long src[ACL_ARRAY_NUM], unsigned long long tar[ACL_ARRAY_NUM]) {
+static void addAcls(acl_t src[ACL_ARRAY_NUM], acl_t tar[ACL_ARRAY_NUM]) {
     for (int i = 0; i < ACL_ARRAY_NUM; i++) {
         src[i] |= tar[i];
     }
 }
 
-static void removeAcls(unsigned long long src[ACL_ARRAY_NUM], unsigned long long tar[ACL_ARRAY_NUM]) {
-    unsigned long long v = 0;
+static void removeAcls(acl_t src[ACL_ARRAY_NUM], acl_t tar[ACL_ARRAY_NUM]) {
+    acl_t v = 0;
+
     for (int i = 0; i < ACL_ARRAY_NUM; i++) {
         v = ~tar[i];
         src[i] &= v;
     }
 }
 
-int getAclsFromCommand(char *cmdName, unsigned long long acls[ACL_ARRAY_NUM]) {
+static int getAclsFromCommand(char *cmdName, acl_t acls[ACL_ARRAY_NUM]) {
     struct redisCommand *cmd;
 
     sds name = sdsnew(cmdName);
@@ -47,7 +48,7 @@ int getAclsFromCommand(char *cmdName, unsigned long long acls[ACL_ARRAY_NUM]) {
     return 1;
 }
 
-int getAclsFromGroup(char *groupName, unsigned long long acls[ACL_ARRAY_NUM]) {
+static int getAclsFromGroup(char *groupName, acl_t acls[ACL_ARRAY_NUM]) {
     int numgroups = sizeof(aclGroups)/sizeof(struct aclGroup);
 
     for (int i = 0; i < numgroups; i++) {
@@ -62,17 +63,17 @@ int getAclsFromGroup(char *groupName, unsigned long long acls[ACL_ARRAY_NUM]) {
     return 0;
 }
 
-int parseAcl(int argc, char *argv[], unsigned long long acls[ACL_ARRAY_NUM]) {
-    int op = 0;
-    int group = 0;
-
+static int parseAcl(int argc, char *argv[], acl_t acls[ACL_ARRAY_NUM]) {
     acls[0] = 0;
     acls[1] = 0;
     acls[2] = 0;
     acls[3] = 0;
 
     for (int i = 0; i < argc; i++) {
-        unsigned long long tmpAcls[ACL_ARRAY_NUM];
+        int op = 0;
+        int group = 0;
+
+        acl_t tmpAcls[ACL_ARRAY_NUM];
         initAcls(tmpAcls);
 
         char *acl = argv[2+i];
@@ -88,7 +89,7 @@ int parseAcl(int argc, char *argv[], unsigned long long acls[ACL_ARRAY_NUM]) {
             group = 1;
             cmdName = &acl[2];
         }
-
+    
         if (group) {
             getAclsFromGroup(cmdName, tmpAcls);
         } else {
@@ -100,15 +101,16 @@ int parseAcl(int argc, char *argv[], unsigned long long acls[ACL_ARRAY_NUM]) {
         } else {
             removeAcls(acls, tmpAcls);
         }
-
-        fprintf(stderr, "(group:%d,op:%d)%s %llu %llu %llu %llu\r\n", group, op, cmdName,
-                acls[0], acls[1], acls[2], acls[3]);
     }
 
     return 1;
 }
 
-void parse(char *acls) {
+static void addUserAcl(userAcl *user) {
+    dictAdd(server.acls, sdsnew(user->name), user);
+}
+
+static void parse(char *acls) {
     char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
@@ -144,20 +146,11 @@ void parse(char *acls) {
             goto loaderr;
         }
 
-        for (int i = 0; i < argc; i++) {
-            fprintf(stderr, "%d %s\r\n", linenum, argv[i]);
-        }
-
         userAcl *user = zmalloc(sizeof(*user));
-        user->name = argv[0];
-        user->passwd = argv[1];
+        user->name = zstrdup(argv[0]);
+        user->passwd = zstrdup(argv[1]);
         parseAcl(argc-2, argv, user->acls);
-        fprintf(stderr, "%s %llu %llu %llu %llu\r\n", user->name,
-                user->acls[0], user->acls[1], user->acls[2], user->acls[3]);
-        dictAdd(server.acls, sdsnew(user->name), user);
-        userAcl *user2 = dictFetchValue(server.acls, sdsnew(user->name));
-        fprintf(stderr, "%s %llu %llu %llu %llu\r\n", user2->name,
-                user2->acls[0], user2->acls[1], user2->acls[2], user2->acls[3]);
+        addUserAcl(user);
     }
 
     return;
@@ -168,17 +161,6 @@ loaderr:
     fprintf(stderr, ">>> '%s'\n", lines[i]);
     fprintf(stderr, "%s\n", err);
     exit(1);
-}
-
-void printAclGroups() {
-    aclGroup *group;
-    for (int i = 0; i < 7; i++) {
-        group = aclGroups + i;
-        fprintf(stderr, "group: %s %llu %llu %llu %llu\r\n",
-                group->name, 
-                group->acls[0], group->acls[1],
-                group->acls[2], group->acls[3]);
-    }
 }
 
 int loadAcls(const char *filename) {
@@ -194,7 +176,7 @@ int loadAcls(const char *filename) {
         } else {
             if ((fp = fopen(filename,"r")) == NULL) {
                 serverLog(LL_WARNING,
-                    "Fatal error, can't open config file '%s'", filename);
+                    "Fatal error, can't open acl file '%s'", filename);
                 exit(1);
             }
         }
@@ -204,10 +186,17 @@ int loadAcls(const char *filename) {
     }
 
 	parse(acls);
-    printAclGroups();
-    userAcl *user2 = dictFetchValue(server.acls, sdsnew("antirez"));
-    fprintf(stderr, "%s %llu %llu %llu %llu\r\n", user2->name,
-            user2->acls[0], user2->acls[1], user2->acls[2], user2->acls[3]);
+    userAcl *defaultUser = getUserAcl(ACL_DEFAULT_USER_NAME);
+    if (defaultUser) {
+        setAcls(server.default_acls, defaultUser->acls);
+    }
+
     return 0;
 }
 
+userAcl *getUserAcl(char *userName) {
+    sds name = sdsnew(userName);
+    userAcl *user = dictFetchValue(server.acls, name);
+    sdsfree(name);
+    return user;
+}

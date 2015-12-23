@@ -240,6 +240,23 @@ void loadServerConfigFromString(char *config) {
                     argv[1], strerror(errno));
                 exit(1);
             }
+        } else if (!strcasecmp(argv[0],"users-file") && argc == 2) {
+            FILE *logfp;
+
+            zfree(server.requirepass);
+            zfree(server.aclfile);
+            server.aclfile = zstrdup(argv[1]);
+            if (server.aclfile[0] != '\0') {
+                logfp = fopen(server.aclfile,"r");
+                if (logfp == NULL) {
+                    err = sdscatprintf(sdsempty(),
+                        "Can't open the user-acl file: %s", strerror(errno));
+                    goto loaderr;
+                }
+                fclose(logfp);
+            }
+            server.requirepass = NULL;
+            server.use_cmd_acls = 1;
         } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
             server.verbosity = configEnumGetValue(loglevel_enum,argv[1]);
             if (server.verbosity == INT_MIN) {
@@ -443,11 +460,13 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
-                err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-                goto loaderr;
+            if (server.use_cmd_acls == 0) {
+                if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+                    err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
+                    goto loaderr;
+                }
+                server.requirepass = zstrdup(argv[1]);
             }
-            server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -734,6 +753,10 @@ void configSetCommand(client *c) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
+        if (server.use_cmd_acls) {
+            addReplyError(c, "can't set requirepass when using cmd acls");
+            return;
+        }
         if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;

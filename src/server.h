@@ -613,7 +613,7 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
-    unsigned long long acls[ACL_ARRAY_NUM];              /* Client ACLs */
+    acl_t acls[ACL_ARRAY_NUM];              /* Client ACLs */
 } client;
 
 struct saveparam {
@@ -711,7 +711,6 @@ struct redisServer {
     char **exec_argv;           /* Executable argv vector (copy). */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
-    dict *acls;                 /* acl tables */
     dict *commands;             /* Command table */
     dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
@@ -981,7 +980,12 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
-    unsigned long long default_acls[ACL_ARRAY_NUM];
+
+    /* CMD ACLs */
+    acl_t default_acls[ACL_ARRAY_NUM];
+    char *aclfile;                  /* Path of acl file */
+    dict *acls;                 /* acl tables */
+    int use_cmd_acls;           /* flag for cmd acls */
 };
 
 typedef struct pubsubPattern {
@@ -1006,7 +1010,7 @@ struct redisCommand {
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
     int aclindex;
-    unsigned long long aclvalue;
+    acl_t aclvalue;
 };
 
 struct aclAuth {
