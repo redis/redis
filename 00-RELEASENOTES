@@ -14,6 +14,23 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.24 ] Release date: 18 Dec 2015
+
+Upgrade urgency: MODERATE. We fixed a crash that happens very rarely, so
+                 updating does not hurt, but most users are unlikely to
+                 experience this condition because it requires some odd
+                 timing.
+
+* [FIX] lua_struct.c/getnum security issue fixed. (Luca Bruno discovered it,
+        patched by Sun He and Chris Lamb)
+* [FIX] Fix a race condition in processCommand() because of interactions
+        with freeMemoryIfNeeded(). Details in issue #2948 and especially
+        in the commit message d999f5a. (Race found analytically by
+        Oran Agra, patch by Salvatore Sanfilippo)
+
+* [NEW] Log offending memory access address on SIGSEGV/SIGBUS (Salvatore
+        Sanfilippo)
+
 --[ Redis 2.8.23 ] Release date: 15 Oct 2015
 
 Upgrade urgency: MODERATE, the most important thing is a fix in the replication
