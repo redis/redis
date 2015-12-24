@@ -712,8 +712,14 @@ void replconfCommand(redisClient *c) {
             c->slave_listening_port = port;
         } else if (!strcasecmp(c->argv[j]->ptr,"capa")) {
             /* Ignore capabilities not understood by this master. */
-            if (!strcasecmp(c->argv[j+1]->ptr,"eof"))
+            if (!strcasecmp(c->argv[j+1]->ptr,"eof")) {
                 c->slave_capa |= SLAVE_CAPA_EOF;
+            } else if (!strcasecmp(c->argv[j+1]->ptr,"ready")) {
+                if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED) {
+                    addReplySds(c,sdsnew("+wait\r\n"));
+                    return;
+                }
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -1475,12 +1481,12 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Inform the master of our capabilities. While we currently send
-     * just one capability, it is possible to chain new capabilities here
+     * few capabilities, it is possible to chain new capabilities here
      * in the form of REPLCONF capa X capa Y capa Z ...
      * The master will ignore capabilities it does not understand. */
-    if (server.repl_state == REDIS_REPL_SEND_CAPA) {
+    if (server.repl_state == REDIS_REPL_SEND_CAPA || server.repl_state == REDIS_REPL_RESEND_CAPA ) {
         err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
-                "capa","eof",NULL);
+                "capa","eof","capa","ready",NULL);
         if (err) goto write_error;
         sdsfree(err);
         server.repl_state = REDIS_REPL_RECEIVE_CAPA;
@@ -1495,6 +1501,12 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (err[0] == '-') {
             redisLog(REDIS_NOTICE,"(Non critical) Master does not understand "
                                   "REPLCONF capa: %s", err);
+        } else if (strncmp(err,"+wait",5) == 0) {
+            sdsfree(err);
+            // the master not connected with his master, retry SEND_CAPA 
+            server.repl_state = REDIS_REPL_RESEND_CAPA;
+            redisLog(REDIS_NOTICE,"Master is not connected with it's master, retry");
+            return;
         }
         sdsfree(err);
         server.repl_state = REDIS_REPL_SEND_PSYNC;
@@ -2078,6 +2090,11 @@ void replicationCron(void) {
         if (connectWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started");
         }
+    }
+
+    /* Check if we should resend repl capa to ensure the master is ready */
+    if (server.repl_state == REDIS_REPL_RESEND_CAPA) {
+        syncWithMaster(server.el,server.repl_transfer_s,NULL,AE_READABLE);
     }
 
     /* Send ACK to master from time to time.
