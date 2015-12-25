@@ -284,10 +284,10 @@ typedef long long mstime_t; /* millisecond time type. */
  * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE state instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-#define REDIS_REPL_WAIT_BGSAVE_START 14 /* We need to produce a new RDB file. */
-#define REDIS_REPL_WAIT_BGSAVE_END 15 /* Waiting RDB file creation to finish. */
-#define REDIS_REPL_SEND_BULK 16 /* Sending RDB file to slave. */
-#define REDIS_REPL_ONLINE 17 /* RDB file transmitted, sending just updates. */
+#define REDIS_REPL_WAIT_BGSAVE_START 15 /* We need to produce a new RDB file. */
+#define REDIS_REPL_WAIT_BGSAVE_END 16 /* Waiting RDB file creation to finish. */
+#define REDIS_REPL_SEND_BULK 17 /* Sending RDB file to slave. */
+#define REDIS_REPL_ONLINE 18 /* RDB file transmitted, sending just updates. */
 
 /* Slave capabilities. */
 #define SLAVE_CAPA_NONE 0
