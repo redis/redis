@@ -448,6 +448,8 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
             server.requirepass = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"auth-maxtries") && argc == 2) {
+            server.auth_maxtries = strtol(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -909,6 +911,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "timeout",server.maxidletime,0,LONG_MAX) {
     } config_set_numerical_field(
+      "auth-maxtries",server.auth_maxtries,0,UINT_MAX) {
+    } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
     } config_set_numerical_field(
       "auto-aof-rewrite-min-size",server.aof_rewrite_min_size,0,LLONG_MAX) {
@@ -1065,6 +1069,7 @@ void configGetCommand(client *c) {
     config_get_string_field("pidfile",server.pidfile);
 
     /* Numerical values */
+    config_get_numerical_field("auth-maxtries",server.auth_maxtries);
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("timeout",server.maxidletime);
@@ -1817,6 +1822,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
     rewriteConfigNumericalOption(state,"min-slaves-max-lag",server.repl_min_slaves_max_lag,CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG);
     rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
+    rewriteConfigNumericalOption(state,"auth-maxtries",server.auth_maxtries,CONFIG_DEFAULT_AUTH_MAXTRIES);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);

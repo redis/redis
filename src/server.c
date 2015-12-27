@@ -2659,6 +2659,10 @@ void authCommand(client *c) {
     } else {
       c->authenticated = 0;
       addReplyError(c,"invalid password");
+      c->auth_tries++;
+      if (server.auth_maxtries != 0 && c->auth_tries >= server.auth_maxtries) {
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+      }
     }
 }
 

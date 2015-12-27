@@ -25,3 +25,14 @@ start_server {tags {"auth"} overrides {requirepass foobar}} {
         r incr foo
     } {101}
 }
+
+start_server {tags {"auth"} overrides {requirepass foobar auth-maxtries 1}} {
+    test {AUTH fails when wrong password given, but does not disconnect} {
+        catch {r auth wrong!} err
+        set _ $err
+    } {ERR*invalid password}
+    
+    test {AUTH fails and disconnects when wrong password given again} {
+        assert_error * {r auth wrong}
+    }
+}
