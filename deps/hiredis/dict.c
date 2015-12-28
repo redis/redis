@@ -72,6 +72,9 @@ static void _dictReset(dict *ht) {
 /* Create a new hash table */
 static dict *dictCreate(dictType *type, void *privDataPtr) {
     dict *ht = malloc(sizeof(*ht));
+	if (ht == NULL) {
+		return NULL;
+	}	
     _dictInit(ht,type,privDataPtr);
     return ht;
 }
