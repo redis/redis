@@ -69,6 +69,9 @@ static unsigned int callbackHash(const void *key) {
 static void *callbackValDup(void *privdata, const void *src) {
     ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+	if (dup == NULL) {
+		return NULL;
+	}	
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }
