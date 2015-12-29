@@ -181,6 +181,24 @@ void getsetCommand(client *c) {
     server.dirty++;
 }
 
+void comparesetCommand(client *c) {
+    robj *o;
+
+    /* Take key from first argument */
+    o = lookupKeyWrite(c->db,c->argv[1]);
+
+    /* Check Key */
+    if (o == NULL) return;
+
+    if (equalStringObjects(o,c->argv[3])==1){
+       c->argv[2] = tryObjectEncoding(c->argv[2]);
+       setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[2],NULL,UNIT_SECONDS,NULL,NULL);
+    }
+    else{
+    	addReply(c, shared.ok);
+    }
+}
+
 void setrangeCommand(client *c) {
     robj *o;
     long offset;
