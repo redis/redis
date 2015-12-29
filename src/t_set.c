@@ -1196,6 +1196,7 @@ void scomparesetCommand(client *c) {
 
     if(cardinality==0){
     	/* Replace the pre-existing key */
+        server.dirty++;
     	dbAdd(c->db, dstkey, c->argv[2]);
     }
     else{
