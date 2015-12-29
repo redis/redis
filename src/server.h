@@ -1636,7 +1636,7 @@ void pfmergeCommand(client *c);
 void pfdebugCommand(client *c);
 void latencyCommand(client *c);
 void comparesetCommand(client *c);
-void hmcomparesetCommand(client *c);
+void hcomparesetCommand(client *c);
 void scomparesetCommand(client *c);
 
 #if defined(__GNUC__)

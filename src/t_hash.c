@@ -560,7 +560,7 @@ void hmsetCommand(client *c) {
     server.dirty++;
 }
 
-void hmcomparesetCommand(client *c) {
+void hcomparesetCommand(client *c) {
     robj *o, *current;
     long long inputValue, newValue;
 
