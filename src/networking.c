@@ -968,7 +968,7 @@ void resetClient(client *c) {
 
 int processInlineBuffer(client *c) {
     char *newline;
-    int argc, j;
+    int argc, j, lineskip = 1;
     sds *argv, aux;
     size_t querylen;
 
@@ -985,8 +985,10 @@ int processInlineBuffer(client *c) {
     }
 
     /* Handle the \r\n case. */
-    if (newline && newline != c->querybuf && *(newline-1) == '\r')
+    if (newline && newline != c->querybuf && *(newline-1) == '\r') {
         newline--;
+        lineskip++;
+    }
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
@@ -1006,7 +1008,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+lineskip,-1);
 
     /* Setup argv array on client structure */
     if (argc) {
