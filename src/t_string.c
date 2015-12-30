@@ -183,23 +183,22 @@ void getsetCommand(client *c) {
 
 void comparesetCommand(client *c) {
     robj *o;
+    robj *key = c->argv[1];
+    robj *newValue = c->argv[2];
+    robj *oldValue = c->argv[3];
 
     /* Take key from first argument */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    if ((o = lookupKeyWrite(c->db,key)) == NULL) return;
 
-    /* Check Key */
-    if (o == NULL) return;
-
-    if (equalStringObjects(o,c->argv[3])==1){
-       c->argv[2] = tryObjectEncoding(c->argv[2]);
-       setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[2],NULL,UNIT_SECONDS,NULL,NULL);
+    if (equalStringObjects(o,oldValue)==1){
+       newValue = tryObjectEncoding(newValue);
+       setGenericCommand(c,OBJ_SET_NO_FLAGS,key,newValue,NULL,UNIT_SECONDS,NULL,NULL);
        signalModifiedKey(c->db,c->argv[1]);
        notifyKeyspaceEvent(NOTIFY_STRING,"comparesetCommand",c->argv[1],c->db->id);
        server.dirty++;
-       addReplyLongLong(c,c->argv[1]);
     }
     else{
-    	addReply(c, shared.ok);
+    	addReplyError(c,"objects are different");
     }
 }
 

@@ -540,6 +540,33 @@ void hsetnxCommand(client *c) {
     }
 }
 
+void hcomparesetCommand(client *c) {
+    robj *o, *current;
+    robj *hashKey = c->argv[1];
+    robj *field = c->argv[2];
+    robj *newValue = c->argv[3];
+    robj *oldValue = c->argv[4];
+    int update;
+
+    /* Retrieve the hash array from the key */
+    if ((o = hashTypeLookupWriteOrCreate(c,hashKey)) == NULL) return;
+
+    /* get current object and redisValue */
+    if ((current = hashTypeGetValueObject(o,field->ptr)) == NULL) return;
+
+    if (equalStringObjects(current,oldValue)==1){
+       /* adding newValue to the set */
+       update = hashTypeSet(o,field->ptr,newValue->ptr,HASH_SET_COPY);
+       addReply(c, update ? shared.czero : shared.cone);
+       signalModifiedKey(c->db,c->argv[1]);
+       notifyKeyspaceEvent(NOTIFY_HASH,"hcompareset",c->argv[1],c->db->id);
+       server.dirty++;
+    }
+    else{
+    	addReplyError(c,"objects in hash are different");
+    }
+}
+
 void hmsetCommand(client *c) {
     int i;
     robj *o;
@@ -559,36 +586,6 @@ void hmsetCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty++;
 }
-
-void hcomparesetCommand(client *c) {
-    robj *o, *current;
-    long long inputValue, newValue;
-
-    /* Retrieve the hash array from the key */
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-
-    /* get the input value */
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&inputValue,NULL) != C_OK) return;
-
-    /* get current object and redisValue */
-    if ((current = hashTypeGetValueObject(o,c->argv[2]->ptr)) == NULL) return;
-
-    if (equalStringObjects(current,c->argv[4])==1){
-       /* get new value from the last argument */
-       if (getLongLongFromObject(c->argv[3],&newValue) != C_OK) return;
-
-       /* adding newValue to the set */
-       hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
-       addReplyLongLong(c, newValue);
-       signalModifiedKey(c->db,c->argv[1]);
-       notifyKeyspaceEvent(NOTIFY_HASH,"hmcompareset",c->argv[1],c->db->id);
-       server.dirty++;
-    }
-    else{
-    	addReply(c, shared.ok);
-    }
-}
-
 
 void hincrbyCommand(client *c) {
     long long value, incr, oldvalue;
