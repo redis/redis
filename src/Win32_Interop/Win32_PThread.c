@@ -92,8 +92,10 @@ int win32_pthread_join(pthread_t *thread, void **value_ptr) {
     switch (WaitForSingleObject(h, INFINITE)) {
         case WAIT_OBJECT_0:
             result = 0;
+            break;
         case WAIT_ABANDONED:
             result = EINVAL;
+            break;
         default:
             result = GetLastError();
     }
