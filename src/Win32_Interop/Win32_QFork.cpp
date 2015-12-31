@@ -510,7 +510,7 @@ StartupStatus QForkStartup() {
 
     if (g_IsForkedProcess) {
         // Child command line looks like: --QFork [QForkControlMemoryMap handle] [parent pid]
-        HANDLE QForkControlMemoryMapHandle = (HANDLE) strtoul(g_argMap[cQFork].at(0).at(0).c_str(), NULL, 10);
+        HANDLE QForkControlMemoryMapHandle = (HANDLE) strtoull(g_argMap[cQFork].at(0).at(0).c_str(), NULL, 10);
         DWORD PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), NULL, 10);
         return QForkChildInit(QForkControlMemoryMapHandle, PPID) ? StartupStatus::ssCHILD_EXIT : StartupStatus::ssFAILED;
     } else {
