@@ -873,7 +873,7 @@ class RedisTrib
                 source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:keys,*keys])
             rescue => e
                 if o[:fix] && e.to_s =~ /BUSYKEY/
-                    xputs "*** Target keys #{keys.join(',')} exists. Replacing them for FIX."
+                    xputs "*** Target keys #{keys.join(',')} exist. Replacing them for FIX."
                     source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:replace,:keys,*keys])
                 else
                     puts ""
