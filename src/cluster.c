@@ -4869,7 +4869,7 @@ void readwriteCommand(client *c) {
  * CLUSTER_REDIR_CROSS_SLOT if the request contains multiple keys that
  * don't belong to the same hash slot.
  *
- * CLUSTER_REDIR_UNSTABLE if the request contains mutliple keys
+ * CLUSTER_REDIR_UNSTABLE if the request contains multiple keys
  * belonging to the same slot, but the slot is not stable (in migration or
  * importing state, likely because a resharding is in progress).
  *
@@ -4993,8 +4993,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * Then if we have all the keys. */
 
     /* If we don't have all the keys and we are migrating the slot, send
-     * an ASK redirection. */
-    if (migrating_slot && missing_keys) {
+     * an ASK redirection. With the exception of the MIGRATE command, that
+     * should just ignore non existing keys when moving keys from a node
+     * to another. */
+    if (migrating_slot && missing_keys && cmd->proc != migrateCommand) {
         if (error_code) *error_code = CLUSTER_REDIR_ASK;
         return server.cluster->migrating_slots_to[slot];
     }
