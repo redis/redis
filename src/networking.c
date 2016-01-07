@@ -656,7 +656,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "editing the Redis configuration file, and setting the protected "
                 "mode option to 'no', and then restarting the server. "
                 "3) If you started the server manually just for testing, restart "
-                "it with the '--portected-mode no' option. "
+                "it with the '--protected-mode no' option. "
                 "4) Setup a bind address or an authentication password. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
