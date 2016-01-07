@@ -37,28 +37,21 @@
 /* This helper function used by GETBIT / SETBIT parses the bit offset argument
  * making sure an error is returned if it is negative or if it overflows
  * Redis 512 MB limit for the string value. */
-static int getBitOffsetFromArgument(client *c, robj *o1, robj *o2,
-				    size_t *offset, size_t *length) {
+static int getBitOffsetFromArgument(client *c, robj *o, size_t *offset) {
     long long loffset;
-    long long llength = 0;
     char *err = "bit offset is not an integer or out of range";
 
-    if (getLongLongFromObjectOrReply(c,o1,&loffset,err) != C_OK)
-        return C_ERR;
-
-    if (o2 && getLongLongFromObjectOrReply(c,o2,&llength,err) != C_OK)
+    if (getLongLongFromObjectOrReply(c,o,&loffset,err) != C_OK)
         return C_ERR;
 
     /* Limit offset to 512MB in bytes */
-    if ((loffset < 0) || (((unsigned long long)loffset + llength)>> 3) >= (512*1024*1024))
+    if ((loffset < 0) || ((unsigned long long)loffset >> 3) >= (512*1024*1024))
     {
         addReplyError(c,err);
         return C_ERR;
     }
 
     *offset = (size_t)loffset;
-    *length = (o2) ? (size_t)llength : 1;
-
     return C_OK;
 }
 
@@ -224,7 +217,7 @@ void setbitCommand(client *c) {
     int byteval, bitval;
     long on;
 
-    if (getBitOffsetFromArgument(c,c->argv[2],NULL,&bitoffset,NULL) != C_OK)
+    if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset) != C_OK)
         return;
 
     if (getLongFromObjectOrReply(c,c->argv[3],&on,err) != C_OK)
@@ -262,26 +255,53 @@ void setbitCommand(client *c) {
     addReply(c, bitval ? shared.cone : shared.czero);
 }
 
-/* GETBIT key offset [range] */
+/* GETBIT key offset */
 void getbitCommand(client *c) {
     robj *o;
     char llbuf[32];
     size_t bitoffset;
-    size_t bitlength;
     size_t byte, bit;
     size_t bitval = 0;
-    int i;
 
-    if (getBitOffsetFromArgument(c,c->argv[2],c->argv[3],&bitoffset,&bitlength) != C_OK)
+    if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset) != C_OK)
         return;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
 
-    addReplyMultiBulkLen(c,bitlength);
-    for (i = 0; i < (int)bitlength; i++) {
-        byte = (bitoffset + i) >> 3;
-        bit = 7 - ((bitoffset + i) & 0x7);
+    byte = bitoffset >> 3;
+    bit = 7 - (bitoffset & 0x7);
+    if (sdsEncodedObject(o)) {
+        if (byte < sdslen(o->ptr))
+            bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
+    } else {
+        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+            bitval = llbuf[byte] & (1 << bit);
+    }
+    addReply(c, bitval ? shared.cone : shared.czero);
+}
+
+/* MGETBIT key offset1 offset2 .. offsetN */
+void mgetbitCommand(client *c) {
+    robj *o;
+    char llbuf[32];
+    size_t bitoffset;
+    size_t byte, bit;
+    size_t bitval = 0;
+    int i;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,OBJ_STRING)) return;
+
+    addReplyMultiBulkLen(c,c->argc - 2);
+    for (i = 2; i < c->argc; i++) {
+        robj *key = c->argv[i];
+
+        if (getBitOffsetFromArgument(c,key,&bitoffset) != C_OK)
+            addReply(c, shared.czero);
+
+        byte = bitoffset >> 3;
+        bit = 7 - (bitoffset & 0x7);
         if (sdsEncodedObject(o)) {
             if (byte < sdslen(o->ptr))
                 bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
