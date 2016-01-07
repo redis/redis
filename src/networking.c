@@ -643,7 +643,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled, no bind address was specified, no "
                 "authentication password is requested to clients. In this mode "
-                "connections are only accepted from the lookback interface. "
+                "connections are only accepted from the loopback interface. "
                 "If you want to connect from external computers to Redis you "
                 "may adopt one of the following solutions: "
                 "1) Just disable protected mode sending the command "
