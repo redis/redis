@@ -221,21 +221,12 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
 
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
 {
-    aeTimeEvent *te, *prev = NULL;
-
-    te = eventLoop->timeEventHead;
+    aeTimeEvent *te = eventLoop->timeEventHead;
     while(te) {
         if (te->id == id) {
-            if (prev == NULL)
-                eventLoop->timeEventHead = te->next;
-            else
-                prev->next = te->next;
-            if (te->finalizerProc)
-                te->finalizerProc(eventLoop, te->clientData);
-            zfree(te);
+            te->id = AE_DELETED_EVENT_ID;
             return AE_OK;
         }
-        prev = te;
         te = te->next;
     }
     return AE_ERR; /* NO event with the specified ID found */
@@ -270,7 +261,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 /* Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
-    aeTimeEvent *te;
+    aeTimeEvent *te, *prev;
     long long maxId;
     time_t now = time(NULL);
 
@@ -291,12 +282,28 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     }
     eventLoop->lastTime = now;
 
+    prev = NULL;
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
         long now_sec, now_ms;
         long long id;
 
+        /* Remove events scheduled for deletion. */
+        if (te->id == AE_DELETED_EVENT_ID) {
+            aeTimeEvent *next = te->next;
+            if (prev == NULL)
+                eventLoop->timeEventHead = te->next;
+            else
+                prev->next = te->next;
+            if (te->finalizerProc)
+                te->finalizerProc(eventLoop, te->clientData);
+            zfree(te);
+            te = next;
+            continue;
+        }
+
+        /* Don't process time events created by time events in this iteration. */
         if (te->id > maxId) {
             te = te->next;
             continue;
@@ -310,28 +317,14 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
-            /* After an event is processed our time event list may
-             * no longer be the same, so we restart from head.
-             * Still we make sure to don't process events registered
-             * by event handlers itself in order to don't loop forever.
-             * To do so we saved the max ID we want to handle.
-             *
-             * FUTURE OPTIMIZATIONS:
-             * Note that this is NOT great algorithmically. Redis uses
-             * a single time event so it's not a problem but the right
-             * way to do this is to add the new elements on head, and
-             * to flag deleted elements in a special way for later
-             * deletion (putting references to the nodes to delete into
-             * another linked list). */
             if (retval != AE_NOMORE) {
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
             } else {
-                aeDeleteTimeEvent(eventLoop, id);
+                te->id = AE_DELETED_EVENT_ID;
             }
-            te = eventLoop->timeEventHead;
-        } else {
-            te = te->next;
         }
+        prev = te;
+        te = te->next;
     }
     return processed;
 }
