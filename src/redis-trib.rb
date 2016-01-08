@@ -1235,6 +1235,7 @@ class RedisTrib
                 master = get_node_by_name(opt['master-id'])
                 if !master
                     xputs "[ERR] No such master ID #{opt['master-id']}"
+                    exit 1
                 end
             else
                 master = get_master_with_least_replicas
