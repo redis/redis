@@ -33,11 +33,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
-    REDIS_NOTUSED(privdata);
+    UNUSED(privdata);
     return strcmp(key1,key2) == 0;
 }
 
@@ -228,6 +228,7 @@ sds createLatencyReport(void) {
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
+    int advise_mass_eviction = 0;   /* Avoid mass eviction of keys. */
     int advise_relax_fsync_policy = 0; /* appendfsync always is slow. */
     int advise_disable_thp = 0;     /* AnonHugePages detected. */
     int advices = 0;
@@ -247,7 +248,7 @@ sds createLatencyReport(void) {
     dictEntry *de;
     int eventnum = 0;
 
-    di = dictGetIterator(server.latency_events);
+    di = dictGetSafeIterator(server.latency_events);
     while((de = dictNext(di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
@@ -364,8 +365,13 @@ sds createLatencyReport(void) {
         }
 
         /* Eviction cycle. */
-        if (!strcasecmp(event,"eviction-cycle")) {
+        if (!strcasecmp(event,"eviction-del")) {
             advise_large_objects = 1;
+            advices++;
+        }
+
+        if (!strcasecmp(event,"eviction-cycle")) {
+            advise_mass_eviction = 1;
             advices++;
         }
 
@@ -452,6 +458,10 @@ sds createLatencyReport(void) {
             report = sdscat(report,"- Deleting, expiring or evicting (because of maxmemory policy) large objects is a blocking operation. If you have very large objects that are often deleted, expired, or evicted, try to fragment those objects into multiple smaller objects.\n");
         }
 
+        if (advise_mass_eviction) {
+            report = sdscat(report,"- Sudden changes to the 'maxmemory' setting via 'CONFIG SET', or allocation of large objects via sets or sorted sets intersections, STORE option of SORT, Redis Cluster large keys migrations (RESTORE command), may create sudden memory pressure forcing the server to block trying to evict keys. \n");
+        }
+
         if (advise_disable_thp) {
             report = sdscat(report,"- I detected a non zero amount of anonymous huge pages used by your process. This creates very serious latency events in different conditions, especially when Redis is persisting on disk. To disable THP support use the command 'echo never > /sys/kernel/mm/transparent_hugepage/enabled', make sure to also add it into /etc/rc.local so that the command will be executed again after a reboot. Note that even if you have already disabled THP, you still need to restart the Redis process to get rid of the huge pages already created.\n");
         }
@@ -464,7 +474,7 @@ sds createLatencyReport(void) {
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
-void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts) {
+void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
     void *replylen = addDeferredMultiBulkLength(c);
     int samples = 0, j;
 
@@ -482,7 +492,7 @@ void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts
 
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
  * listing the last latency sample for every event type registered so far. */
-void latencyCommandReplyWithLatestEvents(redisClient *c) {
+void latencyCommandReplyWithLatestEvents(client *c) {
     dictIterator *di;
     dictEntry *de;
 
@@ -554,7 +564,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY DOCTOR: returns an human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  */
-void latencyCommand(redisClient *c) {
+void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {

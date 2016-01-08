@@ -19,6 +19,7 @@ set ::verbose 0
 set ::valgrind 0
 set ::pause_on_error 0
 set ::simulate_error 0
+set ::failed 0
 set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
@@ -135,6 +136,7 @@ proc parse_options {} {
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
+            puts "--valgrind              Run with valgrind."
             puts "--help                  Shows this help."
             exit 0
         } else {
@@ -231,6 +233,7 @@ proc test {descr code} {
     flush stdout
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
+        incr ::failed
         if {[string match "assertion:*" $error]} {
             set msg [string range $error 10 end]
             puts [colorstr red $msg]
@@ -246,6 +249,38 @@ proc test {descr code} {
     }
 }
 
+# Check memory leaks when running on OSX using the "leaks" utility.
+proc check_leaks instance_types {
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        puts -nonewline "Testing for memory leaks..."; flush stdout
+        foreach type $instance_types {
+            foreach_instance_id [set ::${type}_instances] id {
+                if {[instance_is_killed $type $id]} continue
+                set pid [get_instance_attrib $type $id pid]
+                set output {0 leaks}
+                catch {exec leaks $pid} output
+                if {[string match {*process does not exist*} $output] ||
+                    [string match {*cannot examine*} $output]} {
+                    # In a few tests we kill the server process.
+                    set output "0 leaks"
+                } else {
+                    puts -nonewline "$type/$pid "
+                    flush stdout
+                }
+                if {![string match {*0 leaks*} $output]} {
+                    puts [colorstr red "=== MEMORY LEAK DETECTED ==="]
+                    puts "Instance type $type, ID $id:"
+                    puts $output
+                    puts "==="
+                    incr ::failed
+                }
+            }
+        }
+        puts ""
+    }
+}
+
+# Execute all the units inside the 'tests' directory.
 proc run_tests {} {
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
@@ -255,6 +290,18 @@ proc run_tests {} {
         if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
+        check_leaks {redis sentinel}
+    }
+}
+
+# Print a message and exists with 0 / 1 according to zero or more failures.
+proc end_tests {} {
+    if {$::failed == 0} {
+        puts "GOOD! No errors."
+        exit 0
+    } else {
+        puts "WARNING $::failed tests faield."
+        exit 1
     }
 }
 

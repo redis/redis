@@ -1,10 +1,70 @@
+proc log_file_matches {log pattern} {
+    set fp [open $log r]
+    set content [read $fp]
+    close $fp
+    string match $pattern $content
+}
+
 start_server {tags {"repl"}} {
+    set slave [srv 0 client]
+    set slave_host [srv 0 host]
+    set slave_port [srv 0 port]
+    set slave_log [srv 0 stdout]
     start_server {} {
-        test {First server should have role slave after SLAVEOF} {
-            r -1 slaveof [srv 0 host] [srv 0 port]
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        # Configure the master in order to hang waiting for the BGSAVE
+        # operation, so that the slave remains in the handshake state.
+        $master config set repl-diskless-sync yes
+        $master config set repl-diskless-sync-delay 1000
+
+        # Use a short replication timeout on the slave, so that if there
+        # are no bugs the timeout is triggered in a reasonable amount
+        # of time.
+        $slave config set repl-timeout 5
+
+        # Start the replication process...
+        $slave slaveof $master_host $master_port
+
+        test {Slave enters handshake} {
+            wait_for_condition 50 1000 {
+                [string match *handshake* [$slave role]]
+            } else {
+                fail "Slave does not enter handshake state"
+            }
+        }
+
+        # But make the master unable to send
+        # the periodic newlines to refresh the connection. The slave
+        # should detect the timeout.
+        $master debug sleep 10
+
+        test {Slave is able to detect timeout during handshake} {
+            wait_for_condition 50 1000 {
+                [log_file_matches $slave_log "*Timeout connecting to the MASTER*"]
+            } else {
+                fail "Slave is not able to detect timeout"
+            }
+        }
+    }
+}
+
+start_server {tags {"repl"}} {
+    set A [srv 0 client]
+    set A_host [srv 0 host]
+    set A_port [srv 0 port]
+    start_server {} {
+        set B [srv 0 client]
+        set B_host [srv 0 host]
+        set B_port [srv 0 port]
+
+        test {Set instance A as slave of B} {
+            $A slaveof $B_host $B_port
             wait_for_condition 50 100 {
-                [s -1 role] eq {slave} &&
-                [string match {*master_link_status:up*} [r -1 info replication]]
+                [lindex [$A role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$A info replication]]
             } else {
                 fail "Can't turn the instance into a slave"
             }
@@ -15,9 +75,9 @@ start_server {tags {"repl"}} {
             $rd brpoplpush a b 5
             r lpush a foo
             wait_for_condition 50 100 {
-                [r debug digest] eq [r -1 debug digest]
+                [$A debug digest] eq [$B debug digest]
             } else {
-                fail "Master and slave have different digest: [r debug digest] VS [r -1 debug digest]"
+                fail "Master and slave have different digest: [$A debug digest] VS [$B debug digest]"
             }
         }
 
@@ -28,7 +88,36 @@ start_server {tags {"repl"}} {
             r lpush c 3
             $rd brpoplpush c d 5
             after 1000
-            assert_equal [r debug digest] [r -1 debug digest]
+            assert_equal [$A debug digest] [$B debug digest]
+        }
+
+        test {BLPOP followed by role change, issue #2473} {
+            set rd [redis_deferring_client]
+            $rd blpop foo 0 ; # Block while B is a master
+
+            # Turn B into master of A
+            $A slaveof no one
+            $B slaveof $A_host $A_port
+            wait_for_condition 50 100 {
+                [lindex [$B role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$B info replication]]
+            } else {
+                fail "Can't turn the instance into a slave"
+            }
+
+            # Push elements into the "foo" list of the new slave.
+            # If the client is still attached to the instance, we'll get
+            # a desync between the two instances.
+            $A rpush foo a b c
+            after 100
+
+            wait_for_condition 50 100 {
+                [$A debug digest] eq [$B debug digest] &&
+                [$A lrange foo 0 -1] eq {a b c} &&
+                [$B lrange foo 0 -1] eq {a b c}
+            } else {
+                fail "Master and slave have different digest: [$A debug digest] VS [$B debug digest]"
+            }
         }
     }
 }
@@ -113,7 +202,7 @@ foreach dl {no yes} {
                 start_server {} {
                     lappend slaves [srv 0 client]
                     test "Connect multiple slaves at the same time (issue #141), diskless=$dl" {
-                        # Send SALVEOF commands to slaves
+                        # Send SLAVEOF commands to slaves
                         [lindex $slaves 0] slaveof $master_host $master_port
                         [lindex $slaves 1] slaveof $master_host $master_port
                         [lindex $slaves 2] slaveof $master_host $master_port

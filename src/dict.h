@@ -78,7 +78,7 @@ typedef struct dict {
     void *privdata;
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
-    int iterators; /* number of iterators currently running */
+    unsigned long iterators; /* number of iterators currently running */
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -164,8 +164,8 @@ dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
-unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count);
-void dictPrintStats(dict *d);
+unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
+void dictGetStats(char *buf, size_t bufsize, dict *d);
 unsigned int dictGenHashFunction(const void *key, int len);
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d, void(callback)(void*));

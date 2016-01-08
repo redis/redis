@@ -38,6 +38,7 @@
 #include <sys/time.h>
 #include <float.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include "util.h"
 #include "sha1.h"
@@ -170,11 +171,12 @@ int stringmatch(const char *pattern, const char *string, int nocase) {
 }
 
 /* Convert a string representing an amount of memory into the number of
- * bytes, so for instance memtoll("1Gi") will return 1073741824 that is
+ * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
  * (1024*1024*1024).
  *
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
- * set to 0 */
+ * set to 0. On error the function return value is 0, regardless of the
+ * fact 'err' is NULL or not. */
 long long memtoll(const char *p, int *err) {
     const char *u;
     char buf[128];
@@ -183,6 +185,7 @@ long long memtoll(const char *p, int *err) {
     unsigned int digits;
 
     if (err) *err = 0;
+
     /* Search the first non digit character. */
     u = p;
     if (*u == '-') u++;
@@ -203,16 +206,26 @@ long long memtoll(const char *p, int *err) {
         mul = 1024L*1024*1024;
     } else {
         if (err) *err = 1;
-        mul = 1;
+        return 0;
     }
+
+    /* Copy the digits into a buffer, we'll use strtoll() to convert
+     * the digit (without the unit) into a number. */
     digits = u-p;
     if (digits >= sizeof(buf)) {
         if (err) *err = 1;
-        return LLONG_MAX;
+        return 0;
     }
     memcpy(buf,p,digits);
     buf[digits] = '\0';
-    val = strtoll(buf,NULL,10);
+
+    char *endptr;
+    errno = 0;
+    val = strtoll(buf,&endptr,10);
+    if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
+        if (err) *err = 1;
+        return 0;
+    }
     return val*mul;
 }
 
@@ -236,6 +249,18 @@ uint32_t digits10(uint64_t v) {
         return 11 + (v >= 100000000000UL);
     }
     return 12 + digits10(v / 1000000000000UL);
+}
+
+/* Like digits10() but for signed values. */
+uint32_t sdigits10(int64_t v) {
+    if (v < 0) {
+        /* Abs value of LLONG_MIN requires special handling. */
+        uint64_t uv = (v != LLONG_MIN) ?
+                      (uint64_t)-v : ((uint64_t) LLONG_MAX)+1;
+        return digits10(uv)+1; /* +1 for the minus. */
+    } else {
+        return digits10(v);
+    }
 }
 
 /* Convert a long long into a string. Returns the number of
@@ -305,7 +330,16 @@ int ll2string(char* dst, size_t dstlen, long long svalue) {
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
- * the parsed value when appropriate. */
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a long long: no spaces or other characters before or after the string
+ * representing the number are accepted, nor zeroes at the start if not
+ * for the string "0" representing the zero number.
+ *
+ * Because of its strictness, it is safe to use this function to check if
+ * you can convert a string into a long long, and obtain back the string
+ * from the number without any loss in the string representation. */
 int string2ll(const char *s, size_t slen, long long *value) {
     const char *p = s;
     size_t plen = 0;
@@ -385,8 +419,40 @@ int string2l(const char *s, size_t slen, long *lval) {
     return 1;
 }
 
+/* Convert a string into a double. Returns 1 if the string could be parsed
+ * into a (non-overflowing) double, 0 otherwise. The value will be set to
+ * the parsed value when appropriate.
+ *
+ * Note that this function demands that the string strictly represents
+ * a double: no spaces or other characters before or after the string
+ * representing the number are accepted. */
+int string2ld(const char *s, size_t slen, long double *dp) {
+    char buf[256];
+    long double value;
+    char *eptr;
+
+    if (slen >= sizeof(buf)) return 0;
+    memcpy(buf,s,slen);
+    buf[slen] = '\0';
+
+    errno = 0;
+    value = strtold(buf, &eptr);
+    if (isspace(buf[0]) || eptr[0] != '\0' ||
+        (errno == ERANGE &&
+            (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+        errno == EINVAL ||
+        isnan(value))
+        return 0;
+
+    if (dp) *dp = value;
+    return 1;
+}
+
 /* Convert a double to a string representation. Returns the number of bytes
- * required. The representation should always be parsable by strtod(3). */
+ * required. The representation should always be parsable by strtod(3).
+ * This function does not support human-friendly formatting like ld2string
+ * does. It is intented mainly to be used inside t_zset.c when writing scores
+ * into a ziplist representing a sorted set. */
 int d2string(char *buf, size_t len, double value) {
     if (isnan(value)) {
         len = snprintf(buf,len,"nan");
@@ -422,6 +488,52 @@ int d2string(char *buf, size_t len, double value) {
     }
 
     return len;
+}
+
+/* Convert a long double into a string. If humanfriendly is non-zero
+ * it does not use exponential format and trims trailing zeroes at the end,
+ * however this results in loss of precision. Otherwise exp format is used
+ * and the output of snprintf() is not modified.
+ *
+ * The function returns the length of the string or zero if there was not
+ * enough buffer room to store it. */
+int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
+    size_t l;
+
+    if (isinf(value)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+        if (len < 5) return 0; /* No room. 5 is "-inf\0" */
+        if (value > 0) {
+            memcpy(buf,"inf",3);
+            l = 3;
+        } else {
+            memcpy(buf,"-inf",4);
+            l = 4;
+        }
+    } else if (humanfriendly) {
+        /* We use 17 digits precision since with 128 bit floats that precision
+         * after rounding is able to represent most small decimal numbers in a
+         * way that is "non surprising" for the user (that is, most small
+         * decimal numbers will be represented in a way that when converted
+         * back into a string are exactly the same as what the user typed.) */
+        l = snprintf(buf,len,"%.17Lf", value);
+        if (l+1 > len) return 0; /* No room. */
+        /* Now remove trailing zeroes after the '.' */
+        if (strchr(buf,'.') != NULL) {
+            char *p = buf+l-1;
+            while(*p == '0') {
+                p--;
+                l--;
+            }
+            if (*p == '.') l--;
+        }
+    } else {
+        l = snprintf(buf,len,"%.17Lg", value);
+        if (l+1 > len) return 0; /* No room. */
+    }
+    buf[l] = '\0';
+    return l;
 }
 
 /* Generate the Redis "Run ID", a SHA1-sized random number that identifies a

@@ -54,10 +54,15 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     catch {exec kill $pid}
+    if {$::valgrind} {
+        set max_wait 60000
+    } else {
+        set max_wait 10000
+    }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= 5000} {
+        if {$wait >= $max_wait} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -208,6 +213,8 @@ proc start_server {options {code undefined}} {
 
     if {$::valgrind} {
         set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
+    } elseif ($::stack_logging) {
+        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file > $stdout 2> $stderr &]
     } else {
         set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
     }

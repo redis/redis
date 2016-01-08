@@ -40,13 +40,13 @@
 #include <signal.h>
 #include <assert.h>
 
+#include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
 #include "hiredis.h"
-#include "sds.h"
 #include "adlist.h"
 #include "zmalloc.h"
 
-#define REDIS_NOTUSED(V) ((void) V)
+#define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
 
 static struct config {
@@ -86,7 +86,7 @@ typedef struct _client {
     char **randptr;         /* Pointers to :rand: strings inside the command buf */
     size_t randlen;         /* Number of pointers in client->randptr */
     size_t randfree;        /* Number of unused pointers in client->randptr */
-    unsigned int written;   /* Bytes of 'obuf' already written */
+    size_t written;         /* Bytes of 'obuf' already written */
     long long start;        /* Start time of a request */
     long long latency;      /* Request latency */
     int pending;            /* Number of pending requests (replies to consume) */
@@ -188,9 +188,9 @@ static void clientDone(client c) {
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
-    REDIS_NOTUSED(el);
-    REDIS_NOTUSED(fd);
-    REDIS_NOTUSED(mask);
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
 
     /* Calculate latency only for the first read event. This means that the
      * server already sent the reply and we need to parse it. Parsing overhead
@@ -246,9 +246,9 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
-    REDIS_NOTUSED(el);
-    REDIS_NOTUSED(fd);
-    REDIS_NOTUSED(mask);
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
 
     /* Initialize request when nothing was written. */
     if (c->written == 0) {
@@ -266,7 +266,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-        int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
+        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -595,9 +595,9 @@ usage:
 }
 
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
-    REDIS_NOTUSED(eventLoop);
-    REDIS_NOTUSED(id);
-    REDIS_NOTUSED(clientData);
+    UNUSED(eventLoop);
+    UNUSED(id);
+    UNUSED(clientData);
 
     if (config.liveclients == 0) {
         fprintf(stderr,"All clients disconnected... aborting.\n");

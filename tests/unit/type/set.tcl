@@ -346,6 +346,33 @@ start_server {
         r spop nonexisting_key 100
     } {}
 
+    test "SPOP new implementation: code path #1" {
+        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+        create_set myset $content
+        set res [r spop myset 30]
+        assert {[lsort $content] eq [lsort $res]}
+    }
+
+    test "SPOP new implementation: code path #2" {
+        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+        create_set myset $content
+        set res [r spop myset 2]
+        assert {[llength $res] == 2}
+        assert {[r scard myset] == 18}
+        set union [concat [r smembers myset] $res]
+        assert {[lsort $union] eq [lsort $content]}
+    }
+
+    test "SPOP new implementation: code path #3" {
+        set content {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+        create_set myset $content
+        set res [r spop myset 18]
+        assert {[llength $res] == 18}
+        assert {[r scard myset] == 2}
+        set union [concat [r smembers myset] $res]
+        assert {[lsort $union] eq [lsort $content]}
+    }
+
     test "SRANDMEMBER with <count> against non existing key" {
         r srandmember nonexisting_key 100
     } {}
@@ -492,6 +519,7 @@ start_server {
     test "SMOVE non existing key" {
         setup_move
         assert_equal 0 [r smove myset1 myset2 foo]
+        assert_equal 0 [r smove myset1 myset1 foo]
         assert_equal {1 a b} [lsort [r smembers myset1]]
         assert_equal {2 3 4} [lsort [r smembers myset2]]
     }

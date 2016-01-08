@@ -2,8 +2,8 @@ start_server {tags {"hash"}} {
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
-            set key [randstring 0 8 alpha]
-            set val [randstring 0 8 alpha]
+            set key __avoid_collisions__[randstring 0 8 alpha]
+            set val __avoid_collisions__[randstring 0 8 alpha]
             if {[info exists smallhash($key)]} {
                 incr i -1
                 continue
@@ -21,8 +21,8 @@ start_server {tags {"hash"}} {
     test {HSET/HLEN - Big hash creation} {
         array set bighash {}
         for {set i 0} {$i < 1024} {incr i} {
-            set key [randstring 0 8 alpha]
-            set val [randstring 0 8 alpha]
+            set key __avoid_collisions__[randstring 0 8 alpha]
+            set val __avoid_collisions__[randstring 0 8 alpha]
             if {[info exists bighash($key)]} {
                 incr i -1
                 continue
@@ -33,7 +33,7 @@ start_server {tags {"hash"}} {
         list [r hlen bighash]
     } {1024}
 
-    test {Is the big hash encoded with a ziplist?} {
+    test {Is the big hash encoded with an hash table?} {
         assert_encoding hashtable bighash
     }
 
@@ -390,6 +390,54 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
+    test {HSTRLEN against the small hash} {
+        set err {}
+        foreach k [array names smallhash *] {
+            if {[string length $smallhash($k)] ne [r hstrlen smallhash $k]} {
+                set err "[string length $smallhash($k)] != [r hstrlen smallhash $k]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {HSTRLEN against the big hash} {
+        set err {}
+        foreach k [array names bighash *] {
+            if {[string length $bighash($k)] ne [r hstrlen bighash $k]} {
+                set err "[string length $bighash($k)] != [r hstrlen bighash $k]"
+                puts "HSTRLEN and logical length mismatch:"
+                puts "key: $k"
+                puts "Logical content: $bighash($k)"
+                puts "Server  content: [r hget bighash $k]"
+            }
+        }
+        set _ $err
+    } {}
+
+    test {HSTRLEN against non existing field} {
+        set rv {}
+        lappend rv [r hstrlen smallhash __123123123__]
+        lappend rv [r hstrlen bighash __123123123__]
+        set _ $rv
+    } {0 0}
+
+    test {HSTRLEN corner cases} {
+        set vals {
+            -9223372036854775808 9223372036854775807 9223372036854775808
+            {} 0 -1 x
+        }
+        foreach v $vals {
+            r hmset smallhash field $v
+            r hmset bighash field $v
+            set len1 [string length $v]
+            set len2 [r hstrlen smallhash field]
+            set len3 [r hstrlen bighash field]
+            assert {$len1 == $len2}
+            assert {$len2 == $len3}
+        }
+    }
+
     test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b
@@ -465,6 +513,24 @@ start_server {tags {"hash"}} {
                 r hset myhash [randomValue] [randomValue]
             }
             assert {[r object encoding myhash] eq {hashtable}}
+        }
+    }
+
+    # The following test can only be executed if we don't use Valgrind, and if
+    # we are using x86_64 architecture, because:
+    #
+    # 1) Valgrind has floating point limitations, no support for 80 bits math.
+    # 2) Other archs may have the same limits.
+    #
+    # 1.23 cannot be represented correctly with 64 bit doubles, so we skip
+    # the test, since we are only testing pretty printing here and is not
+    # a bug if the program outputs things like 1.299999...
+    if {!$::valgrind || ![string match *x86_64* [exec uname -a]]} {
+        test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
+            r del myhash
+            assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
+            assert {[r hincrbyfloat myhash float 0.77] eq {2}}
+            assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
         }
     }
 }
