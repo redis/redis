@@ -941,7 +941,7 @@ class RedisTrib
                     source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:replace,:keys,*keys])
                 else
                     puts ""
-                    xputs "[ERR] #{e}"
+                    xputs "[ERR] Calling MIGRATE: #{e}"
                     exit 1
                 end
             end
