@@ -4986,14 +4986,15 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
     /* Return the hashslot by reference. */
     if (hashslot) *hashslot = slot;
 
-    /* This request is about a slot we are migrating into another instance?
-     * Then if we have all the keys. */
+    /* MIGRATE always works in the context of the local node if the slot
+     * is open (migrating or importing state). We need to be able to freely
+     * move keys among instances in this case. */
+    if ((migrating_slot || importing_slot) && cmd->proc == migrateCommand)
+        return myself;
 
     /* If we don't have all the keys and we are migrating the slot, send
-     * an ASK redirection. With the exception of the MIGRATE command, that
-     * should just ignore non existing keys when moving keys from a node
-     * to another. */
-    if (migrating_slot && missing_keys && cmd->proc != migrateCommand) {
+     * an ASK redirection. */
+    if (migrating_slot && missing_keys) {
         if (error_code) *error_code = REDIS_CLUSTER_REDIR_ASK;
         return server.cluster->migrating_slots_to[slot];
     }
