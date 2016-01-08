@@ -114,6 +114,7 @@ static struct config {
     int eval_ldb;
     int eval_ldb_sync;  /* Ask for synchronous mode of the Lua debugger. */
     int eval_ldb_end;   /* Lua debugging session ended. */
+    int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
 } config;
 
@@ -551,6 +552,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
 
             /* Detect the end of a debugging session. */
             if (strstr(r->str,"<endsession>") == r->str) {
+                config.enable_ldb_on_eval = 0;
                 config.eval_ldb = 0;
                 config.eval_ldb_end = 1; /* Signal the caller session ended. */
                 config.output = OUTPUT_STANDARD;
@@ -733,6 +735,24 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
+
+    /* When the user manually calls SCRIPT DEBUG, setup the activation of
+     * debugging mode on the next eval if needed. */
+    if (argc == 3 && !strcasecmp(argv[0],"script") &&
+                     !strcasecmp(argv[1],"debug"))
+    {
+        if (!strcasecmp(argv[2],"yes") || !strcasecmp(argv[2],"sync")) {
+            config.enable_ldb_on_eval = 1;
+        } else {
+            config.enable_ldb_on_eval = 0;
+        }
+    }
+
+    /* Actually activate LDB on EVAL if needed. */
+    if (!strcasecmp(command,"eval") && config.enable_ldb_on_eval) {
+        config.eval_ldb = 1;
+        config.output = OUTPUT_RAW;
+    }
 
     /* Setup argument length */
     argvlen = malloc(argc*sizeof(size_t));
@@ -2383,6 +2403,7 @@ int main(int argc, char **argv) {
     config.eval_ldb = 0;
     config.eval_ldb_end = 0;
     config.eval_ldb_sync = 0;
+    config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
 
     spectrum_palette = spectrum_palette_color;
