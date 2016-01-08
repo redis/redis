@@ -948,7 +948,7 @@ uint64_t clusterGetMaxEpoch(void) {
 /* If this node epoch is zero or is not already the greatest across the
  * cluster (from the POV of the local configuration), this function will:
  *
- * 1) Generate a new config epoch increment the current epoch.
+ * 1) Generate a new config epoch, incrementing the current epoch.
  * 2) Assign the new epoch to this node, WITHOUT any consensus.
  * 3) Persist the configuration on disk before sending packets with the
  *    new configuration.
@@ -963,16 +963,16 @@ uint64_t clusterGetMaxEpoch(void) {
  * cases:
  *
  * 1) When slots are closed after importing. Otherwise resharding would be
- *    too exansive.
+ *    too expansive.
  * 2) When CLUSTER FAILOVER is called with options that force a slave to
  *    failover its master even if there is not master majority able to
  *    create a new configuration epoch.
  *
- * Redis Cluster does not explode using this function, even in the case of
+ * Redis Cluster will not explode using this function, even in the case of
  * a collision between this node and another node, generating the same
  * configuration epoch unilaterally, because the config epoch conflict
  * resolution algorithm will eventually move colliding nodes to different
- * config epochs. However usign this function may violate the "last failover
+ * config epochs. However using this function may violate the "last failover
  * wins" rule, so should only be used with care. */
 int clusterBumpConfigEpochWithoutConsensus(void) {
     uint64_t maxEpoch = clusterGetMaxEpoch();
