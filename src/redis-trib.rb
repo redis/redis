@@ -1365,6 +1365,7 @@ class RedisTrib
         source = Redis.new(:host =>src_host, :port =>src_port)
         if source.info['cluster_enabled'].to_i == 1
             xputs "[ERR] The source node should not be a cluster node."
+            exit 1
         end
         xputs "*** Importing #{source.dbsize} keys from DB 0"
 
