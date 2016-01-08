@@ -1846,8 +1846,12 @@ void ldbList(int around, int context) {
  *
  * The element is not automatically removed from the stack, nor it is
  * converted to a different type. */
-sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
+#define LDB_MAX_VALUES_DEPTH (LUA_MINSTACK/2)
+sds ldbCatStackValueRec(sds s, lua_State *lua, int idx, int level) {
     int t = lua_type(lua,idx);
+
+    if (level++ == LDB_MAX_VALUES_DEPTH)
+        return sdscat(s,"<max recursion level reached! Nested table?>");
 
     switch(t) {
     case LUA_TSTRING:
@@ -1883,13 +1887,13 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
                  lua_tonumber(lua,-2) != expected_index)) is_array = 0;
             /* Stack now: table, key, value */
             /* Array repr. */
-            repr1 = ldbCatStackValue(repr1,lua,-1);
+            repr1 = ldbCatStackValueRec(repr1,lua,-1,level);
             repr1 = sdscatlen(repr1,"; ",2);
             /* Full repr. */
             repr2 = sdscatlen(repr2,"[",1);
-            repr2 = ldbCatStackValue(repr2,lua,-2);
+            repr2 = ldbCatStackValueRec(repr2,lua,-2,level);
             repr2 = sdscatlen(repr2,"]=",2);
-            repr2 = ldbCatStackValue(repr2,lua,-1);
+            repr2 = ldbCatStackValueRec(repr2,lua,-1,level);
             repr2 = sdscatlen(repr2,"; ",2);
             lua_pop(lua,1); /* Stack: table, key. Ready for next iteration. */
             expected_index++;
@@ -1924,6 +1928,12 @@ sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
         break;
     }
     return s;
+}
+
+/* Higher level wrapper for ldbCatStackValueRec() that just uses an initial
+ * recursion level of '0'. */
+sds ldbCatStackValue(sds s, lua_State *lua, int idx) {
+    return ldbCatStackValueRec(s,lua,idx,0);
 }
 
 /* Produce a debugger log entry representing the value of the Lua object
