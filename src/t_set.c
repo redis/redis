@@ -1081,7 +1081,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
-void scomparesetCommand(client *c) {
+void scompareandsetCommand(client *c) {
     robj *set;
     robj *keySet = c->argv[1];
     robj *newValue = c->argv[2];
@@ -1107,7 +1107,7 @@ void scomparesetCommand(client *c) {
     }
     if (modified) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_SET,"scompareset",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_SET,"scompareandset",c->argv[1],c->db->id);
         server.dirty += modified;
         addReplyLongLong(c,modified);
     }

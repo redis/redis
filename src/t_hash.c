@@ -540,7 +540,7 @@ void hsetnxCommand(client *c) {
     }
 }
 
-void hcomparesetCommand(client *c) {
+void hcompareandsetCommand(client *c) {
     robj *o, *current;
     robj *hashKey = c->argv[1];
     robj *field = c->argv[2];
@@ -559,7 +559,7 @@ void hcomparesetCommand(client *c) {
        update = hashTypeSet(o,field->ptr,newValue->ptr,HASH_SET_COPY);
        addReply(c, update ? shared.czero : shared.cone);
        signalModifiedKey(c->db,c->argv[1]);
-       notifyKeyspaceEvent(NOTIFY_HASH,"hcompareset",c->argv[1],c->db->id);
+       notifyKeyspaceEvent(NOTIFY_HASH,"hcompareandset",c->argv[1],c->db->id);
        server.dirty++;
     }
     else{
