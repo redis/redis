@@ -181,7 +181,7 @@ void getsetCommand(client *c) {
     server.dirty++;
 }
 
-void compareandsetCommand(client *c) {
+void comparesetCommand(client *c) {
     robj *o;
     robj *key = c->argv[1];
     robj *newValue = c->argv[2];
@@ -194,7 +194,7 @@ void compareandsetCommand(client *c) {
        newValue = tryObjectEncoding(newValue);
        setGenericCommand(c,OBJ_SET_NO_FLAGS,key,newValue,NULL,UNIT_SECONDS,NULL,NULL);
        signalModifiedKey(c->db,c->argv[1]);
-       notifyKeyspaceEvent(NOTIFY_STRING,"compareandsetCommand",c->argv[1],c->db->id);
+       notifyKeyspaceEvent(NOTIFY_STRING,"comparesetCommand",c->argv[1],c->db->id);
        server.dirty++;
     }
     else{
