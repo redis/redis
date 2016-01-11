@@ -425,6 +425,7 @@ class RedisTrib
     def nodes_with_keys_in_slot(slot)
         nodes = []
         @nodes.each{|n|
+            next if n.has_flag?("slave")
             nodes << n if n.r.cluster("getkeysinslot",slot,1).length > 0
         }
         nodes
@@ -443,7 +444,7 @@ class RedisTrib
         not_covered.each{|slot|
             nodes = nodes_with_keys_in_slot(slot)
             slots[slot] = nodes
-            xputs "Slot #{slot} has keys in #{nodes.length} nodes: #{nodes.join}"
+            xputs "Slot #{slot} has keys in #{nodes.length} nodes: #{nodes.join(", ")}"
         }
 
         none = slots.select {|k,v| v.length == 0}
@@ -479,14 +480,20 @@ class RedisTrib
             xputs multi.keys.join(",")
             yes_or_die "Fix these slots by moving keys into a single node?"
             multi.each{|slot,nodes|
-                xputs ">>> Covering slot #{slot} moving keys to #{nodes[0]}"
-                # TODO
-                # 1) Set all nodes as "MIGRATING" for this slot, so that we
-                # can access keys in the hash slot using ASKING.
-                # 2) Move everything to node[0]
-                # 3) Clear MIGRATING from nodes, and ADDSLOTS the slot to
-                # node[0].
-                raise "TODO: Work in progress"
+                target = get_node_with_most_keys_in_slot(nodes,slot)
+                xputs ">>> Covering slot #{slot} moving keys to #{target}"
+
+                target.r.cluster('addslots',slot)
+                target.r.cluster('setslot',slot,'stable')
+                nodes.each{|src|
+                    next if src == target
+                    # Set the source node in 'importing' state (even if we will
+                    # actually migrate keys away) in order to avoid receiving
+                    # redirections for MIGRATE.
+                    src.r.cluster('setslot',slot,'importing',target.info[:name])
+                    move_slot(src,target,slot,:dots=>true,:fix=>true,:cold=>true)
+                    src.r.cluster('setslot',slot,'stable')
+                }
             }
         end
     end
@@ -499,6 +506,22 @@ class RedisTrib
             }
         }
         nil
+    end
+
+    # Return the node, among 'nodes' with the greatest number of keys
+    # in the specified slot.
+    def get_node_with_most_keys_in_slot(nodes,slot)
+        best = nil
+        best_numkeys = 0
+        @nodes.each{|n|
+            next if n.has_flag?("slave")
+            numkeys = n.r.cluster("countkeysinslot",slot)
+            if numkeys > best_numkeys || best == nil
+                best = n
+                best_numkeys = numkeys
+            end
+        }
+        return best
     end
 
     # Slot 'slot' was found to be in importing or migrating state in one or
