@@ -540,26 +540,22 @@ void hsetnxCommand(client *c) {
     }
 }
 
-void hcomparesetCommand(client *c) {
+void hcompareandsetCommand(client *c) {
     robj *o, *current;
-    robj *hashKey = c->argv[1];
-    robj *field = c->argv[2];
-    robj *newValue = c->argv[3];
-    robj *oldValue = c->argv[4];
     int update;
 
     /* Retrieve the hash array from the key */
-    if ((o = hashTypeLookupWriteOrCreate(c,hashKey)) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
     /* get current object and redisValue */
-    if ((current = hashTypeGetValueObject(o,field->ptr)) == NULL) return;
+    if ((current = hashTypeGetValueObject(o,c->argv[2]->ptr)) == NULL) return;
 
-    if (equalStringObjects(current,oldValue)==1){
+    if (equalStringObjects(current,c->argv[4])==1){
        /* adding newValue to the set */
-       update = hashTypeSet(o,field->ptr,newValue->ptr,HASH_SET_COPY);
+       update = hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
        addReply(c, update ? shared.czero : shared.cone);
        signalModifiedKey(c->db,c->argv[1]);
-       notifyKeyspaceEvent(NOTIFY_HASH,"hcompareset",c->argv[1],c->db->id);
+       notifyKeyspaceEvent(NOTIFY_HASH,"hcompareandsetCommand",c->argv[1],c->db->id);
        server.dirty++;
     }
     else{

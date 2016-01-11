@@ -1081,19 +1081,16 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     zfree(sets);
 }
 
-void scomparesetCommand(client *c) {
+void scompareandsetCommand(client *c) {
     robj *set;
-    robj *keySet = c->argv[1];
-    robj *newValue = c->argv[2];
-    robj *oldValue = c->argv[3];
     int modified = 0;
 
 
     /* first get the set */
-    set = lookupKeyWrite(c->db,keySet);
+    set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
-        set = setTypeCreate(newValue->ptr);
-        dbAdd(c->db,keySet,set);
+        set = setTypeCreate(c->argv[2]->ptr);
+        dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != OBJ_SET) {
             addReply(c,shared.wrongtypeerr);
@@ -1102,12 +1099,12 @@ void scomparesetCommand(client *c) {
     }
 
     /* check if oldValue exists and replace it with newValue */
-    if (setTypeIsMember(set,oldValue->ptr)) {
-        	if(setTypeRemove(set, oldValue->ptr) && setTypeAdd(set,newValue->ptr)) modified++;
+    if (setTypeIsMember(set, c->argv[3]->ptr)) {
+        	if(setTypeRemove(set,  c->argv[3]->ptr) && setTypeAdd(set,c->argv[2]->ptr)) modified++;
     }
     if (modified) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_SET,"scompareset",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_SET,"scompareandsetCommand",c->argv[1],c->db->id);
         server.dirty += modified;
         addReplyLongLong(c,modified);
     }
