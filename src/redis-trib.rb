@@ -534,15 +534,6 @@ class RedisTrib
         # nodes configuration.
         owner = get_slot_owner(slot)
 
-        # If there is no slot owner, set as owner the slot with the biggest
-        # number of keys, among the set of migrating / importing nodes.
-        if !owner
-            xputs "*** Fix me, some work to do here."
-            # Select owner...
-            # Use ADDSLOTS to assign the slot.
-            exit 1
-        end
-
         migrating = []
         importing = []
         @nodes.each{|n|
@@ -558,6 +549,45 @@ class RedisTrib
         }
         puts "Set as migrating in: #{migrating.join(",")}"
         puts "Set as importing in: #{importing.join(",")}"
+
+        # If there is no slot owner, set as owner the slot with the biggest
+        # number of keys, among the set of migrating / importing nodes.
+        if !owner
+            xputs ">>> Nobody claims ownership, selecting an owner..."
+            owner = get_node_with_most_keys_in_slot(@nodes,slot)
+
+            # If we still don't have an owner, we can't fix it.
+            if !owner
+                xputs "[ERR] Can't select a slot owner. Impossible to fix."
+                exit 1
+            end
+
+            # Use ADDSLOTS to assign the slot.
+            puts "*** Configuring #{owner} as the slot owner"
+            n.r.cluster("setslot",slot,"stable")
+            n.r.cluster("addslot",slot)
+            # Make sure this information will propagate. Not strictly needed
+            # since there is no past owner, so all the other nodes will accept
+            # whatever epoch this node will claim the slot with.
+            n.r.cluster("bumpepoch")
+
+            # Remove the owner from the list of migrating/importing
+            # nodes.
+            migrating.delete(n)
+            importing.delete(n)
+        end
+
+        # If there are multiple owners of the slot, we need to fix it
+        # so that a single node is the owner and all the other nodes
+        # are in importing state. Later the fix can be handled by one
+        # of the base cases above.
+        #
+        # Note that this case also covers multiple nodes having the slot
+        # in migrating state, since migrating is a valid state only for
+        # slot owners.
+        #
+        # TODO: Use CLUSTER BUMPEPOCH in order to make the
+        # winner able to claim the slot over all the other nodes.
 
         # Case 1: The slot is in migrating state in one slot, and in
         #         importing state in 1 slot. That's trivial to address.
