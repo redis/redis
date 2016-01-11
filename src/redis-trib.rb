@@ -499,13 +499,15 @@ class RedisTrib
     end
 
     # Return the owner of the specified slot
-    def get_slot_owner(slot)
+    def get_slot_owners(slot)
+        owners = []
         @nodes.each{|n|
+            next if n.has_flag?("slave")
             n.slots.each{|s,_|
-                return n if s == slot
+                owners << n if s == slot
             }
         }
-        nil
+        owners
     end
 
     # Return the node, among 'nodes' with the greatest number of keys
@@ -532,7 +534,8 @@ class RedisTrib
 
         # Try to obtain the current slot owner, according to the current
         # nodes configuration.
-        owner = get_slot_owner(slot)
+        owners = get_slot_owners(slot)
+        owner = owners[0] if owners.length == 1
 
         migrating = []
         importing = []
@@ -585,9 +588,17 @@ class RedisTrib
         # Note that this case also covers multiple nodes having the slot
         # in migrating state, since migrating is a valid state only for
         # slot owners.
-        #
-        # TODO: Use CLUSTER BUMPEPOCH in order to make the
-        # winner able to claim the slot over all the other nodes.
+        if owners.length > 1
+            owner = get_node_with_most_keys_in_slot(owners,slot)
+            owners.each{|n|
+                next if n == owner
+                n.r.cluster('delslots',slot)
+                n.r.cluster('setslot',slot,'importing',owner.info[:name])
+                importing.delete(n) # Avoid duplciates
+                importing << n
+            }
+            owner.r.cluster('bumpepoch')
+        end
 
         # Case 1: The slot is in migrating state in one slot, and in
         #         importing state in 1 slot. That's trivial to address.
