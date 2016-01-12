@@ -953,6 +953,7 @@ class RedisTrib
         # Set the new node as the owner of the slot in all the known nodes.
         if !o[:cold]
             @nodes.each{|n|
+                next if n.has_flag?("slave")
                 n.r.cluster("setslot",slot,"node",target.info[:name])
             }
         end
