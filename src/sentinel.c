@@ -3372,6 +3372,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
 
     if (ri->link->act_ping_time)
         elapsed = mstime() - ri->link->act_ping_time;
+    else if (ri->link->disconnected)
+        elapsed = mstime() - ri->link->last_avail_time;
 
     /* Check if we are in need for a reconnection of one of the
      * links, because we are detecting low activity.
