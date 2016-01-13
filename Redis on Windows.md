@@ -23,7 +23,7 @@ Redis is a C code base that compiles under Visual Studio. Most of the code compi
 Networking Differences
 ----------------------
 
-The Windows networking stack is split between user mode code and kernel mode code. Transitions between user and kernel mode are expensive operations. The POSIX networking APIs on Windows utilize a programming model that incurs significant performance loss due to the kernel/user mode transitions. Efficient Windows networking code instead uses the IO Completion Port model to reduce the impact of this behavior. The APIs used and the programming model for IO Completion is different enough that we were forced to implement a new networking layer in in Redis.
+The Windows networking stack is split between user mode code and kernel mode code. Transitions between user and kernel mode are expensive operations. The POSIX networking APIs on Windows utilize a programming model that incurs significant performance loss due to the kernel/user mode transitions. Efficient Windows networking code instead uses the IO Completion Port model to reduce the impact of this behavior. The APIs used and the programming model for IO Completion is different enough that we were forced to implement a new networking layer in Redis.
 
 File Descriptors
 ----------------
@@ -94,7 +94,7 @@ The final service code has been released as of June 25 in the 2.8.9 Redis-64 pac
 Heap Sizing
 -----------
 
-Native heaps are prone to fragmentation. If we are not able to allocate more heap space due to fragmentation Redis will flag the problem and exit. Unlike the POSIX version of Redis, our heap size is constrained by both by disk space and by swap file space. It is important to consider the how much data you are expecting to put into Redis, and how much fragmentation you are likely to see in the Redis heap. With very high levels of fragmentation the 50% overhead that –maxmemory imposes may not be enough to prevent running out of heap space. In this case, the use of –maxheap will supersede the –maxmemory default heap setting.
+Native heaps are prone to fragmentation. If we are not able to allocate more heap space due to fragmentation Redis will flag the problem and exit. Unlike the POSIX version of Redis, our heap size is constrained by both by disk space and by swap file space. It is important to consider how much data you are expecting to put into Redis, and how much fragmentation you are likely to see in the Redis heap. With very high levels of fragmentation the 50% overhead that –maxmemory imposes may not be enough to prevent running out of heap space. In this case, the use of –maxheap will supersede the –maxmemory default heap setting.
 
 Installation and Maintenance
 ----------------------------
