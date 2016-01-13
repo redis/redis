@@ -65,7 +65,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* If releasing the object is too much work, let's put it into the
          * lazy free list. */
         if (free_effort > LAZYFREE_THRESHOLD) {
-            atomicIncr(lazyfree_objects,1,&lazyfree_objects_mutex);
+            atomicIncr(lazyfree_objects,1,lazyfree_objects_mutex);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
         }
@@ -89,7 +89,7 @@ void emptyDbAsync(redisDb *db) {
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&keyptrDictType,NULL);
     atomicIncr(lazyfree_objects,dictSize(oldht1),
-        &lazyfree_objects_mutex);
+        lazyfree_objects_mutex);
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
 }
 
@@ -99,7 +99,7 @@ void slotToKeyFlushAsync(void) {
     zskiplist *oldsl = server.cluster->slots_to_keys;
     server.cluster->slots_to_keys = zslCreate();
     atomicIncr(lazyfree_objects,oldsl->length,
-        &lazyfree_objects_mutex);
+        lazyfree_objects_mutex);
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,oldsl);
 }
 
@@ -107,7 +107,7 @@ void slotToKeyFlushAsync(void) {
  * updating the count of objects to release. */
 void lazyfreeFreeObjectFromBioThread(robj *o) {
     decrRefCount(o);
-    atomicDecr(lazyfree_objects,1,&lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,1,lazyfree_objects_mutex);
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the
@@ -119,7 +119,7 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
     size_t numkeys = dictSize(ht1);
     dictRelease(ht1);
     dictRelease(ht2);
-    atomicDecr(lazyfree_objects,numkeys,&lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,numkeys,lazyfree_objects_mutex);
 }
 
 /* Release the skiplist mapping Redis Cluster keys to slots in the
@@ -127,5 +127,5 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
 void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl) {
     size_t len = sl->length;
     zslFree(sl);
-    atomicDecr(lazyfree_objects,len,&lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,len,lazyfree_objects_mutex);
 }

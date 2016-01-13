@@ -72,7 +72,7 @@ void zlibc_free(void *ptr) {
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
-        atomicIncr(used_memory,__n,&used_memory_mutex); \
+        atomicIncr(used_memory,__n,used_memory_mutex); \
     } else { \
         used_memory += _n; \
     } \
@@ -82,7 +82,7 @@ void zlibc_free(void *ptr) {
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
-        atomicDecr(used_memory,__n,&used_memory_mutex); \
+        atomicDecr(used_memory,__n,used_memory_mutex); \
     } else { \
         used_memory -= _n; \
     } \
@@ -202,7 +202,7 @@ size_t zmalloc_used_memory(void) {
     size_t um;
 
     if (zmalloc_thread_safe) {
-        atomicGet(used_memory,um,&used_memory_mutex);
+        atomicGet(used_memory,um,used_memory_mutex);
     } else {
         um = used_memory;
     }
