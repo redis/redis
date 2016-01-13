@@ -1044,7 +1044,6 @@ class RedisTrib
                         over_threshold = true
                     end
                 end
-                puts "#{n} balance is #{n.info[:balance]} slots" if $verbose
                 threshold_reached = true if over_threshold
             end
         }
@@ -1053,14 +1052,36 @@ class RedisTrib
             return
         end
 
-        # Sort nodes by their slots balance.
+        # Only consider nodes we want to change
         sn = @nodes.select{|n|
             n.has_flag?("master") && n.info[:w]
-        }.sort{|a,b|
+        }
+
+        # Because of rounding, it is possible that the balance of all nodes
+        # summed does not give 0. Make sure that nodes that have to provide
+        # slots are always matched by nodes receiving slots.
+        total_balance = sn.map{|x| x.info[:balance]}.reduce{|a,b| a+b}
+        while total_balance > 0
+            sn.each{|n|
+                if n.info[:balance] < 0 && total_balance > 0
+                    n.info[:balance] -= 1
+                    total_balance -= 1
+                end
+            }
+        end
+
+        # Sort nodes by their slots balance.
+        sn = sn.sort{|a,b|
             a.info[:balance] <=> b.info[:balance]
         }
 
         xputs ">>> Rebalancing across #{nodes_involved} nodes. Total weight = #{total_weight}"
+
+        if $verbose
+            sn.each{|n|
+                puts "#{n} balance is #{n.info[:balance]} slots"
+            }
+        end
 
         # Now we have at the start of the 'sn' array nodes that should get
         # slots, at the end nodes that must give slots.
