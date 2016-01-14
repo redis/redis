@@ -806,12 +806,6 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
     return C_OK;
 }
 
-void clusterNodeResetSlaves(clusterNode *n) {
-    zfree(n->slaves);
-    n->numslaves = 0;
-    n->slaves = NULL;
-}
-
 int clusterCountNonFailingSlaves(clusterNode *n) {
     int j, okslaves = 0;
 
@@ -825,12 +819,10 @@ void freeClusterNode(clusterNode *n) {
     sds nodename;
     int j;
 
-    /* If the node is a master with associated slaves, we have to set
+    /* If the node has associated slaves, we have to set
      * all the slaves->slaveof fields to NULL (unknown). */
-    if (nodeIsMaster(n)) {
-        for (j = 0; j < n->numslaves; j++)
-            n->slaves[j]->slaveof = NULL;
-    }
+    for (j = 0; j < n->numslaves; j++)
+        n->slaves[j]->slaveof = NULL;
 
     /* Remove this node from the list of slaves of its master. */
     if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
@@ -1779,9 +1771,6 @@ int clusterProcessPacket(clusterLink *link) {
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
                     sender->flags |= CLUSTER_NODE_SLAVE;
-
-                    /* Remove the list of slaves from the node. */
-                    if (sender->numslaves) clusterNodeResetSlaves(sender);
 
                     /* Update config and state. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
