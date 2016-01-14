@@ -1067,7 +1067,7 @@ BOOL FreeHeapBlock(LPVOID addr, size_t size) {
     }
 
     // Check if the address belongs to the memory map heap or to the system heap
-    BOOL addressInRedisHeap = (addr >= g_pQForkControl->heapStart && addr < g_pQForkControl->heapEnd);
+    BOOL addressInRedisHeap = ((addr >= g_pQForkControl->heapStart) && (addr < g_pQForkControl->heapEnd));
 
     // g_BypassMemoryMapOnAlloc is true for the forked process, in this case
     // we need to handle the address differently based on the heap that was 
