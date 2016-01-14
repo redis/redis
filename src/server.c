@@ -1518,6 +1518,7 @@ void initServerConfig(void) {
     server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
     server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
+    server.cluster_automatic_failover = REDIS_CLUSTER_DEFAULT_AUTOMATIC_FAILOVER;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/

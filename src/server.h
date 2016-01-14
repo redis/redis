@@ -947,6 +947,8 @@ struct redisServer {
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
+    int cluster_automatic_failover; /* If fasle, when master down in the cluster, 
+                                          slave don't failover to wait human manual failover. */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */

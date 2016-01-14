@@ -541,6 +541,13 @@ void loadServerConfigFromString(char *config) {
                 err = "cluster slave validity factor must be zero or positive";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-automatic-failover") &&
+                    argc == 2)
+        {
+            if ((server.cluster_automatic_failover = yesnotoi(argv[1])) == -1)
+            {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
@@ -884,6 +891,8 @@ void configSetCommand(client *c) {
     } config_set_bool_field(
       "cluster-require-full-coverage",server.cluster_require_full_coverage) {
     } config_set_bool_field(
+      "cluster-automatic-failover",server.cluster_automatic_failover) {
+    } config_set_bool_field(
       "aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync) {
     } config_set_bool_field(
       "aof-load-truncated",server.aof_load_truncated) {
@@ -1123,6 +1132,8 @@ void configGetCommand(client *c) {
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
             server.cluster_require_full_coverage);
+    config_get_bool_field("cluster-automatic-failover",
+            server.cluster_automatic_failover);
     config_get_bool_field("no-appendfsync-on-rewrite",
             server.aof_no_fsync_on_rewrite);
     config_get_bool_field("slave-serve-stale-data",
@@ -1838,6 +1849,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigYesNoOption(state,"cluster-require-full-coverage",server.cluster_require_full_coverage,CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE);
+    rewriteConfigYesNoOption(state,"cluster-automatic-failover",server.cluster_automatic_failover,REDIS_CLUSTER_DEFAULT_AUTOMATIC_FAILOVER);
     rewriteConfigNumericalOption(state,"cluster-node-timeout",server.cluster_node_timeout,CLUSTER_DEFAULT_NODE_TIMEOUT);
     rewriteConfigNumericalOption(state,"cluster-migration-barrier",server.cluster_migration_barrier,CLUSTER_DEFAULT_MIGRATION_BARRIER);
     rewriteConfigNumericalOption(state,"cluster-slave-validity-factor",server.cluster_slave_validity_factor,CLUSTER_DEFAULT_SLAVE_VALIDITY);

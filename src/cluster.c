@@ -2727,7 +2727,8 @@ void clusterHandleSlaveFailover(void) {
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
-        myself->slaveof->numslots == 0)
+        myself->slaveof->numslots == 0 ||
+        (!server.cluster_automatic_failover && !manual_failover))
     {
         /* There are no reasons to failover, so we set the reason why we
          * are returning without failing over to NONE. */

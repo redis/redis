@@ -16,6 +16,7 @@
 #define CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
 #define CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
+#define REDIS_CLUSTER_DEFAULT_AUTOMATIC_FAILOVER 1
 #define CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
