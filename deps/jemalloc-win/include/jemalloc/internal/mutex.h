@@ -45,7 +45,7 @@ struct malloc_mutex_s {
 extern bool isthreaded;
 #else
 #  undef isthreaded /* Undo private_namespace.h definition. */
-#  define isthreaded false
+#  define isthreaded true
 #endif
 
 bool    malloc_mutex_init(malloc_mutex_t *mutex);
