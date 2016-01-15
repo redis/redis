@@ -99,8 +99,25 @@ proc spawn_instance {type base_port count {conf {}}} {
     }
 }
 
+proc log_crashes {} {
+    set start_pattern {*REDIS BUG REPORT START*}
+    set logs [glob */log.txt]
+    foreach log $logs {
+        set fd [open $log]
+        set found 0
+        while {[gets $fd line] >= 0} {
+            if {[string match $start_pattern $line]} {
+                puts "\n*** Crash report found in $log ***"
+                set found 1
+            }
+            if {$found} {puts $line}
+        }
+    }
+}
+
 proc cleanup {} {
     puts "Cleaning up..."
+    log_crashes
     foreach pid $::pids {
         catch {exec kill -9 $pid}
     }
@@ -110,6 +127,7 @@ proc cleanup {} {
 }
 
 proc abort_sentinel_test msg {
+    incr ::failed
     puts "WARNING: Aborting the test."
     puts ">>>>>>>> $msg"
     if {$::pause_on_error} pause_on_error
