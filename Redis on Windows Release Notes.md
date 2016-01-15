@@ -1,5 +1,16 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.501 ] Release date: Jan 15 2016
+
+ - [Docs] Single dash replaced with double dash for service cmd parameters.
+ - [PR] Update Redis on Windows.md
+ - [Fix] Enabled jemalloc thread safety.
+ - [Code cleanup] Better expression grouping.
+ - [Docs] Added info about the memory working set showed by the task manager.
+ - [Fix] Portability fix for strtol.
+ - [Docs] Updated README.md.
+ - [PR] Add notice for VS2013 without Update 5
+
 --[ Redis on Windows 3.0.500 ] Release date: Dec 07 2015
 
  - [Release] 3.0.500 stable.
