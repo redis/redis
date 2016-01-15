@@ -495,5 +495,17 @@ proc restart_instance {type id} {
     set link [redis 127.0.0.1 $port]
     $link reconnect 1
     set_instance_attrib $type $id link $link
+
+    # Make sure the instance is not loading the dataset when this
+    # function returns.
+    while 1 {
+        catch {[$link ping]} retval
+        if {[string match {*LOADING*} $retval]} {
+            after 100
+            continue
+        } else {
+            break
+        }
+    }
 }
 
