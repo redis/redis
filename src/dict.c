@@ -63,7 +63,7 @@ static unsigned int dict_force_resize_ratio = 5;
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static int _dictInit(dict *ht, dictType *type);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -170,18 +170,16 @@ dict *dictCreate(dictType *type,
 {
     dict *d = zmalloc(sizeof(*d));
 
-    _dictInit(d,type,privDataPtr);
+    _dictInit(d,type);
     return d;
 }
 
 /* Initialize the hash table */
-int _dictInit(dict *d, dictType *type,
-        void *privDataPtr)
+int _dictInit(dict *d, dictType *type)
 {
     _dictReset(&d->ht[0]);
     _dictReset(&d->ht[1]);
     d->type = type;
-    d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
     return DICT_OK;
@@ -462,7 +460,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     for (i = 0; i < ht->size && ht->used > 0; i++) {
         dictEntry *he, *nextHe;
 
-        if (callback && (i & 65535) == 0) callback(d->privdata);
+        if (callback && (i & 65535) == 0) callback(NULL);
 
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
