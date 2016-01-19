@@ -947,6 +947,8 @@ struct redisServer {
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
+    char *cluster_announce_ip;  /* cluster-announce-ip option. */
+    int cluster_announce_port;  /* cluster-announce-port option. */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */
