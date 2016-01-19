@@ -272,6 +272,10 @@ start_server {tags {"scripting"}} {
         } 0
     } {}
 
+    test {EVAL - Able to parse trailing comments} {
+        r eval {return 'hello' --trailing comment} 0
+    } {hello}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]

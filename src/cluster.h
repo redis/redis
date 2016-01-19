@@ -23,6 +23,7 @@
 #define CLUSTER_DEFAULT_MIGRATION_BARRIER 1
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
+#define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
 #define CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
@@ -53,7 +54,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-#define CLUSTER_NODE_PROMOTED 256 /* Master was a slave promoted by failover */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
@@ -87,12 +88,16 @@ typedef struct clusterNode {
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node */
+    struct clusterNode *slaveof; /* pointer to the master node. Note that it
+                                    may be NULL even if the node is a slave
+                                    if we don't have the master node in our
+                                    tables. */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
+    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */

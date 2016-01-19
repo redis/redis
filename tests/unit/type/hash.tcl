@@ -516,10 +516,21 @@ start_server {tags {"hash"}} {
         }
     }
 
-    test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
-        r del myhash
-        assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
-        assert {[r hincrbyfloat myhash float 0.77] eq {2}}
-        assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
+    # The following test can only be executed if we don't use Valgrind, and if
+    # we are using x86_64 architecture, because:
+    #
+    # 1) Valgrind has floating point limitations, no support for 80 bits math.
+    # 2) Other archs may have the same limits.
+    #
+    # 1.23 cannot be represented correctly with 64 bit doubles, so we skip
+    # the test, since we are only testing pretty printing here and is not
+    # a bug if the program outputs things like 1.299999...
+    if {!$::valgrind || ![string match *x86_64* [exec uname -a]]} {
+        test {Test HINCRBYFLOAT for correct float representation (issue #2846)} {
+            r del myhash
+            assert {[r hincrbyfloat myhash float 1.23] eq {1.23}}
+            assert {[r hincrbyfloat myhash float 0.77] eq {2}}
+            assert {[r hincrbyfloat myhash float -0.1] eq {1.9}}
+        }
     }
 }

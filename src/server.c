@@ -265,7 +265,7 @@ struct redisCommand redisCommandTable[] = {
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"w",0,NULL,0,0,0,0,0},
+    {"migrate",migrateCommand,-6,"w",0,migrateGetKeys,0,0,0,0,0},
     {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
@@ -1186,7 +1186,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
-    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
+    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1 ||
+        ldbPendingChildren())
+    {
         int statloc;
         pid_t pid;
 
@@ -1196,14 +1198,22 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
-            if (pid == server.rdb_child_pid) {
+            if (pid == -1) {
+                serverLog(LL_WARNING,"wait3() returned an error: %s. "
+                    "rdb_child_pid = %d, aof_child_pid = %d",
+                    strerror(errno),
+                    (int) server.rdb_child_pid,
+                    (int) server.aof_child_pid);
+            } else if (pid == server.rdb_child_pid) {
                 backgroundSaveDoneHandler(exitcode,bysignal);
             } else if (pid == server.aof_child_pid) {
                 backgroundRewriteDoneHandler(exitcode,bysignal);
             } else {
-                serverLog(LL_WARNING,
-                    "Warning, detected child with unmatched pid: %ld",
-                    (long)pid);
+                if (!ldbRemoveChild(pid)) {
+                    serverLog(LL_WARNING,
+                        "Warning, detected child with unmatched pid: %ld",
+                        (long)pid);
+                }
             }
             updateDictResizePolicy();
         }
@@ -1447,6 +1457,7 @@ void initServerConfig(void) {
     server.unixsocketperm = CONFIG_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
     server.sofd = -1;
+    server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
     server.dbnum = CONFIG_DEFAULT_DBNUM;
     server.verbosity = CONFIG_DEFAULT_VERBOSITY;
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
@@ -2320,9 +2331,9 @@ void call(client *c, int flags) {
  * processCommand() execute the command or prepare the
  * server for a bulk read from the client.
  *
- * If 1 is returned the client is still alive and valid and
+ * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
- * if 0 is returned the client was destroyed (i.e. after QUIT). */
+ * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -2392,6 +2403,12 @@ int processCommand(client *c) {
      * is returning an error. */
     if (server.maxmemory) {
         int retval = freeMemoryIfNeeded();
+        /* freeMemoryIfNeeded may flush slave output buffers. This may result
+         * into a slave, that may be the active client, to be freed. */
+        if (server.current_client == NULL) return C_ERR;
+
+        /* It was impossible to free enough memory, and the command the client
+         * is trying to execute is denied during OOM conditions? Error. */
         if ((c->cmd->flags & CMD_DENYOOM) && retval == C_ERR) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
@@ -2526,6 +2543,9 @@ int prepareForShutdown(int flags) {
     int nosave = flags & SHUTDOWN_NOSAVE;
 
     serverLog(LL_WARNING,"User requested shutdown...");
+
+    /* Kill all the Lua debugger forked sessions. */
+    ldbKillForkedSessions();
 
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may

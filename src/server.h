@@ -111,6 +111,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DAEMONIZE 0
 #define CONFIG_DEFAULT_UNIX_SOCKET_PERM 0
 #define CONFIG_DEFAULT_TCP_KEEPALIVE 0
+#define CONFIG_DEFAULT_PROTECTED_MODE 1
 #define CONFIG_DEFAULT_LOGFILE ""
 #define CONFIG_DEFAULT_SYSLOG_ENABLED 0
 #define CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR 1
@@ -251,6 +252,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_REPLY_SKIP_NEXT (1<<23)  /* Set CLIENT_REPLY_SKIP for next cmd */
 #define CLIENT_REPLY_SKIP (1<<24)  /* Don't send just this reply. */
 #define CLIENT_LUA_DEBUG (1<<25)  /* Run EVAL in debug mode. */
+#define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -742,6 +744,7 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
+    int protected_mode;         /* Don't accept external connections. */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;
@@ -1142,6 +1145,7 @@ int processEventsWhileBlocked(void);
 int handleClientsWithPendingWrites(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);
+int writeToClient(int fd, client *c, int handler_installed);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)
@@ -1446,6 +1450,7 @@ void getKeysFreeResult(int *result);
 int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys);
 int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
 /* Cluster */
 void clusterInit(void);
@@ -1469,6 +1474,9 @@ int redis_check_rdb_main(char **argv, int argc);
 
 /* Scripting */
 void scriptingInit(int setup);
+int ldbRemoveChild(pid_t pid);
+void ldbKillForkedSessions(void);
+int ldbPendingChildren(void);
 
 /* Blocked clients */
 void processUnblockedClients(void);
@@ -1672,6 +1680,7 @@ void enableWatchdog(int period);
 void disableWatchdog(void);
 void watchdogScheduleSignal(int period);
 void serverLogHexDump(int level, char *descr, void *value, size_t len);
+int memtest_preserving_test(unsigned long *m, size_t bytes, int passes);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)

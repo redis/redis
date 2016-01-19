@@ -516,7 +516,7 @@ void _serverAssertPrintClientInfo(client *c) {
         if (c->argv[j]->type == OBJ_STRING && sdsEncodedObject(c->argv[j])) {
             arg = (char*) c->argv[j]->ptr;
         } else {
-            snprintf(buf,sizeof(buf),"Object type: %d, encoding: %d",
+            snprintf(buf,sizeof(buf),"Object type: %u, encoding: %u",
                 c->argv[j]->type, c->argv[j]->encoding);
             arg = buf;
         }
@@ -575,8 +575,8 @@ void _serverPanic(char *msg, char *file, int line) {
 
 void bugReportStart(void) {
     if (server.bug_report_start == 0) {
-        serverLog(LL_WARNING,
-            "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        serverLogRaw(LL_WARNING|LL_RAW,
+        "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         server.bug_report_start = 1;
     }
 }
@@ -627,7 +627,7 @@ void logStackContent(void **sp) {
 }
 
 void logRegisters(ucontext_t *uc) {
-    serverLog(LL_WARNING, "--- REGISTERS");
+    serverLog(LL_WARNING|LL_RAW, "\n------ REGISTERS ------\n");
 
 /* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
@@ -755,31 +755,51 @@ void logRegisters(ucontext_t *uc) {
 #endif
 }
 
+/* Return a file descriptor to write directly to the Redis log with the
+ * write(2) syscall, that can be used in critical sections of the code
+ * where the rest of Redis can't be trusted (for example during the memory
+ * test) or when an API call requires a raw fd.
+ *
+ * Close it with closeDirectLogFiledes(). */
+int openDirectLogFiledes(void) {
+    int log_to_stdout = server.logfile[0] == '\0';
+    int fd = log_to_stdout ?
+        STDOUT_FILENO :
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
+    return fd;
+}
+
+/* Used to close what closeDirectLogFiledes() returns. */
+void closeDirectLogFiledes(int fd) {
+    int log_to_stdout = server.logfile[0] == '\0';
+    if (!log_to_stdout) close(fd);
+}
+
 /* Logs the stack trace using the backtrace() call. This function is designed
  * to be called from signal handlers safely. */
 void logStackTrace(ucontext_t *uc) {
-    void *trace[100];
-    int trace_size = 0, fd;
-    int log_to_stdout = server.logfile[0] == '\0';
+    void *trace[101];
+    int trace_size = 0, fd = openDirectLogFiledes();
 
-    /* Open the log file in append mode. */
-    fd = log_to_stdout ?
-        STDOUT_FILENO :
-        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
-    if (fd == -1) return;
+    if (fd == -1) return; /* If we can't log there is anything to do. */
 
     /* Generate the stack trace */
-    trace_size = backtrace(trace, 100);
+    trace_size = backtrace(trace+1, 100);
 
-    /* overwrite sigaction with caller's address */
-    if (getMcontextEip(uc) != NULL)
-        trace[1] = getMcontextEip(uc);
+    if (getMcontextEip(uc) != NULL) {
+        char *msg1 = "EIP:\n";
+        char *msg2 = "\nBacktrace:\n";
+        if (write(fd,msg1,strlen(msg1)) == -1) {/* Avoid warning. */};
+        trace[0] = getMcontextEip(uc);
+        backtrace_symbols_fd(trace, 1, fd);
+        if (write(fd,msg2,strlen(msg2)) == -1) {/* Avoid warning. */};
+    }
 
     /* Write symbols to log file */
-    backtrace_symbols_fd(trace, trace_size, fd);
+    backtrace_symbols_fd(trace+1, trace_size, fd);
 
     /* Cleanup */
-    if (!log_to_stdout) close(fd);
+    closeDirectLogFiledes(fd);
 }
 
 /* Log information about the "current" client, that is, the client that is
@@ -792,15 +812,16 @@ void logCurrentClient(void) {
     sds client;
     int j;
 
-    serverLog(LL_WARNING, "--- CURRENT CLIENT INFO");
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CURRENT CLIENT INFO ------\n");
     client = catClientInfoString(sdsempty(),cc);
-    serverLog(LL_WARNING,"client: %s", client);
+    serverLog(LL_WARNING|LL_RAW,"%s\n", client);
     sdsfree(client);
     for (j = 0; j < cc->argc; j++) {
         robj *decoded;
 
         decoded = getDecodedObject(cc->argv[j]);
-        serverLog(LL_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+        serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j,
+            (char*)decoded->ptr);
         decrRefCount(decoded);
     }
     /* Check if the first argument, usually a key, is found inside the
@@ -821,19 +842,24 @@ void logCurrentClient(void) {
 }
 
 #if defined(HAVE_PROC_MAPS)
-void memtest_non_destructive_invert(void *addr, size_t size);
-void memtest_non_destructive_swap(void *addr, size_t size);
+
 #define MEMTEST_MAX_REGIONS 128
 
+/* A non destructive memory test executed during segfauls. */
 int memtest_test_linux_anonymous_maps(void) {
-    FILE *fp = fopen("/proc/self/maps","r");
+    FILE *fp;
     char line[1024];
+    char logbuf[1024];
     size_t start_addr, end_addr, size;
     size_t start_vect[MEMTEST_MAX_REGIONS];
     size_t size_vect[MEMTEST_MAX_REGIONS];
     int regions = 0, j;
-    uint64_t crc1 = 0, crc2 = 0, crc3 = 0;
 
+    int fd = openDirectLogFiledes();
+    if (!fd) return 0;
+
+    fp = fopen("/proc/self/maps","r");
+    if (!fp) return 0;
     while(fgets(line,sizeof(line),fp) != NULL) {
         char *start, *end, *p = line;
 
@@ -857,78 +883,66 @@ int memtest_test_linux_anonymous_maps(void) {
 
         start_vect[regions] = start_addr;
         size_vect[regions] = size;
-        printf("Testing %lx %lu\n", (unsigned long) start_vect[regions],
-                                    (unsigned long) size_vect[regions]);
+        snprintf(logbuf,sizeof(logbuf),
+            "*** Preparing to test memory region %lx (%lu bytes)\n",
+                (unsigned long) start_vect[regions],
+                (unsigned long) size_vect[regions]);
+        if (write(fd,logbuf,strlen(logbuf)) == -1) { /* Nothing to do. */ }
         regions++;
     }
 
-    /* Test all the regions as an unique sequential region.
-     * 1) Take the CRC64 of the memory region. */
+    int errors = 0;
     for (j = 0; j < regions; j++) {
-        crc1 = crc64(crc1,(void*)start_vect[j],size_vect[j]);
+        if (write(fd,".",1) == -1) { /* Nothing to do. */ }
+        errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
+        if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
     }
-
-    /* 2) Invert bits, swap adjacent words, swap again, invert bits.
-     * This is the error amplification step. */
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_invert((void*)start_vect[j],size_vect[j]);
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_swap((void*)start_vect[j],size_vect[j]);
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_swap((void*)start_vect[j],size_vect[j]);
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_invert((void*)start_vect[j],size_vect[j]);
-
-    /* 3) Take the CRC64 sum again. */
-    for (j = 0; j < regions; j++)
-        crc2 = crc64(crc2,(void*)start_vect[j],size_vect[j]);
-
-    /* 4) Swap + Swap again */
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_swap((void*)start_vect[j],size_vect[j]);
-    for (j = 0; j < regions; j++)
-        memtest_non_destructive_swap((void*)start_vect[j],size_vect[j]);
-
-    /* 5) Take the CRC64 sum again. */
-    for (j = 0; j < regions; j++)
-        crc3 = crc64(crc3,(void*)start_vect[j],size_vect[j]);
+    if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
 
     /* NOTE: It is very important to close the file descriptor only now
      * because closing it before may result into unmapping of some memory
      * region that we are testing. */
     fclose(fp);
-
-    /* If the two CRC are not the same, we trapped a memory error. */
-    return crc1 != crc2 || crc2 != crc3;
+    closeDirectLogFiledes(fd);
+    return errors;
 }
 #endif
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     ucontext_t *uc = (ucontext_t*) secret;
+    void *eip = getMcontextEip(uc);
     sds infostring, clients;
     struct sigaction act;
     UNUSED(info);
 
     bugReportStart();
     serverLog(LL_WARNING,
-        "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+        "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+    if (eip != NULL) {
+        serverLog(LL_WARNING,
+        "Crashed running the instuction at: %p", eip);
+    }
+    if (sig == SIGSEGV || sig == SIGBUS) {
+        serverLog(LL_WARNING,
+        "Accessing address: %p", (void*)info->si_addr);
+    }
     serverLog(LL_WARNING,
-        "    Failed assertion: %s (%s:%d)", server.assert_failed,
+        "Failed assertion: %s (%s:%d)", server.assert_failed,
                         server.assert_file, server.assert_line);
 
     /* Log the stack trace */
-    serverLog(LL_WARNING, "--- STACK TRACE");
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ STACK TRACE ------\n");
     logStackTrace(uc);
 
     /* Log INFO and CLIENT LIST */
-    serverLog(LL_WARNING, "--- INFO OUTPUT");
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
     infostring = genRedisInfoString("all");
     infostring = sdscatprintf(infostring, "hash_init_value: %u\n",
         dictGetHashFunctionSeed());
-    serverLogRaw(LL_WARNING, infostring);
-    serverLog(LL_WARNING, "--- CLIENT LIST OUTPUT");
+    serverLogRaw(LL_WARNING|LL_RAW, infostring);
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString();
-    serverLogRaw(LL_WARNING, clients);
+    serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
 
@@ -940,18 +954,18 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */
-    serverLog(LL_WARNING, "--- FAST MEMORY TEST");
+    serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
     bioKillThreads();
     if (memtest_test_linux_anonymous_maps()) {
-        serverLog(LL_WARNING,
+        serverLogRaw(LL_WARNING|LL_RAW,
             "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!");
     } else {
-        serverLog(LL_WARNING,
+        serverLogRaw(LL_WARNING|LL_RAW,
             "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.");
     }
 #endif
 
-    serverLog(LL_WARNING,
+    serverLogRaw(LL_WARNING|LL_RAW,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
 "       Please report the crash by opening an issue on github:\n\n"
 "           http://github.com/antirez/redis/issues\n\n"

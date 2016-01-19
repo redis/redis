@@ -1088,6 +1088,15 @@ sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen) {
     return join;
 }
 
+/* Wrappers to the allocators used by SDS. Note that SDS will actually
+ * just use the macros defined into sdsalloc.h in order to avoid to pay
+ * the overhead of function calls. Here we define these wrappers only for
+ * the programs SDS is linked to, if they want to touch the SDS internals
+ * even if they use a different allocator. */
+void *sds_malloc(size_t size) { return s_malloc(size); }
+void *sds_realloc(void *ptr, size_t size) { return s_realloc(ptr,size); }
+void sds_free(void *ptr) { s_free(ptr); }
+
 #if defined(SDS_TEST_MAIN)
 #include <stdio.h>
 #include "testhelp.h"
