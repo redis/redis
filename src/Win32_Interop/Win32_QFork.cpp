@@ -182,7 +182,7 @@ struct QForkStartupData {
 struct QForkControl {
     HANDLE heapMemoryMapFile;
     HANDLE heapMemoryMap;
-    // Number of available blocks in the heapBlockMap, it's value
+    // Number of available blocks in the heapBlockMap, its value
     // is determined at run-time based on the max heap size.
     int availableBlocksInHeap;
     BlockState heapBlockMap[cMaxBlocks];
