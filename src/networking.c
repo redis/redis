@@ -649,7 +649,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "1) Just disable protected mode sending the command "
                 "'CONFIG SET protected-mode no' from the loopback interface "
                 "by connecting to Redis from the same host the server is "
-                " running, however MAKE SURE Redis is not publicly accessible "
+                "running, however MAKE SURE Redis is not publicly accessible "
                 "from internet if you do so. Use CONFIG REWRITE to make this "
                 "change permanent. "
                 "2) Alternatively you can just disable the protected mode by "
