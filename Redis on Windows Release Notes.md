@@ -1,5 +1,46 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
+--[ Redis on Windows 2.8.2400 ] Release date: Jan 21 2016
+
+ - Merged tag 2.8.24 from antirez/2.8
+ - [Docs] Added info about the memory working set showed by the task manager.
+ - [Comment] Fixed typo.
+ - [Docs] Updated README.md.
+ - [PR]Add notice for VS2013 without Update 5
+ - [Fix] Portability fix for strtol().
+ - [Code cleanup] QForkStartup refactoring.
+ - [Code cleanup] Comments, code formatting, minor code refactoring.
+ - [Code refactoring] Moved global variables initialization in one place.
+ - [Design Change] Use dlmalloc for sentinel and persistence off.
+ - [Code cleanup] Fixed typo in comments and variable name.
+ - [Code cleanup] Macro definition.
+ - [Fix] x86 build break.
+ - [Code cleanup] Removed unused and duplicated #defines.
+ - [Test] Added regression test for replication when AUTH is on.
+ - [Setup] Updated the command to push chocolatey packages.
+ - [Fix] Wrong return value upon error. Code formatting.
+ - [Log] Added Redis version at the top of the crash report.
+ - [Fix] Disable replication if persistence is not available.
+ - [Code cleanup] Better functions and variables names.
+ - [Code cleanup] Error handling using ThrowLastError() method.
+ - [Fix] Avoid potential null pointer access.
+ - [PR] Documentation: replace argument sign '-' to '--'.
+ - [Fix] Remove leftover .dat files from the working dir.
+ - [Fix] do_socketSave2() rework for duplicated sockets management.
+ - [Code cleanup] Variables/methods name, comments, formatting.
+ - [Fix] Windows-specific fixes for replication.
+ - [Test] Fixed bad merge.
+ - [Portability] Fixes for type 'long'.
+ - Merge tag 2.8.23 from antirez/2.8
+ - [Code cleanup] Fixed tabs.
+ - [Test] Removed Windows-specific workaround. Fixed tabs.
+ - [Fix] Duplicated sockets need to be closed properly.
+ - [Code cleanup] Renamed WSIOCP_ReceiveDone to WSIOCP_QueueNextRead.
+ - [Fix] Sentinel notification-script 2nd argument needs quotes.
+ - [PR] Passed STARTUPINFO parameter to CreateProcessA instead of NULL.
+ - [Fix] Prevent UnhandledExceptiontHandler from entering a loop.
+ - [Code refactoring] IsWindowsVersionAtLeast optimization.
+ - [Change] Use VirtualProtect in RejoinCOWPages on Windows 6.2 and higher.
 
 --[ Redis on Windows 2.8.2104 ] Release date: Oct 15 2015
 
