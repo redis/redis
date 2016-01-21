@@ -47,8 +47,8 @@ Fixing build problems with dependencies or cached build options
 ---------
 
 Redis has some dependencies which are included into the `deps` directory.
-`make` does not automatically rebuild dependencies even if dependency's source
-changes.
+`make` does not automatically rebuild dependencies even if something in
+the source code of dependencies changes.
 
 When you update the source code with `git pull` or when code inside the
 dependencies tree is modified in any other way, make sure to use the following
@@ -198,7 +198,7 @@ the Redis source code layout, what is in each file as a general idea, the
 most important functions and structures inside the Redis server and so forth.
 We keep all the discussion at a high level without digging into the details
 since this document would be huge otherwise and our code base changes
-continuously but a general idea should be a good starting point to
+continuously, but a general idea should be a good starting point to
 understand more. Moreover most of the code is heavily commented and easy
 to follow.
 
@@ -206,13 +206,13 @@ Source code layout
 ---
 
 The Redis root directory just contains this README, the Makefile which
-actually calls the real Makefile inside the `src` directory and an example
-configuration for Redis and Sentinel. Also, you can find a few shell
+calls the real Makefile inside the `src` directory and an example
+configuration for Redis and Sentinel. You can find a few shell
 scripts that are used in order to execute the Redis, Redis Cluster and
 Redis Sentinel unit tests, which are implemented inside the `tests`
 directory.
 
-Inside the root directory following are the important directories:
+Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
@@ -227,7 +227,7 @@ of complexity incrementally.
 Note: lately Redis was refactored quite a bit. Function names and file
 names have been changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance in Redis 3.0 the `server.c`
-and `server.h` files were renamed to `redis.c` and `redis.h`. However the overall
+and `server.h` files were named to `redis.c` and `redis.h`. However the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
@@ -290,7 +290,7 @@ strings, lists, sets, sorted sets and so forth. The interesting thing is that
 it has a `type` field, so that it is possible to know what type a given
 object has, and a `refcount`, so that the same object can be referenced
 in multiple places without allocating it multiple times. Finally the `ptr`
-field points to the actual representation of the object; that may vary
+field points to the actual representation of the object, which might vary
 even for the same type, depending on the `encoding` used.
 
 Redis objects are used extensively in the Redis internals, however in order
