@@ -1781,13 +1781,20 @@ int listenToPort(int port, int *fds, int *count) {
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
-            }
+		} else {
+			serverLog(LL_WARNING,"Server couldn't connect to :: on port %d using IPv6. Make sure that the port is free", port);
+			return C_ERR;
+	    	}
+
             fds[*count] = anetTcpServer(server.neterr,port,NULL,
                 server.tcp_backlog);
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
-            }
+		} else {
+			serverLog(LL_WARNING,"Server couldn't connect to 0.0.0.0 on %d using IPv4. Make sure that the port is free", port);
+			return C_ERR;
+		}
             /* Exit the loop if we were able to bind * on IPv4 or IPv6,
              * otherwise fds[*count] will be ANET_ERR and we'll print an
              * error and return to the caller with an error. */
