@@ -432,7 +432,7 @@ void georadiusGeneric(client *c, int type) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.emptymultibulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.nokeyerr)) == NULL ||
         checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
