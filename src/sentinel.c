@@ -2975,12 +2975,12 @@ void sentinelSetCommand(redisClient *c) {
        } else if (!strcasecmp(option,"rename-config")) {
             /* rename-config <config-name> */
             sdsfree(ri->config_command);
-            ri->config_command = strlen(value) ? sdsnew(value) : NULL;
+            ri->config_command = strlen(value) ? sdsnew(value) : SENTINEL_CONFIG_COMMAND;
             changes++;
        } else if (!strcasecmp(option,"rename-slaveof")) {
             /* rename-slaveof <slaveof-name> */
             sdsfree(ri->slave_of_command);
-            ri->slave_of_command = strlen(value) ? sdsnew(value) : NULL;
+            ri->slave_of_command = strlen(value) ? sdsnew(value) : SENTINEL_SLAVEOF_COMMAND;
             changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option '%s' for SENTINEL SET",
