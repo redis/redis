@@ -10,6 +10,45 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.7 ] Release date: 25 jan 2016
+
+Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
+
+* [FIX] Many fixes to MIGRATE multiple keys implementation. The command
+        could handle errors in a faulty way leading to crashes or other
+        unexpected behaviors. MIGRATE command refactoring.
+        (The analysis of the faulty conditions was conducted by
+         Kevin McGehee. The fix was developed by Salvatore Sanfilippo)
+* [FIX] A Redis Cluster node crash was fixed because of wrong handling of
+        node->slaveof pointers.
+        (Reported by JackyWoo, fixed by Salvatore Sanfilippo)
+* [FIX] Fix redis-trib rebalance when nodes need to be left empty because
+        the specified weight is zero.
+        (Reported by Shahar Mor, fixed by Salvatore Sanfilippo)
+* [FIX] MIGRATE: Never send -ASK redirections for MIGRATE when there are
+        open slots. Redis-trib and other cluster management utility must
+        always be free to move keys between nodes about open slots, in order
+        to reshard, fix the cluster configuration, and so forth.
+        (Salvatore Sanfilippo)
+* [FIX] Lua debugger crash when printing too deeply nested objects.
+        (Reported by Paul Kulchenko, fixed by Salvatore Sanfilippo)
+* [FIX] Redis-cli implementation of Lua debugging now allows to use the
+        SCRIPT DEBUG command directly, switching to debugging mode as needed.
+        (Reported by Paul Kulchenko, fixed by Salvatore Sanfilippo)
+* [FIX] Redis-trib is now able to fix more errors. A new CLUSTER subcommand
+        called BUMPEPOCH was introduced in order to support new modes
+        for the "fix" subcommand. (Salvatore Sanfilippo)
+* [NEW] Redis proctected mode: this feature improves Redis security and makes
+        harder to run Redis in a configuration that is unsecure because no
+        firewalling was used in order to protect Redis from external accesses.
+        See this Reddit post for more info: https://www.reddit.com/r/redis/comments/3zv85m/new_security_feature_redis_protected_mode/ (Salvatore Sanfilippo)
+* [NEW] Cluster/Sentinel tests now use OSX leak to perform leak detection
+        at the end of every unit. (Salvatore Sanfilippo)
+* [NEW] Detect and show server crashes during Cluster/Sentinel tests.
+        (Salvatore Sanfilippo)
+* [NEW] More reliable Cluster/Sentinel test becuase of timing errors and
+        -LOADING errors. (Salvatore Sanfilippo)
+
 --[ Redis 3.0.6 ] Release date: 18 Dec 2015
 
 Upgrade urgency: MODERATE. We fixed a crash that happens very rarely, so
