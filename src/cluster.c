@@ -4027,7 +4027,7 @@ void clusterCommand(redisClient *c) {
         /* CLUSTER BUMPEPOCH */
         int retval = clusterBumpConfigEpochWithoutConsensus();
         sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
-                (retval == C_OK) ? "BUMPED" : "STILL",
+                (retval == REDIS_OK) ? "BUMPED" : "STILL",
                 (unsigned long long) myself->configEpoch);
         addReplySds(c,reply);
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
@@ -4645,7 +4645,7 @@ void migrateCommand(redisClient *c) {
     }
 
     /* Sanity check */
-    if (getLongFromObjectOrReply(c,c->argv[5],&timeout,NULL) != REDIS__OK ||
+    if (getLongFromObjectOrReply(c,c->argv[5],&timeout,NULL) != REDIS_OK ||
         getLongFromObjectOrReply(c,c->argv[4],&dbid,NULL) != REDIS_OK)
     {
         return;
