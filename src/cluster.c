@@ -531,7 +531,7 @@ void clusterReset(int hard) {
         sdsfree(oldname);
         getRandomHexChars(myself->name, REDIS_CLUSTER_NAMELEN);
         clusterAddNode(myself);
-        serverLog(LL_NOTICE,"Node hard reset, now I'm %.40s", myself->name);
+        redisLog(REDIS_NOTICE,"Node hard reset, now I'm %.40s", myself->name);
     }
 
     /* Make sure to persist the new config and update the state. */
@@ -1341,7 +1341,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 (strcasecmp(node->ip,g->ip) || node->port != ntohs(g->port)))
             {
                 if (node->link) freeClusterLink(node->link);
-                memcpy(node->ip,g->ip,NET_IP_STR_LEN);
+                memcpy(node->ip,g->ip,REDIS_IP_STR_LEN);
                 node->port = ntohs(g->port);
                 node->flags &= ~REDIS_NODE_NOADDR;
             }
@@ -1725,7 +1725,7 @@ int clusterProcessPacket(clusterLink *link) {
                     link->node->name,
                     (int)(mstime()-(link->node->ctime)),
                     link->node->flags);
-                link->node->flags |= CLUSTER_NODE_NOADDR;
+                link->node->flags |= REDIS_NODE_NOADDR;
                 link->node->ip[0] = '\0';
                 link->node->port = 0;
                 freeClusterLink(link);
