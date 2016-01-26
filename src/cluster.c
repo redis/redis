@@ -1342,7 +1342,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             {
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
-                node->port = g->port;
+                node->port = ntohs(g->port);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
             }
         } else {
