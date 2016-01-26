@@ -1580,6 +1580,7 @@ void initServerConfig(void) {
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
+    server.masteruser = NULL;
     server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;

@@ -185,7 +185,7 @@ int loadAcls(const char *filename) {
         if (fp != stdin) fclose(fp);
     }
 
-	parse(acls);
+    parse(acls);
     userAcl *defaultUser = getUserAcl(ACL_DEFAULT_USER_NAME);
     if (defaultUser) {
         setAcls(server.default_acls, defaultUser->acls);
