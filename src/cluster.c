@@ -1331,27 +1331,19 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             }
 
             /* If we already know this node, but it is not reachable, and
-<<<<<<< HEAD
-             * we see a different address in the gossip section, start an
-             * handshake with the (possibly) new address: this will result
-             * into a node address update if the handshake will be
-             * successful. */
-            if (node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL) &&
-=======
              * we see a different address in the gossip section of a node that
              * can talk with this other node, update the address, disconnect
              * the old link if any, so that we'll attempt to connect with the
              * new address. */
-            if (node->flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL) &&
-                !(flags & CLUSTER_NODE_NOADDR) &&
-                !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
->>>>>>> bd998b7... Better address udpate strategy when processing gossip sections.
+            if (node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL) &&
+                !(flags & REDIS_NODE_NOADDR) &&
+                !(flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) || node->port != ntohs(g->port)))
             {
                 if (node->link) freeClusterLink(node->link);
                 memcpy(node->ip,g->ip,NET_IP_STR_LEN);
                 node->port = ntohs(g->port);
-                node->flags &= ~CLUSTER_NODE_NOADDR;
+                node->flags &= ~REDIS_NODE_NOADDR;
             }
         } else {
             /* If it's not in NOADDR state and we don't have it, we
@@ -1729,7 +1721,7 @@ int clusterProcessPacket(clusterLink *link) {
                 /* If the reply has a non matching node ID we
                  * disconnect this node and set it as not having an associated
                  * address. */
-                redisLog(REDIS_WARNING,"PONG contains mismatching sender ID. About node %.40s added %d ms ago, having flags %d",
+                redisLog(REDIS_DEBUG,"PONG contains mismatching sender ID. About node %.40s added %d ms ago, having flags %d",
                     link->node->name,
                     (int)(mstime()-(link->node->ctime)),
                     link->node->flags);
