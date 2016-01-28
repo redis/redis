@@ -10,9 +10,9 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
---[ Redis 3.2.0 RC2 (version 3.1.102) ] Release date: 25 jan 2016
+--[ Redis 3.2.0 RC3 (version 3.1.103) ] Release date: 28 jan 2016
 
-Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
+Upgrade urgency MODERATE: this release fixes a non trivial Sentinel crash.
 
 * [FIX] avg_ttl reporting in INFO improved. (Salvatore Sanfilippo)
 * [FIX] Sentinel: improve handling of known Sentinel instances.
@@ -20,6 +20,11 @@ Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
          crash report).
 * [FIX] Redis Cluster address update (via gossip section) processing improved
         to avoid initiating inwanted handshakes.
+
+--[ Redis 3.2.0 RC2 (version 3.1.102) ] Release date: 25 jan 2016
+
+Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
+
 * [FIX] Many fixes to MIGRATE multiple keys implementation. The command
         could handle errors in a faulty way leading to crashes or other
         unexpected behaviors. MIGRATE command refactoring.
