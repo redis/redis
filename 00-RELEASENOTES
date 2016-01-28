@@ -10,10 +10,16 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
---[ Redis 3.0.7 ] Release date: 25 jan 2016
+--[ Redis 3.0.7 ] Release date: 28 jan 2016
 
 Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
 
+* [FIX] avg_ttl reporting in INFO improved. (Salvatore Sanfilippo)
+* [FIX] Sentinel: improve handling of known Sentinel instances.
+        (Salvatore Sanfilippo, thanks to Paweł Kowalczykf or the original
+         crash report).
+* [FIX] Redis Cluster address update (via gossip section) processing improved
+        to avoid initiating inwanted handshakes.
 * [FIX] Many fixes to MIGRATE multiple keys implementation. The command
         could handle errors in a faulty way leading to crashes or other
         unexpected behaviors. MIGRATE command refactoring.
