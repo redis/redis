@@ -13,6 +13,8 @@ ssh antirez@metal "export TERM=xterm;
                    cd /tmp;
                    rm -rf test_release_tmp_dir;
                    cd test_release_tmp_dir;
+                   rm -f $TARNAME;
+                   rm -rf redis-${TAG};
                    wget $DOWNLOADURL;
                    tar xvzf $TARNAME;
                    cd redis-${TAG};
