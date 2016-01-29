@@ -3774,8 +3774,10 @@ void clusterReplyMultiBulkSlots(client *c) {
      *            2) end slot
      *            3) 1) master IP
      *               2) master port
+     *               3) node ID
      *            4) 1) replica IP
      *               2) replica port
+     *               3) node ID
      *           ... continued until done
      */
 
@@ -3816,18 +3818,20 @@ void clusterReplyMultiBulkSlots(client *c) {
                 start = -1;
 
                 /* First node reply position is always the master */
-                addReplyMultiBulkLen(c, 2);
+                addReplyMultiBulkLen(c, 3);
                 addReplyBulkCString(c, node->ip);
                 addReplyLongLong(c, node->port);
+                addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
                 /* Remaining nodes in reply are replicas for slot range */
                 for (i = 0; i < node->numslaves; i++) {
                     /* This loop is copy/pasted from clusterGenNodeDescription()
                      * with modifications for per-slot node aggregation */
                     if (nodeFailed(node->slaves[i])) continue;
-                    addReplyMultiBulkLen(c, 2);
+                    addReplyMultiBulkLen(c, 3);
                     addReplyBulkCString(c, node->slaves[i]->ip);
                     addReplyLongLong(c, node->slaves[i]->port);
+                    addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
                     nested_elements++;
                 }
                 setDeferredMultiBulkLength(c, nested_replylen, nested_elements);
