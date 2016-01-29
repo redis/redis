@@ -3821,7 +3821,7 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
                 addReplyMultiBulkLen(c, 3);
                 addReplyBulkCString(c, node->ip);
                 addReplyLongLong(c, node->port);
-                addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
+                addReplyBulkCBuffer(c, node->name, REDIS_CLUSTER_NAMELEN);
 
                 /* Remaining nodes in reply are replicas for slot range */
                 for (i = 0; i < node->numslaves; i++) {
