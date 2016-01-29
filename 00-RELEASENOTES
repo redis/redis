@@ -15,9 +15,6 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
 
 * [FIX] avg_ttl reporting in INFO improved. (Salvatore Sanfilippo)
-* [FIX] Sentinel: improve handling of known Sentinel instances.
-        (Salvatore Sanfilippo, thanks to Paweł Kowalczykf or the original
-         crash report).
 * [FIX] Redis Cluster address update (via gossip section) processing improved
         to avoid initiating inwanted handshakes.
 * [FIX] Many fixes to MIGRATE multiple keys implementation. The command
@@ -44,10 +41,6 @@ Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
 * [FIX] Redis-trib is now able to fix more errors. A new CLUSTER subcommand
         called BUMPEPOCH was introduced in order to support new modes
         for the "fix" subcommand. (Salvatore Sanfilippo)
-* [NEW] Redis proctected mode: this feature improves Redis security and makes
-        harder to run Redis in a configuration that is unsecure because no
-        firewalling was used in order to protect Redis from external accesses.
-        See this Reddit post for more info: https://www.reddit.com/r/redis/comments/3zv85m/new_security_feature_redis_protected_mode/ (Salvatore Sanfilippo)
 * [NEW] Cluster/Sentinel tests now use OSX leak to perform leak detection
         at the end of every unit. (Salvatore Sanfilippo)
 * [NEW] Detect and show server crashes during Cluster/Sentinel tests.
