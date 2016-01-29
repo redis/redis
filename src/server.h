@@ -61,7 +61,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
-#include "sparkline.h" /* ASII graphs API */
+#include "sparkline.h" /* ASCII graphs API */
 #include "quicklist.h"
 
 /* Following includes allow test functions to be called from Redis main() */
