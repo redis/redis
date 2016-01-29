@@ -1732,6 +1732,15 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 return 0;
             }
+
+            /* Update the node CLUSTER_NODE_NO_FAILOVER flag */
+            if(sender){
+                if(flags&CLUSTER_NODE_NO_FAILOVER){
+                    sender->flags |= CLUSTER_NODE_NO_FAILOVER;
+                }else{
+                    sender->flags &= ~CLUSTER_NODE_NO_FAILOVER;
+                }
+            }
         }
 
         /* Update the node address if it changed. */
@@ -2140,6 +2149,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
     hdr->port = htons(server.port);
     hdr->flags = htons(myself->flags);
+    if(server.cluster_slave_no_failover) hdr->flags |= CLUSTER_NODE_NO_FAILOVER;
     hdr->state = server.cluster->state;
 
     /* Set the currentEpoch and configEpochs. */
@@ -2589,6 +2599,7 @@ int clusterGetSlaveRank(void) {
     myoffset = replicationGetSlaveOffset();
     for (j = 0; j < master->numslaves; j++)
         if (master->slaves[j] != myself &&
+            !nodeNoFailover(master->slaves[j]) &&
             master->slaves[j]->repl_offset > myoffset) rank++;
     return rank;
 }
@@ -2730,7 +2741,8 @@ void clusterHandleSlaveFailover(void) {
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
-        myself->slaveof->numslots == 0)
+        myself->slaveof->numslots == 0 ||
+        (server.cluster_slave_no_failover && !manual_failover))
     {
         /* There are no reasons to failover, so we set the reason why we
          * are returning without failing over to NONE. */
