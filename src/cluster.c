@@ -3831,7 +3831,7 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
                     addReplyMultiBulkLen(c, 3);
                     addReplyBulkCString(c, node->slaves[i]->ip);
                     addReplyLongLong(c, node->slaves[i]->port);
-                    addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
+                    addReplyBulkCBuffer(c, node->slaves[i]->name, REDIS_CLUSTER_NAMELEN);
                     nested_elements++;
                 }
                 setDeferredMultiBulkLength(c, nested_replylen, nested_elements);
