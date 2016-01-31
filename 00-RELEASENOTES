@@ -33,11 +33,6 @@ Upgrade urgency MODERATE: this release fixes important Redis Cluster bugs.
         always be free to move keys between nodes about open slots, in order
         to reshard, fix the cluster configuration, and so forth.
         (Salvatore Sanfilippo)
-* [FIX] Lua debugger crash when printing too deeply nested objects.
-        (Reported by Paul Kulchenko, fixed by Salvatore Sanfilippo)
-* [FIX] Redis-cli implementation of Lua debugging now allows to use the
-        SCRIPT DEBUG command directly, switching to debugging mode as needed.
-        (Reported by Paul Kulchenko, fixed by Salvatore Sanfilippo)
 * [FIX] Redis-trib is now able to fix more errors. A new CLUSTER subcommand
         called BUMPEPOCH was introduced in order to support new modes
         for the "fix" subcommand. (Salvatore Sanfilippo)
