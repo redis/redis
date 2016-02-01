@@ -168,7 +168,7 @@ int clusterLoadConfig(char *filename) {
         if ((p = strrchr(argv[1],':')) == NULL) goto fmterr;
         *p = '\0';
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
-        this_is_broken();
+        // this_is_broken();
         char *busp = strchr(p+1,':');
         if (busp) *busp = '\0';
         n->port = atoi(p+1);
