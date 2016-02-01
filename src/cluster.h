@@ -100,7 +100,8 @@ typedef struct clusterNode {
     mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known port of this node */
+    int port;                   /* Latest known clients port of this node */
+    int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
@@ -171,10 +172,10 @@ typedef struct {
     uint32_t ping_sent;
     uint32_t pong_received;
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
-    uint16_t port;              /* port last time it was seen */
+    uint16_t port;              /* base port last time it was seen */
+    uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint16_t notused1;          /* Some room for future improvements. */
-    uint32_t notused2;
+    uint32_t notused1;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -219,13 +220,13 @@ union clusterMsgData {
     } update;
 };
 
-#define CLUSTER_PROTO_VER 0 /* Cluster bus protocol version. */
+#define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
 typedef struct {
     char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 0. */
-    uint16_t notused0;  /* 2 bytes not used. */
+    uint16_t port;      /* TCP base port number. */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
@@ -237,9 +238,10 @@ typedef struct {
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
-    char notused1[32];  /* 32 bytes reserved for future usage. */
-    uint16_t port;      /* Sender TCP base port */
-    uint16_t flags;     /* Sender node flags */
+    char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
+    char notused1[34];  /* 34 bytes reserved for future usage. */
+    uint16_t cport;      /* Sender TCP cluster bus port */
+    uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
     union clusterMsgData data;
