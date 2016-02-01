@@ -1224,7 +1224,7 @@ class RedisTrib
             exit 1
         end
 
-        # Handle soures == all.
+        # Handle sources == all.
         if sources == "all"
             sources = []
             @nodes.each{|n|
@@ -1260,7 +1260,7 @@ class RedisTrib
         }
     end
 
-    # This is an helper function for create_cluster_cmd that verifies if
+    # This is a helper function for create_cluster_cmd that verifies if
     # the number of nodes and the specified replicas have a valid configuration
     # where there are at least three master nodes and enough replicas per node.
     def check_create_parameters
@@ -1493,7 +1493,7 @@ class RedisTrib
     end
 
     # Parse the options for the specific command "cmd".
-    # Returns an hash populate with option => value pairs, and the index of
+    # Returns a hash populated with option => value pairs, and the index of
     # the first non-option argument in ARGV.
     def parse_options(cmd)
         idx = 1 ; # Current index into ARGV
@@ -1551,7 +1551,7 @@ end
 #################################################################################
 # Libraries
 #
-# We try to don't depend on external libs since this is a critical part
+# We try to not depend on external libs since this is a critical part
 # of Redis Cluster.
 #################################################################################
 
