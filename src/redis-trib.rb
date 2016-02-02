@@ -56,7 +56,7 @@ end
 
 class ClusterNode
     def initialize(addr)
-        s = addr.split(":")
+        s = addr.split("@")[0].split(":")
         if s.length < 2
            puts "Invalid IP or Port (given as #{addr}) - use IP:Port format"
            exit 1
