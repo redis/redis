@@ -47,7 +47,7 @@ proc CI {n field} {
     get_info_field [R $n cluster info] $field
 }
 
-# Assuming nodes are reest, this function performs slots allocation.
+# Assuming nodes are reset, this function performs slots allocation.
 # Only the first 'n' nodes are used.
 proc cluster_allocate_slots {n} {
     set slot 16383

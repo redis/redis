@@ -1,5 +1,5 @@
 # Test UPDATE messages sent by other nodes when the currently authorirative
-# master is unavaialble. The test is performed in the following steps:
+# master is unavailable. The test is performed in the following steps:
 #
 # 1) Master goes down.
 # 2) Slave failover and becomes new master.

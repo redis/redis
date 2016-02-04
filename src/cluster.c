@@ -956,7 +956,7 @@ uint64_t clusterGetMaxEpoch(void) {
  * cases:
  *
  * 1) When slots are closed after importing. Otherwise resharding would be
- *    too expansive.
+ *    too expensive.
  * 2) When CLUSTER FAILOVER is called with options that force a slave to
  *    failover its master even if there is not master majority able to
  *    create a new configuration epoch.
@@ -1806,7 +1806,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Many checks are only needed if the set of served slots this
          * instance claims is different compared to the set of slots we have
-         * for it. Check this ASAP to avoid other computational expansive
+         * for it. Check this ASAP to avoid other computational expensive
          * checks later. */
         clusterNode *sender_master = NULL; /* Sender or its master if slave. */
         int dirty_slots = 0; /* Sender claimed slots don't match my view? */
@@ -2654,7 +2654,7 @@ void clusterLogCantFailover(int reason) {
         break;
     }
     lastlog_time = time(NULL);
-    redisLog(REDIS_WARNING,"Currently unable to failover: %s", msg);
+    redisLog(REDIS_WARNING, "Currently unable to failover: %s", msg);
 }
 
 /* This function implements the final part of automatic and manual failovers,
@@ -3280,7 +3280,7 @@ void clusterCron(void) {
         replicationSetMaster(myself->slaveof->ip, myself->slaveof->port);
     }
 
-    /* Abourt a manual failover if the timeout is reached. */
+    /* Abort a manual failover if the timeout is reached. */
     manualFailoverCheckTimeout();
 
     if (nodeIsSlave(myself)) {
@@ -3302,7 +3302,7 @@ void clusterCron(void) {
 /* This function is called before the event handler returns to sleep for
  * events. It is useful to perform operations that must be done ASAP in
  * reaction to events fired but that are not safe to perform inside event
- * handlers, or to perform potentially expansive tasks that we need to do
+ * handlers, or to perform potentially expensive tasks that we need to do
  * a single time before replying to clients. */
 void clusterBeforeSleep(void) {
     /* Handle failover, this is needed when it is likely that there is already
