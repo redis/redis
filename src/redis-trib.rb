@@ -858,7 +858,7 @@ class RedisTrib
                 master = get_node_by_name(n.info[:replicate])
                 if !master
                     xputs "*** WARNING: #{n} claims to be slave of unknown node ID #{n.info[:replicate]}."
-                else
+                elsif !n.has_flag?('cant-be-master')
                     master.info[:replicas] << n
                 end
             end

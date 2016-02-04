@@ -16,6 +16,7 @@
 #define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
 #define REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
+#define REDIS_CLUSTER_DEFAULT_CAN_BE_ELECTED_AS_MASTER 1
 #define REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
@@ -55,6 +56,8 @@ typedef struct clusterLink {
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
 #define REDIS_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
+#define REDIS_NODE_CANT_BE_MASTER 512 /* Node not elegible for automatic
+                                         failover. */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & REDIS_NODE_MASTER)
@@ -64,6 +67,7 @@ typedef struct clusterLink {
 #define nodeWithoutAddr(n) ((n)->flags & REDIS_NODE_NOADDR)
 #define nodeTimedOut(n) ((n)->flags & REDIS_NODE_PFAIL)
 #define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
+#define nodeCanBeMaster(n) !((n)->flags & REDIS_NODE_CANT_BE_MASTER)
 
 /* Reasons why a slave is not able to failover. */
 #define REDIS_CLUSTER_CANT_FAILOVER_NONE 0
@@ -71,6 +75,7 @@ typedef struct clusterLink {
 #define REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
 #define REDIS_CLUSTER_CANT_FAILOVER_EXPIRED 3
 #define REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
+#define REDIS_CLUSTER_CANT_FAILOVER_CANT_BE_ELECTED 5
 #define REDIS_CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
 /* This structure represent elements of node->fail_reports. */
