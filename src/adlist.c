@@ -220,6 +220,8 @@ void listRewindTail(list *list, listIter *li) {
  * */
 listNode *listNext(listIter *iter)
 {
+    if (iter == NULL) return NULL;
+
     listNode *current = iter->next;
 
     if (current != NULL) {
