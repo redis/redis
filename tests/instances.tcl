@@ -317,7 +317,7 @@ proc end_tests {} {
         puts "GOOD! No errors."
         exit 0
     } else {
-        puts "WARNING $::failed tests faield."
+        puts "WARNING $::failed tests failed."
         exit 1
     }
 }
@@ -507,4 +507,3 @@ proc restart_instance {type id} {
         }
     }
 }
-

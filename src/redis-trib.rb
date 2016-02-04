@@ -1574,7 +1574,7 @@ module RedisClusterCRC16
     def RedisClusterCRC16.crc16(bytes)
         crc = 0
         bytes.each_byte{|b|
-            crc = ((crc<<8) & 0xffff) ^ XMODEMCRC16Lookup[((crc>>8)^b) & 0xff]
+            crc = ((crc << 8) & 0xffff) ^ XMODEMCRC16Lookup[((crc>>8)^b) & 0xff]
         }
         crc
     end
