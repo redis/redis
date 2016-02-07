@@ -192,6 +192,8 @@ int clusterLoadConfig(char *filename) {
                 n->flags |= REDIS_NODE_HANDSHAKE;
             } else if (!strcasecmp(s,"noaddr")) {
                 n->flags |= REDIS_NODE_NOADDR;
+            } else if (!strcasecmp(s,"empty-voter")) {
+                n->flags |= REDIS_NODE_CAN_BE_EMPTY_VOTER;
             } else if (!strcasecmp(s,"noflags")) {
                 /* nothing to do */
             } else {
@@ -1748,6 +1750,17 @@ int clusterProcessPacket(clusterLink *link) {
             link->node->pong_received = mstime();
             link->node->ping_sent = 0;
 
+            if ((flags & REDIS_NODE_CAN_BE_EMPTY_VOTER) !=
+                (link->node->flags & REDIS_NODE_CAN_BE_EMPTY_VOTER)) {
+              clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                                   CLUSTER_TODO_SAVE_CONFIG);
+            }
+            if (flags & REDIS_NODE_CAN_BE_EMPTY_VOTER) {
+                link->node->flags |= REDIS_NODE_CAN_BE_EMPTY_VOTER;
+            } else {
+                link->node->flags &= ~REDIS_NODE_CAN_BE_EMPTY_VOTER;
+            }
+
             /* The PFAIL condition can be reversed without external
              * help if it is momentary (that is, if it does not
              * turn into a FAIL state).
@@ -1930,7 +1943,8 @@ int clusterProcessPacket(clusterLink *link) {
         /* We consider this vote only if the sender is a master serving
          * a non zero number of slots, and its currentEpoch is greater or
          * equal to epoch where this node started the election. */
-        if (nodeIsMaster(sender) && sender->numslots > 0 &&
+        if (nodeIsMaster(sender) &&
+            (sender->numslots || nodeCanVoteEmpty(sender)) &&
             senderCurrentEpoch >= server.cluster->failover_auth_epoch)
         {
             server.cluster->failover_auth_count++;
@@ -2471,11 +2485,12 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     int force_ack = request->mflags[0] & CLUSTERMSG_FLAG0_FORCEACK;
     int j;
 
-    /* IF we are not a master serving at least 1 slot, we don't have the
-     * right to vote, as the cluster size in Redis Cluster is the number
-     * of masters serving at least one slot, and quorum is the cluster
-     * size + 1 */
-    if (nodeIsSlave(myself) || myself->numslots == 0) return;
+    /* If we are not a master serving at least 1 slot (and are can't vote as
+     * empty masters), we don't have the right to vote, as the cluster size in
+     * Redis Cluster is the number of masters serving at least one slot (plus
+     * empty votes), and quorum is half the cluster size + 1 */
+    if (nodeIsSlave(myself) ||
+        (myself->numslots == 0 && !nodeCanVoteEmpty(myself))) return;
 
     /* Request epoch must be >= our currentEpoch.
      * Note that it is impossible for it to actually be greater since
@@ -3080,6 +3095,13 @@ void clusterCron(void) {
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
 
+    /* Update myself's CAN_BE_EMPTY_VOTER flag, in case config changed. */
+    if (server.cluster_can_be_empty_voter) {
+        myself->flags |= REDIS_NODE_CAN_BE_EMPTY_VOTER;
+    } else {
+        myself->flags &= ~REDIS_NODE_CAN_BE_EMPTY_VOTER;
+    }
+
     /* Check if we have disconnected nodes and re-establish the connection. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -3482,7 +3504,8 @@ void clusterUpdateState(void) {
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
-            if (nodeIsMaster(node) && node->numslots) {
+            if (nodeIsMaster(node) &&
+                (node->numslots || nodeCanVoteEmpty(node))) {
                 server.cluster->size++;
                 if ((node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL)) == 0)
                     reachable_masters++;
@@ -3629,13 +3652,14 @@ struct redisNodeFlags {
 };
 
 static struct redisNodeFlags redisNodeFlagsTable[] = {
-    {REDIS_NODE_MYSELF,    "myself,"},
-    {REDIS_NODE_MASTER,    "master,"},
-    {REDIS_NODE_SLAVE,     "slave,"},
-    {REDIS_NODE_PFAIL,     "fail?,"},
-    {REDIS_NODE_FAIL,      "fail,"},
-    {REDIS_NODE_HANDSHAKE, "handshake,"},
-    {REDIS_NODE_NOADDR,    "noaddr,"}
+    {REDIS_NODE_MYSELF,             "myself,"},
+    {REDIS_NODE_MASTER,             "master,"},
+    {REDIS_NODE_SLAVE,              "slave,"},
+    {REDIS_NODE_PFAIL,              "fail?,"},
+    {REDIS_NODE_FAIL,               "fail,"},
+    {REDIS_NODE_HANDSHAKE,          "handshake,"},
+    {REDIS_NODE_NOADDR,             "noaddr,"},
+    {REDIS_NODE_CAN_BE_EMPTY_VOTER, "empty-voter,"}
 };
 
 /* Concatenate the comma separated list of node flags to the given SDS
@@ -3791,7 +3815,7 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
         int j = 0, start = -1;
 
         /* Skip slaves (that are iterated when producing the output of their
-         * master) and  masters not serving any slot. */
+         * master) and masters not serving any slot. */
         if (!nodeIsMaster(node) || node->numslots == 0) continue;
 
         for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {

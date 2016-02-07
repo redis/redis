@@ -468,6 +468,13 @@ void loadServerConfigFromString(char *config) {
                 err = "cluster slave validity factor must be zero or positive";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-can-be-empty-voter") &&
+                    argc == 2)
+        {
+            if ((server.cluster_can_be_empty_voter = yesnotoi(argv[1])) == -1)
+            {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
@@ -956,6 +963,11 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.cluster_require_full_coverage = yn;
+    } else if (!strcasecmp(c->argv[2]->ptr,"cluster-can-be-empty-voter")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.cluster_can_be_empty_voter = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"cluster-node-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -1080,6 +1092,8 @@ void configGetCommand(redisClient *c) {
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
             server.cluster_require_full_coverage);
+    config_get_bool_field("cluster-can-be-empty-voter",
+            server.cluster_can_be_empty_voter);
     config_get_bool_field("no-appendfsync-on-rewrite",
             server.aof_no_fsync_on_rewrite);
     config_get_bool_field("slave-serve-stale-data",
@@ -1852,6 +1866,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigYesNoOption(state,"cluster-require-full-coverage",server.cluster_require_full_coverage,REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE);
+    rewriteConfigYesNoOption(state,"cluster-can-be-empty-voter",server.cluster_can_be_empty_voter,REDIS_CLUSTER_DEFAULT_CAN_BE_CAN_BE_EMPTY_VOTER);
     rewriteConfigNumericalOption(state,"cluster-node-timeout",server.cluster_node_timeout,REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT);
     rewriteConfigNumericalOption(state,"cluster-migration-barrier",server.cluster_migration_barrier,REDIS_CLUSTER_DEFAULT_MIGRATION_BARRIER);
     rewriteConfigNumericalOption(state,"cluster-slave-validity-factor",server.cluster_slave_validity_factor,REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY);

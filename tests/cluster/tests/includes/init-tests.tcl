@@ -39,6 +39,7 @@ test "Cluster nodes hard reset" {
         R $id EXEC
         R $id config set cluster-node-timeout $node_timeout
         R $id config set cluster-slave-validity-factor 10
+        R $id config set cluster-can-be-empty-voter no
         R $id config rewrite
     }
 }

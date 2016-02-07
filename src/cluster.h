@@ -16,6 +16,7 @@
 #define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
 #define REDIS_CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE 1
+#define REDIS_CLUSTER_DEFAULT_CAN_BE_CAN_BE_EMPTY_VOTER 0
 #define REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
@@ -55,6 +56,8 @@ typedef struct clusterLink {
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
 #define REDIS_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
+#define REDIS_NODE_CAN_BE_EMPTY_VOTER 512 /* Node is allowed to vote, even
+                                             without slots. */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & REDIS_NODE_MASTER)
@@ -64,6 +67,7 @@ typedef struct clusterLink {
 #define nodeWithoutAddr(n) ((n)->flags & REDIS_NODE_NOADDR)
 #define nodeTimedOut(n) ((n)->flags & REDIS_NODE_PFAIL)
 #define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
+#define nodeCanVoteEmpty(n) ((n)->flags & REDIS_NODE_CAN_BE_EMPTY_VOTER)
 
 /* Reasons why a slave is not able to failover. */
 #define REDIS_CLUSTER_CANT_FAILOVER_NONE 0
@@ -109,7 +113,9 @@ typedef struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
-    int size;             /* Num of master nodes with at least one slot */
+    int size;             /* Num of master nodes with at least one slot,
+                             plus num of master nodes with zero slots but with
+                             flag CAN_BE_EMPTY_VOTER. */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];

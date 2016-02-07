@@ -128,3 +128,19 @@ proc cluster_write_test {id} {
     }
     $cluster close
 }
+
+# Set node as a voting master, even if empty
+proc cluster_can_be_empty_voter {id} {
+    set port [get_instance_attrib redis $id port]
+    set r [redis 127.0.0.1 $port]
+    $r config set cluster-can-be-empty-voter yes
+    $r close
+}
+
+# Set node as a voting master, only if not empty
+proc cluster_cant_be_empty_voter {id} {
+    set port [get_instance_attrib redis $id port]
+    set r [redis 127.0.0.1 $port]
+    $r config set cluster-can-be-empty-voter no
+    $r close
+}
