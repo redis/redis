@@ -665,7 +665,7 @@ static int cliReadReply(int output_raw_strings) {
         p = strchr(s+1,' ');    /* MOVED[S]3999[P]127.0.0.1:6381 */
         *p = '\0';
         slot = atoi(s+1);
-        s = strchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
+        s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
         sdsfree(config.hostip);
         config.hostip = sdsnew(p+1);
