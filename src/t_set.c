@@ -381,6 +381,36 @@ void sismemberCommand(client *c) {
         addReply(c,shared.czero);
 }
 
+void smismemberCommand(client *c) {
+    robj *set;
+    int j;
+
+    /* Don't abort when the key cannot be found. Non-existing keys are empty
+     * sets, where SMISMEMBER should respond with a series of zeros. */
+    set = lookupKeyRead(c->db,c->argv[1]);
+    if (set != NULL && set->type != OBJ_SET) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    addReplyMultiBulkLen(c,c->argc-2);
+
+    /* Non-existing key */
+    if (set == NULL) {
+        for (j = 2; j < c->argc; j++) {
+            addReply(c,shared.czero);
+        }
+        return;
+    }
+
+    for (j = 2; j < c->argc; j++) {
+        if (setTypeIsMember(set,c->argv[j]->ptr))
+            addReply(c,shared.cone);
+        else
+            addReply(c,shared.czero);
+    }
+}
+
 void scardCommand(client *c) {
     robj *o;
 
