@@ -115,6 +115,10 @@ typedef struct sentinelAddr {
 #define SENTINEL_SCRIPT_MAX_RETRY 10
 #define SENTINEL_SCRIPT_RETRY_DELAY 30000 /* 30 seconds between retries. */
 
+ /* Default command names */
+ #define SENTINEL_CONFIG_COMMAND "CONFIG"
+ #define SENTINEL_SLAVEOF_COMMAND "SLAVEOF"
+
 typedef struct sentinelRedisInstance {
     int flags;      /* See SRI_... defines */
     char *name;     /* Master name from the point of view of this sentinel. */
@@ -190,6 +194,8 @@ typedef struct sentinelRedisInstance {
      * are set to NULL no script is executed. */
     char *notification_script;
     char *client_reconfig_script;
+    char *config_command;    /* CONFIG command sent to redis instancees */
+    char *slave_of_command;   /* SLAVEOF command sent to redis instancees */
 } sentinelRedisInstance;
 
 /* Main state. */
@@ -985,6 +991,10 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
 
+    /* Commands */
+    ri->config_command = SENTINEL_CONFIG_COMMAND;
+    ri->slave_of_command = SENTINEL_SLAVEOF_COMMAND;
+
     /* Role */
     ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
     ri->role_reported_time = mstime();
@@ -1387,6 +1397,16 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->auth_pass = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"rename-config") && argc == 3) {
+        /* rename-config <name> <config-name> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->config_command = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"rename-slaveof") && argc == 3) {
+        /* rename-slaveof <name> <slaveof-name> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->slave_of_command = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"current-epoch") && argc == 2) {
         /* current-epoch <epoch> */
         unsigned long long current_epoch = strtoull(argv[1],NULL,10);
@@ -1513,6 +1533,22 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             line = sdscatprintf(sdsempty(),
                 "sentinel auth-pass %s %s",
                 master->name, master->auth_pass);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
+        /* sentinel rename-config */
+        if (master->config_command != SENTINEL_CONFIG_COMMAND) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel rename-config %s %s",
+                master->name, master->config_command);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
+        /* sentinel rename-slaveof */
+        if (master->slave_of_command != SENTINEL_SLAVEOF_COMMAND) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel rename-slaveof %s %s",
+                master->name, master->slave_of_command);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
@@ -2995,6 +3031,16 @@ void sentinelSetCommand(redisClient *c) {
                 goto badfmt;
             ri->quorum = ll;
             changes++;
+       } else if (!strcasecmp(option,"rename-config")) {
+            /* rename-config <config-name> */
+            sdsfree(ri->config_command);
+            ri->config_command = strlen(value) ? sdsnew(value) : SENTINEL_CONFIG_COMMAND;
+            changes++;
+       } else if (!strcasecmp(option,"rename-slaveof")) {
+            /* rename-slaveof <slaveof-name> */
+            sdsfree(ri->slave_of_command);
+            ri->slave_of_command = strlen(value) ? sdsnew(value) : SENTINEL_SLAVEOF_COMMAND;
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option '%s' for SENTINEL SET",
                 option);
@@ -3390,12 +3436,12 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     ri->pending_commands++;
 
     retval = redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %s", host, portstr);
+        sentinelDiscardReplyCallback, NULL, "%s %s %s", ri->master->slave_of_command, host, portstr);
     if (retval == REDIS_ERR) return retval;
     ri->pending_commands++;
 
     retval = redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "CONFIG REWRITE");
+        sentinelDiscardReplyCallback, NULL, "%s REWRITE", ri->master->config_command);
     if (retval == REDIS_ERR) return retval;
     ri->pending_commands++;
 
@@ -3955,4 +4001,3 @@ void sentinelTimer(void) {
      * election because of split brain voting). */
     server.hz = REDIS_DEFAULT_HZ + rand() % REDIS_DEFAULT_HZ;
 }
-
