@@ -445,3 +445,26 @@ eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
 
+##What to Use Redis for and When to Use It
+-----------------------------------------------------
+
+Redis is fast and easy to set up, may be, you can use as no-Sql database, but also, in most cases , you can add it to you stack, whatever database your are using, especially if you want to improve the performances, or to  add new  features to applications already in production.
+It has a large number of feature that you can use,  to do things that are  too slow or impossible to do with your existing database. Here some use cases' families you can solve without being Redis your primary database. 
+
+ - Session cache and Full page cache
+ - 
+	 One of the mostly used use cases is session cache. There are others in-memory session store , such as Menchached, but the advantage of Redis, is his disk persistence. Could be useful in the case of cart session management. Over session management, with disk persistence, you can cache full pages! your users won't see a decrease in speed for their page loads.  Even for CMS, there were already many plugins, that use Redis in this way.
+	 
+ - Pub/Sub
+
+	 Redis implements the Publish/Subscribe messaging paradigm in a stable, and fast manner. The uses of this paradigm are almost boundless! Some examples: Use it for social media connections; scripts triggering and for built a chat! It also  supports pattern matching, ability to subscribe/unsubscribe to channels on the run and other.
+	 
+ - Queue
+	
+	Over the push and pop commands , Redis has blocking variants of list pop commands that will block if a list is empty! It is also quite easy using sorted sets it is possible to implement priority queues.
+	
+ - Leaderboars and realtime analyitics
+
+	You can use Redis for anti spam filtering, real time traking, or manage sets sorted by score like leaderboards, or similar.
+
+As you can see, Redis, has a very wide range of uses! Try it and be one of the thousand developers that uses it every day!
