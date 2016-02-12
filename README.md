@@ -446,7 +446,7 @@ eventually you'll find your way inside the Redis code base :-)
 Enjoy!
 
 ##What to Use Redis for and When to Use It
------------------------------------------------------
+
 
 Redis is fast and easy to set up, may be, you can use as no-Sql database, but also, in most cases , you can add it to you stack, whatever database your are using, especially if you want to improve the performances, or to  add new  features to applications already in production.
 It has a large number of feature that you can use,  to do things that are  too slow or impossible to do with your existing database. Here some use cases' families you can solve without being Redis your primary database. 
