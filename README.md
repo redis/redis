@@ -452,7 +452,7 @@ Redis is fast and easy to set up, may be, you can use as no-Sql database, but al
 It has a large number of feature that you can use,  to do things that are  too slow or impossible to do with your existing database. Here some use cases' families you can solve without being Redis your primary database. 
 
  - Session cache and Full page cache
- - 
+ 
 	 One of the mostly used use cases is session cache. There are others in-memory session store , such as Menchached, but the advantage of Redis, is his disk persistence. Could be useful in the case of cart session management. Over session management, with disk persistence, you can cache full pages! your users won't see a decrease in speed for their page loads.  Even for CMS, there were already many plugins, that use Redis in this way.
 	 
  - Pub/Sub
