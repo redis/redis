@@ -20,6 +20,13 @@ If you want to know more, this is a list of selected starting points:
 * The full list of Redis commands. http://redis.io/commands
 * There is much more inside the Redis official documentation. http://redis.io/documentation
 
+What to use Redis for and when to use it
+--------------
+
+For those that are new to programming, Redis is a data structure key-value store very similar to MySQL, but is not a relational database. With Redis storage capabilities you are allowed to store data in set key-value pairs, and ultimately, access that data by request. Redis allows you to use five different data structures including strings, hashes, lists, ordered sets and sets. The data type doesn’t matter when storing and accessing data. What does matter is the storage structure where the values will be stored and accessible by a key.
+
+Redis is a great choice if you need a scalable key-value store that can be shared by multiple processes and applications. It enables you to communicate cross-platform, cross-application or cross-server and can also be used as a cache for MySQL data. Redis is best used to access data quickly when the need for relational data structure is not necessary. This could be when session data in a dynamic web page is needed instantaneously and frequently.
+
 Building Redis
 --------------
 
