@@ -20,6 +20,16 @@ If you want to know more, this is a list of selected starting points:
 * The full list of Redis commands. http://redis.io/commands
 * There is much more inside the Redis official documentation. http://redis.io/documentation
 
+##An Introduction to Redis
+
+Redis is an acronym for *REmote DIctionary Server*. It is often considered to be a data structures server, because it allows one to make use of a number of simple data structures. These include strings, hashes, lists, sets, sorted sets, bit arrays and HyperLogLogs. These data structures can be accessed using a set of commands via a *server-client* model with TCP sockets and a simple protocol.
+
+Redis is an in memory database. What this means is that data structures are stored in memory. One of the benefits of storing data this way is it ensures that response times are fast. However, Redis also periodically takes snapshots which are added to a hard disk. This means that Redis is non-volatile, or in other words content is not lost when power is lost. 
+
+Redis has been developed and tested mostly on the Linux and OS X operating systems. Linux is the recommended operating system for deploying Redis.
+
+For more detailed documentation on Redis visit [http://redis.io](http://redis.io)
+
 Building Redis
 --------------
 
