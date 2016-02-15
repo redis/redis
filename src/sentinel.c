@@ -2157,7 +2157,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             sentinelEvent(LL_WARNING,"+failover-state-reconf-slaves",
                 ri->master,"%@");
             sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
-                "start",ri->master->addr,ri->addr);
+                "promoted",ri->master->addr,ri->addr);
             sentinelForceHelloUpdateForMaster(ri->master);
         } else {
             /* A slave turned into a master. We want to force our view and
@@ -2398,7 +2398,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                 old_addr = dupSentinelAddr(master->addr);
                 sentinelResetMasterAndChangeAddress(master, token[5], master_port);
                 sentinelCallClientReconfScript(master,
-                    SENTINEL_OBSERVER,"start",
+                    SENTINEL_OBSERVER,"updated",
                     old_addr,master->addr);
                 releaseSentinelAddr(old_addr);
             }
