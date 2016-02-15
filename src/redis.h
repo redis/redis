@@ -1087,7 +1087,7 @@ void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
 int getClientType(redisClient *c);
 int getClientTypeByName(char *name);
-char *getClientTypeName(int class);
+char *getClientTypeName(int IF_WIN32(_class,class));
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);

@@ -37,6 +37,7 @@ typedef unsigned long nfds_t;
 #include <WinSock2.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <sys/stat.h>
 
 // Including a version of this file modified to eliminate prototype
 // definitions not removed by INCL_WINSOCK_API_PROTOTYPES

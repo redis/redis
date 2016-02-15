@@ -37,7 +37,9 @@
 
 #ifdef _WIN32
 #define inline __inline
-#define snprintf _snprintf
+#if (_MSC_VER <= 1800)
+	#define snprintf _snprintf
+#endif
 #endif
 
 /* Lua CJSON assumes the locale is the same for all threads within a
