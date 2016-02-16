@@ -32,24 +32,44 @@
 #define __ADLIST_H__
 
 /* Node, List, and Iterator are the only data structures used currently. */
-
+/*
+ * 列表节点结构体
+ * 描述了列表中每一个节点的内容
+ */
 typedef struct listNode {
+    //上一个节点的指针
     struct listNode *prev;
+    //下一个节点的指针
     struct listNode *next;
+    //节点值的指针
     void *value;
 } listNode;
 
+/*
+ * 列表迭代器的结构体
+ */
 typedef struct listIter {
+    //下一个节点的指针
     listNode *next;
+    //迭代器指向
     int direction;
 } listIter;
 
+/*
+ *列表的结构体
+ */
 typedef struct list {
+    //表头
     listNode *head;
+    //表尾
     listNode *tail;
+    //复制回调函数指针
     void *(*dup)(void *ptr);
+    //清空回调函数指针
     void (*free)(void *ptr);
+    //比对回调函数指针
     int (*match)(void *ptr, void *key);
+    //节点个数
     unsigned long len;
 } list;
 
@@ -87,7 +107,8 @@ void listRewindTail(list *list, listIter *li);
 void listRotate(list *list);
 
 /* Directions for iterators */
-#define AL_START_HEAD 0
-#define AL_START_TAIL 1
+/*迭代器方向*/
+#define AL_START_HEAD 0 //从头指向为
+#define AL_START_TAIL 1 //从尾指向头
 
 #endif /* __ADLIST_H__ */
