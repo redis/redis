@@ -63,6 +63,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASCII graphs API */
 #include "quicklist.h"
+#include "acls.h"
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
@@ -616,6 +617,7 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
+    acl_t acls[ACL_ARRAY_NUM];              /* Client ACLs */
 } client;
 
 struct saveparam {
@@ -631,7 +633,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
-    *rpop, *lpop, *lpush, *emptyscan,
+    *rpop, *lpop, *lpush, *emptyscan, *notallowedacl,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -756,7 +758,7 @@ struct redisServer {
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand, *execCommand;
+                        *rpopCommand, *sremCommand, *execCommand, *authCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -878,6 +880,7 @@ struct redisServer {
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
+    char *masteruser;               /* AUTH with this user with master */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
     int masterport;                 /* Port of master */
@@ -986,6 +989,12 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
+
+    /* CMD ACLs */
+    acl_t default_acls[ACL_ARRAY_NUM];
+    char *aclfile;                  /* Path of acl file */
+    dict *acls;                 /* acl tables */
+    int use_cmd_acls;           /* flag for cmd acls */
 };
 
 typedef struct pubsubPattern {
@@ -1009,6 +1018,14 @@ struct redisCommand {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
+    int aclindex;
+    acl_t aclvalue;
+};
+
+struct aclAuth {
+	char *id;
+	char *pass;
+	int acl;
 };
 
 struct redisFunctionSym {
@@ -1321,6 +1338,7 @@ void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
+struct redisCommand *lookupCommandOrOriginalByCString(char *s);
 void call(client *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);

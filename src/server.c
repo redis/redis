@@ -32,6 +32,7 @@
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
+#include "acls.h"
 
 #include <time.h>
 #include <signal.h>
@@ -123,182 +124,226 @@ struct redisServer server; /* server global state */
  *    are not fast commands.
  */
 struct redisCommand redisCommandTable[] = {
-    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
-    {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
-    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
-    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0},
-    {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
-    {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
-    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
-    {"mget",mgetCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"rpushx",rpushxCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"lpushx",lpushxCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0},
-    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"brpop",brpopCommand,-3,"ws",0,NULL,1,1,1,0,0},
-    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0},
-    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
-    {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0},
-    {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0},
-    {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0},
-    {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0},
-    {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0},
-    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0},
-    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zunionstore",zunionstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0},
-    {"zinterstore",zinterstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0},
-    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrangebyscore",zrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrangebylex",zrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrevrangebylex",zrevrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0},
-    {"zlexcount",zlexcountCommand,4,"rF",0,NULL,1,1,1,0,0},
-    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
-    {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
-    {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},
-    {"select",selectCommand,2,"rlF",0,NULL,0,0,0,0,0},
-    {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0},
-    {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0},
-    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
-    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
-    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
-    {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0},
-    {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0},
-    {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"arlt",0,NULL,0,0,0,0,0},
-    {"lastsave",lastsaveCommand,1,"rRF",0,NULL,0,0,0,0,0},
-    {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"multi",multiCommand,1,"rsF",0,NULL,0,0,0,0,0},
-    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
-    {"discard",discardCommand,1,"rsF",0,NULL,0,0,0,0,0},
-    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
-    {"replconf",replconfCommand,-1,"arslt",0,NULL,0,0,0,0,0},
-    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
-    {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
-    {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
-    {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
-    {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
-    {"publish",publishCommand,3,"pltrF",0,NULL,0,0,0,0,0},
-    {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0},
-    {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0},
-    {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0},
-    {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
-    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"w",0,migrateGetKeys,0,0,0,0,0},
-    {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
-    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
-    {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0},
-    {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0},
-    {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
-    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
-    {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
-    {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
-    {"georadius",georadiusCommand,-6,"r",0,NULL,1,1,1,0,0},
-    {"georadiusbymember",georadiusByMemberCommand,-5,"r",0,NULL,1,1,1,0,0},
-    {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
-    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
-    {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0}
+    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(0)},
+    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(1)},
+    {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(2)},
+    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(3)},
+    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(4)},
+    {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(5)},
+    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(6)},
+    {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0,0,CMD_ACL_VALUE(7)},
+    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0,0,CMD_ACL_VALUE(8)},
+    {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0,0,CMD_ACL_VALUE(9)},
+    {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(10)},
+    {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(11)},
+    {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(12)},
+    {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(13)},
+    {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(14)},
+    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(15)},
+    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(16)},
+    {"mget",mgetCommand,-2,"r",0,NULL,1,-1,1,0,0,0,CMD_ACL_VALUE(17)},
+    {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(18)},
+    {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(19)},
+    {"rpushx",rpushxCommand,3,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(20)},
+    {"lpushx",lpushxCommand,3,"wmF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(21)},
+    {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(22)},
+    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(23)},
+    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(24)},
+    {"brpop",brpopCommand,-3,"ws",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(25)},
+    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0,0,CMD_ACL_VALUE(26)},
+    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0,0,CMD_ACL_VALUE(27)},
+    {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(28)},
+    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(29)},
+    {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(30)},
+    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0,0,CMD_ACL_VALUE(31)},
+    {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(0)},
+    {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(1)},
+    {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0,1,CMD_ACL_VALUE(2)},
+    {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(3)},
+    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(4)},
+    {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0,1,CMD_ACL_VALUE(5)},
+    {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(6)},
+    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(7)},
+    {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(8)},
+    {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(9)},
+    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(10)},
+    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(11)},
+    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(12)},
+    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(13)},
+    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(14)},
+    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,1,CMD_ACL_VALUE(15)},
+    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(16)},
+    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(17)},
+    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(18)},
+    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(19)},
+    {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(20)},
+    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(21)},
+    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(22)},
+    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(23)},
+    {"zunionstore",zunionstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,1,CMD_ACL_VALUE(24)},
+    {"zinterstore",zinterstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,1,CMD_ACL_VALUE(25)},
+    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(26)},
+    {"zrangebyscore",zrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(27)},
+    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(28)},
+    {"zrangebylex",zrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(29)},
+    {"zrevrangebylex",zrevrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(30)},
+    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0,1,CMD_ACL_VALUE(31)},
+    {"zlexcount",zlexcountCommand,4,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(0)},
+    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(1)},
+    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(2)},
+    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(3)},
+    {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(4)},
+    {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(5)},
+    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(6)},
+    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(7)},
+    {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(8)},
+    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(9)},
+    {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(10)},
+    {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(11)},
+    {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(12)},
+    {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(13)},
+    {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(14)},
+    {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(15)},
+    {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(16)},
+    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(17)},
+    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(18)},
+    {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(19)},
+    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(20)},
+    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(21)},
+    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(22)},
+    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(23)},
+    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(24)},
+    {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(25)},
+    {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0,2,CMD_ACL_VALUE(26)},
+    {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0,2,CMD_ACL_VALUE(27)},
+    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0,2,CMD_ACL_VALUE(28)},
+    {"select",selectCommand,2,"rlF",0,NULL,0,0,0,0,0,2,CMD_ACL_VALUE(29)},
+    {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0,2,CMD_ACL_VALUE(30)},
+    {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0,2,CMD_ACL_VALUE(31)},
+    {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0,3,CMD_ACL_VALUE(0)},
+    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(1)},
+    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(2)},
+    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(3)},
+    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(4)},
+    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(5)},
+    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(6)},
+    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(7)},
+    {"auth",authCommand,-2,"rsltF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(8)},
+    {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(9)},
+    {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(10)},
+    {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(11)},
+    {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(12)},
+    {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(13)},
+    {"shutdown",shutdownCommand,-1,"arlt",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(14)},
+    {"lastsave",lastsaveCommand,1,"rRF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(15)},
+    {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(16)},
+    {"multi",multiCommand,1,"rsF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(17)},
+    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(18)},
+    {"discard",discardCommand,1,"rsF",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(19)},
+    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(20)},
+    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(21)},
+    {"replconf",replconfCommand,-1,"arslt",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(22)},
+    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(23)},
+    {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(24)},
+    {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0,3,CMD_ACL_VALUE(25)},
+    {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(26)},
+    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(27)},
+    {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(28)},
+    {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(29)},
+    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0,3,CMD_ACL_VALUE(30)},
+    {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0,3,CMD_ACL_VALUE(31)},
+    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(0)},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(1)},
+    {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(2)},
+    {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(3)},
+    {"unsubscribe",unsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(4)},
+    {"psubscribe",psubscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(5)},
+    {"punsubscribe",punsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(6)},
+    {"publish",publishCommand,3,"pltrF",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(7)},
+    {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(8)},
+    {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0,4,CMD_ACL_VALUE(9)},
+    {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(10)},
+    {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(11)},
+    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(12)},
+    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(13)},
+    {"migrate",migrateCommand,-6,"w",0,migrateGetKeys,0,0,0,0,0,4,CMD_ACL_VALUE(14)},
+    {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(15)},
+    {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(16)},
+    {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(17)},
+    {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(18)},
+    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0,4,CMD_ACL_VALUE(19)},
+    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(20)},
+    {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,4,CMD_ACL_VALUE(21)},
+    {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,4,CMD_ACL_VALUE(22)},
+    {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(23)},
+    {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(24)},
+    {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(25)},
+    {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0,4,CMD_ACL_VALUE(26)},
+    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(27)},
+    {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(28)},
+    {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(29)},
+    {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0,4,CMD_ACL_VALUE(30)},
+    {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0,4,CMD_ACL_VALUE(31)},
+    {"georadius",georadiusCommand,-6,"r",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(0)},
+    {"georadiusbymember",georadiusByMemberCommand,-5,"r",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(1)},
+    {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(2)},
+    {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(3)},
+    {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(4)},
+    {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0,5,CMD_ACL_VALUE(5)},
+    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0,5,CMD_ACL_VALUE(6)},
+    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0,5,CMD_ACL_VALUE(7)},
+    {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0,5,CMD_ACL_VALUE(8)},
+    {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0,5,CMD_ACL_VALUE(9)},
+    {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0,5,CMD_ACL_VALUE(10)}
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);
 
 /*============================ Utility functions ============================ */
+
+void initializeAcls() {
+    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+
+    aclGroup *readOnlyGroup = aclGroups + 0;
+    aclGroup *writeGroup = aclGroups + 1;
+    aclGroup *slowGroup = aclGroups + 2;
+    aclGroup *adminGroup = aclGroups + 3;
+    aclGroup *pubsubGroup = aclGroups + 4;
+    aclGroup *scriptGroup = aclGroups + 5;
+    aclGroup *allGroup = aclGroups + 6;
+
+    acl_t v = 0;
+
+    for (int j = 0; j < numcommands; j++) {
+        struct redisCommand *c = redisCommandTable+j;
+        int aclindex = c->aclindex;
+        v = c->aclvalue;
+
+        if (c->flags & CMD_READONLY) {
+            readOnlyGroup->acls[aclindex] |= v;
+        }
+        if (c->flags & CMD_WRITE) {
+            writeGroup->acls[aclindex] |= v;
+        }
+        if ((c->flags & CMD_FAST) == 0) {
+            slowGroup->acls[aclindex] |= v;
+        }
+        if (c->flags & CMD_ADMIN) {
+            adminGroup->acls[aclindex] |= v;
+        }
+        if (c->flags & CMD_PUBSUB) {
+            pubsubGroup->acls[aclindex] |= v;
+        }
+        if ((c->flags & CMD_NOSCRIPT) == 0) {
+            scriptGroup->acls[aclindex] |= v;
+        }
+
+        allGroup->acls[aclindex] |= v;
+    }
+
+    setAcls(server.default_acls, allGroup->acls);
+} 
+
 
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
@@ -1404,6 +1449,8 @@ void createSharedObjects(void) {
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
+    shared.notallowedacl = createObject(OBJ_STRING,sdsnew(
+        "-ACL Not allowed ACL command.\r\n"));
 
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
@@ -1541,6 +1588,7 @@ void initServerConfig(void) {
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
     /* Replication related */
+    server.masteruser = NULL;
     server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;
@@ -1587,6 +1635,7 @@ void initServerConfig(void) {
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
+    server.acls = dictCreate(&commandTableDictType,NULL);
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
@@ -1595,6 +1644,7 @@ void initServerConfig(void) {
     server.rpopCommand = lookupCommandByCString("rpop");
     server.sremCommand = lookupCommandByCString("srem");
     server.execCommand = lookupCommandByCString("exec");
+    server.authCommand = lookupCommandByCString("auth");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
@@ -1609,6 +1659,10 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+
+    /* ACLs */
+    server.use_cmd_acls = 0;
+    server.aclfile = NULL;
 }
 
 extern char **environ;
@@ -1984,6 +2038,11 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    initializeAcls();
+    if (server.use_cmd_acls) {
+        loadAcls(server.aclfile);
+    }
+
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
@@ -2333,6 +2392,15 @@ void call(client *c, int flags) {
     server.stat_numcommands++;
 }
 
+#define HAS_PERMISSION(acls, index, permission) ((acls[index] & permission) == permission)
+int isAllowedACL(client *c) {
+    if (c->cmd == server.authCommand) {
+        return 1;
+    }
+
+    return HAS_PERMISSION(c->acls, c->cmd->aclindex, c->cmd->aclvalue);
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -2421,6 +2489,12 @@ int processCommand(client *c) {
             addReply(c, shared.oomerr);
             return C_OK;
         }
+    }
+
+    if (isAllowedACL(c) == 0) {
+        flagTransaction(c);
+        addReply(c, shared.notallowedacl);
+        return C_OK;        
     }
 
     /* Don't accept write commands if there are problems persisting on disk
@@ -2658,15 +2732,45 @@ int time_independent_strcmp(char *a, char *b) {
     return diff; /* If zero strings are the same. */
 }
 
+int checkpasswd(char *passwd1, char *passwd2) {
+    return strcmp(passwd1, passwd2) == 0;
+}
+
 void authCommand(client *c) {
-    if (!server.requirepass) {
-        addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
-      c->authenticated = 1;
-      addReply(c,shared.ok);
+    if (server.use_cmd_acls && c->argc != 3) {
+        addReplyError(c, "wrong number of arguments for 'auth(use_cmd_acl)' command");
+        return;
+    } else if (server.use_cmd_acls == 0 && c->argc != 2) {
+        addReplyError(c, "wrong number of arguments for 'auth' command");
+        return;
+    } 
+
+    if (c->argc == 2) {
+        if (!server.requirepass) {
+            addReplyError(c,"Client sent AUTH, but no password is set");
+        } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
+            c->authenticated = 1;
+            addReply(c,shared.ok);
+        } else {
+            c->authenticated = 0;
+            addReplyError(c,"invalid password");
+        }
     } else {
-      c->authenticated = 0;
-      addReplyError(c,"invalid password");
+        char *userName = c->argv[1]->ptr;
+        if (strcmp(userName, ACL_DEFAULT_USER_NAME) == 0) {
+            addReplyError(c,"You can't AUTH with default");
+            return;
+        }
+
+        userAcl *user = getUserAcl(userName);
+        if (user != NULL && checkpasswd(user->passwd, c->argv[2]->ptr)) {
+            setAcls(c->acls, user->acls); 
+            c->authenticated = 1;
+            addReply(c,shared.ok);
+        } else {
+            c->authenticated = 0;
+            addReplyError(c,"invalid user or password");
+        }
     }
 }
 
