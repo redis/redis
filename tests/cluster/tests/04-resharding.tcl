@@ -59,6 +59,7 @@ array set content {}
 set tribpid {}
 
 test "Cluster consistency during live resharding" {
+    set ele 0
     for {set j 0} {$j < $numops} {incr j} {
         # Trigger the resharding once we execute half the ops.
         if {$tribpid ne {} &&
@@ -86,7 +87,7 @@ test "Cluster consistency during live resharding" {
         # Write random data to random list.
         set listid [randomInt $numkeys]
         set key "key:$listid"
-        set ele [randomValue]
+        incr ele
         # We write both with Lua scripts and with plain commands.
         # This way we are able to stress Lua -> Redis command invocation
         # as well, that has tests to prevent Lua to write into wrong
@@ -115,7 +116,9 @@ test "Cluster consistency during live resharding" {
 test "Verify $numkeys keys for consistency with logical content" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
-        assert {[$cluster lrange $key 0 -1] eq $value}
+        if {[$cluster lrange $key 0 -1] ne $value} {
+            fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
+        }
     }
 }
 
@@ -133,7 +136,9 @@ test "Cluster should eventually be up again" {
 test "Verify $numkeys keys after the crash & restart" {
     # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
-        assert {[$cluster lrange $key 0 -1] eq $value}
+        if {[$cluster lrange $key 0 -1] ne $value} {
+            fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
+        }
     }
 }
 
