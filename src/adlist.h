@@ -74,19 +74,29 @@ typedef struct list {
 } list;
 
 /* Functions implemented as macros */
+//获取列表节点个数
 #define listLength(l) ((l)->len)
+//获取列表表头
 #define listFirst(l) ((l)->head)
+//获取列表表尾
 #define listLast(l) ((l)->tail)
+//获取前一个节点
 #define listPrevNode(n) ((n)->prev)
+//获取后一个节点
 #define listNextNode(n) ((n)->next)
+//获取节点值
 #define listNodeValue(n) ((n)->value)
-
+//设置列表的复制回调
 #define listSetDupMethod(l,m) ((l)->dup = (m))
+//设置列表的清空回调
 #define listSetFreeMethod(l,m) ((l)->free = (m))
+//设置列表的比较回调
 #define listSetMatchMethod(l,m) ((l)->match = (m))
-
+//获取列表的复制回调函数指针
 #define listGetDupMethod(l) ((l)->dup)
+//获取列表的清空回调函数指针
 #define listGetFree(l) ((l)->free)
+//获取列表的比较回调函数指针
 #define listGetMatchMethod(l) ((l)->match)
 
 /* Prototypes */
