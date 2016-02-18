@@ -767,6 +767,6 @@ void geodistCommand(client *c) {
     if (!decodeGeohash(score1,xyxy) || !decodeGeohash(score2,xyxy+2))
         addReply(c,shared.nullbulk);
     else
-        addReplyDouble(c,
+        addReplyDoubleDistance(c,
             geohashGetDistance(xyxy[0],xyxy[1],xyxy[2],xyxy[3]) / to_meter);
 }
