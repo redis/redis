@@ -479,6 +479,15 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
+/* Add a long double as a bulk reply, but uses a human readable formatting
+ * of the double instead of exposing the crude behavior of doubles to the
+ * dear user. */
+void addReplyHumanLongDouble(client *c, long double d) {
+    robj *o = createStringObjectFromLongDouble(d,1);
+    addReplyBulk(c,o);
+    decrRefCount(o);
+}
+
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
