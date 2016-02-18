@@ -615,6 +615,8 @@ void georadiusGeneric(client *c, int type) {
             robj *ele = createObject(OBJ_STRING,gp->member);
 
             if (maxelelen < elelen) maxelelen = elelen;
+            incrRefCount(ele); /* Set refcount to 2 since we reference the
+                                  object both in the skiplist and dict. */
             znode = zslInsert(zs->zsl,score,ele);
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
             gp->member = NULL;
