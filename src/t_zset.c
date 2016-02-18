@@ -1166,6 +1166,18 @@ void zsetConvert(robj *zobj, int encoding) {
     }
 }
 
+/* Convert the sorted set object into a ziplist if it is not already a ziplist
+ * and if the number of elements and the maximum element size is within the
+ * expected ranges. */
+void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen) {
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) return;
+    zset *zset = zobj->ptr;
+
+    if (zset->zsl->length <= server.zset_max_ziplist_entries &&
+        maxelelen <= server.zset_max_ziplist_value)
+            zsetConvert(zobj,OBJ_ENCODING_ZIPLIST);
+}
+
 /* Return (by reference) the score of the specified member of the sorted set
  * storing it into *score. If the element does not exist C_ERR is returned
  * otherwise C_OK is returned and *score is correctly populated.
@@ -2142,11 +2154,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         server.dirty++;
     }
     if (dstzset->zsl->length) {
-        /* Convert to ziplist when in limits. */
-        if (dstzset->zsl->length <= server.zset_max_ziplist_entries &&
-            maxelelen <= server.zset_max_ziplist_value)
-                zsetConvert(dstobj,OBJ_ENCODING_ZIPLIST);
-
+        zsetConvertToZiplistIfNeeded(dstobj,maxelelen);
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c,zsetLength(dstobj));
         if (!touched) signalModifiedKey(c->db,dstkey);
