@@ -153,7 +153,7 @@ public:
         // save [seconds] [changes]
         // or 
         // save ""      -- turns off RDB persistence
-        if (strcmp(argv[argIndex], "\"\"") == 0 || strcmp(argv[argIndex], "''") == 0) {
+        if (strcmp(argv[argIndex], "\"\"") == 0 || strcmp(argv[argIndex], "''") == 0 || strcmp(argv[argIndex], "") == 0) {
             params.push_back(argv[argIndex]);
         } else if (
             isStringAnInt(argv[argIndex]) && 
