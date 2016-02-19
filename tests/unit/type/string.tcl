@@ -226,12 +226,13 @@ start_server {tags {"string"}} {
         }
     }
 
-    test "GETBIT against non-existing key" {
+    test "GETBIT/MGETBIT against non-existing key" {
         r del mykey
         assert_equal 0 [r getbit mykey 0]
+	r mgetbit mykey 0
     }
 
-    test "GETBIT against string-encoded key" {
+    test "GETBIT/MBETGIT against string-encoded key" {
         # Single byte with 2nd and 3rd bit set
         r set mykey "`"
 
@@ -240,14 +241,16 @@ start_server {tags {"string"}} {
         assert_equal 1 [r getbit mykey 1]
         assert_equal 1 [r getbit mykey 2]
         assert_equal 0 [r getbit mykey 3]
+	r mgetbit mykey 0 1 2 3
 
         # Out-range
         assert_equal 0 [r getbit mykey 8]
         assert_equal 0 [r getbit mykey 100]
         assert_equal 0 [r getbit mykey 10000]
+	r mgetbit mykey 4 100
     }
 
-    test "GETBIT against integer-encoded key" {
+    test "GETBIT/MGETBIT against integer-encoded key" {
         r set mykey 1
         assert_encoding int mykey
 
@@ -256,11 +259,13 @@ start_server {tags {"string"}} {
         assert_equal 0 [r getbit mykey 1]
         assert_equal 1 [r getbit mykey 2]
         assert_equal 1 [r getbit mykey 3]
+	r mgetbit mykey 0 1 2 3
 
         # Out-range
         assert_equal 0 [r getbit mykey 8]
         assert_equal 0 [r getbit mykey 100]
         assert_equal 0 [r getbit mykey 10000]
+	r mgetbit mykey 4 100
     }
 
     test "SETRANGE against non-existing key" {

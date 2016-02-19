@@ -278,8 +278,39 @@ void getbitCommand(client *c) {
         if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
             bitval = llbuf[byte] & (1 << bit);
     }
-
     addReply(c, bitval ? shared.cone : shared.czero);
+}
+
+/* MGETBIT key offset1 offset2 .. offsetN */
+void mgetbitCommand(client *c) {
+    robj *o;
+    char llbuf[32];
+    size_t bitoffset;
+    size_t byte, bit;
+    size_t bitval = 0;
+    int i;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,OBJ_STRING)) return;
+
+    addReplyMultiBulkLen(c,c->argc - 2);
+    for (i = 2; i < c->argc; i++) {
+        robj *key = c->argv[i];
+
+        if (getBitOffsetFromArgument(c,key,&bitoffset) != C_OK)
+            addReply(c, shared.czero);
+
+        byte = bitoffset >> 3;
+        bit = 7 - (bitoffset & 0x7);
+        if (sdsEncodedObject(o)) {
+            if (byte < sdslen(o->ptr))
+                bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
+        } else {
+            if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+                bitval = llbuf[byte] & (1 << bit);
+        }
+        addReply(c, bitval ? shared.cone : shared.czero);
+    }
 }
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
