@@ -163,7 +163,7 @@ double extractDistanceOrReply(client *c, robj **argv,
     return distance * to_meters;
 }
 
-/* The defailt addReplyDouble has too much accuracy.  We use this
+/* The default addReplyDouble has too much accuracy.  We use this
  * for returning location distances. "5.2145 meters away" is nicer
  * than "5.2144992818115 meters away." We provide 4 digits after the dot
  * so that the returned value is decently accurate even when the unit is
@@ -588,8 +588,8 @@ void georadiusGeneric(client *c, int type) {
 
             if (withcoords) {
                 addReplyMultiBulkLen(c, 2);
-                addReplyDouble(c, gp->longitude);
-                addReplyDouble(c, gp->latitude);
+                addReplyHumanLongDouble(c, gp->longitude);
+                addReplyHumanLongDouble(c, gp->latitude);
             }
         }
     } else {
@@ -726,8 +726,8 @@ void geoposCommand(client *c) {
                 continue;
             }
             addReplyMultiBulkLen(c,2);
-            addReplyDouble(c,xy[0]);
-            addReplyDouble(c,xy[1]);
+            addReplyHumanLongDouble(c,xy[0]);
+            addReplyHumanLongDouble(c,xy[1]);
         }
     }
 }
@@ -767,6 +767,6 @@ void geodistCommand(client *c) {
     if (!decodeGeohash(score1,xyxy) || !decodeGeohash(score2,xyxy+2))
         addReply(c,shared.nullbulk);
     else
-        addReplyDouble(c,
+        addReplyDoubleDistance(c,
             geohashGetDistance(xyxy[0],xyxy[1],xyxy[2],xyxy[3]) / to_meter);
 }
