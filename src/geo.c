@@ -734,9 +734,9 @@ void geoposCommand(client *c) {
 
 /* GEODIST key ele1 ele2 [unit]
  *
- * Return the distance, in meters by default, otherwise accordig to "unit",
- * between points ele1 and ele2. If one or more elements are missing NULL
- * is returned. */
+ * Return the distance, in meters by default, otherwise according to "unit",
+ * between points ele1 and ele2. If one or more elements are missing NULL is
+ * returned. */
 void geodistCommand(client *c) {
     double to_meter = 1;
 
