@@ -21,7 +21,7 @@ an actual Redis cluster will be created.
 
 In order to stop a cluster:
 
-1. Use "./craete-cluster stop" to stop all the instances. After you stopped the instances you can use "./create-cluster start" to restart them if you change ideas.
+1. Use "./create-cluster stop" to stop all the instances. After you stopped the instances you can use "./create-cluster start" to restart them if you change ideas.
 2. Use "./create-cluster clean" to remove all the AOF / log files to restat with a clean environment.
 
 Use the command "./create-cluster help" to get the full list of features.
