@@ -1,0 +1,11 @@
+language: c
+compiler:
+  - clang
+  - gcc
+addons:
+  apt:
+    packages:
+      - tcl
+script: make && make test
+notifications:
+  email: false
