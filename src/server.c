@@ -3716,39 +3716,6 @@ void usage(void) {
     exit(1);
 }
 
-void redisAsciiArt(void) {
-#include "asciilogo.h"
-    char *buf = zmalloc(1024*16);
-    char *mode;
-
-    if (server.cluster_enabled) mode = "cluster";
-    else if (server.sentinel_mode) mode = "sentinel";
-    else mode = "standalone";
-
-    if (server.syslog_enabled) {
-        serverLog(LL_NOTICE,
-            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(long) == 8) ? "64" : "32",
-            mode, server.port,
-            (long) getpid()
-        );
-    } else {
-        snprintf(buf,1024*16,ascii_logo,
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(long) == 8) ? "64" : "32",
-            mode, server.port,
-            (long) getpid()
-        );
-        serverLogRaw(LL_NOTICE|LL_RAW,buf);
-    }
-    zfree(buf);
-}
-
 static void sigShutdownHandler(int sig) {
     char *msg;
 
@@ -4089,7 +4056,23 @@ int main(int argc, char **argv) {
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
-    redisAsciiArt();
+
+    char *mode;
+
+    if (server.cluster_enabled) mode = "cluster";
+    else if (server.sentinel_mode) mode = "sentinel";
+    else mode = "standalone";
+
+    serverLog(LL_NOTICE,
+        "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
+        REDIS_VERSION,
+        redisGitSHA1(),
+        strtol(redisGitDirty(),NULL,10) > 0,
+        (sizeof(long) == 8) ? "64" : "32",
+        mode, server.port,
+        (long) getpid()
+    );
+
     checkTcpBacklogSettings();
 
     if (!server.sentinel_mode) {
