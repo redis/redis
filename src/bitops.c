@@ -461,16 +461,16 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client. */
 robj *lookupStringForBitCommand(client *c, size_t maxbit) {
-    size_t byte = maxbit >> 3;
+    size_t byte = (maxbit + 7) >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
 
     if (o == NULL) {
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
+        o = createObject(OBJ_STRING,sdsnewlen(NULL, byte));
         dbAdd(c->db,c->argv[1],o);
     } else {
         if (checkType(c,o,OBJ_STRING)) return NULL;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
-        o->ptr = sdsgrowzero(o->ptr,byte+1);
+        o->ptr = sdsgrowzero(o->ptr,byte);
     }
     return o;
 }
@@ -963,7 +963,7 @@ void bitfieldCommand(client *c) {
              * for simplicity. SET return value is the previous value so
              * we need fetch & store as well. */
 
-            if ((o = lookupStringForBitCommand(c,bitoffset)) == NULL) return;
+            if ((o = lookupStringForBitCommand(c,thisop->offset + thisop->bits)) == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
