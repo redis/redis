@@ -965,8 +965,11 @@ void bitfieldCommand(client *c) {
 
             if ((o = lookupStringForBitCommand(c,bitoffset)) == NULL) return;
 
+            /* We need two different but very similar code paths for signed
+             * and unsigned operations, since the set of functions to get/set
+             * the integers and the used variables types are different. */
             if (thisop->sign) {
-                int64_t oldval, newval, wrapped;
+                int64_t oldval, newval, wrapped, retval;
                 int overflow;
 
                 oldval = getSignedBitfield(o->ptr,thisop->offset,
@@ -977,21 +980,26 @@ void bitfieldCommand(client *c) {
                     overflow = checkSignedBitfieldOverflow(oldval,
                             thisop->i64,thisop->bits,thisop->owtype,&wrapped);
                     if (overflow) newval = wrapped;
-                    addReplyLongLong(c,newval);
+                    retval = newval;
                 } else {
                     newval = thisop->i64;
                     overflow = checkSignedBitfieldOverflow(newval,
                             0,thisop->bits,thisop->owtype,&wrapped);
                     if (overflow) newval = wrapped;
-                    addReplyLongLong(c,oldval);
+                    retval = oldval;
                 }
-                /* If the overflow type is "FAIL", don't write. */
+
+                /* On overflow of type is "FAIL", don't write and return
+                 * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
+                    addReplyLongLong(c,retval);
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
+                } else {
+                    addReply(c,shared.nullbulk);
                 }
             } else {
-                uint64_t oldval, newval, wrapped;
+                uint64_t oldval, newval, wrapped, retval;
                 int overflow;
 
                 oldval = getUnsignedBitfield(o->ptr,thisop->offset,
@@ -1002,15 +1010,23 @@ void bitfieldCommand(client *c) {
                     overflow = checkUnsignedBitfieldOverflow(oldval,
                             thisop->i64,thisop->bits,thisop->owtype,&wrapped);
                     if (overflow) newval = wrapped;
-                    addReplyLongLong(c,newval);
+                    retval = newval;
                 } else {
                     newval = thisop->i64;
                     overflow = checkUnsignedBitfieldOverflow(newval,
                             0,thisop->bits,thisop->owtype,&wrapped);
                     if (overflow) newval = wrapped;
-                    addReplyLongLong(c,oldval);
+                    retval = oldval;
                 }
-                setUnsignedBitfield(o->ptr,thisop->offset,thisop->bits,newval);
+                /* On overflow of type is "FAIL", don't write and return
+                 * NULL to signal the condition. */
+                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
+                    addReplyLongLong(c,retval);
+                    setUnsignedBitfield(o->ptr,thisop->offset,
+                                        thisop->bits,newval);
+                } else {
+                    addReply(c,shared.nullbulk);
+                }
             }
             changes++;
         } else {
