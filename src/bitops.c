@@ -318,7 +318,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
     int64_t maxincr = max-value;
     int64_t minincr = min-value;
 
-    if (value > max || (value >= 0 && incr > 0 && incr > maxincr)) {
+    if (value > max || (incr > 0 && incr > maxincr)) {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -327,7 +327,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
             }
         }
         return 1;
-    } else if (value < min || (value < 0 && incr < 0 && incr < minincr)) {
+    } else if (value < min || (incr < 0 && incr < minincr)) {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
