@@ -1,5 +1,89 @@
 start_server {tags {"bitops"}} {
-    test {BITFIELD overflow check fuzzing} {
+    test {BITFIELD signed SET and GET basics} {
+        r del bits
+        set results {}
+        lappend results [r bitfield bits set i8 0 -100]
+        lappend results [r bitfield bits set i8 0 101]
+        lappend results [r bitfield bits get i8 0]
+        set results
+    } {0 -100 101}
+
+    test {BITFIELD unsigned SET and GET basics} {
+        r del bits
+        set results {}
+        lappend results [r bitfield bits set u8 0 255]
+        lappend results [r bitfield bits set u8 0 100]
+        lappend results [r bitfield bits get u8 0]
+        set results
+    } {0 255 100}
+
+    test {BITFIELD #<idx> form} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 65
+        r bitfield bits set u8 #1 66
+        r bitfield bits set u8 #2 67
+        r get bits
+    } {ABC}
+
+    test {BITFIELD basic INCRBY form} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 10
+        lappend results [r bitfield bits incrby u8 #0 100]
+        lappend results [r bitfield bits incrby u8 #0 100]
+        set results
+    } {110 210}
+
+    test {BITFIELD chaining of multiple commands} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 10
+        lappend results [r bitfield bits incrby u8 #0 100 incrby u8 #0 100]
+        set results
+    } {{110 210}}
+
+    test {BITFIELD unsigned overflow wrap} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 100
+        lappend results [r bitfield bits overflow wrap incrby u8 #0 257]
+        lappend results [r bitfield bits get u8 #0]
+        lappend results [r bitfield bits overflow wrap incrby u8 #0 255]
+        lappend results [r bitfield bits get u8 #0]
+    } {101 101 100 100}
+
+    test {BITFIELD unsigned overflow sat} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 100
+        lappend results [r bitfield bits overflow sat incrby u8 #0 257]
+        lappend results [r bitfield bits get u8 #0]
+        lappend results [r bitfield bits overflow sat incrby u8 #0 -255]
+        lappend results [r bitfield bits get u8 #0]
+    } {255 255 0 0}
+
+    test {BITFIELD signed overflow wrap} {
+        r del bits
+        set results {}
+        r bitfield bits set i8 #0 100
+        lappend results [r bitfield bits overflow wrap incrby i8 #0 257]
+        lappend results [r bitfield bits get i8 #0]
+        lappend results [r bitfield bits overflow wrap incrby i8 #0 255]
+        lappend results [r bitfield bits get i8 #0]
+    } {101 101 100 100}
+
+    test {BITFIELD signed overflow sat} {
+        r del bits
+        set results {}
+        r bitfield bits set u8 #0 100
+        lappend results [r bitfield bits overflow sat incrby i8 #0 257]
+        lappend results [r bitfield bits get i8 #0]
+        lappend results [r bitfield bits overflow sat incrby i8 #0 -255]
+        lappend results [r bitfield bits get i8 #0]
+    } {127 127 -128 -128}
+
+    test {BITFIELD overflow detection fuzzing} {
         for {set j 0} {$j < 1000} {incr j} {
             set bits [expr {[randomInt 64]+1}]
             set sign [randomInt 2]
