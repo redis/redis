@@ -2270,8 +2270,8 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
-        c->cmd->microseconds += duration;
-        c->cmd->calls++;
+        c->lastcmd->microseconds += duration;
+        c->lastcmd->calls++;
     }
 
     /* Propagate the command into the AOF and replication link */
