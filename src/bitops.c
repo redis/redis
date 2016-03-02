@@ -203,7 +203,7 @@ void setUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, uint6
     uint64_t byte, bit, byteval, bitval, j;
 
     for (j = 0; j < bits; j++) {
-        bitval = (value & (1<<(bits-1-j))) != 0;
+        bitval = (value & ((uint64_t)1<<(bits-1-j))) != 0;
         byte = offset >> 3;
         bit = 7 - (offset & 0x7);
         byteval = p[byte];
@@ -243,7 +243,7 @@ int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
     /* If the top significant bit is 1, propagate it to all the
      * higher bits for two complement representation of signed
      * integers. */
-    if (value & (1 << (bits-1)))
+    if (value & ((uint64_t)1 << (bits-1)))
         value |= ((uint64_t)-1) << bits;
     return value;
 }
@@ -272,7 +272,7 @@ int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
 #define BFOVERFLOW_FAIL 2 /* Used by the BITFIELD command implementation. */
 
 int checkUnsignedBitfieldOverflow(uint64_t value, int64_t incr, uint64_t bits, int owtype, uint64_t *limit) {
-    uint64_t max = (bits == 64) ? UINT64_MAX : ((1<<bits)-1);
+    uint64_t max = (bits == 64) ? UINT64_MAX : (((uint64_t)1<<bits)-1);
     int64_t maxincr = max-value;
     int64_t minincr = -value;
 
@@ -309,7 +309,7 @@ handle_wrap:
 }
 
 int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int owtype, int64_t *limit) {
-    int64_t max = (bits == 64) ? INT64_MAX : ((1<<(bits-1))-1);
+    int64_t max = (bits == 64) ? INT64_MAX : (((int64_t)1<<(bits-1))-1);
     int64_t min = (-max)-1;
 
     /* Note that maxincr and minincr could overflow, but we use the values
@@ -318,8 +318,8 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
     int64_t maxincr = max-value;
     int64_t minincr = min-value;
 
-    if (value > max || (bits == 64 && value >= 0 && incr > 0 && incr > maxincr)
-            || (bits < 64 && incr > 0 && incr > maxincr)) {
+    if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
+    {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -328,8 +328,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
             }
         }
         return 1;
-    } else if (value < min || (bits == 64 && value < 0 && incr < 0 && incr < minincr)
-            || (bits < 64 && incr < 0 && incr < minincr)) {
+    } else if (value < min || (bits != 64 && incr < minincr) || (value < 0 && incr < 0 && incr < minincr)) {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -966,7 +965,7 @@ void bitfieldCommand(client *c) {
              * we need fetch & store as well. */
 
             if ((o = lookupStringForBitCommand(c,thisop->offset + thisop->bits))
-                    == NULL) return;
+                 == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
