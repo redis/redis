@@ -1,4 +1,4 @@
-# Compare Redis commadns against Tcl implementations of the same commands.
+# Compare Redis commands against Tcl implementations of the same commands.
 proc count_bits s {
     binary scan $s b* bits
     string length [regsub -all {0} $bits {}]
