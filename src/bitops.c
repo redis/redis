@@ -964,8 +964,10 @@ void bitfieldCommand(client *c) {
              * for simplicity. SET return value is the previous value so
              * we need fetch & store as well. */
 
-            if ((o = lookupStringForBitCommand(c,thisop->offset + thisop->bits))
-                 == NULL) return;
+            /* Lookup by making room up to the farest bit reached by
+             * this operation. */
+            if ((o = lookupStringForBitCommand(c,
+                thisop->offset + (thisop->bits-1))) == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
