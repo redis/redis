@@ -97,6 +97,7 @@ start_server {tags {"bitops"}} {
                 set type "u$bits"
             }
             set max [expr {$min+$range-1}]
+
             # Compare Tcl vs Redis
             set range2 [expr {$range*2}]
             set value [expr {($min*2)+[randomInt $range2]}]
@@ -130,6 +131,56 @@ start_server {tags {"bitops"}} {
             if {!$overflow && ([lindex $res1 0] eq {} ||
                                [lindex $res2 0] eq {})} {
                 fail "OW detected where NOT needed: $type $value+$increment"
+            }
+        }
+    }
+
+    test {BITFIELD overflow wrap fuzzing} {
+        for {set j 0} {$j < 1000} {incr j} {
+            set bits [expr {[randomInt 64]+1}]
+            set sign [randomInt 2]
+            set range [expr {2**$bits}]
+            if {$bits == 64} {set sign 1} ; # u64 is not supported by BITFIELD.
+            if {$sign} {
+                set min [expr {-($range/2)}]
+                set type "i$bits"
+            } else {
+                set min 0
+                set type "u$bits"
+            }
+            set max [expr {$min+$range-1}]
+
+            # Compare Tcl vs Redis
+            set range2 [expr {$range*2}]
+            set value [expr {($min*2)+[randomInt $range2]}]
+            set increment [expr {($min*2)+[randomInt $range2]}]
+            if {$value > 9223372036854775807} {
+                set value 9223372036854775807
+            }
+            if {$value < -9223372036854775808} {
+                set value -9223372036854775808
+            }
+            if {$increment > 9223372036854775807} {
+                set increment 9223372036854775807
+            }
+            if {$increment < -9223372036854775808} {
+                set increment -9223372036854775808
+            }
+
+            r del bits
+            r bitfield bits overflow wrap set $type 0 $value
+            r bitfield bits overflow wrap incrby $type 0 $increment
+            set res [lindex [r bitfield bits get $type 0] 0]
+
+            set expected 0
+            if {$sign} {incr expected [expr {$max+1}]}
+            incr expected $value
+            incr expected $increment
+            set expected [expr {$expected % $range}]
+            if {$sign} {incr expected $min}
+
+            if {$res != $expected} {
+                fail "WRAP error: $type $value+$increment = $res, should be $expected"
             }
         }
     }
