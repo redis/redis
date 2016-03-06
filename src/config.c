@@ -632,6 +632,8 @@ void loadServerConfigFromString(char *config) {
                     "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"loadmodule") && argc == 2) {
+            listAddNodeTail(server.loadmodule_queue,sdsnew(argv[1]));
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
