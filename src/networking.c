@@ -1531,7 +1531,7 @@ void clientCommand(client *c) {
             return;
         }
 
-		if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"id") && id == 0) {
+	if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"id") && id == 0) {
             addReplyLongLong(c,0);
             return;
         }
