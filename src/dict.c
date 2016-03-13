@@ -62,7 +62,7 @@ static unsigned int dict_force_resize_ratio = 5;
 
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
-static int _dictKeyIndex(dict *ht, const void *key);
+static int _dictKeyIndex(dict *ht, const void *key, const unsigned int h);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -263,7 +263,7 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            h = de->hash & d->ht[1].sizemask;
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
@@ -348,12 +348,14 @@ dictEntry *dictAddRaw(dict *d, void *key)
     int index;
     dictEntry *entry;
     dictht *ht;
+    const unsigned int h = dictHashKey(d, key);
 
+    /* Compute the key hash value */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    if ((index = _dictKeyIndex(d, key)) == -1)
+    if ((index = _dictKeyIndex(d, key, h)) == -1)
         return NULL;
 
     /* Allocate the memory and store the new entry.
@@ -362,6 +364,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
+    entry->hash = h;
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -424,7 +427,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
         he = d->ht[table].table[idx];
         prevHe = NULL;
         while(he) {
-            if (dictCompareKeys(d, key, he->key)) {
+            if (h == he->hash && dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
@@ -501,7 +504,7 @@ dictEntry *dictFind(dict *d, const void *key)
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareKeys(d, key, he->key))
+            if (he->hash == h && dictCompareKeys(d, key, he->key))
                 return he;
             he = he->next;
         }
@@ -966,22 +969,20 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static int _dictKeyIndex(dict *d, const void *key)
+static int _dictKeyIndex(dict *d, const void *key, const unsigned int h)
 {
-    unsigned int h, idx, table;
+    unsigned int idx, table;
     dictEntry *he;
 
     /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
-    /* Compute the key hash value */
-    h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareKeys(d, key, he->key))
+            if (he->hash == h && dictCompareKeys(d, key, he->key))
                 return -1;
             he = he->next;
         }
