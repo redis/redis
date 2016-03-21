@@ -47,6 +47,10 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 
+#ifdef USE_NVML
+#include "server.h"
+#endif
+
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
@@ -328,6 +332,18 @@ int dictAdd(dict *d, void *key, void *val)
     return DICT_OK;
 }
 
+#ifdef USE_NVML
+/* Add an element to the target hash table */
+int dictAddPM(dict *d, void *key, void *val)
+{
+    dictEntry *entry = dictAddRawPM(d,key);
+
+    if (!entry) return DICT_ERR;
+    dictSetVal(d, entry, val);
+    return DICT_OK;
+}
+#endif
+
 /* Low level add. This function adds the entry but instead of setting
  * a value returns the dictEntry structure to the user, that will make
  * sure to fill the value field as he wishes.
@@ -371,6 +387,55 @@ dictEntry *dictAddRaw(dict *d, void *key)
     return entry;
 }
 
+#ifdef USE_NVML
+/* Low level add. This function adds the entry but instead of setting
+ * a value returns the dictEntry structure to the user, that will make
+ * sure to fill the value field as he wishes.
+ *
+ * This function is also directly exposed to the user API to be called
+ * mainly in order to store non-pointers inside the hash value, example:
+ *
+ * entry = dictAddRaw(dict,mykey);
+ * if (entry != NULL) dictSetSignedIntegerVal(entry,1000);
+ *
+ * Return values:
+ *
+ * If key already exists NULL is returned.
+ * If key was added, the hash entry is returned to be manipulated by the caller.
+ */
+dictEntry *dictAddRawPM(dict *d, void *key)
+{
+    int index;
+    dictEntry *entry;
+    dictht *ht;
+    PMEMoid oid;
+
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of the new element, or -1 if
+     * the element already exists. */
+    if ((index = _dictKeyIndex(d, key)) == -1)
+        return NULL;
+
+    /* Allocate the memory and store the new entry.
+     * Insert the element in top, with the assumption that in a database
+     * system it is more likely that recently added entries are accessed
+     * more frequently. */
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+
+    oid = pmemobj_tx_zalloc(sizeof(*entry),PM_TYPE_ENTRY);
+    entry = pmemobj_direct(oid);
+
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+
+    /* Set the hash entry fields. */
+    dictSetKey(d, entry, key);
+    return entry;
+}
+#endif
+
 /* Add an element, discarding the old if the key already exists.
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
@@ -396,6 +461,33 @@ int dictReplace(dict *d, void *key, void *val)
     return 0;
 }
 
+#ifdef USE_NVML
+/* Add an element, discarding the old if the key already exists.
+ * Return 1 if the key was added from scratch, 0 if there was already an
+ * element with such key and dictReplace() just performed a value update
+ * operation. */
+int dictReplacePM(dict *d, void *key, void *val)
+{
+    dictEntry *entry, auxentry;
+
+    /* Try to add the element. If the key
+     * does not exists dictAdd will suceed. */
+    if (dictAddPM(d, key, val) == DICT_OK)
+        return 1;
+    /* It already exists, get the entry */
+    entry = dictFind(d, key);
+    /* Set the new value and free the old one. Note that it is important
+     * to do that in this order, as the value may just be exactly the same
+     * as the previous one. In this context, think to reference counting,
+     * you want to increment (set), and then decrement (free), and not the
+     * reverse. */
+    auxentry = *entry;
+    dictSetVal(d, entry, val);
+    dictFreeVal(d, &auxentry);
+    return 0;
+}
+#endif
+
 /* dictReplaceRaw() is simply a version of dictAddRaw() that always
  * returns the hash entry of the specified key, even if the key already
  * exists and can't be added (in that case the entry of the already
@@ -414,6 +506,9 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
     unsigned int h, idx;
     dictEntry *he, *prevHe;
     int table;
+#ifdef USE_NVML
+    PMEMoid oid;
+#endif
 
     if (d->ht[0].size == 0) return DICT_ERR; /* d->ht[0].table is NULL */
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -434,7 +529,17 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }
+#ifdef USE_NVML
+                if (server.persistent) {
+                    oid.off = (uint64_t)he - (uint64_t)server.pm_pool;
+                    oid.pool_uuid_lo = server.pool_uuid_lo;
+                    pmemobj_tx_free(oid);
+                } else {
+                    zfree(he);
+                }
+#else
                 zfree(he);
+#endif
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -457,6 +562,9 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
+#ifdef USE_NVML
+    PMEMoid oid;
+#endif
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
@@ -469,7 +577,17 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
             nextHe = he->next;
             dictFreeKey(d, he);
             dictFreeVal(d, he);
+#ifdef USE_NVML
+            if (server.persistent) {
+                oid.off = (uint64_t)he - (uint64_t)server.pm_pool;
+                oid.pool_uuid_lo = server.pool_uuid_lo;
+                pmemobj_tx_free(oid);
+            } else {
+                zfree(he);
+            }
+#else
             zfree(he);
+#endif
             ht->used--;
             he = nextHe;
         }

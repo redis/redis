@@ -462,12 +462,38 @@ void dictObjectDestructor(void *privdata, void *val)
     decrRefCount(val);
 }
 
+#ifdef USE_NVML
+void dictObjectDestructorPM(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+
+    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
+    /* TODO: TX_BEGIN() */
+    pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
+    decrRefCountPM(val);
+    pmemobj_tx_commit();
+    pmemobj_tx_end();
+}
+#endif
+
 void dictSdsDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
     sdsfree(val);
 }
+
+#ifdef USE_NVML
+void dictSdsDestructorPM(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+    /* TODO: TX_BEGIN() */
+    pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
+    sdsfreePM(val);
+    pmemobj_tx_commit();
+    pmemobj_tx_end();
+}
+#endif
 
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
@@ -559,6 +585,18 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor   /* val destructor */
 };
+
+#ifdef USE_NVML
+/* Db->dict, keys are sds strings, vals are Redis objects. */
+dictType dbDictTypePM = {
+    dictSdsHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCompare,          /* key compare */
+    dictSdsDestructorPM,          /* key destructor */
+    dictObjectDestructorPM   /* val destructor */
+};
+#endif
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
 dictType shaScriptObjectDictType = {
@@ -1458,6 +1496,10 @@ void initServerConfig(void) {
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
+#ifdef USE_NVML
+    server.pm_file_path = NULL;
+    server.pm_file_size = CONFIG_DEFAULT_PM_FILE_SIZE;
+#endif
     server.supervised = 0;
     server.supervised_mode = SUPERVISED_NONE;
     server.aof_state = AOF_OFF;
@@ -1883,7 +1925,12 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
+#ifdef USE_NVML
+        if (server.persistent)
+            server.db[j].dict = dictCreate(&dbDictTypePM,NULL);
+        else
+#endif
+            server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&setDictType,NULL);
@@ -3902,6 +3949,44 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
+#ifdef USE_NVML
+void initPersistentMemory(void) {
+    PMEMoid oid;
+
+    long long start = ustime();
+    char pmfile_hmem[64];
+    bytesToHuman(pmfile_hmem, server.pm_file_size);
+    serverLog(LL_NOTICE,"Start init Persistent memory file %s size %s",
+            server.pm_file_path, pmfile_hmem);
+
+    if (access(server.pm_file_path, F_OK) != 0) {
+        /* Create new PMEM pool file. */
+        server.pm_pool = pmemobj_create(server.pm_file_path, PM_LAYOUT_NAME,
+                server.pm_file_size, 0666);
+    } else {
+        /* Open the existing PMEM pool file. */
+        server.pm_pool = pmemobj_open(server.pm_file_path, PM_LAYOUT_NAME);
+    }
+
+    if (server.pm_pool == NULL) {
+        serverLog(LL_WARNING,"Cannot int persistent memory file %s size %s",
+                    server.pm_file_path, pmfile_hmem);
+        exit(1);
+    }
+
+    /* Get pool UUID from root object's OID. */
+    oid = pmemobj_root(server.pm_pool, 1);
+    server.pool_uuid_lo = oid.pool_uuid_lo;
+
+    serverLog(LL_NOTICE,"Init Persistent memory file %s size %s time %.3f "
+            "seconds",
+            server.pm_file_path, pmfile_hmem,
+            (float)(ustime()-start)/1000000);
+    server.persistent = true;
+
+    resetServerSaveParams();
+}
+#endif
 
 int main(int argc, char **argv) {
     struct timeval tv;
@@ -4038,6 +4123,12 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
+
+#ifdef USE_NVML
+    if (server.pm_file_path) {
+        initPersistentMemory();
+    }
+#endif
 
     initServer();
     if (background || server.pidfile) createPidFile();

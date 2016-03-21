@@ -20,6 +20,26 @@ If you want to know more, this is a list of selected starting points:
 * The full list of Redis commands. http://redis.io/commands
 * There is much more inside the Redis official documentation. http://redis.io/documentation
 
+Redis with Persistent Memory
+--------------
+This is modified version of Redis, which benefits from Persistent Memory and
+uses NVML libpmemobj API to allocate objects managed in Redis.
+Key-value pairs are created in Persistent Memory pool specified by "pmfile"
+parameter in config file.
+Currently, only simple structures : strings for keys and values can be allocated
+in Persistent Memory. Lists, sets etc. are not supported yet.
+Allocations are done with transactional API provided by NVML libpmemobj library. 
+When PMEM mode is configured and turned-on, all other built-in persistence
+mechanisms (RDB, AOF) are disabled.
+To build Redis with PM support, it is necessary to place NVML Library in
+/deps/nvml directory. Check http://pmem.io/nvml for information about NVML
+and on how to retrieve its sources.
+
+Due to NVML requirements, compilation must be done with "-std=gnu99" option.
+To build Redis with NVML run command:
+
+    % make USE_NVML=yes STD=-std=gnu99
+
 Building Redis
 --------------
 

@@ -70,6 +70,23 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
+#ifdef USE_NVML
+
+#include "libpmemobj.h"
+
+/* Type Dictionary Entry */
+#define PM_TYPE_ENTRY 0
+/* Type Redis Object */
+#define PM_TYPE_OBJECT 1
+/* Type SDS Object */
+#define PM_TYPE_SDS 2
+/* Type Embedded SDS Object */
+#define PM_TYPE_EMB_SDS 3
+
+#define PM_LAYOUT_NAME "store_db"
+
+#endif
+
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -137,6 +154,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_BINDADDR_MAX 16
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD 0
+
+#ifdef USE_NVML
+#define CONFIG_MIN_PM_FILE_SIZE PMEMOBJ_MIN_POOL
+#define CONFIG_DEFAULT_PM_FILE_SIZE (1024*1024*1024) /* 1GB */
+#endif
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -789,6 +811,14 @@ struct redisServer {
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
+#ifdef USE_NVML
+    /* Persistent memory */
+    char* pm_file_path;             /* Path to persistent memory file */
+    size_t pm_file_size;            /* If PM file does not exist, create new one with given size */
+    bool persistent;                /* Persistence enabled/disabled */
+    PMEMobjpool *pm_pool;           /* PMEM pool handle */
+    uint64_t pool_uuid_lo;          /* PMEM pool UUID */
+#endif
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
@@ -1216,6 +1246,15 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
+#ifdef USE_NVML
+/* Persistent Memory support */
+void decrRefCountPM(robj *o);
+void freeStringObjectPM(robj *o);
+robj *createObjectPM(int type, void *ptr);
+robj *createRawStringObjectPM(const char *ptr, size_t len);
+robj *dupStringObjectPM(robj *o);
+#endif
+
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
@@ -1402,8 +1441,11 @@ robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 void dbAdd(redisDb *db, robj *key, robj *val);
+void dbAddPM(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
+void dbOverwritePM(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
+void setKeyPM(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);

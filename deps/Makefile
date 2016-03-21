@@ -38,6 +38,7 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd geohash-int && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
+	-(cd nvml && $(MAKE) clobber) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -88,3 +89,9 @@ geohash-int: .make-prerequisites
 	cd geohash-int && $(MAKE)
 
 .PHONY: geohash-int
+
+nvml: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd nvml && $(MAKE)
+
+.PHONY: nvml

@@ -383,6 +383,15 @@ void loadServerConfigFromString(char *config) {
             server.hz = atoi(argv[1]);
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+#ifdef USE_NVML
+        } else if (!strcasecmp(argv[0],"pmfile") && argc != 2) {
+            server.pm_file_path = zstrdup(argv[1]);
+            long long size = memtoll(argv[2],NULL);
+            if (size < CONFIG_MIN_PM_FILE_SIZE) {
+                err = "Invalid pmfile size"; goto loaderr;
+            }
+            server.pm_file_size = size;
+#endif
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -1236,6 +1245,7 @@ void configGetCommand(client *c) {
 unsigned int dictSdsCaseHash(const void *key);
 int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
+void dictSdsDestructorPM(void *privdata, void *val);
 void dictListDestructor(void *privdata, void *val);
 
 /* Sentinel config rewriting is implemented inside sentinel.c by

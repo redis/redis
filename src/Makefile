@@ -98,6 +98,16 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
 endif
 
+ifeq ($(USE_NVML),yes)
+	DEPENDENCY_TARGETS+= nvml
+	FINAL_CFLAGS+= -I../deps/nvml/src/include -DUSE_NVML
+ifeq ($(NVML_DEBUG),yes)
+	FINAL_LIBS+= ../deps/nvml/src/debug/libpmemobj.a ../deps/nvml/src/debug/libpmem.a
+else
+	FINAL_LIBS+= ../deps/nvml/src/nondebug/libpmemobj.a ../deps/nvml/src/nondebug/libpmem.a
+endif
+endif
+
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
