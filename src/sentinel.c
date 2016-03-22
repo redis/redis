@@ -3257,7 +3257,7 @@ void sentinelInfoCommand(client *c) {
     addReplyBulkSds(c, info);
 }
 
-/* Implements Sentinel verison of the ROLE command. The output is
+/* Implements Sentinel version of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(client *c) {
     dictIterator *di;

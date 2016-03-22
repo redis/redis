@@ -163,7 +163,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * The function returns success as long as we are able to correctly write
  * to at least one file descriptor.
  *
- * When buf is NULL adn len is 0, the function performs a flush operation
+ * When buf is NULL and len is 0, the function performs a flush operation
  * if there is some pending buffer, so this function is also used in order
  * to implement rioFdsetFlush(). */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {

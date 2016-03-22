@@ -494,7 +494,7 @@ need_full_resync:
  * Side effects, other than starting a BGSAVE:
  *
  * 1) Handle the slaves in WAIT_START state, by preparing them for a full
- *    sync if the BGSAVE was succesfully started, or sending them an error
+ *    sync if the BGSAVE was successfully started, or sending them an error
  *    and dropping them from the list of slaves.
  *
  * 2) Flush the Lua scripting script cache if the BGSAVE was actually
@@ -804,7 +804,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
-    /* If the preamble was already transfered, send the RDB bulk data. */
+    /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
@@ -1237,7 +1237,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
  *
  * The function returns:
  *
- * PSYNC_CONTINUE: If the PSYNC command succeded and we can continue.
+ * PSYNC_CONTINUE: If the PSYNC command succeeded and we can continue.
  * PSYNC_FULLRESYNC: If PSYNC is supported but a full resync is needed.
  *                   In this case the master run_id and global replication
  *                   offset is saved.
