@@ -455,6 +455,15 @@ void addReplyDouble(client *c, double d) {
     }
 }
 
+/* Add a long double as a bulk reply, but uses a human readable formatting
+ * of the double instead of exposing the crude behavior of doubles to the
+ * dear user. */
+void addReplyHumanLongDouble(client *c, long double d) {
+    robj *o = createStringObjectFromLongDouble(d,1);
+    addReplyBulk(c,o);
+    decrRefCount(o);
+}
+
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
 void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
@@ -625,7 +634,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "1) Just disable protected mode sending the command "
                 "'CONFIG SET protected-mode no' from the loopback interface "
                 "by connecting to Redis from the same host the server is "
-                " running, however MAKE SURE Redis is not publicly accessible "
+                "running, however MAKE SURE Redis is not publicly accessible "
                 "from internet if you do so. Use CONFIG REWRITE to make this "
                 "change permanent. "
                 "2) Alternatively you can just disable the protected mode by "

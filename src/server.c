@@ -135,6 +135,7 @@ struct redisCommand redisCommandTable[] = {
     {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
     {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0},
+    {"bitfield",bitfieldCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
     {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
@@ -283,8 +284,8 @@ struct redisCommand redisCommandTable[] = {
     {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
     {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
-    {"georadius",georadiusCommand,-6,"r",0,NULL,1,1,1,0,0},
-    {"georadiusbymember",georadiusByMemberCommand,-5,"r",0,NULL,1,1,1,0,0},
+    {"georadius",georadiusCommand,-6,"w",0,NULL,1,1,1,0,0},
+    {"georadiusbymember",georadiusByMemberCommand,-5,"w",0,NULL,1,1,1,0,0},
     {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0},
@@ -864,18 +865,22 @@ void activeExpireCycle(int type) {
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
                 ttl = dictGetSignedIntegerVal(de)-now;
                 if (activeExpireCycleTryExpire(db,de,now)) expired++;
-                if (ttl < 0) ttl = 0;
-                ttl_sum += ttl;
-                ttl_samples++;
+                if (ttl > 0) {
+                    /* We want the average TTL of keys yet not expired. */
+                    ttl_sum += ttl;
+                    ttl_samples++;
+                }
             }
 
             /* Update the average TTL stats for this database. */
             if (ttl_samples) {
                 long long avg_ttl = ttl_sum/ttl_samples;
 
+                /* Do a simple running average with a few samples.
+                 * We just use the current estimate with a weight of 2%
+                 * and the previous estimate with a weight of 98%. */
                 if (db->avg_ttl == 0) db->avg_ttl = avg_ttl;
-                /* Smooth the value averaging with the previous one. */
-                db->avg_ttl = (db->avg_ttl+avg_ttl)/2;
+                db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
             }
 
             /* We can't block forever here even if there are many keys to
@@ -1519,6 +1524,9 @@ void initServerConfig(void) {
     server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
+    server.cluster_announce_ip = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP;
+    server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
+    server.cluster_announce_bus_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -2262,8 +2270,8 @@ void call(client *c, int flags) {
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
-        c->cmd->microseconds += duration;
-        c->cmd->calls++;
+        c->lastcmd->microseconds += duration;
+        c->lastcmd->calls++;
     }
 
     /* Propagate the command into the AOF and replication link */
@@ -3859,7 +3867,7 @@ int redisSupervisedUpstart(void) {
         return 0;
     }
 
-    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readyness");
+    serverLog(LL_NOTICE, "supervised by upstart, will stop to signal readiness");
     raise(SIGSTOP);
     unsetenv("UPSTART_JOB");
     return 1;
@@ -3883,7 +3891,7 @@ int redisSupervisedSystemd(void) {
         return 0;
     }
 
-    serverLog(LL_NOTICE, "supervised by systemd, will signal readyness");
+    serverLog(LL_NOTICE, "supervised by systemd, will signal readiness");
     if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
         serverLog(LL_WARNING,
                 "Can't connect to systemd socket %s", notify_socket);
