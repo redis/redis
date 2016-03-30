@@ -568,17 +568,17 @@ class RedisTrib
 
             # Use ADDSLOTS to assign the slot.
             puts "*** Configuring #{owner} as the slot owner"
-            n.r.cluster("setslot",slot,"stable")
-            n.r.cluster("addslot",slot)
+            owner.r.cluster("setslot",slot,"stable")
+            owner.r.cluster("addslots",slot)
             # Make sure this information will propagate. Not strictly needed
             # since there is no past owner, so all the other nodes will accept
             # whatever epoch this node will claim the slot with.
-            n.r.cluster("bumpepoch")
+            owner.r.cluster("bumpepoch")
 
             # Remove the owner from the list of migrating/importing
             # nodes.
-            migrating.delete(n)
-            importing.delete(n)
+            migrating.delete(owner)
+            importing.delete(owner)
         end
 
         # If there are multiple owners of the slot, we need to fix it
