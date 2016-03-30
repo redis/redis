@@ -407,7 +407,8 @@ class RedisTrib
                 cluster_error \
                     "[WARNING] Node #{n} has slots in migrating state (#{n.info[:migrating].keys.join(",")})."
                 open_slots += n.info[:migrating].keys
-            elsif n.info[:importing].size > 0
+            end
+            if n.info[:importing].size > 0
                 cluster_error \
                     "[WARNING] Node #{n} has slots in importing state (#{n.info[:importing].keys.join(",")})."
                 open_slots += n.info[:importing].keys
