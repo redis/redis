@@ -2,6 +2,7 @@
 #define REDISMODULE_H
 
 #include <sys/types.h>
+#include <stdio.h>
 
 /* ---------------- Defines common between core and modules --------------- */
 
@@ -98,7 +99,7 @@ int REDISMODULE_API_FUNC(RedisModule_StringTruncate)(RedisModuleKey *key, size_t
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     void *getapifuncptr = ((void**)ctx)[0];
-    RedisModule_GetApi = (int (*)(const char *, void *)) getapifuncptr;
+    RedisModule_GetApi = (int (*)(const char *, void *)) (unsigned long)getapifuncptr;
     REDISMODULE_GET_API(CreateCommand);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(WrongArity);
