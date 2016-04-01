@@ -26,7 +26,7 @@
                         ErrorControl="normal"
                         Type="ownProcess"
                         Arguments="--service-run &quot;[#file_redis_serviceCONF]&quot;"
-                        Account="[WIX_ACCOUNT_NETWORKSERVICE]" />
+                        Account="NT AUTHORITY\NETWORKSERVICE" />
 
         <ServiceControl Id="redisServiceControl"
                         Name="Redis"
@@ -55,7 +55,7 @@
       -->
       <Component Id="cmp_give_network_service_folder_permissions" Guid="{55E5EFB3-61E6-4D51-934E-BFEEFB430701}">
         <CreateFolder>
-          <util:PermissionEx User="[WIX_ACCOUNT_NETWORKSERVICE]" GenericAll="yes" />
+          <util:PermissionEx User="NT AUTHORITY\NETWORKSERVICE" GenericAll="yes" />
         </CreateFolder>
       </Component>
     
