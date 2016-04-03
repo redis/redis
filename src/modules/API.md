@@ -160,9 +160,10 @@ you may need to directly access the string object.
 
 There are a few functions in order to work with string objects:
 
-    const char *RedisModule_StringPtr(RedisModuleString *string, size_t *len);
+    const char *RedisModule_StringPtrLen(RedisModuleString *string, size_t *len);
 
-The above function accesses a string by returning its pointer and length.
+The above function accesses a string by returning its pointer and setting its 
+length in `len`.
 You should never write to a string object pointer, as you can see from the
 `const` pointer qualifier.
 
