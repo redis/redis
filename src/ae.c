@@ -303,7 +303,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             continue;
         }
 
-        /* Don't process time events created by time events in this iteration. */
+        /* Make sure we don't process time events created by time events in
+         * this iteration. Note that this check is currently useless: we always
+         * add new timers on the head, however if we change the implementation
+         * detail, this check may be useful again: we keep it here for future
+         * defense. */
         if (te->id > maxId) {
             te = te->next;
             continue;
