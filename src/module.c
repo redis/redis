@@ -465,7 +465,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 }
 
 /* Reply with NULL. */
-int RedisModule_ReplyWithNull(RedisModuleCtx *ctx) {
+int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     addReply(ctx->client,shared.nullbulk);
     return REDISMODULE_OK;
 }
