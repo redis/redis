@@ -655,6 +655,7 @@ int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     setKey(key->db,key->key,str);
+    key->value = str;
     return REDISMODULE_OK;
 }
 
