@@ -807,10 +807,10 @@ RedisModuleCallReply *moduleCreateCallReplyFromProto(RedisModuleCtx *ctx, sds pr
     reply->flags = REDISMODULE_REPLYFLAG_TOPARSE; /* Lazy parsing. */
     switch(proto[0]) {
     case '$':
-    case '+': reply->type = REDISMODULE_REPLY_STRING;
-    case '-': reply->type = REDISMODULE_REPLY_ERROR;
-    case ':': reply->type = REDISMODULE_REPLY_INTEGER;
-    case '*': reply->type = REDISMODULE_REPLY_ARRAY;
+    case '+': reply->type = REDISMODULE_REPLY_STRING; break;
+    case '-': reply->type = REDISMODULE_REPLY_ERROR; break;
+    case ':': reply->type = REDISMODULE_REPLY_INTEGER; break;
+    case '*': reply->type = REDISMODULE_REPLY_ARRAY; break;
     default: reply->type = REDISMODULE_REPLY_UNKNOWN;
     }
     if ((proto[0] == '*' || proto[0] == '$') && proto[1] == '-')
