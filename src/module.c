@@ -811,7 +811,7 @@ RedisModuleCallReply *moduleCreateCallReplyFromProto(RedisModuleCtx *ctx, sds pr
     case '-': reply->type = REDISMODULE_REPLY_ERROR; break;
     case ':': reply->type = REDISMODULE_REPLY_INTEGER; break;
     case '*': reply->type = REDISMODULE_REPLY_ARRAY; break;
-    default: reply->type = REDISMODULE_REPLY_UNKNOWN;
+    default: reply->type = REDISMODULE_REPLY_UNKNOWN; break;
     }
     if ((proto[0] == '*' || proto[0] == '$') && proto[1] == '-')
         reply->type = REDISMODULE_REPLY_NULL;
