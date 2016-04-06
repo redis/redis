@@ -569,7 +569,6 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     } else {
         value = lookupKeyRead(ctx->client->db,keyname);
         if (value == NULL) {
-            decrRefCount(keyname);
             return NULL;
         }
     }
