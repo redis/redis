@@ -36,12 +36,17 @@
 #define REDISMODULE_REPLY_ARRAY 3
 #define REDISMODULE_REPLY_NULL 4
 
+/* Expire */
+#define REDISMODULE_NO_EXPIRE -1
+
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"
 
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
+
+typedef long long mstime_t;
 
 /* Incomplete structures for compiler checks but opaque access. */
 typedef struct RedisModuleCtx RedisModuleCtx;
@@ -97,6 +102,8 @@ int REDISMODULE_API_FUNC(RedisModule_DeleteKey)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_StringSet)(RedisModuleKey *key, RedisModuleString *str);
 char *REDISMODULE_API_FUNC(RedisModule_StringDMA)(RedisModuleKey *key, size_t *len, int mode);
 int REDISMODULE_API_FUNC(RedisModule_StringTruncate)(RedisModuleKey *key, size_t newlen);
+mstime_t REDISMODULE_API_FUNC(RedisModule_GetExpire)(RedisModuleKey *key);
+int REDISMODULE_API_FUNC(RedisModule_SetExpire)(RedisModuleKey *key, mstime_t expire);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
@@ -142,6 +149,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringSet);
     REDISMODULE_GET_API(StringDMA);
     REDISMODULE_GET_API(StringTruncate);
+    REDISMODULE_GET_API(GetExpire);
+    REDISMODULE_GET_API(SetExpire);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;

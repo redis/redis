@@ -520,6 +520,38 @@ by new key commands. For example `RedisModule_KeyType()` will return it is
 an empty key, and writing to it will create a new key, possibly of another
 type (depending on the API used).
 
+## Managing key expires (TTLs)
+
+To control key expires two functions are provided, that are able to set,
+modify, get, and unset the time to live associated with a key.
+
+One function is used in order to query the current expire of an open key:
+
+    mstime_t RedisModule_GetExpire(RedisModuleKey *key);
+
+The function returns the time to live of the key in milliseconds, or
+`REDISMODULE_NO_EXPIRE` as a special value to signal the key has no associated
+expire or does not exist at all (you can differentiate the two cases checking
+if the key type is `REDISMODULE_KEYTYPE_EMPTY`).
+
+In order to change the expire of a key the following function is used instead:
+
+    int RedisModule_SetExpire(RedisModuleKey *key, mstime_t expire);
+
+When called on a non existing key, `REDISMODULE_ERR` is returned, because
+the function can only associate expires to existing open keys (non existing
+open keys are only useful in order to create new values with data type
+specific write operations).
+
+Again the `expire` time is specified in milliseconds. If the key has currently
+no expire, a new expire is set. If the key already have an expire, it is
+replaced with the new value.
+
+If the key has an expire, and the special value `REDISMODULE_NO_EXPIRE` is
+used as a new expire, the expire is removed, similarly to the Redis
+`PERSIST` command. In case the key was already persistent, no operation is
+performed.
+
 ## Obtaining the length of values
 
 There is a single function in order to retrieve the length of the value
