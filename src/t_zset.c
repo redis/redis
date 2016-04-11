@@ -1615,6 +1615,7 @@ typedef struct {
     int type; /* Set, sorted set */
     int encoding;
     double weight;
+    zrangespec range;
 
     union {
         /* Set iterators. */
@@ -1945,6 +1946,7 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_SQR 4
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
@@ -1954,6 +1956,8 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
          * is +inf and the other is -inf. When these numbers are added,
          * we maintain the convention of the result being 0.0. */
         if (isnan(*target)) *target = 0.0;
+    } else if (aggregate == REDIS_AGGR_SQR) {
+        *target = *target + val*val;
     } else if (aggregate == REDIS_AGGR_MIN) {
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
@@ -1980,6 +1984,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
+    int byscore = 0;
     zsetopsrc *src;
     zsetopval zval;
     sds tmp;
@@ -2038,18 +2043,32 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                 j++; remaining--;
                 for (i = 0; i < setnum; i++, j++, remaining--) {
                     if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
-                            "weight value is not a float") != C_OK)
-                    {
+                            "weight value is not a float") != C_OK) {
                         zfree(src);
                         return;
                     }
                 }
-            } else if (remaining >= 2 &&
+            }
+            else if (remaining >= (setnum + 1) &&
+                            !strcasecmp(c->argv[j]->ptr,"byscore"))
+            {
+                j++; remaining--;
+                byscore = 1;
+                for (i = 0; i < setnum; i++, j=j+2, remaining=remaining-2) {
+                    if (zslParseRange(c->argv[j],c->argv[j+1],&src[i].range) != C_OK) {
+                        zfree(src);
+                        return;
+                    }
+                }
+            }
+            else if (remaining >= 2 &&
                        !strcasecmp(c->argv[j]->ptr,"aggregate"))
             {
                 j++; remaining--;
                 if (!strcasecmp(c->argv[j]->ptr,"sum")) {
                     aggregate = REDIS_AGGR_SUM;
+                } else if (!strcasecmp(c->argv[j]->ptr,"sqr")) {
+                    aggregate = REDIS_AGGR_SQR;
                 } else if (!strcasecmp(c->argv[j]->ptr,"min")) {
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
@@ -2085,17 +2104,36 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
             while (zuiNext(&src[0],&zval)) {
                 double score, value;
 
-                score = src[0].weight * zval.score;
-                if (isnan(score)) score = 0;
+                if(byscore){
+                    if(!zslValueGteMin(zval.score, &src[0].range)) continue;
+                    if(!zslValueLteMax(zval.score, &src[0].range)) continue;
+                    score = (aggregate == REDIS_AGGR_SQR) ? zval.score*zval.score : zval.score;
+                }
+                else{
+                    score = src[0].weight * zval.score;
+                    score = (aggregate == REDIS_AGGR_SQR) ? score*score : score ;
+                    if (isnan(score)) score = 0;
+                }
 
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
                     if (src[j].subject == src[0].subject) {
-                        value = zval.score*src[j].weight;
+                        if(byscore){
+                            if(!zslValueGteMin(zval.score, &src[j].range)) break;
+                            if(!zslValueLteMax(zval.score, &src[j].range)) break;
+                            score = zval.score;
+                        } else {
+                            value = zval.score*src[j].weight;
+                        }
                         zunionInterAggregate(&score,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
-                        value *= src[j].weight;
+                        if(byscore){
+                            if(!zslValueGteMin(value, &src[j].range)) break;
+                            if(!zslValueLteMax(value, &src[j].range)) break;
+                        } else {
+                            value *= src[j].weight;
+                        }
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
                         break;
@@ -2131,9 +2169,15 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
 
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
-                /* Initialize value */
-                score = src[i].weight * zval.score;
-                if (isnan(score)) score = 0;
+                if(byscore){
+                    if(!zslValueGteMin(zval.score, &src[i].range)) continue;
+                    if(!zslValueLteMax(zval.score, &src[i].range)) continue;
+                    score = zval.score;
+                } else {
+                    /* Initialize value */
+                    score = src[i].weight * zval.score;
+                    if (isnan(score)) score = 0;
+                }
 
                 /* Search for this element in the accumulating dictionary. */
                 de = dictFind(accumulator,zuiSdsFromValue(&zval));
@@ -2146,15 +2190,24 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Add the element with its initial score. */
                     de = dictAddRaw(accumulator,tmp);
-                    dictSetDoubleVal(de,score);
+                    if (aggregate == REDIS_AGGR_SQR) {
+                      dictSetDoubleVal(de,score*score);
+                    }
+                    else {
+                        dictSetDoubleVal(de,score);
+                    }
                 } else {
-                    /* Update the score with the score of the new instance
-                     * of the element found in the current sorted set.
-                     *
-                     * Here we access directly the dictEntry double
-                     * value inside the union as it is a big speedup
-                     * compared to using the getDouble/setDouble API. */
-                    zunionInterAggregate(&de->v.d,score,aggregate);
+                    if(byscore){
+                        zunionInterAggregate(&de->v.d,score,aggregate);
+                    } else {
+                        /* Update the score with the score of the new instance
+                         * of the element found in the current sorted set.
+                         *
+                         * Here we access directly the dictEntry double
+                         * value inside the union as it is a big speedup
+                         * compared to using the getDouble/setDouble API. */
+                        zunionInterAggregate(&de->v.d,score,aggregate);
+                    }
                 }
             }
             zuiClearIterator(&src[i]);
