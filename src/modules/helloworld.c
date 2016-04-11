@@ -51,6 +51,21 @@ int HelloPushCall_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+/* HELLO.PUSH.CALL2
+ * This is exaxctly as HELLO.PUSH.CALL, but shows how we can reply to the
+ * client using directly a reply object that Call() returned. */
+int HelloPushCall2_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+
+    RedisModuleCallReply *reply;
+
+    reply = RedisModule_Call(ctx,"RPUSH","ss",argv[1],argv[2]);
+    RedisModule_ReplyWithCallReply(ctx,reply);
+    RedisModule_FreeCallReply(reply);
+    return REDISMODULE_OK;
+}
+
 /* HELLO.LIST.SUM.LEN returns the total length of all the items inside
  * a Redis list, by using the high level Call() API.
  * This command is an example of the array reply access. */
@@ -304,6 +319,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
 
     if (RedisModule_CreateCommand(ctx,"hello.push.call",
         HelloPushCall_RedisCommand) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hello.push.call2",
+        HelloPushCall2_RedisCommand) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.list.sum.len",

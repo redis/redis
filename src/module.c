@@ -87,7 +87,7 @@ typedef struct RedisModuleCommandProxy RedisModuleCommandProxy;
 
 /* Reply of RM_Call() function. The function is filled in a lazy
  * way depending on the function called on the reply structure. By default
- * only the type and proto are filled. */
+ * only the type, proto and protolen are filled. */
 struct RedisModuleCallReply {
     RedisModuleCtx *ctx;
     int type;       /* REDISMODULE_REPLY_... */
@@ -467,6 +467,13 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 /* Reply with NULL. */
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     addReply(ctx->client,shared.nullbulk);
+    return REDISMODULE_OK;
+}
+
+/* Reply exactly what a Redis command returned us with RM_Call(). */
+int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
+    sds proto = sdsnewlen(reply->proto, reply->protolen);
+    addReplySds(ctx->client,proto);
     return REDISMODULE_OK;
 }
 
@@ -1204,6 +1211,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithNull);
+    REGISTER_API(ReplyWithCallReply);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
     REGISTER_API(OpenKey);

@@ -694,3 +694,4 @@ Command implementations, on keys position request, must reply with
 `REDISMODULE_KEYPOS_OK` to signal the request was processed, otherwise
 Cluster returns an error for those module commands that are not able to
 describe the position of keys.
+
