@@ -1,12 +1,14 @@
-/* linenoise.h -- guerrilla line editing library against the idea that a
- * line editing lib needs to be 20,000 lines of C code.
+/* linenoise.h -- VERSION 1.0
+ *
+ * Guerrilla line editing library against the idea that a line editing lib
+ * needs to be 20,000 lines of C code.
  *
  * See linenoise.c for more information.
  *
  * ------------------------------------------------------------------------
  *
- * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2010-2014, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
  *
  * All rights reserved.
  *
@@ -47,10 +49,15 @@ typedef struct linenoiseCompletions {
 } linenoiseCompletions;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
+typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
+typedef char*(linenoiseFreeHintsCallback)(char *);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
+void linenoiseSetHintsCallback(linenoiseHintsCallback *);
+void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 char *linenoise(const char *prompt);
+void linenoiseFree(void *ptr);
 int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
