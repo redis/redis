@@ -145,6 +145,9 @@ int moduleCreateEmtpyKey(RedisModuleKey *key, int type) {
         quicklistSetOptions(obj->ptr, server.list_max_ziplist_size,
                             server.list_compress_depth);
         break;
+    case REDISMODULE_KEYTYPE_ZSET:
+        obj = createZsetZiplistObject();
+        break;
     default: return REDISMODULE_ERR;
     }
     dbAdd(key->db,key->key,obj);
@@ -805,7 +808,6 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (key->value->type != OBJ_LIST) return REDISMODULE_ERR;
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
-    signalModifiedKey(key->db,key->key);
     return REDISMODULE_OK;
 }
 
@@ -827,6 +829,17 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     moduleDelKeyIfEmpty(key);
     RM_AutoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
+}
+
+/* --------------------------------------------------------------------------
+ * Key API for Sorted Set type
+ * -------------------------------------------------------------------------- */
+
+int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele) {
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
+    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------

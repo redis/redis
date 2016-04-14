@@ -634,10 +634,6 @@ Work in progress.
 
 Work in progress.
 
-## Accessing keys TTL and setting expires
-
-Work in progress.
-
 # Replicating commands
 
 If you want to use module commands exactly like normal Redis commands, in the
