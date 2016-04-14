@@ -39,6 +39,13 @@
 /* Expire */
 #define REDISMODULE_NO_EXPIRE -1
 
+/* Sorted set API flags. */
+#define REDISMODULE_ZADD_XX      (1<<0)
+#define REDISMODULE_ZADD_NX      (1<<1)
+#define REDISMODULE_ZADD_ADDED   (1<<2)
+#define REDISMODULE_ZADD_UPDATED (1<<3)
+#define REDISMODULE_ZADD_NOP     (1<<4)
+
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"
 

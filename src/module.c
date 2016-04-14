@@ -835,10 +835,95 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
  * Key API for Sorted Set type
  * -------------------------------------------------------------------------- */
 
-int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele) {
+/* Conversion from/to public flags of the Modules API and our private flags,
+ * so that we have everything decoupled. */
+int RM_ZsetAddFlagsToCoreFlags(int flags) {
+    int retflags = 0;
+    if (flags & REDISMODULE_ZADD_XX) retflags |= ZADD_XX;
+    if (flags & REDISMODULE_ZADD_NX) retflags |= ZADD_NX;
+    return retflags;
+}
+
+/* See previous function comment. */
+int RM_ZsetAddFlagsFromCoreFlags(int flags) {
+    int retflags = 0;
+    if (flags & ZADD_ADDED) retflags |= REDISMODULE_ZADD_ADDED;
+    if (flags & ZADD_UPDATED) retflags |= REDISMODULE_ZADD_UPDATED;
+    if (flags & ZADD_NOP) retflags |= REDISMODULE_ZADD_NOP;
+    return retflags;
+}
+
+/* Add a new element into a sorted set, with the specified 'score'.
+ * If the element already exists, the score is updated.
+ *
+ * A new sorted set is created at value if the key is an empty open key
+ * setup for writing.
+ *
+ * Additional flags can be passed to the function via a pointer, the flags
+ * are both used to receive input and to communicate state when the function
+ * returns. 'flagsptr' can be NULL if no special flags are used.
+ *
+ * The input flags are:
+ *
+ * REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
+ * REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
+ *
+ * The output flags are:
+ *
+ * REDISMODULE_ZADD_ADDED: The new element was added to the sorted set.
+ * REDISMODULE_ZADD_UPDATED: The score of the element was updated.
+ * REDISMODULE_ZADD_NOP: No operation was performed because XX or NX flags.
+ *
+ * On success the function returns REDISMODULE_OK. On the following errors
+ * REDISMODULE_ERR is returned:
+ *
+ * - The key was not opened for writing.
+ * - The key is of the wrong type.
+ * - 'score' double value is not a number (NaN).
+ */
+int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) {
+    int flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
+    if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
+    if (zsetAdd(key->value,score,ele->ptr,&flags,NULL) == 0) {
+        if (flagsptr) *flagsptr = 0;
+        return REDISMODULE_ERR;
+    }
+    if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
+    return REDISMODULE_OK;
+}
+
+/* This function works exactly like RM_ZsetAdd(), but instead of setting
+ * a new score, the score of the existing element is incremented, or if the
+ * element does not already exist, it is added assuming the old score was
+ * zero.
+ *
+ * The input and output flags, and the return value, have the same exact
+ * meaning, with the only difference that this function will return
+ * REDISMODULE_ERR even when 'score' is a valid double number, but adding it
+ * to the existing score resuts into a NaN (not a number) condition.
+ *
+ * This function has an additional field 'newscore', if not NULL is filled
+ * with the new score of the element after the increment, if no error
+ * is returned. */
+int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr, double *newscore) {
+    int flags = 0;
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
+    if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
+    if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
+        if (flagsptr) *flagsptr = 0;
+        return REDISMODULE_ERR;
+    }
+    /* zsetAdd() may signal back that the resulting score is not a number. */
+    if (flagsptr && (*flagsptr & ZADD_NAN)) {
+        *flagsptr = 0;
+        return REDISMODULE_ERR;
+    }
+    if (flagsptr) *flagsptr = RM_ZsetAddFlagsFromCoreFlags(flags);
     return REDISMODULE_OK;
 }
 
