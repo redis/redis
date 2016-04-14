@@ -1288,6 +1288,21 @@ unsigned long aofRewriteBufferSize(void);
 
 /* Sorted sets data type */
 
+/* Input flags. */
+#define ZADD_NONE 0
+#define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
+#define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
+#define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
+
+/* Output flags. */
+#define ZADD_NOP (1<<3)     /* Operation not performed because of conditionals.*/
+#define ZADD_NAN (1<<4)     /* Only touch elements already exisitng. */
+#define ZADD_ADDED (1<<5)   /* The element was new and was added. */
+#define ZADD_UPDATED (1<<6) /* The element already existed, score updated. */
+
+/* Flags only used by the ZADD command but not by zsetAdd() API: */
+#define ZADD_CH (1<<16)      /* Return num of elements added or updated. */
+
 /* Struct to hold a inclusive/exclusive range spec by score comparison. */
 typedef struct {
     double min, max;
@@ -1315,6 +1330,7 @@ void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen);
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
+int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);
