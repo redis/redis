@@ -1370,6 +1370,47 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
     return 0; /* Never reached. */
 }
 
+/* Delete the element 'ele' from the sorted set, returning 1 if the element
+ * existed and was deleted, 0 otherwise (the element was not there). */
+int zsetDel(robj *zobj, sds ele) {
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *eptr;
+
+        if ((eptr = zzlFind(zobj->ptr,ele,NULL)) != NULL) {
+            zobj->ptr = zzlDelete(zobj->ptr,eptr);
+            return 1;
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        dictEntry *de;
+        double score;
+
+        de = dictFind(zs->dict,ele);
+        if (de != NULL) {
+            /* Get the score in order to delete from the skiplist later. */
+            score = *(double*)dictGetVal(de);
+
+            /* Delete from the hash table and later from the skiplist.
+             * Note that the order is important: deleting from the skiplist
+             * actually releases the SDS string representing the element,
+             * which is shared between the skiplist and the hash table, so
+             * we need to delete from the skiplist as the final step. */
+            int retval1 = dictDelete(zs->dict,ele);
+
+            /* Delete from skiplist. */
+            int retval2 = zslDelete(zs->zsl,score,ele,NULL);
+
+            serverAssert(retval1 == DICT_OK && retval2);
+
+            if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+            return 1;
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+    return 0; /* No such element found. */
+}
+
 /* Given a sorted set object returns the 0-based rank of the object or
  * -1 if the object does not exist.
  *
@@ -1579,56 +1620,13 @@ void zremCommand(client *c) {
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
-    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *eptr;
-
-        for (j = 2; j < c->argc; j++) {
-            if ((eptr = zzlFind(zobj->ptr,c->argv[j]->ptr,NULL)) != NULL) {
-                deleted++;
-                zobj->ptr = zzlDelete(zobj->ptr,eptr);
-                if (zzlLength(zobj->ptr) == 0) {
-                    dbDelete(c->db,key);
-                    keyremoved = 1;
-                    break;
-                }
-            }
+    for (j = 2; j < c->argc; j++) {
+        if (zsetDel(zobj,c->argv[j]->ptr)) deleted++;
+        if (zsetLength(zobj) == 0) {
+            dbDelete(c->db,key);
+            keyremoved = 1;
+            break;
         }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        dictEntry *de;
-        double score;
-
-        for (j = 2; j < c->argc; j++) {
-            de = dictFind(zs->dict,c->argv[j]->ptr);
-            if (de != NULL) {
-                deleted++;
-
-                /* Get the score in order to delete from the skiplist later. */
-                score = *(double*)dictGetVal(de);
-
-                /* Delete from the hash table and later from the skiplist.
-                 * Note that the order is important: deleting from the skiplist
-                 * actually releases the SDS string representing the element,
-                 * which is shared between the skiplist and the hash table, so
-                 * we need to delete from the skiplist as the final step. */
-                int retval1 = dictDelete(zs->dict,c->argv[j]->ptr);
-
-                /* Delete from skiplist. */
-                int retval2 = zslDelete(zs->zsl,score,c->argv[j]->ptr,NULL);
-
-                serverAssertWithInfo(c,c->argv[j],
-                    retval1 == DICT_OK && retval2);
-
-                if (htNeedsResize(zs->dict)) dictResize(zs->dict);
-                if (dictSize(zs->dict) == 0) {
-                    dbDelete(c->db,key);
-                    keyremoved = 1;
-                    break;
-                }
-            }
-        }
-    } else {
-        serverPanic("Unknown sorted set encoding");
     }
 
     if (deleted) {
