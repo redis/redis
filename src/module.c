@@ -927,6 +927,35 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     return REDISMODULE_OK;
 }
 
+/* Remove the specified element from the sorted set.
+ * The function returns REDISMODULE_OK on success, and REDISMODULE_ERR
+ * on one of the following conditions:
+ *
+ * - The key was not opened for writing.
+ * - The key is of the wrong type.
+ *
+ * The return value does NOT indicate the fact the element was really
+ * removed (since it existed) or not, just if the function was executed
+ * with success.
+ *
+ * In order to know if the element was removed, the additional argument
+ * 'deleted' must be passed, that populates the integer by reference
+ * setting it to 1 or 0 depending on the outcome of the operation.
+ * The 'deleted' argument can be NULL if the caller is not interested
+ * to know if the element was really removed.
+ *
+ * Empty keys will be handled correctly by doing nothing. */
+int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value != NULL && zsetDel(key->value,ele->ptr)) {
+        if (deleted) *deleted = 1;
+    } else {
+        if (deleted) *deleted = 0;
+    }
+    return REDISMODULE_OK;
+}
+
 /* On success retrieve the double score associated at the sorted set element
  * 'ele' and returns REDISMODULE_OK. Otherwise REDISMODULE_ERR is returned
  * to signal one of the following conditions:
@@ -1390,6 +1419,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetAdd);
     REGISTER_API(ZsetIncrby);
     REGISTER_API(ZsetScore);
+    REGISTER_API(ZsetRem);
 }
 
 /* Global initialization at Redis startup. */
