@@ -927,6 +927,21 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     return REDISMODULE_OK;
 }
 
+/* On success retrieve the double score associated at the sorted set element
+ * 'ele' and returns REDISMODULE_OK. Otherwise REDISMODULE_ERR is returned
+ * to signal one of the following conditions:
+ *
+ * - There is no such element 'ele' in the sorted set.
+ * - The key is not a sorted set.
+ * - The key is an open empty key.
+ */
+int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
+    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value == NULL) return REDISMODULE_ERR;
+    if (zsetScore(key->value,ele->ptr,score) == C_ERR) return REDISMODULE_ERR;
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Redis <-> Modules generic Call() API
  * -------------------------------------------------------------------------- */
@@ -1372,6 +1387,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringTruncate);
     REGISTER_API(SetExpire);
     REGISTER_API(GetExpire);
+    REGISTER_API(ZsetAdd);
+    REGISTER_API(ZsetIncrby);
+    REGISTER_API(ZsetScore);
 }
 
 /* Global initialization at Redis startup. */
