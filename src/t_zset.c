@@ -1308,6 +1308,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
             if (sdslen(ele) > server.zset_max_ziplist_value)
                 zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+            if (newscore) *newscore = score;
             *flags |= ZADD_ADDED;
             return 1;
         } else {
@@ -1359,6 +1360,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             znode = zslInsert(zs->zsl,score,ele);
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
             *flags |= ZADD_ADDED;
+            if (newscore) *newscore = score;
             return 1;
         } else {
             *flags |= ZADD_NOP;
