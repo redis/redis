@@ -1511,7 +1511,7 @@ int moduleUnload(sds name) {
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (cmd->proc == RedisModuleCommandDispatcher) {
-            RedisModuleCommandProxy *cp = 
+            RedisModuleCommandProxy *cp =
                 (void*)(unsigned long)cmd->getkeys_proc;
             sds cmdname = cp->rediscmd->name;
             if (cp->module == module) {
