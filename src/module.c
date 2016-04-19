@@ -1075,6 +1075,17 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
  * does not include any item at all. */
 int RM_ZsetRangeNext(RedisModuleKey *key) {
     if (!key->zr || !key->zcurrent) return 0; /* No active iterator. */
+    zrangespec zrs;
+
+    /* Convert to core range structure. */
+    RedisModuleZsetRange *zr = key->zr;
+    if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
+        zrs.min = zr->score_start;
+        zrs.max = zr->score_end;
+        zrs.minex = (zr->flags & REDISMODULE_ZSET_RANGE_START_EX) != 0;
+        zrs.maxex = (zr->flags & REDISMODULE_ZSET_RANGE_END_EX) != 0;
+    }
+
     if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = key->value->ptr;
         unsigned char *eptr = key->zcurrent;
@@ -1085,8 +1096,19 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             key->zer = 1;
             return 0;
         } else {
-            /* TODO: check if we are in range. */
-            key->zcurrent = next;
+            /* Fetch the next element score for the
+             * range check. */
+            unsigned char *saved_next = next;
+            next = ziplistNext(zl,next); /* Skip next element. */
+            double score = zzlGetScore(next); /* Obtain the next score. */
+            /* Are we still within the range? */
+            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE &&
+                !zslValueLteMax(score,&zrs))
+            {
+                key->zer = 1;
+                return 0;
+            }
+            key->zcurrent = saved_next;
             return 1;
         }
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1095,7 +1117,13 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             key->zer = 1;
             return 0;
         } else {
-            /* TODO: check if we are in range. */
+            /* Are we still within the range? */
+            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE &&
+                !zslValueLteMax(ln->score,&zrs))
+            {
+                key->zer = 1;
+                return 0;
+            }
             key->zcurrent = next;
             return 1;
         }

@@ -1344,6 +1344,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse);
 int zsetDel(robj *zobj, sds ele);
 sds ziplistGetObject(unsigned char *sptr);
+int zslValueGteMin(double value, zrangespec *spec);
+int zslValueLteMax(double value, zrangespec *spec);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);
