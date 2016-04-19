@@ -65,6 +65,10 @@ struct RedisModuleKey {
     robj *value;    /* Value object, or NULL if the key was not found. */
     void *iter;     /* Iterator. */
     int mode;       /* Opening mode. */
+    /* Zset iterator. */
+    RedisModuleZsetRange *zr;   /* Zset iterator range passed by user. */
+    void *zcurrent; /* Zset iterator current node. */
+    int zer; /* Zset iterator end reached flag (true if end was reached). */
 };
 typedef struct RedisModuleKey RedisModuleKey;
 
@@ -115,6 +119,7 @@ void RM_CloseKey(RedisModuleKey *key);
 void RM_AutoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
+void RM_ZsetRangeStop(RedisModuleKey *key);
 
 /* --------------------------------------------------------------------------
  * Helpers for modules API implementation
@@ -380,13 +385,21 @@ const char *RM_StringPtrLen(RedisModuleString *str, size_t *len) {
     return str->ptr;
 }
 
-/* Turn the string into a long long, storing it at *ll if not NULL.
+/* Turn the string into a long long, storing it at *ll.
  * Returns REDISMODULE_OK on success. If the string can't be parsed
  * as a valid, strict long long (no spaces before/after), REDISMODULE_ERR
  * is returned. */
 int RM_StringToLongLong(RedisModuleString *str, long long *ll) {
     return string2ll(str->ptr,sdslen(str->ptr),ll) ? REDISMODULE_OK :
                                                      REDISMODULE_ERR;
+}
+
+/* Turn the string into a double, storing it at *d.
+ * Returns REDISMODULE_OK on success or REDISMODULE_ERR if the string is
+ * not a valid string representation of a double value. */
+int RM_StringToDouble(RedisModuleString *str, double *d) {
+    int retval = getDoubleFromObject(str,d);
+    return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 /* --------------------------------------------------------------------------
@@ -477,6 +490,12 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     sds proto = sdsnewlen(reply->proto, reply->protolen);
     addReplySds(ctx->client,proto);
+    return REDISMODULE_OK;
+}
+
+/* Send a string reply obtained converting the double 'd' into a string. */
+int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
+    addReplyDouble(ctx->client,d);
     return REDISMODULE_OK;
 }
 
@@ -592,6 +611,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
+    RM_ZsetRangeStop(kp);
     RM_AutoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return (void*)kp;
 }
@@ -969,6 +989,119 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
     if (key->value == NULL) return REDISMODULE_ERR;
     if (zsetScore(key->value,ele->ptr,score) == C_ERR) return REDISMODULE_ERR;
     return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
+ * Key API for Sorted Set iterator
+ * -------------------------------------------------------------------------- */
+
+/* Stop a sorted set iteration. */
+void RM_ZsetRangeStop(RedisModuleKey *key) {
+    /* Setup sensible values so that misused iteration API calls when an
+     * iterator is not active will result into something more sensible
+     * than crashing. */
+    key->zr = NULL;
+    key->zcurrent = NULL;
+    key->zer = 1;
+}
+
+/* Return the "End of range" flag value to signal the end of the iteration. */
+int RM_ZsetRangeEndReached(RedisModuleKey *key) {
+    return key->zer;
+}
+
+/* Setup a sorted set iterator seeking the first element in the specified
+ * range. Returns REDISMODULE_OK if the iterator was correctly initialized
+ * otherwise REDISMODULE_ERR is returned in the following conditions:
+ *
+ * 1. The value stored at key is not a sorted set or the key is empty.
+ * 2. The iterator type is unrecognized. */
+int RM_ZsetFirstInRange(RedisModuleKey *key, RedisModuleZsetRange *zr) {
+    if (!key->value || key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    key->zr = zr;
+    key->zcurrent = NULL;
+    key->zer = 0;
+
+    if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
+        /* Setup the range structure used by the sorted set core implementation
+         * in order to seek at the specified element. */
+        zrangespec zrs;
+        zrs.min = zr->score_start;
+        zrs.max = zr->score_end;
+        zrs.minex = (zr->flags & REDISMODULE_ZSET_RANGE_START_EX) != 0;
+        zrs.maxex = (zr->flags & REDISMODULE_ZSET_RANGE_END_EX) != 0;
+
+        if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+            key->zcurrent = zzlFirstInRange(key->value->ptr,&zrs);
+        } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = key->value->ptr;
+            zskiplist *zsl = zs->zsl;
+            key->zcurrent = zslFirstInRange(zsl,&zrs);
+        } else {
+            serverPanic("Unsupported zset encoding");
+        }
+        if (key->zcurrent == NULL) key->zer = 1;
+        return REDISMODULE_OK;
+    } else {
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Return the current sorted set element of an active sorted set iterator
+ * or NULL if the range specified in the iterator does not include any
+ * element. */
+RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score) {
+    if (key->zcurrent == NULL) return NULL;
+    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *eptr, *sptr;
+        eptr = key->zcurrent;
+        sds ele = ziplistGetObject(eptr);
+        if (score) {
+            sptr = ziplistNext(key->value->ptr,eptr);
+            *score = zzlGetScore(sptr);
+        }
+        return createObject(OBJ_STRING,ele);
+    } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
+        zskiplistNode *ln = key->zcurrent;
+        if (score) *score = ln->score;
+        return createStringObject(ln->ele,sdslen(ln->ele));
+    } else {
+        serverPanic("Unsupported zset encoding");
+    }
+}
+
+/* Go to the next element of the sorted set iterator. Returns 1 if there was
+ * a next element, 0 if we are already at the latest element or the range
+ * does not include any item at all. */
+int RM_ZsetRangeNext(RedisModuleKey *key) {
+    if (!key->zr || !key->zcurrent) return 0; /* No active iterator. */
+    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+        unsigned char *zl = key->value->ptr;
+        unsigned char *eptr = key->zcurrent;
+        unsigned char *next;
+        next = ziplistNext(zl,eptr); /* Skip element. */
+        if (next) next = ziplistNext(zl,next); /* Skip score. */
+        if (next == NULL) {
+            key->zer = 1;
+            return 0;
+        } else {
+            /* TODO: check if we are in range. */
+            key->zcurrent = next;
+            return 1;
+        }
+    } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
+        zskiplistNode *ln = key->zcurrent, *next = ln->level[0].forward;
+        if (next == NULL) {
+            key->zer = 1;
+            return 0;
+        } else {
+            /* TODO: check if we are in range. */
+            key->zcurrent = next;
+            return 1;
+        }
+    } else {
+        serverPanic("Unsupported zset encoding");
+    }
 }
 
 /* --------------------------------------------------------------------------
@@ -1385,6 +1518,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithStringBuffer);
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithCallReply);
+    REGISTER_API(ReplyWithDouble);
     REGISTER_API(GetSelectedDb);
     REGISTER_API(SelectDb);
     REGISTER_API(OpenKey);
@@ -1394,6 +1528,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ListPush);
     REGISTER_API(ListPop);
     REGISTER_API(StringToLongLong);
+    REGISTER_API(StringToDouble);
     REGISTER_API(Call);
     REGISTER_API(CallReplyProto);
     REGISTER_API(FreeCallReply);
@@ -1420,6 +1555,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetIncrby);
     REGISTER_API(ZsetScore);
     REGISTER_API(ZsetRem);
+    REGISTER_API(ZsetRangeStop);
+    REGISTER_API(ZsetFirstInRange);
+    REGISTER_API(ZsetRangeCurrentElement);
+    REGISTER_API(ZsetRangeNext);
+    REGISTER_API(ZsetRangeEndReached);
 }
 
 /* Global initialization at Redis startup. */
