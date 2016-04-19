@@ -1051,6 +1051,8 @@ int RM_ZsetFirstInRange(RedisModuleKey *key, RedisModuleZsetRange *zr) {
  * or NULL if the range specified in the iterator does not include any
  * element. */
 RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score) {
+    RedisModuleString *str;
+
     if (key->zcurrent == NULL) return NULL;
     if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr, *sptr;
@@ -1060,14 +1062,16 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
             sptr = ziplistNext(key->value->ptr,eptr);
             *score = zzlGetScore(sptr);
         }
-        return createObject(OBJ_STRING,ele);
+        str = createObject(OBJ_STRING,ele);
     } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
         zskiplistNode *ln = key->zcurrent;
         if (score) *score = ln->score;
-        return createStringObject(ln->ele,sdslen(ln->ele));
+        str = createStringObject(ln->ele,sdslen(ln->ele));
     } else {
         serverPanic("Unsupported zset encoding");
     }
+    RM_AutoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,str);
+    return str;
 }
 
 /* Go to the next element of the sorted set iterator. Returns 1 if there was
