@@ -145,8 +145,10 @@ int REDISMODULE_API_FUNC(RedisModule_ZsetScore)(RedisModuleKey *key, RedisModule
 int REDISMODULE_API_FUNC(RedisModule_ZsetRem)(RedisModuleKey *key, RedisModuleString *ele, int *deleted);
 void REDISMODULE_API_FUNC(RedisModule_ZsetRangeStop)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetFirstInRange)(RedisModuleKey *key, RedisModuleZsetRange *zr);
+int REDISMODULE_API_FUNC(RedisModule_ZsetLastInRange)(RedisModuleKey *key, RedisModuleZsetRange *zr);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ZsetRangeCurrentElement)(RedisModuleKey *key, double *score);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeNext)(RedisModuleKey *key);
+int REDISMODULE_API_FUNC(RedisModule_ZsetRangePrev)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeEndReached)(RedisModuleKey *key);
 
 /* This is included inline inside each Redis module. */
@@ -203,8 +205,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRem);
     REDISMODULE_GET_API(ZsetRangeStop);
     REDISMODULE_GET_API(ZsetFirstInRange);
+    REDISMODULE_GET_API(ZsetLastInRange);
     REDISMODULE_GET_API(ZsetRangeCurrentElement);
     REDISMODULE_GET_API(ZsetRangeNext);
+    REDISMODULE_GET_API(ZsetRangePrev);
     REDISMODULE_GET_API(ZsetRangeEndReached);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

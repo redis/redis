@@ -1335,6 +1335,7 @@ double zzlGetScore(unsigned char *sptr);
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
+unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToZiplistIfNeeded(robj *zobj, size_t maxelelen);
