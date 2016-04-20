@@ -65,12 +65,24 @@ struct RedisModuleKey {
     robj *value;    /* Value object, or NULL if the key was not found. */
     void *iter;     /* Iterator. */
     int mode;       /* Opening mode. */
+
     /* Zset iterator. */
-    RedisModuleZsetRange *zr;   /* Zset iterator range passed by user. */
-    void *zcurrent; /* Zset iterator current node. */
-    int zer; /* Zset iterator end reached flag (true if end was reached). */
+    uint32_t ztype;         /* REDISMODULE_ZSET_RANGE_* */
+    zrangespec zrs;         /* Score range. */
+    zlexrangespec zlrs;     /* Lex range. */
+    uint32_t zstart;        /* Start pos for positional ranges. */
+    uint32_t zend;          /* End pos for positional ranges. */
+    void *zcurrent;         /* Zset iterator current node. */
+    int zer;                /* Zset iterator end reached flag
+                               (true if end was reached). */
 };
 typedef struct RedisModuleKey RedisModuleKey;
+
+/* RedisModuleKey 'ztype' values. */
+#define REDISMODULE_ZSET_RANGE_NONE 0       /* This must always be 0. */
+#define REDISMODULE_ZSET_RANGE_LEX 1
+#define REDISMODULE_ZSET_RANGE_SCORE 2
+#define REDISMODULE_ZSET_RANGE_POS 3
 
 /* Function pointer type of a function representing a command inside
  * a Redis module. */
@@ -707,6 +719,7 @@ void RM_CloseKey(RedisModuleKey *key) {
     if (key == NULL) return;
     if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
+    RM_ZsetRangeStop(key);
     decrRefCount(key->key);
     autoMemoryFreed(key->ctx,REDISMODULE_AM_KEY,key);
     zfree(key);
@@ -1083,10 +1096,13 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
 
 /* Stop a sorted set iteration. */
 void RM_ZsetRangeStop(RedisModuleKey *key) {
+    /* Free resources if needed. */
+    if (key->ztype == REDISMODULE_ZSET_RANGE_LEX)
+        zslFreeLexRange(&key->zlrs);
     /* Setup sensible values so that misused iteration API calls when an
      * iterator is not active will result into something more sensible
      * than crashing. */
-    key->zr = NULL;
+    key->ztype = REDISMODULE_ZSET_RANGE_NONE;
     key->zcurrent = NULL;
     key->zer = 1;
 }
@@ -1096,59 +1112,55 @@ int RM_ZsetRangeEndReached(RedisModuleKey *key) {
     return key->zer;
 }
 
-/* Helper function for RM_ZsetFirstInRange() and RM_ZsetLastInRange().
- * Setup the sorted set iteration according to the specified range
- * (see the functions calling it for more info). If first is true the
+/* Helper function for RM_ZsetFirstInScoreRange() and RM_ZsetLastInScoreRange().
+ * Setup the sorted set iteration according to the specified score range
+ * (see the functions calling it for more info). If 'first' is true the
  * first element in the range is used as a starting point for the iterator
  * otherwise the last. Return REDISMODULE_OK on success otherwise
  * REDISMODULE_ERR. */
-int zsetInitRange(RedisModuleKey *key, RedisModuleZsetRange *zr, int first) {
+int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex, int first) {
     if (!key->value || key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
-    key->zr = zr;
-    key->zcurrent = NULL;
+
+    RM_ZsetRangeStop(key);
+    key->ztype = REDISMODULE_ZSET_RANGE_SCORE;
     key->zer = 0;
 
-    if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
-        /* Setup the range structure used by the sorted set core implementation
-         * in order to seek at the specified element. */
-        zrangespec zrs;
-        zrs.min = zr->score_start;
-        zrs.max = zr->score_end;
-        zrs.minex = (zr->flags & REDISMODULE_ZSET_RANGE_START_EX) != 0;
-        zrs.maxex = (zr->flags & REDISMODULE_ZSET_RANGE_END_EX) != 0;
+    /* Setup the range structure used by the sorted set core implementation
+     * in order to seek at the specified element. */
+    zrangespec *zrs = &key->zrs;
+    zrs->min = min;
+    zrs->max = max;
+    zrs->minex = minex;
+    zrs->maxex = maxex;
 
-        if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
-            key->zcurrent = first ? zzlFirstInRange(key->value->ptr,&zrs) :
-                                    zzlLastInRange(key->value->ptr,&zrs);
-        } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = key->value->ptr;
-            zskiplist *zsl = zs->zsl;
-            key->zcurrent = first ? zslFirstInRange(zsl,&zrs) :
-                                    zslLastInRange(zsl,&zrs);
-        } else {
-            serverPanic("Unsupported zset encoding");
-        }
-        if (key->zcurrent == NULL) key->zer = 1;
-        return REDISMODULE_OK;
+    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+        key->zcurrent = first ? zzlFirstInRange(key->value->ptr,zrs) :
+                                zzlLastInRange(key->value->ptr,zrs);
+    } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = key->value->ptr;
+        zskiplist *zsl = zs->zsl;
+        key->zcurrent = first ? zslFirstInRange(zsl,zrs) :
+                                zslLastInRange(zsl,zrs);
     } else {
-        return REDISMODULE_ERR;
+        serverPanic("Unsupported zset encoding");
     }
+    if (key->zcurrent == NULL) key->zer = 1;
+    return REDISMODULE_OK;
 }
 
 /* Setup a sorted set iterator seeking the first element in the specified
  * range. Returns REDISMODULE_OK if the iterator was correctly initialized
  * otherwise REDISMODULE_ERR is returned in the following conditions:
  *
- * 1. The value stored at key is not a sorted set or the key is empty.
- * 2. The iterator type is unrecognized. */
-int RM_ZsetFirstInRange(RedisModuleKey *key, RedisModuleZsetRange *zr) {
-    return zsetInitRange(key,zr,1);
+ * 1. The value stored at key is not a sorted set or the key is empty. */
+int RM_ZsetFirstInScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex) {
+    return zsetInitScoreRange(key,min,max,minex,maxex,1);
 }
 
-/* Exactly like RM_ZsetFirstInRange() but the last element of the range
- * is seeked instead. */
-int RM_ZsetLastInRange(RedisModuleKey *key, RedisModuleZsetRange *zr) {
-    return zsetInitRange(key,zr,0);
+/* Exactly like RedisModule_ZsetFirstInScoreRange() but the last element of
+ * the range is seeked instead. */
+int RM_ZsetLastInScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex) {
+    return zsetInitScoreRange(key,min,max,minex,maxex,0);
 }
 
 /* Return the current sorted set element of an active sorted set iterator
@@ -1182,17 +1194,7 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
  * a next element, 0 if we are already at the latest element or the range
  * does not include any item at all. */
 int RM_ZsetRangeNext(RedisModuleKey *key) {
-    if (!key->zr || !key->zcurrent) return 0; /* No active iterator. */
-    zrangespec zrs;
-
-    /* Convert to core range structure. */
-    RedisModuleZsetRange *zr = key->zr;
-    if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
-        zrs.min = zr->score_start;
-        zrs.max = zr->score_end;
-        zrs.minex = (zr->flags & REDISMODULE_ZSET_RANGE_START_EX) != 0;
-        zrs.maxex = (zr->flags & REDISMODULE_ZSET_RANGE_END_EX) != 0;
-    }
+    if (!key->ztype || !key->zcurrent) return 0; /* No active iterator. */
 
     if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = key->value->ptr;
@@ -1205,13 +1207,13 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             return 0;
         } else {
             /* Are we still within the range? */
-            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE) {
                 /* Fetch the next element score for the
                  * range check. */
                 unsigned char *saved_next = next;
                 next = ziplistNext(zl,next); /* Skip next element. */
                 double score = zzlGetScore(next); /* Obtain the next score. */
-                if (!zslValueLteMax(score,&zrs)) {
+                if (!zslValueLteMax(score,&key->zrs)) {
                     key->zer = 1;
                     return 0;
                 }
@@ -1227,8 +1229,8 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             return 0;
         } else {
             /* Are we still within the range? */
-            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueLteMax(ln->score,&zrs))
+            if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE &&
+                !zslValueLteMax(ln->score,&key->zrs))
             {
                 key->zer = 1;
                 return 0;
@@ -1245,17 +1247,7 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
  * a previous element, 0 if we are already at the first element or the range
  * does not include any item at all. */
 int RM_ZsetRangePrev(RedisModuleKey *key) {
-    if (!key->zr || !key->zcurrent) return 0; /* No active iterator. */
-    zrangespec zrs;
-
-    /* Convert to core range structure. */
-    RedisModuleZsetRange *zr = key->zr;
-    if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
-        zrs.min = zr->score_start;
-        zrs.max = zr->score_end;
-        zrs.minex = (zr->flags & REDISMODULE_ZSET_RANGE_START_EX) != 0;
-        zrs.maxex = (zr->flags & REDISMODULE_ZSET_RANGE_END_EX) != 0;
-    }
+    if (!key->ztype || !key->zcurrent) return 0; /* No active iterator. */
 
     if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = key->value->ptr;
@@ -1268,13 +1260,13 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             return 0;
         } else {
             /* Are we still within the range? */
-            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE) {
                 /* Fetch the previous element score for the
                  * range check. */
                 unsigned char *saved_prev = prev;
                 prev = ziplistNext(zl,prev); /* Skip element to get the score. */
                 double score = zzlGetScore(prev); /* Obtain the prev score. */
-                if (!zslValueGteMin(score,&zrs)) {
+                if (!zslValueGteMin(score,&key->zrs)) {
                     key->zer = 1;
                     return 0;
                 }
@@ -1290,8 +1282,8 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             return 0;
         } else {
             /* Are we still within the range? */
-            if (zr->type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueGteMin(ln->score,&zrs))
+            if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE &&
+                !zslValueGteMin(ln->score,&key->zrs))
             {
                 key->zer = 1;
                 return 0;
@@ -1756,8 +1748,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetScore);
     REGISTER_API(ZsetRem);
     REGISTER_API(ZsetRangeStop);
-    REGISTER_API(ZsetFirstInRange);
-    REGISTER_API(ZsetLastInRange);
+    REGISTER_API(ZsetFirstInScoreRange);
+    REGISTER_API(ZsetLastInScoreRange);
     REGISTER_API(ZsetRangeCurrentElement);
     REGISTER_API(ZsetRangeNext);
     REGISTER_API(ZsetRangePrev);

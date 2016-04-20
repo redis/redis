@@ -1347,6 +1347,7 @@ int zsetDel(robj *zobj, sds ele);
 sds ziplistGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
+void zslFreeLexRange(zlexrangespec *spec);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);

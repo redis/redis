@@ -50,30 +50,8 @@
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"
 
-/* Sorted set range structure. */
-typedef struct RedisModuleZsetRange {
-    uint32_t type;
-    uint32_t flags;
-    double score_start;
-    double score_end;
-    char *lex_start;
-    char *lex_end;
-    uint32_t lex_start_len;
-    uint32_t lex_end_len;
-    uint32_t pos_start;
-    uint32_t pos_end;
-} RedisModuleZsetRange;
-
 #define REDISMODULE_POSITIVE_INFINITE (1.0/0.0)
 #define REDISMODULE_NEGATIVE_INFINITE (-1.0/0.0)
-
-#define REDISMODULE_ZSET_RANGE_INIT {0,0,REDISMODULE_NEGATIVE_INFINITE,REDISMODULE_POSITIVE_INFINITE,"-","+",1,1,0,-1}
-#define REDISMODULE_ZSET_RANGE_LEX 1
-#define REDISMODULE_ZSET_RANGE_SCORE 2
-#define REDISMODULE_ZSET_RANGE_POS 3
-
-#define REDISMODULE_ZSET_RANGE_START_EX (1<<0)
-#define REDISMODULE_ZSET_RANGE_END_EX (1<<1)
 
 /* ------------------------- End of common defines ------------------------ */
 
@@ -144,8 +122,8 @@ int REDISMODULE_API_FUNC(RedisModule_ZsetIncrby)(RedisModuleKey *key, double sco
 int REDISMODULE_API_FUNC(RedisModule_ZsetScore)(RedisModuleKey *key, RedisModuleString *ele, double *score);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRem)(RedisModuleKey *key, RedisModuleString *ele, int *deleted);
 void REDISMODULE_API_FUNC(RedisModule_ZsetRangeStop)(RedisModuleKey *key);
-int REDISMODULE_API_FUNC(RedisModule_ZsetFirstInRange)(RedisModuleKey *key, RedisModuleZsetRange *zr);
-int REDISMODULE_API_FUNC(RedisModule_ZsetLastInRange)(RedisModuleKey *key, RedisModuleZsetRange *zr);
+int REDISMODULE_API_FUNC(RedisModule_ZsetFirstInScoreRange)(RedisModuleKey *key, double min, double max, int minex, int maxex);
+int REDISMODULE_API_FUNC(RedisModule_ZsetLastInScoreRange)(RedisModuleKey *key, double min, double max, int minex, int maxex);
 RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ZsetRangeCurrentElement)(RedisModuleKey *key, double *score);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeNext)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangePrev)(RedisModuleKey *key);
@@ -204,8 +182,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetScore);
     REDISMODULE_GET_API(ZsetRem);
     REDISMODULE_GET_API(ZsetRangeStop);
-    REDISMODULE_GET_API(ZsetFirstInRange);
-    REDISMODULE_GET_API(ZsetLastInRange);
+    REDISMODULE_GET_API(ZsetFirstInScoreRange);
+    REDISMODULE_GET_API(ZsetLastInScoreRange);
     REDISMODULE_GET_API(ZsetRangeCurrentElement);
     REDISMODULE_GET_API(ZsetRangeNext);
     REDISMODULE_GET_API(ZsetRangePrev);
