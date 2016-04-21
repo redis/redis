@@ -520,7 +520,7 @@ int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
  * of the array.
  *
  * The function always returns REDISMODULE_OK. */
-int RM_ReplyWithArray(RedisModuleCtx *ctx, int len) {
+int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
     addReplyMultiBulkLen(ctx->client,len);
     return REDISMODULE_OK;
 }
@@ -1186,13 +1186,16 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     if (!key->value || key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
 
     RM_ZsetRangeStop(key);
-    key->ztype = REDISMODULE_ZSET_RANGE_LEX;
     key->zer = 0;
 
     /* Setup the range structure used by the sorted set core implementation
      * in order to seek at the specified element. */
     zlexrangespec *zlrs = &key->zlrs;
     if (zslParseLexRange(min, max, zlrs) == C_ERR) return REDISMODULE_ERR;
+
+    /* Set the range type to lex only after successfully parsing the range,
+     * otherwise we don't want the zlexrangespec to be freed. */
+    key->ztype = REDISMODULE_ZSET_RANGE_LEX;
 
     if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
         key->zcurrent = first ? zzlFirstInLexRange(key->value->ptr,zlrs) :
@@ -1206,6 +1209,7 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
         serverPanic("Unsupported zset encoding");
     }
     if (key->zcurrent == NULL) key->zer = 1;
+
     return REDISMODULE_OK;
 }
 
@@ -1838,6 +1842,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetRangeStop);
     REGISTER_API(ZsetFirstInScoreRange);
     REGISTER_API(ZsetLastInScoreRange);
+    REGISTER_API(ZsetFirstInLexRange);
+    REGISTER_API(ZsetLastInLexRange);
     REGISTER_API(ZsetRangeCurrentElement);
     REGISTER_API(ZsetRangeNext);
     REGISTER_API(ZsetRangePrev);
