@@ -1353,6 +1353,10 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range);
 unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range);
 zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);
 zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);
+int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
+int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
+int zslLexValueGteMin(sds value, zlexrangespec *spec);
+int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);

@@ -63,8 +63,8 @@
  * Skiplist implementation of the low level API
  *----------------------------------------------------------------------------*/
 
-static int zslLexValueGteMin(sds value, zlexrangespec *spec);
-static int zslLexValueLteMax(sds value, zlexrangespec *spec);
+int zslLexValueGteMin(sds value, zlexrangespec *spec);
+int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
@@ -580,13 +580,13 @@ int sdscmplex(sds a, sds b) {
     return sdscmp(a,b);
 }
 
-static int zslLexValueGteMin(sds value, zlexrangespec *spec) {
+int zslLexValueGteMin(sds value, zlexrangespec *spec) {
     return spec->minex ?
         (sdscmplex(value,spec->min) > 0) :
         (sdscmplex(value,spec->min) >= 0);
 }
 
-static int zslLexValueLteMax(sds value, zlexrangespec *spec) {
+int zslLexValueLteMax(sds value, zlexrangespec *spec) {
     return spec->maxex ?
         (sdscmplex(value,spec->max) < 0) :
         (sdscmplex(value,spec->max) <= 0);
@@ -852,14 +852,14 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
     return NULL;
 }
 
-static int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
+int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec) {
     sds value = ziplistGetObject(p);
     int res = zslLexValueGteMin(value,spec);
     sdsfree(value);
     return res;
 }
 
-static int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
+int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec) {
     sds value = ziplistGetObject(p);
     int res = zslLexValueLteMax(value,spec);
     sdsfree(value);
