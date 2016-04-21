@@ -549,12 +549,12 @@ void zslFreeLexRange(zlexrangespec *spec) {
         spec->max != shared.maxstring) sdsfree(spec->max);
 }
 
-/* Populate the rangespec according to the objects min and max.
+/* Populate the lex rangespec according to the objects min and max.
  *
  * Return C_OK on success. On error C_ERR is returned.
  * When OK is returned the structure must be freed with zslFreeLexRange(),
  * otherwise no release is needed. */
-static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
+int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
     /* The range can't be valid if objects are integer encoded.
      * Every item must start with ( or [. */
     if (min->encoding == OBJ_ENCODING_INT ||

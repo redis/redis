@@ -1348,6 +1348,11 @@ sds ziplistGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
 void zslFreeLexRange(zlexrangespec *spec);
+int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec);
+unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range);
+unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range);
+zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);
+zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);

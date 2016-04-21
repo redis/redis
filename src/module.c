@@ -1152,15 +1152,83 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
  * range. Returns REDISMODULE_OK if the iterator was correctly initialized
  * otherwise REDISMODULE_ERR is returned in the following conditions:
  *
- * 1. The value stored at key is not a sorted set or the key is empty. */
+ * 1. The value stored at key is not a sorted set or the key is empty.
+ *
+ * The range is specified according to the two double values 'min' and 'max'.
+ * Both can be infinite using the following two macros:
+ *
+ * REDISMODULE_POSITIVE_INFINITE for positive infinite value
+ * REDISMODULE_NEGATIVE_INFINITE for negative infinite value
+ *
+ * 'minex' and 'maxex' parameters, if true, respectively setup a range
+ * where the min and max value are exclusive (not included) instead of
+ * inclusive. */
 int RM_ZsetFirstInScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex) {
     return zsetInitScoreRange(key,min,max,minex,maxex,1);
 }
 
 /* Exactly like RedisModule_ZsetFirstInScoreRange() but the last element of
- * the range is seeked instead. */
+ * the range is selected for the start of the iteration instead. */
 int RM_ZsetLastInScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex) {
     return zsetInitScoreRange(key,min,max,minex,maxex,0);
+}
+
+/* Helper function for RM_ZsetFirstInLexRange() and RM_ZsetLastInLexRange().
+ * Setup the sorted set iteration according to the specified lexicographical
+ * range (see the functions calling it for more info). If 'first' is true the
+ * first element in the range is used as a starting point for the iterator
+ * otherwise the last. Return REDISMODULE_OK on success otherwise
+ * REDISMODULE_ERR.
+ *
+ * Note that this function takes 'min' and 'max' in the same form of the
+ * Redis ZRANGEBYLEX command. */
+int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleString *max, int first) {
+    if (!key->value || key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+
+    RM_ZsetRangeStop(key);
+    key->ztype = REDISMODULE_ZSET_RANGE_LEX;
+    key->zer = 0;
+
+    /* Setup the range structure used by the sorted set core implementation
+     * in order to seek at the specified element. */
+    zlexrangespec *zlrs = &key->zlrs;
+    if (zslParseLexRange(min, max, zlrs) == C_ERR) return REDISMODULE_ERR;
+
+    if (key->value->encoding == OBJ_ENCODING_ZIPLIST) {
+        key->zcurrent = first ? zzlFirstInLexRange(key->value->ptr,zlrs) :
+                                zzlLastInLexRange(key->value->ptr,zlrs);
+    } else if (key->value->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = key->value->ptr;
+        zskiplist *zsl = zs->zsl;
+        key->zcurrent = first ? zslFirstInLexRange(zsl,zlrs) :
+                                zslLastInLexRange(zsl,zlrs);
+    } else {
+        serverPanic("Unsupported zset encoding");
+    }
+    if (key->zcurrent == NULL) key->zer = 1;
+    return REDISMODULE_OK;
+}
+
+/* Setup a sorted set iterator seeking the first element in the specified
+ * lexicographical range. Returns REDISMODULE_OK if the iterator was correctly
+ * initialized otherwise REDISMODULE_ERR is returned in the
+ * following conditions:
+ *
+ * 1. The value stored at key is not a sorted set or the key is empty.
+ * 2. The lexicographical range 'min' and 'max' format is invalid.
+ *
+ * 'min' and 'max' should be provided as two RedisModuleString objects
+ * in the same format as the parameters passed to the ZRANGEBYLEX command.
+ * The function does not take ownership of the objects, so they can be released
+ * ASAP after the iterator is setup. */
+int RM_ZsetFirstInLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleString *max) {
+    return zsetInitLexRange(key,min,max,1);
+}
+
+/* Exactly like RedisModule_ZsetFirstInLexRange() but the last element of
+ * the range is selected for the start of the iteration instead. */
+int RM_ZsetLastInLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleString *max) {
+    return zsetInitLexRange(key,min,max,0);
 }
 
 /* Return the current sorted set element of an active sorted set iterator
