@@ -1663,7 +1663,6 @@ ALLOWED_OPTIONS={
 def show_help
     puts "Usage: redis-trib <command> <options> <arguments ...>\n\n"
     COMMANDS.each{|k,v|
-        o = ""
         puts "  #{k.ljust(15)} #{v[2]}"
         if ALLOWED_OPTIONS[k]
             ALLOWED_OPTIONS[k].each{|optname,has_arg|
