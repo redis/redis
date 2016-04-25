@@ -928,6 +928,8 @@ void configSetCommand(client *c) {
       "lazyfree-lazy-server-del",server.lazyfree_lazy_server_del) {
     } config_set_bool_field(
       "slave-lazy-flush",server.repl_slave_lazy_flush) {
+    } config_set_bool_field(
+      "no-appendfsync-on-rewrite",server.aof_no_fsync_on_rewrite) {
 
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
