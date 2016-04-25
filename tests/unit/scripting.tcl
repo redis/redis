@@ -62,18 +62,19 @@ start_server {tags {"scripting"}} {
     } {NOSCRIPT*}
 
     test {EVAL - Redis integer -> Lua type conversion} {
+        r set x 0
         r eval {
-            local foo = redis.pcall('incr','x')
+            local foo = redis.pcall('incr',KEYS[1])
             return {type(foo),foo}
-        } 0
+        } 1 x
     } {number 1}
 
     test {EVAL - Redis bulk -> Lua type conversion} {
         r set mykey myval
         r eval {
-            local foo = redis.pcall('get','mykey')
+            local foo = redis.pcall('get',KEYS[1])
             return {type(foo),foo}
-        } 0
+        } 1 mykey
     } {string myval}
 
     test {EVAL - Redis multi bulk -> Lua type conversion} {
@@ -82,39 +83,39 @@ start_server {tags {"scripting"}} {
         r rpush mylist b
         r rpush mylist c
         r eval {
-            local foo = redis.pcall('lrange','mylist',0,-1)
+            local foo = redis.pcall('lrange',KEYS[1],0,-1)
             return {type(foo),foo[1],foo[2],foo[3],# foo}
-        } 0
+        } 1 mylist
     } {table a b c 3}
 
     test {EVAL - Redis status reply -> Lua type conversion} {
         r eval {
-            local foo = redis.pcall('set','mykey','myval')
+            local foo = redis.pcall('set',KEYS[1],'myval')
             return {type(foo),foo['ok']}
-        } 0
+        } 1 mykey
     } {table OK}
 
     test {EVAL - Redis error reply -> Lua type conversion} {
         r set mykey myval
         r eval {
-            local foo = redis.pcall('incr','mykey')
+            local foo = redis.pcall('incr',KEYS[1])
             return {type(foo),foo['err']}
-        } 0
+        } 1 mykey
     } {table {ERR value is not an integer or out of range}}
 
     test {EVAL - Redis nil bulk reply -> Lua type conversion} {
         r del mykey
         r eval {
-            local foo = redis.pcall('get','mykey')
+            local foo = redis.pcall('get',KEYS[1])
             return {type(foo),foo == false}
-        } 0
+        } 1 mykey
     } {boolean 1}
 
     test {EVAL - Is the Lua client using the currently selected DB?} {
         r set mykey "this is DB 9"
         r select 10
         r set mykey "this is DB 10"
-        r eval {return redis.pcall('get','mykey')} 0
+        r eval {return redis.pcall('get',KEYS[1])} 1 mykey
     } {this is DB 10}
 
     test {EVAL - SELECT inside Lua should not affect the caller} {

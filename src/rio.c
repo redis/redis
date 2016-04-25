@@ -163,7 +163,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * The function returns success as long as we are able to correctly write
  * to at least one file descriptor.
  *
- * When buf is NULL adn len is 0, the function performs a flush operation
+ * When buf is NULL and len is 0, the function performs a flush operation
  * if there is some pending buffer, so this function is also used in order
  * to implement rioFdsetFlush(). */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
@@ -176,7 +176,7 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
      * a given size, we actually write to the sockets. */
     if (len) {
         r->io.fdset.buf = sdscatlen(r->io.fdset.buf,buf,len);
-        len = 0; /* Prevent entering the while belove if we don't flush. */
+        len = 0; /* Prevent entering the while below if we don't flush. */
         if (sdslen(r->io.fdset.buf) > PROTO_IOBUF_LEN) doflush = 1;
     }
 
@@ -276,6 +276,7 @@ void rioInitWithFdset(rio *r, int *fds, int numfds) {
     r->io.fdset.buf = sdsempty();
 }
 
+/* release the rio stream. */
 void rioFreeFdset(rio *r) {
     zfree(r->io.fdset.fds);
     zfree(r->io.fdset.state);
