@@ -1612,8 +1612,58 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
  * the key is not an hash value.
+ *
+ * Memory management:
+ *
+ * The returned RedisModuleString objects should be released with
+ * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
+    va_list ap;
+    if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
+
+    va_start(ap, flags);
+    while(1) {
+        RedisModuleString *field, **valueptr;
+        int *existsptr;
+        /* Get the field object and the value pointer to pointer. */
+        if (flags & REDISMODULE_HGET_CFIELDS) {
+            char *cfield = va_arg(ap,char*);
+            if (cfield == NULL) break;
+            field = createRawStringObject(cfield,strlen(cfield));
+        } else {
+            field = va_arg(ap,RedisModuleString*);
+            if (field == NULL) break;
+        }
+
+        /* Query the hash for existence or value object. */
+        if (flags & REDISMODULE_HGET_EXISTS) {
+            existsptr = va_arg(ap,int*);
+            if (key->value)
+                *existsptr = hashTypeExists(key->value,field->ptr);
+            else
+                *existsptr = 0;
+        } else {
+            valueptr = va_arg(ap,RedisModuleString**);
+            if (key->value) {
+                *valueptr = hashTypeGetValueObject(key->value,field->ptr);
+                if (*valueptr) {
+                    robj *decoded = getDecodedObject(*valueptr);
+                    decrRefCount(*valueptr);
+                    *valueptr = decoded;
+                }
+                if (*valueptr)
+                    autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,*valueptr);
+            } else {
+                *valueptr = NULL;
+            }
+        }
+
+        /* Cleanup */
+        if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+    }
+    va_end(ap);
+    return REDISMODULE_ERR;
 }
 
 /* --------------------------------------------------------------------------
@@ -2078,6 +2128,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetRangePrev);
     REGISTER_API(ZsetRangeEndReached);
     REGISTER_API(HashSet);
+    REGISTER_API(HashGet);
 }
 
 /* Global initialization at Redis startup. */
