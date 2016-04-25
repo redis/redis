@@ -767,7 +767,7 @@ int rdbSaveRio(rio *rdb, int *error) {
         db_size = (dictSize(db->dict) <= UINT32_MAX) ?
                                 dictSize(db->dict) :
                                 UINT32_MAX;
-        expires_size = (dictSize(db->dict) <= UINT32_MAX) ?
+        expires_size = (dictSize(db->expires) <= UINT32_MAX) ?
                                 dictSize(db->expires) :
                                 UINT32_MAX;
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
