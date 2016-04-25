@@ -51,19 +51,15 @@
 #define REDISMODULE_ZADD_NOP     (1<<4)
 
 /* Hash API flags. */
-#define REDISMODULE_HSET_NONE 0
-#define REDISMODULE_HGET_NONE 0
-#define REDISMODULE_HSET_NX (1<<0)
-#define REDISMODULE_HSET_XX (1<<1)
-#define REDISMODULE_HSET_CFIELDS (1<<2)
-/* Set GET_CFIELD to the same value as SET_CFIELD so that misuses will not
- * result into surprising behaviors. */
-#define REDISMODULE_HGET_CFIELDS REDISMODULE_HSET_CFIELDS
-#define REDISMODULE_HGET_EXISTS (1<<3)
+#define REDISMODULE_HASH_NONE       0
+#define REDISMODULE_HASH_NX         (1<<0)
+#define REDISMODULE_HASH_XX         (1<<1)
+#define REDISMODULE_HASH_CFIELDS    (1<<2)
+#define REDISMODULE_HASH_EXISTS     (1<<3)
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
-#define REDISMODULE_HSET_DELETE ((RedisModuleString*)(long)1)
+#define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
 
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"

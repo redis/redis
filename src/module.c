@@ -1481,35 +1481,35 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * Example to set the hash argv[1] to the value argv[2]:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HSET_NONE,argv[1],argv[2],NULL);
+ *  RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],argv[2],NULL);
  *
  * The function can also be used in order to delete fields (if they exist)
- * by setting them to the specified value of REDISMODULE_HSET_DELETE:
+ * by setting them to the specified value of REDISMODULE_HASH_DELETE:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HSET_NONE,argv[1],
- *                      REDISMODULE_HSET_DELETE,NULL);
+ *  RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],
+ *                      REDISMODULE_HASH_DELETE,NULL);
  *
  * The behavior of the command changes with the specified flags, that can be
- * set to REDISMODULE_HSET_NONE if no special behavior is needed.
+ * set to REDISMODULE_HASH_NONE if no special behavior is needed.
  *
- * REDISMODULE_HSET_NX: The operation is performed only if the field was not
+ * REDISMODULE_HASH_NX: The operation is performed only if the field was not
  *                     already existing in the hash.
- * REDISMODULE_HSET_XX: The operation is performed only if the field was
+ * REDISMODULE_HASH_XX: The operation is performed only if the field was
  *                     already existing, so that a new value could be
  *                     associated to an existing filed, but no new fields
  *                     are created.
- * REDISMODULE_HSET_CFIELDS: The field names passed are null terminated C
+ * REDISMODULE_HASH_CFIELDS: The field names passed are null terminated C
  *                          strings instead of RedisModuleString objects.
  *
  * Unless NX is specified, the command overwrites the old field value with
  * the new one.
  *
- * When using REDISMODULE_HSET_CFIELDS, field names are reported using
+ * When using REDISMODULE_HASH_CFIELDS, field names are reported using
  * normal C strings, so for example to delete the field "foo" the following
  * code can be used:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HSET_CFIELDS,"foo",
- *                      REDISMODULE_HSET_DELETE,NULL);
+ *  RedisModule_HashSet(key,REDISMODULE_HASH_CFIELDS,"foo",
+ *                      REDISMODULE_HASH_DELETE,NULL);
  *
  * Return value:
  *
@@ -1532,7 +1532,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     while(1) {
         RedisModuleString *field, *value;
         /* Get the field and value objects. */
-        if (flags & REDISMODULE_HSET_CFIELDS) {
+        if (flags & REDISMODULE_HASH_CFIELDS) {
             char *cfield = va_arg(ap,char*);
             if (cfield == NULL) break;
             field = createRawStringObject(cfield,strlen(cfield));
@@ -1543,20 +1543,20 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         value = va_arg(ap,RedisModuleString*);
 
         /* Handle XX and NX */
-        if (flags & (REDISMODULE_HSET_XX|REDISMODULE_HSET_NX)) {
+        if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
             int exists = hashTypeExists(key->value, field->ptr);
-            if (((flags & REDISMODULE_HSET_XX) && !exists) ||
-                ((flags & REDISMODULE_HSET_NX) && exists))
+            if (((flags & REDISMODULE_HASH_XX) && !exists) ||
+                ((flags & REDISMODULE_HASH_NX) && exists))
             {
-                if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+                if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
                 continue;
             }
         }
 
-        /* Handle deletion if value is REDISMODULE_HSET_DELETE. */
-        if (value == REDISMODULE_HSET_DELETE) {
+        /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
+        if (value == REDISMODULE_HASH_DELETE) {
             updated += hashTypeDelete(key->value, field->ptr);
-            if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+            if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
 
@@ -1564,13 +1564,13 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
          * SDS object to the low level function that sets the field
          * to avoid a useless copy. */
         int low_flags = HASH_SET_COPY;
-        if (flags & REDISMODULE_HSET_CFIELDS)
+        if (flags & REDISMODULE_HASH_CFIELDS)
             low_flags |= HASH_SET_TAKE_FIELD;
         updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
         field->ptr = NULL; /* Ownership is now of hashTypeSet() */
 
         /* Cleanup */
-        if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+        if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
     }
     va_end(ap);
     moduleDelKeyIfEmpty(key);
@@ -1587,25 +1587,25 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * This is an example usage:
  *
  *  RedisModuleString *first, *second;
- *  RedisModule_HashGet(mykey,REDISMODULE_HGET_NONE,argv[1],&first,
+ *  RedisModule_HashGet(mykey,REDISMODULE_HASH_NONE,argv[1],&first,
  *                      argv[2],&second,NULL);
  *
  * As with RedisModule_HashSet() the behavior of the command can be specified
- * passing flags different than REDISMODULE_HGET_NONE:
+ * passing flags different than REDISMODULE_HASH_NONE:
  *
- * REDISMODULE_HGET_CFIELD: field names as null terminated C strings.
+ * REDISMODULE_HASH_CFIELD: field names as null terminated C strings.
  *
- * REDISMODULE_HGET_EXISTS: instead of setting the value of the field
+ * REDISMODULE_HASH_EXISTS: instead of setting the value of the field
  * expecting a RedisModuleString pointer to pointer, the function just
  * reports if the field esists or not and expects an integer pointer
  * as the second element of each pair.
  *
- * Example of REDISMODULE_HGET_CFIELD:
+ * Example of REDISMODULE_HASH_CFIELD:
  *
  *  RedisModuleString *username, *hashedpass;
  *  RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass);
  *
- * Example of REDISMODULE_HGET_EXISTS:
+ * Example of REDISMODULE_HASH_EXISTS:
  *
  *  int exists;
  *  RedisModule_HashGet(mykey,argv[1],&exists,NULL);
@@ -1627,7 +1627,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         RedisModuleString *field, **valueptr;
         int *existsptr;
         /* Get the field object and the value pointer to pointer. */
-        if (flags & REDISMODULE_HGET_CFIELDS) {
+        if (flags & REDISMODULE_HASH_CFIELDS) {
             char *cfield = va_arg(ap,char*);
             if (cfield == NULL) break;
             field = createRawStringObject(cfield,strlen(cfield));
@@ -1637,7 +1637,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         }
 
         /* Query the hash for existence or value object. */
-        if (flags & REDISMODULE_HGET_EXISTS) {
+        if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
             if (key->value)
                 *existsptr = hashTypeExists(key->value,field->ptr);
@@ -1660,7 +1660,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         }
 
         /* Cleanup */
-        if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+        if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
     }
     va_end(ap);
     return REDISMODULE_ERR;

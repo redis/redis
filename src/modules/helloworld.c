@@ -440,9 +440,9 @@ int HelloHCopy_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     /* Get the old field value. */
     RedisModuleString *oldval;
-    RedisModule_HashGet(key,REDISMODULE_HGET_NONE,argv[2],&oldval,NULL);
+    RedisModule_HashGet(key,REDISMODULE_HASH_NONE,argv[2],&oldval,NULL);
     if (oldval) {
-        RedisModule_HashSet(key,REDISMODULE_HSET_NONE,argv[3],oldval,NULL);
+        RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[3],oldval,NULL);
     }
     RedisModule_ReplyWithLongLong(ctx,oldval != NULL);
     return REDISMODULE_OK;
