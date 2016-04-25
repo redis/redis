@@ -1093,25 +1093,24 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
      * doing anything. */
     if (key->value == NULL && newlen == 0) return REDISMODULE_OK;
 
-    /* Empty key: fill it with a zero-length key so that we can handle the
-     * resize with a common code path. */
     if (key->value == NULL) {
-        robj *emptyobj = createStringObject("",0);
-        setKey(key->db,key->key,emptyobj);
-        key->value = emptyobj;
-        decrRefCount(emptyobj);
-    }
-
-    /* Unshare and resize. */
-    key->value = dbUnshareStringValue(key->db, key->key, key->value);
-    size_t curlen = sdslen(key->value->ptr);
-    if (newlen > curlen) {
-        key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
-    } else if (newlen < curlen) {
-        sdsrange(key->value->ptr,0,newlen-1);
-        /* If the string is too wasteful, reallocate it. */
-        if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
-            key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
+        /* Empty key: create it with the new size. */
+        robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
+        setKey(key->db,key->key,o);
+        key->value = o;
+        decrRefCount(o);
+    } else {
+        /* Unshare and resize. */
+        key->value = dbUnshareStringValue(key->db, key->key, key->value);
+        size_t curlen = sdslen(key->value->ptr);
+        if (newlen > curlen) {
+            key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
+        } else if (newlen < curlen) {
+            sdsrange(key->value->ptr,0,newlen-1);
+            /* If the string is too wasteful, reallocate it. */
+            if (sdslen(key->value->ptr) < sdsavail(key->value->ptr))
+                key->value->ptr = sdsRemoveFreeSpace(key->value->ptr);
+        }
     }
     return REDISMODULE_OK;
 }
