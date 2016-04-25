@@ -167,6 +167,9 @@ int moduleCreateEmtpyKey(RedisModuleKey *key, int type) {
     case REDISMODULE_KEYTYPE_ZSET:
         obj = createZsetZiplistObject();
         break;
+    case REDISMODULE_KEYTYPE_HASH:
+        obj = createHashObject();
+        break;
     default: return REDISMODULE_ERR;
     }
     dbAdd(key->db,key->key,obj);
@@ -999,8 +1002,8 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * type) REDISMODULE_ERR is returned, otherwise REDISMODULE_OK is returned. */
 int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_LIST);
-    if (key->value->type != OBJ_LIST) return REDISMODULE_ERR;
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
     return REDISMODULE_OK;
@@ -1079,7 +1082,7 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
 int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) {
     int flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
     if (zsetAdd(key->value,score,ele->ptr,&flags,NULL) == 0) {
@@ -1106,7 +1109,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
 int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr, double *newscore) {
     int flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
     if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
@@ -1142,7 +1145,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
  * Empty keys will be handled correctly by doing nothing. */
 int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
-    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
+    if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value != NULL && zsetDel(key->value,ele->ptr)) {
         if (deleted) *deleted = 1;
     } else {
@@ -1160,8 +1163,8 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
  * - The key is an open empty key.
  */
 int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
-    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) return REDISMODULE_ERR;
+    if (key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (zsetScore(key->value,ele->ptr,score) == C_ERR) return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }
@@ -1422,7 +1425,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
                 /* Fetch the previous element score for the
                  * range check. */
                 unsigned char *saved_prev = prev;
-                prev = ziplistNext(zl,prev); /* Skip element to get the score. */
+                prev = ziplistNext(zl,prev); /* Skip element to get the score.*/
                 double score = zzlGetScore(prev); /* Obtain the prev score. */
                 if (!zslValueGteMin(score,&key->zrs)) {
                     key->zer = 1;
@@ -1462,6 +1465,155 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
     } else {
         serverPanic("Unsupported zset encoding");
     }
+}
+
+/* --------------------------------------------------------------------------
+ * Key API for Hash type
+ * -------------------------------------------------------------------------- */
+
+/* Set the field of the specified hash field to the specified value.
+ * If the key is an empty key open for writing, it is created with an empty
+ * hash value, in order to set the specified field.
+ *
+ * The function is variadic and the user must specify pairs of field
+ * names and values, both as RedisModuleString pointers (unless the
+ * CFIELD option is set, see later).
+ *
+ * Example to set the hash argv[1] to the value argv[2]:
+ *
+ *  RedisModule_HashSet(key,REDISMODULE_HSET_NONE,argv[1],argv[2],NULL);
+ *
+ * The function can also be used in order to delete fields (if they exist)
+ * by setting them to the specified value of REDISMODULE_HSET_DELETE:
+ *
+ *  RedisModule_HashSet(key,REDISMODULE_HSET_NONE,argv[1],
+ *                      REDISMODULE_HSET_DELETE,NULL);
+ *
+ * The behavior of the command changes with the specified flags, that can be
+ * set to REDISMODULE_HSET_NONE if no special behavior is needed.
+ *
+ * REDISMODULE_HSET_NX: The operation is performed only if the field was not
+ *                     already existing in the hash.
+ * REDISMODULE_HSET_XX: The operation is performed only if the field was
+ *                     already existing, so that a new value could be
+ *                     associated to an existing filed, but no new fields
+ *                     are created.
+ * REDISMODULE_HSET_CFIELDS: The field names passed are null terminated C
+ *                          strings instead of RedisModuleString objects.
+ *
+ * Unless NX is specified, the command overwrites the old field value with
+ * the new one.
+ *
+ * When using REDISMODULE_HSET_CFIELDS, field names are reported using
+ * normal C strings, so for example to delete the field "foo" the following
+ * code can be used:
+ *
+ *  RedisModule_HashSet(key,REDISMODULE_HSET_CFIELDS,"foo",
+ *                      REDISMODULE_HSET_DELETE,NULL);
+ *
+ * Return value:
+ *
+ * The number of fields updated (that may be less than the number of fields
+ * specified because of the XX or NX options).
+ *
+ * In the following case the return value is always zero:
+ *
+ * - The key was not open for writing.
+ * - The key was associated with a non Hash value.
+ */
+int RM_HashSet(RedisModuleKey *key, int flags, ...) {
+    va_list ap;
+    if (!(key->mode & REDISMODULE_WRITE)) return 0;
+    if (key->value && key->value->type != OBJ_HASH) return 0;
+    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_HASH);
+
+    int updated = 0;
+    va_start(ap, flags);
+    while(1) {
+        RedisModuleString *field, *value;
+        /* Get the field and value objects. */
+        if (flags & REDISMODULE_HSET_CFIELDS) {
+            char *cfield = va_arg(ap,char*);
+            if (cfield == NULL) break;
+            field = createRawStringObject(cfield,strlen(cfield));
+        } else {
+            field = va_arg(ap,RedisModuleString*);
+            if (field == NULL) break;
+        }
+        value = va_arg(ap,RedisModuleString*);
+
+        /* Handle XX and NX */
+        if (flags & (REDISMODULE_HSET_XX|REDISMODULE_HSET_NX)) {
+            int exists = hashTypeExists(key->value, field->ptr);
+            if (((flags & REDISMODULE_HSET_XX) && !exists) ||
+                ((flags & REDISMODULE_HSET_NX) && exists))
+            {
+                if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+                continue;
+            }
+        }
+
+        /* Handle deletion if value is REDISMODULE_HSET_DELETE. */
+        if (value == REDISMODULE_HSET_DELETE) {
+            updated += hashTypeDelete(key->value, field->ptr);
+            if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+            continue;
+        }
+
+        /* If CFIELDS is active, we can pass the ownership of the
+         * SDS object to the low level function that sets the field
+         * to avoid a useless copy. */
+        int low_flags = HASH_SET_COPY;
+        if (flags & REDISMODULE_HSET_CFIELDS)
+            low_flags |= HASH_SET_TAKE_FIELD;
+        updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        field->ptr = NULL; /* Ownership is now of hashTypeSet() */
+
+        /* Cleanup */
+        if (flags & REDISMODULE_HSET_CFIELDS) decrRefCount(field);
+    }
+    va_end(ap);
+    moduleDelKeyIfEmpty(key);
+    return updated;
+}
+
+/* Get fields from an hash value. This function is called using a variable
+ * number of arguments, alternating a field name (as a StringRedisModule
+ * pointer) with a pointer to a StringRedisModule pointer, that is set to the
+ * value of the field if the field exist, or NULL if the field did not exist.
+ * At the end of the field/value-ptr pairs, NULL must be specified as last
+ * argument to signal the end of the arguments in the variadic function.
+ *
+ * This is an example usage:
+ *
+ *  RedisModuleString *first, *second;
+ *  RedisModule_HashGet(mykey,REDISMODULE_HGET_NONE,argv[1],&first,
+ *                      argv[2],&second,NULL);
+ *
+ * As with RedisModule_HashSet() the behavior of the command can be specified
+ * passing flags different than REDISMODULE_HGET_NONE:
+ *
+ * REDISMODULE_HGET_CFIELD: field names as null terminated C strings.
+ *
+ * REDISMODULE_HGET_EXISTS: instead of setting the value of the field
+ * expecting a RedisModuleString pointer to pointer, the function just
+ * reports if the field esists or not and expects an integer pointer
+ * as the second element of each pair.
+ *
+ * Example of REDISMODULE_HGET_CFIELD:
+ *
+ *  RedisModuleString *username, *hashedpass;
+ *  RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass);
+ *
+ * Example of REDISMODULE_HGET_EXISTS:
+ *
+ *  int exists;
+ *  RedisModule_HashGet(mykey,argv[1],&exists,NULL);
+ *
+ * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
+ * the key is not an hash value.
+ */
+int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 }
 
 /* --------------------------------------------------------------------------
@@ -1925,6 +2077,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ZsetRangeNext);
     REGISTER_API(ZsetRangePrev);
     REGISTER_API(ZsetRangeEndReached);
+    REGISTER_API(HashSet);
 }
 
 /* Global initialization at Redis startup. */

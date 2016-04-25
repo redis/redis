@@ -50,6 +50,21 @@
 #define REDISMODULE_ZADD_UPDATED (1<<3)
 #define REDISMODULE_ZADD_NOP     (1<<4)
 
+/* Hash API flags. */
+#define REDISMODULE_HSET_NONE 0
+#define REDISMODULE_HGET_NONE 0
+#define REDISMODULE_HSET_NX (1<<0)
+#define REDISMODULE_HSET_XX (1<<1)
+#define REDISMODULE_HSET_CFIELDS (1<<2)
+/* Set GET_CFIELD to the same value as SET_CFIELD so that misuses will not
+ * result into surprising behaviors. */
+#define REDISMODULE_HGET_CFIELDS REDISMODULE_HSET_CFIELDS
+#define REDISMODULE_HGET_EXISTS (1<<3)
+
+/* A special pointer that we can use between the core and the module to signal
+ * field deletion, and that is impossible to be a valid pointer. */
+#define REDISMODULE_HSET_DELETE ((RedisModuleString*)(long)1)
+
 /* Error messages. */
 #define REDISMODULE_ERRORMSG_WRONGTYPE "WRONGTYPE Operation against a key holding the wrong kind of value"
 
@@ -134,6 +149,7 @@ RedisModuleString *REDISMODULE_API_FUNC(RedisModule_ZsetRangeCurrentElement)(Red
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeNext)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangePrev)(RedisModuleKey *key);
 int REDISMODULE_API_FUNC(RedisModule_ZsetRangeEndReached)(RedisModuleKey *key);
+int REDISMODULE_API_FUNC(RedisModule_HashSet)(RedisModuleKey *key, int flags, ...);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
@@ -198,6 +214,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ZsetRangeNext);
     REDISMODULE_GET_API(ZsetRangePrev);
     REDISMODULE_GET_API(ZsetRangeEndReached);
+    REDISMODULE_GET_API(HashSet);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
