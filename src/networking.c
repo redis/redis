@@ -1204,10 +1204,10 @@ int processMultibulkBuffer(client *c) {
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
-                c->querybuf = sdsempty();
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
-                c->querybuf = sdsMakeRoomFor(c->querybuf,c->bulklen+2);
+                c->querybuf = sdsnewlen(NULL,c->bulklen+2);
+                sdsclear(c->querybuf);
                 pos = 0;
             } else {
                 c->argv[c->argc++] =
@@ -1443,9 +1443,8 @@ sds getAllClientsInfoString(void) {
     listNode *ln;
     listIter li;
     client *client;
-    sds o = sdsempty();
-
-    o = sdsMakeRoomFor(o,200*listLength(server.clients));
+    sds o = sdsnewlen(NULL,200*listLength(server.clients));
+    sdsclear(o);
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
@@ -1887,7 +1886,7 @@ int clientsArePaused(void) {
  * and so forth.
  *
  * It calls the event loop in order to process a few events. Specifically we
- * try to call the event loop for times as long as we receive acknowledge that
+ * try to call the event loop 4 times as long as we receive acknowledge that
  * some event was processed, in order to go forward with the accept, read,
  * write, close sequence needed to serve a client.
  *
