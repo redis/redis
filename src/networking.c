@@ -1147,6 +1147,9 @@ void processInputBuffer(redisClient *c) {
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == REDIS_OK)
                 resetClient(c);
+            /* freeMemoryIfNeeded may flush slave output buffers. This may result
+             * into a slave, that may be the active client, to be freed. */
+            if (server.current_client == NULL) break;
         }
     }
 }
