@@ -411,6 +411,51 @@ To return nested arrays is easy, your nested array element just uses another
 call to `RedisModule_ReplyWithArray()` followed by the calls to emit the
 sub array elements.
 
+## Returning arrays with dynamic length
+
+Sometimes it is not possible to know beforehand the number of items of
+an array. As an example, think of a Redis module implementing a FACTOR
+command that given a number outputs the prime factors. Instead of
+factorializing the number, storing the prime factors into an array, and
+later produce the command reply, a better solution is to start an array
+reply where the length is not known, and set it later. This is accomplished
+with a special argument to `RedisModule_ReplyWithArray()`:
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+The above call starts an array reply so we can use other `ReplyWith` calls
+in order to produce the array items. Finally in order to set the length
+se use the following call:
+
+    RedisModule_ReplySetArrayLength(ctx, number_of_items);
+
+In the case of the FACTOR command, this translates to some code similar
+to this:
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    number_of_factors = 0;
+    while(still_factors) {
+        RedisModule_ReplyWithLongLong(ctx, some_factor);
+        number_of_factors++;
+    }
+    RedisModule_ReplySetArrayLength(ctx, number_of_factors);
+
+Another common use case for this feature is iterating over the arrays of
+some collection and only returning the ones passing some kind of filtering.
+
+It is possible to have multiple nested arrays with postponed reply.
+Each call to `SetArray()` will set the length of the latest corresponding
+call to `ReplyWithArray()`:
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    ... generate 100 elements ...
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    ... generate 10 elements ...
+    RedisModule_ReplySetArrayLength(ctx, 10);
+    RedisModule_ReplySetArrayLength(ctx, 100);
+
+This creates a 100 items array having as last element a 10 items array.
+
 # Arity and type checks
 
 Often commands need to check that the number of arguments and type of the key
