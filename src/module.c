@@ -904,7 +904,7 @@ int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
  * The 'mode' is composed by bitwise OR-ing the following flags:
  *
  * REDISMODULE_READ -- Read access
- * REDISMODULE_WRITE -- WRite access
+ * REDISMODULE_WRITE -- Write access
  *
  * If the DMA is not requested for writing, the pointer returned should
  * only be accessed in a read-only fashion.
