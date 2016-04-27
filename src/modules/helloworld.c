@@ -455,63 +455,64 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx) {
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.simple",
-        HelloSimple_RedisCommand) == REDISMODULE_ERR)
+        HelloSimple_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.push.native",
-        HelloPushNative_RedisCommand) == REDISMODULE_ERR)
+        HelloPushNative_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.push.call",
-        HelloPushCall_RedisCommand) == REDISMODULE_ERR)
+        HelloPushCall_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.push.call2",
-        HelloPushCall2_RedisCommand) == REDISMODULE_ERR)
+        HelloPushCall2_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.list.sum.len",
-        HelloListSumLen_RedisCommand) == REDISMODULE_ERR)
+        HelloListSumLen_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.list.splice",
-        HelloListSplice_RedisCommand) == REDISMODULE_ERR)
+        HelloListSplice_RedisCommand,"write deny-oom",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.list.splice.auto",
-        HelloListSpliceAuto_RedisCommand) == REDISMODULE_ERR)
+        HelloListSpliceAuto_RedisCommand,
+        "write deny-oom",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.rand.array",
-        HelloRandArray_RedisCommand) == REDISMODULE_ERR)
+        HelloRandArray_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.repl1",
-        HelloRepl1_RedisCommand) == REDISMODULE_ERR)
+        HelloRepl1_RedisCommand,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.repl2",
-        HelloRepl2_RedisCommand) == REDISMODULE_ERR)
+        HelloRepl2_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.toggle.case",
-        HelloToggleCase_RedisCommand) == REDISMODULE_ERR)
+        HelloToggleCase_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.more.expire",
-        HelloMoreExpire_RedisCommand) == REDISMODULE_ERR)
+        HelloMoreExpire_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.zsumrange",
-        HelloZsumRange_RedisCommand) == REDISMODULE_ERR)
+        HelloZsumRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.lexrange",
-        HelloLexRange_RedisCommand) == REDISMODULE_ERR)
+        HelloLexRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.hcopy",
-        HelloHCopy_RedisCommand) == REDISMODULE_ERR)
+        HelloHCopy_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

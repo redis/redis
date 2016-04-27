@@ -178,20 +178,22 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* Command flags. Please check the command table defined in the redis.c file
  * for more information about the meaning of every flag. */
-#define CMD_WRITE 1                   /* "w" flag */
-#define CMD_READONLY 2                /* "r" flag */
-#define CMD_DENYOOM 4                 /* "m" flag */
-#define CMD_NOT_USED_1 8              /* no longer used flag */
-#define CMD_ADMIN 16                  /* "a" flag */
-#define CMD_PUBSUB 32                 /* "p" flag */
-#define CMD_NOSCRIPT  64              /* "s" flag */
-#define CMD_RANDOM 128                /* "R" flag */
-#define CMD_SORT_FOR_SCRIPT 256       /* "S" flag */
-#define CMD_LOADING 512               /* "l" flag */
-#define CMD_STALE 1024                /* "t" flag */
-#define CMD_SKIP_MONITOR 2048         /* "M" flag */
-#define CMD_ASKING 4096               /* "k" flag */
-#define CMD_FAST 8192                 /* "F" flag */
+#define CMD_WRITE (1<<0)            /* "w" flag */
+#define CMD_READONLY (1<<1)         /* "r" flag */
+#define CMD_DENYOOM (1<<2)          /* "m" flag */
+#define CMD_MODULE (1<<3)           /* Command exported by module. */
+#define CMD_ADMIN (1<<4)            /* "a" flag */
+#define CMD_PUBSUB (1<<5)           /* "p" flag */
+#define CMD_NOSCRIPT (1<<6)         /* "s" flag */
+#define CMD_RANDOM (1<<7)           /* "R" flag */
+#define CMD_SORT_FOR_SCRIPT (1<<8)  /* "S" flag */
+#define CMD_LOADING (1<<9)          /* "l" flag */
+#define CMD_STALE (1<<10)           /* "t" flag */
+#define CMD_SKIP_MONITOR (1<<11)    /* "M" flag */
+#define CMD_ASKING (1<<12)          /* "k" flag */
+#define CMD_FAST (1<<13)            /* "F" flag */
+#define CMD_MODULE_GETKEYS (1<<14)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1<<15) /* Deny on Redis Cluster. */
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -1098,6 +1100,7 @@ extern dictType modulesDictType;
 void moduleInitModulesSystem(void);
 int moduleLoad(const char *path);
 void moduleLoadFromQueue(void);
+int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
 /* Utils */
 long long ustime(void);

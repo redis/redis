@@ -761,7 +761,6 @@ Work in progress. Implement and document the following API:
 
     RedisModule_IsKeysPositionRequest(ctx);
     RedisModule_KeyAtPos(ctx,pos);
-    RedisModule_KeyAtRange(ctx,start,stop,step);
 
 Command implementations, on keys position request, must reply with
 `REDISMODULE_KEYPOS_OK` to signal the request was processed, otherwise

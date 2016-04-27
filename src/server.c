@@ -2761,7 +2761,9 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_SKIP_MONITOR, "skip_monitor");
         flagcount += addReplyCommandFlag(c,cmd,CMD_ASKING, "asking");
         flagcount += addReplyCommandFlag(c,cmd,CMD_FAST, "fast");
-        if (cmd->getkeys_proc) {
+        if ((cmd->getkeys_proc && !(cmd->flags & CMD_MODULE)) ||
+            cmd->flags & CMD_MODULE_GETKEYS)
+        {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;
         }
