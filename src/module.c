@@ -156,7 +156,7 @@ void RM_ZsetRangeStop(RedisModuleKey *key);
  * 2) The key is not empty.
  * 3) The specified type is unknown.
  */
-int moduleCreateEmtpyKey(RedisModuleKey *key, int type) {
+int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     robj *obj;
 
     /* The key must be open for writing and non existing to proceed. */
@@ -1127,7 +1127,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
 int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_LIST) return REDISMODULE_ERR;
-    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_LIST);
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL);
     return REDISMODULE_OK;
@@ -1207,7 +1207,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
     int flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
-    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
     if (zsetAdd(key->value,score,ele->ptr,&flags,NULL) == 0) {
         if (flagsptr) *flagsptr = 0;
@@ -1234,7 +1234,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     int flags = 0;
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
-    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_ZSET);
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
     if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
         if (flagsptr) *flagsptr = 0;
@@ -1649,7 +1649,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
     if (!(key->mode & REDISMODULE_WRITE)) return 0;
     if (key->value && key->value->type != OBJ_HASH) return 0;
-    if (key->value == NULL) moduleCreateEmtpyKey(key,REDISMODULE_KEYTYPE_HASH);
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_HASH);
 
     int updated = 0;
     va_start(ap, flags);
