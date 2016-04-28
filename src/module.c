@@ -1236,6 +1236,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_ZSET);
     if (flagsptr) flags = RM_ZsetAddFlagsToCoreFlags(*flagsptr);
+    flags |= ZADD_INCR;
     if (zsetAdd(key->value,score,ele->ptr,&flags,newscore) == 0) {
         if (flagsptr) *flagsptr = 0;
         return REDISMODULE_ERR;
