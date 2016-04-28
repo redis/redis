@@ -2044,7 +2044,18 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             long ll = va_arg(ap,long long);
             argv[argc++] = createStringObjectFromLongLong(ll);
         } else if (*p == 'v') {
-            /* TODO: work in progress. */
+            /* a vector of strings */
+             robj **v = va_arg(ap, void*);
+             size_t vlen = va_arg(ap, size_t);
+             
+             /* We need to grow argv by N-1 elements */
+             argv_size += vlen-1; 
+             argv = zrealloc(argv,sizeof(robj*)*argv_size);
+             size_t i = 0;               
+             for (i = 0; i < vlen; i++) {
+                 incrRefCount(v[i]);
+                 argv[argc++] = v[i];
+             }
         } else if (*p == '!') {
             if (flags) (*flags) |= REDISMODULE_ARGV_REPLICATE;
         } else {
