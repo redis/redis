@@ -261,7 +261,7 @@ This is the full list of format specifiers:
 * **b** -- C buffer, two arguments needed: C string pointer and `size_t` length.
 * **s** -- RedisModuleString as received in `argv` or by other Redis module APIs returning a RedisModuleString object.
 * **l** -- Long long integer.
-* **v** -- NOT YET IMPLEMENTED: Array of RedisModuleString objects.
+* **v** -- Array of RedisModuleString objects.
 * **!** -- This modifier just tells the function to replicate the command to slaves and AOF. It is ignored from the point of view of arguments parsing.
 
 The function returns a `RedisModuleCallReply` object on success, on
