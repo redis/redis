@@ -2048,7 +2048,9 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
              robj **v = va_arg(ap, void*);
              size_t vlen = va_arg(ap, size_t);
              
-             /* We need to grow argv by N-1 elements */
+             /* We need to grow argv to hold the vector's elements. 
+              * We resize by vector_len-1 elements, because we held
+              * one element in argv for the vector already */
              argv_size += vlen-1; 
              argv = zrealloc(argv,sizeof(robj*)*argv_size);
              size_t i = 0;               
