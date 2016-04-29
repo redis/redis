@@ -1896,6 +1896,7 @@ void moduleParseCallReply_Array(RedisModuleCallReply *reply) {
         ele->flags = REDISMODULE_REPLYFLAG_NESTED |
                      REDISMODULE_REPLYFLAG_TOPARSE;
         ele->proto = p;
+        ele->ctx = reply->ctx;
         moduleParseCallReply(ele);
         p += ele->protolen;
     }
