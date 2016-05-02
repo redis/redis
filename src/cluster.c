@@ -3356,11 +3356,45 @@ void bitmapClearBit(unsigned char *bitmap, int pos) {
     bitmap[byte] &= ~(1<<bit);
 }
 
+/* Return non-zero if there is at least one master with slaves in the cluster.
+ * Otherwise zero is returned. Used by clusterNodeSetSlotBit() to set the
+ * MIGRATE_TO flag the when a master gets the first slot. */
+int clusterMastersHaveSlaves(void) {
+    dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
+    dictEntry *de;
+    int slaves = 0;
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (nodeIsSlave(node)) continue;
+        slaves += node->numslaves;
+    }
+    dictReleaseIterator(di);
+    return slaves != 0;
+}
+
 /* Set the slot bit and return the old value. */
 int clusterNodeSetSlotBit(clusterNode *n, int slot) {
     int old = bitmapTestBit(n->slots,slot);
     bitmapSetBit(n->slots,slot);
-    if (!old) n->numslots++;
+    if (!old) {
+        n->numslots++;
+        /* When a master gets its first slot, even if it has no slaves,
+         * it gets flagged with MIGRATE_TO, that is, the master is a valid
+         * target for replicas migration, if and only if at least one of
+         * the other masters has slaves right now.
+         *
+         * Normally masters are valid targerts of replica migration if:
+         * 1. The used to have slaves (but no longer have).
+         * 2. They are slaves failing over a master that used to have slaves.
+         *
+         * However new masters with slots assigned are considered valid
+         * migration tagets if the rest of the cluster is not a slave-less.
+         *
+         * See https://github.com/antirez/redis/issues/3043 for more info. */
+        if (n->numslots == 1 && clusterMastersHaveSlaves())
+            n->flags |= CLUSTER_NODE_MIGRATE_TO;
+    }
     return old;
 }
 
