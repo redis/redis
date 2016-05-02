@@ -41,7 +41,7 @@ double wstrtod(const char *nptr, char **eptr) {
 
         if (_strnicmp("INF", nptr, 3) == 0) {
             if (eptr != NULL) {
-                if (_strnicmp("INFINITE", nptr, 8) == 0) {
+                if ((_strnicmp("INFINITE", nptr, 8) == 0) || (_strnicmp("INFINITY", nptr, 8) == 0)) {
                     *eptr = (char*) (nptr + 8);
                 } else {
                     *eptr = (char*) (nptr + 3);
