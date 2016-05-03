@@ -856,6 +856,22 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
  * DB and Key APIs -- Generic API
  * -------------------------------------------------------------------------- */
 
+/* Return the ID of the current client calling the currently active module
+ * command. The returned ID has a few guarantees:
+ *
+ * 1. The ID is different for each different client, so if the same client
+ *    executes a module command multiple times, it can be recognized as
+ *    having the same ID, otherwise the ID will be different.
+ * 2. The ID increases monotonically. Clients connecting to the server later
+ *    are guaranteed to get IDs greater than any past ID previously seen.
+ *
+ * Valid IDs are from 1 to 2^64-1. If 0 is returned it means there is no way
+ * to fetch the ID in the context the function was currently called. */
+unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
+    if (ctx->client == NULL) return 0;
+    return ctx->client->id;
+}
+
 /* Return the currently selected DB. */
 int RM_GetSelectedDb(RedisModuleCtx *ctx) {
     return ctx->client->db->id;
@@ -2270,6 +2286,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(HashGet);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
+    REGISTER_API(GetClientId);
 }
 
 /* Global initialization at Redis startup. */
