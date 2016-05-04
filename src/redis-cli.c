@@ -916,7 +916,8 @@ static void usage(void) {
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
 "When no command is given, redis-cli starts in interactive mode.\n"
-"Type \"help\" in interactive mode for information on available commands.\n"
+"Type \"help\" in interactive mode for information on available commands\n"
+"and settings.\n"
 "\n",
         version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
     sdsfree(version);
