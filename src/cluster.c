@@ -972,7 +972,7 @@ uint64_t clusterGetMaxEpoch(void) {
  * cases:
  *
  * 1) When slots are closed after importing. Otherwise resharding would be
- *    too expansive.
+ *    too expensive.
  * 2) When CLUSTER FAILOVER is called with options that force a slave to
  *    failover its master even if there is not master majority able to
  *    create a new configuration epoch.
