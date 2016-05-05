@@ -45,11 +45,14 @@ test "Master #0 should lose its replicas" {
 }
 
 test "Resharding all the master #0 slots back to it" {
+    # Wait for the cluster config to propagate before attempting a
+    # new resharding.
+    after 10000
     set output [exec \
         ../../../src/redis-trib.rb rebalance \
         --weight ${master0_id}=1 \
         --use-empty-masters \
-        127.0.0.1:[get_instance_attrib redis 0 port]]
+        127.0.0.1:[get_instance_attrib redis 0 port] >@ stdout]
 }
 
 test "Master #0 should re-acquire one or more replicas" {
