@@ -2366,23 +2366,17 @@ int processCommand(client *c) {
           c->cmd->proc != execCommand))
     {
         int hashslot;
-
-        if (server.cluster->state != CLUSTER_OK) {
-            flagTransaction(c);
-            clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
-            return C_OK;
-        } else {
-            int error_code;
-            clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,&hashslot,&error_code);
-            if (n == NULL || n != server.cluster->myself) {
-                if (c->cmd->proc == execCommand) {
-                    discardTransaction(c);
-                } else {
-                    flagTransaction(c);
-                }
-                clusterRedirectClient(c,n,hashslot,error_code);
-                return C_OK;
+        int error_code;
+        clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
+                                        &hashslot,&error_code);
+        if (n == NULL || n != server.cluster->myself) {
+            if (c->cmd->proc == execCommand) {
+                discardTransaction(c);
+            } else {
+                flagTransaction(c);
             }
+            clusterRedirectClient(c,n,hashslot,error_code);
+            return C_OK;
         }
     }
 
