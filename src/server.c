@@ -281,7 +281,7 @@ struct redisCommand redisCommandTable[] = {
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0},
-    {"command",commandCommand,1,"lt",0,NULL,0,0,0,0,0},
+    {"command",commandCommand,0,"lt",0,NULL,0,0,0,0,0},
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
     {"georadius",georadiusCommand,-6,"w",0,NULL,1,1,1,0,0},
     {"georadiusbymember",georadiusByMemberCommand,-5,"w",0,NULL,1,1,1,0,0},
