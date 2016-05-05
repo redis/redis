@@ -126,8 +126,8 @@ const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
 }
 
 /* Used for INFO generation. */
-const char *maxmemoryToString(void) {
-    return configEnumGetNameOrUnknown(maxmemory_policy_enum,server.maxmemory);
+const char *evictPolicyToString(void) {
+    return configEnumGetNameOrUnknown(maxmemory_policy_enum,server.maxmemory_policy);
 }
 
 /*-----------------------------------------------------------------------------
