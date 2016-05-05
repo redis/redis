@@ -2185,7 +2185,8 @@ int processCommand(redisClient *c) {
         !(c->flags & REDIS_MASTER) &&
         !(c->flags & REDIS_LUA_CLIENT &&
           server.lua_caller->flags & REDIS_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0))
+        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
+          c->cmd->proc != execCommand))
     {
         int hashslot;
 
@@ -2197,7 +2198,11 @@ int processCommand(redisClient *c) {
             int error_code;
             clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,&hashslot,&error_code);
             if (n == NULL || n != server.cluster->myself) {
-                flagTransaction(c);
+                if (c->cmd->proc == execCommand) {
+                    discardTransaction(c);
+                } else {
+                    flagTransaction(c);
+                }
                 clusterRedirectClient(c,n,hashslot,error_code);
                 return REDIS_OK;
             }
