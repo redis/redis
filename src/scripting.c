@@ -512,8 +512,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
-     * received from our master. */
-    if (server.cluster_enabled && !(server.lua_caller->flags & CLIENT_MASTER)) {
+     * received from our master or when loading the AOF back in memory. */
+    if (server.cluster_enabled && !server.loading &&
+        !(server.lua_caller->flags & CLIENT_MASTER))
+    {
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
