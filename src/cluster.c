@@ -4933,7 +4933,10 @@ void readwriteCommand(redisClient *c) {
  * REDIS_CLUSTER_REDIR_DOWN_UNBOUND if the request addresses a slot which is
  * not bound to any node. In this case the cluster global state should be
  * already "down" but it is fragile to rely on the update of the global state,
- * so we also handle it here. */
+ * so we also handle it here.
+ *
+ * REDIS_CLUSTER_REDIR_DOWN_STATE if the cluster is down but the user attempts
+ * to execute a command that addresses one or more keys. */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -5040,8 +5043,14 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
     }
 
     /* No key at all in command? then we can serve the request
-     * without redirections or errors. */
+     * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
+
+    /* Cluster is globally down but we got keys? We can't serve the request. */
+    if (server.cluster->state != REDIS_CLUSTER_OK) {
+        if (error_code) *error_code = REDIS_CLUSTER_REDIR_DOWN_STATE;
+        return NULL;
+    }
 
     /* Return the hashslot by reference. */
     if (hashslot) *hashslot = slot;
