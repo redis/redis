@@ -330,7 +330,7 @@ start_server {tags {"scripting"}} {
     test {Globals protection reading an undeclared global variable} {
         catch {r eval {return a} 0} e
         set e
-    } {*ERR*attempted to access unexisting global*}
+    } {*ERR*attempted to access * global*}
 
     test {Globals protection setting an undeclared global*} {
         catch {r eval {a=10} 0} e
