@@ -1535,7 +1535,7 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             {
                 key->zer = 1;
                 return 0;
-            } else if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE) {
+            } else if (key->ztype == REDISMODULE_ZSET_RANGE_LEX) {
                 if (!zslLexValueLteMax(ln->ele,&key->zlrs)) {
                     key->zer = 1;
                     return 0;
@@ -1598,7 +1598,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             {
                 key->zer = 1;
                 return 0;
-            } else if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE) {
+            } else if (key->ztype == REDISMODULE_ZSET_RANGE_LEX) {
                 if (!zslLexValueGteMin(prev->ele,&key->zlrs)) {
                     key->zer = 1;
                     return 0;
