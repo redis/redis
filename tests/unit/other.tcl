@@ -194,6 +194,7 @@ start_server {tags {"other"}} {
     }
 
     test {APPEND basics} {
+        r del foo
         list [r append foo bar] [r get foo] \
              [r append foo 100] [r get foo]
     } {3 bar 6 bar100}

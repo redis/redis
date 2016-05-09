@@ -512,8 +512,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
-     * received from our master. */
-    if (server.cluster_enabled && !(server.lua_caller->flags & CLIENT_MASTER)) {
+     * received from our master or when loading the AOF back in memory. */
+    if (server.cluster_enabled && !server.loading &&
+        !(server.lua_caller->flags & CLIENT_MASTER))
+    {
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
@@ -837,6 +839,8 @@ void luaLoadLibraries(lua_State *lua) {
 void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_pushnil(lua);
     lua_setglobal(lua,"loadfile");
+    lua_pushnil(lua);
+    lua_setglobal(lua,"dofile");
 }
 
 /* This function installs metamethods in the global table _G that prevent
@@ -865,7 +869,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     s[j++]="end\n";
     s[j++]="mt.__index = function (t, n)\n";
     s[j++]="  if dbg.getinfo(2) and dbg.getinfo(2, \"S\").what ~= \"C\" then\n";
-    s[j++]="    error(\"Script attempted to access unexisting global variable '\"..tostring(n)..\"'\", 2)\n";
+    s[j++]="    error(\"Script attempted to access nonexistent global variable '\"..tostring(n)..\"'\", 2)\n";
     s[j++]="  end\n";
     s[j++]="  return rawget(t, n)\n";
     s[j++]="end\n";

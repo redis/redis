@@ -217,7 +217,7 @@ struct redisCommand redisCommandTable[] = {
     {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
     {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
     {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},
-    {"select",selectCommand,2,"rlF",0,NULL,0,0,0,0,0},
+    {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
     {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0},
     {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0},
     {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0},
@@ -228,73 +228,73 @@ struct redisCommand redisCommandTable[] = {
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
-    {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0},
-    {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0},
-    {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"arlt",0,NULL,0,0,0,0,0},
-    {"lastsave",lastsaveCommand,1,"rRF",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
+    {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
+    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
+    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},
+    {"bgsave",bgsaveCommand,1,"a",0,NULL,0,0,0,0,0},
+    {"bgrewriteaof",bgrewriteaofCommand,1,"a",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"alt",0,NULL,0,0,0,0,0},
+    {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"multi",multiCommand,1,"rsF",0,NULL,0,0,0,0,0},
+    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
-    {"discard",discardCommand,1,"rsF",0,NULL,0,0,0,0,0},
+    {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0},
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
-    {"replconf",replconfCommand,-1,"arslt",0,NULL,0,0,0,0,0},
+    {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
-    {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
+    {"info",infoCommand,-1,"lt",0,NULL,0,0,0,0,0},
+    {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
-    {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
-    {"publish",publishCommand,3,"pltrF",0,NULL,0,0,0,0,0},
-    {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0},
-    {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0},
-    {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0},
-    {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-1,"as",0,NULL,0,0,0,0,0},
+    {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
+    {"publish",publishCommand,3,"pltF",0,NULL,0,0,0,0,0},
+    {"pubsub",pubsubCommand,-2,"pltR",0,NULL,0,0,0,0,0},
+    {"watch",watchCommand,-2,"sF",0,NULL,1,-1,1,0,0},
+    {"unwatch",unwatchCommand,1,"sF",0,NULL,0,0,0,0,0},
+    {"cluster",clusterCommand,-2,"a",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
     {"migrate",migrateCommand,-6,"w",0,migrateGetKeys,0,0,0,0,0},
-    {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
+    {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0},
+    {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
+    {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
     {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
-    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
+    {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
-    {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0},
-    {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0},
+    {"slowlog",slowlogCommand,-2,"a",0,NULL,0,0,0,0,0},
+    {"script",scriptCommand,-2,"s",0,NULL,0,0,0,0,0},
+    {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
-    {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
+    {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0},
+    {"command",commandCommand,0,"lt",0,NULL,0,0,0,0,0},
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
     {"georadius",georadiusCommand,-6,"w",0,NULL,1,1,1,0,0},
     {"georadiusbymember",georadiusByMemberCommand,-5,"w",0,NULL,1,1,1,0,0},
     {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"pfselftest",pfselftestCommand,1,"a",0,NULL,0,0,0,0,0},
     {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0}
+    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);
@@ -1789,17 +1789,19 @@ int listenToPort(int port, int *fds, int *count) {
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
+
+                /* Bind the IPv4 address as well. */
+                fds[*count] = anetTcpServer(server.neterr,port,NULL,
+                    server.tcp_backlog);
+                if (fds[*count] != ANET_ERR) {
+                    anetNonBlock(NULL,fds[*count]);
+                    (*count)++;
+                }
             }
-            fds[*count] = anetTcpServer(server.neterr,port,NULL,
-                server.tcp_backlog);
-            if (fds[*count] != ANET_ERR) {
-                anetNonBlock(NULL,fds[*count]);
-                (*count)++;
-            }
-            /* Exit the loop if we were able to bind * on IPv4 or IPv6,
+            /* Exit the loop if we were able to bind * on IPv4 and IPv6,
              * otherwise fds[*count] will be ANET_ERR and we'll print an
              * error and return to the caller with an error. */
-            if (*count) break;
+            if (*count == 2) break;
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
             fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
@@ -2385,22 +2387,21 @@ int processCommand(client *c) {
         !(c->flags & CLIENT_MASTER) &&
         !(c->flags & CLIENT_LUA &&
           server.lua_caller->flags & CLIENT_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0))
+        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
+          c->cmd->proc != execCommand))
     {
         int hashslot;
-
-        if (server.cluster->state != CLUSTER_OK) {
-            flagTransaction(c);
-            clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
-            return C_OK;
-        } else {
-            int error_code;
-            clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,&hashslot,&error_code);
-            if (n == NULL || n != server.cluster->myself) {
+        int error_code;
+        clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
+                                        &hashslot,&error_code);
+        if (n == NULL || n != server.cluster->myself) {
+            if (c->cmd->proc == execCommand) {
+                discardTransaction(c);
+            } else {
                 flagTransaction(c);
-                clusterRedirectClient(c,n,hashslot,error_code);
-                return C_OK;
             }
+            clusterRedirectClient(c,n,hashslot,error_code);
+            return C_OK;
         }
     }
 
@@ -2937,7 +2938,7 @@ sds genRedisInfoString(char *section) {
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
-        const char *evict_policy = maxmemoryToString();
+        const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
 
         /* Peak memory is updated from time to time by serverCron() so it
