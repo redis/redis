@@ -109,7 +109,7 @@ To run Redis with the default configuration just type:
 
     % cd src
     % ./redis-server
-    
+
 If you want to provide your redis.conf, you have to run it using an additional
 parameter (the path of the configuration file):
 
@@ -297,7 +297,7 @@ Redis objects are used extensively in the Redis internals, however in order
 to avoid the overhead of indirect accesses, recently in many places
 we just use plain dynamic strings not wrapped inside a Redis object.
 
-sever.c
+server.c
 ---
 
 This is the entry point of the Redis server, where the `main()` function
@@ -444,4 +444,3 @@ cover everything, we want just to help you with the first steps,
 eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
-
