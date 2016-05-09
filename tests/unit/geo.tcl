@@ -60,9 +60,19 @@ start_server {tags {"geo"}} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
     } {{central park n/q/r} 4545 {union square}}
 
+    test {GEORADIUS with COUNT but missing integer argument} {
+        catch {r georadius nyc -73.9798091 40.7598464 10 km COUNT} e
+        set e
+    } {ERR*syntax*}
+
     test {GEORADIUS with COUNT DESC} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 2 DESC
     } {{wtc one} q4}
+
+    test {GEORADIUS HUGE, issue #2767} {
+        r geoadd users -47.271613776683807 -54.534504198047678 user_000000
+        llength [r GEORADIUS users 0 0 50000 km WITHCOORD]
+    } {1}
 
     test {GEORADIUSBYMEMBER simple (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km
@@ -116,6 +126,60 @@ start_server {tags {"geo"}} {
         assert {$m eq {}}
         set m [r geodist empty_key Palermo Catania]
         assert {$m eq {}}
+    }
+
+    test {GEORADIUS STORE option: syntax error} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        catch {r georadius points 13.361389 38.115556 50 km store} e
+        set e
+    } {*ERR*syntax*}
+
+    test {GEORANGE STORE option: incompatible options} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        catch {r georadius points 13.361389 38.115556 50 km store points2 withdist} e
+        assert_match {*ERR*} $e
+        catch {r georadius points 13.361389 38.115556 50 km store points2 withhash} e
+        assert_match {*ERR*} $e
+        catch {r georadius points 13.361389 38.115556 50 km store points2 withcoords} e
+        assert_match {*ERR*} $e
+    }
+
+    test {GEORANGE STORE option: plain usage} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        r georadius points 13.361389 38.115556 500 km store points2
+        assert_equal [r zrange points 0 -1] [r zrange points2 0 -1]
+    }
+
+    test {GEORANGE STOREDIST option: plain usage} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        r georadius points 13.361389 38.115556 500 km storedist points2
+        set res [r zrange points2 0 -1 withscores]
+        assert {[lindex $res 1] < 1}
+        assert {[lindex $res 3] > 166}
+        assert {[lindex $res 3] < 167}
+    }
+
+    test {GEORANGE STOREDIST option: COUNT ASC and DESC} {
+        r del points
+        r geoadd points 13.361389 38.115556 "Palermo" \
+                        15.087269 37.502669 "Catania"
+        r georadius points 13.361389 38.115556 500 km storedist points2 asc count 1
+        assert {[r zcard points2] == 1}
+        set res [r zrange points2 0 -1 withscores]
+        assert {[lindex $res 0] eq "Palermo"}
+
+        r georadius points 13.361389 38.115556 500 km storedist points2 desc count 1
+        assert {[r zcard points2] == 1}
+        set res [r zrange points2 0 -1 withscores]
+        assert {[lindex $res 0] eq "Catania"}
     }
 
     test {GEOADD + GEORANGE randomized test} {

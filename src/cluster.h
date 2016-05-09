@@ -23,6 +23,7 @@
 #define CLUSTER_DEFAULT_MIGRATION_BARRIER 1
 #define CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
+#define CLUSTER_SLAVE_MIGRATION_DELAY 5000 /* Delay for slave migration. */
 
 /* Redirection errors returned by getNodeByQuery(). */
 #define CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
@@ -53,7 +54,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
-#define CLUSTER_NODE_PROMOTED 256 /* Master was a slave promoted by failover */
+#define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
@@ -87,15 +88,20 @@ typedef struct clusterNode {
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node */
+    struct clusterNode *slaveof; /* pointer to the master node. Note that it
+                                    may be NULL even if the node is a slave
+                                    if we don't have the master node in our
+                                    tables. */
     mstime_t ping_sent;      /* Unix time we sent latest ping */
     mstime_t pong_received;  /* Unix time we received the pong */
     mstime_t fail_time;      /* Unix time when FAIL flag was set */
     mstime_t voted_time;     /* Last time we voted for a slave of this master */
     mstime_t repl_offset_time;  /* Unix time we received offset for this node */
+    mstime_t orphaned_time;     /* Starting time of orphaned master condition */
     long long repl_offset;      /* Last known repl offset for this node. */
     char ip[NET_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known port of this node */
+    int port;                   /* Latest known clients port of this node */
+    int cport;                  /* Latest known cluster port of this node. */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
 } clusterNode;
@@ -166,10 +172,10 @@ typedef struct {
     uint32_t ping_sent;
     uint32_t pong_received;
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
-    uint16_t port;              /* port last time it was seen */
+    uint16_t port;              /* base port last time it was seen */
+    uint16_t cport;             /* cluster port last time it was seen */
     uint16_t flags;             /* node->flags copy */
-    uint16_t notused1;          /* Some room for future improvements. */
-    uint32_t notused2;
+    uint32_t notused1;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -214,13 +220,13 @@ union clusterMsgData {
     } update;
 };
 
-#define CLUSTER_PROTO_VER 0 /* Cluster bus protocol version. */
+#define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
 
 typedef struct {
     char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
     uint16_t ver;       /* Protocol version, currently set to 0. */
-    uint16_t notused0;  /* 2 bytes not used. */
+    uint16_t port;      /* TCP base port number. */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
@@ -232,9 +238,10 @@ typedef struct {
     char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[CLUSTER_SLOTS/8];
     char slaveof[CLUSTER_NAMELEN];
-    char notused1[32];  /* 32 bytes reserved for future usage. */
-    uint16_t port;      /* Sender TCP base port */
-    uint16_t flags;     /* Sender node flags */
+    char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
+    char notused1[34];  /* 34 bytes reserved for future usage. */
+    uint16_t cport;      /* Sender TCP cluster bus port */
+    uint16_t flags;      /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
     unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
     union clusterMsgData data;

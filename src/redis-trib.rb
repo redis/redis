@@ -25,12 +25,19 @@ require 'rubygems'
 require 'redis'
 
 ClusterHashSlots = 16384
+MigrateDefaultTimeout = 60000
+MigrateDefaultPipeline = 10
+RebalanceDefaultThreshold = 2
+
+$verbose = false
 
 def xputs(s)
     case s[0..2]
     when ">>>"
         color="29;1"
     when "[ER"
+        color="31;1"
+    when "[WA"
         color="31;1"
     when "[OK"
         color="32"
@@ -49,7 +56,7 @@ end
 
 class ClusterNode
     def initialize(addr)
-        s = addr.split(":")
+        s = addr.split("@")[0].split(":")
         if s.length < 2
            puts "Invalid IP or Port (given as #{addr}) - use IP:Port format"
            exit 1
@@ -86,7 +93,7 @@ class ClusterNode
 
     def connect(o={})
         return if @r
-        print "Connecting to node #{self}: "
+        print "Connecting to node #{self}: " if $verbose
         STDOUT.flush
         begin
             @r = Redis.new(:host => @info[:host], :port => @info[:port], :timeout => 60)
@@ -96,7 +103,7 @@ class ClusterNode
             exit 1 if o[:abort]
             @r = nil
         end
-        xputs "OK"
+        xputs "OK" if $verbose
     end
 
     def assert_cluster
@@ -288,6 +295,7 @@ class RedisTrib
         @nodes = []
         @fix = false
         @errors = []
+        @timeout = MigrateDefaultTimeout
     end
 
     def check_arity(req_args, num_args)
@@ -302,16 +310,36 @@ class RedisTrib
         @nodes << node
     end
 
+    def reset_nodes
+        @nodes = []
+    end
+
     def cluster_error(msg)
         @errors << msg
         xputs msg
     end
 
+    # Return the node with the specified ID or Nil.
     def get_node_by_name(name)
         @nodes.each{|n|
             return n if n.info[:name] == name.downcase
         }
         return nil
+    end
+
+    # Like get_node_by_name but the specified name can be just the first
+    # part of the node ID as long as the prefix in unique across the
+    # cluster.
+    def get_node_by_abbreviated_name(name)
+        l = name.length
+        candidates = []
+        @nodes.each{|n|
+            if n.info[:name][0...l] == name.downcase
+                candidates << n
+            end
+        }
+        return nil if candidates.length != 1
+        candidates[0]
     end
 
     # This function returns the master that has the least number of replicas
@@ -325,12 +353,28 @@ class RedisTrib
         sorted[0]
     end
 
-    def check_cluster
+    def check_cluster(opt={})
         xputs ">>> Performing Cluster Check (using node #{@nodes[0]})"
-        show_nodes
+        show_nodes if !opt[:quiet]
         check_config_consistency
         check_open_slots
         check_slots_coverage
+    end
+
+    def show_cluster_info
+        masters = 0
+        keys = 0
+        @nodes.each{|n|
+            if n.has_flag?("master")
+                puts "#{n} (#{n.info[:name][0...8]}...) -> #{n.r.dbsize} keys | #{n.slots.length} slots | "+
+                     "#{n.info[:replicas].length} slaves."
+                masters += 1
+                keys += n.r.dbsize
+            end
+        }
+        xputs "[OK] #{keys} keys in #{masters} masters."
+        keys_per_slot = sprintf("%.2f",keys/16384.0)
+        puts "#{keys_per_slot} keys per slot on average."
     end
 
     # Merge slots of every known node. If the resulting slots are equal
@@ -363,7 +407,8 @@ class RedisTrib
                 cluster_error \
                     "[WARNING] Node #{n} has slots in migrating state (#{n.info[:migrating].keys.join(",")})."
                 open_slots += n.info[:migrating].keys
-            elsif n.info[:importing].size > 0
+            end
+            if n.info[:importing].size > 0
                 cluster_error \
                     "[WARNING] Node #{n} has slots in importing state (#{n.info[:importing].keys.join(",")})."
                 open_slots += n.info[:importing].keys
@@ -381,6 +426,7 @@ class RedisTrib
     def nodes_with_keys_in_slot(slot)
         nodes = []
         @nodes.each{|n|
+            next if n.has_flag?("slave")
             nodes << n if n.r.cluster("getkeysinslot",slot,1).length > 0
         }
         nodes
@@ -399,7 +445,7 @@ class RedisTrib
         not_covered.each{|slot|
             nodes = nodes_with_keys_in_slot(slot)
             slots[slot] = nodes
-            xputs "Slot #{slot} has keys in #{nodes.length} nodes: #{nodes.join}"
+            xputs "Slot #{slot} has keys in #{nodes.length} nodes: #{nodes.join(", ")}"
         }
 
         none = slots.select {|k,v| v.length == 0}
@@ -435,26 +481,50 @@ class RedisTrib
             xputs multi.keys.join(",")
             yes_or_die "Fix these slots by moving keys into a single node?"
             multi.each{|slot,nodes|
-                xputs ">>> Covering slot #{slot} moving keys to #{nodes[0]}"
-                # TODO
-                # 1) Set all nodes as "MIGRATING" for this slot, so that we
-                # can access keys in the hash slot using ASKING.
-                # 2) Move everything to node[0]
-                # 3) Clear MIGRATING from nodes, and ADDSLOTS the slot to
-                # node[0].
-                raise "TODO: Work in progress"
+                target = get_node_with_most_keys_in_slot(nodes,slot)
+                xputs ">>> Covering slot #{slot} moving keys to #{target}"
+
+                target.r.cluster('addslots',slot)
+                target.r.cluster('setslot',slot,'stable')
+                nodes.each{|src|
+                    next if src == target
+                    # Set the source node in 'importing' state (even if we will
+                    # actually migrate keys away) in order to avoid receiving
+                    # redirections for MIGRATE.
+                    src.r.cluster('setslot',slot,'importing',target.info[:name])
+                    move_slot(src,target,slot,:dots=>true,:fix=>true,:cold=>true)
+                    src.r.cluster('setslot',slot,'stable')
+                }
             }
         end
     end
 
     # Return the owner of the specified slot
-    def get_slot_owner(slot)
+    def get_slot_owners(slot)
+        owners = []
         @nodes.each{|n|
+            next if n.has_flag?("slave")
             n.slots.each{|s,_|
-                return n if s == slot
+                owners << n if s == slot
             }
         }
-        nil
+        owners
+    end
+
+    # Return the node, among 'nodes' with the greatest number of keys
+    # in the specified slot.
+    def get_node_with_most_keys_in_slot(nodes,slot)
+        best = nil
+        best_numkeys = 0
+        @nodes.each{|n|
+            next if n.has_flag?("slave")
+            numkeys = n.r.cluster("countkeysinslot",slot)
+            if numkeys > best_numkeys || best == nil
+                best = n
+                best_numkeys = numkeys
+            end
+        }
+        return best
     end
 
     # Slot 'slot' was found to be in importing or migrating state in one or
@@ -465,16 +535,8 @@ class RedisTrib
 
         # Try to obtain the current slot owner, according to the current
         # nodes configuration.
-        owner = get_slot_owner(slot)
-
-        # If there is no slot owner, set as owner the slot with the biggest
-        # number of keys, among the set of migrating / importing nodes.
-        if !owner
-            xputs "*** Fix me, some work to do here."
-            # Select owner...
-            # Use ADDSLOTS to assign the slot.
-            exit 1
-        end
+        owners = get_slot_owners(slot)
+        owner = owners[0] if owners.length == 1
 
         migrating = []
         importing = []
@@ -492,20 +554,77 @@ class RedisTrib
         puts "Set as migrating in: #{migrating.join(",")}"
         puts "Set as importing in: #{importing.join(",")}"
 
+        # If there is no slot owner, set as owner the slot with the biggest
+        # number of keys, among the set of migrating / importing nodes.
+        if !owner
+            xputs ">>> Nobody claims ownership, selecting an owner..."
+            owner = get_node_with_most_keys_in_slot(@nodes,slot)
+
+            # If we still don't have an owner, we can't fix it.
+            if !owner
+                xputs "[ERR] Can't select a slot owner. Impossible to fix."
+                exit 1
+            end
+
+            # Use ADDSLOTS to assign the slot.
+            puts "*** Configuring #{owner} as the slot owner"
+            owner.r.cluster("setslot",slot,"stable")
+            owner.r.cluster("addslots",slot)
+            # Make sure this information will propagate. Not strictly needed
+            # since there is no past owner, so all the other nodes will accept
+            # whatever epoch this node will claim the slot with.
+            owner.r.cluster("bumpepoch")
+
+            # Remove the owner from the list of migrating/importing
+            # nodes.
+            migrating.delete(owner)
+            importing.delete(owner)
+        end
+
+        # If there are multiple owners of the slot, we need to fix it
+        # so that a single node is the owner and all the other nodes
+        # are in importing state. Later the fix can be handled by one
+        # of the base cases above.
+        #
+        # Note that this case also covers multiple nodes having the slot
+        # in migrating state, since migrating is a valid state only for
+        # slot owners.
+        if owners.length > 1
+            owner = get_node_with_most_keys_in_slot(owners,slot)
+            owners.each{|n|
+                next if n == owner
+                n.r.cluster('delslots',slot)
+                n.r.cluster('setslot',slot,'importing',owner.info[:name])
+                importing.delete(n) # Avoid duplciates
+                importing << n
+            }
+            owner.r.cluster('bumpepoch')
+        end
+
         # Case 1: The slot is in migrating state in one slot, and in
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
-            move_slot(migrating[0],importing[0],slot,:verbose=>true,:fix=>true)
+            move_slot(migrating[0],importing[0],slot,:dots=>true,:fix=>true)
+        # Case 2: There are multiple nodes that claim the slot as importing,
+        # they probably got keys about the slot after a restart so opened
+        # the slot. In this case we just move all the keys to the owner
+        # according to the configuration.
         elsif migrating.length == 0 && importing.length > 0
             xputs ">>> Moving all the #{slot} slot keys to its owner #{owner}"
             importing.each {|node|
                 next if node == owner
-                move_slot(node,owner,slot,:verbose=>true,:fix=>true,:cold=>true)
+                move_slot(node,owner,slot,:dots=>true,:fix=>true,:cold=>true)
                 xputs ">>> Setting #{slot} as STABLE in #{node}"
                 node.r.cluster("setslot",slot,"stable")
             }
+        # Case 3: There are no slots claiming to be in importing state, but
+        # there is a migrating node that actually don't have any key. We
+        # can just close the slot, probably a reshard interrupted in the middle.
+        elsif importing.length == 0 && migrating.length == 1 &&
+              migrating[0].r.cluster("getkeysinslot",slot,10).length == 0
+            migrating[0].r.cluster("setslot",slot,"stable")
         else
-            xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
+            xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress). Slot is set as migrating in #{migrating.join(",")}, as importing in #{importing.join(",")}, owner is #{owner}"
         end
     end
 
@@ -792,68 +911,246 @@ class RedisTrib
     # Options:
     # :verbose -- Print a dot for every moved key.
     # :fix     -- We are moving in the context of a fix. Use REPLACE.
-    # :cold    -- Move keys without opening / reconfiguring the nodes.
+    # :cold    -- Move keys without opening slots / reconfiguring the nodes.
+    # :update  -- Update nodes.info[:slots] for source/target nodes.
+    # :quiet   -- Don't print info messages.
     def move_slot(source,target,slot,o={})
+        o = {:pipeline => MigrateDefaultPipeline}.merge(o)
+
         # We start marking the slot as importing in the destination node,
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected
         # to the target node that does not yet know it is importing this slot.
-        print "Moving slot #{slot} from #{source} to #{target}: "; STDOUT.flush
+        if !o[:quiet]
+            print "Moving slot #{slot} from #{source} to #{target}: "
+            STDOUT.flush
+        end
+
         if !o[:cold]
             target.r.cluster("setslot",slot,"importing",source.info[:name])
             source.r.cluster("setslot",slot,"migrating",target.info[:name])
         end
         # Migrate all the keys from source to target using the MIGRATE command
         while true
-            keys = source.r.cluster("getkeysinslot",slot,10)
+            keys = source.r.cluster("getkeysinslot",slot,o[:pipeline])
             break if keys.length == 0
-            keys.each{|key|
-                begin
-                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
-                rescue => e
-                    if o[:fix] && e.to_s =~ /BUSYKEY/
-                        xputs "*** Target key #{key} exists. Replace it for FIX."
-                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000,:replace])
-                    else
-                        puts ""
-                        xputs "[ERR] #{e}"
-                        exit 1
-                    end
+            begin
+                source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:keys,*keys])
+            rescue => e
+                if o[:fix] && e.to_s =~ /BUSYKEY/
+                    xputs "*** Target key exists. Replacing it for FIX."
+                    source.r.client.call(["migrate",target.info[:host],target.info[:port],"",0,@timeout,:replace,:keys,*keys])
+                else
+                    puts ""
+                    xputs "[ERR] Calling MIGRATE: #{e}"
+                    exit 1
                 end
-                print "." if o[:verbose]
-                STDOUT.flush
-            }
+            end
+            print "."*keys.length if o[:dots]
+            STDOUT.flush
         end
 
-        puts
+        puts if !o[:quiet]
         # Set the new node as the owner of the slot in all the known nodes.
         if !o[:cold]
             @nodes.each{|n|
+                next if n.has_flag?("slave")
                 n.r.cluster("setslot",slot,"node",target.info[:name])
             }
         end
+
+        # Update the node logical config
+        if o[:update] then
+            source.info[:slots].delete(slot)
+            target.info[:slots][slot] = true
+        end
     end
 
-    # redis-trib subcommands implementations
+    # redis-trib subcommands implementations.
 
     def check_cluster_cmd(argv,opt)
         load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
+    def info_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
+        show_cluster_info
+    end
+
+    def rebalance_cluster_cmd(argv,opt)
+        opt = {
+            'pipeline' => MigrateDefaultPipeline,
+            'threshold' => RebalanceDefaultThreshold
+        }.merge(opt)
+
+        # Load nodes info before parsing options, otherwise we can't
+        # handle --weight.
+        load_cluster_info_from_node(argv[0])
+
+        # Options parsing
+        threshold = opt['threshold'].to_i
+        autoweights = opt['auto-weights']
+        weights = {}
+        opt['weight'].each{|w|
+            fields = w.split("=")
+            node = get_node_by_abbreviated_name(fields[0])
+            if !node || !node.has_flag?("master")
+                puts "*** No such master node #{fields[0]}"
+                exit 1
+            end
+            weights[node.info[:name]] = fields[1].to_f
+        } if opt['weight']
+        useempty = opt['use-empty-masters']
+
+       # Assign a weight to each node, and compute the total cluster weight.
+        total_weight = 0
+        nodes_involved = 0
+        @nodes.each{|n|
+            if n.has_flag?("master")
+                next if !useempty && n.slots.length == 0
+                n.info[:w] = weights[n.info[:name]] ? weights[n.info[:name]] : 1
+                total_weight += n.info[:w]
+                nodes_involved += 1
+            end
+        }
+
+        # Check cluster, only proceed if it looks sane.
+        check_cluster(:quiet => true)
+        if @errors.length != 0
+            puts "*** Please fix your cluster problems before rebalancing"
+            exit 1
+        end
+
+        # Calculate the slots balance for each node. It's the number of
+        # slots the node should lose (if positive) or gain (if negative)
+        # in order to be balanced.
+        threshold = opt['threshold'].to_f
+        threshold_reached = false
+        @nodes.each{|n|
+            if n.has_flag?("master")
+                next if !n.info[:w]
+                expected = ((ClusterHashSlots.to_f / total_weight) *
+                            n.info[:w]).to_i
+                n.info[:balance] = n.slots.length - expected
+                # Compute the percentage of difference between the
+                # expected number of slots and the real one, to see
+                # if it's over the threshold specified by the user.
+                over_threshold = false
+                if threshold > 0
+                    if n.slots.length > 0
+                        err_perc = (100-(100.0*expected/n.slots.length)).abs
+                        over_threshold = true if err_perc > threshold
+                    elsif expected > 0
+                        over_threshold = true
+                    end
+                end
+                threshold_reached = true if over_threshold
+            end
+        }
+        if !threshold_reached
+            xputs "*** No rebalancing needed! All nodes are within the #{threshold}% threshold."
+            return
+        end
+
+        # Only consider nodes we want to change
+        sn = @nodes.select{|n|
+            n.has_flag?("master") && n.info[:w]
+        }
+
+        # Because of rounding, it is possible that the balance of all nodes
+        # summed does not give 0. Make sure that nodes that have to provide
+        # slots are always matched by nodes receiving slots.
+        total_balance = sn.map{|x| x.info[:balance]}.reduce{|a,b| a+b}
+        while total_balance > 0
+            sn.each{|n|
+                if n.info[:balance] < 0 && total_balance > 0
+                    n.info[:balance] -= 1
+                    total_balance -= 1
+                end
+            }
+        end
+
+        # Sort nodes by their slots balance.
+        sn = sn.sort{|a,b|
+            a.info[:balance] <=> b.info[:balance]
+        }
+
+        xputs ">>> Rebalancing across #{nodes_involved} nodes. Total weight = #{total_weight}"
+
+        if $verbose
+            sn.each{|n|
+                puts "#{n} balance is #{n.info[:balance]} slots"
+            }
+        end
+
+        # Now we have at the start of the 'sn' array nodes that should get
+        # slots, at the end nodes that must give slots.
+        # We take two indexes, one at the start, and one at the end,
+        # incrementing or decrementing the indexes accordingly til we
+        # find nodes that need to get/provide slots.
+        dst_idx = 0
+        src_idx = sn.length - 1
+
+        while dst_idx < src_idx
+            dst = sn[dst_idx]
+            src = sn[src_idx]
+            numslots = [dst.info[:balance],src.info[:balance]].map{|n|
+                n.abs
+            }.min
+
+            if numslots > 0
+                puts "Moving #{numslots} slots from #{src} to #{dst}"
+
+                # Actaully move the slots.
+                reshard_table = compute_reshard_table([src],numslots)
+                if reshard_table.length != numslots
+                    xputs "*** Assertio failed: Reshard table != number of slots"
+                    exit 1
+                end
+                if opt['simulate']
+                    print "#"*reshard_table.length
+                else
+                    reshard_table.each{|e|
+                        move_slot(e[:source],dst,e[:slot],
+                            :quiet=>true,
+                            :dots=>false,
+                            :update=>true,
+                            :pipeline=>opt['pipeline'])
+                        print "#"
+                        STDOUT.flush
+                    }
+                end
+                puts
+            end
+
+            # Update nodes balance.
+            dst.info[:balance] += numslots
+            src.info[:balance] -= numslots
+            dst_idx += 1 if dst.info[:balance] == 0
+            src_idx -= 1 if src.info[:balance] == 0
+        end
+    end
+
     def fix_cluster_cmd(argv,opt)
         @fix = true
+        @timeout = opt['timeout'].to_i if opt['timeout']
+
         load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
     def reshard_cluster_cmd(argv,opt)
+        opt = {'pipeline' => MigrateDefaultPipeline}.merge(opt)
+
         load_cluster_info_from_node(argv[0])
         check_cluster
         if @errors.length != 0
             puts "*** Please fix your cluster problems before resharding"
             exit 1
         end
+
+        @timeout = opt['timeout'].to_i if opt['timeout'].to_i
 
         # Get number of slots
         if opt['slots']
@@ -958,7 +1255,9 @@ class RedisTrib
             exit(1) if (yesno != "yes")
         end
         reshard_table.each{|e|
-            move_slot(e[:source],target,e[:slot],:verbose=>true)
+            move_slot(e[:source],target,e[:slot],
+                :dots=>true,
+                :pipeline=>opt['pipeline'])
         }
     end
 
@@ -1139,7 +1438,9 @@ class RedisTrib
     def import_cluster_cmd(argv,opt)
         source_addr = opt['from']
         xputs ">>> Importing data from #{source_addr} to cluster #{argv[1]}"
-
+        use_copy = opt['copy']
+        use_replace = opt['replace']
+        
         # Check the existing cluster.
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -1174,7 +1475,10 @@ class RedisTrib
                 print "Migrating #{k} to #{target}: "
                 STDOUT.flush
                 begin
-                    source.client.call(["migrate",target.info[:host],target.info[:port],k,0,15000])
+                    cmd = ["migrate",target.info[:host],target.info[:port],k,0,@timeout]
+                    cmd << :copy if use_copy
+                    cmd << :replace if use_replace
+                    source.client.call(cmd)
                 rescue => e
                     puts e
                 else
@@ -1199,17 +1503,32 @@ class RedisTrib
             if ARGV[idx][0..1] == "--"
                 option = ARGV[idx][2..-1]
                 idx += 1
+
+                # --verbose is a global option
+                if option == "verbose"
+                    $verbose = true
+                    next
+                end
+
                 if ALLOWED_OPTIONS[cmd] == nil || ALLOWED_OPTIONS[cmd][option] == nil
                     puts "Unknown option '#{option}' for command '#{cmd}'"
                     exit 1
                 end
-                if ALLOWED_OPTIONS[cmd][option]
+                if ALLOWED_OPTIONS[cmd][option] != false
                     value = ARGV[idx]
                     idx += 1
                 else
                     value = true
                 end
-                options[option] = value
+
+                # If the option is set to [], it's a multiple arguments
+                # option. We just queue every new value into an array.
+                if ALLOWED_OPTIONS[cmd][option] == []
+                    options[option] = [] if !options[option]
+                    options[option] << value
+                else
+                    options[option] = value
+                end
             else
                 # Remaining arguments are not options.
                 break
@@ -1321,8 +1640,10 @@ end
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
     "check"   => ["check_cluster_cmd", 2, "host:port"],
+    "info"    => ["info_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
+    "rebalance" => ["rebalance_cluster_cmd", -2, "host:port"],
     "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
     "del-node" => ["delnode_cluster_cmd", 3, "host:port node_id"],
     "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
@@ -1334,8 +1655,10 @@ COMMANDS={
 ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
-    "import" => {"from" => :required},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
+    "import" => {"from" => :required, "copy" => false, "replace" => false},
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
+    "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
+    "fix" => {"timeout" => MigrateDefaultTimeout},
 }
 
 def show_help

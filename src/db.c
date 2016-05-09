@@ -29,13 +29,10 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "atomicvar.h"
 
 #include <signal.h>
 #include <ctype.h>
-
-void slotToKeyAdd(robj *key);
-void slotToKeyDel(robj *key);
-void slotToKeyFlush(void);
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -119,7 +116,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 
-    serverAssertWithInfo(NULL,key,retval == C_OK);
+    serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
@@ -184,7 +181,7 @@ robj *dbRandomKey(redisDb *db) {
 }
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
-int dbDelete(redisDb *db, robj *key) {
+int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -194,6 +191,13 @@ int dbDelete(redisDb *db, robj *key) {
     } else {
         return 0;
     }
+}
+
+/* This is a wrapper whose behavior depends on the Redis lazy free
+ * configuration. Deletes the key synchronously or asynchronously. */
+int dbDelete(redisDb *db, robj *key) {
+    return server.lazyfree_lazy_server_del ? dbAsyncDelete(db,key) :
+                                             dbSyncDelete(db,key);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -234,16 +238,46 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
-long long emptyDb(void(callback)(void*)) {
-    int j;
+/* Remove all keys from all the databases in a Redis server.
+ * If callback is given the function is called from time to time to
+ * signal that work is in progress.
+ *
+ * The dbnum can be -1 if all teh DBs should be flushed, or the specified
+ * DB number if we want to flush only a single Redis database number.
+ *
+ * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
+ * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
+ * and the function to return ASAP.
+ *
+ * On success the fuction returns the number of keys removed from the
+ * database(s). Otherwise -1 is returned in the specific case the
+ * DB number is out of range, and errno is set to EINVAL. */
+long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+    int j, async = (flags & EMPTYDB_ASYNC);
     long long removed = 0;
 
-    for (j = 0; j < server.dbnum; j++) {
-        removed += dictSize(server.db[j].dict);
-        dictEmpty(server.db[j].dict,callback);
-        dictEmpty(server.db[j].expires,callback);
+    if (dbnum < -1 || dbnum >= server.dbnum) {
+        errno = EINVAL;
+        return -1;
     }
-    if (server.cluster_enabled) slotToKeyFlush();
+
+    for (j = 0; j < server.dbnum; j++) {
+        if (dbnum != -1 && dbnum != j) continue;
+        removed += dictSize(server.db[j].dict);
+        if (async) {
+            emptyDbAsync(&server.db[j]);
+        } else {
+            dictEmpty(server.db[j].dict,callback);
+            dictEmpty(server.db[j].expires,callback);
+        }
+    }
+    if (server.cluster_enabled) {
+        if (async) {
+            slotToKeyFlushAsync();
+        } else {
+            slotToKeyFlush();
+        }
+    }
     return removed;
 }
 
@@ -275,18 +309,49 @@ void signalFlushedDb(int dbid) {
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
+/* Return the set of flags to use for the emptyDb() call for FLUSHALL
+ * and FLUSHDB commands.
+ *
+ * Currently the command just attempts to parse the "ASYNC" option. It
+ * also checks if the command arity is wrong.
+ *
+ * On success C_OK is returned and the flags are stored in *flags, otherwise
+ * C_ERR is returned and the function sends an error to the client. */
+int getFlushCommandFlags(client *c, int *flags) {
+    /* Parse the optional ASYNC option. */
+    if (c->argc > 1) {
+        if (c->argc > 2 || strcasecmp(c->argv[1]->ptr,"async")) {
+            addReply(c,shared.syntaxerr);
+            return C_ERR;
+        }
+        *flags = EMPTYDB_ASYNC;
+    } else {
+        *flags = EMPTYDB_NO_FLAGS;
+    }
+    return C_OK;
+}
+
+/* FLUSHDB [ASYNC]
+ *
+ * Flushes the currently SELECTed Redis DB. */
 void flushdbCommand(client *c) {
-    server.dirty += dictSize(c->db->dict);
+    int flags;
+
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict,NULL);
-    dictEmpty(c->db->expires,NULL);
-    if (server.cluster_enabled) slotToKeyFlush();
+    server.dirty += emptyDb(c->db->id,flags,NULL);
     addReply(c,shared.ok);
 }
 
+/* FLUSHALL [ASYNC]
+ *
+ * Flushes the whole server data set. */
 void flushallCommand(client *c) {
+    int flags;
+
+    if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     signalFlushedDb(-1);
-    server.dirty += emptyDb(NULL);
+    server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
@@ -302,20 +367,31 @@ void flushallCommand(client *c) {
     server.dirty++;
 }
 
-void delCommand(client *c) {
-    int deleted = 0, j;
+/* This command implements DEL and LAZYDEL. */
+void delGenericCommand(client *c, int lazy) {
+    int numdel = 0, j;
 
     for (j = 1; j < c->argc; j++) {
         expireIfNeeded(c->db,c->argv[j]);
-        if (dbDelete(c->db,c->argv[j])) {
+        int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
+                              dbSyncDelete(c->db,c->argv[j]);
+        if (deleted) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
             server.dirty++;
-            deleted++;
+            numdel++;
         }
     }
-    addReplyLongLong(c,deleted);
+    addReplyLongLong(c,numdel);
+}
+
+void delCommand(client *c) {
+    delGenericCommand(c,0);
+}
+
+void unlinkCommand(client *c) {
+    delGenericCommand(c,1);
 }
 
 /* EXISTS key1 key2 ... key_N.
@@ -400,16 +476,16 @@ void scanCallback(void *privdata, const dictEntry *de) {
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == OBJ_SET) {
-        key = dictGetKey(de);
-        incrRefCount(key);
+        sds keysds = dictGetKey(de);
+        key = createStringObject(keysds,sdslen(keysds));
     } else if (o->type == OBJ_HASH) {
-        key = dictGetKey(de);
-        incrRefCount(key);
-        val = dictGetVal(de);
-        incrRefCount(val);
+        sds sdskey = dictGetKey(de);
+        sds sdsval = dictGetVal(de);
+        key = createStringObject(sdskey,sdslen(sdskey));
+        val = createStringObject(sdsval,sdslen(sdsval));
     } else if (o->type == OBJ_ZSET) {
-        key = dictGetKey(de);
-        incrRefCount(key);
+        sds sdskey = dictGetKey(de);
+        key = createStringObject(sdskey,sdslen(sdskey));
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de),0);
     } else {
         serverPanic("Type not handled in SCAN callback.");
@@ -743,7 +819,7 @@ void moveCommand(client *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    long long dbid;
+    long long dbid, expire;
 
     if (server.cluster_enabled) {
         addReplyError(c,"MOVE is not allowed in cluster mode");
@@ -777,6 +853,7 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
+    expire = getExpire(c->db,c->argv[1]);
 
     /* Return zero if the key already exists in the target DB */
     if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
@@ -784,6 +861,7 @@ void moveCommand(client *c) {
         return;
     }
     dbAdd(dst,c->argv[1],o);
+    if (expire != -1) setExpire(dst,c->argv[1],expire);
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
@@ -836,10 +914,10 @@ long long getExpire(redisDb *db, robj *key) {
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
  * keys. */
-void propagateExpire(redisDb *db, robj *key) {
+void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
-    argv[0] = shared.del;
+    argv[0] = lazy ? shared.unlink : shared.del;
     argv[1] = key;
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
@@ -882,10 +960,11 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
     server.stat_expiredkeys++;
-    propagateExpire(db,key);
+    propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
-    return dbDelete(db,key);
+    return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
+                                         dbSyncDelete(db,key);
 }
 
 /*-----------------------------------------------------------------------------
@@ -924,13 +1003,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     if (when <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
 
-        serverAssertWithInfo(c,key,dbDelete(c->db,key));
+        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
+                                                    dbSyncDelete(c->db,key);
+        serverAssertWithInfo(c,key,deleted);
         server.dirty++;
 
-        /* Replicate/AOF this as an explicit DEL. */
-        aux = createStringObject("DEL",3);
+        /* Replicate/AOF this as an explicit DEL or UNLINK. */
+        aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,key);
-        decrRefCount(aux);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         addReply(c, shared.cone);
@@ -1158,20 +1238,46 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     return keys;
 }
 
+int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, first, *keys;
+    UNUSED(cmd);
+
+    /* Assume the obvious form. */
+    first = 3;
+    num = 1;
+
+    /* But check for the extended one with the KEYS option. */
+    if (argc > 6) {
+        for (i = 6; i < argc; i++) {
+            if (!strcasecmp(argv[i]->ptr,"keys") &&
+                sdslen(argv[3]->ptr) == 0)
+            {
+                first = i+1;
+                num = argc-first;
+                break;
+            }
+        }
+    }
+
+    keys = zmalloc(sizeof(int)*num);
+    for (i = 0; i < num; i++) keys[i] = first+i;
+    *numkeys = num;
+    return keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
 void slotToKeyAdd(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslInsert(server.cluster->slots_to_keys,hashslot,key);
-    incrRefCount(key);
+    sds sdskey = sdsdup(key->ptr);
+    zslInsert(server.cluster->slots_to_keys,hashslot,sdskey);
 }
 
 void slotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
-
-    zslDelete(server.cluster->slots_to_keys,hashslot,key);
+    zslDelete(server.cluster->slots_to_keys,hashslot,key->ptr,NULL);
 }
 
 void slotToKeyFlush(void) {
@@ -1179,6 +1285,9 @@ void slotToKeyFlush(void) {
     server.cluster->slots_to_keys = zslCreate();
 }
 
+/* Pupulate the specified array of objects with keys in the specified slot.
+ * New objects are returned to represent keys, it's up to the caller to
+ * decrement the reference count to release the keys names. */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     zskiplistNode *n;
     zrangespec range;
@@ -1189,7 +1298,7 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
 
     n = zslFirstInRange(server.cluster->slots_to_keys, &range);
     while(n && n->score == hashslot && count--) {
-        keys[j++] = n->obj;
+        keys[j++] = createStringObject(n->ele,sdslen(n->ele));
         n = n->level[0].forward;
     }
     return j;
@@ -1207,9 +1316,9 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
 
     n = zslFirstInRange(server.cluster->slots_to_keys, &range);
     while(n && n->score == hashslot) {
-        robj *key = n->obj;
+        sds sdskey = n->ele;
+        robj *key = createStringObject(sdskey,sdslen(sdskey));
         n = n->level[0].forward; /* Go to the next item before freeing it. */
-        incrRefCount(key); /* Protect the object while freeing it. */
         dbDelete(&server.db[0],key);
         decrRefCount(key);
         j++;
@@ -1231,7 +1340,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
     /* Use rank of first element, if any, to determine preliminary count */
     if (zn != NULL) {
-        rank = zslGetRank(zsl, zn->score, zn->obj);
+        rank = zslGetRank(zsl, zn->score, zn->ele);
         count = (zsl->length - (rank - 1));
 
         /* Find last element in range */
@@ -1239,7 +1348,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
 
         /* Use rank of last element, if any, to determine the actual count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->obj);
+            rank = zslGetRank(zsl, zn->score, zn->ele);
             count -= (zsl->length - rank);
         }
     }

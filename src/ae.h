@@ -33,6 +33,8 @@
 #ifndef __AE_H__
 #define __AE_H__
 
+#include <time.h>
+
 #define AE_OK 0
 #define AE_ERR -1
 
@@ -46,6 +48,7 @@
 #define AE_DONT_WAIT 4
 
 #define AE_NOMORE -1
+#define AE_DELETED_EVENT_ID -1
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)

@@ -52,9 +52,13 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+/* Client.reply list dup and free methods. */
 void *dupClientReplyValue(void *o) {
-    incrRefCount((robj*)o);
-    return o;
+    return sdsdup(o);
+}
+
+void freeClientReplyValue(void *o) {
+    sdsfree(o);
 }
 
 int listMatchObjects(void *a, void *b) {
@@ -109,17 +113,17 @@ client *createClient(int fd) {
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
-    listSetFreeMethod(c->reply,decrRefCountVoid);
+    listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
-    c->bpop.keys = dictCreate(&setDictType,NULL);
+    c->bpop.keys = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->bpop.target = NULL;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
     c->watched_keys = listCreate();
-    c->pubsub_channels = dictCreate(&setDictType,NULL);
+    c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
@@ -144,7 +148,7 @@ client *createClient(int fd) {
  * event handler in the following cases:
  *
  * 1) The event handler should already be installed since the output buffer
- *    already contained something.
+ *    already contains something.
  * 2) The client is a slave but not yet online, so we want to just accumulate
  *    writes in the buffer but not actually sending them yet.
  *
@@ -156,6 +160,9 @@ int prepareClientToWrite(client *c) {
      * handler since there is no socket at all. */
     if (c->flags & CLIENT_LUA) return C_OK;
 
+    /* CLIENT REPLY OFF / SKIP handling: don't send replies. */
+    if (c->flags & (CLIENT_REPLY_OFF|CLIENT_REPLY_SKIP)) return C_ERR;
+
     /* Masters don't receive replies, unless CLIENT_MASTER_FORCE_REPLY flag
      * is set. */
     if ((c->flags & CLIENT_MASTER) &&
@@ -163,39 +170,27 @@ int prepareClientToWrite(client *c) {
 
     if (c->fd <= 0) return C_ERR; /* Fake client for AOF loading. */
 
-    /* Only install the handler if not already installed and, in case of
-     * slaves, if the client can actually receive writes. */
-    if (c->bufpos == 0 && listLength(c->reply) == 0 &&
+    /* Schedule the client to write the output buffers to the socket only
+     * if not already done (there were no pending writes already and the client
+     * was yet not flagged), and, for slaves, if the slave can actually
+     * receive writes at this stage. */
+    if (!clientHasPendingReplies(c) &&
+        !(c->flags & CLIENT_PENDING_WRITE) &&
         (c->replstate == REPL_STATE_NONE ||
          (c->replstate == SLAVE_STATE_ONLINE && !c->repl_put_online_on_ack)))
     {
-        /* Try to install the write handler. */
-        if (aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
-                sendReplyToClient, c) == AE_ERR)
-        {
-            freeClientAsync(c);
-            return C_ERR;
-        }
+        /* Here instead of installing the write handler, we just flag the
+         * client and put it into a list of clients that have something
+         * to write to the socket. This way before re-entering the event
+         * loop, we can try to directly write to the client sockets avoiding
+         * a system call. We'll only really install the write handler if
+         * we'll not be able to write the whole reply at once. */
+        c->flags |= CLIENT_PENDING_WRITE;
+        listAddNodeHead(server.clients_pending_write,c);
     }
 
     /* Authorize the caller to queue in the output buffer of this client. */
     return C_OK;
-}
-
-/* Create a duplicate of the last object in the reply list when
- * it is not exclusively owned by the reply list. */
-robj *dupLastObjectIfNeeded(list *reply) {
-    robj *new, *cur;
-    listNode *ln;
-    serverAssert(listLength(reply) > 0);
-    ln = listLast(reply);
-    cur = listNodeValue(ln);
-    if (cur->refcount > 1) {
-        new = dupStringObject(cur);
-        decrRefCount(cur);
-        listNodeValue(ln) = new;
-    }
-    return listNodeValue(ln);
 }
 
 /* -----------------------------------------------------------------------------
@@ -220,30 +215,26 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 }
 
 void _addReplyObjectToList(client *c, robj *o) {
-    robj *tail;
-
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     if (listLength(c->reply) == 0) {
-        incrRefCount(o);
-        listAddNodeTail(c->reply,o);
-        c->reply_bytes += getStringObjectSdsUsedMemory(o);
+        sds s = sdsdup(o->ptr);
+        listAddNodeTail(c->reply,s);
+        c->reply_bytes += sdslen(s);
     } else {
-        tail = listNodeValue(listLast(c->reply));
+        listNode *ln = listLast(c->reply);
+        sds tail = listNodeValue(ln);
 
-        /* Append to this object when possible. */
-        if (tail->ptr != NULL &&
-            tail->encoding == OBJ_ENCODING_RAW &&
-            sdslen(tail->ptr)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES)
-        {
-            c->reply_bytes -= sdsZmallocSize(tail->ptr);
-            tail = dupLastObjectIfNeeded(c->reply);
-            tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
-            c->reply_bytes += sdsZmallocSize(tail->ptr);
+        /* Append to this object when possible. If tail == NULL it was
+         * set via addDeferredMultiBulkLength(). */
+        if (tail && sdslen(tail)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES) {
+            tail = sdscatsds(tail,o->ptr);
+            listNodeValue(ln) = tail;
+            c->reply_bytes += sdslen(o->ptr);
         } else {
-            incrRefCount(o);
-            listAddNodeTail(c->reply,o);
-            c->reply_bytes += getStringObjectSdsUsedMemory(o);
+            sds s = sdsdup(o->ptr);
+            listAddNodeTail(c->reply,s);
+            c->reply_bytes += sdslen(s);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -252,62 +243,54 @@ void _addReplyObjectToList(client *c, robj *o) {
 /* This method takes responsibility over the sds. When it is no longer
  * needed it will be free'd, otherwise it ends up in a robj. */
 void _addReplySdsToList(client *c, sds s) {
-    robj *tail;
-
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
         sdsfree(s);
         return;
     }
 
     if (listLength(c->reply) == 0) {
-        listAddNodeTail(c->reply,createObject(OBJ_STRING,s));
-        c->reply_bytes += sdsZmallocSize(s);
+        listAddNodeTail(c->reply,s);
+        c->reply_bytes += sdslen(s);
     } else {
-        tail = listNodeValue(listLast(c->reply));
+        listNode *ln = listLast(c->reply);
+        sds tail = listNodeValue(ln);
 
-        /* Append to this object when possible. */
-        if (tail->ptr != NULL && tail->encoding == OBJ_ENCODING_RAW &&
-            sdslen(tail->ptr)+sdslen(s) <= PROTO_REPLY_CHUNK_BYTES)
-        {
-            c->reply_bytes -= sdsZmallocSize(tail->ptr);
-            tail = dupLastObjectIfNeeded(c->reply);
-            tail->ptr = sdscatlen(tail->ptr,s,sdslen(s));
-            c->reply_bytes += sdsZmallocSize(tail->ptr);
+        /* Append to this object when possible. If tail == NULL it was
+         * set via addDeferredMultiBulkLength(). */
+        if (tail && sdslen(tail)+sdslen(s) <= PROTO_REPLY_CHUNK_BYTES) {
+            tail = sdscatsds(tail,s);
+            listNodeValue(ln) = tail;
+            c->reply_bytes += sdslen(s);
             sdsfree(s);
         } else {
-            listAddNodeTail(c->reply,createObject(OBJ_STRING,s));
-            c->reply_bytes += sdsZmallocSize(s);
+            listAddNodeTail(c->reply,s);
+            c->reply_bytes += sdslen(s);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 void _addReplyStringToList(client *c, const char *s, size_t len) {
-    robj *tail;
-
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     if (listLength(c->reply) == 0) {
-        robj *o = createStringObject(s,len);
-
-        listAddNodeTail(c->reply,o);
-        c->reply_bytes += getStringObjectSdsUsedMemory(o);
+        sds node = sdsnewlen(s,len);
+        listAddNodeTail(c->reply,node);
+        c->reply_bytes += len;
     } else {
-        tail = listNodeValue(listLast(c->reply));
+        listNode *ln = listLast(c->reply);
+        sds tail = listNodeValue(ln);
 
-        /* Append to this object when possible. */
-        if (tail->ptr != NULL && tail->encoding == OBJ_ENCODING_RAW &&
-            sdslen(tail->ptr)+len <= PROTO_REPLY_CHUNK_BYTES)
-        {
-            c->reply_bytes -= sdsZmallocSize(tail->ptr);
-            tail = dupLastObjectIfNeeded(c->reply);
-            tail->ptr = sdscatlen(tail->ptr,s,len);
-            c->reply_bytes += sdsZmallocSize(tail->ptr);
+        /* Append to this object when possible. If tail == NULL it was
+         * set via addDeferredMultiBulkLength(). */
+        if (tail && sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES) {
+            tail = sdscatlen(tail,s,len);
+            listNodeValue(ln) = tail;
+            c->reply_bytes += len;
         } else {
-            robj *o = createStringObject(s,len);
-
-            listAddNodeTail(c->reply,o);
-            c->reply_bytes += getStringObjectSdsUsedMemory(o);
+            sds node = sdsnewlen(s,len);
+            listAddNodeTail(c->reply,node);
+            c->reply_bytes += len;
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -426,32 +409,32 @@ void *addDeferredMultiBulkLength(client *c) {
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredMultiBulkLength() will be called. */
     if (prepareClientToWrite(c) != C_OK) return NULL;
-    listAddNodeTail(c->reply,createObject(OBJ_STRING,NULL));
+    listAddNodeTail(c->reply,NULL); /* NULL is our placeholder. */
     return listLast(c->reply);
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(client *c, void *node, long length) {
     listNode *ln = (listNode*)node;
-    robj *len, *next;
+    sds len, next;
 
-    /* Abort when *node is NULL (see addDeferredMultiBulkLength). */
+    /* Abort when *node is NULL: when the client should not accept writes
+     * we return NULL in addDeferredMultiBulkLength() */
     if (node == NULL) return;
 
-    len = listNodeValue(ln);
-    len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
-    len->encoding = OBJ_ENCODING_RAW; /* in case it was an EMBSTR. */
-    c->reply_bytes += sdsZmallocSize(len->ptr);
+    len = sdscatprintf(sdsnewlen("*",1),"%ld\r\n",length);
+    listNodeValue(ln) = len;
+    c->reply_bytes += sdslen(len);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
         /* Only glue when the next node is non-NULL (an sds in this case) */
-        if (next->ptr != NULL) {
-            c->reply_bytes -= sdsZmallocSize(len->ptr);
-            c->reply_bytes -= getStringObjectSdsUsedMemory(next);
-            len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
-            c->reply_bytes += sdsZmallocSize(len->ptr);
+        if (next != NULL) {
+            len = sdscatsds(len,next);
             listDelNode(c->reply,ln->next);
+            listNodeValue(ln) = len;
+            /* No need to update c->reply_bytes: we are just moving the same
+             * amount of bytes from one node to another. */
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -470,6 +453,15 @@ void addReplyDouble(client *c, double d) {
         slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
         addReplyString(c,sbuf,slen);
     }
+}
+
+/* Add a long double as a bulk reply, but uses a human readable formatting
+ * of the double instead of exposing the crude behavior of doubles to the
+ * dear user. */
+void addReplyHumanLongDouble(client *c, long double d) {
+    robj *o = createStringObjectFromLongDouble(d,1);
+    addReplyBulk(c,o);
+    decrRefCount(o);
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -589,8 +581,14 @@ void copyClientOutputBuffer(client *dst, client *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
+/* Return true if the specified client has pending reply buffers to write to
+ * the socket. */
+int clientHasPendingReplies(client *c) {
+    return c->bufpos || listLength(c->reply);
+}
+
 #define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(int fd, int flags) {
+static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
     if ((c = createClient(fd)) == NULL) {
         serverLog(LL_WARNING,
@@ -614,6 +612,48 @@ static void acceptCommonHandler(int fd, int flags) {
         freeClient(c);
         return;
     }
+
+    /* If the server is running in protected mode (the default) and there
+     * is no password set, nor a specific interface is bound, we don't accept
+     * requests from non loopback interfaces. Instead we try to explain the
+     * user what to do to fix it if needed. */
+    if (server.protected_mode &&
+        server.bindaddr_count == 0 &&
+        server.requirepass == NULL &&
+        !(flags & CLIENT_UNIX_SOCKET) &&
+        ip != NULL)
+    {
+        if (strcmp(ip,"127.0.0.1") && strcmp(ip,"::1")) {
+            char *err =
+                "-DENIED Redis is running in protected mode because protected "
+                "mode is enabled, no bind address was specified, no "
+                "authentication password is requested to clients. In this mode "
+                "connections are only accepted from the loopback interface. "
+                "If you want to connect from external computers to Redis you "
+                "may adopt one of the following solutions: "
+                "1) Just disable protected mode sending the command "
+                "'CONFIG SET protected-mode no' from the loopback interface "
+                "by connecting to Redis from the same host the server is "
+                "running, however MAKE SURE Redis is not publicly accessible "
+                "from internet if you do so. Use CONFIG REWRITE to make this "
+                "change permanent. "
+                "2) Alternatively you can just disable the protected mode by "
+                "editing the Redis configuration file, and setting the protected "
+                "mode option to 'no', and then restarting the server. "
+                "3) If you started the server manually just for testing, restart "
+                "it with the '--protected-mode no' option. "
+                "4) Setup a bind address or an authentication password. "
+                "NOTE: You only need to do one of the above things in order for "
+                "the server to start accepting connections from the outside.\r\n";
+            if (write(c->fd,err,strlen(err)) == -1) {
+                /* Nothing to do, Just to avoid the warning... */
+            }
+            server.stat_rejected_conn++;
+            freeClient(c);
+            return;
+        }
+    }
+
     server.stat_numconnections++;
     c->flags |= flags;
 }
@@ -634,7 +674,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(cfd,0);
+        acceptCommonHandler(cfd,0,cip);
     }
 }
 
@@ -653,7 +693,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(cfd,CLIENT_UNIX_SOCKET);
+        acceptCommonHandler(cfd,CLIENT_UNIX_SOCKET,NULL);
     }
 }
 
@@ -675,11 +715,51 @@ void disconnectSlaves(void) {
     }
 }
 
-void freeClient(client *c) {
+/* Remove the specified client from global lists where the client could
+ * be referenced, not including the Pub/Sub channels.
+ * This is used by freeClient() and replicationCacheMaster(). */
+void unlinkClient(client *c) {
     listNode *ln;
 
-    /* If this is marked as current client unset it */
+    /* If this is marked as current client unset it. */
     if (server.current_client == c) server.current_client = NULL;
+
+    /* Certain operations must be done only if the client has an active socket.
+     * If the client was already unlinked or if it's a "fake client" the
+     * fd is already set to -1. */
+    if (c->fd != -1) {
+        /* Remove from the list of active clients. */
+        ln = listSearchKey(server.clients,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients,ln);
+
+        /* Unregister async I/O handlers and close the socket. */
+        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        close(c->fd);
+        c->fd = -1;
+    }
+
+    /* Remove from the list of pending writes if needed. */
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        ln = listSearchKey(server.clients_pending_write,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients_pending_write,ln);
+        c->flags &= ~CLIENT_PENDING_WRITE;
+    }
+
+    /* When client was just unblocked because of a blocking operation,
+     * remove it from the list of unblocked clients. */
+    if (c->flags & CLIENT_UNBLOCKED) {
+        ln = listSearchKey(server.unblocked_clients,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.unblocked_clients,ln);
+        c->flags &= ~CLIENT_UNBLOCKED;
+    }
+}
+
+void freeClient(client *c) {
+    listNode *ln;
 
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
@@ -722,30 +802,14 @@ void freeClient(client *c) {
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
 
-    /* Close socket, unregister events, and remove list of replies and
-     * accumulated arguments. */
-    if (c->fd != -1) {
-        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
-        close(c->fd);
-    }
+    /* Free data structures. */
     listRelease(c->reply);
     freeClientArgv(c);
 
-    /* Remove from the list of clients */
-    if (c->fd != -1) {
-        ln = listSearchKey(server.clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
-    }
-
-    /* When client was just unblocked because of a blocking operation,
-     * remove it from the list of unblocked clients. */
-    if (c->flags & CLIENT_UNBLOCKED) {
-        ln = listSearchKey(server.unblocked_clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.unblocked_clients,ln);
-    }
+    /* Unlink the client: this will close the socket, remove the I/O
+     * handlers, and remove references of the client from different
+     * places where active clients may be referenced. */
+    unlinkClient(c);
 
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
@@ -808,16 +872,14 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
-void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-    client *c = privdata;
+/* Write data in output buffers to client. Return C_OK if the client
+ * is still valid after the call, C_ERR if it was freed. */
+int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
-    size_t objmem;
-    robj *o;
-    UNUSED(el);
-    UNUSED(mask);
+    sds o;
 
-    while(c->bufpos > 0 || listLength(c->reply)) {
+    while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
@@ -832,16 +894,14 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             }
         } else {
             o = listNodeValue(listFirst(c->reply));
-            objlen = sdslen(o->ptr);
-            objmem = getStringObjectSdsUsedMemory(o);
+            objlen = sdslen(o);
 
             if (objlen == 0) {
                 listDelNode(c->reply,listFirst(c->reply));
-                c->reply_bytes -= objmem;
                 continue;
             }
 
-            nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+            nwritten = write(fd, o + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -850,7 +910,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (c->sentlen == objlen) {
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
-                c->reply_bytes -= objmem;
+                c->reply_bytes -= objlen;
             }
         }
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
@@ -873,7 +933,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
             freeClient(c);
-            return;
+            return C_ERR;
         }
     }
     if (totwritten > 0) {
@@ -883,13 +943,54 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * We just rely on data / pings received for timeout detection. */
         if (!(c->flags & CLIENT_MASTER)) c->lastinteraction = server.unixtime;
     }
-    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+    if (!clientHasPendingReplies(c)) {
         c->sentlen = 0;
-        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        if (handler_installed) aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
-        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) freeClient(c);
+        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
+            freeClient(c);
+            return C_ERR;
+        }
     }
+    return C_OK;
+}
+
+/* Write event handler. Just send data to the client. */
+void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+    UNUSED(el);
+    UNUSED(mask);
+    writeToClient(fd,privdata,1);
+}
+
+/* This function is called just before entering the event loop, in the hope
+ * we can just write the replies to the client output buffer without any
+ * need to use a syscall in order to install the writable event handler,
+ * get it called, and so forth. */
+int handleClientsWithPendingWrites(void) {
+    listIter li;
+    listNode *ln;
+    int processed = listLength(server.clients_pending_write);
+
+    listRewind(server.clients_pending_write,&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        c->flags &= ~CLIENT_PENDING_WRITE;
+        listDelNode(server.clients_pending_write,ln);
+
+        /* Try to write buffers to the client socket. */
+        if (writeToClient(c->fd,c,0) == C_ERR) continue;
+
+        /* If there is nothing left, do nothing. Otherwise install
+         * the write handler. */
+        if (clientHasPendingReplies(c) &&
+            aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+                sendReplyToClient, c) == AE_ERR)
+        {
+            freeClientAsync(c);
+        }
+    }
+    return processed;
 }
 
 /* resetClient prepare the client to process the next command */
@@ -900,10 +1001,20 @@ void resetClient(client *c) {
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
+
     /* We clear the ASKING flag as well if we are not inside a MULTI, and
      * if what we just executed is not the ASKING command itself. */
     if (!(c->flags & CLIENT_MULTI) && prevcmd != askingCommand)
-        c->flags &= (~CLIENT_ASKING);
+        c->flags &= ~CLIENT_ASKING;
+
+    /* Remove the CLIENT_REPLY_SKIP flag if any so that the reply
+     * to the next command will be sent, but set the flag if the command
+     * we just processed was "CLIENT REPLY SKIP". */
+    c->flags &= ~CLIENT_REPLY_SKIP;
+    if (c->flags & CLIENT_REPLY_SKIP_NEXT) {
+        c->flags |= CLIENT_REPLY_SKIP;
+        c->flags &= ~CLIENT_REPLY_SKIP_NEXT;
+    }
 }
 
 int processInlineBuffer(client *c) {
@@ -1093,10 +1204,10 @@ int processMultibulkBuffer(client *c) {
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
-                c->querybuf = sdsempty();
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
-                c->querybuf = sdsMakeRoomFor(c->querybuf,c->bulklen+2);
+                c->querybuf = sdsnewlen(NULL,c->bulklen+2);
+                sdsclear(c->querybuf);
                 pos = 0;
             } else {
                 c->argv[c->argc++] =
@@ -1157,6 +1268,9 @@ void processInputBuffer(client *c) {
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == C_OK)
                 resetClient(c);
+            /* freeMemoryIfNeeded may flush slave output buffers. This may result
+             * into a slave, that may be the active client, to be freed. */
+            if (server.current_client == NULL) break;
         }
     }
     server.current_client = NULL;
@@ -1329,9 +1443,8 @@ sds getAllClientsInfoString(void) {
     listNode *ln;
     listIter li;
     client *client;
-    sds o = sdsempty();
-
-    o = sdsMakeRoomFor(o,200*listLength(server.clients));
+    sds o = sdsnewlen(NULL,200*listLength(server.clients));
+    sdsclear(o);
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
@@ -1351,6 +1464,20 @@ void clientCommand(client *c) {
         sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
+        /* CLIENT REPLY ON|OFF|SKIP */
+        if (!strcasecmp(c->argv[2]->ptr,"on")) {
+            c->flags &= ~(CLIENT_REPLY_SKIP|CLIENT_REPLY_OFF);
+            addReply(c,shared.ok);
+        } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
+            c->flags |= CLIENT_REPLY_OFF;
+        } else if (!strcasecmp(c->argv[2]->ptr,"skip")) {
+            if (!(c->flags & CLIENT_REPLY_OFF))
+                c->flags |= CLIENT_REPLY_SKIP_NEXT;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
         /* CLIENT KILL <ip:port>
          * CLIENT KILL <option> [value] ... <option> [value] */
@@ -1523,15 +1650,28 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
 }
 
 /* Rewrite a single item in the command vector.
- * The new val ref count is incremented, and the old decremented. */
+ * The new val ref count is incremented, and the old decremented.
+ *
+ * It is possible to specify an argument over the current size of the
+ * argument vector: in this case the array of objects gets reallocated
+ * and c->argc set to the max value. However it's up to the caller to
+ *
+ * 1. Make sure there are no "holes" and all the arguments are set.
+ * 2. If the original argument vector was longer than the one we
+ *    want to end with, it's up to the caller to set c->argc and
+ *    free the no longer used objects on c->argv. */
 void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
 
-    serverAssertWithInfo(c,NULL,i < c->argc);
+    if (i >= c->argc) {
+        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+        c->argc = i+1;
+        c->argv[i] = NULL;
+    }
     oldval = c->argv[i];
     c->argv[i] = newval;
     incrRefCount(newval);
-    decrRefCount(oldval);
+    if (oldval) decrRefCount(oldval);
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
@@ -1554,7 +1694,9 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode)+sizeof(robj);
+    unsigned long list_item_size = sizeof(listNode)+5;
+    /* The +5 above means we assume an sds16 hdr, may not be true
+     * but is not going to be a problem. */
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
@@ -1658,7 +1800,9 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
 }
 
 /* Helper function used by freeMemoryIfNeeded() in order to flush slaves
- * output buffers without returning control to the event loop. */
+ * output buffers without returning control to the event loop.
+ * This is also called by SHUTDOWN for a best-effort attempt to send
+ * slaves the latest writes. */
 void flushSlavesOutputBuffers(void) {
     listIter li;
     listNode *ln;
@@ -1677,9 +1821,9 @@ void flushSlavesOutputBuffers(void) {
         events = aeGetFileEvents(server.el,slave->fd);
         if (events & AE_WRITABLE &&
             slave->replstate == SLAVE_STATE_ONLINE &&
-            listLength(slave->reply))
+            clientHasPendingReplies(slave))
         {
-            sendReplyToClient(server.el,slave->fd,slave,0);
+            writeToClient(slave->fd,slave,0);
         }
     }
 }
@@ -1742,7 +1886,7 @@ int clientsArePaused(void) {
  * and so forth.
  *
  * It calls the event loop in order to process a few events. Specifically we
- * try to call the event loop for times as long as we receive acknowledge that
+ * try to call the event loop 4 times as long as we receive acknowledge that
  * some event was processed, in order to go forward with the accept, read,
  * write, close sequence needed to serve a client.
  *
@@ -1751,7 +1895,9 @@ int processEventsWhileBlocked(void) {
     int iterations = 4; /* See the function top-comment. */
     int count = 0;
     while (iterations--) {
-        int events = aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        int events = 0;
+        events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        events += handleClientsWithPendingWrites();
         if (!events) break;
         count += events;
     }

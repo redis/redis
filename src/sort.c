@@ -112,9 +112,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     if (fieldobj) {
         if (o->type != OBJ_HASH) goto noobj;
 
-        /* Retrieve value from hash by the field name. This operation
-         * already increases the refcount of the returned object. */
-        o = hashTypeGetObject(o, fieldobj);
+        /* Retrieve value from hash by the field name. The returend object
+         * is a new object with refcount already incremented. */
+        o = hashTypeGetValueObject(o, fieldobj->ptr);
     } else {
         if (o->type != OBJ_STRING) goto noobj;
 
@@ -380,9 +380,9 @@ void sortCommand(client *c) {
         listTypeReleaseIterator(li);
     } else if (sortval->type == OBJ_SET) {
         setTypeIterator *si = setTypeInitIterator(sortval);
-        robj *ele;
-        while((ele = setTypeNextObject(si)) != NULL) {
-            vector[j].obj = ele;
+        sds sdsele;
+        while((sdsele = setTypeNextObject(si)) != NULL) {
+            vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -399,7 +399,7 @@ void sortCommand(client *c) {
         zset *zs = sortval->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
-        robj *ele;
+        sds sdsele;
         int rangelen = vectorlen;
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
@@ -417,8 +417,8 @@ void sortCommand(client *c) {
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            ele = ln->obj;
-            vector[j].obj = ele;
+            sdsele = ln->ele;
+            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -431,9 +431,11 @@ void sortCommand(client *c) {
         dict *set = ((zset*)sortval->ptr)->dict;
         dictIterator *di;
         dictEntry *setele;
+        sds sdsele;
         di = dictGetIterator(set);
         while((setele = dictNext(di)) != NULL) {
-            vector[j].obj = dictGetKey(setele);
+            sdsele =  dictGetKey(setele);
+            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -577,9 +579,9 @@ void sortCommand(client *c) {
     }
 
     /* Cleanup */
-    if (sortval->type == OBJ_LIST || sortval->type == OBJ_SET)
-        for (j = 0; j < vectorlen; j++)
-            decrRefCount(vector[j].obj);
+    for (j = 0; j < vectorlen; j++)
+        decrRefCount(vector[j].obj);
+
     decrRefCount(sortval);
     listRelease(operations);
     for (j = 0; j < vectorlen; j++) {

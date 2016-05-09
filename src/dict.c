@@ -424,7 +424,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
         he = d->ht[table].table[idx];
         prevHe = NULL;
         while(he) {
-            if (dictCompareKeys(d, key, he->key)) {
+            if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
@@ -494,14 +494,14 @@ dictEntry *dictFind(dict *d, const void *key)
     dictEntry *he;
     unsigned int h, idx, table;
 
-    if (d->ht[0].size == 0) return NULL; /* We don't have a table at all */
+    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareKeys(d, key, he->key))
+            if (key==he->key || dictCompareKeys(d, key, he->key))
                 return he;
             he = he->next;
         }
@@ -855,7 +855,7 @@ unsigned long dictScan(dict *d,
                        void *privdata)
 {
     dictht *t0, *t1;
-    const dictEntry *de;
+    const dictEntry *de, *next;
     unsigned long m0, m1;
 
     if (dictSize(d) == 0) return 0;
@@ -867,8 +867,9 @@ unsigned long dictScan(dict *d,
         /* Emit entries at cursor */
         de = t0->table[v & m0];
         while (de) {
+            next = de->next;
             fn(privdata, de);
-            de = de->next;
+            de = next;
         }
 
     } else {
@@ -887,8 +888,9 @@ unsigned long dictScan(dict *d,
         /* Emit entries at cursor */
         de = t0->table[v & m0];
         while (de) {
+            next = de->next;
             fn(privdata, de);
-            de = de->next;
+            de = next;
         }
 
         /* Iterate over indices in larger table that are the expansion
@@ -897,8 +899,9 @@ unsigned long dictScan(dict *d,
             /* Emit entries at cursor */
             de = t1->table[v & m1];
             while (de) {
+                next = de->next;
                 fn(privdata, de);
-                de = de->next;
+                de = next;
             }
 
             /* Increment bits not covered by the smaller mask */
@@ -978,7 +981,7 @@ static int _dictKeyIndex(dict *d, const void *key)
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareKeys(d, key, he->key))
+            if (key==he->key || dictCompareKeys(d, key, he->key))
                 return -1;
             he = he->next;
         }

@@ -49,8 +49,10 @@ set ::all_tests {
     unit/limits
     unit/obuf-limits
     unit/bitops
+    unit/bitfield
     unit/memefficiency
     unit/hyperloglog
+    unit/lazyfree
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -59,6 +61,7 @@ set ::host 127.0.0.1
 set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
+set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
 set ::denytags {}
@@ -391,6 +394,7 @@ proc send_data_packet {fd status data} {
 proc print_help_screen {} {
     puts [join {
         "--valgrind         Run the test over valgrind."
+        "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
@@ -417,6 +421,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
+    } elseif {$opt eq {--stack-logging}} {
+        if {[string match {*Darwin*} [exec uname -a]]} {
+            set ::stack_logging 1
+        }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
     } elseif {$opt eq {--host}} {
@@ -464,8 +472,11 @@ proc attach_to_replication_stream {} {
     flush $s
 
     # Get the count
-    set count [gets $s]
-    set prefix [string range $count 0 0]
+    while 1 {
+        set count [gets $s]
+        set prefix [string range $count 0 0]
+        if {$prefix ne {}} break; # Newlines are allowed as PINGs.
+    }
     if {$prefix ne {$}} {
         error "attach_to_replication_stream error. Received '$count' as count."
     }

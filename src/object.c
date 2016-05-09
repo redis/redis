@@ -48,6 +48,23 @@ robj *createObject(int type, void *ptr) {
     return o;
 }
 
+/* Set a special refcount in the object to make it "shared":
+ * incrRefCount and decrRefCount() will test for this special refcount
+ * and will not touch the object. This way it is free to access shared
+ * objects such as small integers from different threads without any
+ * mutex.
+ *
+ * A common patter to create shared objects:
+ *
+ * robj *myobject = makeObjectShared(createObject(...));
+ *
+ */
+robj *makeObjectShared(robj *o) {
+    serverAssert(o->refcount == 1);
+    o->refcount = OBJ_SHARED_REFCOUNT;
+    return o;
+}
+
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
 robj *createRawStringObject(const char *ptr, size_t len) {
@@ -118,37 +135,7 @@ robj *createStringObjectFromLongLong(long long value) {
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
     char buf[256];
-    int len;
-
-    if (isinf(value)) {
-        /* Libc in odd systems (Hi Solaris!) will format infinite in a
-         * different way, so better to handle it in an explicit way. */
-        if (value > 0) {
-            memcpy(buf,"inf",3);
-            len = 3;
-        } else {
-            memcpy(buf,"-inf",4);
-            len = 4;
-        }
-    } else if (humanfriendly) {
-        /* We use 17 digits precision since with 128 bit floats that precision
-         * after rounding is able to represent most small decimal numbers in a
-         * way that is "non surprising" for the user (that is, most small
-         * decimal numbers will be represented in a way that when converted
-         * back into a string are exactly the same as what the user typed.) */
-        len = snprintf(buf,sizeof(buf),"%.17Lf", value);
-        /* Now remove trailing zeroes after the '.' */
-        if (strchr(buf,'.') != NULL) {
-            char *p = buf+len-1;
-            while(*p == '0') {
-                p--;
-                len--;
-            }
-            if (*p == '.') len--;
-        }
-    } else {
-        len = snprintf(buf,sizeof(buf),"%.17Lg", value);
-    }
+    int len = ld2string(buf,sizeof(buf),value,humanfriendly);
     return createStringObject(buf,len);
 }
 
@@ -295,11 +282,10 @@ void freeHashObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    o->refcount++;
+    if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
 void decrRefCount(robj *o) {
-    if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
@@ -311,7 +297,8 @@ void decrRefCount(robj *o) {
         }
         zfree(o);
     } else {
-        o->refcount--;
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
+        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
     }
 }
 
@@ -347,13 +334,17 @@ int checkType(client *c, robj *o, int type) {
     return 0;
 }
 
+int isSdsRepresentableAsLongLong(sds s, long long *llval) {
+    return string2ll(s,sdslen(s),llval) ? C_OK : C_ERR;
+}
+
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if (o->encoding == OBJ_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return C_OK;
     } else {
-        return string2ll(o->ptr,sdslen(o->ptr),llval) ? C_OK : C_ERR;
+        return isSdsRepresentableAsLongLong(o->ptr,llval);
     }
 }
 
@@ -614,20 +605,29 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
     return C_OK;
 }
 
+/* Helper function for getLongLongFromObject(). The function parses the string
+ * as a long long value in a strict way (no spaces before/after). On success
+ * C_OK is returned, otherwise C_ERR is returned. */
+int strict_strtoll(char *str, long long *vp) {
+    char *eptr;
+    long long value;
+
+    errno = 0;
+    value = strtoll(str, &eptr, 10);
+    if (isspace(str[0]) || eptr[0] != '\0' || errno == ERANGE) return C_ERR;
+    if (vp) *vp = value;
+    return C_OK;
+}
+
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtoll(o->ptr, &eptr, 10);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE)
-                return C_ERR;
+            if (strict_strtoll(o->ptr,&value) == C_ERR) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {

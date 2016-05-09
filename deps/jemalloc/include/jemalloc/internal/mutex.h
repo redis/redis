@@ -10,7 +10,7 @@ typedef struct malloc_mutex_s malloc_mutex_t;
 #elif (defined(JEMALLOC_MUTEX_INIT_CB))
 #  define MALLOC_MUTEX_INITIALIZER {PTHREAD_MUTEX_INITIALIZER, NULL}
 #else
-#  if (defined(PTHREAD_MUTEX_ADAPTIVE_NP) &&				\
+#  if (defined(JEMALLOC_HAVE_PTHREAD_MUTEX_ADAPTIVE_NP) &&		\
        defined(PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP))
 #    define MALLOC_MUTEX_TYPE PTHREAD_MUTEX_ADAPTIVE_NP
 #    define MALLOC_MUTEX_INITIALIZER {PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP}
@@ -26,7 +26,11 @@ typedef struct malloc_mutex_s malloc_mutex_t;
 
 struct malloc_mutex_s {
 #ifdef _WIN32
+#  if _WIN32_WINNT >= 0x0600
+	SRWLOCK         	lock;
+#  else
 	CRITICAL_SECTION	lock;
+#  endif
 #elif (defined(JEMALLOC_OSSPIN))
 	OSSpinLock		lock;
 #elif (defined(JEMALLOC_MUTEX_INIT_CB))
@@ -70,7 +74,11 @@ malloc_mutex_lock(malloc_mutex_t *mutex)
 
 	if (isthreaded) {
 #ifdef _WIN32
+#  if _WIN32_WINNT >= 0x0600
+		AcquireSRWLockExclusive(&mutex->lock);
+#  else
 		EnterCriticalSection(&mutex->lock);
+#  endif
 #elif (defined(JEMALLOC_OSSPIN))
 		OSSpinLockLock(&mutex->lock);
 #else
@@ -85,7 +93,11 @@ malloc_mutex_unlock(malloc_mutex_t *mutex)
 
 	if (isthreaded) {
 #ifdef _WIN32
+#  if _WIN32_WINNT >= 0x0600
+		ReleaseSRWLockExclusive(&mutex->lock);
+#  else
 		LeaveCriticalSection(&mutex->lock);
+#  endif
 #elif (defined(JEMALLOC_OSSPIN))
 		OSSpinLockUnlock(&mutex->lock);
 #else

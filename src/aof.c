@@ -38,6 +38,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <sys/param.h>
 
 void aofUpdateCurrentSize(void);
 void aofClosePipes(void);
@@ -218,8 +219,9 @@ void stopAppendOnly(void) {
 
         serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
             (long) server.aof_child_pid);
-        if (kill(server.aof_child_pid,SIGUSR1) != -1)
-            wait3(&statloc,0,NULL);
+        if (kill(server.aof_child_pid,SIGUSR1) != -1) {
+            while(wait3(&statloc,0,NULL) != server.aof_child_pid);
+        }
         /* reset the buffer accumulating changes while the child saves */
         aofRewriteBufferReset();
         aofRemoveTempFile(server.aof_child_pid);
@@ -233,11 +235,20 @@ void stopAppendOnly(void) {
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
+    char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
     if (server.aof_fd == -1) {
-        serverLog(LL_WARNING,"Redis needs to enable the AOF but can't open the append only file: %s",strerror(errno));
+        char *cwdp = getcwd(cwd,MAXPATHLEN);
+
+        serverLog(LL_WARNING,
+            "Redis needs to enable the AOF but can't open the "
+            "append only file %s (in server root dir %s): %s",
+            server.aof_filename,
+            cwdp ? cwdp : "unknown",
+            strerror(errno));
         return C_ERR;
     }
     if (rewriteAppendOnlyFileBackground() == C_ERR) {
@@ -710,6 +721,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
+        if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
         exit(1);
     }
@@ -739,10 +751,12 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
+    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
     exit(1);
 
 fmterr: /* Format error. */
+    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);
 }
@@ -752,7 +766,7 @@ fmterr: /* Format error. */
  * ------------------------------------------------------------------------- */
 
 /* Delegate writing an object to writing a bulk string or bulk long long.
- * This is not placed in rio.c since that adds the redis.h dependency. */
+ * This is not placed in rio.c since that adds the server.h dependency. */
 int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
@@ -826,7 +840,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         dictEntry *de;
 
         while((de = dictNext(di)) != NULL) {
-            robj *eleobj = dictGetKey(de);
+            sds ele = dictGetKey(de);
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -835,7 +849,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
-            if (rioWriteBulkObject(r,eleobj) == 0) return 0;
+            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -892,7 +906,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         dictEntry *de;
 
         while((de = dictNext(di)) != NULL) {
-            robj *eleobj = dictGetKey(de);
+            sds ele = dictGetKey(de);
             double *score = dictGetVal(de);
 
             if (count == 0) {
@@ -904,7 +918,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
             if (rioWriteBulkDouble(r,*score) == 0) return 0;
-            if (rioWriteBulkObject(r,eleobj) == 0) return 0;
+            if (rioWriteBulkString(r,ele,sdslen(ele)) == 0) return 0;
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
@@ -928,17 +942,13 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
-        if (vstr) {
+        if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
-        } else {
+        else
             return rioWriteBulkLongLong(r, vll);
-        }
-
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        robj *value;
-
-        hashTypeCurrentFromHashTable(hi, what, &value);
-        return rioWriteBulkObject(r, value);
+        sds value = hashTypeCurrentFromHashTable(hi, what);
+        return rioWriteBulkString(r, value, sdslen(value));
     }
 
     serverPanic("Unknown hash encoding");
@@ -1416,7 +1426,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyStartMonitor(latency);
         if (rename(tmpfile,server.aof_filename) == -1) {
             serverLog(LL_WARNING,
-                "Error trying to rename the temporary AOF file: %s", strerror(errno));
+                "Error trying to rename the temporary AOF file %s into %s: %s",
+                tmpfile,
+                server.aof_filename,
+                strerror(errno));
             close(newfd);
             if (oldfd != -1) close(oldfd);
             goto cleanup;
@@ -1459,8 +1472,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         serverLog(LL_VERBOSE,
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
-        server.aof_lastbgrewrite_status = C_ERR;
-
+        /* SIGUSR1 is whitelisted, so we have a way to kill a child without
+         * tirggering an error conditon. */
+        if (bysignal != SIGUSR1)
+            server.aof_lastbgrewrite_status = C_ERR;
         serverLog(LL_WARNING,
             "Background AOF rewrite terminated with error");
     } else {
