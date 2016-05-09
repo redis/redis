@@ -2262,7 +2262,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     } else if (op == SET_OP_UNION) {
         dict *accumulator = dictCreate(&setAccumulatorDictType,NULL);
         dictIterator *di;
-        dictEntry *de;
+        dictEntry *de, *existing;
         double score;
 
         if (setnum) {
@@ -2283,16 +2283,16 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the accumulating dictionary. */
-                de = dictFind(accumulator,zuiSdsFromValue(&zval));
+                de = dictAddRaw(accumulator,zuiSdsFromValue(&zval),&existing);
                 /* If we don't have it, we need to create a new entry. */
-                if (de == NULL) {
+                if (!existing) {
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Remember the longest single element encountered,
                      * to understand if it's possible to convert to ziplist
                      * at the end. */
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                    /* Add the element with its initial score. */
-                    de = dictAddRaw(accumulator,tmp);
+                    /* Update the element with its initial score. */
+                    dictSetKey(accumulator, de, tmp);
                     dictSetDoubleVal(de,score);
                 } else {
                     /* Update the score with the score of the new instance
@@ -2301,7 +2301,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                      * Here we access directly the dictEntry double
                      * value inside the union as it is a big speedup
                      * compared to using the getDouble/setDouble API. */
-                    zunionInterAggregate(&de->v.d,score,aggregate);
+                    zunionInterAggregate(&existing->v.d,score,aggregate);
                 }
             }
             zuiClearIterator(&src[i]);

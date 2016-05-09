@@ -106,19 +106,19 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
+        (entry)->v.val = (d)->type->valDup((d)->privdata, _val_); \
     else \
-        entry->v.val = (_val_); \
+        (entry)->v.val = (_val_); \
 } while(0)
 
 #define dictSetSignedIntegerVal(entry, _val_) \
-    do { entry->v.s64 = _val_; } while(0)
+    do { (entry)->v.s64 = _val_; } while(0)
 
 #define dictSetUnsignedIntegerVal(entry, _val_) \
-    do { entry->v.u64 = _val_; } while(0)
+    do { (entry)->v.u64 = _val_; } while(0)
 
 #define dictSetDoubleVal(entry, _val_) \
-    do { entry->v.d = _val_; } while(0)
+    do { (entry)->v.d = _val_; } while(0)
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
@@ -126,9 +126,9 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
-        entry->key = (d)->type->keyDup((d)->privdata, _key_); \
+        (entry)->key = (d)->type->keyDup((d)->privdata, _key_); \
     else \
-        entry->key = (_key_); \
+        (entry)->key = (_key_); \
 } while(0)
 
 #define dictCompareKeys(d, key1, key2) \
@@ -150,7 +150,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
-dictEntry *dictAddRaw(dict *d, void *key);
+dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
 int dictReplace(dict *d, void *key, void *val);
 dictEntry *dictReplaceRaw(dict *d, void *key);
 int dictDelete(dict *d, const void *key);
