@@ -1919,6 +1919,7 @@ void initServer(void) {
         server.db[j].eviction_pool = evictionPoolAlloc();
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
+        server.db[j].total_keyname_size = 0;
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -2940,6 +2941,33 @@ sds genRedisInfoString(char *section) {
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
+        size_t ram_overhead = 0, key_overhead = 0;
+
+        /* calculate the ram overhead */
+        if (server.repl_backlog)
+            ram_overhead += zmalloc_size(server.repl_backlog);
+        if (listLength(server.clients)) {
+            listIter li;
+            listNode *ln;
+            listRewind(server.clients,&li);
+            while((ln = listNext(&li))) {
+                client *client = listNodeValue(ln);
+                ram_overhead += getClientOutputBufferMemoryUsage(client);
+                ram_overhead += sdsAllocSize(client->querybuf);
+                ram_overhead += sizeof(client);
+            }
+        }
+        if (server.aof_state != AOF_OFF)
+            ram_overhead += sdslen(server.aof_buf) + aofRewriteBufferSize();
+        for (j = 0; j < server.dbnum; j++) {
+            redisDb *db = server.db+j;
+            long long keyscount = dictSize(db->dict);
+            if (keyscount==0) continue;
+            ram_overhead += db->total_keyname_size;
+            key_overhead += db->total_keyname_size;
+            ram_overhead += dictSize(db->dict) * (sizeof(dictEntry) + sizeof(robj)) + dictSlots(db->dict) * sizeof(dictEntry*);
+            ram_overhead += dictSize(db->expires) * sizeof(dictEntry) + dictSlots(db->expires) * sizeof(dictEntry*);
+        }
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2972,6 +3000,8 @@ sds genRedisInfoString(char *section) {
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
+            "ram_overhead:%zu\r\n"
+            "key_overhead:%zu\r\n"
             "mem_allocator:%s\r\n"
             "lazyfree_pending_objects:%zu\r\n",
             zmalloc_used,
@@ -2988,6 +3018,8 @@ sds genRedisInfoString(char *section) {
             maxmemory_hmem,
             evict_policy,
             zmalloc_get_fragmentation_ratio(server.resident_set_size),
+            ram_overhead,
+            key_overhead,
             ZMALLOC_LIB,
             lazyfreeGetPendingObjectsCount()
             );

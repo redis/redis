@@ -50,6 +50,7 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * will be reclaimed in a different bio.c thread. */
 #define LAZYFREE_THRESHOLD 64
 int dbAsyncDelete(redisDb *db, robj *key) {
+    dictEntry de;
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -57,28 +58,27 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
-    dictEntry *de = dictFind(db->dict,key->ptr);
-    if (de) {
-        robj *val = dictGetVal(de);
+    if (dictDeleteNoFree(db->dict,key->ptr, &de) == DICT_OK) {
+        robj *val = dictGetVal(&de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
+        db->total_keyname_size -= sdsAllocSize(dictGetKey(&de)); /* we must get the size of the real pointer stored in the db */
 
         /* If releasing the object is too much work, let's put it into the
          * lazy free list. */
         if (free_effort > LAZYFREE_THRESHOLD) {
             atomicIncr(lazyfree_objects,1,lazyfree_objects_mutex);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
-            dictSetVal(db->dict,de,NULL);
+        } else {
+            sdsfree(dictGetKey(&de));
+            decrRefCount(dictGetVal(&de));
         }
-    }
 
-    /* Release the key-val pair, or just the key if we set the val
-     * field to NULL in order to lazy free it later. */
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+        /* Release the key-val pair, or just the key if we set the val
+        * field to NULL in order to lazy free it later. */
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
-    } else {
-        return 0;
     }
+    return 0;
 }
 
 /* Empty a Redis DB asynchronously. What the function does actually is to
