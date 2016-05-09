@@ -407,14 +407,15 @@ dictEntry *dictReplaceRaw(dict *d, void *key) {
     return entry ? entry : existing;
 }
 
-/* Search and remove an element */
-static int dictGenericDelete(dict *d, const void *key, int nofree)
-{
+/* Search and remove an element. This is an helper function for
+ * dictDelete() and dictUnlink(), please check the top comment
+ * of those functions. */
+static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     unsigned int h, idx;
     dictEntry *he, *prevHe;
     int table;
 
-    if (d->ht[0].size == 0) return DICT_ERR; /* d->ht[0].table is NULL */
+    if (d->ht[0].used == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
 
@@ -432,25 +433,56 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                 if (!nofree) {
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
+                    zfree(he);
                 }
-                zfree(he);
                 d->ht[table].used--;
-                return DICT_OK;
+                return he;
             }
             prevHe = he;
             he = he->next;
         }
         if (!dictIsRehashing(d)) break;
     }
-    return DICT_ERR; /* not found */
+    return NULL; /* not found */
 }
 
+/* Remove an element, returning DICT_OK on success or DICT_ERR if the
+ * element was not found. */
 int dictDelete(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,0);
+    return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
 }
 
-int dictDeleteNoFree(dict *ht, const void *key) {
+/* Remove an element from the table, but without actually releasing
+ * the key, value and dictionary entry. The dictionary entry is returned
+ * if the element was found (and unlinked from the table), and the user
+ * should later call `dictFreeUnlinkedEntry()` with it in order to release it.
+ * Otherwise if the key is not found, NULL is returned.
+ *
+ * This function is useful when we want to remove something from the hash
+ * table but want to use its value before actually deleting the entry.
+ * Without this function the pattern would require two lookups:
+ *
+ *  entry = dictFind(...);
+ *  // Do something with entry
+ *  dictDelete(dictionary,entry);
+ *
+ * Thanks to this function it is possible to avoid this, and use
+ * instead:
+ *
+ * entry = dictUnlink(dictionary,entry);
+ * // Do something with entry
+ * dictFreeUnlinkedEntry(entry); // <- This does not need to lookup again.
+ */
+dictEntry *dictUnlink(dict *ht, const void *key) {
     return dictGenericDelete(ht,key,1);
+}
+
+/* You need to call this function to really free the entry after a call
+ * to dictUnlink(). */
+void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
+    dictFreeKey(d, he);
+    dictFreeVal(d, he);
+    zfree(he);
 }
 
 /* Destroy an entire dictionary */
