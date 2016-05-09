@@ -663,7 +663,7 @@ int htNeedsResize(dict *dict) {
 
     size = dictSlots(dict);
     used = dictSize(dict);
-    return (size && used && size > DICT_HT_INITIAL_SIZE &&
+    return (size > DICT_HT_INITIAL_SIZE &&
             (used*100/size < HASHTABLE_MIN_FILL));
 }
 
