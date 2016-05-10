@@ -669,11 +669,33 @@ Work in progress.
 
 ## Sorted set type API
 
-Work in progress.
+Documentation missing, please refer to the top comments inside `module.c`
+for the following functions:
+
+* `RedisModule_ZsetAdd`
+* `RedisModule_ZsetIncrby`
+* `RedisModule_ZsetScore`
+* `RedisModule_ZsetRem`
+
+And for the sorted set iterator:
+
+* `RedisModule_ZsetRangeStop`
+* `RedisModule_ZsetFirstInScoreRange`
+* `RedisModule_ZsetLastInScoreRange`
+* `RedisModule_ZsetFirstInLexRange`
+* `RedisModule_ZsetLastInLexRange`
+* `RedisModule_ZsetRangeCurrentElement`
+* `RedisModule_ZsetRangeNext`
+* `RedisModule_ZsetRangePrev`
+* `RedisModule_ZsetRangeEndReached`
 
 ## Hash type API
 
-Work in progress.
+Documentation missing, please refer to the top comments inside `module.c`
+for the following functions:
+
+* `RedisModule_HashSet`
+* `RedisModule_HashGet`
 
 ## Iterating aggregated values
 
@@ -757,13 +779,8 @@ benefit.
 
 # Writing commands compatible with Redis Cluster
 
-Work in progress. Implement and document the following API:
+Documentation missing, please check the following functions inside `module.c`:
 
     RedisModule_IsKeysPositionRequest(ctx);
     RedisModule_KeyAtPos(ctx,pos);
-
-Command implementations, on keys position request, must reply with
-`REDISMODULE_KEYPOS_OK` to signal the request was processed, otherwise
-Cluster returns an error for those module commands that are not able to
-describe the position of keys.
 
