@@ -1035,16 +1035,28 @@ void bitfieldCommand(client *c) {
             changes++;
         } else {
             /* GET */
-            o = lookupKeyRead(c->db,c->argv[1]);
-            size_t olen = (o == NULL) ? 0 : sdslen(o->ptr);
             unsigned char buf[9];
+            size_t olen = 0;
+            unsigned char *src = NULL;
+            char llbuf[32];
+
+            o = lookupKeyRead(c->db,c->argv[1]);
+
+            /* Set the 'p' pointer to the string, that can be just a stack allocated
+             * array if our string was integer encoded. */
+            if (o && o->encoding == OBJ_ENCODING_INT) {
+                src = (unsigned char*) llbuf;
+                olen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+            } else if (o) {
+                src = (unsigned char*) o->ptr;
+                olen = sdslen(o->ptr);
+            }
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
              * execute up to 64 bit operations that are at actual string
              * object boundaries. */
             memset(buf,0,9);
-            unsigned char *src = o ? o->ptr : NULL;
             int i;
             size_t byte = thisop->offset >> 3;
             for (i = 0; i < 9; i++) {
