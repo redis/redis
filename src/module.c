@@ -2439,21 +2439,51 @@ void moduleCommand(client *c) {
             }
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
-    } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
-        dictIterator *di = dictGetIterator(modules);
-        dictEntry *de;
+    } else if (!strcasecmp(subcmd,"list")) {
+        if (c->argc == 2) {
+            dictIterator *di = dictGetIterator(modules);
+            dictEntry *de;
 
-        addReplyMultiBulkLen(c,dictSize(modules));
-        while ((de = dictNext(di)) != NULL) {
-            sds name = dictGetKey(de);
-            struct RedisModule *module = dictGetVal(de);
-            addReplyMultiBulkLen(c,4);
-            addReplyBulkCString(c,"name");
-            addReplyBulkCBuffer(c,name,sdslen(name));
-            addReplyBulkCString(c,"ver");
-            addReplyLongLong(c,module->ver);
+            addReplyMultiBulkLen(c,dictSize(modules));
+            while ((de = dictNext(di)) != NULL) {
+                sds name = dictGetKey(de);
+                struct RedisModule *module = dictGetVal(de);
+                addReplyMultiBulkLen(c,4);
+                addReplyBulkCString(c,"name");
+                addReplyBulkCBuffer(c,name,sdslen(name));
+                addReplyBulkCString(c,"ver");
+                addReplyLongLong(c,module->ver);
+            }
+            dictReleaseIterator(di);
+        } else if (c->argc == 3) {
+            struct RedisModule *module = dictFetchValue(modules,c->argv[2]->ptr);
+            if (module == NULL) {
+                addReplyErrorFormat(c,"no such module with that name");
+                return;
+            }
+
+            int cmds = 0;
+            dictIterator *di = dictGetSafeIterator(server.commands);
+            dictEntry *de;
+            void *mbcount;
+            mbcount = addDeferredMultiBulkLength(c);
+            while ((de = dictNext(di)) != NULL) {
+                struct redisCommand *cmd = dictGetVal(de);
+                if (cmd->proc == RedisModuleCommandDispatcher) {
+                    RedisModuleCommandProxy *cp =
+                        (void*)(unsigned long)cmd->getkeys_proc;
+                    sds cmdname = cp->rediscmd->name;
+                    if (cp->module == module) {
+                        addReplyBulkCBuffer(c,cmdname,sdslen(cmdname));
+                        cmds++;
+                    }
+                }
+            }
+            setDeferredMultiBulkLength(c,mbcount,cmds);
+            dictReleaseIterator(di);
+        } else {
+            addReply(c,shared.syntaxerr);
         }
-        dictReleaseIterator(di);
     } else {
         addReply(c,shared.syntaxerr);
     }
