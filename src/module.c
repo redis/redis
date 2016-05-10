@@ -368,7 +368,7 @@ int commandFlagsFromString(char *s) {
  *
  * The command function type is the following:
  *
- *  int MyCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+ *      int MyCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
  *
  * And is supposed to always return REDISMODULE_OK.
  *
@@ -451,7 +451,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     return REDISMODULE_OK;
 }
 
-/* Called by RM_Init() to setup the ctx->module structure.
+/* Called by RM_Init() to setup the `ctx->module` structure.
  *
  * This is an internal function, Redis modules developers don't need
  * to use it. */
@@ -578,7 +578,7 @@ const char *RM_StringPtrLen(RedisModuleString *str, size_t *len) {
     return str->ptr;
 }
 
-/* Convert the string into a long long integer, storing it at *ll.
+/* Convert the string into a long long integer, storing it at `*ll`.
  * Returns REDISMODULE_OK on success. If the string can't be parsed
  * as a valid, strict long long (no spaces before/after), REDISMODULE_ERR
  * is returned. */
@@ -587,7 +587,7 @@ int RM_StringToLongLong(RedisModuleString *str, long long *ll) {
                                                      REDISMODULE_ERR;
 }
 
-/* Convert the string into a double, storing it at *d.
+/* Convert the string into a double, storing it at `*d`.
  * Returns REDISMODULE_OK on success or REDISMODULE_ERR if the string is
  * not a valid string representation of a double value. */
 int RM_StringToDouble(RedisModuleString *str, double *d) {
@@ -665,7 +665,7 @@ int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
 }
 
 /* Reply with an array type of 'len' elements. However 'len' other calls
- * to ReplyWith* style functions must follow in order to emit the elements
+ * to `ReplyWith*` style functions must follow in order to emit the elements
  * of the array.
  *
  * When producing arrays with a number of element that is not known beforehand
@@ -1219,9 +1219,9 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
  * On success the function returns REDISMODULE_OK. On the following errors
  * REDISMODULE_ERR is returned:
  *
- * - The key was not opened for writing.
- * - The key is of the wrong type.
- * - 'score' double value is not a number (NaN).
+ * * The key was not opened for writing.
+ * * The key is of the wrong type.
+ * * 'score' double value is not a number (NaN).
  */
 int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *flagsptr) {
     int flags = 0;
@@ -1274,8 +1274,8 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
  * The function returns REDISMODULE_OK on success, and REDISMODULE_ERR
  * on one of the following conditions:
  *
- * - The key was not opened for writing.
- * - The key is of the wrong type.
+ * * The key was not opened for writing.
+ * * The key is of the wrong type.
  *
  * The return value does NOT indicate the fact the element was really
  * removed (since it existed) or not, just if the function was executed
@@ -1303,9 +1303,9 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
  * 'ele' and returns REDISMODULE_OK. Otherwise REDISMODULE_ERR is returned
  * to signal one of the following conditions:
  *
- * - There is no such element 'ele' in the sorted set.
- * - The key is not a sorted set.
- * - The key is an open empty key.
+ * * There is no such element 'ele' in the sorted set.
+ * * The key is not a sorted set.
+ * * The key is an open empty key.
  */
 int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
     if (key->value == NULL) return REDISMODULE_ERR;
@@ -1663,8 +1663,8 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * In the following case the return value is always zero:
  *
- * - The key was not open for writing.
- * - The key was associated with a non Hash value.
+ * * The key was not open for writing.
+ * * The key was associated with a non Hash value.
  */
 int RM_HashSet(RedisModuleKey *key, int flags, ...) {
     va_list ap;
@@ -1731,8 +1731,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * This is an example usage:
  *
- *  RedisModuleString *first, *second;
- *  RedisModule_HashGet(mykey,REDISMODULE_HASH_NONE,argv[1],&first,
+ *      RedisModuleString *first, *second;
+ *      RedisModule_HashGet(mykey,REDISMODULE_HASH_NONE,argv[1],&first,
  *                      argv[2],&second,NULL);
  *
  * As with RedisModule_HashSet() the behavior of the command can be specified
@@ -1747,13 +1747,13 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * Example of REDISMODULE_HASH_CFIELD:
  *
- *  RedisModuleString *username, *hashedpass;
- *  RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass, NULL);
+ *      RedisModuleString *username, *hashedpass;
+ *      RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass, NULL);
  *
  * Example of REDISMODULE_HASH_EXISTS:
  *
- *  int exists;
- *  RedisModule_HashGet(mykey,argv[1],&exists,NULL);
+ *      int exists;
+ *      RedisModule_HashGet(mykey,argv[1],&exists,NULL);
  *
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
  * the key is not an hash value.

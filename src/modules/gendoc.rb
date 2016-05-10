@@ -6,6 +6,11 @@ def markdown(s)
     s = s.gsub(/\*\/$/,"")
     s = s.gsub(/^ \* {0,1}/,"")
     s = s.gsub(/^\/\* /,"")
+    if s[0] != ' '
+        s = s.gsub(/RM_[A-z()]+/){|x| "`#{x}`"}
+        s = s.gsub(/RedisModule_[A-z()]+/){|x| "`#{x}`"}
+        s = s.gsub(/REDISMODULE_[A-z]+/){|x| "`#{x}`"}
+    end
     s.chop! while s[-1] == "\n" || s[-1] == " "
     return s
 end
@@ -15,7 +20,7 @@ end
 def docufy(src,i)
     m = /RM_[A-z0-9]+/.match(src[i])
     proto = src[i].sub("{","").strip+";\n"
-    puts "## #{m[0]}\n\n"
+    puts "## `#{m[0]}`\n\n"
     puts "    #{proto}\n"
     comment = ""
     while true
