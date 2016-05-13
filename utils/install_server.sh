@@ -42,6 +42,7 @@ SCRIPTPATH=$(dirname $SCRIPT)
 
 #Initial defaults
 _REDIS_PORT=6379
+_MANUAL_EXECUTION=false
 
 echo "Welcome to the redis service installer"
 echo "This script will help you easily set up a running redis server"
@@ -53,47 +54,61 @@ if [ "$(id -u)" -ne 0 ] ; then
 	exit 1
 fi
 
-#Read the redis port
-read  -p "Please select the redis port for this instance: [$_REDIS_PORT] " REDIS_PORT
 if ! echo $REDIS_PORT | egrep -q '^[0-9]+$' ; then
-	echo "Selecting default: $_REDIS_PORT"
-	REDIS_PORT=$_REDIS_PORT
+	_MANUAL_EXECUTION=true
+	#Read the redis port
+	read  -p "Please select the redis port for this instance: [$_REDIS_PORT] " REDIS_PORT
+	if ! echo $REDIS_PORT | egrep -q '^[0-9]+$' ; then
+		echo "Selecting default: $_REDIS_PORT"
+		REDIS_PORT=$_REDIS_PORT
+	fi
 fi
 
-#read the redis config file
-_REDIS_CONFIG_FILE="/etc/redis/$REDIS_PORT.conf"
-read -p "Please select the redis config file name [$_REDIS_CONFIG_FILE] " REDIS_CONFIG_FILE
 if [ -z "$REDIS_CONFIG_FILE" ] ; then
-	REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
-	echo "Selected default - $REDIS_CONFIG_FILE"
+	_MANUAL_EXECUTION=true
+	#read the redis config file
+	_REDIS_CONFIG_FILE="/etc/redis/$REDIS_PORT.conf"
+	read -p "Please select the redis config file name [$_REDIS_CONFIG_FILE] " REDIS_CONFIG_FILE
+	if [ -z "$REDIS_CONFIG_FILE" ] ; then
+		REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
+		echo "Selected default - $REDIS_CONFIG_FILE"
+	fi
 fi
 
-#read the redis log file path
-_REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
-read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
 if [ -z "$REDIS_LOG_FILE" ] ; then
-	REDIS_LOG_FILE=$_REDIS_LOG_FILE
-	echo "Selected default - $REDIS_LOG_FILE"
+	_MANUAL_EXECUTION=true
+	#read the redis log file path
+	_REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
+	read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
+	if [ -z "$REDIS_LOG_FILE" ] ; then
+		REDIS_LOG_FILE=$_REDIS_LOG_FILE
+		echo "Selected default - $REDIS_LOG_FILE"
+	fi
 fi
 
-
-#get the redis data directory
-_REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
-read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
 if [ -z "$REDIS_DATA_DIR" ] ; then
-	REDIS_DATA_DIR=$_REDIS_DATA_DIR
-	echo "Selected default - $REDIS_DATA_DIR"
+	_MANUAL_EXECUTION=true
+	#get the redis data directory
+	_REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
+	read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
+	if [ -z "$REDIS_DATA_DIR" ] ; then
+		REDIS_DATA_DIR=$_REDIS_DATA_DIR
+		echo "Selected default - $REDIS_DATA_DIR"
+	fi
 fi
 
-#get the redis executable path
-_REDIS_EXECUTABLE=`command -v redis-server`
-read -p "Please select the redis executable path [$_REDIS_EXECUTABLE] " REDIS_EXECUTABLE
 if [ ! -x "$REDIS_EXECUTABLE" ] ; then
-	REDIS_EXECUTABLE=$_REDIS_EXECUTABLE
-
+	_MANUAL_EXECUTION=true
+	#get the redis executable path
+	_REDIS_EXECUTABLE=`command -v redis-server`
+	read -p "Please select the redis executable path [$_REDIS_EXECUTABLE] " REDIS_EXECUTABLE
 	if [ ! -x "$REDIS_EXECUTABLE" ] ; then
-		echo "Mmmmm...  it seems like you don't have a redis executable. Did you run make install yet?"
-		exit 1
+		REDIS_EXECUTABLE=$_REDIS_EXECUTABLE
+
+		if [ ! -x "$REDIS_EXECUTABLE" ] ; then
+			echo "Mmmmm...  it seems like you don't have a redis executable. Did you run make install yet?"
+			exit 1
+		fi
 	fi
 fi
 
@@ -112,7 +127,9 @@ echo "Data dir       : $REDIS_DATA_DIR"
 echo "Executable     : $REDIS_EXECUTABLE"
 echo "Cli Executable : $CLI_EXEC"
 
-read -p "Is this ok? Then press ENTER to go on or Ctrl-C to abort." _UNUSED_
+if $_MANUAL_EXECUTION == true ; then
+	read -p "Is this ok? Then press ENTER to go on or Ctrl-C to abort." _UNUSED_
+fi
 
 mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config directory"
 mkdir -p `dirname "$REDIS_LOG_FILE"` || die "Could not create redis log dir"
