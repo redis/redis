@@ -562,7 +562,7 @@ typedef struct redisClient {
                                        copying this slave output buffer
                                        should use. */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
-    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    int slave_listening_port; /* As configured with: REPLCONF listening-port */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if REDIS_BLOCKED. */
