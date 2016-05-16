@@ -632,4 +632,37 @@ start_server {tags {"basic"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+
+    test "SET other type" {
+        r lpush listkey val
+        r sadd setkey val
+        r zadd zsetkey 0 val
+        r hset hashkey key val
+        assert_error "ERR*wrong kind*" {r set listkey val}
+        assert_error "ERR*wrong kind*" {r set setkey val}
+        assert_error "ERR*wrong kind*" {r set zsetkey val}
+        assert_error "ERR*wrong kind*" {r set hashkey val}
+    }
+
+    test "SETNX other type" {
+        r lpush listkey val
+        r sadd setkey val
+        r zadd zsetkey 0 val
+        r hset hashkey key val
+        assert_error "ERR*wrong kind*" {r setnx listkey val}
+        assert_error "ERR*wrong kind*" {r setnx setkey val}
+        assert_error "ERR*wrong kind*" {r setnx zsetkey val}
+        assert_error "ERR*wrong kind*" {r setnx hashkey val}
+    }
+
+    test "SETEX other type" {
+        r lpush listkey val
+        r sadd setkey val
+        r zadd zsetkey 0 val
+        r hset hashkey key val
+        assert_error "ERR*wrong kind*" {r setex listkey 3600 val}
+        assert_error "ERR*wrong kind*" {r setex setkey 3600 val}
+        assert_error "ERR*wrong kind*" {r setex zsetkey 3600 val}
+        assert_error "ERR*wrong kind*" {r setex hashkey 3600 val}
+    }
 }

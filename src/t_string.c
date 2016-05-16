@@ -24,7 +24,9 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
         }
     }
 
-    if (lookupKeyWrite(c->db,key) != NULL && nx) {
+    robj *o = lookupKeyWrite(c->db,key);
+    if (o != NULL && checkType(c,o,REDIS_STRING)) return;
+    if (o != NULL && nx) {
         addReply(c,shared.czero);
         return;
     }
