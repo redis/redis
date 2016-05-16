@@ -1285,6 +1285,7 @@ int rdbLoad(char *filename) {
     }
 
     startLoading(fp);
+    dictDisableResize();
     while(1) {
         robj *key, *val;
         expiretime = -1;
@@ -1402,6 +1403,13 @@ int rdbLoad(char *filename) {
     }
 
     fclose(fp);
+    dictEnableResize();
+    for (dbid = 0; dbid < server.dbnum; dbid++) {
+        redisDb *db = server.db+dbid;
+        dict *d = db->dict;
+        if (dictSize(d) > 0)
+            dictExpand(d,dictSize(d));
+    }
     stopLoading();
     return C_OK;
 
