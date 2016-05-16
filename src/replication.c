@@ -1829,7 +1829,7 @@ void replicationSendAck(void) {
  * functions. */
 
 /* This function is called by freeClient() in order to cache the master
- * client structure instead of destryoing it. freeClient() will return
+ * client structure instead of destroying it. freeClient() will return
  * ASAP after this function returns, so every action needed to avoid problems
  * with a client that is really "suspended" has to be done by this function.
  *
