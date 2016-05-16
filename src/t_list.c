@@ -259,35 +259,56 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(redisClient *c, int where) {
-    int j, addlen = 0, pushed = 0;
+    int j, k, pushed_waiting = 0, pushed_list = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
-    int may_have_waiting_clients = (lobj == NULL);
 
     if (lobj && lobj->type != REDIS_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
     }
 
-    for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
-        if (may_have_waiting_clients) {
-            if (handleClientsWaitingListPush(c,c->argv[1],c->argv[j])) {
-                addlen++;
-                continue;
+    j = 2;
+
+    /* Try pushing to waiting clients when there is no key */
+    if (!lobj) {
+        while (j < c->argc) {
+            if (handleClientsWaitingListPush(c, c->argv[1], c->argv[j])) {
+                pushed_waiting++;
+                j++;
             } else {
-                may_have_waiting_clients = 0;
+                break;
             }
         }
+    }
+
+    if (j < c->argc) {
+        /* Create list as needed */
         if (!lobj) {
             lobj = createZiplistObject();
-            dbAdd(c->db,c->argv[1],lobj);
+            dbAdd(c->db, c->argv[1], lobj);
         }
-        listTypePush(lobj,c->argv[j],where);
-        pushed++;
+
+        /* Iterate over remaining arguments */
+        for (k = 2; j < c->argc; j++, k++) {
+            c->argv[j] = tryObjectEncoding(c->argv[j]);
+            listTypePush(lobj, c->argv[j], where);
+
+            /* Overwrite old arg */
+            if (k < j) {
+                decrRefCount(c->argv[k]);
+                c->argv[k] = c->argv[j];
+            }
+
+            pushed_list++;
+        }
+
+        /* Reset argc */
+        c->argc = k;
     }
-    addReplyLongLong(c,addlen + (lobj ? listTypeLength(lobj) : 0));
-    if (pushed) signalModifiedKey(c->db,c->argv[1]);
-    server.dirty += pushed;
+
+    addReplyLongLong(c, pushed_waiting + (lobj ? listTypeLength(lobj) : 0));
+    if (pushed_list) signalModifiedKey(c->db, c->argv[1]);
+    server.dirty += pushed_list;
 }
 
 void lpushCommand(redisClient *c) {
