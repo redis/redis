@@ -35,6 +35,29 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_REPLY 2
 #define REDISMODULE_AM_FREED 3 /* Explicitly freed by user already. */
 
+/* The pool allocator block. Redis Modules can allocate memory via this special
+ * allocator that will automatically release it all once the callback returns.
+ * This means that it can only be used for ephemeral allocations. However
+ * there are two advantages for modules to use this API:
+ *
+ * 1) The memory is automatically released when the callback returns.
+ * 2) This allocator is faster for many small allocations since whole blocks
+ *    are allocated, and small pieces returned to the caller just advancing
+ *    the index of the allocation.
+ *
+ * Allocations are always rounded to the size of the void pointer in order
+ * to always return aligned memory chunks. */
+
+#define REDISMODULE_POOL_ALLOC_MIN_SIZE (1024*8)
+#define REDISMODULE_POOL_ALLOC_ALIGN (sizeof(void*))
+
+typedef struct RedisModulePoolAllocBlock {
+    uint32_t size;
+    uint32_t used;
+    struct RedisModulePoolAllocBlock *next;
+    char memory[];
+} RedisModulePoolAllocBlock;
+
 /* This structure represents the context in which Redis modules operate.
  * Most APIs module can access, get a pointer to the context, so that the API
  * implementation can hold state across calls, or remember what to free after
@@ -56,10 +79,12 @@ struct RedisModuleCtx {
     /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
     int *keys_pos;
     int keys_count;
+
+    struct RedisModulePoolAllocBlock *pa_head;
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, 0}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, 0, NULL}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -111,7 +136,7 @@ typedef struct RedisModuleCommandProxy RedisModuleCommandProxy;
 /* Reply of RM_Call() function. The function is filled in a lazy
  * way depending on the function called on the reply structure. By default
  * only the type, proto and protolen are filled. */
-struct RedisModuleCallReply {
+typedef struct RedisModuleCallReply {
     RedisModuleCtx *ctx;
     int type;       /* REDISMODULE_REPLY_... */
     int flags;      /* REDISMODULE_REPLYFLAG_...  */
@@ -126,8 +151,7 @@ struct RedisModuleCallReply {
         long long ll;    /* Reply value for integer reply. */
         struct RedisModuleCallReply *array; /* Array of sub-reply elements. */
     } val;
-};
-typedef struct RedisModuleCallReply RedisModuleCallReply;
+} RedisModuleCallReply;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -139,6 +163,64 @@ void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *key);
+
+/* --------------------------------------------------------------------------
+ * Pool allocator
+ * -------------------------------------------------------------------------- */
+
+/* Release the chain of blocks used for pool allocations. */
+void poolAllocRelease(RedisModuleCtx *ctx) {
+    RedisModulePoolAllocBlock *head = ctx->pa_head, *next;
+
+    while(head != NULL) {
+        next = head->next;
+        zfree(head);
+        head = next;
+    }
+    ctx->pa_head = NULL;
+}
+
+/* Return heap allocated memory that will be freed automatically when the
+ * module callback function returns. Mostly suitable for small allocations
+ * that are short living and must be released when the callback returns
+ * anyway. The returned memory is aligned to the architecture word size
+ * if at least word size bytes are requested, otherwise it is just
+ * aligned to the next power of two, so for example a 3 bytes request is
+ * 4 bytes aligned while a 2 bytes request is 2 bytes aligned.
+ *
+ * There is no realloc style function since when this is needed to use the
+ * pool allocator is not a good idea.
+ *
+ * The function returns NULL if `bytes` is 0. */
+void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
+    if (bytes == 0) return NULL;
+    RedisModulePoolAllocBlock *b = ctx->pa_head;
+    size_t left = b ? b->size - b->used : 0;
+
+    /* Fix alignment. */
+    if (left >= bytes) {
+        size_t alignment = REDISMODULE_POOL_ALLOC_ALIGN;
+        while (bytes < alignment && alignment/2 >= bytes) alignment /= 2;
+        if (b->used % alignment)
+            b->used += alignment - (b->used % alignment);
+        left = (b->used > b->size) ? 0 : b->size - b->used;
+    }
+
+    /* Create a new block if needed. */
+    if (left < bytes) {
+        size_t blocksize = REDISMODULE_POOL_ALLOC_MIN_SIZE;
+        if (blocksize < bytes) blocksize = bytes;
+        b = zmalloc(sizeof(*b) + blocksize);
+        b->size = blocksize;
+        b->used = 0;
+        b->next = ctx->pa_head;
+        ctx->pa_head = b;
+    }
+
+    char *retval = b->memory + b->used;
+    b->used += bytes;
+    return retval;
+}
 
 /* --------------------------------------------------------------------------
  * Helpers for modules API implementation
@@ -240,6 +322,7 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
     autoMemoryCollect(ctx);
+    poolAllocRelease(ctx);
     if (ctx->postponed_arrays) {
         zfree(ctx->postponed_arrays);
         ctx->postponed_arrays_count = 0;
@@ -2292,6 +2375,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
+    REGISTER_API(PoolAlloc);
 }
 
 /* Global initialization at Redis startup. */
