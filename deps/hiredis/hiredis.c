@@ -258,29 +258,17 @@ static char *readBytes(redisReader *r, unsigned int bytes) {
 
 /* Find pointer to \r\n. */
 static char *seekNewline(char *s, size_t len) {
-    int pos = 0;
-    int _len = len-1;
-
-    /* Position should be < len-1 because the character at "pos" should be
-     * followed by a \n. Note that strchr cannot be used because it doesn't
-     * allow to search a limited length and the buffer that is being searched
-     * might not have a trailing NULL character. */
-    while (pos < _len) {
-        while(pos < _len && s[pos] != '\r') pos++;
-        if (s[pos] != '\r') {
-            /* Not found. */
-            return NULL;
-        } else {
-            if (s[pos+1] == '\n') {
-                /* Found. */
-                return s+pos;
-            } else {
-                /* Continue searching. */
-                pos++;
-            }
-        }
-    }
-    return NULL;
+	char *end = s + len - 1;
+    if(0 == len) return NULL;
+	char *p = memchr(s, '\r', len);
+	while(p){
+		if(p == end)
+			return NULL;
+		if(*(p + 1) == '\n')
+			return p;
+		p = memchr(p + 1, '\r', len - (p - s + 1));
+	}
+	return NULL;
 }
 
 /* Read a long long value starting at *s, under the assumption that it will be
