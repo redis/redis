@@ -1373,6 +1373,8 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
     if (server.repl_state == REDIS_REPL_NONE) {
+        aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+        server.repl_transfer_s = -1;
         close(fd);
         return;
     }
