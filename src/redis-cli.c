@@ -118,6 +118,7 @@ static struct config {
     int eval_ldb_end;   /* Lua debugging session ended. */
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
+    int parse_flag;  /* 0: has not parsed user's arguments; 1:  parseOptions function has been executed and got user's arguments. */
 } config;
 
 /* User preferences. */
@@ -521,11 +522,13 @@ static int cliConnect(int force) {
         }
 
         if (context->err) {
-            fprintf(stderr,"Could not connect to Redis at ");
-            if (config.hostsocket == NULL)
-                fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,context->errstr);
-            else
-                fprintf(stderr,"%s: %s\n",config.hostsocket,context->errstr);
+            if (config.parse_flag) {
+                fprintf(stderr,"Could not connect to Redis at ");
+                if (config.hostsocket == NULL)
+                    fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,context->errstr);
+                else
+                    fprintf(stderr,"%s: %s\n",config.hostsocket,context->errstr);
+            }
             redisFree(context);
             context = NULL;
             return REDIS_ERR;
@@ -2583,6 +2586,7 @@ int main(int argc, char **argv) {
     config.eval_ldb_sync = 0;
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
+    config.parse_flag = 0;
 
     pref.hints = 1;
 
@@ -2600,6 +2604,7 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+    config.parse_flag = 1;
 
     /* Latency mode */
     if (config.latency_mode) {
