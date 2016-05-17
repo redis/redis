@@ -92,8 +92,8 @@ typedef struct quicklistEntry {
     quicklistNode *node;
     unsigned char *zi;
     unsigned char *value;
-    unsigned int sz;
     long long longval;
+    unsigned int sz;
     int offset;
 } quicklistEntry;
 
