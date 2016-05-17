@@ -247,14 +247,14 @@ that was created in a postponed way.
 For example in order to output an array like [1,[10,20,30]] we
 could write:
 
- `RedisModule_ReplyWithArray(ctx`,`REDISMODULE_POSTPONED_ARRAY_LEN`);
- `RedisModule_ReplyWithLongLong(ctx`,1);
- `RedisModule_ReplyWithArray(ctx`,`REDISMODULE_POSTPONED_ARRAY_LEN`);
- `RedisModule_ReplyWithLongLong(ctx`,10);
- `RedisModule_ReplyWithLongLong(ctx`,20);
- `RedisModule_ReplyWithLongLong(ctx`,30);
- `RedisModule_ReplySetArrayLength(ctx`,3); // Set len of 10,20,30 array.
- `RedisModule_ReplySetArrayLength(ctx`,2); // Set len of top array
+	RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+	RedisModule_ReplyWithLongLong(ctx, 1);
+	RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+	RedisModule_ReplyWithLongLong(ctx, 10);
+	RedisModule_ReplyWithLongLong(ctx, 20);
+	RedisModule_ReplyWithLongLong(ctx, 30);
+	RedisModule_ReplySetArrayLength(ctx, 3); // Set len of 10,20,30 array.
+	RedisModule_ReplySetArrayLength(ctx ,2); // Set len of top array
 
 Note that in the above example there is no reason to postpone the array
 length, since we produce a fixed number of elements, but in the practice
