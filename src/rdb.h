@@ -77,6 +77,7 @@
 #define RDB_TYPE_ZSET   3
 #define RDB_TYPE_HASH   4
 #define RDB_TYPE_ZSET_2 5 /* ZSET version 2 with doubles stored in binary. */
+#define RDB_TYPE_MODULE 6
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Object types for encoded objects. */
@@ -89,7 +90,7 @@
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 5) || (t >= 9 && t <= 14))
+#define rdbIsObjectType(t) ((t >= 0 && t <= 6) || (t >= 9 && t <= 14))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_AUX        250
@@ -99,12 +100,19 @@
 #define RDB_OPCODE_SELECTDB   254
 #define RDB_OPCODE_EOF        255
 
+/* rdbLoad...() functions flags. */
+#define RDB_LOAD_NONE   0
+#define RDB_LOAD_ENC    (1<<0)
+#define RDB_LOAD_PLAIN  (1<<1)
+#define RDB_LOAD_SDS    (1<<2)
+
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 int rdbSaveTime(rio *rdb, time_t t);
 time_t rdbLoadTime(rio *rdb);
 int rdbSaveLen(rio *rdb, uint64_t len);
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);
+int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename);
@@ -118,5 +126,10 @@ robj *rdbLoadObject(int type, rio *rdb);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
 robj *rdbLoadStringObject(rio *rdb);
+int rdbSaveStringObject(rio *rdb, robj *obj);
+ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
+void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
+int rdbSaveBinaryDoubleValue(rio *rdb, double val);
+int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
 
 #endif
