@@ -1242,6 +1242,8 @@ void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
 void copyClientOutputBuffer(client *dst, client *src);
+size_t sdsZmallocSize(sds s);
+size_t getStringObjectSdsUsedMemory(robj *o);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
