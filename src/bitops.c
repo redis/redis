@@ -476,6 +476,37 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
     return o;
 }
 
+/* Return a pointer to the string object content, and stores its length
+ * in 'len'. The user is required to pass (likely stack allocated) buffer
+ * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case
+ * the object is integer encoded in order to provide the representation
+ * without usign heap allocation.
+ *
+ * The function returns the pointer to the object array of bytes representing
+ * the string it contains, that may be a pointer to 'llbuf' or to the
+ * internal object representation. As a side effect 'len' is filled with
+ * the length of such buffer.
+ *
+ * If the source object is NULL the function is guaranteed to return NULL
+ * and set 'len' to 0. */
+unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
+    serverAssert(o->type == OBJ_STRING);
+    unsigned char *p = NULL;
+
+    /* Set the 'p' pointer to the string, that can be just a stack allocated
+     * array if our string was integer encoded. */
+    if (o && o->encoding == OBJ_ENCODING_INT) {
+        p = (unsigned char*) llbuf;
+        if (len) *len = ll2string(llbuf,LONG_STR_SIZE,(long)o->ptr);
+    } else if (o) {
+        p = (unsigned char*) o->ptr;
+        if (len) *len = sdslen(o->ptr);
+    } else {
+        if (len) *len = 0;
+    }
+    return p;
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     robj *o;
@@ -721,21 +752,12 @@ void bitcountCommand(client *c) {
     robj *o;
     long start, end, strlen;
     unsigned char *p;
-    char llbuf[32];
+    char llbuf[LONG_STR_SIZE];
 
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
-
-    /* Set the 'p' pointer to the string, that can be just a stack allocated
-     * array if our string was integer encoded. */
-    if (o->encoding == OBJ_ENCODING_INT) {
-        p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-    } else {
-        p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
-    }
+    p = getObjectReadOnlyString(o,&strlen,llbuf);
 
     /* Parse start/end range if any. */
     if (c->argc == 4) {
@@ -775,7 +797,7 @@ void bitposCommand(client *c) {
     robj *o;
     long bit, start, end, strlen;
     unsigned char *p;
-    char llbuf[32];
+    char llbuf[LONG_STR_SIZE];
     int end_given = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
@@ -795,16 +817,7 @@ void bitposCommand(client *c) {
         return;
     }
     if (checkType(c,o,OBJ_STRING)) return;
-
-    /* Set the 'p' pointer to the string, that can be just a stack allocated
-     * array if our string was integer encoded. */
-    if (o->encoding == OBJ_ENCODING_INT) {
-        p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-    } else {
-        p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
-    }
+    p = getObjectReadOnlyString(o,&strlen,llbuf);
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
@@ -1036,21 +1049,12 @@ void bitfieldCommand(client *c) {
         } else {
             /* GET */
             unsigned char buf[9];
-            size_t olen = 0;
+            long strlen;
             unsigned char *src = NULL;
-            char llbuf[32];
+            char llbuf[LONG_STR_SIZE];
 
             o = lookupKeyRead(c->db,c->argv[1]);
-
-            /* Set the 'p' pointer to the string, that can be just a stack allocated
-             * array if our string was integer encoded. */
-            if (o && o->encoding == OBJ_ENCODING_INT) {
-                src = (unsigned char*) llbuf;
-                olen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-            } else if (o) {
-                src = (unsigned char*) o->ptr;
-                olen = sdslen(o->ptr);
-            }
+            src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
@@ -1060,7 +1064,7 @@ void bitfieldCommand(client *c) {
             int i;
             size_t byte = thisop->offset >> 3;
             for (i = 0; i < 9; i++) {
-                if (src == NULL || i+byte >= olen) break;
+                if (src == NULL || i+byte >= (size_t)strlen) break;
                 buf[i] = src[i+byte];
             }
 
