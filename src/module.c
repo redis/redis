@@ -1795,10 +1795,13 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         if (flags & REDISMODULE_HASH_CFIELDS)
             low_flags |= HASH_SET_TAKE_FIELD;
         updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
-        field->ptr = NULL; /* Ownership is now of hashTypeSet() */
-
-        /* Cleanup */
-        if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
+        
+        /* If CFIELDS is active, ownership is now of hashTypeSet() */
+        if (flags & REDISMODULE_HASH_CFIELDS) {
+           field->ptr = NULL; 
+           /* Cleanup */
+           decrRefCount(field);
+        }
     }
     va_end(ap);
     moduleDelKeyIfEmpty(key);
