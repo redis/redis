@@ -1788,18 +1788,18 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             continue;
         }
 
+        int low_flags = HASH_SET_COPY;
         /* If CFIELDS is active, we can pass the ownership of the
          * SDS object to the low level function that sets the field
          * to avoid a useless copy. */
-        int low_flags = HASH_SET_COPY;
         if (flags & REDISMODULE_HASH_CFIELDS)
             low_flags |= HASH_SET_TAKE_FIELD;
         updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
-        
-        /* If CFIELDS is active, ownership is now of hashTypeSet() */
+
+        /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
+         * however we still have to release the 'field' object shell. */
         if (flags & REDISMODULE_HASH_CFIELDS) {
-           field->ptr = NULL; 
-           /* Cleanup */
+           field->ptr = NULL; /* Prevent the SDS string from being freed. */
            decrRefCount(field);
         }
     }
