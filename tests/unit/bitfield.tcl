@@ -184,4 +184,9 @@ start_server {tags {"bitops"}} {
             }
         }
     }
+
+    test {BITFIELD regression for #3221} {
+        r set bits 1
+        r bitfield bits get u1 0
+    } {0}
 }
