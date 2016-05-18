@@ -776,7 +776,7 @@ void bitposCommand(client *c) {
     long bit, start, end, strlen;
     unsigned char *p;
     char llbuf[32];
-    int end_given = 0;
+    int active_end_given = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
      * or clear bits. */
@@ -813,7 +813,8 @@ void bitposCommand(client *c) {
         if (c->argc == 5) {
             if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
                 return;
-            end_given = 1;
+            if (end < strlen)
+                active_end_given = 1;
         } else {
             end = strlen-1;
         }
@@ -847,8 +848,11 @@ void bitposCommand(client *c) {
          *
          * So if redisBitpos() returns the first bit outside the range,
          * we return -1 to the caller, to mean, in the specified range there
-         * is not a single "0" bit. */
-        if (end_given && bit == 0 && pos == bytes*8) {
+         * is not a single "0" bit.
+         *
+         * However, if the end argument given is past the end of the string,
+         * we should consider the end of the string to be zero padded. */
+        if (active_end_given && bit == 0 && pos == bytes*8) {
             addReplyLongLong(c,-1);
             return;
         }

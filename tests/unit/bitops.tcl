@@ -307,6 +307,11 @@ start_server {tags {"bitops"}} {
         assert {[r bitpos str 0 0 -1] == -1}
     }
 
+    test {BITPOS bit=0 assumes zero padding if end is beyond string length} {
+        r set str "\xff\xff\xff"
+        r bitpos str 0 0 3
+    } {24}
+
     test {BITPOS bit=1 fuzzy testing using SETBIT} {
         r del str
         set max 524288; # 64k
