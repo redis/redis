@@ -52,8 +52,12 @@ typedef struct dictEntry {
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;
 } dictEntry;
+
+typedef struct dictEntrySlot {
+    unsigned long numentries;
+    dictEntry *entries;
+} dictEntrySlot;
 
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
@@ -67,7 +71,7 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;
+    dictEntrySlot **table;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
