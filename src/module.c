@@ -580,7 +580,7 @@ void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
     if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return;
 
     int j;
-    for (j = 0; j < ctx->amqueue_used; j++) {
+    for (j = ctx->amqueue_used - 1; j >= 0; j--) {
         if (ctx->amqueue[j].type == type &&
             ctx->amqueue[j].ptr == ptr)
         {
@@ -588,6 +588,9 @@ void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
             /* Optimization: if this is the last element, we can
              * reuse it. */
             if (j == ctx->amqueue_used-1) ctx->amqueue_used--;
+
+            break;
+
         }
     }
 }
