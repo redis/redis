@@ -314,6 +314,7 @@ void debugCommand(client *c) {
 "OBJECT <key> -- Show low level info about key and associated value.",
 "PANIC -- Crash the server simulating a panic.",
 "POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
+"LOAD -- load the persistent file to memory (without flashing).",
 "RELOAD -- Save the RDB on disk and reload it back in memory.",
 "RESTART -- Graceful restart: save config, db, restart.",
 "SDSLEN <key> -- Show low level SDS string info representing key and value.",
@@ -352,6 +353,10 @@ NULL
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"load")) {
+        loadDataFromDisk();
+        serverLog(LL_WARNING,"DB loaded by DEBUG LOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
         rdbSaveInfo rsi, *rsiptr;
