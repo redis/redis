@@ -355,6 +355,7 @@ NULL
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"load")) {
+        emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
         loadDataFromDisk();
         serverLog(LL_WARNING,"DB loaded by DEBUG LOAD");
         addReply(c,shared.ok);
