@@ -682,7 +682,7 @@ void loadServerConfig(char *filename, char *options) {
 
 #define config_set_numerical_field(_name,_var,min,max) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) goto badfmt; \
+        if (getLongLongFromObject(o,&ll) == C_ERR) goto badfmt; \
         if (min != LLONG_MIN && ll < min) goto badfmt; \
         if (max != LLONG_MAX && ll > max) goto badfmt; \
         _var = ll;
@@ -902,9 +902,9 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LLONG_MAX) {
     } config_set_numerical_field(
-      "list-max-ziplist-size",server.list_max_ziplist_size,0,LLONG_MAX) {
+      "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
     } config_set_numerical_field(
-      "list-compress-depth",server.list_compress_depth,0,LLONG_MAX) {
+      "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
     } config_set_numerical_field(
       "set-max-intset-entries",server.set_max_intset_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
