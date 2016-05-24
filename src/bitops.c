@@ -906,6 +906,8 @@ void bitfieldCommand(client *c) {
     int j, numops = 0, changes = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
+    int readonly = 1;
+    long highestWriteOffset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -953,8 +955,10 @@ void bitfieldCommand(client *c) {
             return;
         }
 
-        /* INCRBY and SET require another argument. */
         if (opcode != BITFIELDOP_GET) {
+            readonly = 0;
+            highestWriteOffset = bitoffset + bits - 1;
+            /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
                 return;
@@ -974,6 +978,18 @@ void bitfieldCommand(client *c) {
         j += 3 - (opcode == BITFIELDOP_GET);
     }
 
+    if (readonly) {
+        /* Lookup for read is ok if key doesn't exit, but errors 
+         * if it's not a string*/
+        o = lookupKeyRead(c->db,c->argv[1]);
+        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    } else {
+        /* Lookup by making room up to the farest bit reached by
+         * this operation. */
+        if ((o = lookupStringForBitCommand(c,
+            highestWriteOffset)) == NULL) return;
+    }
+
     addReplyMultiBulkLen(c,numops);
 
     /* Actually process the operations. */
@@ -987,11 +1003,6 @@ void bitfieldCommand(client *c) {
             /* SET and INCRBY: We handle both with the same code path
              * for simplicity. SET return value is the previous value so
              * we need fetch & store as well. */
-
-            /* Lookup by making room up to the farest bit reached by
-             * this operation. */
-            if ((o = lookupStringForBitCommand(c,
-                thisop->offset + (thisop->bits-1))) == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
@@ -1064,10 +1075,8 @@ void bitfieldCommand(client *c) {
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
 
-            if ((o = lookupKeyRead(c->db,c->argv[1])) != NULL) {
-                if (checkType(c,o,OBJ_STRING)) continue;
+            if (o != NULL)
                 src = getObjectReadOnlyString(o,&strlen,llbuf);
-            }
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
