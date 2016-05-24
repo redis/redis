@@ -1060,12 +1060,14 @@ void bitfieldCommand(client *c) {
         } else {
             /* GET */
             unsigned char buf[9];
-            long strlen;
+            long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
 
-            o = lookupKeyRead(c->db,c->argv[1]);
-            src = getObjectReadOnlyString(o,&strlen,llbuf);
+            if ((o = lookupKeyRead(c->db,c->argv[1])) != NULL) {
+                if (checkType(c,o,OBJ_STRING)) continue;
+                src = getObjectReadOnlyString(o,&strlen,llbuf);
+            }
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
