@@ -1135,7 +1135,44 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+        
+        
+    } else if (rdbtype == RDB_TYPE_ISET) {
+         /* Read list/set value */
+         
+         size_t isetlen;
+         avl * tree;
+         size_t maxelelen = 0;
+         
+         if ((isetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+         o = createIsetObject();
+         tree = o->ptr;
+         
+         /* Load every single element of the list/set */
+         while(isetlen--) {
+             robj *ele;
+             double score1;
+             double score2;
+             
+             avlNode *inode;
+             
+             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+             ele = tryObjectEncoding(ele);
+             if (rdbLoadDoubleValue(rdb,&score1) == -1) return NULL;
+             if (rdbLoadDoubleValue(rdb,&score2) == -1) return NULL;
+             
+             /* Don't care about integer-encoded strings. */
+             if (ele->encoding == RDB_LOAD_PLAIN &&
+                 sdslen(ele->ptr) > maxelelen)
+                 maxelelen = sdslen(ele->ptr);
+             
+             inode = avlInsert(tree, score1, score2, ele);
+             dictAdd(tree->dict,ele,&inode->scores);
+             incrRefCount(ele); /* Added to dictionary. */
+       }
+        
+    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {                                                                                                                                                                                                                                                                                                                                                                                                                                  } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
@@ -1220,6 +1257,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 break;
         }
     } else {
+        serverLog(LL_WARNING,"Unknown object type %d",rdbtype);
         rdbExitReportCorruptRDB("Unknown object type");
     }
     return o;
