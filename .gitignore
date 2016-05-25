@@ -27,4 +27,3 @@ deps/lua/src/liblua.a
 .make-*
 .prerequisites
 *.dSYM
-redis.conf
