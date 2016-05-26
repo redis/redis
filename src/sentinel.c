@@ -3996,7 +3996,7 @@ void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
     /* We can't send the command to the promoted slave if it is now
      * disconnected. Retry again and again with this state until the timeout
      * is reached, then abort the failover. */
-    if (ri->link->disconnected) {
+    if (ri->promoted_slave->link->disconnected) {
         if (mstime() - ri->failover_state_change_time > ri->failover_timeout) {
             sentinelEvent(LL_WARNING,"-failover-abort-slave-timeout",ri,"%@");
             sentinelAbortFailover(ri);
