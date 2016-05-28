@@ -134,6 +134,16 @@ const char *evictPolicyToString(void) {
  * Config file parsing
  *----------------------------------------------------------------------------*/
 
+#define config_file_memory_field(_name,_var,_err) \
+    else if (!strcasecmp(argv[0],_name) && argc == 2) { \
+        int error; \
+        long long ll = memtoll(argv[1],&error); \
+        if (error || ll < 0) { \
+            err = _err; \
+            goto loaderr; \
+        } \
+        _var = ll;
+
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -293,8 +303,7 @@ void loadServerConfigFromString(char *config) {
             if (server.maxclients < 1) {
                 err = "Invalid max clients limit"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
-            server.maxmemory = memtoll(argv[1],NULL);
+        } config_file_memory_field("maxmemory",server.maxmemory,"Invalid maxmemory")
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
             server.maxmemory_policy =
                 configEnumGetValue(maxmemory_policy_enum,argv[1]);
@@ -432,10 +441,8 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid negative percentage for AOF auto rewrite";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
-                   argc == 2)
-        {
-            server.aof_rewrite_min_size = memtoll(argv[1],NULL);
+
+        } config_file_memory_field("auto-aof-rewrite-min-size",server.aof_rewrite_min_size,"Invalid auto aof rewrite min size")
         } else if (!strcasecmp(argv[0],"aof-rewrite-incremental-fsync") &&
                    argc == 2)
         {
@@ -463,10 +470,8 @@ void loadServerConfigFromString(char *config) {
             }
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
-            server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
-            server.hash_max_ziplist_value = memtoll(argv[1], NULL);
+        } config_file_memory_field("hash-max-ziplist-entries",server.hash_max_ziplist_entries,"Invalid hash max ziplist entries")
+        } config_file_memory_field("hash-max-ziplist-value",server.hash_max_ziplist_value,"Invalid hash max ziplist value")
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -475,14 +480,10 @@ void loadServerConfigFromString(char *config) {
             server.list_max_ziplist_size = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"list-compress-depth") && argc == 2) {
             server.list_compress_depth = atoi(argv[1]);
-        } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
-            server.set_max_intset_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
-            server.zset_max_ziplist_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"zset-max-ziplist-value") && argc == 2) {
-            server.zset_max_ziplist_value = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"hll-sparse-max-bytes") && argc == 2) {
-            server.hll_sparse_max_bytes = memtoll(argv[1], NULL);
+        } config_file_memory_field("set-max-intset-entries",server.set_max_intset_entries,"Invalid set max intset entries")
+        } config_file_memory_field("zset-max-ziplist-entries",server.zset_max_ziplist_entries,"Invalid zset max ziplist entries")
+        } config_file_memory_field("zset-max-ziplist-value",server.zset_max_ziplist_value,"Invalid zset max ziplist value")
+        } config_file_memory_field("hll-sparse-max-bytes",server.hll_sparse_max_bytes,"Invalid hll sparse max bytes")
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommand(argv[1]);
             int retval;
@@ -583,13 +584,22 @@ void loadServerConfigFromString(char *config) {
             int class = getClientTypeByName(argv[1]);
             unsigned long long hard, soft;
             int soft_seconds;
+            int error;
 
             if (class == -1) {
                 err = "Unrecognized client limit class";
                 goto loaderr;
             }
-            hard = memtoll(argv[2],NULL);
-            soft = memtoll(argv[3],NULL);
+            hard = memtoll(argv[2],&error);
+            if (error) {
+                err = "Invalid hard limit";
+                goto loaderr;
+            }
+            soft = memtoll(argv[3],&error);
+            if (error) {
+                err = "Invalid soft limit";
+                goto loaderr;
+            }
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
                 err = "Negative number of seconds in soft limit is invalid";
