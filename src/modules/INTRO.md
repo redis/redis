@@ -162,7 +162,7 @@ There are a few functions in order to work with string objects:
 
     const char *RedisModule_StringPtrLen(RedisModuleString *string, size_t *len);
 
-The above function accesses a string by returning its pointer and setting its 
+The above function accesses a string by returning its pointer and setting its
 length in `len`.
 You should never write to a string object pointer, as you can see from the
 `const` pointer qualifier.
@@ -344,7 +344,7 @@ section).
 
 # Releasing call reply objects
 
-Reply objects must be freed using `RedisModule_FreeCallRelpy`. For arrays,
+Reply objects must be freed using `RedisModule_FreeCallReply`. For arrays,
 you need to free only the top level reply, not the nested replies.
 Currently the module implementation provides a protection in order to avoid
 crashing if you free a nested reply object for error, however this feature
@@ -623,7 +623,7 @@ access) for speed. The API will return a pointer and a length, so that's
 possible to access and, if needed, modify the string directly.
 
     size_t len, j;
-    char *myptr = RedisModule_StringDMA(key,REDISMODULE_WRITE,&len);
+    char *myptr = RedisModule_StringDMA(key,&len,REDISMODULE_WRITE);
     for (j = 0; j < len; j++) myptr[j] = 'A';
 
 In the above example we write directly on the string. Note that if you want
@@ -783,4 +783,3 @@ Documentation missing, please check the following functions inside `module.c`:
 
     RedisModule_IsKeysPositionRequest(ctx);
     RedisModule_KeyAtPos(ctx,pos);
-
