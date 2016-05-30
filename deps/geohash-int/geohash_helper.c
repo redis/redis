@@ -72,7 +72,7 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 
     /* Frame to valid range. */
     if (step < 1) step = 1;
-    if (step > 26) step = 25;
+    if (step > 26) step = 26;
     return step;
 }
 
