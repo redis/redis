@@ -89,6 +89,8 @@ int geohashBoundingBox(double longitude, double latitude, double radius_meters,
     lonr = deg_rad(longitude);
     latr = deg_rad(latitude);
 
+    if (radius_meters > EARTH_RADIUS_IN_METERS)
+        radius_meters = EARTH_RADIUS_IN_METERS;
     double distance = radius_meters / EARTH_RADIUS_IN_METERS;
     double min_latitude = latr - distance;
     double max_latitude = latr + distance;
