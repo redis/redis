@@ -215,12 +215,7 @@ void setUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, uint6
 }
 
 void setSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, int64_t value) {
-    uint64_t uv;
-
-    if (value >= 0)
-        uv = value;
-    else
-        uv = UINT64_MAX + value + 1;
+    uint64_t uv = value; /* Casting will add UINT64_MAX + 1 if v is negative. */
     setUnsignedBitfield(p,offset,bits,uv);
 }
 
@@ -239,9 +234,21 @@ uint64_t getUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
 }
 
 int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
-    int64_t value = getUnsignedBitfield(p,offset,bits);
+    int64_t value;
+    union {uint64_t u; int64_t i;} conv;
+
+    /* Converting from unsigned to signed is undefined when the value does
+     * not fit, however here we assume two's complement and the original value
+     * was obtained from signed -> unsigned conversion, so we'll find the
+     * most significant bit set if the original value was negative.
+     *
+     * Note that two's complement is mandatory for exact-width types
+     * according to the C99 standard. */
+    conv.u = getUnsignedBitfield(p,offset,bits);
+    value = conv.i;
+
     /* If the top significant bit is 1, propagate it to all the
-     * higher bits for two complement representation of signed
+     * higher bits for two's complement representation of signed
      * integers. */
     if (value & ((uint64_t)1 << (bits-1)))
         value |= ((uint64_t)-1) << bits;
