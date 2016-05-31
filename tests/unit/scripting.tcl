@@ -142,7 +142,7 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run certain commands} {
         set e {}
-        catch {r eval {return redis.pcall('spop','x')} 0} e
+        catch {r eval {return redis.pcall('blpop','x',0)} 0} e
         set e
     } {*not allowed*}
 
