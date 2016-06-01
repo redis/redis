@@ -38,16 +38,17 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define RDB_VERSION 7
+#define RDB_VERSION 8
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
  *
- * 00|000000 => if the two MSB are 00 the len is the 6 bits of this byte
- * 01|000000 00000000 =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
- * 10|000000 [32 bit integer] => if it's 01, a full 32 bit len will follow
- * 11|000000 this means: specially encoded object will follow. The six bits
+ * 00|XXXXXX => if the two MSB are 00 the len is the 6 bits of this byte
+ * 01|XXXXXX XXXXXXXX =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
+ * 10|000000 [32 bit integer] => A full 32 bit len in net byte order will follow
+ * 10|000001 [64 bit integer] => A full 64 bit len in net byte order will follow
+ * 11|OBKIND this means: specially encoded object will follow. The six bits
  *           number specify the kind of object that follows.
  *           See the RDB_ENC_* defines.
  *
@@ -55,12 +56,13 @@
  * values, will fit inside. */
 #define RDB_6BITLEN 0
 #define RDB_14BITLEN 1
-#define RDB_32BITLEN 2
+#define RDB_32BITLEN 0x80
+#define RDB_64BITLEN 0x81
 #define RDB_ENCVAL 3
 #define RDB_LENERR UINT_MAX
 
 /* When a length of a string object stored on disk has the first two bits
- * set, the remaining two bits specify a special encoding for the object
+ * set, the remaining six bits specify a special encoding for the object
  * accordingly to the following defines: */
 #define RDB_ENC_INT8 0        /* 8 bit signed integer */
 #define RDB_ENC_INT16 1       /* 16 bit signed integer */
@@ -100,8 +102,8 @@ int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 int rdbSaveTime(rio *rdb, time_t t);
 time_t rdbLoadTime(rio *rdb);
-int rdbSaveLen(rio *rdb, uint32_t len);
-uint32_t rdbLoadLen(rio *rdb, int *isencoded);
+int rdbSaveLen(rio *rdb, uint64_t len);
+uint64_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename);

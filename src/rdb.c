@@ -95,7 +95,7 @@ long long rdbLoadMillisecondTime(rio *rdb) {
 /* Saves an encoded length. The first two bits in the first byte are used to
  * hold the encoding type. See the RDB_* definitions for more information
  * on the types of encoding. */
-int rdbSaveLen(rio *rdb, uint32_t len) {
+int rdbSaveLen(rio *rdb, uint64_t len) {
     unsigned char buf[2];
     size_t nwritten;
 
@@ -110,13 +110,20 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
         buf[1] = len&0xFF;
         if (rdbWriteRaw(rdb,buf,2) == -1) return -1;
         nwritten = 2;
-    } else {
+    } else if (len <= UINT32_MAX) {
         /* Save a 32 bit len */
-        buf[0] = (RDB_32BITLEN<<6);
+        buf[0] = RDB_32BITLEN;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
-        len = htonl(len);
-        if (rdbWriteRaw(rdb,&len,4) == -1) return -1;
+        uint32_t len32 = htonl(len);
+        if (rdbWriteRaw(rdb,&len32,4) == -1) return -1;
         nwritten = 1+4;
+    } else {
+        /* Save a 64 bit len */
+        buf[0] = RDB_64BITLEN;
+        if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+        len = htonu64(len);
+        if (rdbWriteRaw(rdb,&len,8) == -1) return -1;
+        nwritten = 1+8;
     }
     return nwritten;
 }
@@ -124,9 +131,8 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
 /* Load an encoded length. The "isencoded" argument is set to 1 if the length
  * is not actually a length but an "encoding type". See the RDB_ENC_*
  * definitions in rdb.h for more information. */
-uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
+uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
     unsigned char buf[2];
-    uint32_t len;
     int type;
 
     if (isencoded) *isencoded = 0;
@@ -143,10 +149,19 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
         /* Read a 14 bit len. */
         if (rioRead(rdb,buf+1,1) == 0) return RDB_LENERR;
         return ((buf[0]&0x3F)<<8)|buf[1];
-    } else {
+    } else if (buf[0] == RDB_32BITLEN) {
         /* Read a 32 bit len. */
+        uint32_t len;
         if (rioRead(rdb,&len,4) == 0) return RDB_LENERR;
         return ntohl(len);
+    } else if (buf[0] == RDB_64BITLEN) {
+        /* Read a 64 bit len. */
+        uint64_t len;
+        if (rioRead(rdb,&len,8) == 0) return RDB_LENERR;
+        return ntohu64(len);
+    } else {
+        rdbExitReportCorruptRDB("Unknown length encoding in rdbLoadLen()");
+        return 0; /* Never reached. */
     }
 }
 
