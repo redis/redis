@@ -520,6 +520,22 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     }
 }
 
+/* Saves a double for RDB 8 or greater, where IE754 binary64 format is assumed.
+ * We just make sure the integer is always stored in little endian, otherwise
+ * the value is copied verbatim from memory to disk. */
+int rdbSaveBinaryDoubleValue(rio *rdb, double val) {
+    memrev64ifbe(&val);
+    return rdbWriteRaw(rdb,&val,8);
+}
+
+/* Loads a double from RDB 8 or greater. See rdbSaveBinaryDoubleValue() for
+ * more info. */
+int rdbLoadBinaryDoubleValue(rio *rdb, double *val) {
+    if (rioRead(rdb,val,8) == 0) return -1;
+    memrev64ifbe(val);
+    return 0;
+}
+
 /* Save the object type of object "o". */
 int rdbSaveObjectType(rio *rdb, robj *o) {
     switch (o->type) {
@@ -541,7 +557,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         if (o->encoding == OBJ_ENCODING_ZIPLIST)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_ZIPLIST);
         else if (o->encoding == OBJ_ENCODING_SKIPLIST)
-            return rdbSaveType(rdb,RDB_TYPE_ZSET);
+            return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
     case OBJ_HASH:
@@ -644,7 +660,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1) return -1;
                 nwritten += n;
-                if ((n = rdbSaveDoubleValue(rdb,*score)) == -1) return -1;
+                if ((n = rdbSaveBinaryDoubleValue(rdb,*score)) == -1) return -1;
                 nwritten += n;
             }
             dictReleaseIterator(di);
@@ -1041,7 +1057,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 sdsfree(sdsele);
             }
         }
-    } else if (rdbtype == RDB_TYPE_ZSET) {
+    } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read list/set value. */
         size_t zsetlen;
         size_t maxelelen = 0;
@@ -1059,7 +1075,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS)) == NULL)
                 return NULL;
-            if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
+
+            if (rdbtype == RDB_TYPE_ZSET_2) {
+                if (rdbLoadBinaryDoubleValue(rdb,&score) == -1) return NULL;
+            } else {
+                if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
+            }
 
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
