@@ -128,41 +128,60 @@ int rdbSaveLen(rio *rdb, uint64_t len) {
     return nwritten;
 }
 
-/* Load an encoded length. The "isencoded" argument is set to 1 if the length
- * is not actually a length but an "encoding type". See the RDB_ENC_*
- * definitions in rdb.h for more information. */
-uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
+
+/* Load an encoded length. If the loaded length is a normal length as stored
+ * with rdbSaveLen(), the read length is set to '*lenptr'. If instead the
+ * loaded length describes a special encoding that follows, then '*isencoded'
+ * is set to 1 and the encoding format is stored at '*lenptr'.
+ *
+ * See the RDB_ENC_* definitions in rdb.h for more information on special
+ * encodings.
+ *
+ * The function returns -1 on error, 0 on success. */
+int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
     unsigned char buf[2];
     int type;
 
     if (isencoded) *isencoded = 0;
-    if (rioRead(rdb,buf,1) == 0) return RDB_LENERR;
+    if (rioRead(rdb,buf,1) == 0) return -1;
     type = (buf[0]&0xC0)>>6;
     if (type == RDB_ENCVAL) {
         /* Read a 6 bit encoding type. */
         if (isencoded) *isencoded = 1;
-        return buf[0]&0x3F;
+        *lenptr = buf[0]&0x3F;
     } else if (type == RDB_6BITLEN) {
         /* Read a 6 bit len. */
-        return buf[0]&0x3F;
+        *lenptr = buf[0]&0x3F;
     } else if (type == RDB_14BITLEN) {
         /* Read a 14 bit len. */
-        if (rioRead(rdb,buf+1,1) == 0) return RDB_LENERR;
-        return ((buf[0]&0x3F)<<8)|buf[1];
+        if (rioRead(rdb,buf+1,1) == 0) return -1;
+        *lenptr = ((buf[0]&0x3F)<<8)|buf[1];
     } else if (buf[0] == RDB_32BITLEN) {
         /* Read a 32 bit len. */
         uint32_t len;
-        if (rioRead(rdb,&len,4) == 0) return RDB_LENERR;
-        return ntohl(len);
+        if (rioRead(rdb,&len,4) == 0) return -1;
+        *lenptr = ntohl(len);
     } else if (buf[0] == RDB_64BITLEN) {
         /* Read a 64 bit len. */
         uint64_t len;
-        if (rioRead(rdb,&len,8) == 0) return RDB_LENERR;
-        return ntohu64(len);
+        if (rioRead(rdb,&len,8) == 0) return -1;
+        *lenptr = ntohu64(len);
     } else {
         rdbExitReportCorruptRDB("Unknown length encoding in rdbLoadLen()");
-        return 0; /* Never reached. */
+        return -1; /* Never reached. */
     }
+    return 0;
+}
+
+/* This is like rdbLoadLenByRef() but directly returns the value read
+ * from the RDB stream, signaling an error by returning RDB_LENERR
+ * (since it is a too large count to be applicable in any Redis data
+ * structure). */
+uint64_t rdbLoadLen(rio *rdb, int *isencoded) {
+    uint64_t len;
+
+    if (rdbLoadLenByRef(rdb,isencoded,&len) == -1) return RDB_LENERR;
+    return len;
 }
 
 /* Encodes the "value" argument as integer when it fits in the supported ranges
@@ -299,7 +318,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 void *rdbLoadLzfStringObject(rio *rdb, int flags) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
-    unsigned int len, clen;
+    uint64_t len, clen;
     unsigned char *c = NULL;
     char *val = NULL;
 
@@ -414,7 +433,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags) {
     int plain = flags & RDB_LOAD_PLAIN;
     int sds = flags & RDB_LOAD_SDS;
     int isencoded;
-    uint32_t len;
+    uint64_t len;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -1291,7 +1310,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 }
 
 int rdbLoad(char *filename) {
-    uint32_t dbid;
+    uint64_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
@@ -1364,7 +1383,7 @@ int rdbLoad(char *filename) {
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
-            uint32_t db_size, expires_size;
+            uint64_t db_size, expires_size;
             if ((db_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if ((expires_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)

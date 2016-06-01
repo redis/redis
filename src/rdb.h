@@ -59,7 +59,7 @@
 #define RDB_32BITLEN 0x80
 #define RDB_64BITLEN 0x81
 #define RDB_ENCVAL 3
-#define RDB_LENERR UINT_MAX
+#define RDB_LENERR UINT64_MAX
 
 /* When a length of a string object stored on disk has the first two bits
  * set, the remaining six bits specify a special encoding for the object
