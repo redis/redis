@@ -1,5 +1,11 @@
-Redis Modules API reference manual
+Redis Modules: an introduction to the API
 ===
+
+The modules documentation is composed of the following files:
+
+* `INTRO.md` (this file). An overview about Redis Modules system and API. It's a good idea to start your reading here.
+* `API.md` is generated from module.c top comments of RedisMoule functions. It is a good reference in order to understand how each function works.
+* `TYPES.md` covers the implementation of native data types into modules.
 
 Redis modules make possible to extend Redis functionality using external
 modules, implementing new Redis commands at a speed and with features
@@ -776,6 +782,52 @@ function at the start of the command implementation:
 Automatic memory management is usually the way to go, however experienced
 C programmers may not use it in order to gain some speed and memory usage
 benefit.
+
+# Allocating memory into modules
+
+Normal C programs use `malloc()` and `free()` in order to allocate and
+release memory dynamically. While in Redis modules the use of malloc is
+not technically forbidden, it is a lot better to use the Redis Modules
+specific functions, that are exact replacements for `malloc`, `free`,
+`realloc` and `strdup`. These functions are:
+
+    void *RedisModule_Alloc(size_t bytes);
+    void* RedisModule_Realloc(void *ptr, size_t bytes);
+    void RedisModule_Free(void *ptr);
+    char *RedisModule_Strdup(const char *str);
+
+They work exactly like their `libc` equivalent calls, however they use
+the same allocator Redis uses, and the memory allocated using these
+functions is reported by the `INFO` command in the memory section, is
+accounted when enforcing the `maxmemory` policy, and in general is
+a first citizen of the Redis executable. On the contrar, the method
+allocated inside modules with libc `malloc()` is transparent to Redis.
+
+Another reason to use the modules functions in order to allocate memory
+is that, when creating native data types inside modules, the RDB loading
+functions can return deserialized strings (from the RDB file) directly
+as `RedisModule_Alloc()` allocations, so they can be used directly to
+populate data structures after loading, instead of having to copy them
+to the data structure.
+
+## Pool allocator
+
+Sometimes in commands implementations, it is required to perform many
+small allocations that will be not retained at the end of the command
+execution, but are just functional to execute the command itself.
+
+This work can be more easily accomplished using the Redis pool allocator:
+
+    void *RedisModule_PoolAlloc(RedisModuleCtx *ctx, size_t bytes);
+
+It works similarly to `malloc()`, and returns memory aligned to the
+next power of two of greater or equal to `bytes` (for a maximum alignment
+of 8 bytes). However it allocates memory in blocks, so it the overhead
+of the allocations is small, and more important, the memory allocated
+is automatically released when the command returns.
+
+So in general short living allocations are a good candidates for the pool
+allocator.
 
 # Writing commands compatible with Redis Cluster
 
