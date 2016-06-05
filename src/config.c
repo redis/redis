@@ -155,13 +155,13 @@ void resetServerSaveParams(void) {
 
 void queueLoadModule(sds path, sds *argv, int argc)
 {
-    struct loadmodule *loadmod = zmalloc(sizeof(struct loadmodule)+sizeof(sds)*argc);
+    struct loadmodule *loadmod = zmalloc(sizeof(struct loadmodule)+sizeof(robj*)*argc);
     int i;
 
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
-        loadmod->argv[i] = sdsnew(argv[i]);
+        loadmod->argv[i] = createStringObject(argv[i],sdslen(argv[i]));
     }
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
