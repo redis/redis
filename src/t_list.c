@@ -195,7 +195,7 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(client *c, int where) {
-    int j, waiting = 0, pushed = 0;
+    int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
     if (lobj && lobj->type != OBJ_LIST) {
@@ -214,7 +214,7 @@ void pushGenericCommand(client *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
-    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
+    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
         char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
 
