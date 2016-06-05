@@ -153,6 +153,19 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+void queueLoadModule(sds path, sds *argv, int argc)
+{
+    struct loadmodule *loadmod = zmalloc(sizeof(struct loadmodule)+sizeof(sds)*argc);
+    int i;
+
+    loadmod->path = sdsnew(path);
+    loadmod->argc = argc;
+    for (i = 0; i < argc; i++) {
+        loadmod->argv[i] = sdsnew(argv[i]);
+    }
+    listAddNodeTail(server.loadmodule_queue,loadmod);
+}
+
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -632,8 +645,8 @@ void loadServerConfigFromString(char *config) {
                     "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"loadmodule") && argc == 2) {
-            listAddNodeTail(server.loadmodule_queue,sdsnew(argv[1]));
+        } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
+            queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
