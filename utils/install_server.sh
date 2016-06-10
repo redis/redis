@@ -25,9 +25,25 @@
 #
 ################################################################################
 #
-# Interactive service installer for redis server
-# this generates a redis config file and an /etc/init.d script, and installs them
-# this scripts should be run as root
+# Service installer for redis server, runs interactively by default.
+#
+# To run this script non-interactively (for automation/provisioning purposes),
+# feed the variables into the script. Any missing variables will be prompted!
+# Tip: Environment variables also support command substitution (see REDIS_EXECUTABLE)
+#
+# Example:
+#
+# sudo REDIS_PORT=1234 \
+# 		 REDIS_CONFIG_FILE=/etc/redis/1234.conf \
+# 		 REDIS_LOG_FILE=/var/log/redis_1234.log \
+# 		 REDIS_DATA_DIR=/var/lib/redis/1234 \
+# 		 REDIS_EXECUTABLE=`command -v redis-server` ./utils/install_server.sh
+#
+# This generates a redis config file and an /etc/init.d script, and installs them.
+#
+# /!\ This script should be run as root
+#
+################################################################################
 
 die () {
 	echo "ERROR: $1. Aborting!"
