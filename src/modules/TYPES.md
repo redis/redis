@@ -143,7 +143,7 @@ are used in order to store the *encoding version* of the type, so that
 the same type can evolve in the future and provide a different and more
 efficient or updated serialization format for RDB files.
 
-So the 64 bit prefix stored after each module value is like the following:
+So the 64 bit prefix stored before each module value is like the following:
 
     6|6|6|6|6|6|6|6|6|10
 
