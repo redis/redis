@@ -736,7 +736,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
 
         /* Then write the module-specific representation. */
         mt->rdb_save(&io,mv->value);
-        return io.error ? -1 : io.bytes;
+        return io.error ? -1 : (ssize_t)io.bytes;
     } else {
         serverPanic("Unknown object type");
     }
