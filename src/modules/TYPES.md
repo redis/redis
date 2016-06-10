@@ -110,6 +110,58 @@ The remaining arguments `rdb_load`, `rdb_save`, `aof_rewrite`, `digest` and
 * `digest` is called when `DEBUG DIGEST` is executed and a key holding this module type is found. Currently this is not yet implemented so the function ca be left empty.
 * `free` is called when a key with the module native type is deleted via `DEL` or in any other mean, in order to let the module reclaim the memory associated with such a value.
 
+Ok, but *why* modules types require a 9 characters name?
+---
+
+Oh, I understand you need to understand this, so here is a very specific
+explanation.
+
+When Redis persists to RDB files, modules specific data types require to
+be persisted as well. Now RDB files are sequences of key-value pairs
+like the following:
+
+    [1 byte type] [key] [a type specific value]
+
+The 1 byte type identifies strings, lists, sets, and so forth. In the case
+of modules data, it is set to a special value of `module data`, but of
+course this is not enough, we need the information needed to link a specific
+value with a specific module type that is able to load and handle it.
+
+So when we save a `type specific value` about a module, we prefix it with
+a 64 bit integer. 64 bits is large enough to store the informations needed
+in order to lookup the module that can handle that specific type, but is
+short enough that we can prefix each module value we store inside the RDB
+without making the final RDB file too big. At the same time, this solution
+of prefixing the value with a 64 bit *signature* does not require to do
+strange things like defining in the RDB header a list of modules specific
+types. Everything is pretty simple.
+
+So, what you can store in 64 bits in order to identify a given module in
+a reliable way? Well if you build a character set of 64 symbols, you can
+easily store 9 characters of 6 bits, and you are left with 10 bits, that
+are used in order to store the *encoding version* of the type, so that
+the same type can evolve in the future and provide a different and more
+efficient or updated serialization format for RDB files.
+
+So the 64 bit prefix stored after each module value is like the following:
+
+    6|6|6|6|6|6|6|6|6|10
+
+The first 9 elements are 6-bits characters, the final 10 bits is the
+encoding version.
+
+When the RDB file is loaded back, it reads the 64 bit value, masks the final
+10 bits, and searches for a matching module in the modules types cache.
+When a matching one is found, the method to load the RDB file value is called
+with the 10 bits encoding version as argument, so that the module knows
+what version of the data layout to load, if it can support multiple versions.
+
+Now the interesting thing about all this is that, if instead the module type
+cannot be resolved, since there is no loaded module having this signature,
+we can convert back the 64 bit value into a 9 characters name, and print
+an error to the user that includes the module type name! So that she or he
+immediately realizes what's wrong.
+
 Setting and getting keys
 ---
 
