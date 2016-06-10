@@ -204,7 +204,6 @@ void pushGenericCommand(client *c, int where) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (!lobj) {
             lobj = createQuicklistObject();
             quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
@@ -240,7 +239,6 @@ void pushxGenericCommand(client *c, int where) {
         checkType(c,subject,OBJ_LIST)) return;
 
     for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
         listTypePush(subject,c->argv[j],where);
         pushed++;
     }
@@ -270,7 +268,6 @@ void linsertCommand(client *c) {
     listTypeEntry entry;
     int inserted = 0;
 
-    c->argv[4] = tryObjectEncoding(c->argv[4]);
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
         where = LIST_TAIL;
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
