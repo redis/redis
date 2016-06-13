@@ -686,7 +686,7 @@ struct saveparam {
 struct moduleLoadQueueEntry {
     sds path;
     int argc;
-    robj *argv[];
+    robj **argv;
 };
 
 struct sharedObjectsStruct {

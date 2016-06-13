@@ -154,10 +154,11 @@ void resetServerSaveParams(void) {
 }
 
 void queueLoadModule(sds path, sds *argv, int argc) {
-    struct moduleLoadQueueEntry *loadmod =
-        zmalloc(sizeof(struct moduleLoadQueueEntry)+sizeof(robj*)*argc);
     int i;
+    struct moduleLoadQueueEntry *loadmod;
 
+    loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    loadmod->argv = zmalloc(sizeof(robj*)*argc);
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
