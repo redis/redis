@@ -683,7 +683,7 @@ struct saveparam {
     int changes;
 };
 
-struct loadmodule {
+struct moduleLoadQueueEntry {
     sds path;
     int argc;
     robj *argv[];
