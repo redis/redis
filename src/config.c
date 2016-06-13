@@ -161,7 +161,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
     for (i = 0; i < argc; i++) {
-        loadmod->argv[i] = createStringObject(argv[i],sdslen(argv[i]));
+        loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
     }
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
