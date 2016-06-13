@@ -65,7 +65,7 @@ simple module that implements a command that outputs a random number.
         return REDISMODULE_OK;
     }
 
-    int RedisModule_OnLoad(RedisModuleCtx *ctx) {
+    int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (RedisModule_Init(ctx,"helloworld",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
@@ -155,6 +155,24 @@ a dynamic library having the `RedisModule_OnLoad()` function symbol
 exported.
 
 The module will be able to load into different versions of Redis.
+
+# Passing configuration parameters to Redis modules
+
+When the module is loaded with the `MODULE LOAD` command, or using the
+`loadmodule` directive in the `redis.conf` file, the user is able to pass
+configuration parameters to the module by adding arguments after the module
+file name:
+
+    loadmodule mymodule.so foo bar 1234
+
+In the above example the strings `foo`, `bar` and `123` will be passed
+to the module `OnLoad()` function in the `argv` argument as an array
+of RedisModuleString pointers. The number of arguments passed is into `argc`.
+
+The way you can access those strings will be explained in the rest of this
+document. Normally the module will store the module configuration parameters
+in some `static` global variable that can be accessed module wide, so that
+the configuration can change the behavior of different commands.
 
 # Working with RedisModuleString objects
 
