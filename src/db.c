@@ -41,7 +41,10 @@ void slotToKeyFlush(void);
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-robj *lookupKey(redisDb *db, robj *key) {
+/* Low level key lookup API, not actually called directly from commands
+ * implementations that should instead rely on lookupKeyRead(),
+ * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+robj *lookupKey(redisDb *db, robj *key, int flags) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
@@ -49,15 +52,40 @@ robj *lookupKey(redisDb *db, robj *key) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
-        if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
+        if (server.rdb_child_pid == -1 &&
+            server.aof_child_pid == -1 &&
+            !(flags & LOOKUP_NOTOUCH))
+        {
             val->lru = LRU_CLOCK();
+        }
         return val;
     } else {
         return NULL;
     }
 }
 
-robj *lookupKeyRead(redisDb *db, robj *key) {
+/* Lookup a key for read operations, or return NULL if the key is not found
+ * in the specified DB.
+ *
+ * As a side effect of calling this function:
+ * 1. A key gets expired if it reached it's TTL.
+ * 2. The key last access time is updated.
+ * 3. The global keys hits/misses stats are updated (reported in INFO).
+ *
+ * This API should not be used when we write to the key after obtaining
+ * the object linked to the key, but only for read only operations.
+ *
+ * Flags change the behavior of this command:
+ *
+ *  LOOKUP_NONE (or zero): no special flags are passed.
+ *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
+ *
+ * Note: this function also returns NULL is the key is logically expired
+ * but still existing, in case this is a slave, since this API is called only
+ * for read operations. Even if the key expiry is master-driven, we can
+ * correctly report a key is expired on slaves even if the master is lagging
+ * expiring our key via DELs in the replication link. */
+robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
@@ -86,7 +114,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
             return NULL;
         }
     }
-    val = lookupKey(db,key);
+    val = lookupKey(db,key,flags);
     if (val == NULL)
         server.stat_keyspace_misses++;
     else
@@ -94,9 +122,20 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
     return val;
 }
 
+/* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
+ * common case. */
+robj *lookupKeyRead(redisDb *db, robj *key) {
+    return lookupKeyReadWithFlags(db,key,LOOKUP_NONE);
+}
+
+/* Lookup a key for write operations, and as a side effect, if needed, expires
+ * the key if its TTL is reached.
+ *
+ * Returns the linked value object if the key exists or NULL if the key
+ * does not exist in the specified DB. */
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     expireIfNeeded(db,key);
-    return lookupKey(db,key);
+    return lookupKey(db,key,LOOKUP_NONE);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
@@ -645,7 +684,7 @@ void typeCommand(client *c) {
     robj *o;
     char *type;
 
-    o = lookupKeyRead(c->db,c->argv[1]);
+    o = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
     if (o == NULL) {
         type = "none";
     } else {
@@ -967,7 +1006,7 @@ void ttlGenericCommand(client *c, int output_ms) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
-    if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
+    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
@@ -1007,6 +1046,14 @@ void persistCommand(client *c) {
             addReply(c,shared.czero);
         }
     }
+}
+
+/* TOUCH key1 [key2 key3 ... keyN] */
+void touchCommand(client *c) {
+    int touched = 0;
+    for (int j = 1; j < c->argc; j++)
+        if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
+    addReplyLongLong(c,touched);
 }
 
 /* -----------------------------------------------------------------------------
