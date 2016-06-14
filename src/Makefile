@@ -55,7 +55,7 @@ endif
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -I../deps/geohash-int
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
-FINAL_LIBS=-lm -ldl
+FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
 ifeq ($(uname_S),SunOS)
@@ -65,17 +65,27 @@ ifeq ($(uname_S),SunOS)
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
 else
 ifeq ($(uname_S),Darwin)
-	# Darwin (nothing to do)
+	# Darwin
+	FINAL_LIBS+= -ldl
 else
 ifeq ($(uname_S),AIX)
         # AIX
         FINAL_LDFLAGS+= -Wl,-bexpall
-        FINAL_LIBS+= -pthread -lcrypt -lbsd
-
+        FINAL_LIBS+=-ldl -pthread -lcrypt -lbsd
+else
+ifeq ($(uname_S),OpenBSD)
+	# OpenBSD
+	FINAL_LIBS+= -lpthread
+else
+ifeq ($(uname_S),FreeBSD)
+	# FreeBSD
+	FINAL_LIBS+= -lpthread
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
-	FINAL_LIBS+= -pthread
+	FINAL_LIBS+=-ldl -pthread
+endif
+endif
 endif
 endif
 endif
