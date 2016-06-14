@@ -306,7 +306,7 @@ int checkUnsignedBitfieldOverflow(uint64_t value, int64_t incr, uint64_t bits, i
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t res = value+incr;
 
         res &= ~mask;
@@ -349,7 +349,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t msb = (uint64_t)1 << (bits-1);
         uint64_t a = value, b = incr, c;
         c = a+b; /* Perform addition as unsigned so that's defined. */

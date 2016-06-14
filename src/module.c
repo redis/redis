@@ -2897,11 +2897,13 @@ void moduleLoadFromQueue(void) {
 
     listRewind(server.loadmodule_queue,&li);
     while((ln = listNext(&li))) {
-        sds modulepath = ln->value;
-        if (moduleLoad(modulepath) == C_ERR) {
+        struct moduleLoadQueueEntry *loadmod = ln->value;
+        if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc)
+            == C_ERR)
+        {
             serverLog(LL_WARNING,
                 "Can't load module from %s: server aborting",
-                modulepath);
+                loadmod->path);
             exit(1);
         }
     }
@@ -2915,8 +2917,8 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
 
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleLoad(const char *path) {
-    int (*onload)(void *);
+int moduleLoad(const char *path, void **module_argv, int module_argc) {
+    int (*onload)(void *, void **, int);
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
@@ -2925,14 +2927,14 @@ int moduleLoad(const char *path) {
         serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
         return C_ERR;
     }
-    onload = (int (*)(void *))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
+    onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
     if (onload == NULL) {
         serverLog(LL_WARNING,
             "Module %s does not export RedisModule_OnLoad() "
             "symbol. Module not loaded.",path);
         return C_ERR;
     }
-    if (onload((void*)&ctx) == REDISMODULE_ERR) {
+    if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) moduleFreeModuleStructure(ctx.module);
         dlclose(handle);
         serverLog(LL_WARNING,
@@ -2944,6 +2946,7 @@ int moduleLoad(const char *path) {
     dictAdd(modules,ctx.module->name,ctx.module);
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+    moduleFreeContext(&ctx);
     return C_OK;
 }
 
@@ -2956,13 +2959,13 @@ int moduleLoad(const char *path) {
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
-    if (listLength(module->types)) {
-        errno = EBUSY;
+    if (module == NULL) {
+        errno = ENOENT;
         return REDISMODULE_ERR;
     }
 
-    if (module == NULL) {
-        errno = ENOENT;
+    if (listLength(module->types)) {
+        errno = EBUSY;
         return REDISMODULE_ERR;
     }
 
@@ -3006,12 +3009,20 @@ int moduleUnload(sds name) {
 
 /* Redis MODULE command.
  *
- * MODULE LOAD <path> */
+ * MODULE LOAD <path> [args...] */
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
 
-    if (!strcasecmp(subcmd,"load") && c->argc == 3) {
-        if (moduleLoad(c->argv[2]->ptr) == C_OK)
+    if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
+        robj **argv = NULL;
+        int argc = 0;
+
+        if (c->argc > 3) {
+            argc = c->argc - 3;
+            argv = &c->argv[3];
+        }
+
+        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc) == C_OK)
             addReply(c,shared.ok);
         else
             addReplyError(c,
@@ -3020,10 +3031,17 @@ void moduleCommand(client *c) {
         if (moduleUnload(c->argv[2]->ptr) == C_OK)
             addReply(c,shared.ok);
         else {
-            char *errmsg = "operation not possible.";
+            char *errmsg;
             switch(errno) {
-            case ENOENT: errmsg = "no such module with that name";
-            case EBUSY: errmsg = "the module exports one or more module-side data types, can't unload";
+            case ENOENT:
+                errmsg = "no such module with that name";
+                break;
+            case EBUSY:
+                errmsg = "the module exports one or more module-side data types, can't unload";
+                break;
+            default:
+                errmsg = "operation not possible.";
+                break;
             }
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
