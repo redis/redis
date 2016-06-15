@@ -284,7 +284,6 @@ static void cliIntegrateHelp(void) {
                 break;
         }
         if (i != helpEntriesLen) continue;
-        printf("%s\n", cmdname);
 
         helpEntriesLen++;
         helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
@@ -315,7 +314,6 @@ static void cliIntegrateHelp(void) {
     }
     freeReplyObject(reply);
 
-    printf("%s\n", helpEntries[80].full);
 }
 
 /* Output command help to stdout. */
@@ -2594,12 +2592,13 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
-    cliInitHelp();
-    cliIntegrateHelp();
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    cliInitHelp();
+    cliIntegrateHelp();
 
     /* Latency mode */
     if (config.latency_mode) {
