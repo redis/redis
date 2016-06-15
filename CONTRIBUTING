@@ -12,7 +12,7 @@ each source file that you contribute.
 
   PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
   bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support Reddit sub:
+  all the support at the Reddit sub:
 
       http://reddit.com/r/redis
 
@@ -24,7 +24,7 @@ each source file that you contribute.
 
 1. If it is a major feature or a semantical change, please post it as a new submission in r/redis on Reddit at http://reddit.com/r/redis. Try to be passionate about why the feature is needed, make users upvote your proposal to gain traction and so forth. Read feedbacks about the community. But in this first step **please don't write code yet**.
 
-2. If in step 1 you get an acknowledge from the project leaders, use the
+2. If in step 1 you get an acknowledgment from the project leaders, use the
    following procedure to submit a patch:
 
     a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )

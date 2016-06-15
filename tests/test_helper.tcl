@@ -50,6 +50,7 @@ set ::all_tests {
     unit/obuf-limits
     unit/bitops
     unit/bitfield
+    unit/geo
     unit/memefficiency
     unit/hyperloglog
     unit/lazyfree
