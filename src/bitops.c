@@ -773,12 +773,12 @@ void bitcountCommand(client *c) {
         if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
         /* Convert negative indexes */
-        if (start < 0) start = strlen+start;
-        if (end < 0) end = strlen+end;
         if (start < 0 && end < 0 && start > end) {
             addReply(c,shared.czero);
             return;
         }
+        if (start < 0) start = strlen+start;
+        if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
         if (end < 0) end = 0;
         if (end >= strlen) end = strlen-1;
