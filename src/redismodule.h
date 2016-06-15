@@ -68,6 +68,13 @@
 #define REDISMODULE_POSITIVE_INFINITE (1.0/0.0)
 #define REDISMODULE_NEGATIVE_INFINITE (-1.0/0.0)
 
+/* Logging levels */
+#define REDISMODULE_LOG_DEBUG 0
+#define REDISMODULE_LOG_VERBOSE 1
+#define REDISMODULE_LOG_NOTICE 2
+#define REDISMODULE_LOG_WARNING 3
+
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -180,6 +187,7 @@ RedisModuleString *REDISMODULE_API_FUNC(RedisModule_LoadString)(RedisModuleIO *i
 char *REDISMODULE_API_FUNC(RedisModule_LoadStringBuffer)(RedisModuleIO *io, size_t *lenptr);
 void REDISMODULE_API_FUNC(RedisModule_SaveDouble)(RedisModuleIO *io, double value);
 double REDISMODULE_API_FUNC(RedisModule_LoadDouble)(RedisModuleIO *io);
+void REDISMODULE_API_FUNC(RedisModule_Log)(RedisModuleCtx *ctx, int level, const char *fmt, ...);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
@@ -270,6 +278,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SaveDouble);
     REDISMODULE_GET_API(LoadDouble);
     REDISMODULE_GET_API(EmitAOF);
+    REDISMODULE_GET_API(Log);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
