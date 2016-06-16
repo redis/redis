@@ -1287,7 +1287,11 @@ static void repl(void) {
         if (line[0] != '\0') {
             argv = cliSplitArgs(line,&argc);
             if (history) linenoiseHistoryAdd(line);
-            if (historyfile) linenoiseHistorySave(historyfile);
+            if (historyfile) {
+                mode_t cur_mask = umask(S_IRWXG | S_IRWXO);
+                linenoiseHistorySave(historyfile);
+                umask(cur_mask);
+            }
 
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
