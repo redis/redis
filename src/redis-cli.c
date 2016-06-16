@@ -313,6 +313,7 @@ static void cliIntegrateHelp(void) {
         new->org = ch;
     }
     freeReplyObject(reply);
+
 }
 
 /* Output command help to stdout. */
@@ -2591,12 +2592,13 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
-    cliInitHelp();
-    cliIntegrateHelp();
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    cliInitHelp();
+    cliIntegrateHelp();
 
     /* Latency mode */
     if (config.latency_mode) {
