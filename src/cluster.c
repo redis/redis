@@ -4535,7 +4535,7 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
 
     /* Verify RDB version */
     rdbver = (footer[1] << 8) | footer[0];
-    if (rdbver != RDB_VERSION) return C_ERR;
+    if (rdbver > RDB_VERSION) return C_ERR;
 
     /* Verify CRC64 */
     crc = crc64(0,p,len-8);
