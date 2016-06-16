@@ -793,8 +793,8 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 449");
-            benchmark("LRANGE_500 (first 450 elements)",cmd,len);
+            len = redisFormatCommand(&cmd,"LRANGE mylist 0 499");
+            benchmark("LRANGE_500 (first 500 elements)",cmd,len);
             free(cmd);
         }
 
