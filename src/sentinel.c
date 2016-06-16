@@ -1910,6 +1910,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                 link->cc->errstr);
             instanceLinkCloseConnection(link,link->cc);
         } else {
+            link->pending_commands = 0;
             link->cc_conn_time = mstime();
             link->cc->data = link;
             redisAeAttach(server.el,link->cc);
