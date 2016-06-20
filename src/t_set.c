@@ -219,11 +219,11 @@ int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele) {
     return setobj->encoding;
 }
 
-unsigned long setTypeSize(robj *subject) {
+unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
-        return dictSize((dict*)subject->ptr);
+        return dictSize((const dict*)subject->ptr);
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        return intsetLen((intset*)subject->ptr);
+        return intsetLen((const intset*)subject->ptr);
     } else {
         serverPanic("Unknown set encoding");
     }

@@ -272,7 +272,7 @@ uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
 }
 
 /* Return intset length */
-uint32_t intsetLen(intset *is) {
+uint32_t intsetLen(const intset *is) {
     return intrev32ifbe(is->length);
 }
 
