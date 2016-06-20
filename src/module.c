@@ -687,7 +687,7 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
 /* Given a string module object, this function returns the string pointer
  * and length of the string. The returned pointer and length should only
  * be used for read only accesses and never modified. */
-const char *RM_StringPtrLen(RedisModuleString *str, size_t *len) {
+const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len) {
     if (len) *len = sdslen(str->ptr);
     return str->ptr;
 }
@@ -696,7 +696,7 @@ const char *RM_StringPtrLen(RedisModuleString *str, size_t *len) {
  * Returns REDISMODULE_OK on success. If the string can't be parsed
  * as a valid, strict long long (no spaces before/after), REDISMODULE_ERR
  * is returned. */
-int RM_StringToLongLong(RedisModuleString *str, long long *ll) {
+int RM_StringToLongLong(const RedisModuleString *str, long long *ll) {
     return string2ll(str->ptr,sdslen(str->ptr),ll) ? REDISMODULE_OK :
                                                      REDISMODULE_ERR;
 }
@@ -704,7 +704,7 @@ int RM_StringToLongLong(RedisModuleString *str, long long *ll) {
 /* Convert the string into a double, storing it at `*d`.
  * Returns REDISMODULE_OK on success or REDISMODULE_ERR if the string is
  * not a valid string representation of a double value. */
-int RM_StringToDouble(RedisModuleString *str, double *d) {
+int RM_StringToDouble(const RedisModuleString *str, double *d) {
     int retval = getDoubleFromObject(str,d);
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
