@@ -1115,3 +1115,11 @@ by a module. The command works exactly like `RedisModule_Call()` in the way
 the parameters are passed, but it does not return anything as the error
 handling is performed by Redis itself.
 
+## `RM_Log`
+
+    void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...);
+
+Produce a log message into the standard Redis log. All standard Redis logging
+configuration applies here. Messages can only be logged after a module has
+initialized, and are prefixed by the name of the module.  Log level is
+specified using the REDISMODULE_LOG_* macros.
