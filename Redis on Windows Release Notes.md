@@ -1,5 +1,9 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.503 ] Release date: Jun 21 2016
+
+ - [Fix] Possible AV during background save.
+
 --[ Redis on Windows 3.0.502 ] Release date: Jun 21 2016
 
  - [PR] Fixed pointer overflow crash when using bgsave under rare circumstances. (by @Harachie)
