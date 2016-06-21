@@ -1,15 +1,30 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.502 ] Release date: Jun 21 2016
+
+ - [PR] Fixed pointer overflow crash when using bgsave under rare circumstances. (by @Harachie)
+ - [PR] Update msvs documentation to correct maxmemory-policy. (by @andyvan)
+ - [Setup] Fixed the NETWORK SERVICE account issue on Windows 10.
+ - [PR] Compare empty string for command line extract save. (by @zhumingjian )
+ - [PR] Fix: bug on extracting sub-params. (by @zeliard)
+ - [PR] Fix: string (handle value) to a unsigned 64bit number for LLP64 OS. (by @zeliard)
+ - [PR] Fix: add break stmt in switch-case. (by @zeliard)
+ - [Fix] 'Infinity' parsing.
+ - [Fix] Linking error on some platforms using VS2015.
+ - [PR] No separate NuGet download anymore on shields.io (by @jamesmanning )
+ - [PR] Fix building problems in MSVS2015. (by @CAIQT)
+ - [Docs] Fixed wrong value for redis install example.
+
 --[ Redis on Windows 3.0.501 ] Release date: Jan 15 2016
 
  - [Docs] Single dash replaced with double dash for service cmd parameters.
- - [PR] Update Redis on Windows.md
+ - [PR] Update Redis on Windows.md  (by @ammills01)
  - [Fix] Enabled jemalloc thread safety.
  - [Code cleanup] Better expression grouping.
  - [Docs] Added info about the memory working set showed by the task manager.
  - [Fix] Portability fix for strtol.
  - [Docs] Updated README.md.
- - [PR] Add notice for VS2013 without Update 5
+ - [PR] Add notice for VS2013 without Update 5 (by @gimmemoore)
 
 --[ Redis on Windows 3.0.500 ] Release date: Dec 07 2015
 
@@ -27,8 +42,8 @@ MSOpenTech Redis on Windows 3.0 Release Notes
  - [Debug] Added Redis version at the top of the crash report.
  - [Build] Added platform in the destination folder path for the x86 build.
  - [Fix] 32 bit support.
- - [PR] Unable to build Redis 3.0 on 32 bit. (by @Jens-G )
- - [PR] Switching 3.0 to x86 results in LNK errors. (by @Jens-G )
+ - [PR] Unable to build Redis 3.0 on 32 bit. (by @Jens-G)
+ - [PR] Switching 3.0 to x86 results in LNK errors. (by @Jens-G)
  - [Comment] Fixed comment.
  - [PR] replace argument sign '-' to '--'. (by @Hawkeyes0)
  - [Fix] Duplicated sockets management for diskless replication.
