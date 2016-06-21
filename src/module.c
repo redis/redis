@@ -1047,6 +1047,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
+    kp->ztype = REDISMODULE_ZSET_RANGE_NONE;
     RM_ZsetRangeStop(kp);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return (void*)kp;
