@@ -1,5 +1,9 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
+--[ Redis on Windows 2.8.2401 ] Release date: Jun 21 2016
+
+ - [PR] Fixed pointer overflow crash when using bgsave under rare circumstances.
+
 --[ Redis on Windows 2.8.2400 ] Release date: Jan 21 2016
 
  - Merged tag 2.8.24 from antirez/2.8
