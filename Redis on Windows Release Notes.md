@@ -1,5 +1,9 @@
 MSOpenTech Redis on Windows 2.8 Release Notes
 =============================================
+--[ Redis on Windows 2.8.2402 ] Release date: Jun 21 2016
+
+ - [Fix] Possible AV during background save.
+
 --[ Redis on Windows 2.8.2401 ] Release date: Jun 21 2016
 
  - [PR] Fixed pointer overflow crash when using bgsave under rare circumstances.
