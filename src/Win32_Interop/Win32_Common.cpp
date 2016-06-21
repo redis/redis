@@ -29,20 +29,13 @@ namespace Globals
 /* This function is used to force the VEH on the entire size of the buffer length,
  * in the event that the buffer crosses the memory page boundaries */
 void EnsureMemoryIsMapped(const void *buffer, size_t size) {
-    // Use 'volatile' to make sure the compiler doesn't remove "c = *((char*) (p + offset));"
-    volatile char c;
-    char* p = (char*) buffer;
-    char* pStart = p - ((size_t) p % Globals::pageSize);
-    char* pEnd = p + size;
-    if ((size_t) (pEnd - pStart) > Globals::pageSize) {
-        size_t offset = 0;
-        while (offset < size) {
-            offset += Globals::pageSize;
-            if (offset > size) {
-                offset = size;
-            }
-            c = *((char*) (p + offset));
-        }
+    char* pFirstByte = (char*) buffer;
+    char* pLastByte = (char*) buffer + size - 1;
+    char* pFirstPage = pFirstByte - ((size_t) pFirstByte % Globals::pageSize);
+    char* pLastPage = pLastByte - ((size_t) pLastByte % Globals::pageSize);
+    // Use 'volatile' to make sure the compiler doesn't remove the memory access
+    for (volatile char* p = pFirstPage; p <= pLastPage; p += Globals::pageSize) {
+        volatile char c = *p;
     }
 }
 
