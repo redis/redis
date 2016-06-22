@@ -58,4 +58,7 @@ To run the Redis test suite some manual work is required:
   following error message: "couldn't execute "cat": no such file or directory".
 - By default the test suite launches 16 parallel tests, but 2 is the suggested number. 
   
+## Code of Conduct
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
 
