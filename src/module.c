@@ -673,6 +673,17 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
     return RM_CreateString(ctx,buf,len);
 }
 
+/* Like RedisModule_CreatString(), but creates a string starting from another
+ * RedisModuleString.
+ *
+ * The returned string must be released with RedisModule_FreeString() or by
+ * enabling automatic memory management. */
+RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str) {
+    RedisModuleString *o = dupStringObject(str);
+    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    return o;
+}
+
 /* Free a module string object obtained with one of the Redis modules API calls
  * that return new string objects.
  *
@@ -2828,6 +2839,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateStringFromCallReply);
     REGISTER_API(CreateString);
     REGISTER_API(CreateStringFromLongLong);
+    REGISTER_API(CreateStringFromString);
     REGISTER_API(FreeString);
     REGISTER_API(StringPtrLen);
     REGISTER_API(AutoMemory);

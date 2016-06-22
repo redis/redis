@@ -179,6 +179,16 @@ integer instead of taking a buffer and its length.
 The returned string must be released with `RedisModule_FreeString()` or by
 enabling automatic memory management.
 
+## `RM_CreateStringFromString`
+
+    RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
+
+Like `RedisModule_CreatString()`, but creates a string starting from an existing
+RedisModuleString.
+
+The returned string must be released with `RedisModule_FreeString()` or by
+enabling automatic memory management.
+
 ## `RM_FreeString`
 
     void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str);

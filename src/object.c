@@ -147,7 +147,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
  * will always result in a fresh object that is unshared (refcount == 1).
  *
  * The resulting object always has refcount set to 1. */
-robj *dupStringObject(robj *o) {
+robj *dupStringObject(const robj *o) {
     robj *d;
 
     serverAssert(o->type == OBJ_STRING);
