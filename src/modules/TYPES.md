@@ -354,4 +354,18 @@ allocation functions provided by the module API is exactly compatible with
 `malloc()`, `realloc()`, `free()` and `strdup()`, so converting the libraries
 in order to use these functions should be trivial.
 
+In case you have an external library that uses libc `malloc()`, and you want
+to avoid replacing manually all the calls with the Redis Modules API calls,
+an approach could be to use simple macros in order to replace the libc calls
+with the Redis API calls. Something like this could work:
 
+    #define malloc RedisModule_Alloc
+    #define realloc RedisModule_Realloc
+    #define free RedisModule_Free
+    #define strdup RedisModule_Strdup
+
+However take in mind that mixing libc calls with Redis API calls will result
+into troubles and crashes, so if you replace calls using macros, you need to
+make sure that all the calls are correctly replaced, and that the code with
+the substituted calls will never, for example, attempt to call
+`RedisModule_Free()` with a pointer allocated using libc `malloc()`.
