@@ -163,7 +163,8 @@ void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
-void RM_ZsetRangeStop(RedisModuleKey *key);
+void RM_ZsetRangeStop(RedisModuleKey *kp);
+static void zsetKeyReset(RedisModuleKey *key);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -1047,8 +1048,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
-    kp->ztype = REDISMODULE_ZSET_RANGE_NONE;
-    RM_ZsetRangeStop(kp);
+    zsetKeyReset(kp);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return (void*)kp;
 }
@@ -1434,17 +1434,23 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
  * Key API for Sorted Set iterator
  * -------------------------------------------------------------------------- */
 
-/* Stop a sorted set iteration. */
-void RM_ZsetRangeStop(RedisModuleKey *key) {
-    /* Free resources if needed. */
-    if (key->ztype == REDISMODULE_ZSET_RANGE_LEX)
-        zslFreeLexRange(&key->zlrs);
-    /* Setup sensible values so that misused iteration API calls when an
-     * iterator is not active will result into something more sensible
-     * than crashing. */
+static void zsetKeyReset(RedisModuleKey *key)
+{
     key->ztype = REDISMODULE_ZSET_RANGE_NONE;
     key->zcurrent = NULL;
     key->zer = 1;
+}
+
+/* Stop a sorted set iteration. */
+void RM_ZsetRangeStop(RedisModuleKey *key) {
+    /* Free resources if needed. */
+    if (key->ztype == REDISMODULE_ZSET_RANGE_LEX) {
+        zslFreeLexRange(&key->zlrs);
+    }
+    /* Setup sensible values so that misused iteration API calls when an
+     * iterator is not active will result into something more sensible
+     * than crashing. */
+    zsetKeyReset(key);
 }
 
 /* Return the "End of range" flag value to signal the end of the iteration. */
