@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"
+     xmlns:fw="http://schemas.microsoft.com/wix/FirewallExtension">
+
+  <?define RepoDir="$(var.ProjectDir)..\..\..\" ?>
+  <?define BinDir="$(var.RepoDir)msvs\$(var.Platform)\$(var.Configuration)\" ?>
+
+  <Fragment>
+    <!--This references a WiX property that gives us the localized name of the NETWORK SERVICE user-->
+    <PropertyRef Id="WIX_ACCOUNT_NETWORKSERVICE" />
+
+    <ComponentGroup Id="WindowsServiceComponents" Directory="INSTALLFOLDER">
+      <!--
+        The following component installs Redis as a Windows service.
+      -->
+      <Component Id="cmp_redis_server" Guid="{959AF3FA-9324-49CB-8915-0563398CDDF6}">
+        <File Id="file_redis_serverEXE" Source="$(var.BinDir)redis-server.exe" KeyPath="yes" />
+        <File Id="file_redis_serviceCONF" Source="!(wix.DocumentationFolder)\redis.windows-service.conf" />
+
+        <ServiceInstall Id="redisService"
+                        Name="Redis"
+                        DisplayName="Redis"
+                        Description="This service runs the Redis server"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Type="ownProcess"
+                        Arguments="--service-run &quot;[#file_redis_serviceCONF]&quot;"
+                        Account="[WIX_ACCOUNT_NETWORKSERVICE]" />
+
+        <ServiceControl Id="redisServiceControl"
+                        Name="Redis"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+
+      <!--
+        The following component creates the firewall exception.
+      -->
+      <Component Id="cmp_firewall_exception" Guid="{1D39F01C-6C53-4DC1-B189-65F03F7E5E31}" KeyPath="yes">
+        <Condition><![CDATA[ADD_FIREWALL_RULE = 1 AND FIREWALL_SERVICE_STOPPED <> 1]]></Condition>
+
+        <fw:FirewallException Id="fw_redis_server"
+                              Program="[#file_redis_serverEXE]"
+                              Description="Exception for Redis server"
+                              Name="Redis"
+                              Scope="any" />
+      </Component>
+
+      <!--
+          The following component gives the NetworkService user full access to the Redis install directory.
+          It needs this to start the service.
+      -->
+      <Component Id="cmp_give_network_service_folder_permissions" Guid="{55E5EFB3-61E6-4D51-934E-BFEEFB430701}">
+        <CreateFolder>
+          <util:PermissionEx User="[WIX_ACCOUNT_NETWORKSERVICE]" GenericAll="yes" />
+        </CreateFolder>
+      </Component>
+    
+      <!--
+        Sets up the Windows event log event source. Note that for this to work the following
+        must be set in the redis config file:
+          * logfile "Logs/redis_log.txt" (or any other non-empty value; without a logfile, events are not logged to eventvwr for some reason)
+          * syslog-enabled yes
+          * syslog-ident redis
+        You can verify that the event source was created by inspecting the Windows registry at
+        HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application\redis. The Win32_Interop
+        project compiles EventLog.mc into EventLog.dll via a custom build action (view that file's
+        properties in Visual Studio for details).
+      -->
+      <Component Id="cmp_EventLogDLL" Guid="{5BF66AB1-DC93-4FBB-9A16-005CE9C523BC}">
+        <File Id="file_EventLogDLL" Source="$(var.BinDir)EventLog.dll" />
+        <util:EventSource KeyPath="yes"
+                          EventMessageFile="[#file_EventLogDLL]"
+                          Name="redis"
+                          Log="Application" />
+      </Component>
+
+      <!--
+        This ensures that the LogsFolder is created even though it starts out empty.
+        It also ensures that it is removed (along with the log file(s) within) during uninstall.
+      -->
+      <Component Id="cmp_LogsFolder" Guid="{C88495B4-469A-4DE7-AA84-653D0FA6628F}" KeyPath="yes">
+        <CreateFolder Directory="LogsFolder" />
+        <RemoveFolder Id="removeLogsFolder" Directory="LogsFolder" On="uninstall" />
+        <RemoveFile Id="removeLogFile" Directory="LogsFolder" Name="*" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

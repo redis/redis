@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension"
+     xmlns:fw="http://schemas.microsoft.com/wix/FirewallExtension">
+    <!--
+    64-bit installer
+    
+    Example installation (command-line):
+      default install:
+        msiexec /i Redis-[version].msi 
+        
+      set port and turn off firewall exception:
+        msiexec /i Redis-[version].msi PORT=1234 ADD_FIREWALL_RULE=""
+      
+      set port and turn on firewall exception:
+        msiexec /i Redis-[version].msi PORT=1234 ADD_FIREWALL_RULE=1
+        
+      
+  -->
+
+    <Product Id="*"
+             Name="Redis on Windows"
+             Language="1033"
+             Version="2.8.2402"
+             Manufacturer="MSOpenTech"
+             UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
+        <Package InstallerVersion="200"
+                 Compressed="yes"
+                 InstallScope="perMachine" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <!--User interface hook-->
+        <UIRef Id="CustomInstallDir"/>
+
+        <!--Properties-->
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+        <Property Id="ARPURLINFOABOUT" Value="https://github.com/MSOpenTech/redis" />
+        <Property Id="PORT" Value="6379" />
+        <Property Id="ADD_FIREWALL_RULE" Value="1" />
+        <Property Id="FIREWALL_SERVICE_STOPPED" Value="0" />
+        <Property Id="MAXMEMORY" Value="100" />
+        <Property Id="MAXHEAP" Value="150" />
+        <Property Id="USE_MEMORY_LIMITS" Secure="yes" />
+        <Property Id="ADD_INSTALLFOLDER_TO_PATH" Secure="yes" />
+
+        <!--Link-time variables-->
+        <WixVariable Id="WixUILicenseRtf" Value="License.rtf"/>
+        <WixVariable Id="WixUIDialogBmp" Value="Images/redis_background.jpg"/>
+        <WixVariable Id="WixUIBannerBmp" Value="Images/top_banner.jpg"/>
+        <WixVariable Id="DocumentationFolder" Value="..\..\setups\documentation"/>
+
+        <!--Link in custom actions, referencing one will pull in all-->
+        <CustomActionRef Id="ca_UpdateRedisConfig"/>
+
+        <!--Features-->
+        <Feature Id="ProductFeature" Title="Redis" Level="1">
+            <ComponentGroupRef Id="FileComponents" />
+            <ComponentGroupRef Id="SymbolsComponents" />
+            <ComponentGroupRef Id="WindowsServiceComponents" />
+            <ComponentGroupRef Id="DocumentationComponents" />
+            <ComponentGroupRef Id="SetPathComponents" />
+        </Feature>
+    </Product>
+
+    <Fragment>
+        <ComponentGroup Id="SetPathComponents" Directory="INSTALLFOLDER">
+            <Component Id="SetEnvironmentVariables" Guid="{33F930D5-EE5D-4D2C-9DC9-6AE1E176BDCD}" KeyPath="yes">
+                <Condition>ADD_INSTALLFOLDER_TO_PATH</Condition>
+                <Environment Action="set"
+                             Id="SetPath"
+                             Name="PATH"
+                             System="yes"
+                             Value="[INSTALLFOLDER]"
+                             Permanent="no"
+                             Part="last"
+                     />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+
+    <Fragment>
+        <!--Directory structure to create-->
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="Redis">
+                    <Directory Id="LogsFolder" Name="Logs" />
+                </Directory>
+            </Directory>
+        </Directory>
+    </Fragment>
+</Wix>

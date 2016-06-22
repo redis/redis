@@ -57,7 +57,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
     }
     if (sh == NULL) return NULL;
-    sh->len = initlen;
+    sh->len = (int)initlen;
     sh->free = 0;
     if (initlen && init)
         memcpy(sh->buf, init, initlen);
@@ -104,7 +104,7 @@ void sdsfree(sds s) {
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    int reallen = strlen(s);
+    int reallen = (int)strlen(s);
     sh->free += (sh->len-reallen);
     sh->len = reallen;
 }
@@ -142,7 +142,7 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
     if (newsh == NULL) return NULL;
 
-    newsh->free = newlen - len;
+    newsh->free = (int)(newlen - len);
     return newsh->buf;
 }
 
@@ -226,8 +226,8 @@ sds sdsgrowzero(sds s, size_t len) {
     sh = (void*)(s-(sizeof(struct sdshdr)));
     memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
     totlen = sh->len+sh->free;
-    sh->len = len;
-    sh->free = totlen-sh->len;
+    sh->len = (int)len;
+    sh->free = (int)(totlen-sh->len);
     return s;
 }
 
@@ -244,8 +244,8 @@ sds sdscatlen(sds s, const void *t, size_t len) {
     if (s == NULL) return NULL;
     sh = (void*) (s-(sizeof(struct sdshdr)));
     memcpy(s+curlen, t, len);
-    sh->len = curlen+len;
-    sh->free = sh->free-len;
+    sh->len = (int)(curlen+len);
+    sh->free = (int)(sh->free-len);
     s[curlen+len] = '\0';
     return s;
 }
@@ -280,8 +280,8 @@ sds sdscpylen(sds s, const char *t, size_t len) {
     }
     memcpy(s, t, len);
     s[len] = '\0';
-    sh->len = len;
-    sh->free = totlen-len;
+    sh->len = (int)len;
+    sh->free = (int)(totlen-len);
     return s;
 }
 
@@ -298,9 +298,9 @@ sds sdscpy(sds s, const char *t) {
  * The function returns the lenght of the null-terminated string
  * representation stored at 's'. */
 #define SDS_LLSTR_SIZE 21
-int sdsll2str(char *s, long long value) {
+int sdsll2str(char *s, PORT_LONGLONG value) {
     char *p, aux;
-    unsigned long long v;
+    PORT_ULONGLONG v;
     size_t l;
 
     /* Generate the string representation, this method produces
@@ -326,11 +326,11 @@ int sdsll2str(char *s, long long value) {
         s++;
         p--;
     }
-    return l;
+    return (int)l;
 }
 
-/* Identical sdsll2str(), but for unsigned long long type. */
-int sdsull2str(char *s, unsigned long long v) {
+/* Identical sdsll2str(), but for PORT_ULONGLONG type. */
+int sdsull2str(char *s, PORT_ULONGLONG v) {
     char *p, aux;
     size_t l;
 
@@ -355,14 +355,14 @@ int sdsull2str(char *s, unsigned long long v) {
         s++;
         p--;
     }
-    return l;
+    return (int)l;
 }
 
-/* Create an sds string from a long long value. It is much faster than:
+/* Create an sds string from a PORT_LONGLONG value. It is much faster than:
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
-sds sdsfromlonglong(long long value) {
+sds sdsfromlonglong(PORT_LONGLONG value) {
     char buf[SDS_LLSTR_SIZE];
     int len = sdsll2str(buf,value);
 
@@ -443,9 +443,9 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * %s - C String
  * %S - SDS string
  * %i - signed int
- * %I - 64 bit signed integer (long long, int64_t)
+ * %I - 64 bit signed integer (PORT_LONGLONG, int64_t)
  * %u - unsigned int
- * %U - 64 bit unsigned integer (unsigned long long, uint64_t)
+ * %U - 64 bit unsigned integer (PORT_ULONGLONG, uint64_t)
  * %% - Verbatim "%" character.
  */
 sds sdscatfmt(sds s, char const *fmt, ...) {
@@ -457,12 +457,12 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
 
     va_start(ap,fmt);
     f = fmt;    /* Next format specifier byte to process. */
-    i = initlen; /* Position of the next byte to write to dest str. */
+    i = (int)initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
         unsigned int l;
-        long long num;
-        unsigned long long unum;
+        PORT_LONGLONG num;
+        PORT_ULONGLONG unum;
 
         /* Make sure there is always space for at least 1 char. */
         if (sh->free == 0) {
@@ -478,7 +478,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
             case 's':
             case 'S':
                 str = va_arg(ap,char*);
-                l = (next == 's') ? strlen(str) : sdslen(str);
+                l = (int)((next == 's') ? strlen(str) : sdslen(str));
                 if (sh->free < l) {
                     s = sdsMakeRoomFor(s,l);
                     sh = (void*) (s-(sizeof(struct sdshdr)));
@@ -493,7 +493,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (next == 'i')
                     num = va_arg(ap,int);
                 else
-                    num = va_arg(ap,long long);
+                    num = va_arg(ap,PORT_LONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsll2str(buf,num);
@@ -512,7 +512,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
                 if (next == 'u')
                     unum = va_arg(ap,unsigned int);
                 else
-                    unum = va_arg(ap,unsigned long long);
+                    unum = va_arg(ap,PORT_ULONGLONG);
                 {
                     char buf[SDS_LLSTR_SIZE];
                     l = sdsull2str(buf,unum);
@@ -574,8 +574,8 @@ sds sdstrim(sds s, const char *cset) {
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (sh->buf != sp) memmove(sh->buf, sp, len);
     sh->buf[len] = '\0';
-    sh->free = sh->free+(sh->len-len);
-    sh->len = len;
+    sh->free = (int)(sh->free+(sh->len-len));
+    sh->len = (int)len;
     return s;
 }
 
@@ -601,11 +601,11 @@ void sdsrange(sds s, int start, int end) {
 
     if (len == 0) return;
     if (start < 0) {
-        start = len+start;
+        start = (int)(len+start);
         if (start < 0) start = 0;
     }
     if (end < 0) {
-        end = len+end;
+        end = (int)(len+end);
         if (end < 0) end = 0;
     }
     newlen = (start > end) ? 0 : (end-start)+1;
@@ -613,7 +613,7 @@ void sdsrange(sds s, int start, int end) {
         if (start >= (signed)len) {
             newlen = 0;
         } else if (end >= (signed)len) {
-            end = len-1;
+            end = (int)(len-1);
             newlen = (start > end) ? 0 : (end-start)+1;
         }
     } else {
@@ -621,20 +621,20 @@ void sdsrange(sds s, int start, int end) {
     }
     if (start && newlen) memmove(sh->buf, sh->buf+start, newlen);
     sh->buf[newlen] = 0;
-    sh->free = sh->free+(sh->len-newlen);
-    sh->len = newlen;
+    sh->free = (int)(sh->free+(sh->len-newlen));
+    sh->len = (int)newlen;
 }
 
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 /* Apply toupper() to every character of the sds string 's'. */
 void sdstoupper(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
@@ -658,7 +658,7 @@ int sdscmp(const sds s1, const sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return l1-l2;
+    if (cmp == 0) return (int)(l1-l2);
     return cmp;
 }
 

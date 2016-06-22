@@ -59,13 +59,12 @@ proc spawn_instance {type base_port count {conf {}}} {
 
         # Finally exec it and remember the pid for later cleanup.
         if {$type eq "redis"} {
-            set prgname redis-server
+            set pid [exec ../../../src/redis-server $cfgfile &]             ;# WIN_PORT_FIX 
         } elseif {$type eq "sentinel"} {
-            set prgname redis-sentinel
+            set pid [exec ../../../src/redis-server $cfgfile --sentinel &]  ;# WIN_PORT_FIX 
         } else {
             error "Unknown instance type."
         }
-        set pid [exec ../../../src/${prgname} $cfgfile &]
         lappend ::pids $pid
 
         # Check availability
@@ -88,7 +87,13 @@ proc spawn_instance {type base_port count {conf {}}} {
 proc cleanup {} {
     puts "Cleaning up..."
     foreach pid $::pids {
-        catch {exec kill -9 $pid}
+        catch {
+			if { $::tcl_platform(platform) == "windows" } {
+				kill_proc2 $pid
+			} else {
+				exec kill -9 $pid
+			}
+		}
     }
     foreach dir $::dirs {
         catch {exec rm -rf $dir}
@@ -363,7 +368,11 @@ proc kill_instance {type id} {
     if {$pid == -1} {
         error "You tried to kill $type $id twice."
     }
-    exec kill -9 $pid
+	if { $::tcl_platform(platform) == "windows" } {
+        kill_proc2 $pid
+	} else {
+	    exec kill -9 $pid
+	}
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
@@ -386,11 +395,10 @@ proc restart_instance {type id} {
     # Execute the instance with its old setup and append the new pid
     # file for cleanup.
     if {$type eq "redis"} {
-        set prgname redis-server
+        set pid [exec ../../../src/redis-server $cfgfile &]               ;# WIN_PORT_FIX
     } else {
-        set prgname redis-sentinel
+        set pid [exec ../../../src/redis-server $cfgfile --sentinel &]    ;# WIN_PORT_FIX
     }
-    set pid [exec ../../../src/${prgname} $cfgfile &]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 

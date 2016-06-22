@@ -205,9 +205,9 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return o;
 }
 
-long long emptyDb(void(callback)(void*)) {
+PORT_LONGLONG emptyDb(void(callback)(void*)) {
     int j;
-    long long removed = 0;
+    PORT_LONGLONG removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         removed += dictSize(server.db[j].dict);
@@ -258,13 +258,17 @@ void flushallCommand(redisClient *c) {
     server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
+#ifdef _WIN32
+        AbortForkOperation();
+#else
         kill(server.rdb_child_pid,SIGUSR1);
+#endif
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
+        PORT_LONGLONG saved_dirty = server.dirty;
         rdbSave(server.rdb_filename);
         server.dirty = saved_dirty;
     }
@@ -297,13 +301,13 @@ void existsCommand(redisClient *c) {
 }
 
 void selectCommand(redisClient *c) {
-    long id;
+    PORT_LONG id;
 
     if (getLongFromObjectOrReply(c, c->argv[1], &id,
         "invalid DB index") != REDIS_OK)
         return;
 
-    if (selectDb(c,id) == REDIS_ERR) {
+    if (selectDb(c,(int)id) == REDIS_ERR) {                                     /* UPSTREAM_ISSUE: missing (int) cast */
         addReplyError(c,"invalid DB index");
     } else {
         addReply(c,shared.ok);
@@ -326,8 +330,8 @@ void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
-    unsigned long numkeys = 0;
+    int plen = (int)sdslen(pattern), allkeys;
+    PORT_ULONG numkeys = 0;
     void *replylen = addDeferredMultiBulkLength(c);
 
     di = dictGetSafeIterator(c->db->dict);
@@ -336,7 +340,7 @@ void keysCommand(redisClient *c) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+        if (allkeys || stringmatchlen(pattern,plen,key,(int)sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);
@@ -384,7 +388,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
  * if the cursor is valid, store it as unsigned integer into *cursor and
  * returns REDIS_OK. Otherwise return REDIS_ERR and send an error to the
  * client. */
-int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
+int parseScanCursorOrReply(redisClient *c, robj *o, PORT_ULONG *cursor) {
     char *eptr;
 
     /* Use strtoul() because we need an *unsigned* long, so
@@ -410,11 +414,11 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
+void scanGenericCommand(redisClient *c, robj *o, PORT_ULONG cursor) {
     int i, j;
     list *keys = listCreate();
     listNode *node, *nextnode;
-    long count = 10;
+    PORT_LONG count = 10;
     sds pat;
     int patlen, use_pattern = 0;
     dict *ht;
@@ -445,7 +449,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             i += 2;
         } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
-            patlen = sdslen(pat);
+            patlen = (int)sdslen(pat);
 
             /* The pattern always matches if it is exactly "*", so it is
              * equivalent to disabling it. */
@@ -487,7 +491,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        PORT_LONG maxiterations = count * 10;
 
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
@@ -498,7 +502,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             cursor = dictScan(ht, cursor, scanCallback, privdata);
         } while (cursor &&
               maxiterations-- &&
-              listLength(keys) < (unsigned long)count);
+              listLength(keys) < (PORT_ULONG)count);
     } else if (o->type == REDIS_SET) {
         int pos = 0;
         int64_t ll;
@@ -510,7 +514,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
         unsigned char *p = ziplistIndex(o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
-        long long vll;
+        PORT_LONGLONG vll;
 
         while(p) {
             ziplistGet(p,&vstr,&vlen,&vll);
@@ -527,9 +531,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
+        int filter = 0;
         robj *kobj = listNodeValue(node);
         nextnode = listNextNode(node);
-        int filter = 0;
 
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
@@ -538,10 +542,10 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
                 int len;
 
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
+                len = ll2string(buf, sizeof(buf), (PORT_LONG) kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             } else {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                if (!stringmatchlen(pat, patlen, kobj->ptr, (int) sdslen(kobj->ptr), 0))
                     filter = 1;
             }
         }
@@ -589,7 +593,7 @@ cleanup:
 
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(redisClient *c) {
-    unsigned long cursor;
+    PORT_ULONG cursor;
     if (parseScanCursorOrReply(c,c->argv[1],&cursor) == REDIS_ERR) return;
     scanGenericCommand(c,NULL,cursor);
 }
@@ -652,7 +656,7 @@ void shutdownCommand(redisClient *c) {
 
 void renameGenericCommand(redisClient *c, int nx) {
     robj *o;
-    long long expire;
+    PORT_LONGLONG expire;
 
     /* To use the same key as src and dst is probably an error */
     if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) {
@@ -700,7 +704,7 @@ void moveCommand(redisClient *c) {
     robj *o;
     redisDb *src, *dst;
     int srcid;
-    long long dbid, expire;
+    PORT_LONGLONG dbid, expire;
 
     /* Obtain source and target DB pointers */
     src = c->db;
@@ -708,7 +712,7 @@ void moveCommand(redisClient *c) {
 
     if (getLongLongFromObject(c->argv[2],&dbid) == REDIS_ERR ||
         dbid < INT_MIN || dbid > INT_MAX ||
-        selectDb(c,dbid) == REDIS_ERR)
+        selectDb(c,(int)dbid) == REDIS_ERR)                                     /* UPSTREAM_ISSUE: missing (int) cast */
     {
         addReply(c,shared.outofrangeerr);
         return;
@@ -757,7 +761,7 @@ int removeExpire(redisDb *db, robj *key) {
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
-void setExpire(redisDb *db, robj *key, long long when) {
+void setExpire(redisDb *db, robj *key, PORT_LONGLONG when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
@@ -769,7 +773,7 @@ void setExpire(redisDb *db, robj *key, long long when) {
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
-long long getExpire(redisDb *db, robj *key) {
+PORT_LONGLONG getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
@@ -853,9 +857,9 @@ int expireIfNeeded(redisDb *db, robj *key) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(redisClient *c, long long basetime, int unit) {
+void expireGenericCommand(redisClient *c, PORT_LONGLONG basetime, int unit) {
     robj *key = c->argv[1], *param = c->argv[2];
-    long long when; /* unix time in milliseconds when the key will expire. */
+    PORT_LONGLONG when; /* unix time in milliseconds when the key will expire. */
 
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != REDIS_OK)
         return;
@@ -916,7 +920,7 @@ void pexpireatCommand(redisClient *c) {
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {
-    long long expire, ttl = -1;
+    PORT_LONGLONG expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
     if (lookupKeyRead(c->db,c->argv[1]) == NULL) {

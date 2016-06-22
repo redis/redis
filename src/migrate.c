@@ -84,7 +84,7 @@ void dumpCommand(redisClient *c) {
 
 /* RESTORE key ttl serialized-value */
 void restoreCommand(redisClient *c) {
-    long long ttl;
+    PORT_LONGLONG ttl;
     rio payload;
     int type;
     robj *obj;
@@ -129,9 +129,9 @@ void restoreCommand(redisClient *c) {
 /* MIGRATE host port key dbid timeout */
 void migrateCommand(redisClient *c) {
     int fd;
-    long timeout;
-    long dbid;
-    long long ttl = 0, expireat;
+    PORT_LONG timeout;
+    PORT_LONG dbid;
+    PORT_LONGLONG ttl = 0, expireat;
     robj *o;
     rio cmd, payload;
 
@@ -140,7 +140,7 @@ void migrateCommand(redisClient *c) {
         return;
     if (getLongFromObjectOrReply(c,c->argv[4],&dbid,NULL) != REDIS_OK)
         return;
-    if (timeout <= 0) timeout = 1;
+    if (timeout <= 0) timeout = 1000;
 
     /* Check if the key is here. If not we reply with success as there is
      * nothing to migrate (for instance the key expired in the meantime), but
@@ -158,7 +158,8 @@ void migrateCommand(redisClient *c) {
             server.neterr);
         return;
     }
-    if ((aeWait(fd,AE_WRITABLE,timeout*1000) & AE_WRITABLE) == 0) {
+    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
+        close(fd);
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         return;
     }
@@ -193,12 +194,34 @@ void migrateCommand(redisClient *c) {
         size_t pos = 0, towrite;
         int nwritten = 0;
 
+#ifdef _WIN32
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
+            while (nwritten != (signed)towrite) {
+                nwritten = (int)syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
+                if (nwritten != (signed)towrite) {
+                    DWORD err = GetLastError();
+                    if (err == WSAEWOULDBLOCK) {
+                        // Likely send buffer is full. A short delay or two is sufficient to allow this to work.
+                        redisLog(REDIS_VERBOSE,"In migrate. WSAEWOULDBLOCK with synchronous socket: sleeping for 0.1s");
+                        Sleep(100); 
+                    } else {
+                        redisLog(REDIS_WARNING,"SyncWrite failure toWrite=%d  written=%d err=%d timeout=%d ", towrite, nwritten, GetLastError(), timeout);
+                        goto socket_wr_err;
+                    }
+                }
+            }
+            pos += nwritten;
+            nwritten = 0;
+        }
+#else
+        while ((towrite = sdslen(buf)-pos) > 0) {
+            towrite = (towrite > (64*1024) ? (64*1024) : towrite);
+            nwritten = syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
+#endif
     }
 
     /* Read back the reply. */
@@ -240,6 +263,9 @@ socket_wr_err:
     return;
 
 socket_rd_err:
+#ifdef _WIN32
+    redisLog(REDIS_WARNING,"syncReadLine failure err=%d timeout=%d ", GetLastError(), timeout);
+#endif
     addReplySds(c,sdsnew("-IOERR error or timeout reading from target node\r\n"));
     sdsfree(cmd.io.buffer.ptr);
     close(fd);

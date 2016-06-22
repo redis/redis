@@ -90,7 +90,7 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long value;
+    PORT_LONGLONG value;
 
     string2ll(reply+1,p-reply-1,&value);
     lua_pushnumber(lua,(lua_Number)value);
@@ -99,14 +99,14 @@ char *redisProtocolToLuaType_Int(lua_State *lua, char *reply) {
 
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long bulklen;
+    PORT_LONGLONG bulklen;
 
     string2ll(reply+1,p-reply-1,&bulklen);
     if (bulklen == -1) {
         lua_pushboolean(lua,0);
         return p+2;
     } else {
-        lua_pushlstring(lua,p+2,bulklen);
+        lua_pushlstring(lua,p+2,(size_t)bulklen);
         return p+2+bulklen+2;
     }
 }
@@ -133,7 +133,7 @@ char *redisProtocolToLuaType_Error(lua_State *lua, char *reply) {
 
 char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
     char *p = strchr(reply+1,'\r');
-    long long mbulklen;
+    PORT_LONGLONG mbulklen;
     int j = 0;
 
     string2ll(reply+1,p-reply-1,&mbulklen);
@@ -270,8 +270,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             argv[j] = cached_objects[j];
             cached_objects[j] = NULL;
             memcpy(s,obj_s,obj_len+1);
-            sh->free += sh->len - obj_len;
-            sh->len = obj_len;
+            sh->free += (int)(sh->len - obj_len);
+            sh->len = (int)obj_len;
         } else {
             argv[j] = createStringObject(obj_s, obj_len);
         }
@@ -499,7 +499,7 @@ int luaLogCommand(lua_State *lua) {
         luaPushError(lua, "First argument must be a number (log level).");
         return 1;
     }
-    level = lua_tonumber(lua,-argc);
+    level = (int)lua_tonumber(lua,-argc);
     if (level < REDIS_DEBUG || level > REDIS_WARNING) {
         luaPushError(lua, "Invalid debug level.");
         return 1;
@@ -523,7 +523,7 @@ int luaLogCommand(lua_State *lua) {
 }
 
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed;
+    PORT_LONGLONG elapsed;
     REDIS_NOTUSED(ar);
     REDIS_NOTUSED(lua);
 
@@ -773,7 +773,7 @@ void sha1hex(char *digest, char *script, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,(unsigned char*)script,len);
+    SHA1Update(&ctx,(unsigned char*)script,(u_int32_t)len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++) {
@@ -794,7 +794,7 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
         addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.nullbulk);
         break;
     case LUA_TNUMBER:
-        addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
+        addReplyLongLong(c,(PORT_LONGLONG)lua_tonumber(lua,-1));
         break;
     case LUA_TTABLE:
         /* We need to check if it is an array, an error, or a status reply.
@@ -908,7 +908,7 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
 void evalGenericCommand(redisClient *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
-    long long numkeys;
+    PORT_LONGLONG numkeys;
     int delhook = 0, err;
 
     /* We want the same PRNG sequence at every call so that our PRNG is
@@ -986,8 +986,8 @@ void evalGenericCommand(redisClient *c, int evalsha) {
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
-    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
+    luaSetGlobalArray(lua,"KEYS",c->argv+3,(int)numkeys);
+    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,(int)(c->argc-3-numkeys));
 
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);
@@ -1028,7 +1028,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * for every command uses too much CPU. */
     #define LUA_GC_CYCLE_PERIOD 50
     {
-        static long gc_count = 0;
+        static PORT_LONG gc_count = 0;
 
         gc_count++;
         if (gc_count == LUA_GC_CYCLE_PERIOD) {

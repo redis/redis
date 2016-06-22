@@ -38,14 +38,14 @@
  * making sure an error is returned if it is negative or if it overflows
  * Redis 512 MB limit for the string value. */
 static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
-    long long loffset;
+    PORT_LONGLONG loffset;
     char *err = "bit offset is not an integer or out of range";
 
     if (getLongLongFromObjectOrReply(c,o,&loffset,err) != REDIS_OK)
         return REDIS_ERR;
 
     /* Limit offset to 512MB in bytes */
-    if ((loffset < 0) || ((unsigned long long)loffset >> 3) >= (512*1024*1024))
+    if ((loffset < 0) || ((PORT_ULONGLONG)loffset >> 3) >= (512*1024*1024))
     {
         addReplyError(c,err);
         return REDIS_ERR;
@@ -58,14 +58,14 @@ static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with a input string length up to 512 MB. */
-size_t redisPopcount(void *s, long count) {
+size_t redisPopcount(void *s, PORT_LONG count) {
     size_t bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
     /* Count initial bytes not aligned to 32 bit. */
-    while((unsigned long)p & 3 && count) {
+    while((PORT_ULONG)p & 3 && count) {
         bits += bitsinbyte[*p++];
         count--;
     }
@@ -107,12 +107,12 @@ size_t redisPopcount(void *s, long count) {
  * no zero bit is found, it returns count*8 assuming the string is zero
  * padded on the right. However if 'bit' is 1 it is possible that there is
  * not a single set bit in the bitmap. In this special case -1 is returned. */
-long redisBitpos(void *s, unsigned long count, int bit) {
-    unsigned long *l;
+PORT_LONG redisBitpos(void *s, PORT_ULONG count, int bit) {
+    PORT_ULONG *l;
     unsigned char *c;
-    unsigned long skipval, word = 0, one;
-    long pos = 0; /* Position of bit, to return to the caller. */
-    unsigned long j;
+    PORT_ULONG skipval, word = 0, one;
+    PORT_LONG pos = 0; /* Position of bit, to return to the caller. */
+    PORT_ULONG j;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -126,7 +126,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     /* Skip initial bits not aligned to sizeof(unsigned long) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
-    while((unsigned long)c & (sizeof(*l)-1) && count) {
+    while((PORT_ULONG)c & (sizeof(*l)-1) && count) {
         if (*c != skipval) break;
         c++;
         count--;
@@ -134,8 +134,8 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     }
 
     /* Skip bits with full word step. */
-    skipval = bit ? 0 : ULONG_MAX;
-    l = (unsigned long*) c;
+    skipval = bit ? 0 : PORT_ULONG_MAX;
+    l = (PORT_ULONG*) c;
     while (count >= sizeof(*l)) {
         if (*l != skipval) break;
         l++;
@@ -171,9 +171,9 @@ long redisBitpos(void *s, unsigned long count, int bit) {
      * have a single "1" set in the most significant position in an
      * unsigned long. We don't know the size of the long so we use a
      * simple trick. */
-    one = ULONG_MAX; /* All bits set to 1.*/
-    one >>= 1;       /* All bits set to 1 but the MSB. */
-    one = ~one;      /* All bits set to 0 but the MSB. */
+    one = PORT_ULONG_MAX;   /* All bits set to 1.*/
+    one >>= 1;              /* All bits set to 1 but the MSB. */
+    one = ~one;             /* All bits set to 0 but the MSB. */
 
     while(one) {
         if (((one & word) != 0) == bit) return pos;
@@ -203,7 +203,7 @@ void setbitCommand(redisClient *c) {
     size_t bitoffset;
     int byte, bit;
     int byteval, bitval;
-    long on;
+    PORT_LONG on;
 
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset) != REDIS_OK)
         return;
@@ -227,7 +227,7 @@ void setbitCommand(redisClient *c) {
     }
 
     /* Grow sds value to the right length if necessary */
-    byte = bitoffset >> 3;
+    byte = (int)(bitoffset >> 3);
     o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
@@ -262,7 +262,7 @@ void getbitCommand(redisClient *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     if (o->encoding != REDIS_ENCODING_RAW) {
-        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+        if (byte < (size_t) ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr))
             bitval = llbuf[byte] & (1 << bit);
     } else {
         if (byte < sdslen(o->ptr))
@@ -276,13 +276,12 @@ void getbitCommand(redisClient *c) {
 void bitopCommand(redisClient *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
-    unsigned long op, j, numkeys;
-    robj **objects;      /* Array of source objects. */
-    unsigned char **src; /* Array of source strings pointers. */
-    unsigned long *len, maxlen = 0; /* Array of length of src strings,
-                                       and max len. */
-    unsigned long minlen = 0;    /* Min len among the input keys. */
-    unsigned char *res = NULL; /* Resulting string. */
+    PORT_ULONG op, j, numkeys;
+    robj **objects;                 /* Array of source objects. */
+    unsigned char **src;            /* Array of source strings pointers. */
+    PORT_ULONG *len, maxlen = 0;    /* Array of length of src strings, and max len. */
+    PORT_ULONG minlen = 0;          /* Min len among the input keys. */
+    unsigned char *res = NULL;      /* Resulting string. */
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -307,7 +306,7 @@ void bitopCommand(redisClient *c) {
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(long) * numkeys);
+    len = zmalloc(sizeof(PORT_LONG) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         o = lookupKeyRead(c->db,c->argv[j+3]);
@@ -321,7 +320,7 @@ void bitopCommand(redisClient *c) {
         }
         /* Return an error if one of the keys is not a string. */
         if (checkType(c,o,REDIS_STRING)) {
-            unsigned long i;
+            PORT_ULONG i;
             for (i = 0; i < j; i++) {
                 if (objects[i])
                     decrRefCount(objects[i]);
@@ -333,32 +332,32 @@ void bitopCommand(redisClient *c) {
         }
         objects[j] = getDecodedObject(o);
         src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        len[j] = (PORT_LONG) sdslen(objects[j]->ptr);
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
-        unsigned long i;
+        PORT_ULONG i;
+        res = (unsigned char*) sdsnewlen(NULL,maxlen);
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
          * vanilla algorithm. */
         j = 0;
         if (minlen && numkeys <= 16) {
-            unsigned long *lp[16];
-            unsigned long *lres = (unsigned long*) res;
+            PORT_ULONG *lp[16];
+            PORT_ULONG *lres = (PORT_ULONG*) res;
 
             /* Note: sds pointer is always aligned to 8 byte boundary. */
-            memcpy(lp,src,sizeof(unsigned long*)*numkeys);
+            memcpy(lp,src,sizeof(PORT_ULONG*)*numkeys);
             memcpy(res,src[0],minlen);
 
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] &= lp[i][0];
                         lres[1] &= lp[i][1];
@@ -367,11 +366,11 @@ void bitopCommand(redisClient *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_OR) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] |= lp[i][0];
                         lres[1] |= lp[i][1];
@@ -380,11 +379,11 @@ void bitopCommand(redisClient *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_XOR) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     for (i = 1; i < numkeys; i++) {
                         lres[0] ^= lp[i][0];
                         lres[1] ^= lp[i][1];
@@ -393,18 +392,18 @@ void bitopCommand(redisClient *c) {
                         lp[i]+=4;
                     }
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             } else if (op == BITOP_NOT) {
-                while(minlen >= sizeof(unsigned long)*4) {
+                while(minlen >= sizeof(PORT_ULONG)*4) {
                     lres[0] = ~lres[0];
                     lres[1] = ~lres[1];
                     lres[2] = ~lres[2];
                     lres[3] = ~lres[3];
                     lres+=4;
-                    j += sizeof(unsigned long)*4;
-                    minlen -= sizeof(unsigned long)*4;
+                    j += sizeof(PORT_ULONG)*4;
+                    minlen -= sizeof(PORT_ULONG)*4;
                 }
             }
         }
@@ -449,7 +448,7 @@ void bitopCommand(redisClient *c) {
 /* BITCOUNT key [start end] */
 void bitcountCommand(redisClient *c) {
     robj *o;
-    long start, end, strlen;
+    PORT_LONG start, end, strlen;
     unsigned char *p;
     char llbuf[32];
 
@@ -461,10 +460,10 @@ void bitcountCommand(redisClient *c) {
      * array if our string was integer encoded. */
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
+        strlen = (PORT_LONG) sdslen(o->ptr);
     }
 
     /* Parse start/end range if any. */
@@ -494,7 +493,7 @@ void bitcountCommand(redisClient *c) {
     if (start > end) {
         addReply(c,shared.czero);
     } else {
-        long bytes = end-start+1;
+        PORT_LONG bytes = end - start + 1;
 
         addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
@@ -503,7 +502,7 @@ void bitcountCommand(redisClient *c) {
 /* BITPOS key bit [start [end]] */
 void bitposCommand(redisClient *c) {
     robj *o;
-    long bit, start, end, strlen;
+    PORT_LONG bit, start, end, strlen;
     unsigned char *p;
     char llbuf[32];
     int end_given = 0;
@@ -530,10 +529,10 @@ void bitposCommand(redisClient *c) {
      * array if our string was integer encoded. */
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf, sizeof(llbuf), (PORT_LONG) o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
+        strlen = (PORT_LONG) sdslen(o->ptr);
     }
 
     /* Parse start/end range if any. */
@@ -568,8 +567,8 @@ void bitposCommand(redisClient *c) {
     if (start > end) {
         addReplyLongLong(c, -1);
     } else {
-        long bytes = end-start+1;
-        long pos = redisBitpos(p+start,bytes,bit);
+        PORT_LONG bytes = end - start + 1;
+        PORT_LONG pos = redisBitpos(p + start, bytes, bit);
 
         /* If we are looking for clear bits, and the user specified an exact
          * range with start-end, we can't consider the right of the range as

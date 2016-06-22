@@ -45,7 +45,7 @@
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
-slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
+slowlogEntry *slowlogCreateEntry(robj **argv, int argc, PORT_LONGLONG duration) {
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
@@ -69,8 +69,8 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
                 sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
 
                 s = sdscatprintf(s,"... (%lu more bytes)",
-                    (unsigned long)
-                    sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
+                    (PORT_ULONG)
+                    sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);           /* BUGBUG fix %lu*/
                 se->argv[j] = createObject(REDIS_STRING,s);
             } else {
                 se->argv[j] = argv[j];
@@ -109,7 +109,7 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
+void slowlogPushEntryIfNeeded(robj **argv, int argc, PORT_LONGLONG duration) {
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
     if (duration >= server.slowlog_log_slower_than)
         listAddNodeHead(server.slowlog,slowlogCreateEntry(argv,argc,duration));
@@ -136,7 +136,7 @@ void slowlogCommand(redisClient *c) {
     } else if ((c->argc == 2 || c->argc == 3) &&
                !strcasecmp(c->argv[1]->ptr,"get"))
     {
-        long count = 10, sent = 0;
+        PORT_LONG count = 10, sent = 0;
         listIter li;
         void *totentries;
         listNode *ln;

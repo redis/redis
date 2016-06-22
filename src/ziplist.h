@@ -36,7 +36,7 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int sle
 unsigned char *ziplistIndex(unsigned char *zl, int index);
 unsigned char *ziplistNext(unsigned char *zl, unsigned char *p);
 unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p);
-unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
+unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *slen, PORT_LONGLONG *lval);
 unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
 unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num);

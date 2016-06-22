@@ -36,17 +36,26 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32_types.h"
+#endif
 
 #include <sys/types.h>
 
 #include <errno.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#define inline __inline
+#endif
 
 static inline char	*med3 (char *, char *, char *,
     int (*)(const void *, const void *));
 static inline void	 swapfunc (char *, char *, size_t, int);
 
+#ifndef _WIN32
 #define min(a, b)	(a) < (b) ? a : b
+#endif
 
 /*
  * Qsort routine from Bentley & McIlroy's "Engineering a Sort Function".
@@ -62,24 +71,24 @@ static inline void	 swapfunc (char *, char *, size_t, int);
         } while (--i > 0);				\
 }
 
-#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(long) || \
-	es % sizeof(long) ? 2 : es == sizeof(long)? 0 : 1;
+#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(PORT_LONG) || \
+	es % sizeof(PORT_LONG) ? 2 : es == sizeof(PORT_LONG)? 0 : 1;
 
 static inline void
 swapfunc(char *a, char *b, size_t n, int swaptype)
 {
 
 	if (swaptype <= 1)
-		swapcode(long, a, b, n)
+        swapcode(PORT_LONG, a, b, n)
 	else
 		swapcode(char, a, b, n)
 }
 
 #define swap(a, b)						\
 	if (swaptype == 0) {					\
-		long t = *(long *)(void *)(a);			\
-		*(long *)(void *)(a) = *(long *)(void *)(b);	\
-		*(long *)(void *)(b) = t;			\
+		PORT_LONG t = *(PORT_LONG *)(void *)(a);			\
+		*(PORT_LONG *)(void *)(a) = *(PORT_LONG *)(void *)(b);	\
+		*(PORT_LONG *)(void *)(b) = t;			\
 	} else							\
 		swapfunc(a, b, es, swaptype)
 

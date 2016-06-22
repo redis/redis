@@ -2,7 +2,11 @@ start_server {tags {"repl"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            after 1000
+            if { $::tcl_platform(platform) == "windows" } {
+                after 2000
+            } else {
+                after 1000
+            }
             s -1 role
         } {slave}
 
@@ -69,6 +73,9 @@ start_server {tags {"repl"}} {
         test {MASTER and SLAVE dataset should be identical after complex ops} {
             createComplexDataset r 10000
             after 500
+            wait_for_condition 50 100 {
+                [r debug digest] eq [r -1 debug digest]
+            } else {
             if {[r debug digest] ne [r -1 debug digest]} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
@@ -80,6 +87,7 @@ start_server {tags {"repl"}} {
                 close $fd
                 puts "Master - Slave inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
+            }
             }
             assert_equal [r debug digest] [r -1 debug digest]
         }

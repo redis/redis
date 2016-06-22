@@ -34,6 +34,10 @@
  * either the BSD or the GPL.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include "lzfP.h"
 
 #define HSIZE (1 << (HLOG))
@@ -120,11 +124,7 @@ lzf_compress (const void *const in_data, unsigned int in_len,
    * and fails to support both assumptions is windows 64 bit, we make a
    * special workaround for it.
    */
-#if defined (WIN32) && defined (_M_X64)
-  unsigned _int64 off; /* workaround for missing POSIX compliance */
-#else
-  unsigned long off;
-#endif
+  PORT_ULONG off;
   unsigned int hval;
   int lit;
 
@@ -167,7 +167,7 @@ lzf_compress (const void *const in_data, unsigned int in_len,
         {
           /* match found at *ref++ */
           unsigned int len = 2;
-          unsigned int maxlen = in_end - ip - len;
+          unsigned int maxlen = (unsigned int)(in_end - ip - len);
           maxlen = maxlen > MAX_REF ? MAX_REF : maxlen;
 
           op [- lit - 1] = lit - 1; /* stop run */
@@ -213,15 +213,15 @@ lzf_compress (const void *const in_data, unsigned int in_len,
 
           if (len < 7)
             {
-              *op++ = (off >> 8) + (len << 5);
+              *op++ = (u8)((off >> 8) + (len << 5));
             }
           else
             {
-              *op++ = (off >> 8) + (  7 << 5);
+              *op++ = (u8)((off >> 8) + (  7 << 5));
               *op++ = len - 7;
             }
 
-          *op++ = off;
+          *op++ = (u8)(off);
           lit = 0; op++; /* start run */
 
           ip += len + 1;
@@ -290,6 +290,6 @@ lzf_compress (const void *const in_data, unsigned int in_len,
   op [- lit - 1] = lit - 1; /* end run */
   op -= !lit; /* undo run if length is zero */
 
-  return op - (u8 *)out_data;
+  return (unsigned int)(op - (u8 *)out_data);
 }
 

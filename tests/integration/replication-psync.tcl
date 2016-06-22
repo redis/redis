@@ -4,7 +4,11 @@ proc start_bg_complex_data {host port db ops} {
 }
 
 proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
+    if { $::tcl_platform(platform) == "windows" } {
+        kill_proc2 $handle
+    } else {
+        catch {exec /bin/kill -9 $handle}
+    }
 }
 
 # Creates a master-slave pair and breaks the link continuously to force
@@ -66,11 +70,20 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                             catch {
                                 if {$delay} {
                                     $slave multi
-                                    $slave client kill $master_host:$master_port
+                                    if { $::tcl_platform(platform) == "windows" } {
+                                        $slave client kill MASTER:0
+                                    } else {
+                                        $slave client kill $master_host:$master_port
+                                    }
+
                                     $slave debug sleep $delay
                                     $slave exec
                                 } else {
-                                    $slave client kill $master_host:$master_port
+                                    if { $::tcl_platform(platform) == "windows" } {
+                                        $slave client kill MASTER:0
+                                    } else {
+                                        $slave client kill $master_host:$master_port
+                                    }
                                 }
                             }
                         }
@@ -86,18 +99,31 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                     incr retry -1
                 }
                 assert {[$master dbsize] > 0}
-
                 if {[$master debug digest] ne [$slave debug digest]} {
                     set csv1 [csvdump r]
                     set csv2 [csvdump {r -1}]
-                    set fd [open /tmp/repldump1.txt w]
+                    if { $::tcl_platform(platform) == "windows" } {
+                        set tmpdir $::env(TEMP)
+                        set fd [open [file join $tmpdir repldump1.txt] w]
+                    } else {
+                        set fd [open /tmp/repldump1.txt w]
+                    }
+
                     puts -nonewline $fd $csv1
                     close $fd
-                    set fd [open /tmp/repldump2.txt w]
+                    if { $::tcl_platform(platform) == "windows" } {
+                        set fd [open [file join $tmpdir repldump2.txt] w]
+                    } else {
+                        set fd [open /tmp/repldump2.txt w]
+                    }
                     puts -nonewline $fd $csv2
                     close $fd
                     puts "Master - Slave inconsistency"
-                    puts "Run diff -u against /tmp/repldump*.txt for more info"
+                    if { $::tcl_platform(platform) == "windows" } {
+                        puts "Run fc against repldump*.txt in $tmpdir for more info"
+                    } else {
+                        puts "Run diff -u against /tmp/repldump*.txt for more info"
+                    }
                 }
                 assert_equal [r debug digest] [r -1 debug digest]
                 eval $cond
@@ -105,6 +131,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
         }
     }
 }
+
 
 foreach diskless {no yes} {
     test_psync {no reconnection, just sync} 6 1000000 3600 0 {

@@ -284,8 +284,15 @@ static l_mem propagatemark (global_State *g) {
       g->gray = h->gclist;
       if (traversetable(g, h))  /* table is weak? */
         black2gray(o);  /* keep it gray */
-      return sizeof(Table) + sizeof(TValue) * h->sizearray +
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable: 4334)
+#endif
+      return sizeof(Table)+sizeof(TValue)* h->sizearray +
                              sizeof(Node) * sizenode(h);
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
     }
     case LUA_TFUNCTION: {
       Closure *cl = gco2cl(o);

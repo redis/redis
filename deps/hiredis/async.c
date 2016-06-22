@@ -32,7 +32,9 @@
 #include "fmacros.h"
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -40,10 +42,18 @@
 #include "net.h"
 #include "dict.c"
 #include "sds.h"
+#ifdef _WIN32
+  #include "../../src/win32_Interop/win32fixes.h"
+#endif
 
 #define _EL_ADD_READ(ctx) do { \
         if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \
     } while(0)
+#ifdef _WIN32
+#define _EL_FORCE_ADD_READ(ctx) do { \
+        if ((ctx)->ev.forceAddRead) (ctx)->ev.forceAddRead((ctx)->ev.data); \
+    } while (0)
+#endif
 #define _EL_DEL_READ(ctx) do { \
         if ((ctx)->ev.delRead) (ctx)->ev.delRead((ctx)->ev.data); \
     } while(0)
@@ -57,24 +67,29 @@
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
     } while(0);
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
 /* Forward declaration of function in hiredis.c */
 void __redisAppendCommand(redisContext *c, char *cmd, size_t len);
 
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
     return dictGenHashFunction((const unsigned char *)key,
-                               sdslen((const sds)key));
+                               (int)sdslen((const sds)key));
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
-    ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+    ((void) privdata);
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }
 
 static int callbackKeyCompare(void *privdata, const void *key1, const void *key2) {
-    int l1, l2;
+    size_t l1, l2;
     ((void) privdata);
 
     l1 = sdslen((const sds)key1);
@@ -122,6 +137,9 @@ static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
 
     ac->ev.data = NULL;
     ac->ev.addRead = NULL;
+#ifdef _WIN32
+    ac->ev.forceAddRead = NULL;
+#endif
     ac->ev.delRead = NULL;
     ac->ev.addWrite = NULL;
     ac->ev.delWrite = NULL;
@@ -147,6 +165,31 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
+#ifdef WIN32_IOCP
+redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+    SOCKADDR_STORAGE ss;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    if (WSIOCP_SocketConnect(ac->c.fd, &ss) != 0) {
+        ac->c.err = errno;
+        strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
+    }
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+
+redisAsyncContext *redisAsyncConnectBind(const char *ip, int port, const char *source_addr) {
+    SOCKADDR_STORAGE ss;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    if (WSIOCP_SocketConnectBind(ac->c.fd, &ss, source_addr) != 0) {
+        ac->c.err = errno;
+        strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
+    }
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+#else
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     redisContext *c;
     redisAsyncContext *ac;
@@ -166,12 +209,13 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
 }
 
 redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
-                                         const char *source_addr) {
+    const char *source_addr) {
     redisContext *c = redisConnectBindNonBlock(ip,port,source_addr);
     redisAsyncContext *ac = redisAsyncInitialize(c);
     __redisAsyncCopyError(ac);
     return ac;
 }
+#endif
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c;
@@ -517,7 +561,15 @@ void redisAsyncHandleRead(redisAsyncContext *ac) {
         __redisAsyncDisconnect(ac);
     } else {
         /* Always re-schedule reads */
+#ifdef _WIN32
+        // There appears to be a bug in the Linux version of _EL_ADD_READ which will not reschedule
+        // the read if already reading. This is a problem if there is a large number of async GET 
+        // operations. If the receive buffer is exhausted with the data returned, the read would
+        // not be rescheduled, and the async operations would cease. This forces the read to recur.
+        _EL_FORCE_ADD_READ(ac);
+#else
         _EL_ADD_READ(ac);
+#endif
         redisProcessCallbacks(ac);
     }
 }
@@ -549,6 +601,46 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
     }
 }
 
+#ifdef _WIN32
+/* The redisAsyncHandleWrite is split into a Prep and Complete routines
+   To allow using a write routine suitable for async behavior.
+   For Windows this will use IOCP on write. */
+int redisAsyncHandleWritePrep(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+
+    if (!(c->flags & REDIS_CONNECTED)) {
+        /* Abort connect was not successful. */
+        if (__redisAsyncHandleConnect(ac) != REDIS_OK)
+            return REDIS_ERR;
+        /* Try again later when the context is still not connected. */
+        if (!(c->flags & REDIS_CONNECTED))
+            return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+int redisAsyncHandleWriteComplete(redisAsyncContext *ac, int written) {
+    redisContext *c = &(ac->c);
+    int done = 0;
+    int rc;
+
+    rc = redisBufferWriteDone(c, written, &done);
+    if (rc == REDIS_ERR) {
+        __redisAsyncDisconnect(ac);
+    } else {
+        /* Continue writing when not done, stop writing otherwise */
+        if (!done)
+            _EL_ADD_WRITE(ac);
+        else
+            _EL_DEL_WRITE(ac);
+
+        /* Always schedule reads after writes */
+        _EL_ADD_READ(ac);
+    }
+    return REDIS_OK;
+}
+#endif
+
 /* Sets a pointer to the first argument and its length starting at p. Returns
  * the number of bytes to skip to get to the following argument. */
 static char *nextArgument(char *start, char **str, size_t *len) {
@@ -558,7 +650,7 @@ static char *nextArgument(char *start, char **str, size_t *len) {
         if (p == NULL) return NULL;
     }
 
-    *len = (int)strtol(p+1,NULL,10);
+    *len = (int)PORT_STRTOL(p+1,NULL,10);
     p = strchr(p,'\r');
     assert(p);
     *str = p+2;

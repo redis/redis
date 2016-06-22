@@ -319,8 +319,15 @@ static void resize (lua_State *L, Table *t, int nasize, int nhsize) {
     if (!ttisnil(gval(old)))
       setobjt2t(L, luaH_set(L, t, key2tval(old)), gval(old));
   }
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable: 4334)
+#endif
   if (nold != dummynode)
     luaM_freearray(L, nold, twoto(oldhsize), Node);  /* free old array */
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 }
 
 
@@ -372,9 +379,16 @@ Table *luaH_new (lua_State *L, int narray, int nhash) {
 
 
 void luaH_free (lua_State *L, Table *t) {
-  if (t->node != dummynode)
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable: 4334)
+#endif
+    if (t->node != dummynode)
     luaM_freearray(L, t->node, sizenode(t), Node);
-  luaM_freearray(L, t->array, t->sizearray, TValue);
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
+    luaM_freearray(L, t->array, t->sizearray, TValue);
   luaM_free(L, t);
 }
 

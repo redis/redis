@@ -1,0 +1,48 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2013
+VisualStudioVersion = 12.0.21005.1
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{930C7802-8A8C-48F9-8165-68863BCCD9DD}") = "RedisMsi", "RedisMsi\RedisMsi.wixproj", "{C829D256-16B4-4DC7-9BF9-6814F76B441E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedisMsi.CustomActions", "RedisMsi.CustomActions\RedisMsi.CustomActions.csproj", "{A917027E-D229-46C9-B969-1F4CE7D5D2CA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Win32 = Release|Win32
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Win32.ActiveCfg = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Win32.Build.0 = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x64.ActiveCfg = Debug|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x64.Build.0 = Debug|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x86.ActiveCfg = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x86.Build.0 = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Win32.ActiveCfg = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Win32.Build.0 = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x64.ActiveCfg = Release|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x64.Build.0 = Release|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x86.ActiveCfg = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x86.Build.0 = Release|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Win32.ActiveCfg = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Win32.Build.0 = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x64.ActiveCfg = Debug|x64
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x64.Build.0 = Debug|x64
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x86.ActiveCfg = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x86.Build.0 = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Win32.ActiveCfg = Release|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Win32.Build.0 = Release|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x64.ActiveCfg = Release|x64
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x64.Build.0 = Release|x64
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x86.ActiveCfg = Release|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

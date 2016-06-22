@@ -36,7 +36,7 @@
  * in order to get O(log(N)) INSERT and REMOVE operations into a sorted
  * data structure.
  *
- * The elements are added to a hash table mapping Redis objects to scores.
+ * The elements are added to an hash table mapping Redis objects to scores.
  * At the same time the elements are added to a skip list mapping scores
  * to Redis objects (so objects are sorted by scores in this "view"). */
 
@@ -51,6 +51,10 @@
 
 #include "redis.h"
 #include <math.h>
+
+#ifdef _WIN32
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
+#endif
 
 static int zslLexValueGteMin(robj *value, zlexrangespec *spec);
 static int zslLexValueLteMax(robj *value, zlexrangespec *spec);
@@ -289,9 +293,9 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
  * Min and max are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
-unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
+PORT_ULONG zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned long removed = 0;
+    PORT_ULONG removed = 0;
     int i;
 
     x = zsl->header;
@@ -320,9 +324,9 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
     return removed;
 }
 
-unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict) {
+PORT_ULONG zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned long removed = 0;
+    PORT_ULONG removed = 0;
     int i;
 
 
@@ -351,9 +355,9 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
 
 /* Delete all the elements with rank between start and end from the skiplist.
  * Start and end are inclusive. Note that start and end need to be 1-based */
-unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end, dict *dict) {
+PORT_ULONG zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned long traversed = 0, removed = 0;
+    PORT_ULONG traversed = 0, removed = 0;
     int i;
 
     x = zsl->header;
@@ -383,9 +387,9 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
-unsigned long zslGetRank(zskiplist *zsl, double score, robj *o) {
+PORT_ULONG zslGetRank(zskiplist *zsl, double score, robj *o) {
     zskiplistNode *x;
-    unsigned long rank = 0;
+    PORT_ULONG rank = 0;
     int i;
 
     x = zsl->header;
@@ -407,9 +411,9 @@ unsigned long zslGetRank(zskiplist *zsl, double score, robj *o) {
 }
 
 /* Finds an element by its rank. The rank argument needs to be 1-based. */
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, PORT_ULONG rank) {
     zskiplistNode *x;
-    unsigned long traversed = 0;
+    PORT_ULONG traversed = 0;
     int i;
 
     x = zsl->header;
@@ -436,7 +440,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
      * ZRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
      * ZRANGEBYSCORE zset 1.5 2.5 will instead match min <= x <= max */
     if (min->encoding == REDIS_ENCODING_INT) {
-        spec->min = (long)min->ptr;
+        spec->min = (PORT_LONG) min->ptr;
     } else {
         if (((char*)min->ptr)[0] == '(') {
             spec->min = strtod((char*)min->ptr+1,&eptr);
@@ -448,7 +452,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         }
     }
     if (max->encoding == REDIS_ENCODING_INT) {
-        spec->max = (long)max->ptr;
+        spec->max = (PORT_LONG) max->ptr;
     } else {
         if (((char*)max->ptr)[0] == '(') {
             spec->max = strtod((char*)max->ptr+1,&eptr);
@@ -635,7 +639,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
 double zzlGetScore(unsigned char *sptr) {
     unsigned char *vstr;
     unsigned int vlen;
-    long long vlong;
+    PORT_LONGLONG vlong;
     char buf[128];
     double score;
 
@@ -647,7 +651,7 @@ double zzlGetScore(unsigned char *sptr) {
         buf[vlen] = '\0';
         score = strtod(buf,NULL);
     } else {
-        score = vlong;
+        score = (double)vlong;
     }
 
     return score;
@@ -659,7 +663,7 @@ double zzlGetScore(unsigned char *sptr) {
 robj *ziplistGetObject(unsigned char *sptr) {
     unsigned char *vstr;
     unsigned int vlen;
-    long long vlong;
+    PORT_LONGLONG vlong;
 
     redisAssert(sptr != NULL);
     redisAssert(ziplistGet(sptr,&vstr,&vlen,&vlong));
@@ -675,13 +679,13 @@ robj *ziplistGetObject(unsigned char *sptr) {
 int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int clen) {
     unsigned char *vstr;
     unsigned int vlen;
-    long long vlong;
+    PORT_LONGLONG vlong;
     unsigned char vbuf[32];
     int minlen, cmp;
 
     redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
     if (vstr == NULL) {
-        /* Store string representation of long long in buf. */
+        /* Store string representation of PORT_LONGLONG in buf. */
         vlen = ll2string((char*)vbuf,sizeof(vbuf),vlong);
         vstr = vbuf;
     }
@@ -699,39 +703,39 @@ unsigned int zzlLength(unsigned char *zl) {
 /* Move to next entry based on the values in eptr and sptr. Both are set to
  * NULL when there is no next entry. */
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *_eptr, *_sptr;
+    unsigned char *l_eptr, *l_sptr;
     redisAssert(*eptr != NULL && *sptr != NULL);
 
-    _eptr = ziplistNext(zl,*sptr);
-    if (_eptr != NULL) {
-        _sptr = ziplistNext(zl,_eptr);
-        redisAssert(_sptr != NULL);
+    l_eptr = ziplistNext(zl,*sptr);
+    if (l_eptr != NULL) {
+        l_sptr = ziplistNext(zl,l_eptr);
+        redisAssert(l_sptr != NULL);
     } else {
         /* No next entry. */
-        _sptr = NULL;
+        l_sptr = NULL;
     }
 
-    *eptr = _eptr;
-    *sptr = _sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
 
 /* Move to the previous entry based on the values in eptr and sptr. Both are
  * set to NULL when there is no next entry. */
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
-    unsigned char *_eptr, *_sptr;
+    unsigned char *l_eptr, *l_sptr;
     redisAssert(*eptr != NULL && *sptr != NULL);
 
-    _sptr = ziplistPrev(zl,*eptr);
-    if (_sptr != NULL) {
-        _eptr = ziplistPrev(zl,_sptr);
-        redisAssert(_eptr != NULL);
+    l_sptr = ziplistPrev(zl,*eptr);
+    if (l_sptr != NULL) {
+        l_eptr = ziplistPrev(zl,l_sptr);
+        redisAssert(l_eptr != NULL);
     } else {
         /* No previous entry. */
-        _eptr = NULL;
+        l_eptr = NULL;
     }
 
-    *eptr = _eptr;
-    *sptr = _sptr;
+    *eptr = l_eptr;
+    *sptr = l_sptr;
 }
 
 /* Returns if there is a part of the zset is in range. Should only be used
@@ -920,7 +924,7 @@ unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
         sptr = ziplistNext(zl,eptr);
         redisAssertWithInfo(NULL,ele,sptr != NULL);
 
-        if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr))) {
+        if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr))) {
             /* Matching element, pull out score. */
             if (score != NULL) *score = zzlGetScore(sptr);
             decrRefCount(ele);
@@ -955,12 +959,12 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
     redisAssertWithInfo(NULL,ele,ele->encoding == REDIS_ENCODING_RAW);
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
-        zl = ziplistPush(zl,ele->ptr,sdslen(ele->ptr),ZIPLIST_TAIL);
+        zl = ziplistPush(zl,ele->ptr,(unsigned int)sdslen(ele->ptr),ZIPLIST_TAIL);
         zl = ziplistPush(zl,(unsigned char*)scorebuf,scorelen,ZIPLIST_TAIL);
     } else {
         /* Keep offset relative to zl, as it might be re-allocated. */
         offset = eptr-zl;
-        zl = ziplistInsert(zl,eptr,ele->ptr,sdslen(ele->ptr));
+        zl = ziplistInsert(zl,eptr,ele->ptr,(unsigned int)sdslen(ele->ptr));
         eptr = zl+offset;
 
         /* Insert score after the element. */
@@ -991,7 +995,7 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
             break;
         } else if (s == score) {
             /* Ensure lexicographical ordering for elements. */
-            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) > 0) {
+            if (zzlCompareElements(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)) > 0) {
                 zl = zzlInsertAt(zl,eptr,ele,score);
                 break;
             }
@@ -1009,10 +1013,10 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, PORT_ULONG *deleted) {
     unsigned char *eptr, *sptr;
     double score;
-    unsigned long num = 0;
+    PORT_ULONG num = 0;
 
     if (deleted != NULL) *deleted = 0;
 
@@ -1038,9 +1042,9 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, PORT_ULONG *deleted) {
     unsigned char *eptr, *sptr;
-    unsigned long num = 0;
+    PORT_ULONG num = 0;
 
     if (deleted != NULL) *deleted = 0;
 
@@ -1067,7 +1071,7 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
 
 /* Delete all the elements with rank between start and end from the skiplist.
  * Start and end are inclusive. Note that start and end need to be 1-based */
-unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsigned int end, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsigned int end, PORT_ULONG *deleted) {
     unsigned int num = (end-start)+1;
     if (deleted) *deleted = num;
     zl = ziplistDeleteRange(zl,2*(start-1),2*num);
@@ -1102,7 +1106,7 @@ void zsetConvert(robj *zobj, int encoding) {
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         unsigned int vlen;
-        long long vlong;
+        PORT_LONGLONG vlong;
 
         if (encoding != REDIS_ENCODING_SKIPLIST)
             redisPanic("Unknown target encoding");
@@ -1382,10 +1386,10 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
     robj *key = c->argv[1];
     robj *zobj;
     int keyremoved = 0;
-    unsigned long deleted;
+    PORT_ULONG deleted;
     zrangespec range;
     zlexrangespec lexrange;
-    long start, end, llen;
+    PORT_LONG start, end, llen;
 
     /* Step 1: Parse the range. */
     if (rangetype == ZRANGE_RANK) {
@@ -1526,10 +1530,10 @@ typedef struct {
 
 
 /* Use dirty flags for pointers that need to be cleaned up in the next
- * iteration over the zsetopval. The dirty flag for the long long value is
- * special, since long long values don't need cleanup. Instead, it means that
- * we already checked that "ell" holds a long long, or tried to convert another
- * representation into a long long value. When this was successful,
+ * iteration over the zsetopval. The dirty flag for the PORT_LONGLONG value is
+ * special, since PORT_LONGLONG values don't need cleanup. Instead, it means that
+ * we already checked that "ell" holds a PORT_LONGLONG, or tried to convert another
+ * representation into a PORT_LONGLONG value. When this was successful,
  * OPVAL_VALID_LL is set as well. */
 #define OPVAL_DIRTY_ROBJ 1
 #define OPVAL_DIRTY_LL 2
@@ -1542,7 +1546,7 @@ typedef struct {
     robj *ele;
     unsigned char *estr;
     unsigned int elen;
-    long long ell;
+    PORT_LONGLONG ell;
     double score;
 } zsetopval;
 
@@ -1621,7 +1625,7 @@ int zuiLength(zsetopsrc *op) {
             return intsetLen(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_HT) {
             dict *ht = op->subject->ptr;
-            return dictSize(ht);
+            return (int)dictSize(ht);
         } else {
             redisPanic("Unknown set encoding");
         }
@@ -1708,7 +1712,7 @@ int zuiLongLongFromValue(zsetopval *val) {
 
         if (val->ele != NULL) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
-                val->ell = (long)val->ele->ptr;
+                val->ell = (PORT_LONG)val->ele->ptr;
                 val->flags |= OPVAL_VALID_LL;
             } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
                 if (string2ll(val->ele->ptr,sdslen(val->ele->ptr),&val->ell))
@@ -1720,7 +1724,7 @@ int zuiLongLongFromValue(zsetopval *val) {
             if (string2ll((char*)val->estr,val->elen,&val->ell))
                 val->flags |= OPVAL_VALID_LL;
         } else {
-            /* The long long was already set, flag as valid. */
+            /* The PORT_LONGLONG was already set, flag as valid. */
             val->flags |= OPVAL_VALID_LL;
         }
     }
@@ -1743,10 +1747,10 @@ int zuiBufferFromValue(zsetopval *val) {
     if (val->estr == NULL) {
         if (val->ele != NULL) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
-                val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(long)val->ele->ptr);
+                val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(PORT_LONG)val->ele->ptr);
                 val->estr = val->_buf;
             } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
-                val->elen = sdslen(val->ele->ptr);
+                val->elen = (unsigned int)sdslen(val->ele->ptr);
                 val->estr = val->ele->ptr;
             } else {
                 redisPanic("Unsupported element encoding");
@@ -1823,7 +1827,7 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_MAX 3
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
-inline static void zunionInterAggregate(double *target, double val, int aggregate) {
+__inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
         *target = *target + val;
         /* The result of adding two doubles is NaN when one variable
@@ -1842,7 +1846,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
 
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     int i, j;
-    long setnum;
+    PORT_LONG setnum;
     int aggregate = REDIS_AGGR_SUM;
     zsetopsrc *src;
     zsetopval zval;
@@ -1972,7 +1976,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                     if (tmp->encoding == REDIS_ENCODING_RAW)
                         if (sdslen(tmp->ptr) > maxelelen)
-                            maxelelen = sdslen(tmp->ptr);
+                            maxelelen = (unsigned int)sdslen(tmp->ptr);
                 }
             }
             zuiClearIterator(&src[0]);
@@ -2010,7 +2014,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                      * at the end. */
                     if (tmp->encoding == REDIS_ENCODING_RAW) {
                         if (sdslen(tmp->ptr) > maxelelen)
-                            maxelelen = sdslen(tmp->ptr);
+                            maxelelen = (unsigned int)sdslen(tmp->ptr);         /* UPSTREAM_ISSUE: missing (unsigned int) cast */
                     }
                     /* Add the element with its initial score. */
                     de = dictAddRaw(accumulator,tmp);
@@ -2092,8 +2096,8 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
     robj *key = c->argv[1];
     robj *zobj;
     int withscores = 0;
-    long start;
-    long end;
+    PORT_LONG start;
+    PORT_LONG end;
     int llen;
     int rangelen;
 
@@ -2133,7 +2137,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         unsigned int vlen;
-        long long vlong;
+        PORT_LONGLONG vlong;
 
         if (reverse)
             eptr = ziplistIndex(zl,-2-(2*start));
@@ -2203,9 +2207,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
     zrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
-    long offset = 0, limit = -1;
+    PORT_LONG offset = 0,limit = -1;
     int withscores = 0;
-    unsigned long rangelen = 0;
+    PORT_ULONG rangelen = 0;
     void *replylen = NULL;
     int minidx, maxidx;
 
@@ -2253,7 +2257,7 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         unsigned int vlen;
-        long long vlong;
+        PORT_LONGLONG vlong;
         double score;
 
         /* If reversed, get the last node in range as starting point. */
@@ -2444,7 +2448,7 @@ void zcountCommand(redisClient *c) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *zn;
-        unsigned long rank;
+        PORT_ULONG rank;
 
         /* Find first element in range */
         zn = zslFirstInRange(zsl, &range);
@@ -2522,7 +2526,7 @@ void zlexcountCommand(redisClient *c) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *zn;
-        unsigned long rank;
+        PORT_ULONG rank;
 
         /* Find first element in range */
         zn = zslFirstInLexRange(zsl, &range);
@@ -2554,8 +2558,8 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
     zlexrangespec range;
     robj *key = c->argv[1];
     robj *zobj;
-    long offset = 0, limit = -1;
-    unsigned long rangelen = 0;
+    PORT_LONG offset = 0, limit = -1;
+    PORT_ULONG rangelen = 0;
     void *replylen = NULL;
     int minidx, maxidx;
 
@@ -2605,7 +2609,7 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
         unsigned char *eptr, *sptr;
         unsigned char *vstr;
         unsigned int vlen;
-        long long vlong;
+        PORT_LONGLONG vlong;
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
@@ -2778,8 +2782,8 @@ void zrankGenericCommand(redisClient *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
     robj *zobj;
-    unsigned long llen;
-    unsigned long rank;
+    PORT_ULONG llen;
+    PORT_ULONG rank;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
@@ -2797,7 +2801,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
 
         rank = 1;
         while(eptr != NULL) {
-            if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr)))
+            if (ziplistCompare(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)))
                 break;
             rank++;
             zzlNext(zl,&eptr,&sptr);
@@ -2845,7 +2849,7 @@ void zrevrankCommand(redisClient *c) {
 
 void zscanCommand(redisClient *c) {
     robj *o;
-    unsigned long cursor;
+    PORT_ULONG cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||

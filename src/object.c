@@ -29,11 +29,16 @@
  */
 
 #include "redis.h"
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#else
+#include <pthread.h>
+#endif
 #include <math.h>
 #include <ctype.h>
 
 #ifdef __CYGWIN__
-#define strtold(a,b) ((long double)strtod((a),(b)))
+#define strtold(a,b) ((PORT_LONGDOUBLE)strtod((a),(b)))
 #endif
 
 robj *createObject(int type, void *ptr) {
@@ -52,16 +57,16 @@ robj *createStringObject(char *ptr, size_t len) {
     return createObject(REDIS_STRING,sdsnewlen(ptr,len));
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+robj *createStringObjectFromLongLong(PORT_LONGLONG value) {
     robj *o;
     if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
-        if (value >= LONG_MIN && value <= LONG_MAX) {
+        if (value >= PORT_LONG_MIN && value <= PORT_LONG_MAX) {
             o = createObject(REDIS_STRING, NULL);
             o->encoding = REDIS_ENCODING_INT;
-            o->ptr = (void*)((long)value);
+            o->ptr = (void*)(value);
         } else {
             o = createObject(REDIS_STRING,sdsfromlonglong(value));
         }
@@ -75,7 +80,7 @@ robj *createStringObjectFromLongLong(long long value) {
  * and the output of snprintf() is not modified.
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
-robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
+robj *createStringObjectFromLongDouble(PORT_LONGDOUBLE value, int humanfriendly) {
     char buf[256];
     int len;
 
@@ -95,7 +100,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
          * way that is "non surprising" for the user (that is, most small
          * decimal numbers will be represented in a way that when converted
          * back into a string are exactly the same as what the user typed.) */
-        len = snprintf(buf,sizeof(buf),"%.17Lf", value);
+        len = snprintf(buf,sizeof(buf),"%.15Lf",value);                         WIN_PORT_FIX /* %.17 -> %.15 on Windows the magic number is 15 */
         /* Now remove trailing zeroes after the '.' */
         if (strchr(buf,'.') != NULL) {
             char *p = buf+len-1;
@@ -106,7 +111,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
             if (*p == '.') len--;
         }
     } else {
-        len = snprintf(buf,sizeof(buf),"%.17Lg", value);
+        len = snprintf(buf,sizeof(buf),"%.17Lg", value);    /* BUGBUG: verify if it needs to be changed to %.15 as well*/
     }
     return createStringObject(buf,len);
 }
@@ -286,10 +291,10 @@ int checkType(redisClient *c, robj *o, int type) {
     return 0;
 }
 
-int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
+int isObjectRepresentableAsLongLong(robj *o, PORT_LONGLONG *llval) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (o->encoding == REDIS_ENCODING_INT) {
-        if (llval) *llval = (long) o->ptr;
+        if (llval) *llval = (PORT_LONGLONG) o->ptr;
         return REDIS_OK;
     } else {
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
@@ -298,7 +303,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
-    long value;
+    PORT_LONG value;
     sds s = o->ptr;
     size_t len;
 
@@ -371,7 +376,7 @@ robj *getDecodedObject(robj *o) {
     if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_INT) {
         char buf[32];
 
-        ll2string(buf,32,(long)o->ptr);
+        ll2string(buf, 32, (PORT_LONG) o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
@@ -391,20 +396,20 @@ robj *getDecodedObject(robj *o) {
 #define REDIS_COMPARE_COLL (1<<1)
 
 int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
-    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
 
     if (a == b) return 0;
     if (a->encoding != REDIS_ENCODING_RAW) {
-        alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        alen = ll2string(bufa, sizeof(bufa), (PORT_LONG) a->ptr);
         astr = bufa;
     } else {
         astr = a->ptr;
         alen = sdslen(astr);
     }
     if (b->encoding != REDIS_ENCODING_RAW) {
-        blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        blen = ll2string(bufb, sizeof(bufb), (PORT_LONG) b->ptr);
         bstr = bufb;
     } else {
         bstr = b->ptr;
@@ -417,7 +422,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
         minlen = (alen < blen) ? alen : blen;
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return alen-blen;
+        if (cmp == 0) return (int)(alen-blen);
         return cmp;
     }
 }
@@ -451,7 +456,7 @@ size_t stringObjectLen(robj *o) {
     } else {
         char buf[32];
 
-        return ll2string(buf,32,(long)o->ptr);
+        return ll2string(buf, 32, (PORT_LONG) o->ptr);
     }
 }
 
@@ -474,7 +479,7 @@ int getDoubleFromObject(robj *o, double *target) {
                 isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG) o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -497,8 +502,8 @@ int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const ch
     return REDIS_OK;
 }
 
-int getLongDoubleFromObject(robj *o, long double *target) {
-    long double value;
+int getLongDoubleFromObject(robj *o, PORT_LONGDOUBLE *target) {
+    PORT_LONGDOUBLE value;
     char *eptr;
 
     if (o == NULL) {
@@ -507,12 +512,12 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             errno = 0;
-            value = strtold(o->ptr, &eptr);
+            value = IF_WIN32(wstrtod,strtold)(o->ptr,&eptr);                    // BUGBUG: verify for 32 bits
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG) o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -521,8 +526,8 @@ int getLongDoubleFromObject(robj *o, long double *target) {
     return REDIS_OK;
 }
 
-int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg) {
-    long double value;
+int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, PORT_LONGDOUBLE *target, const char *msg) {
+    PORT_LONGDOUBLE value;
     if (getLongDoubleFromObject(o, &value) != REDIS_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -535,8 +540,8 @@ int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target,
     return REDIS_OK;
 }
 
-int getLongLongFromObject(robj *o, long long *target) {
-    long long value;
+int getLongLongFromObject(robj *o, PORT_LONGLONG *target) {
+    PORT_LONGLONG value;
     char *eptr;
 
     if (o == NULL) {
@@ -550,7 +555,7 @@ int getLongLongFromObject(robj *o, long long *target) {
                 errno == ERANGE)
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
-            value = (long)o->ptr;
+            value = (PORT_LONG) o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -559,8 +564,8 @@ int getLongLongFromObject(robj *o, long long *target) {
     return REDIS_OK;
 }
 
-int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg) {
-    long long value;
+int getLongLongFromObjectOrReply(redisClient *c, robj *o, PORT_LONGLONG *target, const char *msg) {
+    PORT_LONGLONG value;
     if (getLongLongFromObject(o, &value) != REDIS_OK) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
@@ -573,11 +578,11 @@ int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, con
     return REDIS_OK;
 }
 
-int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg) {
-    long long value;
+int getLongFromObjectOrReply(redisClient *c, robj *o, PORT_LONG *target, const char *msg) {
+    PORT_LONGLONG value;
 
     if (getLongLongFromObjectOrReply(c, o, &value, msg) != REDIS_OK) return REDIS_ERR;
-    if (value < LONG_MIN || value > LONG_MAX) {
+    if (value < PORT_LONG_MIN || value > PORT_LONG_MAX) {
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
         } else {
@@ -585,7 +590,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
         }
         return REDIS_ERR;
     }
-    *target = value;
+    *target = (PORT_LONG) value;
     return REDIS_OK;
 }
 
@@ -604,7 +609,7 @@ char *strEncoding(int encoding) {
 
 /* Given an object returns the min number of seconds the object was never
  * requested, using an approximated LRU algorithm. */
-unsigned long estimateObjectIdleTime(robj *o) {
+PORT_ULONG estimateObjectIdleTime(robj *o) {
     if (server.lruclock >= o->lru) {
         return (server.lruclock - o->lru) * REDIS_LRU_CLOCK_RESOLUTION;
     } else {

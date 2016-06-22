@@ -733,19 +733,24 @@ union luai_Cast { double l_d; long l_l; };
 @* in 'string.format'.
 @@ LUA_INTFRM_T is the integer type correspoding to the previous length
 @* modifier.
-** CHANGE them if your system supports long long or does not support long.
+** CHANGE them if your system supports PORT_LONGLONG or does not support long.
 */
 
 #if defined(LUA_USELONGLONG)
 
 #define LUA_INTFRMLEN		"ll"
-#define LUA_INTFRM_T		long long
+#define LUA_INTFRM_T		PORT_LONGLONG
 
 #else
 
 #define LUA_INTFRMLEN		"l"
 #define LUA_INTFRM_T		long
 
+#endif
+
+
+#ifdef _WIN32
+#define snprintf _snprintf
 #endif
 
 

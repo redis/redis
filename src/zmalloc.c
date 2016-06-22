@@ -28,6 +28,11 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef _WIN32
+#include "win32_Interop/win32_util.h"
+#include "win32_Interop/win32_types.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -40,7 +45,11 @@ void zlibc_free(void *ptr) {
 }
 
 #include <string.h>
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#else
 #include <pthread.h>
+#endif
 #include "config.h"
 #include "zmalloc.h"
 
@@ -48,7 +57,7 @@ void zlibc_free(void *ptr) {
 #define PREFIX_SIZE (0)
 #else
 #if defined(__sun) || defined(__sparc) || defined(__sparc__)
-#define PREFIX_SIZE (sizeof(long long))
+#define PREFIX_SIZE (sizeof(PORT_LONGLONG))
 #else
 #define PREFIX_SIZE (sizeof(size_t))
 #endif
@@ -65,6 +74,11 @@ void zlibc_free(void *ptr) {
 #define calloc(count,size) je_calloc(count,size)
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
+#elif defined(USE_DLMALLOC)
+#define malloc(size) dlmalloc(size)
+#define calloc(count,size) dlcalloc(count,size)
+#define realloc(ptr,size) dlrealloc(ptr,size)
+#define free(ptr) dlfree(ptr)
 #endif
 
 #if defined(__ATOMIC_RELAXED)
@@ -90,7 +104,7 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+    if (_n&(sizeof(PORT_LONG)-1)) _n += sizeof(PORT_LONG)-(_n&(sizeof(PORT_LONG)-1)); \
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_add(_n); \
     } else { \
@@ -100,7 +114,7 @@ void zlibc_free(void *ptr) {
 
 #define update_zmalloc_stat_free(__n) do { \
     size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
+    if (_n&(sizeof(PORT_LONG)-1)) _n += sizeof(PORT_LONG)-(_n&(sizeof(PORT_LONG)-1)); \
     if (zmalloc_thread_safe) { \
         update_zmalloc_stat_sub(_n); \
     } else { \
@@ -110,10 +124,14 @@ void zlibc_free(void *ptr) {
 
 static size_t used_memory = 0;
 static int zmalloc_thread_safe = 0;
+#ifdef _WIN32
+pthread_mutex_t used_memory_mutex;
+#else
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static void zmalloc_default_oom(size_t size) {
-    fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
+    fprintf(stderr, "zmalloc: Out of memory trying to allocate %Iu bytes\n",    WIN_PORT_FIX /* %zu -> %Iu */
         size);
     fflush(stderr);
     abort();
@@ -185,9 +203,9 @@ void *zrealloc(void *ptr, size_t size) {
 size_t zmalloc_size(void *ptr) {
     void *realptr = (char*)ptr-PREFIX_SIZE;
     size_t size = *((size_t*)realptr);
-    /* Assume at least that all the allocations are padded at sizeof(long) by
+    /* Assume at least that all the allocations are padded at sizeof(PORT_LONG) by
      * the underlying allocator. */
-    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
+    if (size&(sizeof(PORT_LONG)-1)) size += sizeof(PORT_LONG)-(size&(sizeof(PORT_LONG)-1));
     return size+PREFIX_SIZE;
 }
 #endif
@@ -237,9 +255,23 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void) {
+    /* Windows fix: Callabe mutex destroy.  */
+    if (zmalloc_thread_safe)
+        pthread_mutex_destroy(&used_memory_mutex);
+}
+void zmalloc_enable_thread_safeness(void) {
+    if (!zmalloc_thread_safe)
+        pthread_mutex_init(&used_memory_mutex,0);
+
+    zmalloc_thread_safe = 1;
+}
+#else
 void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
+#endif
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;
@@ -347,7 +379,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field) {
             char *p = strchr(line,'k');
             if (p) {
                 *p = '\0';
-                bytes += strtol(line+flen,NULL,10) * 1024;
+                bytes += PORT_STRTOL(line+flen,NULL,10) * 1024;
             }
         }
     }

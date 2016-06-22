@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+	<Fragment>
+    <Binary Id="RedisCADLL" SourceFile="$(var.RedisMsi.CustomActions.TargetDir)RedisMsi.CustomActions.CA.dll" />
+    
+    <!--
+      Custom actions that update the redis config file during installation
+    -->
+    <CustomAction Id="ca_UpdateRedisConfig" BinaryKey="RedisCADLL" DllEntry="UpdateRedisConfig" Execute="deferred" Return="check" Impersonate="no" />
+    <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_serviceCONF];PORT=[PORT];MAXMEMORY=[MAXMEMORY];MAXHEAP=[MAXHEAP];USE_MEMORY_LIMITS=[USE_MEMORY_LIMITS];" Sequence="execute" Before="ca_UpdateRedisConfig" />
+    <InstallExecuteSequence>
+      <Custom Action="ca_UpdateRedisConfig" After="InstallFiles"><![CDATA[NOT Installed]]></Custom>
+    </InstallExecuteSequence>
+
+    <!--
+      Custom action that sets a property to indicate if Windows Firewall service is running
+    -->
+    <CustomAction Id="ca_CheckIfFirewallServiceRunning" BinaryKey="RedisCADLL" DllEntry="CheckIfFirewallServiceRunning" Execute="immediate" Return="check" />
+    <CustomAction Id="ca_SetADD_FIREWALL_RULE" Property="ADD_FIREWALL_RULE" Value="{}" />
+    <InstallUISequence>
+      <Custom Action="ca_CheckIfFirewallServiceRunning" After="LaunchConditions"><![CDATA[NOT Installed]]></Custom>
+      <Custom Action="ca_SetADD_FIREWALL_RULE" After="ca_CheckIfFirewallServiceRunning"><![CDATA[FIREWALL_SERVICE_STOPPED = 1]]></Custom>
+    </InstallUISequence>
+    <InstallExecuteSequence>
+      <Custom Action="ca_CheckIfFirewallServiceRunning" After="LaunchConditions"><![CDATA[NOT Installed]]></Custom>
+      <Custom Action="ca_SetADD_FIREWALL_RULE" After="ca_CheckIfFirewallServiceRunning"><![CDATA[FIREWALL_SERVICE_STOPPED = 1]]></Custom>
+    </InstallExecuteSequence>
+    
+	</Fragment>
+</Wix>
