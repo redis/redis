@@ -73,6 +73,8 @@ struct RedisModuleCtx {
     struct AutoMemEntry *amqueue;   /* Auto memory queue of objects to free. */
     int amqueue_len;                /* Number of slots in amqueue. */
     int amqueue_used;               /* Number of used slots in amqueue. */
+    int amqueue_bottom;             /* The lowest element in amqueue.
+                                     * used to optimize scans */
     int flags;                      /* REDISMODULE_CTX_... flags. */
     void **postponed_arrays;        /* To set with RM_ReplySetArrayLength(). */
     int postponed_arrays_count;     /* Number of entries in postponed_arrays. */
@@ -85,7 +87,7 @@ struct RedisModuleCtx {
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, 0, NULL}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, 0, 0, 0, 0, NULL, 0, NULL, 0, NULL}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
@@ -609,17 +611,43 @@ void autoMemoryAdd(RedisModuleCtx *ctx, int type, void *ptr) {
  * free things manually if they want. */
 void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
     if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return;
-
+    
+    if (ctx->amqueue_used == 0) return;
+    
+    /* First check if we freed the bottom element */
+    if (ctx->amqueue[ctx->amqueue_bottom].type == type && 
+        ctx->amqueue[ctx->amqueue_bottom].ptr == ptr) 
+        {
+            ctx->amqueue[ctx->amqueue_bottom].type = REDISMODULE_AM_FREED;
+            
+            /* If freed the only element on the queue, just reuse it */
+            if (ctx->amqueue_len == 1) {
+              ctx->amqueue_len = 0;  
+            } else {
+                /* Advance the bottom by one */
+                ctx->amqueue_bottom++;
+            }
+            return;
+    }
+    
+    /* Now we scan from recent to oldest for the freed element */
     int j;
-    for (j = 0; j < ctx->amqueue_used; j++) {
+    for (j = ctx->amqueue_len - 1; j > ctx->amqueue_bottom; j--) {
         if (ctx->amqueue[j].type == type &&
             ctx->amqueue[j].ptr == ptr)
         {
             ctx->amqueue[j].type = REDISMODULE_AM_FREED;
-            /* Optimization: if this is the last element, we can
-             * reuse it. */
-            if (j == ctx->amqueue_used-1) ctx->amqueue_used--;
+            
+            /* Switch the last element and the deleted element, so 
+            the queue does not grow if we constantly allocate and free */ 
+            if (j != ctx->amqueue_used-1) {
+                ctx->amqueue[j] = ctx->amqueue[ctx->amqueue_used-1];
+            }
+            ctx->amqueue_used--;  
+              
+            break;
         }
+        
     }
 }
 
@@ -643,6 +671,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
     zfree(ctx->amqueue);
     ctx->amqueue = NULL;
     ctx->amqueue_len = 0;
+    ctx->amqueue_bottom = 0;
     ctx->amqueue_used = 0;
 }
 
