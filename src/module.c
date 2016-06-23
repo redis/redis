@@ -610,23 +610,27 @@ void autoMemoryAdd(RedisModuleCtx *ctx, int type, void *ptr) {
 void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
     if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return;
 
-    int j;
-    for (j = ctx->amqueue_used - 1; j >= 0; j--) {
-        if (ctx->amqueue[j].type == type &&
-            ctx->amqueue[j].ptr == ptr)
-        {
-            ctx->amqueue[j].type = REDISMODULE_AM_FREED;
-            
-            /* Switch the freed element and the top element, to avoid growing
-             * the queue unnecessarily if we allocate/free in a loop */
-            if (j != ctx->amqueue_used-1) {
-                ctx->amqueue[j] = ctx->amqueue[ctx->amqueue_used-1];
-            }
-            /* Reduce the size of the queue because we either moved the top
-             * element elsewhere or freed it */ 
-            ctx->amqueue_used--;
+    int count = (ctx->amqueue_used+1)/2;
+    for (int j = 0; j < count; j++) {
+        for (int side = 0; side < 2; side++) {
+            /* For side = 0 check right side of the array, for
+             * side = 1 check the left side instead (zig-zag scanning). */
+            int i = (side == 0) ? (ctx->amqueue_used - 1 - j) : j;
+            if (ctx->amqueue[i].type == type &&
+                ctx->amqueue[i].ptr == ptr)
+            {
+                ctx->amqueue[i].type = REDISMODULE_AM_FREED;
 
-            break;
+                /* Switch the freed element and the top element, to avoid growing
+                 * the queue unnecessarily if we allocate/free in a loop */
+                if (i != ctx->amqueue_used-1) {
+                    ctx->amqueue[i] = ctx->amqueue[ctx->amqueue_used-1];
+                }
+                /* Reduce the size of the queue because we either moved the top
+                 * element elsewhere or freed it */
+                ctx->amqueue_used--;
+                return;
+            }
         }
     }
 }
