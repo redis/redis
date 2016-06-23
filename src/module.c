@@ -173,9 +173,17 @@ static void zsetKeyReset(RedisModuleKey *key);
 /* Use like malloc(). Memory allocated with this function is reported in
  * Redis INFO memory, used for keys eviction according to maxmemory settings
  * and in general is taken into account as memory allocated by Redis.
- * You should avoid to use malloc(). */
+ * You should avoid using malloc(). */
 void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
+}
+
+/* Use like calloc(). Memory allocated with this function is reported in
+ * Redis INFO memory, used for keys eviction according to maxmemory settings
+ * and in general is taken into account as memory allocated by Redis.
+ * You should avoid using calloc() directly. */
+void *RM_Calloc(size_t nmemb, size_t size) {
+    return zcalloc(nmemb*size);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
@@ -2861,6 +2869,7 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
+    REGISTER_API(Calloc);
     REGISTER_API(Realloc);
     REGISTER_API(Free);
     REGISTER_API(Strdup);
