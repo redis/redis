@@ -163,7 +163,8 @@ void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
-void RM_ZsetRangeStop(RedisModuleKey *key);
+void RM_ZsetRangeStop(RedisModuleKey *kp);
+static void zsetKeyReset(RedisModuleKey *key);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -172,9 +173,17 @@ void RM_ZsetRangeStop(RedisModuleKey *key);
 /* Use like malloc(). Memory allocated with this function is reported in
  * Redis INFO memory, used for keys eviction according to maxmemory settings
  * and in general is taken into account as memory allocated by Redis.
- * You should avoid to use malloc(). */
+ * You should avoid using malloc(). */
 void *RM_Alloc(size_t bytes) {
     return zmalloc(bytes);
+}
+
+/* Use like calloc(). Memory allocated with this function is reported in
+ * Redis INFO memory, used for keys eviction according to maxmemory settings
+ * and in general is taken into account as memory allocated by Redis.
+ * You should avoid using calloc() directly. */
+void *RM_Calloc(size_t nmemb, size_t size) {
+    return zcalloc(nmemb*size);
 }
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
@@ -610,15 +619,28 @@ void autoMemoryAdd(RedisModuleCtx *ctx, int type, void *ptr) {
 void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
     if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return;
 
-    int j;
-    for (j = 0; j < ctx->amqueue_used; j++) {
-        if (ctx->amqueue[j].type == type &&
-            ctx->amqueue[j].ptr == ptr)
-        {
-            ctx->amqueue[j].type = REDISMODULE_AM_FREED;
-            /* Optimization: if this is the last element, we can
-             * reuse it. */
-            if (j == ctx->amqueue_used-1) ctx->amqueue_used--;
+    int count = (ctx->amqueue_used+1)/2;
+    for (int j = 0; j < count; j++) {
+        for (int side = 0; side < 2; side++) {
+            /* For side = 0 check right side of the array, for
+             * side = 1 check the left side instead (zig-zag scanning). */
+            int i = (side == 0) ? (ctx->amqueue_used - 1 - j) : j;
+            if (ctx->amqueue[i].type == type &&
+                ctx->amqueue[i].ptr == ptr)
+            {
+                ctx->amqueue[i].type = REDISMODULE_AM_FREED;
+
+                /* Switch the freed element and the last element, to avoid growing
+                 * the queue unnecessarily if we allocate/free in a loop */
+                if (i != ctx->amqueue_used-1) {
+                    ctx->amqueue[i] = ctx->amqueue[ctx->amqueue_used-1];
+                }
+
+                /* Reduce the size of the queue because we either moved the top
+                 * element elsewhere or freed it */
+                ctx->amqueue_used--;
+                return;
+            }
         }
     }
 }
@@ -1058,8 +1080,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
-    kp->ztype = REDISMODULE_ZSET_RANGE_NONE;
-    RM_ZsetRangeStop(kp);
+    zsetKeyReset(kp);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return (void*)kp;
 }
@@ -1445,6 +1466,12 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
  * Key API for Sorted Set iterator
  * -------------------------------------------------------------------------- */
 
+void zsetKeyReset(RedisModuleKey *key) {
+    key->ztype = REDISMODULE_ZSET_RANGE_NONE;
+    key->zcurrent = NULL;
+    key->zer = 1;
+}
+
 /* Stop a sorted set iteration. */
 void RM_ZsetRangeStop(RedisModuleKey *key) {
     /* Free resources if needed. */
@@ -1453,9 +1480,7 @@ void RM_ZsetRangeStop(RedisModuleKey *key) {
     /* Setup sensible values so that misused iteration API calls when an
      * iterator is not active will result into something more sensible
      * than crashing. */
-    key->ztype = REDISMODULE_ZSET_RANGE_NONE;
-    key->zcurrent = NULL;
-    key->zer = 1;
+    zsetKeyReset(key);
 }
 
 /* Return the "End of range" flag value to signal the end of the iteration. */
@@ -2771,17 +2796,35 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
  * Logging
  * -------------------------------------------------------------------------- */
 
-/* Produces a log message to the standard Redis log. */
-void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...)
-{
+/* Produces a log message to the standard Redis log, the format accepts
+ * printf-alike specifiers, while level is a string describing the log
+ * level to use when emitting the log, and must be one of the following:
+ *
+ * * "debug"
+ * * "verbose"
+ * * "notice"
+ * * "warning"
+ *
+ * If the specified log level is invalid, verbose is used by default.
+ * There is a fixed limit to the length of the log line this function is able
+ * to emit, this limti is not specified but is guaranteed to be more than
+ * a few lines of text.
+ */
+void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     char msg[LOG_MAX_LEN];
     size_t name_len;
+    int level;
 
-    if ((level&0xff) < server.verbosity) return;
     if (!ctx->module) return;   /* Can only log if module is initialized */
 
-    name_len = snprintf(msg, sizeof(msg),"%s: ", ctx->module->name);
+    if (!strcasecmp(levelstr,"debug")) level = LL_DEBUG;
+    else if (!strcasecmp(levelstr,"verbose")) level = LL_VERBOSE;
+    else if (!strcasecmp(levelstr,"notice")) level = LL_NOTICE;
+    else if (!strcasecmp(levelstr,"warning")) level = LL_WARNING;
+    else level = LL_VERBOSE; /* Default. */
+
+    name_len = snprintf(msg, sizeof(msg),"<%s> ", ctx->module->name);
 
     va_start(ap, fmt);
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
@@ -2789,7 +2832,6 @@ void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...)
 
     serverLogRaw(level,msg);
 }
-
 
 /* --------------------------------------------------------------------------
  * Modules API internals
@@ -2827,6 +2869,7 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
+    REGISTER_API(Calloc);
     REGISTER_API(Realloc);
     REGISTER_API(Free);
     REGISTER_API(Strdup);

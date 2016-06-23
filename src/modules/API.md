@@ -7,7 +7,16 @@
 Use like malloc(). Memory allocated with this function is reported in
 Redis INFO memory, used for keys eviction according to maxmemory settings
 and in general is taken into account as memory allocated by Redis.
-You should avoid to use malloc().
+You should avoid using malloc().
+
+## `RM_Calloc`
+
+    void *RM_Calloc(size_t nmemb, size_t size);
+
+Use like calloc(). Memory allocated with this function is reported in
+Redis INFO memory, used for keys eviction according to maxmemory settings
+and in general is taken into account as memory allocated by Redis.
+You should avoid using calloc() directly.
 
 ## `RM_Realloc`
 
@@ -183,7 +192,7 @@ enabling automatic memory management.
 
     RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
 
-Like `RedisModule_CreatString()`, but creates a string starting from an existing
+Like `RedisModule_CreatString()`, but creates a string starting from another
 RedisModuleString.
 
 The returned string must be released with `RedisModule_FreeString()` or by
@@ -202,7 +211,7 @@ from the pool of string to release at the end.
 
 ## `RM_StringPtrLen`
 
-    const char *RM_StringPtrLen(RedisModuleString *str, size_t *len);
+    const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len);
 
 Given a string module object, this function returns the string pointer
 and length of the string. The returned pointer and length should only
@@ -210,7 +219,7 @@ be used for read only accesses and never modified.
 
 ## `RM_StringToLongLong`
 
-    int RM_StringToLongLong(RedisModuleString *str, long long *ll);
+    int RM_StringToLongLong(const RedisModuleString *str, long long *ll);
 
 Convert the string into a long long integer, storing it at `*ll`.
 Returns `REDISMODULE_OK` on success. If the string can't be parsed
@@ -219,7 +228,7 @@ is returned.
 
 ## `RM_StringToDouble`
 
-    int RM_StringToDouble(RedisModuleString *str, double *d);
+    int RM_StringToDouble(const RedisModuleString *str, double *d);
 
 Convert the string into a double, storing it at `*d`.
 Returns `REDISMODULE_OK` on success or `REDISMODULE_ERR` if the string is
@@ -1129,7 +1138,23 @@ handling is performed by Redis itself.
 
     void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...);
 
-Produce a log message into the standard Redis log. All standard Redis logging
-configuration applies here. Messages can only be logged after a module has
-initialized, and are prefixed by the name of the module.  Log level is
-specified using the REDISMODULE_LOG_* macros.
+Produces a log message to the standard Redis log.
+
+## `RM_Log`
+
+    void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...);
+
+Produces a log message to the standard Redis log, the format accepts
+printf-alike specifiers, while level is a string describing the log
+level to use when emitting the log, and must be one of the following:
+
+* "debug"
+* "verbose"
+* "notice"
+* "warning"
+
+If the specified log level is invalid, verbose is used by default.
+There is a fixed limit to the length of the log line this function is able
+to emit, this limti is not specified but is guaranteed to be more than
+a few lines of text.
+

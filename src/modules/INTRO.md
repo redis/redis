@@ -812,6 +812,7 @@ specific functions, that are exact replacements for `malloc`, `free`,
     void *RedisModule_Alloc(size_t bytes);
     void* RedisModule_Realloc(void *ptr, size_t bytes);
     void RedisModule_Free(void *ptr);
+    void RedisModule_Calloc(size_t nmemb, size_t size);
     char *RedisModule_Strdup(const char *str);
 
 They work exactly like their `libc` equivalent calls, however they use
