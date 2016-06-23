@@ -7,16 +7,7 @@
 Use like malloc(). Memory allocated with this function is reported in
 Redis INFO memory, used for keys eviction according to maxmemory settings
 and in general is taken into account as memory allocated by Redis.
-You should avoid using malloc().
-
-## `RM_Calloc`
-
-    void *RM_Calloc(size_t nmemb, size_t size);
-
-Use like calloc(). Memory allocated with this function is reported in
-Redis INFO memory, used for keys eviction according to maxmemory settings
-and in general is taken into account as memory allocated by Redis.
-You should avoid using calloc() directly.
+You should avoid to use malloc().
 
 ## `RM_Realloc`
 
@@ -192,7 +183,7 @@ enabling automatic memory management.
 
     RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
 
-Like `RedisModule_CreatString()`, but creates a string starting from another
+Like `RedisModule_CreatString()`, but creates a string starting from an existing
 RedisModuleString.
 
 The returned string must be released with `RedisModule_FreeString()` or by
@@ -211,7 +202,7 @@ from the pool of string to release at the end.
 
 ## `RM_StringPtrLen`
 
-    const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len);
+    const char *RM_StringPtrLen(RedisModuleString *str, size_t *len);
 
 Given a string module object, this function returns the string pointer
 and length of the string. The returned pointer and length should only
@@ -219,7 +210,7 @@ be used for read only accesses and never modified.
 
 ## `RM_StringToLongLong`
 
-    int RM_StringToLongLong(const RedisModuleString *str, long long *ll);
+    int RM_StringToLongLong(RedisModuleString *str, long long *ll);
 
 Convert the string into a long long integer, storing it at `*ll`.
 Returns `REDISMODULE_OK` on success. If the string can't be parsed
@@ -228,7 +219,7 @@ is returned.
 
 ## `RM_StringToDouble`
 
-    int RM_StringToDouble(const RedisModuleString *str, double *d);
+    int RM_StringToDouble(RedisModuleString *str, double *d);
 
 Convert the string into a double, storing it at `*d`.
 Returns `REDISMODULE_OK` on success or `REDISMODULE_ERR` if the string is
@@ -1133,12 +1124,6 @@ is only called in the context of the aof_rewrite method of data types exported
 by a module. The command works exactly like `RedisModule_Call()` in the way
 the parameters are passed, but it does not return anything as the error
 handling is performed by Redis itself.
-
-## `RM_Log`
-
-    void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...);
-
-Produces a log message to the standard Redis log.
 
 ## `RM_Log`
 
