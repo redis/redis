@@ -621,11 +621,12 @@ void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
             {
                 ctx->amqueue[i].type = REDISMODULE_AM_FREED;
 
-                /* Switch the freed element and the top element, to avoid growing
+                /* Switch the freed element and the last element, to avoid growing
                  * the queue unnecessarily if we allocate/free in a loop */
                 if (i != ctx->amqueue_used-1) {
                     ctx->amqueue[i] = ctx->amqueue[ctx->amqueue_used-1];
                 }
+
                 /* Reduce the size of the queue because we either moved the top
                  * element elsewhere or freed it */
                 ctx->amqueue_used--;
