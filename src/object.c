@@ -539,7 +539,7 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
-int getDoubleFromObject(robj *o, double *target) {
+int getDoubleFromObject(const robj *o, double *target) {
     double value;
     char *eptr;
 
@@ -550,7 +550,7 @@ int getDoubleFromObject(robj *o, double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (isspace(((char*)o->ptr)[0]) ||
+            if (isspace(((const char*)o->ptr)[0]) ||
                 eptr[0] != '\0' ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
