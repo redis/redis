@@ -1457,9 +1457,8 @@ static void zsetKeyReset(RedisModuleKey *key)
 /* Stop a sorted set iteration. */
 void RM_ZsetRangeStop(RedisModuleKey *key) {
     /* Free resources if needed. */
-    if (key->ztype == REDISMODULE_ZSET_RANGE_LEX) {
+    if (key->ztype == REDISMODULE_ZSET_RANGE_LEX)
         zslFreeLexRange(&key->zlrs);
-    }
     /* Setup sensible values so that misused iteration API calls when an
      * iterator is not active will result into something more sensible
      * than crashing. */
