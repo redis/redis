@@ -1447,8 +1447,7 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
  * Key API for Sorted Set iterator
  * -------------------------------------------------------------------------- */
 
-static void zsetKeyReset(RedisModuleKey *key)
-{
+void zsetKeyReset(RedisModuleKey *key) {
     key->ztype = REDISMODULE_ZSET_RANGE_NONE;
     key->zcurrent = NULL;
     key->zer = 1;
