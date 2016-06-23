@@ -1117,9 +1117,19 @@ handling is performed by Redis itself.
 
 ## `RM_Log`
 
-    void RM_Log(RedisModuleCtx *ctx, int level, const char *fmt, ...);
+    void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...);
 
-Produce a log message into the standard Redis log. All standard Redis logging
-configuration applies here. Messages can only be logged after a module has
-initialized, and are prefixed by the name of the module.  Log level is
-specified using the REDISMODULE_LOG_* macros.
+Produces a log message to the standard Redis log, the format accepts
+printf-alike specifiers, while level is a string describing the log
+level to use when emitting the log, and must be one of the following:
+
+* "debug"
+* "verbose"
+* "notice"
+* "warning"
+
+If the specified log level is invalid, verbose is used by default.
+There is a fixed limit to the length of the log line this function is able
+to emit, this limti is not specified but is guaranteed to be more than
+a few lines of text.
+
