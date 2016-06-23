@@ -153,6 +153,20 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+void queueLoadModule(sds path, sds *argv, int argc) {
+    int i;
+    struct moduleLoadQueueEntry *loadmod;
+
+    loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    loadmod->argv = zmalloc(sizeof(robj*)*argc);
+    loadmod->path = sdsnew(path);
+    loadmod->argc = argc;
+    for (i = 0; i < argc; i++) {
+        loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
+    }
+    listAddNodeTail(server.loadmodule_queue,loadmod);
+}
+
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -632,8 +646,8 @@ void loadServerConfigFromString(char *config) {
                     "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"loadmodule") && argc == 2) {
-            listAddNodeTail(server.loadmodule_queue,sdsnew(argv[1]));
+        } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
+            queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -719,7 +733,7 @@ void loadServerConfig(char *filename, char *options) {
 
 #define config_set_numerical_field(_name,_var,min,max) \
     } else if (!strcasecmp(c->argv[2]->ptr,_name)) { \
-        if (getLongLongFromObject(o,&ll) == C_ERR || ll < 0) goto badfmt; \
+        if (getLongLongFromObject(o,&ll) == C_ERR) goto badfmt; \
         if (min != LLONG_MIN && ll < min) goto badfmt; \
         if (max != LLONG_MAX && ll > max) goto badfmt; \
         _var = ll;
@@ -950,9 +964,9 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LLONG_MAX) {
     } config_set_numerical_field(
-      "list-max-ziplist-size",server.list_max_ziplist_size,0,LLONG_MAX) {
+      "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
     } config_set_numerical_field(
-      "list-compress-depth",server.list_compress_depth,0,LLONG_MAX) {
+      "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
     } config_set_numerical_field(
       "set-max-intset-entries",server.set_max_intset_entries,0,LLONG_MAX) {
     } config_set_numerical_field(

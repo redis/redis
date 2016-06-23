@@ -263,6 +263,10 @@ void getrangeCommand(client *c) {
     }
 
     /* Convert negative indexes */
+    if (start < 0 && end < 0 && start > end) {
+        addReply(c,shared.emptybulk);
+        return;
+    }
     if (start < 0) start = strlen+start;
     if (end < 0) end = strlen+end;
     if (start < 0) start = 0;

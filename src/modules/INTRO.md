@@ -1,5 +1,11 @@
-Redis Modules API reference manual
+Redis Modules: an introduction to the API
 ===
+
+The modules documentation is composed of the following files:
+
+* `INTRO.md` (this file). An overview about Redis Modules system and API. It's a good idea to start your reading here.
+* `API.md` is generated from module.c top comments of RedisMoule functions. It is a good reference in order to understand how each function works.
+* `TYPES.md` covers the implementation of native data types into modules.
 
 Redis modules make possible to extend Redis functionality using external
 modules, implementing new Redis commands at a speed and with features
@@ -59,7 +65,7 @@ simple module that implements a command that outputs a random number.
         return REDISMODULE_OK;
     }
 
-    int RedisModule_OnLoad(RedisModuleCtx *ctx) {
+    int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (RedisModule_Init(ctx,"helloworld",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
@@ -150,6 +156,24 @@ exported.
 
 The module will be able to load into different versions of Redis.
 
+# Passing configuration parameters to Redis modules
+
+When the module is loaded with the `MODULE LOAD` command, or using the
+`loadmodule` directive in the `redis.conf` file, the user is able to pass
+configuration parameters to the module by adding arguments after the module
+file name:
+
+    loadmodule mymodule.so foo bar 1234
+
+In the above example the strings `foo`, `bar` and `123` will be passed
+to the module `OnLoad()` function in the `argv` argument as an array
+of RedisModuleString pointers. The number of arguments passed is into `argc`.
+
+The way you can access those strings will be explained in the rest of this
+document. Normally the module will store the module configuration parameters
+in some `static` global variable that can be accessed module wide, so that
+the configuration can change the behavior of different commands.
+
 # Working with RedisModuleString objects
 
 The command argument vector `argv` passed to module commands, and the
@@ -162,7 +186,7 @@ There are a few functions in order to work with string objects:
 
     const char *RedisModule_StringPtrLen(RedisModuleString *string, size_t *len);
 
-The above function accesses a string by returning its pointer and setting its 
+The above function accesses a string by returning its pointer and setting its
 length in `len`.
 You should never write to a string object pointer, as you can see from the
 `const` pointer qualifier.
@@ -344,7 +368,7 @@ section).
 
 # Releasing call reply objects
 
-Reply objects must be freed using `RedisModule_FreeCallRelpy`. For arrays,
+Reply objects must be freed using `RedisModule_FreeCallReply`. For arrays,
 you need to free only the top level reply, not the nested replies.
 Currently the module implementation provides a protection in order to avoid
 crashing if you free a nested reply object for error, however this feature
@@ -623,7 +647,7 @@ access) for speed. The API will return a pointer and a length, so that's
 possible to access and, if needed, modify the string directly.
 
     size_t len, j;
-    char *myptr = RedisModule_StringDMA(key,REDISMODULE_WRITE,&len);
+    char *myptr = RedisModule_StringDMA(key,&len,REDISMODULE_WRITE);
     for (j = 0; j < len; j++) myptr[j] = 'A';
 
 In the above example we write directly on the string. Note that if you want
@@ -777,10 +801,56 @@ Automatic memory management is usually the way to go, however experienced
 C programmers may not use it in order to gain some speed and memory usage
 benefit.
 
+# Allocating memory into modules
+
+Normal C programs use `malloc()` and `free()` in order to allocate and
+release memory dynamically. While in Redis modules the use of malloc is
+not technically forbidden, it is a lot better to use the Redis Modules
+specific functions, that are exact replacements for `malloc`, `free`,
+`realloc` and `strdup`. These functions are:
+
+    void *RedisModule_Alloc(size_t bytes);
+    void* RedisModule_Realloc(void *ptr, size_t bytes);
+    void RedisModule_Free(void *ptr);
+    void RedisModule_Calloc(size_t nmemb, size_t size);
+    char *RedisModule_Strdup(const char *str);
+
+They work exactly like their `libc` equivalent calls, however they use
+the same allocator Redis uses, and the memory allocated using these
+functions is reported by the `INFO` command in the memory section, is
+accounted when enforcing the `maxmemory` policy, and in general is
+a first citizen of the Redis executable. On the contrar, the method
+allocated inside modules with libc `malloc()` is transparent to Redis.
+
+Another reason to use the modules functions in order to allocate memory
+is that, when creating native data types inside modules, the RDB loading
+functions can return deserialized strings (from the RDB file) directly
+as `RedisModule_Alloc()` allocations, so they can be used directly to
+populate data structures after loading, instead of having to copy them
+to the data structure.
+
+## Pool allocator
+
+Sometimes in commands implementations, it is required to perform many
+small allocations that will be not retained at the end of the command
+execution, but are just functional to execute the command itself.
+
+This work can be more easily accomplished using the Redis pool allocator:
+
+    void *RedisModule_PoolAlloc(RedisModuleCtx *ctx, size_t bytes);
+
+It works similarly to `malloc()`, and returns memory aligned to the
+next power of two of greater or equal to `bytes` (for a maximum alignment
+of 8 bytes). However it allocates memory in blocks, so it the overhead
+of the allocations is small, and more important, the memory allocated
+is automatically released when the command returns.
+
+So in general short living allocations are a good candidates for the pool
+allocator.
+
 # Writing commands compatible with Redis Cluster
 
 Documentation missing, please check the following functions inside `module.c`:
 
     RedisModule_IsKeysPositionRequest(ctx);
     RedisModule_KeyAtPos(ctx,pos);
-

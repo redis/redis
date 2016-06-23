@@ -693,6 +693,7 @@ int loadAppendOnlyFile(char *filename) {
         }
 
         /* Run the command in the context of a fake client */
+        fakeClient->cmd = cmd;
         cmd->proc(fakeClient);
 
         /* The fake client should not have a reply */
@@ -703,6 +704,7 @@ int loadAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeFakeClientArgv(fakeClient);
+        fakeClient->cmd = NULL;
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
     }
 
@@ -983,6 +985,18 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Call the module type callback in order to rewrite a data type
+ * taht is exported by a module and is not handled by Redis itself.
+ * The function returns 0 on error, 1 on success. */
+int rewriteModuleObject(rio *r, robj *key, robj *o) {
+    RedisModuleIO io;
+    moduleValue *mv = o->ptr;
+    moduleType *mt = mv->type;
+    moduleInitIOContext(io,mt,r);
+    mt->aof_rewrite(&io,key,mv->value);
+    return io.error ? 0 : 1;
+}
+
 /* This function is called by the child rewriting the AOF file to read
  * the difference accumulated from the parent into a buffer, that is
  * concatenated at the end of the rewrite. */
@@ -1075,6 +1089,8 @@ int rewriteAppendOnlyFile(char *filename) {
                 if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_HASH) {
                 if (rewriteHashObject(&aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_MODULE) {
+                if (rewriteModuleObject(&aof,&key,o) == 0) goto werr;
             } else {
                 serverPanic("Unknown object type");
             }

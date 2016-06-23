@@ -43,6 +43,16 @@ start_server {tags {"bitops"}} {
         r bitcount no-key
     } 0
 
+    test {BITCOUNT returns 0 with out of range indexes} {
+        r set str "xxxx"
+        r bitcount str 4 10
+    } 0
+
+    test {BITCOUNT returns 0 with negative indexes where start > end} {
+        r set str "xxxx"
+        r bitcount str -6 -7
+    } 0
+
     catch {unset num}
     foreach vec [list "" "\xaa" "\x00\x00\xff" "foobar" "123"] {
         incr num

@@ -1,5 +1,51 @@
 # Modules API reference
 
+## `RM_Alloc`
+
+    void *RM_Alloc(size_t bytes);
+
+Use like malloc(). Memory allocated with this function is reported in
+Redis INFO memory, used for keys eviction according to maxmemory settings
+and in general is taken into account as memory allocated by Redis.
+You should avoid to use malloc().
+
+## `RM_Realloc`
+
+    void* RM_Realloc(void *ptr, size_t bytes);
+
+Use like realloc() for memory obtained with `RedisModule_Alloc()`.
+
+## `RM_Free`
+
+    void RM_Free(void *ptr);
+
+Use like free() for memory obtained by `RedisModule_Alloc()` and
+`RedisModule_Realloc()`. However you should never try to free with
+`RedisModule_Free()` memory allocated with malloc() inside your module.
+
+## `RM_Strdup`
+
+    char *RM_Strdup(const char *str);
+
+Like strdup() but returns memory allocated with `RedisModule_Alloc()`.
+
+## `RM_PoolAlloc`
+
+    void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes);
+
+Return heap allocated memory that will be freed automatically when the
+module callback function returns. Mostly suitable for small allocations
+that are short living and must be released when the callback returns
+anyway. The returned memory is aligned to the architecture word size
+if at least word size bytes are requested, otherwise it is just
+aligned to the next power of two, so for example a 3 bytes request is
+4 bytes aligned while a 2 bytes request is 2 bytes aligned.
+
+There is no realloc style function since when this is needed to use the
+pool allocator is not a good idea.
+
+The function returns NULL if `bytes` is 0.
+
 ## `RM_GetApi`
 
     int RM_GetApi(const char *funcname, void **targetPtrPtr);
@@ -129,6 +175,16 @@ at `ptr`. No reference is retained to the passed buffer.
 
 Like `RedisModule_CreatString()`, but creates a string starting from a long long
 integer instead of taking a buffer and its length.
+
+The returned string must be released with `RedisModule_FreeString()` or by
+enabling automatic memory management.
+
+## `RM_CreateStringFromString`
+
+    RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
+
+Like `RedisModule_CreatString()`, but creates a string starting from an existing
+RedisModuleString.
 
 The returned string must be released with `RedisModule_FreeString()` or by
 enabling automatic memory management.
@@ -579,9 +635,9 @@ The output flags are:
 On success the function returns `REDISMODULE_OK`. On the following errors
 `REDISMODULE_ERR` is returned:
 
-- The key was not opened for writing.
-- The key is of the wrong type.
-- 'score' double value is not a number (NaN).
+* The key was not opened for writing.
+* The key is of the wrong type.
+* 'score' double value is not a number (NaN).
 
 ## `RM_ZsetIncrby`
 
@@ -609,8 +665,8 @@ Remove the specified element from the sorted set.
 The function returns `REDISMODULE_OK` on success, and `REDISMODULE_ERR`
 on one of the following conditions:
 
-- The key was not opened for writing.
-- The key is of the wrong type.
+* The key was not opened for writing.
+* The key is of the wrong type.
 
 The return value does NOT indicate the fact the element was really
 removed (since it existed) or not, just if the function was executed
@@ -632,9 +688,9 @@ On success retrieve the double score associated at the sorted set element
 'ele' and returns `REDISMODULE_OK`. Otherwise `REDISMODULE_ERR` is returned
 to signal one of the following conditions:
 
-- There is no such element 'ele' in the sorted set.
-- The key is not a sorted set.
-- The key is an open empty key.
+* There is no such element 'ele' in the sorted set.
+* The key is not a sorted set.
+* The key is an open empty key.
 
 ## `RM_ZsetRangeStop`
 
@@ -774,8 +830,8 @@ specified because of the XX or NX options).
 
 In the following case the return value is always zero:
 
-- The key was not open for writing.
-- The key was associated with a non Hash value.
+* The key was not open for writing.
+* The key was associated with a non Hash value.
 
 ## `RM_HashGet`
 
@@ -892,4 +948,198 @@ EPERM:  operation in Cluster instance with key in non local slot.
 
 Return a pointer, and a length, to the protocol returned by the command
 that returned the reply object.
+
+## `RM_CreateDataType`
+
+    moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, moduleTypeLoadFunc rdb_load, moduleTypeSaveFunc rdb_save, moduleTypeRewriteFunc aof_rewrite, moduleTypeDigestFunc digest, moduleTypeFreeFunc free);
+
+Register a new data type exported by the module. The parameters are the
+following. Please for in depth documentation check the modules API
+documentation, especially the INTRO.md file.
+
+* **name**: A 9 characters data type name that MUST be unique in the Redis
+  Modules ecosystem. Be creative... and there will be no collisions. Use
+  the charset A-Z a-z 9-0, plus the two "-_" characters. A good
+  idea is to use, for example `<typename>-<vendor>`. For example
+  "tree-AntZ" may mean "Tree data structure by @antirez". To use both
+  lower case and upper case letters helps in order to prevent collisions.
+* **encver**: Encoding version, which is, the version of the serialization
+  that a module used in order to persist data. As long as the "name"
+  matches, the RDB loading will be dispatched to the type callbacks
+  whatever 'encver' is used, however the module can understand if
+  the encoding it must load are of an older version of the module.
+  For example the module "tree-AntZ" initially used encver=0. Later
+  after an upgrade, it started to serialize data in a different format
+  and to register the type with encver=1. However this module may
+  still load old data produced by an older version if the rdb_load
+  callback is able to check the encver value and act accordingly.
+  The encver must be a positive value between 0 and 1023.
+* **rdb_load**: A callback function pointer that loads data from RDB files.
+* **rdb_save**: A callback function pointer that saves data to RDB files.
+* **aof_rewrite**: A callback function pointer that rewrites data as commands.
+* **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
+* **free**: A callback function pointer that can free a type value.
+
+Note: the module name "AAAAAAAAA" is reserved and produces an error, it
+happens to be pretty lame as well.
+
+If there is already a module registering a type with the same name,
+and if the module name or encver is invalid, NULL is returned.
+Otherwise the new type is registered into Redis, and a reference of
+type RedisModuleType is returned: the caller of the function should store
+this reference into a gobal variable to make future use of it in the
+modules type API, since a single module may register multiple types.
+Example code fragment:
+
+     static RedisModuleType *BalancedTreeType;
+
+     int `RedisModule_OnLoad(RedisModuleCtx` *ctx) {
+         // some code here ...
+         BalancedTreeType = `RM_CreateDataType(`...);
+     }
+
+## `RM_ModuleTypeSetValue`
+
+    int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value);
+
+If the key is open for writing, set the specified module type object
+as the value of the key, deleting the old value if any.
+On success `REDISMODULE_OK` is returned. If the key is not open for
+writing or there is an active iterator, `REDISMODULE_ERR` is returned.
+
+## `RM_ModuleTypeGetType`
+
+    moduleType *RM_ModuleTypeGetType(RedisModuleKey *key);
+
+Assuming `RedisModule_KeyType()` returned `REDISMODULE_KEYTYPE_MODULE` on
+the key, returns the moduel type pointer of the value stored at key.
+
+If the key is NULL, is not associated with a module type, or is empty,
+then NULL is returned instead.
+
+## `RM_ModuleTypeGetValue`
+
+    void *RM_ModuleTypeGetValue(RedisModuleKey *key);
+
+Assuming `RedisModule_KeyType()` returned `REDISMODULE_KEYTYPE_MODULE` on
+the key, returns the module type low-level value stored at key, as
+it was set by the user via `RedisModule_ModuleTypeSet()`.
+
+If the key is NULL, is not associated with a module type, or is empty,
+then NULL is returned instead.
+
+## `RM_SaveUnsigned`
+
+    void RM_SaveUnsigned(RedisModuleIO *io, uint64_t value);
+
+Save an unsigned 64 bit value into the RDB file. This function should only
+be called in the context of the rdb_save method of modules implementing new
+data types.
+
+## `RM_LoadUnsigned`
+
+    uint64_t RM_LoadUnsigned(RedisModuleIO *io);
+
+Load an unsigned 64 bit value from the RDB file. This function should only
+be called in the context of the rdb_load method of modules implementing
+new data types.
+
+## `RM_SaveSigned`
+
+    void RM_SaveSigned(RedisModuleIO *io, int64_t value);
+
+Like `RedisModule_SaveUnsigned()` but for signed 64 bit values.
+
+## `RM_LoadSigned`
+
+    int64_t RM_LoadSigned(RedisModuleIO *io);
+
+Like `RedisModule_LoadUnsigned()` but for signed 64 bit values.
+
+## `RM_SaveString`
+
+    void RM_SaveString(RedisModuleIO *io, RedisModuleString *s);
+
+In the context of the rdb_save method of a module type, saves a
+string into the RDB file taking as input a RedisModuleString.
+
+The string can be later loaded with `RedisModule_LoadString()` or
+other Load family functions expecting a serialized string inside
+the RDB file.
+
+## `RM_SaveStringBuffer`
+
+    void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len);
+
+Like `RedisModule_SaveString()` but takes a raw C pointer and length
+as input.
+
+## `RM_LoadString`
+
+    RedisModuleString *RM_LoadString(RedisModuleIO *io);
+
+In the context of the rdb_load method of a module data type, loads a string
+from the RDB file, that was previously saved with `RedisModule_SaveString()`
+functions family.
+
+The returned string is a newly allocated RedisModuleString object, and
+the user should at some point free it with a call to `RedisModule_FreeString()`.
+
+If the data structure does not store strings as RedisModuleString objects,
+the similar function `RedisModule_LoadStringBuffer()` could be used instead.
+
+## `RM_LoadStringBuffer`
+
+    char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr);
+
+Like `RedisModule_LoadString()` but returns an heap allocated string that
+was allocated with `RedisModule_Alloc()`, and can be resized or freed with
+`RedisModule_Realloc()` or `RedisModule_Free()`.
+
+The size of the string is stored at '*lenptr' if not NULL.
+The returned string is not automatically NULL termianted, it is loaded
+exactly as it was stored inisde the RDB file.
+
+## `RM_SaveDouble`
+
+    void RM_SaveDouble(RedisModuleIO *io, double value);
+
+In the context of the rdb_save method of a module data type, saves a double
+value to the RDB file. The double can be a valid number, a NaN or infinity.
+It is possible to load back the value with `RedisModule_LoadDouble()`.
+
+## `RM_LoadDouble`
+
+    double RM_LoadDouble(RedisModuleIO *io);
+
+In the context of the rdb_save method of a module data type, loads back the
+double value saved by `RedisModule_SaveDouble()`.
+
+## `RM_EmitAOF`
+
+    void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...);
+
+Emits a command into the AOF during the AOF rewriting process. This function
+is only called in the context of the aof_rewrite method of data types exported
+by a module. The command works exactly like `RedisModule_Call()` in the way
+the parameters are passed, but it does not return anything as the error
+handling is performed by Redis itself.
+
+## `RM_Log`
+
+    void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...);
+
+Produces a log message to the standard Redis log, the format accepts
+printf-alike specifiers, while level is a string describing the log
+level to use when emitting the log, and must be one of the following:
+
+* "debug"
+* "verbose"
+* "notice"
+* "warning"
+
+If the specified log level is invalid, verbose is used by default.
+There is a fixed limit to the length of the log line this function is able
+to emit, this limti is not specified but is guaranteed to be more than
+a few lines of text.
 

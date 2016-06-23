@@ -215,12 +215,7 @@ void setUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, uint6
 }
 
 void setSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, int64_t value) {
-    uint64_t uv;
-
-    if (value >= 0)
-        uv = value;
-    else
-        uv = UINT64_MAX + value + 1;
+    uint64_t uv = value; /* Casting will add UINT64_MAX + 1 if v is negative. */
     setUnsignedBitfield(p,offset,bits,uv);
 }
 
@@ -239,9 +234,21 @@ uint64_t getUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
 }
 
 int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
-    int64_t value = getUnsignedBitfield(p,offset,bits);
+    int64_t value;
+    union {uint64_t u; int64_t i;} conv;
+
+    /* Converting from unsigned to signed is undefined when the value does
+     * not fit, however here we assume two's complement and the original value
+     * was obtained from signed -> unsigned conversion, so we'll find the
+     * most significant bit set if the original value was negative.
+     *
+     * Note that two's complement is mandatory for exact-width types
+     * according to the C99 standard. */
+    conv.u = getUnsignedBitfield(p,offset,bits);
+    value = conv.i;
+
     /* If the top significant bit is 1, propagate it to all the
-     * higher bits for two complement representation of signed
+     * higher bits for two's complement representation of signed
      * integers. */
     if (value & ((uint64_t)1 << (bits-1)))
         value |= ((uint64_t)-1) << bits;
@@ -299,7 +306,7 @@ int checkUnsignedBitfieldOverflow(uint64_t value, int64_t incr, uint64_t bits, i
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t res = value+incr;
 
         res &= ~mask;
@@ -342,7 +349,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t msb = (uint64_t)1 << (bits-1);
         uint64_t a = value, b = incr, c;
         c = a+b; /* Perform addition as unsigned so that's defined. */
@@ -474,6 +481,37 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
         o->ptr = sdsgrowzero(o->ptr,byte+1);
     }
     return o;
+}
+
+/* Return a pointer to the string object content, and stores its length
+ * in 'len'. The user is required to pass (likely stack allocated) buffer
+ * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case
+ * the object is integer encoded in order to provide the representation
+ * without usign heap allocation.
+ *
+ * The function returns the pointer to the object array of bytes representing
+ * the string it contains, that may be a pointer to 'llbuf' or to the
+ * internal object representation. As a side effect 'len' is filled with
+ * the length of such buffer.
+ *
+ * If the source object is NULL the function is guaranteed to return NULL
+ * and set 'len' to 0. */
+unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
+    serverAssert(o->type == OBJ_STRING);
+    unsigned char *p = NULL;
+
+    /* Set the 'p' pointer to the string, that can be just a stack allocated
+     * array if our string was integer encoded. */
+    if (o && o->encoding == OBJ_ENCODING_INT) {
+        p = (unsigned char*) llbuf;
+        if (len) *len = ll2string(llbuf,LONG_STR_SIZE,(long)o->ptr);
+    } else if (o) {
+        p = (unsigned char*) o->ptr;
+        if (len) *len = sdslen(o->ptr);
+    } else {
+        if (len) *len = 0;
+    }
+    return p;
 }
 
 /* SETBIT key offset bitvalue */
@@ -721,21 +759,12 @@ void bitcountCommand(client *c) {
     robj *o;
     long start, end, strlen;
     unsigned char *p;
-    char llbuf[32];
+    char llbuf[LONG_STR_SIZE];
 
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
-
-    /* Set the 'p' pointer to the string, that can be just a stack allocated
-     * array if our string was integer encoded. */
-    if (o->encoding == OBJ_ENCODING_INT) {
-        p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-    } else {
-        p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
-    }
+    p = getObjectReadOnlyString(o,&strlen,llbuf);
 
     /* Parse start/end range if any. */
     if (c->argc == 4) {
@@ -744,6 +773,10 @@ void bitcountCommand(client *c) {
         if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
         /* Convert negative indexes */
+        if (start < 0 && end < 0 && start > end) {
+            addReply(c,shared.czero);
+            return;
+        }
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
@@ -775,7 +808,7 @@ void bitposCommand(client *c) {
     robj *o;
     long bit, start, end, strlen;
     unsigned char *p;
-    char llbuf[32];
+    char llbuf[LONG_STR_SIZE];
     int end_given = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
@@ -795,16 +828,7 @@ void bitposCommand(client *c) {
         return;
     }
     if (checkType(c,o,OBJ_STRING)) return;
-
-    /* Set the 'p' pointer to the string, that can be just a stack allocated
-     * array if our string was integer encoded. */
-    if (o->encoding == OBJ_ENCODING_INT) {
-        p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-    } else {
-        p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
-    }
+    p = getObjectReadOnlyString(o,&strlen,llbuf);
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
@@ -882,6 +906,8 @@ void bitfieldCommand(client *c) {
     int j, numops = 0, changes = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
+    int readonly = 1;
+    long higest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -929,8 +955,10 @@ void bitfieldCommand(client *c) {
             return;
         }
 
-        /* INCRBY and SET require another argument. */
         if (opcode != BITFIELDOP_GET) {
+            readonly = 0;
+            higest_write_offset = bitoffset + bits - 1;
+            /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
                 return;
@@ -950,6 +978,18 @@ void bitfieldCommand(client *c) {
         j += 3 - (opcode == BITFIELDOP_GET);
     }
 
+    if (readonly) {
+        /* Lookup for read is ok if key doesn't exit, but errors
+         * if it's not a string. */
+        o = lookupKeyRead(c->db,c->argv[1]);
+        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    } else {
+        /* Lookup by making room up to the farest bit reached by
+         * this operation. */
+        if ((o = lookupStringForBitCommand(c,
+            higest_write_offset)) == NULL) return;
+    }
+
     addReplyMultiBulkLen(c,numops);
 
     /* Actually process the operations. */
@@ -963,11 +1003,6 @@ void bitfieldCommand(client *c) {
             /* SET and INCRBY: We handle both with the same code path
              * for simplicity. SET return value is the previous value so
              * we need fetch & store as well. */
-
-            /* Lookup by making room up to the farest bit reached by
-             * this operation. */
-            if ((o = lookupStringForBitCommand(c,
-                thisop->offset + (thisop->bits-1))) == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
@@ -1035,20 +1070,23 @@ void bitfieldCommand(client *c) {
             changes++;
         } else {
             /* GET */
-            o = lookupKeyRead(c->db,c->argv[1]);
-            size_t olen = (o == NULL) ? 0 : sdslen(o->ptr);
             unsigned char buf[9];
+            long strlen = 0;
+            unsigned char *src = NULL;
+            char llbuf[LONG_STR_SIZE];
+
+            if (o != NULL)
+                src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
              * execute up to 64 bit operations that are at actual string
              * object boundaries. */
             memset(buf,0,9);
-            unsigned char *src = o ? o->ptr : NULL;
             int i;
             size_t byte = thisop->offset >> 3;
             for (i = 0; i < 9; i++) {
-                if (src == NULL || i+byte >= olen) break;
+                if (src == NULL || i+byte >= (size_t)strlen) break;
                 buf[i] = src[i+byte];
             }
 

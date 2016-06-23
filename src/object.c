@@ -97,7 +97,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 }
 
 /* Create a string object with EMBSTR encoding if it is smaller than
- * REIDS_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
+ * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
  *
  * The current limit of 39 is chosen so that the biggest string object
@@ -147,7 +147,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
  * will always result in a fresh object that is unshared (refcount == 1).
  *
  * The resulting object always has refcount set to 1. */
-robj *dupStringObject(robj *o) {
+robj *dupStringObject(const robj *o) {
     robj *d;
 
     serverAssert(o->type == OBJ_STRING);
@@ -221,6 +221,13 @@ robj *createZsetZiplistObject(void) {
     return o;
 }
 
+robj *createModuleObject(moduleType *mt, void *value) {
+    moduleValue *mv = zmalloc(sizeof(*mv));
+    mv->type = mt;
+    mv->value = value;
+    return createObject(OBJ_MODULE,mv);
+}
+
 void freeStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
         sdsfree(o->ptr);
@@ -281,6 +288,12 @@ void freeHashObject(robj *o) {
     }
 }
 
+void freeModuleObject(robj *o) {
+    moduleValue *mv = o->ptr;
+    mv->type->free(mv->value);
+    zfree(mv);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
@@ -293,6 +306,7 @@ void decrRefCount(robj *o) {
         case OBJ_SET: freeSetObject(o); break;
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
+        case OBJ_MODULE: freeModuleObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
@@ -371,10 +385,10 @@ robj *tryObjectEncoding(robj *o) {
      if (o->refcount > 1) return o;
 
     /* Check if we can represent this string as a long integer.
-     * Note that we are sure that a string larger than 21 chars is not
+     * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
-    if (len <= 21 && string2l(s,len,&value)) {
+    if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
@@ -525,7 +539,7 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
-int getDoubleFromObject(robj *o, double *target) {
+int getDoubleFromObject(const robj *o, double *target) {
     double value;
     char *eptr;
 
@@ -536,7 +550,7 @@ int getDoubleFromObject(robj *o, double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (isspace(((char*)o->ptr)[0]) ||
+            if (isspace(((const char*)o->ptr)[0]) ||
                 eptr[0] != '\0' ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||

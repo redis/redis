@@ -72,7 +72,7 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 
     /* Frame to valid range. */
     if (step < 1) step = 1;
-    if (step > 26) step = 25;
+    if (step > 26) step = 26;
     return step;
 }
 
@@ -89,6 +89,8 @@ int geohashBoundingBox(double longitude, double latitude, double radius_meters,
     lonr = deg_rad(longitude);
     latr = deg_rad(latitude);
 
+    if (radius_meters > EARTH_RADIUS_IN_METERS)
+        radius_meters = EARTH_RADIUS_IN_METERS;
     double distance = radius_meters / EARTH_RADIUS_IN_METERS;
     double min_latitude = latr - distance;
     double max_latitude = latr + distance;
