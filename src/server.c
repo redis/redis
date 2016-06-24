@@ -3709,7 +3709,7 @@ void daemonize(void) {
 }
 
 void version(void) {
-    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
+    printf("SRedis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
         REDIS_VERSION,
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
@@ -3720,19 +3720,19 @@ void version(void) {
 }
 
 void usage(void) {
-    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
-    fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
-    fprintf(stderr,"       ./redis-server -v or --version\n");
-    fprintf(stderr,"       ./redis-server -h or --help\n");
-    fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n\n");
+    fprintf(stderr,"Usage: ./sredis-server [/path/to/redis.conf] [options]\n");
+    fprintf(stderr,"       ./sredis-server - (read config from stdin)\n");
+    fprintf(stderr,"       ./sredis-server -v or --version\n");
+    fprintf(stderr,"       ./sredis-server -h or --help\n");
+    fprintf(stderr,"       ./sredis-server --test-memory <megabytes>\n\n");
     fprintf(stderr,"Examples:\n");
-    fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
-    fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
-    fprintf(stderr,"       ./redis-server --port 7777\n");
-    fprintf(stderr,"       ./redis-server --port 7777 --slaveof 127.0.0.1 8888\n");
-    fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n\n");
+    fprintf(stderr,"       ./sredis-server (run the server with default conf)\n");
+    fprintf(stderr,"       ./sredis-server /etc/redis/6379.conf\n");
+    fprintf(stderr,"       ./sredis-server --port 7777\n");
+    fprintf(stderr,"       ./sredis-server --port 7777 --slaveof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./sredis-server /etc/myredis.conf --loglevel verbose\n\n");
     fprintf(stderr,"Sentinel mode:\n");
-    fprintf(stderr,"       ./redis-server /etc/sentinel.conf --sentinel\n");
+    fprintf(stderr,"       ./sredis-server /etc/sentinel.conf --sentinel\n");
     exit(1);
 }
 
@@ -3747,7 +3747,7 @@ void redisAsciiArt(void) {
 
     if (server.syslog_enabled) {
         serverLog(LL_NOTICE,
-            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
+            "SRedis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -3829,7 +3829,7 @@ void memtest(size_t megabytes, int passes);
 int checkForSentinelMode(int argc, char **argv) {
     int j;
 
-    if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
+    if (strstr(argv[0],"sredis-sentinel") != NULL) return 1;
     for (j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
     return 0;
@@ -4051,7 +4051,7 @@ int main(int argc, char **argv) {
                 exit(0);
             } else {
                 fprintf(stderr,"Please specify the amount of memory to test in megabytes.\n");
-                fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
+                fprintf(stderr,"Example: ./sredis-server --test-memory 4096\n\n");
                 exit(1);
             }
         }
@@ -4115,7 +4115,7 @@ int main(int argc, char **argv) {
 
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
-        serverLog(LL_WARNING,"Server started, Redis version " REDIS_VERSION);
+        serverLog(LL_WARNING,"Server started, SRedis version " REDIS_VERSION);
     #ifdef __linux__
         linuxMemoryWarnings();
     #endif
