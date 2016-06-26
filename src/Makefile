@@ -23,7 +23,8 @@ WARN=-Wall -W
 OPT=$(OPTIMIZATION)
 
 PREFIX?=/usr/local
-INSTALL_BIN=$(PREFIX)/bin
+DESTDIR?=
+INSTALL_BIN=$(DESTDIR)$(PREFIX)/bin
 INSTALL=install
 
 # Default allocator
