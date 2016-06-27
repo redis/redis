@@ -13,6 +13,8 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
+CFLAGS += -std=gnu99
+
 all: helloworld.so hellotype.so
 
 .c.xo:
