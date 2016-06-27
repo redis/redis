@@ -710,7 +710,7 @@ int redis_check_rdb(char *rdbfilename) {
     return 0;
 }
 
-/* RDB check main: called form redis.c when Redis is executed with the
+/* RDB check main: called form server.c when Redis is executed with the
  * redis-check-rdb alias. */
 int redis_check_rdb_main(char **argv, int argc) {
     if (argc != 2) {

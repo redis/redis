@@ -177,7 +177,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Hash table parameters */
 #define HASHTABLE_MIN_FILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags. Please check the command table defined in the redis.c file
+/* Command flags. Please check the command table defined in the server.c file
  * for more information about the meaning of every flag. */
 #define CMD_WRITE (1<<0)            /* "w" flag */
 #define CMD_READONLY (1<<1)         /* "r" flag */
