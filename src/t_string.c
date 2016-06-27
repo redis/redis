@@ -66,6 +66,7 @@ static int checkStringLength(client *c, long long size) {
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    robj *o;
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
@@ -77,12 +78,15 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    o = lookupKeyWrite(c->db,key);
+    if ((flags & OBJ_SET_NX && o != NULL) ||
+        (flags & OBJ_SET_XX && o == NULL))
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    if (o && checkType(c,o,OBJ_STRING)) return;
+
     setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c->db,key,mstime()+milliseconds);
