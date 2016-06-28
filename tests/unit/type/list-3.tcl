@@ -27,6 +27,9 @@ start_server {
     } {PONG}
 
     test {Stress tester for #3343-alike bugs} {
+        for {set j 0} {$j < 100} {incr j} {
+            puts [randomInt 10]
+        }
     }
 
     tags {slow} {
