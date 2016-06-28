@@ -13,6 +13,22 @@ start_server {
         assert_equal [r lindex l 1] [lindex $mylist 1]
     }
 
+    test {Regression for quicklist #3343 bug} {
+        r del mylist
+        r lpush mylist 401
+        r lpush mylist 392
+        r rpush mylist [string repeat x 5105]"799"
+        r lset mylist -1 [string repeat x 1014]"702"
+        r lpop mylist
+        r lset mylist -1 [string repeat x 4149]"852"
+        r linsert mylist before 401 [string repeat x 9927]"12"
+        r lrange mylist 0 -1
+        r ping ; # It's enough if the server is still alive
+    } {PONG}
+
+    test {Stress tester for #3343-alike bugs} {
+    }
+
     tags {slow} {
         test {ziplist implementation: value encoding and backlink} {
             if {$::accurate} {set iterations 100} else {set iterations 10}
