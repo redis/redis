@@ -258,6 +258,25 @@ void loadServerConfigFromString(char *config) {
                     argv[1], strerror(errno));
                 exit(1);
             }
+        } else if (!strcasecmp(argv[0],"acls-array-size") && argc == 2) {
+            server.acls_array_size = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"users-acls") && argc == 2) {
+            FILE *logfp;
+
+            zfree(server.requirepass);
+            zfree(server.aclfile);
+            server.aclfile = zstrdup(argv[1]);
+            if (server.aclfile[0] != '\0') {
+                logfp = fopen(server.aclfile,"r");
+                if (logfp == NULL) {
+                    err = sdscatprintf(sdsempty(),
+                        "Can't open the users-acls file: %s", strerror(errno));
+                    goto loaderr;
+                }
+                fclose(logfp);
+            }
+            server.requirepass = NULL;
+            server.use_cmd_acls = 1;
         } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
             server.verbosity = configEnumGetValue(loglevel_enum,argv[1]);
             if (server.verbosity == INT_MIN) {
@@ -366,6 +385,8 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"masteruser") && argc == 2) {
+            server.masteruser = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
             zfree(server.masterauth);
             server.masterauth = zstrdup(argv[1]);
@@ -462,11 +483,13 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
-                err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-                goto loaderr;
+            if (server.use_cmd_acls == 0) {
+                if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+                    err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
+                    goto loaderr;
+                }
+                server.requirepass = zstrdup(argv[1]);
             }
-            server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -774,9 +797,16 @@ void configSetCommand(client *c) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
+        if (server.use_cmd_acls) {
+            addReplyError(c, "can't set requirepass when using cmd acls");
+            return;
+        }
         if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
+    } config_set_special_field("masteruser") {
+        zfree(server.masteruser);
+        server.masteruser = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } config_set_special_field("masterauth") {
         zfree(server.masterauth);
         server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -1110,6 +1140,7 @@ void configGetCommand(client *c) {
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
+    config_get_string_field("masteruser",server.masteruser);
     config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
@@ -1860,6 +1891,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"dbfilename",server.rdb_filename,CONFIG_DEFAULT_RDB_FILENAME);
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state);
+    rewriteConfigStringOption(state,"masteruser",server.masteruser,NULL);
     rewriteConfigStringOption(state,"masterauth",server.masterauth,NULL);
     rewriteConfigStringOption(state,"cluster-announce-ip",server.cluster_announce_ip,NULL);
     rewriteConfigYesNoOption(state,"slave-serve-stale-data",server.repl_serve_stale_data,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA);

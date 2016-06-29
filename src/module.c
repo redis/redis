@@ -1,5 +1,6 @@
 #include "server.h"
 #include "cluster.h"
+#include "acls.h"
 #include <dlfcn.h>
 
 #define REDISMODULE_CORE 1
@@ -539,6 +540,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
 
     struct redisCommand *rediscmd;
     RedisModuleCommandProxy *cp;
+    int acl_cmd_max_size;
     sds cmdname = sdsnew(name);
 
     /* Check if the command name is busy. */
@@ -568,6 +570,14 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->keystep = keystep;
     cp->rediscmd->microseconds = 0;
     cp->rediscmd->calls = 0;
+
+    acl_cmd_max_size = increaseAclCmdSize();
+    cp->rediscmd->aclindex = CMD_ACL_INDEX(acl_cmd_max_size);
+    cp->rediscmd->aclvalue = CMD_ACL_VALUE(cp->rediscmd->aclindex, acl_cmd_max_size);
+
+    addCommandToAclGroup(server.aclGroups, cp->rediscmd->flags,
+                         cp->rediscmd->aclindex, cp->rediscmd->aclvalue);
+
     dictAdd(server.commands,sdsdup(cmdname),cp->rediscmd);
     dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
     return REDISMODULE_OK;
@@ -3028,6 +3038,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     ctx.module->handle = handle;
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);
+
+    reloadUserAcls();
     return C_OK;
 }
 

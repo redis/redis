@@ -192,6 +192,7 @@ typedef struct sentinelRedisInstance {
     dict *slaves;       /* Slaves for this master instance. */
     unsigned int quorum;/* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
+    char *auth_user;    /* User for AUTH */
     char *auth_pass;    /* Password to use for AUTH against master & slaves. */
 
     /* Slave specific. */
@@ -368,6 +369,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
+void sentinelAuthReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port);
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch);
 void sentinelFlushConfig(void);
@@ -423,17 +425,17 @@ void sentinelPublishCommand(client *c);
 void sentinelRoleCommand(client *c);
 
 struct redisCommand sentinelcmds[] = {
-    {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
-    {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
-    {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
-    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
+    {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0,0,0},
+    {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0,0,0},
+    {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0,0,0},
+    {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0,0,0},
+    {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0,0,0},
+    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
@@ -1187,6 +1189,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->down_after_period = master ? master->down_after_period :
                             SENTINEL_DEFAULT_DOWN_AFTER;
     ri->master_link_down_time = 0;
+    ri->auth_user = NULL;
     ri->auth_pass = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->slave_reconf_sent_time = 0;
@@ -1244,6 +1247,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->client_reconfig_script);
     sdsfree(ri->slave_master_host);
     sdsfree(ri->leader);
+    sdsfree(ri->auth_user);
     sdsfree(ri->auth_pass);
     sdsfree(ri->info);
     releaseSentinelAddr(ri->addr);
@@ -1614,6 +1618,11 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Client reconfiguration script seems non existing or "
                    "non executable.";
         ri->client_reconfig_script = sdsnew(argv[2]);
+   } else if (!strcasecmp(argv[0],"auth-user") && argc == 3) {
+        /* auth-user <name> <user> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->auth_user = sdsnew(argv[2]);
    } else if (!strcasecmp(argv[0],"auth-pass") && argc == 3) {
         /* auth-pass <name> <password> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -1751,6 +1760,14 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
 
+        /* sentinel auth-user */
+        if (master->auth_user) {
+            line = sdscatprintf(sdsempty(),
+                "sentinel auth-user %s %s",
+                master->name, master->auth_user);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+
         /* sentinel auth-pass */
         if (master->auth_pass) {
             line = sdscatprintf(sdsempty(),
@@ -1864,11 +1881,16 @@ werr:
  * to the instance as if it fails Sentinel will detect the instance down,
  * will disconnect and reconnect the link and so forth. */
 void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
+    char *auth_user = (ri->flags & SRI_MASTER) ? ri->auth_user :
+                                                 ri->master->auth_user;
     char *auth_pass = (ri->flags & SRI_MASTER) ? ri->auth_pass :
                                                  ri->master->auth_pass;
 
-    if (auth_pass) {
-        if (redisAsyncCommand(c, sentinelDiscardReplyCallback, ri, "AUTH %s",
+    if (auth_user && auth_pass) {
+        if (redisAsyncCommand(c, sentinelAuthReplyCallback, ri, "AUTH %s %s",
+            auth_user, auth_pass) == C_OK) ri->link->pending_commands++;
+    } else if (auth_pass) {
+        if (redisAsyncCommand(c, sentinelAuthReplyCallback, ri, "AUTH %s",
             auth_pass) == C_OK) ri->link->pending_commands++;
     }
 }
@@ -2251,6 +2273,20 @@ void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privd
     UNUSED(privdata);
 
     if (link) link->pending_commands--;
+}
+
+void sentinelAuthReplyCallback(redisAsyncContext *c, void *reply, void *privdata) {
+    instanceLink *link = c->data;
+    redisReply *r;
+    UNUSED(privdata);
+
+    if (!reply || !link) return;
+    link->pending_commands--;
+
+    r = reply;
+    if (r->type == REDIS_REPLY_ERROR) {
+        serverLog(LL_WARNING, "Auth Failed: %s", r->str);
+    }
 }
 
 void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata) {
@@ -3334,6 +3370,11 @@ void sentinelSetCommand(client *c) {
             }
             sdsfree(ri->client_reconfig_script);
             ri->client_reconfig_script = strlen(value) ? sdsnew(value) : NULL;
+            changes++;
+       } else if (!strcasecmp(option,"auth-user")) {
+            /* auth-user <user> */
+            sdsfree(ri->auth_user);
+            ri->auth_user = strlen(value) ? sdsnew(value) : NULL;
             changes++;
        } else if (!strcasecmp(option,"auth-pass")) {
             /* auth-pass <password> */

@@ -1,0 +1,3 @@
+antirez "antirez" +#all
+charsyam "passwd" +#all -#admin
+default "" +#readonly

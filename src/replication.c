@@ -1431,7 +1431,12 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* AUTH with the master if required. */
     if (server.repl_state == REPL_STATE_SEND_AUTH) {
-        if (server.masterauth) {
+        if (server.masteruser && server.masterauth) {
+            err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"AUTH",server.masteruser,server.masterauth,NULL);
+            if (err) goto write_error;
+            server.repl_state = REPL_STATE_RECEIVE_AUTH;
+            return;
+        } else if (server.masterauth) {
             err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"AUTH",server.masterauth,NULL);
             if (err) goto write_error;
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
