@@ -373,6 +373,13 @@ static int sort_gp_desc(const void *a, const void *b) {
     return -sort_gp_asc(a, b);
 }
 
+static int sort_gp_rand(const void *a, const void *b) {
+    if (rand() > RAND_MAX/2)
+        return 1;
+    else
+        return -1;
+}
+
 /* ====================================================================
  * Commands
  * ==================================================================== */
@@ -427,11 +434,12 @@ void geoaddCommand(client *c) {
 #define SORT_NONE 0
 #define SORT_ASC 1
 #define SORT_DESC 2
+#define SORT_RAND 3
 
 #define RADIUS_COORDS 1
 #define RADIUS_MEMBER 2
 
-/* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
+/* GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC|RAND]
  *                               [COUNT count] [STORE key] [STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ... */
 void georadiusGeneric(client *c, int type) {
@@ -490,6 +498,8 @@ void georadiusGeneric(client *c, int type) {
                 sort = SORT_ASC;
             } else if (!strcasecmp(arg, "desc")) {
                 sort = SORT_DESC;
+            } else if (!strcasecmp(arg, "rand")) {
+                  sort = SORT_RAND;
             } else if (!strcasecmp(arg, "count") && (i+1) < remaining) {
                 if (getLongLongFromObjectOrReply(c, c->argv[base_args+i+1],
                     &count, NULL) != C_OK) return;
@@ -550,6 +560,9 @@ void georadiusGeneric(client *c, int type) {
         qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_asc);
     } else if (sort == SORT_DESC) {
         qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_desc);
+    } else if (sort == SORT_RAND) {
+        srand(time(NULL));
+        qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_rand);
     }
 
     if (storekey == NULL) {
