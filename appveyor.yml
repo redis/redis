@@ -1,4 +1,4 @@
-version: 3.0.503.{build}
+version: 3.0.504.{build}
 
 branches:
 # whitelist

@@ -1,5 +1,11 @@
 MSOpenTech Redis on Windows 3.0 Release Notes
 =============================================
+--[ Redis on Windows 3.0.504 ] Release date: Jul 01 2016
+
+ - [Fix] Use overlapped sockets for cluster failover communication.
+ - [Portability] strtol and strtoul fixes.
+ - [Docs] Added Microsoft Open Source Code of Conduct.
+
 --[ Redis on Windows 3.0.503 ] Release date: Jun 21 2016
 
  - [Fix] Possible AV during background save.
