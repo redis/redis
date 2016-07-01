@@ -45,22 +45,29 @@
 #define RDB_LOAD_ENC    (1<<0)
 #define RDB_LOAD_PLAIN  (1<<1)
 
-#define rdbExitReportCorruptRDB(reason) rdbCheckThenExit(reason, __LINE__);
+#define rdbExitReportCorruptRDB(...) rdbCheckThenExit(__LINE__,__VA_ARGS__)
 
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
-void rdbCheckThenExit(char *reason, int where) {
-     if (!rdbCheckMode) {
-        serverLog(LL_WARNING, "Corrupt RDB detected at rdb.c:%d (%s). "
-            "Running 'redis-check-rdb %s'",
-            where, reason, server.rdb_filename);
+void rdbCheckThenExit(int linenum, char *reason, ...) {
+    va_list ap;
+    char msg[1024];
+    int len;
+
+    len = snprintf(msg,sizeof(msg),
+        "Internal error in RDB reading function at rdb.c:%d -> ", linenum);
+    va_start(ap,reason);
+    vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
+    va_end(ap);
+
+    if (!rdbCheckMode) {
+        serverLog(LL_WARNING, "%s", msg);
         char *argv[2] = {"",server.rdb_filename};
         redis_check_rdb_main(2,argv);
     } else {
-        rdbCheckError("Internal error in RDB reading function at rdb.c:%d (%s)",
-            where, reason);
+        rdbCheckError("%s",msg);
     }
     exit(1);
 }
@@ -152,10 +159,14 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
         /* Read a 14 bit len. */
         if (rioRead(rdb,buf+1,1) == 0) return RDB_LENERR;
         return ((buf[0]&0x3F)<<8)|buf[1];
-    } else {
+    } else if (type == RDB_32BITLEN) {
         /* Read a 32 bit len. */
         if (rioRead(rdb,&len,4) == 0) return RDB_LENERR;
         return ntohl(len);
+    } else {
+        rdbExitReportCorruptRDB(
+            "Unknown length encoding %d in rdbLoadLen()",type);
+        return -1; /* Never reached. */
     }
 }
 
@@ -209,7 +220,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
         val = (int32_t)v;
     } else {
         val = 0; /* anti-warning */
-        rdbExitReportCorruptRDB("Unknown RDB integer encoding type");
+        rdbExitReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
     }
     if (plain) {
         char buf[LONG_STR_SIZE], *p;
@@ -419,7 +430,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags) {
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags);
         default:
-            rdbExitReportCorruptRDB("Unknown RDB encoding type");
+            rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
         }
     }
 
@@ -1205,11 +1216,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
-                rdbExitReportCorruptRDB("Unknown encoding");
+                rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
     } else {
-        rdbExitReportCorruptRDB("Unknown object type");
+        rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
     }
     return o;
 }
