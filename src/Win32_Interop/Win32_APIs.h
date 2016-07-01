@@ -34,6 +34,11 @@
 #define strcasecmp  _stricmp
 #define strtoll     _strtoi64
 
+#ifdef _WIN64
+#define strtol      _strtoi64
+#define strtoul     _strtoui64
+#endif
+
 #define sleep(x) Sleep((x)*1000)
 /* Redis calls usleep(1) to give thread some time.
  * Sleep(0) should do the same on Windows.

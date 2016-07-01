@@ -378,7 +378,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field) {
             char *p = strchr(line,'k');
             if (p) {
                 *p = '\0';
-                bytes += PORT_STRTOL(line+flen,NULL,10) * 1024;
+                bytes += strtol(line+flen,NULL,10) * 1024;
             }
         }
     }

@@ -1125,7 +1125,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master");
         } else {
             usemark = 0;
-            server.repl_transfer_size = PORT_STRTOL(buf+1,NULL,10);
+            server.repl_transfer_size = strtol(buf+1,NULL,10);
             redisLog(REDIS_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master",
                 (PORT_LONGLONG) server.repl_transfer_size);

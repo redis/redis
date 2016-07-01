@@ -153,7 +153,7 @@ void loadServerConfigFromString(char *config) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
-            server.unixsocketperm = (mode_t)PORT_STRTOL(argv[1], NULL, 8);
+            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
             if (errno || server.unixsocketperm > 0777) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
