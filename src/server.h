@@ -1597,7 +1597,7 @@ void sentinelIsRunning(void);
 
 /* redis-check-rdb */
 int redis_check_rdb(char *rdbfilename);
-int redis_check_rdb_main(char **argv, int argc);
+int redis_check_rdb_main(int argc, char **argv);
 
 /* Scripting */
 void scriptingInit(int setup);

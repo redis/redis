@@ -4033,7 +4033,7 @@ int main(int argc, char **argv) {
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
     if (strstr(argv[0],"redis-check-rdb") != NULL)
-        redis_check_rdb_main(argv,argc);
+        redis_check_rdb_main(argc,argv);
 
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
