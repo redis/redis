@@ -2903,7 +2903,7 @@ void sentinelCommand(client *c) {
          * ip and port are the ip and port of the master we want to be
          * checked by Sentinel. Note that the command will not check by
          * name but just by master, in theory different Sentinels may monitor
-         * differnet masters with the same name.
+         * different masters with the same name.
          *
          * current-epoch is needed in order to understand if we are allowed
          * to vote for a failover leader or not. Each Sentinel can vote just
@@ -3258,7 +3258,7 @@ void sentinelInfoCommand(client *c) {
     addReplyBulkSds(c, info);
 }
 
-/* Implements Sentinel verison of the ROLE command. The output is
+/* Implements Sentinel version of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(client *c) {
     dictIterator *di;
@@ -3588,7 +3588,7 @@ void sentinelSimFailureCrash(void) {
 }
 
 /* Vote for the sentinel with 'req_runid' or return the old vote if already
- * voted for the specifed 'req_epoch' or one greater.
+ * voted for the specified 'req_epoch' or one greater.
  *
  * If a vote is not available returns NULL, otherwise return the Sentinel
  * runid and populate the leader_epoch with the epoch of the vote. */

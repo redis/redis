@@ -128,7 +128,7 @@ course this is not enough, we need the information needed to link a specific
 value with a specific module type that is able to load and handle it.
 
 So when we save a `type specific value` about a module, we prefix it with
-a 64 bit integer. 64 bits is large enough to store the informations needed
+a 64 bit integer. 64 bits is large enough to store the information needed
 in order to lookup the module that can handle that specific type, but is
 short enough that we can prefix each module value we store inside the RDB
 without making the final RDB file too big. At the same time, this solution
@@ -264,7 +264,7 @@ that can automatically store inside the RDB file the following types:
 
 It is up to the module to find a viable representation using the above base
 types. However note that while the integer and double values are stored
-and loaded in an architecture and *endianess* agnostic way, if you use
+and loaded in an architecture and *endianness* agnostic way, if you use
 the raw string saving API to, for example, save a structure on disk, you
 have to care those details yourself.
 

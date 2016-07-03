@@ -1999,7 +1999,7 @@ void moduleParseCallReply_SimpleString(RedisModuleCallReply *reply);
 void moduleParseCallReply_Array(RedisModuleCallReply *reply);
 
 /* Do nothing if REDISMODULE_REPLYFLAG_TOPARSE is false, otherwise
- * use the protcol of the reply in reply->proto in order to fill the
+ * use the protocol of the reply in reply->proto in order to fill the
  * reply with parsed data according to the reply type. */
 void moduleParseCallReply(RedisModuleCallReply *reply) {
     if (!(reply->flags & REDISMODULE_REPLYFLAG_TOPARSE)) return;

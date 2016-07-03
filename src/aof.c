@@ -986,7 +986,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
 }
 
 /* Call the module type callback in order to rewrite a data type
- * taht is exported by a module and is not handled by Redis itself.
+ * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
 int rewriteModuleObject(rio *r, robj *key, robj *o) {
     RedisModuleIO io;

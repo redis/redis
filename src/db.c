@@ -281,14 +281,14 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * If callback is given the function is called from time to time to
  * signal that work is in progress.
  *
- * The dbnum can be -1 if all teh DBs should be flushed, or the specified
+ * The dbnum can be -1 if all the DBs should be flushed, or the specified
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or
  * EMPTYDB_ASYNC if we want the memory to be freed in a different thread
  * and the function to return ASAP.
  *
- * On success the fuction returns the number of keys removed from the
+ * On success the function returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*)) {

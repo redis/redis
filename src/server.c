@@ -4061,7 +4061,7 @@ int main(int argc, char **argv) {
             configfile = argv[j];
             server.configfile = getAbsolutePath(configfile);
             /* Replace the config file in server.exec_argv with
-             * its absoulte path. */
+             * its absolute path. */
             zfree(server.exec_argv[j]);
             server.exec_argv[j] = zstrdup(server.configfile);
             j++;

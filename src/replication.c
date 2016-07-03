@@ -494,7 +494,7 @@ need_full_resync:
  * Side effects, other than starting a BGSAVE:
  *
  * 1) Handle the slaves in WAIT_START state, by preparing them for a full
- *    sync if the BGSAVE was succesfully started, or sending them an error
+ *    sync if the BGSAVE was successfully started, or sending them an error
  *    and dropping them from the list of slaves.
  *
  * 2) Flush the Lua scripting script cache if the BGSAVE was actually
@@ -804,7 +804,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
-    /* If the preamble was already transfered, send the RDB bulk data. */
+    /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
@@ -873,7 +873,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                         replicationGetSlaveName(slave));
                 /* Note: we wait for a REPLCONF ACK message from slave in
                  * order to really put it online (install the write handler
-                 * so that the accumulated data can be transfered). However
+                 * so that the accumulated data can be transferred). However
                  * we change the replication state ASAP, since our slave
                  * is technically online now. */
                 slave->replstate = SLAVE_STATE_ONLINE;
