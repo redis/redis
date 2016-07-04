@@ -1062,11 +1062,18 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
                                                        NULL,0,ri->runid);
-        if (match->link->disconnected == 0) {
+        /* If there is no match, this master does not know about this
+         * Sentinel, try with the next one. */
+        if (match == NULL) continue;
+
+        /* Disconnect the old links if connected. */
+        if (match->link->cc != NULL)
             instanceLinkCloseConnection(match->link,match->link->cc);
+        if (match->link->pc != NULL)
             instanceLinkCloseConnection(match->link,match->link->pc);
-        }
+
         if (match == ri) continue; /* Address already updated for it. */
+
         /* Update the address of the matching Sentinel by copying the address
          * of the Sentinel object that received the address update. */
         releaseSentinelAddr(match->addr);
