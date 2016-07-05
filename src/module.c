@@ -11,6 +11,20 @@
  * pointers that have an API the module can call with them)
  * -------------------------------------------------------------------------- */
 
+/* Forward declaration */
+struct RedisModuleCtx;
+
+/* Function pointer type of a generic Redis Module hook. */
+typedef int (*RedisModuleHookFunc) (struct RedisModuleCtx *ctx, RedisModuleHookArg *arg);
+
+/* Function pointer type of a function representing a command inside
+ * a Redis module. */
+typedef int (*RedisModuleCmdFunc) (struct RedisModuleCtx *ctx, void **argv, int argc);
+
+#define REDISMODULE_HOOK_RDB_AUX_SAVE   0
+#define REDISMODULE_HOOK_RDB_AUX_LOAD   1
+#define REDISMODULE_HOOK_MAX            REDISMODULE_HOOK_RDB_AUX_LOAD
+
 /* This structure represents a module inside the system. */
 struct RedisModule {
     void *handle;   /* Module dlopen() handle. */
@@ -18,6 +32,7 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    RedisModuleHookFunc hooks[REDISMODULE_HOOK_MAX];	/* Registered hooks */
 };
 typedef struct RedisModule RedisModule;
 
@@ -116,10 +131,6 @@ typedef struct RedisModuleKey RedisModuleKey;
 #define REDISMODULE_ZSET_RANGE_LEX 1
 #define REDISMODULE_ZSET_RANGE_SCORE 2
 #define REDISMODULE_ZSET_RANGE_POS 3
-
-/* Function pointer type of a function representing a command inside
- * a Redis module. */
-typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
 
 /* This struct holds the information about a command registered by a module.*/
 struct RedisModuleCommandProxy {
@@ -586,6 +597,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    memset(module->hooks, 0, sizeof(*module->hooks));
     ctx->module = module;
 }
 
@@ -2688,6 +2700,18 @@ void *moduleLoadString(RedisModuleIO *io, int plain, size_t *lenptr) {
     return s;
 }
 
+/* In the context of RDBAuxSave hook, save an aux field into the RDB.
+ */
+void RM_SaveAuxField(RedisModuleIO *io, const char *key, const char *value) {
+    if (io->error) return;
+    int retval = rdbSaveAuxFieldStrStr(io->rio,(char *)key,(char *)value);
+    if (retval == -1) {
+        io->error = 1;
+    } else {
+        io->bytes += retval;
+    }
+}
+
 /* In the context of the rdb_load method of a module data type, loads a string
  * from the RDB file, that was previously saved with RedisModule_SaveString()
  * functions family.
@@ -2834,6 +2858,78 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
 }
 
 /* --------------------------------------------------------------------------
+ * Hooks
+ * -------------------------------------------------------------------------- */
+
+/* Register a module hook.
+ */
+int RM_RegisterHook(RedisModuleCtx *ctx, int hook_type, RedisModuleHookFunc hook_func) {
+    if (hook_type < 0 || hook_type > REDISMODULE_HOOK_MAX)
+        return REDISMODULE_ERR;
+
+    if (!ctx->module)
+        return REDISMODULE_ERR;
+
+    ctx->module->hooks[hook_type] = hook_func;
+    return REDISMODULE_OK;
+}
+
+/* Invoke a generic hook.  Returns the number of successful hooks called, or
+ * -1 if at least one failed.  If ignore_errors is set, only the number of
+ * successful hooks is returned.
+ */
+int moduleInvokeHook(int hook_type, RedisModuleHookArg *arg, int ignore_errors) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+    int ret = 0;
+
+    while ((de = dictNext(di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
+
+        if (module->hooks[hook_type]) {
+            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+
+            ctx.module = module;
+            if (module->hooks[hook_type](&ctx, arg) == REDISMODULE_ERR) {
+                if (!ignore_errors) ret = -1;
+            } else {
+                if (ret >= 0) ret++;
+            }
+            moduleFreeContext(&ctx);
+        }
+    }
+
+    return ret;
+}
+
+/* Invoke RDBAuxSave hook.  Returns -1 if an error occured or 1 on success.
+ */
+int moduleHookRDBAuxSave(rio *rdb) {
+    RedisModuleIO io;
+    RedisModuleHookArg arg;
+
+    moduleInitIOContext(io,NULL,rdb);
+    arg.rdb_aux_save.io = &io;
+
+    if (io.error || moduleInvokeHook(REDISMODULE_HOOK_RDB_AUX_SAVE, &arg, 0) < 0)
+        return -1;
+    return 1;
+}
+
+/* Invoke RDBAuxLoad hook, returns the number of hook functions that returned success value.
+ */
+int moduleHookRDBAuxLoad(robj *key, robj *value)
+{
+    RedisModuleHookArg arg = {
+        .rdb_aux_load = {
+            .key = key,
+            .value = value
+        }
+    };
+    return moduleInvokeHook(REDISMODULE_HOOK_RDB_AUX_LOAD, &arg, 1);
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -2952,8 +3048,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadStringBuffer);
     REGISTER_API(SaveDouble);
     REGISTER_API(LoadDouble);
+    REGISTER_API(SaveAuxField);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
+    REGISTER_API(RegisterHook);
 }
 
 /* Global initialization at Redis startup. */
