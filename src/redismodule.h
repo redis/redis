@@ -68,9 +68,19 @@
 #define REDISMODULE_POSITIVE_INFINITE (1.0/0.0)
 #define REDISMODULE_NEGATIVE_INFINITE (-1.0/0.0)
 
+/* Hook types */
+#define REDISMODULE_HOOK_RDB_AUX_SAVE   0       /* Called on RDB save, before keys */
+#define REDISMODULE_HOOK_RDB_AUX_LOAD   1       /* Called on RDB load, per AUX field */
+
 /* ------------------------- End of common defines ------------------------ */
 
-#ifndef REDISMODULE_CORE
+#ifdef REDISMODULE_CORE
+
+/* Things only defined for the modules core, not exported to modules
+ * including this file. */
+#define RedisModuleString robj
+
+#else
 
 typedef long long mstime_t;
 
@@ -83,7 +93,22 @@ typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleType RedisModuleType;
 typedef struct RedisModuleDigest RedisModuleDigest;
 
+#endif
+
+/* Parameter passed to hook functions */
+typedef union {
+    struct {
+        RedisModuleIO *io;
+    } rdb_aux_save;
+    struct {
+        const RedisModuleString *key;
+        const RedisModuleString *value;
+    } rdb_aux_load;
+} RedisModuleHookArg;
+
+#ifndef REDISMODULE_CORE
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+typedef int (*RedisModuleHookFunc) (RedisModuleCtx *ctx, RedisModuleHookArg *arg);
 
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
@@ -104,6 +129,7 @@ void *REDISMODULE_API_FUNC(RedisModule_Calloc)(size_t nmemb, size_t size);
 char *REDISMODULE_API_FUNC(RedisModule_Strdup)(const char *str);
 int REDISMODULE_API_FUNC(RedisModule_GetApi)(const char *, void *);
 int REDISMODULE_API_FUNC(RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
+int REDISMODULE_API_FUNC(RedisModule_RegisterHook)(RedisModuleCtx *ctx, int hook_type, RedisModuleHookFunc hook_func);
 int REDISMODULE_API_FUNC(RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
 int REDISMODULE_API_FUNC(RedisModule_WrongArity)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithLongLong)(RedisModuleCtx *ctx, long long ll);
@@ -176,6 +202,7 @@ void REDISMODULE_API_FUNC(RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t 
 uint64_t REDISMODULE_API_FUNC(RedisModule_LoadUnsigned)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_SaveSigned)(RedisModuleIO *io, int64_t value);
 int64_t REDISMODULE_API_FUNC(RedisModule_LoadSigned)(RedisModuleIO *io);
+void REDISMODULE_API_FUNC(RedisModule_SaveAuxField)(RedisModuleIO *io, const char *key, const char *value);
 void REDISMODULE_API_FUNC(RedisModule_EmitAOF)(RedisModuleIO *io, const char *cmdname, const char *fmt, ...);
 void REDISMODULE_API_FUNC(RedisModule_SaveString)(RedisModuleIO *io, RedisModuleString *s);
 void REDISMODULE_API_FUNC(RedisModule_SaveStringBuffer)(RedisModuleIO *io, const char *str, size_t len);
@@ -275,18 +302,14 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(LoadStringBuffer);
     REDISMODULE_GET_API(SaveDouble);
     REDISMODULE_GET_API(LoadDouble);
+    REDISMODULE_GET_API(SaveAuxField);
     REDISMODULE_GET_API(EmitAOF);
     REDISMODULE_GET_API(Log);
+    REDISMODULE_GET_API(RegisterHook);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
 }
-
-#else
-
-/* Things only defined for the modules core, not exported to modules
- * including this file. */
-#define RedisModuleString robj
 
 #endif /* REDISMODULE_CORE */
 #endif /* REDISMOUDLE_H */
