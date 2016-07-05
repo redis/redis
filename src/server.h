@@ -1167,6 +1167,8 @@ void moduleLoadFromQueue(void);
 int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
+int moduleHookRDBAuxSave(rio *rdb);
+int moduleHookRDBAuxLoad(robj *key, robj *value);
 
 /* Utils */
 long long ustime(void);

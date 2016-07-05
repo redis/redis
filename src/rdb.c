@@ -826,6 +826,7 @@ int rdbSaveInfoAuxFields(rio *rdb) {
     if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
+    if (moduleHookRDBAuxSave(rdb) == -1) return -1;
     return 1;
 }
 
@@ -1472,7 +1473,7 @@ int rdbLoad(char *filename) {
                 serverLog(LL_NOTICE,"RDB '%s': %s",
                     (char*)auxkey->ptr,
                     (char*)auxval->ptr);
-            } else {
+            } else if (moduleHookRDBAuxLoad(auxkey, auxval) <= 0) {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
                 serverLog(LL_DEBUG,"Unrecognized RDB AUX field: '%s'",

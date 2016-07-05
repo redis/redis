@@ -131,5 +131,6 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
 int rdbSaveBinaryDoubleValue(rio *rdb, double val);
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
+int rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val);
 
 #endif
