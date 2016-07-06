@@ -32,7 +32,6 @@
 #ifndef GEOHASH_HELPER_HPP_
 #define GEOHASH_HELPER_HPP_
 
-#include <math.h>
 #include "geohash.h"
 
 #define GZERO(s) s.bits = s.step = 0;
