@@ -172,7 +172,8 @@ void rdbCheckSetupSignals(void) {
     sigaction(SIGILL, &act, NULL);
 }
 
-/* Check the specified RDB file. */
+/* Check the specified RDB file. Return 0 if the RDB looks sane, otherwise
+ * 1 is returned. */
 int redis_check_rdb(char *rdbfilename) {
     uint64_t dbid;
     int type, rdbver;
@@ -181,7 +182,7 @@ int redis_check_rdb(char *rdbfilename) {
     FILE *fp;
     rio rdb;
 
-    if ((fp = fopen(rdbfilename,"r")) == NULL) return C_ERR;
+    if ((fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
     rioInitWithFile(&rdb,fp);
     rdbstate.rio = &rdb;
