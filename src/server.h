@@ -1613,6 +1613,9 @@ void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
 void disconnectAllBlockedClients(void);
 
+/* expire.c -- Handling of expired keys */
+void activeExpireCycle(int type);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
