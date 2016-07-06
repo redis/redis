@@ -110,10 +110,10 @@ int geohashBoundingBox(double longitude, double latitude, double radius_meters,
 
 GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double radius_meters) {
     GeoHashRange long_range, lat_range;
-    GeoHashRadius radius = { { 0 } };
-    GeoHashBits hash = { 0 };
-    GeoHashNeighbors neighbors = { { 0 } };
-    GeoHashArea area = { { 0 } };
+    GeoHashRadius radius = {{0}};
+    GeoHashBits hash = {0,0};
+    GeoHashNeighbors neighbors = {{0}};
+    GeoHashArea area = {{0}};
     double min_lon, max_lon, min_lat, max_lat;
     double bounds[4];
     int steps;
