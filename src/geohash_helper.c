@@ -80,7 +80,8 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
 
 int geohashBitsComparator(const GeoHashBits *a, const GeoHashBits *b) {
     /* If step not equal, compare on step.  Else, compare on bits. */
-    return a->step != b->step ? a->step - b->step : a->bits - b->bits;
+    return a->step != b->step ? (a->step - b->step) :
+                                ((int64_t)a->bits - (int64_t)b->bits);
 }
 
 int geohashBoundingBox(double longitude, double latitude, double radius_meters,
