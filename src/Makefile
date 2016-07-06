@@ -142,15 +142,12 @@ all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCH
 	@echo "Hint: It's a good idea to run 'make test' ;)"
 	@echo ""
 
+Makefile.dep:
+	-$(REDIS_CC) -MM *.c > Makefile.dep 2> /dev/null || true
+
+-include Makefile.dep
+
 .PHONY: all
-
-# Deps (use make dep to generate this)
-include Makefile.dep
-
-dep:
-	$(REDIS_CC) -MM *.c > Makefile.dep
-
-.PHONY: dep
 
 persist-settings: distclean
 	echo STD=$(STD) >> .make-settings
@@ -211,7 +208,7 @@ $(REDIS_CHECK_AOF_NAME): $(REDIS_CHECK_AOF_OBJ)
 	$(REDIS_CC) -c $<
 
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep
 
 .PHONY: clean
 
