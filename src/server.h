@@ -1616,6 +1616,9 @@ void disconnectAllBlockedClients(void);
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
 
+/* evict.c -- maxmemory handling and LRU eviction. */
+struct evictionPoolEntry *evictionPoolAlloc(void);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);

@@ -299,8 +299,6 @@ struct redisCommand redisCommandTable[] = {
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
 };
 
-struct evictionPoolEntry *evictionPoolAlloc(void);
-
 /*============================ Utility functions ============================ */
 
 /* Low level logging. To use only for very big messages, otherwise
