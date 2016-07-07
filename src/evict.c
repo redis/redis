@@ -33,6 +33,27 @@
 #include "server.h"
 #include "bio.h"
 
+/* ----------------------------------------------------------------------------
+ * Data structures
+ * --------------------------------------------------------------------------*/
+
+/* To improve the quality of the LRU approximation we take a set of keys
+ * that are good candidate for eviction across freeMemoryIfNeeded() calls.
+ *
+ * Entries inside the eviciton pool are taken ordered by idle time, putting
+ * greater idle times to the right (ascending order).
+ *
+ * Empty entries have the key pointer set to NULL. */
+#define MAXMEMORY_EVICTION_POOL_SIZE 16
+struct evictionPoolEntry {
+    unsigned long long idle;    /* Object idle time. */
+    sds key;                    /* Key name. */
+};
+
+/* ----------------------------------------------------------------------------
+ * Implementation of eviction, aging and LRU
+ * --------------------------------------------------------------------------*/
+
 /* Return the LRU clock, based on the clock resolution. This is a time
  * in a reduced-bits format that can be used to set and check the
  * object->lru field of redisObject structures. */
