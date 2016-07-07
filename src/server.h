@@ -112,6 +112,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP NULL         /* Auto detect. */
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT 0          /* Use server.port */
 #define CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT 0      /* Use +10000 offset. */
+#define CONFIG_DEFAULT_CLUSTER_PUBSUB_PROPAGATE 1
 #define CONFIG_DEFAULT_DAEMONIZE 0
 #define CONFIG_DEFAULT_UNIX_SOCKET_PERM 0
 #define CONFIG_DEFAULT_TCP_KEEPALIVE 300
@@ -1022,6 +1023,8 @@ struct redisServer {
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
+    int cluster_pubsub_propagate;  /* If true, send PUBLISH commands to all 
+                                      other cluster nodes. */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */

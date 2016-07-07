@@ -2467,7 +2467,9 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
  * messages to hosts without receives for a given channel.
  * -------------------------------------------------------------------------- */
 void clusterPropagatePublish(robj *channel, robj *message) {
-    clusterSendPublish(NULL, channel, message);
+    if(server.cluster_pubsub_propagate) {
+        clusterSendPublish(NULL, channel, message);
+    }
 }
 
 /* -----------------------------------------------------------------------------

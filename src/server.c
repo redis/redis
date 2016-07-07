@@ -1357,6 +1357,7 @@ void initServerConfig(void) {
     server.cluster_migration_barrier = CLUSTER_DEFAULT_MIGRATION_BARRIER;
     server.cluster_slave_validity_factor = CLUSTER_DEFAULT_SLAVE_VALIDITY;
     server.cluster_require_full_coverage = CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE;
+    server.cluster_pubsub_propagate = CONFIG_DEFAULT_CLUSTER_PUBSUB_PROPAGATE;
     server.cluster_configfile = zstrdup(CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     server.cluster_announce_ip = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_IP;
     server.cluster_announce_port = CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT;
