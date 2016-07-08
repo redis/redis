@@ -115,16 +115,7 @@ struct evictionPoolEntry *evictionPoolAlloc(void) {
 #define EVICTION_SAMPLES_ARRAY_SIZE 16
 void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
     int j, k, count;
-    dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
-    dictEntry **samples;
-
-    /* Try to use a static buffer: this function is a big hit...
-     * Note: it was actually measured that this helps. */
-    if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
-        samples = _samples;
-    } else {
-        samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
-    }
+    dictEntry *samples[server.maxmemory_samples];
 
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
@@ -175,7 +166,6 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         pool[k].key = sdsdup(key);
         pool[k].idle = idle;
     }
-    if (samples != _samples) zfree(samples);
 }
 
 int freeMemoryIfNeeded(void) {
