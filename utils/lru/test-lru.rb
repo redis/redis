@@ -1,112 +1,188 @@
 require 'rubygems'
 require 'redis'
 
-r = Redis.new
-r.config("SET","maxmemory","2000000")
-r.config("SET","maxmemory-policy","allkeys-lru")
-r.config("SET","maxmemory-samples",5)
-r.config("RESETSTAT")
-r.flushall
+$runs = []; # Remember the error rate of each run for average purposes.
 
-puts <<EOF
-<html>
-<body>
-<style>
-.box {
-    width:5px;
-    height:5px;
-    float:left;
-    margin: 1px;
-}
+def testit(filename)
+    r = Redis.new
+    r.config("SET","maxmemory","2000000")
+    r.config("SET","maxmemory-policy","allkeys-lru")
+    r.config("SET","maxmemory-samples",10)
+    r.config("RESETSTAT")
+    r.flushall
 
-.old {
-    border: 1px black solid;
-}
+    html = ""
+    html << <<EOF
+    <html>
+    <body>
+    <style>
+    .box {
+        width:5px;
+        height:5px;
+        float:left;
+        margin: 1px;
+    }
 
-.new {
-    border: 1px green solid;
-}
+    .old {
+        border: 1px black solid;
+    }
 
-.ex {
-    background-color: #666;
-}
-</style>
-<pre>
+    .new {
+        border: 1px green solid;
+    }
+
+    .otherdb {
+        border: 1px red solid;
+    }
+
+    .ex {
+        background-color: #666;
+    }
+    </style>
+    <pre>
 EOF
 
-# Fill
-oldsize = r.dbsize
-id = 0
-while true
-    id += 1
-    r.set(id,"foo")
-    newsize = r.dbsize
-    break if newsize == oldsize
-    oldsize = newsize
-end
-
-inserted = r.dbsize
-first_set_max_id = id
-puts "#{r.dbsize} keys inserted"
-
-# Access keys sequentially
-
-puts "Access keys sequentially"
-(1..first_set_max_id).each{|id|
-    r.get(id)
-#    sleep 0.001
-}
-
-# Insert more 50% keys. We expect that the new keys
-half = inserted/2
-puts "Insert enough keys to evict half the keys we inserted"
-add = 0
-while true
-    add += 1
-    id += 1
-    r.set(id,"foo")
-    break if r.info['evicted_keys'].to_i >= half
-end
-
-puts "#{add} additional keys added."
-puts "#{r.dbsize} keys in DB"
-
-# Check if evicted keys respect LRU
-# We consider errors from 1 to N progressively more serious as they violate
-# more the access pattern.
-
-errors = 0
-e = 1
-edecr = 1.0/(first_set_max_id/2)
-(1..(first_set_max_id/2)).each{|id|
-    e -= edecr if e > 0
-    e = 0 if e < 0
-    if r.exists(id)
-        errors += e
-    end
-}
-
-puts "#{errors} errors!"
-puts "</pre>"
-
-# Generate the graphical representation
-(1..id).each{|id|
-    # Mark first set and added items in a different way.
-    c = "box"
-    if id <= first_set_max_id
-        c << " old"
-    else
-        c << " new"
+    # Fill the DB up to the first eviction.
+    oldsize = r.dbsize
+    id = 0
+    while true
+        id += 1
+        r.set(id,"foo")
+        newsize = r.dbsize
+        break if newsize == oldsize # A key was evicted? Stop.
+        oldsize = newsize
     end
 
-    # Add class if exists
-    c << " ex" if r.exists(id)
-    puts "<div class=\"#{c}\"></div>"
-}
+    inserted = r.dbsize
+    first_set_max_id = id
+    html << "#{r.dbsize} keys inserted"
 
-# Close HTML page
+    # Access keys sequentially, so that in theory the first part will be expired
+    # and the latter part will not, according to perfect LRU.
 
-puts <<EOF
-</body>
-</html>
+    STDERR.puts "Access keys sequentially"
+    (1..first_set_max_id).each{|id|
+        r.get(id)
+        sleep 0.001
+        STDERR.print(".") if (id % 150) == 0
+    }
+    STDERR.puts
+
+    # Insert more 50% keys. We expect that the new keys will rarely be expired
+    # since their last access time is recent compared to the others.
+    #
+    # Note that we insert the first 100 keys of the new set into DB1 instead
+    # of DB0, so that we can try how cross-DB eviction works.
+    half = inserted/2
+    html << "Insert enough keys to evict half the keys we inserted"
+    add = 0
+
+    otherdb_start_idx = id+1
+    otherdb_end_idx = id+100
+    while true
+        add += 1
+        id += 1
+        if id >= otherdb_start_idx && id <= otherdb_end_idx
+            r.select(1)
+            r.set(id,"foo")
+            r.select(0)
+        else
+            r.set(id,"foo")
+        end
+        break if r.info['evicted_keys'].to_i >= half
+    end
+
+    html << "#{add} additional keys added."
+    html << "#{r.dbsize} keys in DB"
+
+    # Check if evicted keys respect LRU
+    # We consider errors from 1 to N progressively more serious as they violate
+    # more the access pattern.
+
+    errors = 0
+    e = 1
+    error_per_key = 100000.0/first_set_max_id
+    half_set_size = first_set_max_id/2
+    maxerr = 0
+    (1..(first_set_max_id/2)).each{|id|
+        if id >= otherdb_start_idx && id <= otherdb_end_idx
+            r.select(1)
+            exists = r.exists(id)
+            r.select(0)
+        else
+            exists = r.exists(id)
+        end
+        if id < first_set_max_id/2
+            thiserr = error_per_key * ((half_set_size-id).to_f/half_set_size)
+            maxerr += thiserr
+            errors += thiserr if exists
+        elsif id >= first_set_max_id/2
+            thiserr = error_per_key * ((id-half_set_size).to_f/half_set_size)
+            maxerr += thiserr
+            errors += thiserr if !exists
+        end
+    }
+    errors = errors*100/maxerr
+
+    STDERR.puts "Test finished with #{errors}% error! Generating HTML on stdout."
+
+    html << "#{errors}% error!"
+    html << "</pre>"
+    $runs << errors
+
+    # Generate the graphical representation
+    (1..id).each{|id|
+        # Mark first set and added items in a different way.
+        c = "box"
+        if id >= otherdb_start_idx && id <= otherdb_end_idx
+            c << " otherdb"
+        elsif id <= first_set_max_id
+            c << " old"
+        else
+            c << " new"
+        end
+
+        # Add class if exists
+        if id >= otherdb_start_idx && id <= otherdb_end_idx
+            r.select(1)
+            exists = r.exists(id)
+            r.select(0)
+        else
+            exists = r.exists(id)
+        end
+
+        c << " ex" if exists
+        html << "<div title=\"#{id}\" class=\"#{c}\"></div>"
+    }
+
+    # Close HTML page
+
+    html << <<EOF
+    </body>
+    </html>
 EOF
+
+    f = File.open(filename,"w")
+    f.write(html)
+    f.close
+end
+
+def print_avg
+    avg = ($runs.reduce {|a,b| a+b}) / $runs.length
+    puts "#{$runs.length} runs, AVG is #{avg}"
+end
+
+if ARGV.length < 1
+    STDERR.puts "Usage: ruby test-lru.rb <html-output-filename> [num-runs]"
+    exit 1
+end
+
+filename = ARGV[0]
+numruns = 1
+
+numruns = ARGV[1].to_i if ARGV.length == 2
+
+numruns.times {
+    testit(filename)
+    print_avg if numruns != 1
+}
