@@ -180,7 +180,7 @@ int redis_check_rdb(char *rdbfilename) {
     char buf[1024];
     long long expiretime, now = mstime();
     FILE *fp;
-    rio rdb;
+    static rio rdb; /* Pointed by global struct riostate. */
 
     if ((fp = fopen(rdbfilename,"r")) == NULL) return 1;
 
