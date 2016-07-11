@@ -264,13 +264,8 @@ int freeMemoryIfNeeded(void) {
 
                         /* Remove the entry from the pool. */
                         sdsfree(pool[k].key);
-                        /* Shift all elements on its right to left. */
-                        memmove(pool+k,pool+k+1,
-                            sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
-                        /* Clear the element on the right which is empty
-                         * since we shifted one position to the left.  */
-                        pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key = NULL;
-                        pool[MAXMEMORY_EVICTION_POOL_SIZE-1].idle = 0;
+                        pool[k].key = NULL;
+                        pool[k].idle = 0;
 
                         /* If the key exists, is our pick. Otherwise it is
                          * a ghost and we need to try the next element. */
