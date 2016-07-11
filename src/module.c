@@ -32,7 +32,7 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
-    RedisModuleHookFunc hooks[REDISMODULE_HOOK_MAX];	/* Registered hooks */
+    RedisModuleHookFunc hooks[REDISMODULE_HOOK_MAX+1];	/* Registered hooks */
 };
 typedef struct RedisModule RedisModule;
 
@@ -2898,6 +2898,7 @@ int moduleInvokeHook(int hook_type, RedisModuleHookArg *arg, int ignore_errors) 
             moduleFreeContext(&ctx);
         }
     }
+    dictReleaseIterator(di);
 
     return ret;
 }
