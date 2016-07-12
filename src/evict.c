@@ -44,10 +44,12 @@
  * greater idle times to the right (ascending order).
  *
  * Empty entries have the key pointer set to NULL. */
-#define MAXMEMORY_EVICTION_POOL_SIZE 16
+#define EVPOOL_SIZE 16
+#define EVPOOL_CACHED_SDS_SIZE 255
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time. */
     sds key;                    /* Key name. */
+    sds cached;                 /* Cached SDS object for key name. */
 };
 
 /* ----------------------------------------------------------------------------
@@ -96,7 +98,7 @@ unsigned long long estimateObjectIdleTime(robj *o) {
  * Redis uses an approximation of the LRU algorithm that runs in constant
  * memory. Every time there is a key to expire, we sample N keys (with
  * N very small, usually in around 5) to populate a pool of best keys to
- * evict of M keys (the pool size is defined by MAXMEMORY_EVICTION_POOL_SIZE).
+ * evict of M keys (the pool size is defined by EVPOOL_SIZE).
  *
  * The N keys sampled are added in the pool of good keys to expire (the one
  * with an old access time) if they are better than one of the current keys
@@ -116,10 +118,11 @@ struct evictionPoolEntry *evictionPoolAlloc(void) {
     struct evictionPoolEntry *ep;
     int j;
 
-    ep = zmalloc(sizeof(*ep)*MAXMEMORY_EVICTION_POOL_SIZE);
-    for (j = 0; j < MAXMEMORY_EVICTION_POOL_SIZE; j++) {
+    ep = zmalloc(sizeof(*ep)*EVPOOL_SIZE);
+    for (j = 0; j < EVPOOL_SIZE; j++) {
         ep[j].idle = 0;
         ep[j].key = NULL;
+        ep[j].cached = sdsnewlen(NULL,EVPOOL_CACHED_SDS_SIZE);
     }
     return ep;
 }
@@ -158,33 +161,45 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
          * First, find the first empty bucket or the first populated
          * bucket that has an idle time smaller than our idle time. */
         k = 0;
-        while (k < MAXMEMORY_EVICTION_POOL_SIZE &&
+        while (k < EVPOOL_SIZE &&
                pool[k].key &&
                pool[k].idle < idle) k++;
-        if (k == 0 && pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key != NULL) {
+        if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
             /* Can't insert if the element is < the worst element we have
              * and there are no empty buckets. */
             continue;
-        } else if (k < MAXMEMORY_EVICTION_POOL_SIZE && pool[k].key == NULL) {
+        } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
             /* Inserting into empty position. No setup needed before insert. */
         } else {
             /* Inserting in the middle. Now k points to the first element
              * greater than the element to insert.  */
-            if (pool[MAXMEMORY_EVICTION_POOL_SIZE-1].key == NULL) {
+            if (pool[EVPOOL_SIZE-1].key == NULL) {
                 /* Free space on the right? Insert at k shifting
                  * all the elements from k to end to the right. */
                 memmove(pool+k+1,pool+k,
-                    sizeof(pool[0])*(MAXMEMORY_EVICTION_POOL_SIZE-k-1));
+                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
             } else {
                 /* No free space on right? Insert at k-1 */
                 k--;
                 /* Shift all elements on the left of k (included) to the
                  * left, so we discard the element with smaller idle time. */
-                sdsfree(pool[0].key);
+                if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
                 memmove(pool,pool+1,sizeof(pool[0])*k);
             }
         }
-        pool[k].key = sdsdup(key);
+
+        /* Try to reuse the cached SDS string allocated in the pool entry,
+         * because allocating and deallocating this object is costly
+         * (according to the profiler, not my fantasy. Remember:
+         * premature optimizbla bla bla bla. */
+        int klen = sdslen(key);
+        if (klen > EVPOOL_CACHED_SDS_SIZE) {
+            pool[k].key = sdsdup(key);
+        } else {
+            memcpy(pool[k].cached,key,klen+1);
+            sdssetlen(pool[k].cached,klen);
+            pool[k].key = pool[k].cached;
+        }
         pool[k].idle = idle;
     }
 }
@@ -269,12 +284,13 @@ int freeMemoryIfNeeded(void) {
                 while(bestkey == NULL) {
                     evictionPoolPopulate(dict, db->dict, db->eviction_pool);
                     /* Go backward from best to worst element to evict. */
-                    for (k = MAXMEMORY_EVICTION_POOL_SIZE-1; k >= 0; k--) {
+                    for (k = EVPOOL_SIZE-1; k >= 0; k--) {
                         if (pool[k].key == NULL) continue;
                         de = dictFind(dict,pool[k].key);
 
                         /* Remove the entry from the pool. */
-                        sdsfree(pool[k].key);
+                        if (pool[k].key != pool[k].cached)
+                            sdsfree(pool[k].key);
                         pool[k].key = NULL;
                         pool[k].idle = 0;
 
