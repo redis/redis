@@ -1257,7 +1257,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 break;
         }
     } else {
-        serverLog(LL_WARNING,"Unknown object type %d",rdbtype);
         rdbExitReportCorruptRDB("Unknown object type");
     }
     return o;
