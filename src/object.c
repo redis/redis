@@ -392,10 +392,10 @@ robj *tryObjectEncoding(robj *o) {
      if (o->refcount > 1) return o;
 
     /* Check if we can represent this string as a long integer.
-     * Note that we are sure that a string larger than 21 chars is not
+     * Note that we are sure that a string larger than 20 chars is not
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
-    if (len <= 21 && string2l(s,len,&value)) {
+    if (len <= 20 && string2l(s,len,&value)) {
         /* This object is encodable as a long. Try to use a shared object.
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
@@ -628,18 +628,13 @@ int getLongDoubleFromObjectOrReply(client *c, robj *o, long double *target, cons
 
 int getLongLongFromObject(robj *o, long long *target) {
     long long value;
-    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            errno = 0;
-            value = strtoll(o->ptr, &eptr, 10);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE)
-                return C_ERR;
+            if (string2ll(o->ptr,sdslen(o->ptr),&value) == 0) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {

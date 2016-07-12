@@ -215,12 +215,7 @@ void setUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, uint6
 }
 
 void setSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits, int64_t value) {
-    uint64_t uv;
-
-    if (value >= 0)
-        uv = value;
-    else
-        uv = UINT64_MAX + value + 1;
+    uint64_t uv = value; /* Casting will add UINT64_MAX + 1 if v is negative. */
     setUnsignedBitfield(p,offset,bits,uv);
 }
 
@@ -239,9 +234,21 @@ uint64_t getUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
 }
 
 int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
-    int64_t value = getUnsignedBitfield(p,offset,bits);
+    int64_t value;
+    union {uint64_t u; int64_t i;} conv;
+
+    /* Converting from unsigned to signed is undefined when the value does
+     * not fit, however here we assume two's complement and the original value
+     * was obtained from signed -> unsigned conversion, so we'll find the
+     * most significant bit set if the original value was negative.
+     *
+     * Note that two's complement is mandatory for exact-width types
+     * according to the C99 standard. */
+    conv.u = getUnsignedBitfield(p,offset,bits);
+    value = conv.i;
+
     /* If the top significant bit is 1, propagate it to all the
-     * higher bits for two complement representation of signed
+     * higher bits for two's complement representation of signed
      * integers. */
     if (value & ((uint64_t)1 << (bits-1)))
         value |= ((uint64_t)-1) << bits;
@@ -299,7 +306,7 @@ int checkUnsignedBitfieldOverflow(uint64_t value, int64_t incr, uint64_t bits, i
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t res = value+incr;
 
         res &= ~mask;
@@ -342,7 +349,7 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
 handle_wrap:
     {
-        uint64_t mask = ((int64_t)-1) << bits;
+        uint64_t mask = ((uint64_t)-1) << bits;
         uint64_t msb = (uint64_t)1 << (bits-1);
         uint64_t a = value, b = incr, c;
         c = a+b; /* Perform addition as unsigned so that's defined. */
@@ -766,6 +773,10 @@ void bitcountCommand(client *c) {
         if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
         /* Convert negative indexes */
+        if (start < 0 && end < 0 && start > end) {
+            addReply(c,shared.czero);
+            return;
+        }
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
@@ -895,6 +906,8 @@ void bitfieldCommand(client *c) {
     int j, numops = 0, changes = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
+    int readonly = 1;
+    long higest_write_offset = 0;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -942,8 +955,10 @@ void bitfieldCommand(client *c) {
             return;
         }
 
-        /* INCRBY and SET require another argument. */
         if (opcode != BITFIELDOP_GET) {
+            readonly = 0;
+            higest_write_offset = bitoffset + bits - 1;
+            /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
                 zfree(ops);
                 return;
@@ -963,6 +978,18 @@ void bitfieldCommand(client *c) {
         j += 3 - (opcode == BITFIELDOP_GET);
     }
 
+    if (readonly) {
+        /* Lookup for read is ok if key doesn't exit, but errors
+         * if it's not a string. */
+        o = lookupKeyRead(c->db,c->argv[1]);
+        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    } else {
+        /* Lookup by making room up to the farest bit reached by
+         * this operation. */
+        if ((o = lookupStringForBitCommand(c,
+            higest_write_offset)) == NULL) return;
+    }
+
     addReplyMultiBulkLen(c,numops);
 
     /* Actually process the operations. */
@@ -976,11 +1003,6 @@ void bitfieldCommand(client *c) {
             /* SET and INCRBY: We handle both with the same code path
              * for simplicity. SET return value is the previous value so
              * we need fetch & store as well. */
-
-            /* Lookup by making room up to the farest bit reached by
-             * this operation. */
-            if ((o = lookupStringForBitCommand(c,
-                thisop->offset + (thisop->bits-1))) == NULL) return;
 
             /* We need two different but very similar code paths for signed
              * and unsigned operations, since the set of functions to get/set
@@ -1049,12 +1071,12 @@ void bitfieldCommand(client *c) {
         } else {
             /* GET */
             unsigned char buf[9];
-            long strlen;
+            long strlen = 0;
             unsigned char *src = NULL;
             char llbuf[LONG_STR_SIZE];
 
-            o = lookupKeyRead(c->db,c->argv[1]);
-            src = getObjectReadOnlyString(o,&strlen,llbuf);
+            if (o != NULL)
+                src = getObjectReadOnlyString(o,&strlen,llbuf);
 
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily

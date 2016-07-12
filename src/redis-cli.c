@@ -161,7 +161,7 @@ static void cliRefreshPrompt(void) {
         len = anetFormatAddr(config.prompt, sizeof(config.prompt),
                            config.hostip, config.hostport);
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
+    if (config.dbnum != 0)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
@@ -284,7 +284,6 @@ static void cliIntegrateHelp(void) {
                 break;
         }
         if (i != helpEntriesLen) continue;
-        printf("%s\n", cmdname);
 
         helpEntriesLen++;
         helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
@@ -314,8 +313,6 @@ static void cliIntegrateHelp(void) {
         new->org = ch;
     }
     freeReplyObject(reply);
-
-    printf("%s\n", helpEntries[80].full);
 }
 
 /* Output command help to stdout. */
@@ -919,7 +916,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2) {
+            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && argc == 2) {
@@ -2594,12 +2591,15 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
-    cliInitHelp();
-    cliIntegrateHelp();
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    /* Initialize the help and, if possible, use the COMMAND command in order
+     * to retrieve missing entries. */
+    cliInitHelp();
+    cliIntegrateHelp();
 
     /* Latency mode */
     if (config.latency_mode) {
