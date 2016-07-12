@@ -305,6 +305,10 @@ void debugCommand(client *c) {
         "jemalloc info  -- Show internal jemalloc statistics.");
         blen++; addReplyStatus(c,
         "jemalloc purge -- Force jemalloc to release unused memory.");
+        blen++; addReplyStatus(c,
+        "key-ram-size <keyname> -- calculate the ram used for storing the object");
+        blen++; addReplyStatus(c,
+        "mem-overhead -- prints ram overheads used by dicts, buffers, etc.");
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
@@ -419,12 +423,14 @@ void debugCommand(client *c) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
             addReplyStatusFormat(c,
-                "key_sds_len:%lld, key_sds_avail:%lld, "
-                "val_sds_len:%lld, val_sds_avail:%lld",
+                "key_sds_len:%lld, key_sds_avail:%lld, key_zmalloc: %lld, "
+                "val_sds_len:%lld, val_sds_avail:%lld, val_zmalloc: %lld",
                 (long long) sdslen(key),
                 (long long) sdsavail(key),
+                (long long) sdsZmallocSize(key),
                 (long long) sdslen(val->ptr),
-                (long long) sdsavail(val->ptr));
+                (long long) sdsavail(val->ptr),
+                (long long) getStringObjectSdsUsedMemory(val));
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
                (c->argc == 3 || c->argc == 4)) {
@@ -542,6 +548,88 @@ void debugCommand(client *c) {
 #else
         addReplyErrorFormat(c, "jemalloc support not available");
 #endif
+    } else if(!strcasecmp(c->argv[1]->ptr,"key-ram-size") && c->argc == 3) {
+        dictEntry *de;
+        robj *val;
+        size_t size;
+
+        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+            addReplyLongLong(c, 0);
+            return;
+        }
+        val = dictGetVal(de);
+        size = objectComputeSize(val) + sdsAllocSize(dictGetKey(de));
+        addReplyLongLong(c, size);
+    } else if (!strcasecmp(c->argv[1]->ptr,"mem-overhead")) {
+        sds info = sdsempty();
+        int j;
+        size_t mem_total = 0;
+        size_t mem = 0;
+        size_t zmalloc_used = zmalloc_used_memory();
+        
+        info = sdscatprintf(info, "total allocated: %zu\n", zmalloc_used);
+
+        mem = 0;
+        if (server.repl_backlog)
+            mem += zmalloc_size(server.repl_backlog);
+        info = sdscatprintf(info, "repl_backlog: %zu\n", mem);  mem_total+=mem;
+        
+        mem = 0;
+        if (listLength(server.slaves)) {
+            listIter li;
+            listNode *ln;
+
+            listRewind(server.slaves,&li);
+            while((ln = listNext(&li))) {
+                client *client = listNodeValue(ln);
+                mem += getClientOutputBufferMemoryUsage(client);
+                mem += sdsAllocSize(client->querybuf);
+                mem += sizeof(client);
+            }
+        }
+        info = sdscatprintf(info, "slaves: %zu\n", mem);  mem_total+=mem;
+
+        mem = 0;
+        if (listLength(server.clients)) {
+            listIter li;
+            listNode *ln;
+
+            listRewind(server.clients,&li);
+            while((ln = listNext(&li))) {
+                client *client = listNodeValue(ln);
+                if (client->flags & CLIENT_SLAVE)
+                    continue;
+                mem += getClientOutputBufferMemoryUsage(client);
+                mem += sdsAllocSize(client->querybuf);
+                mem += sizeof(client);
+            }
+        }
+        info = sdscatprintf(info, "other clients: %zu\n", mem);  mem_total+=mem;
+        
+        mem = 0;
+        if (server.aof_state != AOF_OFF) {
+            mem += sdslen(server.aof_buf);
+            mem += aofRewriteBufferSize();
+        }
+        info = sdscatprintf(info, "AOF: %zu\n", mem);  mem_total+=mem;
+        
+        for (j = 0; j < server.dbnum; j++) {
+            redisDb *db = server.db+j;
+            long long keyscount = dictSize(db->dict);
+            if (keyscount==0) continue;
+            info = sdscatprintf(info, "db: %d\n", j);
+            mem = db->total_keyname_size;
+            info = sdscatprintf(info, " key names: %zu\n", mem);  mem_total+=mem;
+            mem = dictSize(db->dict) * sizeof(dictEntry) + dictSlots(db->dict) * sizeof(dictEntry*);
+            info = sdscatprintf(info, " db->dict: %zu\n", mem);  mem_total+=mem;
+            mem = dictSize(db->dict) * sizeof(robj);
+            info = sdscatprintf(info, " db->dict robj: %zu\n", mem);  mem_total+=mem;
+            mem = dictSize(db->expires) * sizeof(dictEntry) + dictSlots(db->expires) * sizeof(dictEntry*);
+            info = sdscatprintf(info, " expires: %zu\n", mem);  mem_total+=mem;
+        }
+        info = sdscatprintf(info, "total RAM overhead: %zu\n", mem_total);
+        info = sdscatprintf(info, "RAM left for values: %zu\n", zmalloc_used-mem_total);
+        addReplyStatus(c,info);
     } else {
         addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
             (char*)c->argv[1]->ptr);
@@ -568,7 +656,7 @@ void _serverAssertPrintClientInfo(const client *c) {
 
     bugReportStart();
     serverLog(LL_WARNING,"=== ASSERTION FAILED CLIENT CONTEXT ===");
-    serverLog(LL_WARNING,"client->flags = %d", c->flags);
+    serverLog(LL_WARNING,"client->flags = 0x%x", c->flags);
     serverLog(LL_WARNING,"client->fd = %d", c->fd);
     serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {

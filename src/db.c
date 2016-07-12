@@ -154,6 +154,8 @@ robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
+    if (retval==DICT_OK)
+        db->total_keyname_size += sdsAllocSize(copy);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
@@ -221,15 +223,18 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbSyncDelete(redisDb *db, robj *key) {
+    dictEntry toFree;
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    if (dictDeleteNoFree(db->dict,key->ptr, &toFree) == DICT_OK) {
+        db->total_keyname_size -= sdsAllocSize(dictGetKey(&toFree)); /* we must get the size of the real pointer stored in the db */
         if (server.cluster_enabled) slotToKeyDel(key);
+        sdsfree(dictGetKey(&toFree));
+        decrRefCount(dictGetVal(&toFree));
         return 1;
-    } else {
-        return 0;
     }
+    return 0;
 }
 
 /* This is a wrapper whose behavior depends on the Redis lazy free
@@ -301,13 +306,15 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     }
 
     for (j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db+j;
         if (dbnum != -1 && dbnum != j) continue;
-        removed += dictSize(server.db[j].dict);
+        removed += dictSize(db->dict);
+        db->total_keyname_size = 0;
         if (async) {
-            emptyDbAsync(&server.db[j]);
+            emptyDbAsync(db);
         } else {
-            dictEmpty(server.db[j].dict,callback);
-            dictEmpty(server.db[j].expires,callback);
+            dictEmpty(db->dict,callback);
+            dictEmpty(db->expires,callback);
         }
     }
     if (server.cluster_enabled) {
@@ -379,6 +386,7 @@ void flushdbCommand(client *c) {
     if (getFlushCommandFlags(c,&flags) == C_ERR) return;
     signalFlushedDb(c->db->id);
     server.dirty += emptyDb(c->db->id,flags,NULL);
+    c->db->total_keyname_size = 0;
     addReply(c,shared.ok);
 }
 
