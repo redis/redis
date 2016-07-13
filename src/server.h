@@ -558,10 +558,9 @@ struct evictionPoolEntry; /* Defined in evict.c */
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
-    dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
+    dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
-    struct evictionPoolEntry *eviction_pool;    /* Eviction pool of keys */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
 } redisDb;
@@ -1606,7 +1605,7 @@ void disconnectAllBlockedClients(void);
 void activeExpireCycle(int type);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
-struct evictionPoolEntry *evictionPoolAlloc(void);
+void evictionPoolAlloc(void);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
