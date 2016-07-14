@@ -108,11 +108,6 @@ int main(void) {
          * 'switch_after' seconds. Then revert to flat access pattern. */
         if (now-start < switch_after) {
             /* Power law. */
-            #if 0
-            idx = keyspace_size;
-            while(rand() % 2 && idx > 1) idx /= 2;
-            idx = rand() % idx;
-            #endif
             idx = 1;
             while((rand() % 21) != 0 && idx < keyspace_size) idx *= 2;
             if (idx > keyspace_size) idx = keyspace_size;
