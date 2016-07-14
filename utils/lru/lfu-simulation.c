@@ -137,7 +137,7 @@ int main(void) {
         if (new_entry_time <= now) {
             idx = 10+(rand()%10);
             entries[idx].counter = COUNTER_INIT_VAL;
-            entries[idx].decrtime = to_16bit_minutes(start);
+            entries[idx].decrtime = to_16bit_minutes(time(NULL));
             entries[idx].hits = 0;
             entries[idx].ctime = time(NULL);
             new_entry_time = now+10;
