@@ -53,7 +53,13 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
-            val->lru = LRU_CLOCK();
+            if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                unsigned long ldt = val->lru >> 8;
+                unsigned long counter = LFULogIncr(val->lru & 255);
+                val->lru = (ldt << 8) | counter;
+            } else {
+                val->lru = LRU_CLOCK();
+            }
         }
         return val;
     } else {

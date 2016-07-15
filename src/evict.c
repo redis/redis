@@ -214,6 +214,99 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     }
 }
 
+/* ----------------------------------------------------------------------------
+ * LFU (Least Frequently Used) implementation.
+
+ * We have 24 total bits of space in each object in order to implement
+ * an LFU (Least Frequently Used) eviction policy, since we re-use the
+ * LRU field for this purpose.
+ *
+ * We split the 24 bits into two fields:
+ *
+ *          16 bits      8 bits
+ *     +----------------+--------+
+ *     + Last decr time | LOG_C  |
+ *     +----------------+--------+
+ *
+ * LOG_C is a logarithmic counter that provides an indication of the access
+ * frequency. However this field must also be decremented otherwise what used
+ * to be a frequently accessed key in the past, will remain ranked like that
+ * forever, while we want the algorithm to adapt to access pattern changes.
+ *
+ * So the remaining 16 bits are used in order to store the "decrement time",
+ * a reduced-precision Unix time (we take 16 bits of the time converted
+ * in minutes since we don't care about wrapping around) where the LOG_C
+ * counter is halved if it has an high value, or just decremented if it
+ * has a low value.
+ *
+ * New keys don't start at zero, in order to have the ability to collect
+ * some accesses before being trashed away, so they start at COUNTER_INIT_VAL.
+ * The logarithmic increment performed on LOG_C takes care of COUNTER_INIT_VAL
+ * when incrementing the key, so that keys starting at COUNTER_INIT_VAL
+ * (or having a smaller value) have a very high chance of being incremented
+ * on access.
+ *
+ * During decrement, the value of the logarithmic counter is halved if
+ * its current value is greater than two times the COUNTER_INIT_VAL, otherwise
+ * it is just decremented by one.
+ * --------------------------------------------------------------------------*/
+
+/* Return the current time in minutes, just taking the least significant
+ * 16 bits. The returned time is suitable to be stored as LDT (last decrement
+ * time) for the LFU implementation. */
+unsigned long LFUGetTimeInMinutes(void) {
+    return (server.unixtime/60) & 65535;
+}
+
+/* Given an object last decrement time, compute the minimum number of minutes
+ * that elapsed since the last decrement. Handle overflow (ldt greater than
+ * the current 16 bits minutes time) considering the time as wrapping
+ * exactly once. */
+unsigned long LFUTimeElapsed(unsigned long ldt) {
+    unsigned long now = LFUGetTimeInMinutes();
+    if (now > ldt) return now-ldt;
+    return 65535-ldt+now;
+}
+
+/* Logarithmically increment a counter. The greater is the current counter value
+ * the less likely is that it gets really implemented. Saturate it at 255. */
+#define LFU_LOG_FACTOR 10
+uint8_t LFULogIncr(uint8_t counter) {
+    if (counter == 255) return 255;
+    double r = (double)rand()/RAND_MAX;
+    double baseval = counter - LFU_INIT_VAL;
+    if (baseval < 0) baseval = 0;
+    double p = 1.0/(baseval*LFU_LOG_FACTOR+1);
+    if (r < p) counter++;
+    return counter;
+}
+
+/* If the object decrement time is reached, decrement the LFU counter and
+ * update the decrement time field. Return the object frequency counter.
+ *
+ * This function is used in order to scan the dataset for the best object
+ * to fit: as we check for the candidate, we incrementally decrement the
+ * counter of the scanned objects if needed. */
+#define LFU_DECR_INTERVAL 1
+unsigned long LFUDecrAndReturn(robj *o) {
+    unsigned long ldt = o->lru >> 8;
+    unsigned long counter = o->lru & 255;
+    if (LFUTimeElapsed(ldt) > LFU_DECR_INTERVAL && counter) {
+        if (counter > LFU_INIT_VAL*2) {
+            counter /= 2;
+        } else {
+            counter--;
+        }
+        o->lru = (LFUGetTimeInMinutes()<<8) | counter;
+    }
+    return counter;
+}
+
+/* ----------------------------------------------------------------------------
+ * The external API for eviction: freeMemroyIfNeeded() is called by the
+ * server when there is data to add in order to make space if needed.
+ * --------------------------------------------------------------------------*/
+
 int freeMemoryIfNeeded(void) {
     size_t mem_reported, mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);

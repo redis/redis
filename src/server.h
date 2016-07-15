@@ -341,13 +341,22 @@ typedef long long mstime_t; /* millisecond time type. */
 #define SET_OP_DIFF 1
 #define SET_OP_INTER 2
 
-/* Redis maxmemory strategies */
-#define MAXMEMORY_VOLATILE_LRU 0
-#define MAXMEMORY_VOLATILE_TTL 1
-#define MAXMEMORY_VOLATILE_RANDOM 2
-#define MAXMEMORY_ALLKEYS_LRU 3
-#define MAXMEMORY_ALLKEYS_RANDOM 4
-#define MAXMEMORY_NO_EVICTION 5
+/* Redis maxmemory strategies. Instead of using just incremental number
+ * for this defines, we use a set of flags so that testing for certain
+ * properties common to multiple policies is faster. */
+#define MAXMEMORY_FLAG_LRU (1<<0)
+#define MAXMEMORY_FLAG_LFU (1<<1)
+#define MAXMEMORY_FLAG_NO_SHARED_INTEGERS \
+    (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)
+#define MAXMEMORY_VOLATILE_LRU ((0<<8)|MAXMEMORY_FLAG_LRU)
+#define MAXMEMORY_VOLATILE_LFU ((1<<8)|MAXMEMORY_FLAG_LFU)
+#define MAXMEMORY_VOLATILE_TTL (2<<8)
+#define MAXMEMORY_VOLATILE_RANDOM (3<<8)
+#define MAXMEMORY_ALLKEYS_LRU ((4<<8)|MAXMEMORY_FLAG_LRU)
+#define MAXMEMORY_ALLKEYS_LFU ((5<<8)|MAXMEMORY_FLAG_LFU)
+#define MAXMEMORY_ALLKEYS_RANDOM (6<<8)
+#define MAXMEMORY_NO_EVICTION (7<<8)
+
 #define CONFIG_DEFAULT_MAXMEMORY_POLICY MAXMEMORY_NO_EVICTION
 
 /* Scripting */
@@ -528,7 +537,9 @@ typedef struct RedisModuleIO {
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
+    unsigned lru:LRU_BITS; /* LRU time (relative to server.lruclock) or
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits decreas time). */
     int refcount;
     void *ptr;
 } robj;
@@ -1606,6 +1617,9 @@ void activeExpireCycle(int type);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);
+#define LFU_INIT_VAL 5
+unsigned long LFUGetTimeInMinutes(void);
+uint8_t LFULogIncr(uint8_t value);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
