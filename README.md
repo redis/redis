@@ -23,13 +23,13 @@ If you want to know more, this is a list of selected starting points:
 Building Redis
 --------------
 
-Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
+Redis can be compiled and used on Linux, macOS, OpenBSD, NetBSD, FreeBSD.
 We support big endian and little endian architectures, and both 32 bit
 and 64 bit systems.
 
 It may compile on Solaris derived systems (for instance SmartOS) but our
 support for this platform is *best effort* and Redis is not guaranteed to
-work as well as in Linux, OSX, and \*BSD there.
+work as well as in Linux, macOS, and \*BSD there.
 
 It is as simple as:
 
