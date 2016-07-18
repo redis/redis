@@ -62,7 +62,7 @@
  *      Integer encoded as 24 bit signed (3 bytes).
  * |11111110| - 1 byte
  *      Integer encoded as 8 bit signed (1 byte).
- * |1111xxxx| - (with xxxx between 0000 and 1101) immediate 4 bit integer.
+ * |1111xxxx| - (with xxxx between 0001 and 1101) immediate 4 bit integer.
  *      Unsigned integer from 0 to 12. The encoded value is actually from
  *      1 to 13 because 0000 and 1111 can not be used, so 1 should be
  *      subtracted from the encoded 4 bit value to obtain the right value.
