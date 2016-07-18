@@ -2424,8 +2424,11 @@ static void LRUTestMode(void) {
         while(mstime() - start_cycle < 1000) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
+                char val[6];
+                val[5] = '\0';
+                for (int i = 0; i < 5; i++) val[i] = 'A'+rand()%('z'-'A');
                 LRUTestGenKey(key,sizeof(key));
-                redisAppendCommand(context, "SET %s val",key);
+                redisAppendCommand(context, "SET %s %s",key,val);
             }
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++)
                 redisGetReply(context, (void**)&reply);
