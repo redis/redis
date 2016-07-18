@@ -43,17 +43,23 @@
  * Entries inside the eviciton pool are taken ordered by idle time, putting
  * greater idle times to the right (ascending order).
  *
+ * When an LFU policy is used instead, a reverse frequency indication is used
+ * instead of the idle time, so that we still evict by larger value (larger
+ * inverse frequency means to evict keys with the least frequent accesses).
+ *
  * Empty entries have the key pointer set to NULL. */
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
 struct evictionPoolEntry {
-    unsigned long long idle;    /* Object idle time. */
+    unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
     sds key;                    /* Key name. */
     sds cached;                 /* Cached SDS object for key name. */
     int dbid;                   /* Key DB number. */
 };
 
 static struct evictionPoolEntry *EvictionPoolLRU;
+
+unsigned long LFUDecrAndReturn(robj *o);
 
 /* ----------------------------------------------------------------------------
  * Implementation of eviction, aging and LRU
@@ -158,7 +164,18 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * again in the key dictionary to obtain the value object. */
         if (sampledict != keydict) de = dictFind(keydict, key);
         o = dictGetVal(de);
-        idle = estimateObjectIdleTime(o);
+        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
+            idle = estimateObjectIdleTime(o);
+        } else {
+            /* When we use an LRU policy, we sort the keys by idle time
+             * so that we expire keys starting from greater idle time.
+             * However when the policy is an LFU one, we have a frequency
+             * estimation, and we want to evict keys with lower frequency
+             * first. So inside the pool we put objects using the inverted
+             * frequency subtracting the actual frequency to the maximum
+             * frequency of 255. */
+            idle = 255-LFUDecrAndReturn(o);
+        }
 
         /* Insert the element inside the pool.
          * First, find the first empty bucket or the first populated
@@ -361,7 +378,7 @@ int freeMemoryIfNeeded(void) {
         dict *dict;
         dictEntry *de;
 
-        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
+        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)) {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
             while(bestkey == NULL) {
@@ -372,7 +389,8 @@ int freeMemoryIfNeeded(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU) ?
+                    dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                            server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU) ?
                             db->dict : db->expires;
                     if ((keys = dictSize(dict)) != 0) {
                         evictionPoolPopulate(i, dict, db->dict, pool);
@@ -386,7 +404,9 @@ int freeMemoryIfNeeded(void) {
                     if (pool[k].key == NULL) continue;
                     bestdbid = pool[k].dbid;
 
-                    if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU) {
+                    if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
+                        server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU)
+                    {
                         de = dictFind(server.db[pool[k].dbid].dict,
                             pool[k].key);
                     } else {
@@ -462,37 +482,6 @@ int freeMemoryIfNeeded(void) {
                         if (bestkey == NULL || thisttl < bestttl) {
                             bestkey = thiskey;
                             bestttl = thisttl;
-                            bestdbid = j;
-                        }
-                    }
-                }
-            }
-        }
-
-        /* allkeys-lfu and volatile-lfu */
-        else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-            long bestfreq = 0; /* Initialized to avoid warning. */
-
-            for (i = 0; i < server.dbnum; i++) {
-                j = (++next_db) % server.dbnum;
-                db = server.db+j;
-                dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU) ?
-                        db->dict : db->expires;
-                if (dictSize(dict) != 0) {
-                    for (k = 0; k < server.maxmemory_samples; k++) {
-                        sds thiskey;
-                        long thisfreq;
-
-                        de = dictGetRandomKey(dict);
-                        thiskey = dictGetKey(de);
-                        robj *o = dictFetchValue(db->dict,thiskey);
-                        thisfreq = LFUDecrAndReturn(o);
-
-                        /* Keys with a smaller access frequency are
-                         * better candidates for deletion */
-                        if (bestkey == NULL || thisfreq < bestfreq) {
-                            bestkey = thiskey;
-                            bestfreq = thisfreq;
                             bestdbid = j;
                         }
                     }
