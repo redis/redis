@@ -264,7 +264,7 @@ unsigned long LFUGetTimeInMinutes(void) {
  * exactly once. */
 unsigned long LFUTimeElapsed(unsigned long ldt) {
     unsigned long now = LFUGetTimeInMinutes();
-    if (now > ldt) return now-ldt;
+    if (now >= ldt) return now-ldt;
     return 65535-ldt+now;
 }
 
@@ -291,7 +291,7 @@ uint8_t LFULogIncr(uint8_t counter) {
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
-    if (LFUTimeElapsed(ldt) > LFU_DECR_INTERVAL && counter) {
+    if (LFUTimeElapsed(ldt) >= LFU_DECR_INTERVAL && counter) {
         if (counter > LFU_INIT_VAL*2) {
             counter /= 2;
             if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
