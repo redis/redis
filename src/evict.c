@@ -294,6 +294,7 @@ unsigned long LFUDecrAndReturn(robj *o) {
     if (LFUTimeElapsed(ldt) > LFU_DECR_INTERVAL && counter) {
         if (counter > LFU_INIT_VAL*2) {
             counter /= 2;
+            if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
         } else {
             counter--;
         }
@@ -360,9 +361,7 @@ int freeMemoryIfNeeded(void) {
         dict *dict;
         dictEntry *de;
 
-        if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
-            server.maxmemory_policy == MAXMEMORY_VOLATILE_LRU)
-        {
+        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
             while(bestkey == NULL) {
@@ -463,6 +462,37 @@ int freeMemoryIfNeeded(void) {
                         if (bestkey == NULL || thisttl < bestttl) {
                             bestkey = thiskey;
                             bestttl = thisttl;
+                            bestdbid = j;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* allkeys-lfu and volatile-lfu */
+        else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+            long bestfreq = 0; /* Initialized to avoid warning. */
+
+            for (i = 0; i < server.dbnum; i++) {
+                j = (++next_db) % server.dbnum;
+                db = server.db+j;
+                dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU) ?
+                        db->dict : db->expires;
+                if (dictSize(dict) != 0) {
+                    for (k = 0; k < server.maxmemory_samples; k++) {
+                        sds thiskey;
+                        long thisfreq;
+
+                        de = dictGetRandomKey(dict);
+                        thiskey = dictGetKey(de);
+                        robj *o = dictFetchValue(db->dict,thiskey);
+                        thisfreq = LFUDecrAndReturn(o);
+
+                        /* Keys with a smaller access frequency are
+                         * better candidates for deletion */
+                        if (bestkey == NULL || thisfreq < bestfreq) {
+                            bestkey = thiskey;
+                            bestfreq = thisfreq;
                             bestdbid = j;
                         }
                     }
