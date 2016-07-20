@@ -159,14 +159,21 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
 
         de = samples[j];
         key = dictGetKey(de);
+
         /* If the dictionary we are sampling from is not the main
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
-        if (sampledict != keydict) de = dictFind(keydict, key);
-        o = dictGetVal(de);
+        if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
+            if (sampledict != keydict) de = dictFind(keydict, key);
+            o = dictGetVal(de);
+        }
+
+        /* Calculate the idle time according to the policy. This is called
+         * idle just because the code initially handled LRU, but is in fact
+         * just a score where an higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
             idle = estimateObjectIdleTime(o);
-        } else {
+        } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             /* When we use an LRU policy, we sort the keys by idle time
              * so that we expire keys starting from greater idle time.
              * However when the policy is an LFU one, we have a frequency
@@ -175,6 +182,11 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
              * frequency subtracting the actual frequency to the maximum
              * frequency of 255. */
             idle = 255-LFUDecrAndReturn(o);
+        } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
+            /* In this case the sooner the expire the better. */
+            idle = ULLONG_MAX - (long)dictGetVal(de);
+        } else {
+            serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
 
         /* Insert the element inside the pool.
@@ -377,7 +389,9 @@ int freeMemoryIfNeeded(void) {
         dict *dict;
         dictEntry *de;
 
-        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)) {
+        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
+            server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
+        {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
 
             while(bestkey == NULL) {
@@ -388,8 +402,7 @@ int freeMemoryIfNeeded(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
-                    dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
-                            server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU) ?
+                    dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
                             db->dict : db->expires;
                     if ((keys = dictSize(dict)) != 0) {
                         evictionPoolPopulate(i, dict, db->dict, pool);
@@ -403,9 +416,7 @@ int freeMemoryIfNeeded(void) {
                     if (pool[k].key == NULL) continue;
                     bestdbid = pool[k].dbid;
 
-                    if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_LRU ||
-                        server.maxmemory_policy == MAXMEMORY_ALLKEYS_LFU)
-                    {
+                    if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
                         de = dictFind(server.db[pool[k].dbid].dict,
                             pool[k].key);
                     } else {
@@ -448,42 +459,6 @@ int freeMemoryIfNeeded(void) {
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;
-                }
-            }
-        }
-
-        /* volatile-ttl */
-        else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
-            long bestttl = 0; /* Initialized to avoid warning. */
-
-            /* In this policy we scan a single DB per iteration (visiting
-             * a different DB per call), expiring the key with the smallest
-             * TTL among the few sampled.
-             *
-             * Note that this algorithm makes local-DB choices, and should
-             * use a pool and code more similr to the one used in the
-             * LRU eviction policies in the future. */
-            for (i = 0; i < server.dbnum; i++) {
-                j = (++next_db) % server.dbnum;
-                db = server.db+j;
-                dict = db->expires;
-                if (dictSize(dict) != 0) {
-                    for (k = 0; k < server.maxmemory_samples; k++) {
-                        sds thiskey;
-                        long thisttl;
-
-                        de = dictGetRandomKey(dict);
-                        thiskey = dictGetKey(de);
-                        thisttl = (long) dictGetVal(de);
-
-                        /* Keys expiring sooner (smaller unix timestamp) are
-                         * better candidates for deletion */
-                        if (bestkey == NULL || thisttl < bestttl) {
-                            bestkey = thiskey;
-                            bestttl = thisttl;
-                            bestdbid = j;
-                        }
-                    }
                 }
             }
         }
