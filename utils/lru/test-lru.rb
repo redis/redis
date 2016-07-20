@@ -2,11 +2,16 @@ require 'rubygems'
 require 'redis'
 
 $runs = []; # Remember the error rate of each run for average purposes.
+$o = {};    # Options set parsing arguments
 
 def testit(filename)
     r = Redis.new
     r.config("SET","maxmemory","2000000")
-    r.config("SET","maxmemory-policy","allkeys-lru")
+    if $o[:ttl]
+        r.config("SET","maxmemory-policy","volatile-ttl")
+    else
+        r.config("SET","maxmemory-policy","allkeys-lru")
+    end
     r.config("SET","maxmemory-samples",5)
     r.config("RESETSTAT")
     r.flushall
@@ -47,7 +52,11 @@ EOF
     id = 0
     while true
         id += 1
-        r.set(id,"foo")
+        begin
+            r.set(id,"foo")
+        rescue
+            break
+        end
         newsize = r.dbsize
         break if newsize == oldsize # A key was evicted? Stop.
         oldsize = newsize
@@ -60,12 +69,20 @@ EOF
     # Access keys sequentially, so that in theory the first part will be expired
     # and the latter part will not, according to perfect LRU.
 
-    STDERR.puts "Access keys sequentially"
-    (1..first_set_max_id).each{|id|
-        r.get(id)
-        sleep 0.001
-        STDERR.print(".") if (id % 150) == 0
-    }
+    if $o[:ttl]
+        STDERR.puts "Set increasing expire value"
+        (1..first_set_max_id).each{|id|
+            r.expire(id,1000+id)
+            STDERR.print(".") if (id % 150) == 0
+        }
+    else
+        STDERR.puts "Access keys sequentially"
+        (1..first_set_max_id).each{|id|
+            r.get(id)
+            sleep 0.001
+            STDERR.print(".") if (id % 150) == 0
+        }
+    end
     STDERR.puts
 
     # Insert more 50% keys. We expect that the new keys will rarely be expired
@@ -173,16 +190,34 @@ def print_avg
 end
 
 if ARGV.length < 1
-    STDERR.puts "Usage: ruby test-lru.rb <html-output-filename> [num-runs]"
+    STDERR.puts "Usage: ruby test-lru.rb <html-output-filename> [--runs <count>] [--ttl]"
+    STDERR.puts "Options:"
+    STDERR.puts "  --runs <count>    Execute the test <count> times."
+    STDERR.puts "  --ttl             Set keys with increasing TTL values"
+    STDERR.puts "                    (starting from 1000 seconds) in order to"
+    STDERR.puts "                    test the volatile-lru policy."
     exit 1
 end
 
 filename = ARGV[0]
-numruns = 1
+$o[:numruns] = 1
 
-numruns = ARGV[1].to_i if ARGV.length == 2
+# Options parsing
+i = 1
+while i < ARGV.length
+    if ARGV[i] == '--runs'
+        $o[:numruns] = ARGV[i+1].to_i
+        i+= 1
+    elsif ARGV[i] == '--ttl'
+        $o[:ttl] = true
+    else
+        STDERR.puts "Unknown option #{ARGV[i]}"
+        exit 1
+    end
+    i+= 1
+end
 
-numruns.times {
+$o[:numruns].times {
     testit(filename)
-    print_avg if numruns != 1
+    print_avg if $o[:numruns] != 1
 }
