@@ -8,7 +8,7 @@ Redis is often referred as a *data structures* server. What this means is that R
 Data structures implemented into Redis have a few special properties:
 
 * Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that is also non-volatile.
-* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using an high level programming language.
+* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using a high level programming language.
 * Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, cluster, high availability.
 
 Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations to work with complex data types like Lists, Sets, ordered data structures, and so forth.
