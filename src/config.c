@@ -324,6 +324,18 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
+            server.lfu_log_factor = atoi(argv[1]);
+            if (server.maxmemory_samples < 0) {
+                err = "lfu-log-factor must be 0 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
+            server.lfu_decay_time = atoi(argv[1]);
+            if (server.maxmemory_samples < 1) {
+                err = "lfu-decay-time must be 0 or greater";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
@@ -955,6 +967,10 @@ void configSetCommand(client *c) {
       "tcp-keepalive",server.tcpkeepalive,0,LLONG_MAX) {
     } config_set_numerical_field(
       "maxmemory-samples",server.maxmemory_samples,1,LLONG_MAX) {
+    } config_set_numerical_field(
+      "lfu-log-factor",server.lfu_log_factor,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "lfu-decay-time",server.lfu_decay_time,0,LLONG_MAX) {
     } config_set_numerical_field(
       "timeout",server.maxidletime,0,LONG_MAX) {
     } config_set_numerical_field(

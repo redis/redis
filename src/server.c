@@ -1341,6 +1341,8 @@ void initServerConfig(void) {
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
+    server.lfu_log_factor = CONFIG_DEFAULT_LFU_LOG_FACTOR;
+    server.lfu_decay_time = CONFIG_DEFAULT_LFU_DECAY_TIME;
     server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;

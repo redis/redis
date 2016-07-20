@@ -129,6 +129,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
 #define CONFIG_DEFAULT_MAXMEMORY 0
 #define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
+#define CONFIG_DEFAULT_LFU_LOG_FACTOR 10
+#define CONFIG_DEFAULT_LFU_DECAY_TIME 1
 #define CONFIG_DEFAULT_AOF_FILENAME "appendonly.aof"
 #define CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define CONFIG_DEFAULT_AOF_LOAD_TRUNCATED 1
@@ -981,6 +983,8 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
+    unsigned int lfu_log_factor;    /* LFU logarithmic counter factor. */
+    unsigned int lfu_decay_time;    /* LFU counter decay factor. */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */

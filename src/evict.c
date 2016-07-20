@@ -287,13 +287,12 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
-#define LFU_LOG_FACTOR 10
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
     double baseval = counter - LFU_INIT_VAL;
     if (baseval < 0) baseval = 0;
-    double p = 1.0/(baseval*LFU_LOG_FACTOR+1);
+    double p = 1.0/(baseval*server.lfu_log_factor+1);
     if (r < p) counter++;
     return counter;
 }
@@ -308,7 +307,7 @@ uint8_t LFULogIncr(uint8_t counter) {
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
-    if (LFUTimeElapsed(ldt) >= LFU_DECR_INTERVAL && counter) {
+    if (LFUTimeElapsed(ldt) >= server.lfu_decay_time && counter) {
         if (counter > LFU_INIT_VAL*2) {
             counter /= 2;
             if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
