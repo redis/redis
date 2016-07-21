@@ -403,7 +403,7 @@ robj *tryObjectEncoding(robj *o) {
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
         if ((server.maxmemory == 0 ||
-            !(server.maxmemory & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
+            !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) &&
             value >= 0 &&
             value < OBJ_SHARED_INTEGERS)
         {
