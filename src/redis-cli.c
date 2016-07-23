@@ -198,6 +198,92 @@ static sds getDotfilePath(char *envoverride, char *dotfilename) {
     return dotPath;
 }
 
+/* URL-style percent decoding. */
+#define isHexChar(c) (isdigit(c) || (c >= 'a' && c <= 'f'))
+#define decodeHexChar(c) (isdigit(c) ? c - '0' : c - 'a' + 10)
+#define decodeHex(h, l) ((decodeHexChar(h) << 4) + decodeHexChar(l))
+
+static sds percentDecode(const char *pe, size_t len) {
+    const char *end = pe + len;
+    sds ret = sdsempty();
+    const char *curr = pe;
+
+    while (curr < end) {
+        if (*curr == '%') {
+            if ((end - curr) < 2) {
+                fprintf(stderr, "Incomplete URI encoding\n");
+                exit(1);
+            }
+
+            char h = tolower(*(++curr));
+            char l = tolower(*(++curr));
+            if (!isHexChar(h) || !isHexChar(l)) {
+                fprintf(stderr, "Illegal character in URI encoding\n");
+                exit(1);
+            }
+            char c = decodeHex(h, l);
+            ret = sdscatlen(ret, &c, 1);
+            curr++;
+        } else {
+            ret = sdscatlen(ret, curr++, 1);
+        }
+    }
+
+    return ret;
+}
+
+/* Parse a URI and extract the server connection information.
+ * URI scheme is based on the the provisional specification[1] excluding support
+ * for query parameters. Valid URIs are:
+ *   scheme:    "redis://"
+ *   authority: [<username> ":"] <password> "@"] [<hostname> [":" <port>]]
+ *   path:      ["/" [<db>]]
+ *
+ *  [1]: https://www.iana.org/assignments/uri-schemes/prov/redis */
+static void parseRedisUri(const char *uri) {
+
+    const char *scheme = "redis://";
+    const char *curr = uri;
+    const char *end = uri + strlen(uri);
+    const char *userinfo, *username, *port, *host, *path;
+
+    /* URI must start with a valid scheme. */
+    if (strncasecmp(scheme, curr, strlen(scheme))) {
+        fprintf(stderr,"Invalid URI scheme\n");
+        exit(1);
+    }
+    curr += strlen(scheme);
+    if (curr == end) return;
+
+    /* Extract user info. */
+    if ((userinfo = strchr(curr,'@'))) {
+        if ((username = strchr(curr, ':')) && username < userinfo) {
+            /* If provided, username is ignored. */
+            curr = username + 1;
+        }
+
+        config.auth = percentDecode(curr, userinfo - curr);
+        curr = userinfo + 1;
+    }
+    if (curr == end) return;
+
+    /* Extract host and port. */
+    path = strchr(curr, '/');
+    if (*curr != '/') {
+        host = path ? path - 1 : end;
+        if ((port = strchr(curr, ':'))) {
+            config.hostport = atoi(port + 1);
+            host = port - 1;
+        }
+        config.hostip = sdsnewlen(curr, host - curr + 1);
+    }
+    curr = path ? path + 1 : end;
+    if (curr == end) return;
+
+    /* Extract database number. */
+    config.dbnum = atoi(curr);
+}
+
 /*------------------------------------------------------------------------------
  * Help functions
  *--------------------------------------------------------------------------- */
@@ -1002,6 +1088,8 @@ static int parseOptions(int argc, char **argv) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
             config.auth = argv[++i];
+        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+            parseRedisUri(argv[++i]);
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
         } else if (!strcmp(argv[i],"--no-raw")) {
@@ -1109,6 +1197,7 @@ static void usage(void) {
 "  -p <port>          Server port (default: 6379).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
+"  -u <uri>           Server URI.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
