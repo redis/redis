@@ -496,7 +496,11 @@ static int cliSelect(void) {
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr,"Could not select database %d: %s\n",config.dbnum,reply->str);
+            config.dbnum = 0;
+            result = REDIS_ERR;
+        }
         freeReplyObject(reply);
         return result;
     }
@@ -2599,11 +2603,6 @@ int main(int argc, char **argv) {
     argc -= firstarg;
     argv += firstarg;
 
-    /* Initialize the help and, if possible, use the COMMAND command in order
-     * to retrieve missing entries. */
-    cliInitHelp();
-    cliIntegrateHelp();
-
     /* Latency mode */
     if (config.latency_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
@@ -2667,9 +2666,14 @@ int main(int argc, char **argv) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
 
+        /* Initialize the help and, if possible, use the COMMAND command in
+         * order to retrieve missing entries. */
+        cliConnect(0);
+        cliInitHelp();
+        cliIntegrateHelp();
+
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
-        cliConnect(0);
         repl();
     }
 
