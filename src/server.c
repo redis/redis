@@ -1421,7 +1421,7 @@ void initServerConfig(void) {
     server.pidfile = NULL;
     server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);
-    server.requirepass = NULL;
+    server.requirepass_count = 0;
     server.rdb_compression = CONFIG_DEFAULT_RDB_COMPRESSION;
     server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
@@ -2372,7 +2372,7 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (server.requirepass_count > 0 && !c->authenticated && c->cmd->proc != authCommand)
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
@@ -2665,14 +2665,19 @@ int time_independent_strcmp(char *a, char *b) {
 }
 
 void authCommand(client *c) {
-    if (!server.requirepass) {
+    if (server.requirepass_count == 0) {
         addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
-      c->authenticated = 1;
-      addReply(c,shared.ok);
     } else {
-      c->authenticated = 0;
-      addReplyError(c,"invalid password");
+        int j;
+        for (j = 0; j < server.requirepass_count; j++) {
+            if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass[j])) {
+                c->authenticated = 1;
+                addReply(c,shared.ok);
+                return;
+	    }
+        }
+        c->authenticated = 0;
+        addReplyError(c,"invalid password");
     }
 }
 

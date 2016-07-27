@@ -491,12 +491,21 @@ void loadServerConfigFromString(char *config) {
             if ((server.aof_use_rdb_preamble = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
-                err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-                goto loaderr;
+        } else if (!strcasecmp(argv[0],"requirepass") && argc >= 2) {
+            int j, requirepass_count = argc-1;
+
+            if (requirepass_count > CONFIG_AUTHPASS_MAX) {
+                err = "Too many auth passwords specified";
+		goto loaderr;
             }
-            server.requirepass = zstrdup(argv[1]);
+            for (j = 0; j < requirepass_count; j++) {
+                if (strlen(argv[j+1]) > CONFIG_AUTHPASS_MAX_LEN) {
+                    err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
+                    goto loaderr;
+                }
+                server.requirepass[j] = zstrdup(argv[j+1]);
+            }
+            server.requirepass_count = requirepass_count;
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -845,9 +854,35 @@ void configSetCommand(client *c) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
-        if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
-        zfree(server.requirepass);
-        server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
+        int vlen, j;
+        if (! ((char*)o->ptr)[0]) goto badfmt;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        /* Sanity check of count of passwords */
+        if (vlen > CONFIG_AUTHPASS_MAX) {
+            sdsfreesplitres(v,vlen);
+            goto badfmt;
+        }
+
+        /* Sanity check of password length */
+        for (j = 0; j < vlen; j++) {
+            if (strlen(v[j]) > CONFIG_AUTHPASS_MAX_LEN) {
+                sdsfreesplitres(v,vlen);
+                goto badfmt;
+            }
+        }
+
+        /* Clear old passwords */
+        for (j = 0; j < server.requirepass_count; j++) {
+            zfree(server.requirepass[j]);
+        }
+
+        /* Finally set the new config */
+        for (j = 0; j < vlen; j++) {
+            server.requirepass[j] = zstrdup(v[j]);
+        }
+        server.requirepass_count = vlen;
+        sdsfreesplitres(v,vlen);
     } config_set_special_field("masterauth") {
         zfree(server.masterauth);
         server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -1218,7 +1253,6 @@ void configGetCommand(client *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
-    config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
@@ -1421,6 +1455,14 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,"bind");
         addReplyBulkCString(c,aux);
         sdsfree(aux);
+        matches++;
+    }
+    if (stringmatch(pattern,"requirepass",1)) {
+        sds passwords = sdsjoin(server.requirepass,server.requirepass_count," ");
+
+        addReplyBulkCString(c,"requirepass");
+        addReplyBulkCString(c,passwords);
+        sdsfree(passwords);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);
@@ -1820,6 +1862,28 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the requirepass option. */
+void rewriteConfigRequirepassOption(struct rewriteConfigState *state) {
+    int force = 1;
+    sds line, passwords;
+    char *option = "requirepass";
+
+    /* Nothing to rewrite if we don't have requirepass addresses. */
+    if (server.requirepass_count == 0) {
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    /* Rewrite as requirepass <pass1> <pass2> ... <passN> */
+    passwords = sdsjoin(server.requirepass,server.requirepass_count," ");
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatsds(line, passwords);
+    sdsfree(passwords);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1999,7 +2063,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"slave-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
     rewriteConfigNumericalOption(state,"min-slaves-max-lag",server.repl_min_slaves_max_lag,CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG);
-    rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
+    rewriteConfigRequirepassOption(state);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
     rewriteConfigBytesOption(state,"proto-max-bulk-len",server.proto_max_bulk_len,CONFIG_DEFAULT_PROTO_MAX_BULK_LEN);

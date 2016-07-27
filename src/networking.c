@@ -665,7 +665,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * user what to do to fix it if needed. */
     if (server.protected_mode &&
         server.bindaddr_count == 0 &&
-        server.requirepass == NULL &&
+        server.requirepass_count == 0 &&
         !(flags & CLIENT_UNIX_SOCKET) &&
         ip != NULL)
     {
