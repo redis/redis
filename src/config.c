@@ -925,6 +925,16 @@ void configSetCommand(client *c) {
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
+    } config_set_special_field("rdbchecksum") {
+        if (server.server.loading == 1) {
+            addReplyError(c,
+                "Can't change rdbchecksum in loading rdb");
+            return;
+        }
+
+        int enable = yesnotoi(o->ptr);
+        if (enable == -1) goto badfmt;
+        server.rdb_checksum = enable;
 
     /* Boolean fields.
      * config_set_bool_field(name,var). */
