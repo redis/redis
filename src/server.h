@@ -122,6 +122,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define CONFIG_DEFAULT_SLAVE_READ_ONLY 1
+#define CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP NULL
+#define CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT 0
 #define CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
 #define CONFIG_DEFAULT_MAXMEMORY 0
 #define CONFIG_DEFAULT_MAXMEMORY_SAMPLES 5
@@ -302,13 +304,15 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
 #define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
 #define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_CAPA 8 /* Send REPLCONF capa */
-#define REPL_STATE_RECEIVE_CAPA 9 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_PSYNC 10 /* Send PSYNC */
-#define REPL_STATE_RECEIVE_PSYNC 11 /* Wait for PSYNC reply */
+#define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
+#define REPL_STATE_RECEIVE_IP 9 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_CAPA 10 /* Send REPLCONF capa */
+#define REPL_STATE_RECEIVE_CAPA 11 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_PSYNC 12 /* Send PSYNC */
+#define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
 /* --- End of handshake states --- */
-#define REPL_STATE_TRANSFER 12 /* Receiving .rdb from master */
-#define REPL_STATE_CONNECTED 13 /* Connected to master */
+#define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
+#define REPL_STATE_CONNECTED 15 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
@@ -594,7 +598,8 @@ typedef struct client {
                                        copying this slave output buffer
                                        should use. */
     char replrunid[CONFIG_RUN_ID_SIZE+1]; /* Master run id if is a master. */
-    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
+    int slave_listening_port; /* As configured with: REPLCONF listening-port */
+    char slave_ip[NET_IP_STR_LEN]; /* Optionally given by REPLCONF ip-address */
     int slave_capa;         /* Slave capabilities: SLAVE_CAPA_* bitwise OR. */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if CLIENT_BLOCKED. */
@@ -890,7 +895,9 @@ struct redisServer {
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
-    char repl_master_runid[CONFIG_RUN_ID_SIZE+1];  /* Master run id for PSYNC. */
+    int slave_announce_port;        /* Give the master this listening port. */
+    char *slave_announce_ip;        /* Give the master this ip address. */
+    char repl_master_runid[CONFIG_RUN_ID_SIZE+1];  /* Master run id for PSYNC.*/
     long long repl_master_initial_offset;         /* Master PSYNC offset. */
     /* Replication script cache. */
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
