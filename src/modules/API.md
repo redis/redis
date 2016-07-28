@@ -1143,3 +1143,10 @@ There is a fixed limit to the length of the log line this function is able
 to emit, this limti is not specified but is guaranteed to be more than
 a few lines of text.
 
+## `RM_Publish`
+
+    void RM_Publish(RedisModuleString *channel, RedisModuleString *message);
+
+Publishes a message on the specified pub/sub channel. Is equivilant to the
+`PUBLISH` command, except it does not perform the usual replication to slaves.
+The message is properly broadcasted over a cluster.

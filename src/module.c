@@ -2925,6 +2925,15 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
+/* Publish a message on a pubsub channel. Includes cluster broadcast.
+ * Returns integer number of clients who were sent the message */
+int RM_Publish(RedisModuleString *channel, RedisModuleString *message) {
+    int receivers = pubsubPublishMessage(channel, message);
+    if (server.cluster_enabled)
+        clusterPropagatePublish(channel, message);
+    return receivers;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -3239,6 +3248,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(LoadDouble);
     REGISTER_API(EmitAOF);
     REGISTER_API(Log);
+    REGISTER_API(Publish);
     REGISTER_API(StringAppendBuffer);
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);

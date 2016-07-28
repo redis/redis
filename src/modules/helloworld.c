@@ -50,6 +50,18 @@ int HelloSimple_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+/* HELLO.PUBLISH publish the message "hello" on the pub/sub channel "world"
+ * Also demonstrates simple manually-managed strings
+ * Sends integer reply of the number of clients who were sent the message */
+int HelloPublish_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModuleString *message = RedisModule_CreateString(ctx, "hello", 5);
+    RedisModuleString *channel = RedisModule_CreateString(ctx, "world", 5);
+    RedisModule_ReplyWithLongLong(ctx, RedisModule_Publish(channel, message));
+    RedisModule_FreeString(ctx, message);
+    RedisModule_FreeString(ctx, channel);
+    return REDISMODULE_OK;
+}
+
 /* HELLO.PUSH.NATIVE re-implements RPUSH, and shows the low level modules API
  * where you can "open" keys, make low level operations, create new keys by
  * pushing elements into non-existing keys, and so forth.
@@ -551,6 +563,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"hello.simple",
         HelloSimple_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hello.publish",
+        HelloPublish_RedisCommand,"pubsub",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hello.push.native",
