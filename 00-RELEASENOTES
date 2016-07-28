@@ -10,6 +10,195 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+================================================================================
+Redis 3.2.2     Released Thu Jul 28 14:14:54 CEST 2016
+================================================================================
+
+Upgrade urgency MODERATE: A Redis server and a Sentinel crash are now fixed.
+                          GEORADIUS errors in reported entries are fixed.
+
+Hi all! Redis 3.2.2 is finally out with non trivial bugfixes and a few new
+features. Let's start from the bugs:
+
+1. There was a bug in the List type implementation, able to cause the
+   crash of the server under certain (non trivial to replicate) circumstances
+   when the LSET command was used. Now the bug is fixed and a new stress tester
+   that was able to easily trigger the bug was added to the test suite.
+
+2. Redis Sentinel, when monitoring multiple masters, could crash after
+   a Sentinel address update event.
+
+3. Redis Sentinel now checks slaves INFO state more often when disconnected.
+   This is not really a bug fix, but may allow to more easily detect that
+   a slave is able to fail over its master reducing certain delays.
+
+4. It was possible, under a variety of conditions, that the AOF and RDB children
+   process could spawn at the same time. This is known to trash disk I/O,
+   AOF performances, and to ultimately create latency in the Redis server.
+   Normally Redis avoids to have the two writing children at the same time, but
+   there were edge cases discovered by Oran Agra (that also co-authored the
+   fix with me) where the double-fork could happen. In order to fix this bug
+   non trivial changes to the replication code were operated, however it was
+   important to back port this fix into 3.2.2 because the bug could lead to
+   bad latency experiences in certain cases.
+
+5. Many GEORADIUS bugs are now fixed \o/. This started as a failing CI
+   test. I grepped for more clues and there were a number of random failures
+   in the points reported by GEORADIUS. The errors were found to be related
+   to three different bugs (one of these was a bug in the test itself).
+   It's not a critical bug: the effect is to, sometimes, don't report objects
+   that are near the radius, but only with specific sets of coordinates
+   and radius settings. However now the issues are fixed and the error
+   vectors were added as regression tests.
+
+And now the good news (not that bug fixes are not good...), that is, the
+new features!
+
+1. Now slaves support the slave-announce-ip and slave-announce-port options.
+   Using these features a slave can be reported by the master `INFO` output
+   and `ROLE` command as having arbitrary IP and port. This allows to have
+   Sentinel deployments when working with containers or NAT-ed environments
+   more easily.
+
+2. The RDB check utlity is now part of Redis and uses the same RDB code that
+   Redis uses in order to load the dataset in memory, so a given version
+   of Redis is always able to check the RDB it produced... without another
+   external check tool which is supposed to be taken in sync with the
+   rdb.c implementation. This in turn also means that the new RDB checking
+   is able to spot more complex bugs, since it really loads the dataset
+   instead of just skipping bytes.
+
+About the redis-check-dump utility, now it is also able to show certain
+information about the RDB file, like the version that produced it, when
+it was produced, and so forth. Example:
+
+    ./redis-check-rdb dump.rdb
+    [offset 0] Checking RDB file dump.rdb
+    [offset 32] AUX FIELD redis-ver = '3.2.2'
+    [offset 46] AUX FIELD redis-bits = '64'
+    [offset 58] AUX FIELD ctime = '1469710178'
+    [offset 73] AUX FIELD used-mem = '1186528'
+
+The ability to check how much memory was used by the instance that produced
+the RDB file can be especially useful.
+
+For credits and the full change log, see the list of commits below, that was
+modified in order to be a bit less verbose compared to the last releases.
+
+Enjoy!
+Salvatore
+
+antirez in commit 0a45fbc:
+ Ability of slave to announce arbitrary ip/port to master.
+ 6 files changed, 129 insertions(+), 17 deletions(-)
+
+antirez in commit c3982c0:
+ redis-benchmark: new option to show server errors on stdout.
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+antirez in commit fdafe23:
+ Multiple GEORADIUS bugs fixed.
+ 6 files changed, 177 insertions(+), 21 deletions(-)
+
+antirez in commit a1bfe22:
+ Replication: when possible start RDB saving ASAP.
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit 7ca69af:
+ Sentinel: new test unit 07 that tests master down conditions.
+ 1 file changed, 68 insertions(+)
+
+antirez in commit 5b5e652:
+ Sentinel: check Slave INFO state more often when disconnected.
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+antirez in commit 21cffc2:
+ Avoid simultaneous RDB and AOF child process.
+ 4 files changed, 51 insertions(+), 8 deletions(-)
+
+antirez in commit 017378e:
+ Replication: start BGSAVE for replication always in replicationCron().
+ 1 file changed, 15 insertions(+), 12 deletions(-)
+
+antirez in commit 940be9a:
+ Regression test for issue #3333.
+ 1 file changed, 6 insertions(+)
+
+antirez in commit 21736b4:
+ getLongLongFromObject: use string2ll() instead of strict_strtoll().
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+antirez in commit 0b748e9:
+ redis-cli: check SELECT reply type just in state updated.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+sskorgal in commit 1158386:
+ Fix for redis_cli printing default DB when select command fails.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 026f9fc:
+ Sentinel: fix cross-master Sentinel address update.
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+antirez in commit 11523b3:
+ CONFIG GET is now no longer case sensitive.
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+antirez in commit f5a7f4f:
+ Fix test for new RDB checksum failure message.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 4c6ff74:
+ Make tcp-keepalive default to 300 in internal conf.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 27dbec2:
+ In Redis RDB check: more details in error reportings.
+ 1 file changed, 24 insertions(+), 13 deletions(-)
+
+antirez in commit 41f3004:
+ In Redis RDB check: log decompression errors.
+ 2 files changed, 23 insertions(+), 2 deletions(-)
+
+antirez in commit 278fe3e:
+ In Redis RDB check: log object type on error.
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit a117dfa:
+ Added a trivial program to randomly corrupt RDB files in /utils.
+ 1 file changed, 44 insertions(+)
+
+antirez in commit f5110c3:
+ In Redis RDB check: minor output message changes.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit 35b18bf:
+ In Redis RDB check: better error reporting.
+ 4 files changed, 71 insertions(+), 14 deletions(-)
+
+antirez in commit f578f08:
+ In Redis RDB check: initial POC.
+ 2 files changed, 189 insertions(+), 647 deletions(-)
+
+tielei in commit 7f1e1ca:
+ A string with 21 chars is not representable as a 64-bit integer.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 7a3a595:
+ Test: new randomized stress tester for #3343 alike bugs.
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit c75ca10:
+ Stress tester WIP.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 2c3fcf8:
+ Regression test for issue #3343 exact min crash sequence.
+ 1 file changed, 16 insertions(+)
+
+antirez in commit 7041967:
+ Fix quicklistReplaceAtIndex() by updating the quicklist ziplist size.
+ 1 file changed, 1 insertion(+)
 
 ================================================================================
 Redis 3.2.1     Released Fri Jun 17 15:01:56 CEST 2016
