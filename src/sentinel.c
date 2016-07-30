@@ -2916,7 +2916,7 @@ void sentinelCommand(client *c) {
          * ip and port are the ip and port of the master we want to be
          * checked by Sentinel. Note that the command will not check by
          * name but just by master, in theory different Sentinels may monitor
-         * differnet masters with the same name.
+         * different masters with the same name.
          *
          * current-epoch is needed in order to understand if we are allowed
          * to vote for a failover leader or not. Each Sentinel can vote just
