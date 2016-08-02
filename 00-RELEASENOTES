@@ -11,6 +11,34 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.3     Released Tue Aug 02 10:55:24 CEST 2016
+================================================================================
+
+Upgrade urgency MODERATE: Fix replication delay and redis-cli security issue.
+
+Hello,
+
+this is a minor release of Redis addressing two bugs:
+
+1. There was an inverted if statement logic problem in replication.c causing
+   a replication delay. This is not an actual problem since things work
+   as expected, but worth to fix ASAP anyway.
+
+2. Redis-cli created the history file with insecure permissions, allowing
+   reding from the file. This was actually a bug in linenoise which is
+   now fixed. The applied fix is from Chris Lamb.
+
+List of commits:
+
+Qu Chen in commit e67ad1d:
+ Fix a bug to delay bgsave while AOF rewrite in progress for replication
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 7153668:
+ Update linenoise to fix insecure redis-cli history file creation.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+================================================================================
 Redis 3.2.2     Released Thu Jul 28 14:14:54 CEST 2016
 ================================================================================
 
