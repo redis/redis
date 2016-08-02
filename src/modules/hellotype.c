@@ -5,7 +5,7 @@
  * works, how a new data type is created, and how to write basic methods
  * for RDB loading, saving and AOF rewriting.
  *
- * ------------------------------------------------------------------------------
+ * -----------------------------------------------------------------------------
  *
  * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.

@@ -4,7 +4,7 @@
  * This module does not do anything useful, if not for a few commands. The
  * examples are designed in order to show the API.
  *
- * ------------------------------------------------------------------------------
+ * -----------------------------------------------------------------------------
  *
  * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
