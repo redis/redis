@@ -762,6 +762,11 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * and length of the string. The returned pointer and length should only
  * be used for read only accesses and never modified. */
 const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len) {
+    if (str == NULL) {
+        const char *errmsg = "(NULL string reply referenced in module)";
+        if (len) *len = strlen(errmsg);
+        return errmsg;
+    }
     if (len) *len = sdslen(str->ptr);
     return str->ptr;
 }
@@ -2203,6 +2208,7 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
 
 /* Return the reply type. */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
+    if (!reply) return REDISMODULE_REPLY_UNKNOWN;
     return reply->type;
 }
 
