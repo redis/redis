@@ -31,8 +31,47 @@
  */
 
 #include "../redismodule.h"
+#include <string.h>
+
+/* --------------------------------- Helpers -------------------------------- */
+
+/* Return true if the reply and the C null term string matches. */
+int TestMatchReply(RedisModuleCallReply *reply, char *str) {
+    RedisModuleString *mystr;
+    mystr = RedisModule_CreateStringFromCallReply(reply);
+    if (!mystr) return 0;
+    const char *ptr = RedisModule_StringPtrLen(mystr,NULL);
+    return strcmp(ptr,str) == 0;
+}
 
 /* ------------------------------- Test units ------------------------------- */
+
+/* TEST.CALL -- Test Call() API. */
+int TestCall(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply *reply;
+
+    RedisModule_Call(ctx,"DEL","c","mylist");
+    RedisModuleString *mystr = RedisModule_CreateString(ctx,"foo",3);
+    RedisModule_Call(ctx,"RPUSH","csl","mylist",mystr,(long long)1234);
+    reply = RedisModule_Call(ctx,"LRANGE","ccc","mylist","0","-1");
+    long long items = RedisModule_CallReplyLength(reply);
+    if (items != 2) goto fail;
+
+    RedisModuleCallReply *item0, *item1;
+
+    item0 = RedisModule_CallReplyArrayElement(reply,0);
+    item1 = RedisModule_CallReplyArrayElement(reply,1);
+    if (!TestMatchReply(item0,"foo")) goto fail;
+    if (!TestMatchReply(item1,"1234")) goto fail;
+
+    RedisModule_ReplyWithSimpleString(ctx,"OK");
+    return REDISMODULE_OK;
+
+fail:
+    RedisModule_ReplyWithSimpleString(ctx,"ERR");
+    return REDISMODULE_OK;
+}
 
 /* TEST.STRING.APPEND -- Test appending to an existing string object. */
 int TestStringAppend(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -79,6 +118,24 @@ int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char
     return 1;
 }
 
+/* Return 1 if the reply matches the specified integer, otherwise log errors
+ * in the server log and return 0. */
+int TestAssertIntegerReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, long long expected) {
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+        RedisModule_Log(ctx,"warning","Unexpected reply type %d",
+            RedisModule_CallReplyType(reply));
+        return 0;
+    }
+    long long val = RedisModule_CallReplyInteger(reply);
+    if (val != expected) {
+        RedisModule_Log(ctx,"warning",
+            "Unexpected integer reply '%lld' (instead of '%lld')",
+            val, expected);
+        return 0;
+    }
+    return 1;
+}
+
 #define T(name,...) \
     do { \
         RedisModule_Log(ctx,"warning","Testing %s", name); \
@@ -89,6 +146,16 @@ int TestAssertStringReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply, char
 int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     RedisModuleCallReply *reply;
+
+    /* Make sure the DB is empty before to proceed. */
+    T("dbsize","");
+    if (!TestAssertIntegerReply(ctx,reply,0)) goto fail;
+
+    T("ping","");
+    if (!TestAssertStringReply(ctx,reply,"PONG",4)) goto fail;
+
+    T("test.call","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
     T("test.string.append","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
@@ -108,6 +175,10 @@ fail:
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx,"test",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.call",
+        TestCall,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.string.append",
         TestStringAppend,"write deny-oom",1,1,1) == REDISMODULE_ERR)
