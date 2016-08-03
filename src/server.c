@@ -1111,7 +1111,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     freeClientsInAsyncFreeQueue();
 
     /* Clear the paused clients flag if needed. */
-    clientsArePaused(); /* Don't check return value, just use the side effect. */
+    clientsArePaused(); /* Don't check return value, just use the side effect.*/
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
