@@ -766,6 +766,10 @@ const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len) {
     return str->ptr;
 }
 
+/* --------------------------------------------------------------------------
+ * Higher level string operations
+ * ------------------------------------------------------------------------- */
+
 /* Convert the string into a long long integer, storing it at `*ll`.
  * Returns REDISMODULE_OK on success. If the string can't be parsed
  * as a valid, strict long long (no spaces before/after), REDISMODULE_ERR
@@ -781,6 +785,13 @@ int RM_StringToLongLong(const RedisModuleString *str, long long *ll) {
 int RM_StringToDouble(const RedisModuleString *str, double *d) {
     int retval = getDoubleFromObject(str,d);
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Compare two string objects, returning -1, 0 or 1 respectively if
+ * a < b, a == b, a > b. Strings are compared byte by byte as two
+ * binary blobs without any encoding care / collation attempt. */
+int RM_StringCompare(RedisModuleString *a, RedisModuleString *b) {
+    return compareStringObjects(a,b);
 }
 
 /* Return the (possibly modified in encoding) input 'str' object if
@@ -2940,100 +2951,9 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 #define REGISTER_API(name) \
     moduleRegisterApi("RedisModule_" #name, (void *)(unsigned long)RM_ ## name)
 
-/* Register all the APIs we export. */
-void moduleRegisterCoreAPI(void) {
-    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
-    REGISTER_API(Alloc);
-    REGISTER_API(Calloc);
-    REGISTER_API(Realloc);
-    REGISTER_API(Free);
-    REGISTER_API(Strdup);
-    REGISTER_API(CreateCommand);
-    REGISTER_API(SetModuleAttribs);
-    REGISTER_API(WrongArity);
-    REGISTER_API(ReplyWithLongLong);
-    REGISTER_API(ReplyWithError);
-    REGISTER_API(ReplyWithSimpleString);
-    REGISTER_API(ReplyWithArray);
-    REGISTER_API(ReplySetArrayLength);
-    REGISTER_API(ReplyWithString);
-    REGISTER_API(ReplyWithStringBuffer);
-    REGISTER_API(ReplyWithNull);
-    REGISTER_API(ReplyWithCallReply);
-    REGISTER_API(ReplyWithDouble);
-    REGISTER_API(GetSelectedDb);
-    REGISTER_API(SelectDb);
-    REGISTER_API(OpenKey);
-    REGISTER_API(CloseKey);
-    REGISTER_API(KeyType);
-    REGISTER_API(ValueLength);
-    REGISTER_API(ListPush);
-    REGISTER_API(ListPop);
-    REGISTER_API(StringToLongLong);
-    REGISTER_API(StringToDouble);
-    REGISTER_API(Call);
-    REGISTER_API(CallReplyProto);
-    REGISTER_API(FreeCallReply);
-    REGISTER_API(CallReplyInteger);
-    REGISTER_API(CallReplyType);
-    REGISTER_API(CallReplyLength);
-    REGISTER_API(CallReplyArrayElement);
-    REGISTER_API(CallReplyStringPtr);
-    REGISTER_API(CreateStringFromCallReply);
-    REGISTER_API(CreateString);
-    REGISTER_API(CreateStringFromLongLong);
-    REGISTER_API(CreateStringFromString);
-    REGISTER_API(FreeString);
-    REGISTER_API(StringPtrLen);
-    REGISTER_API(AutoMemory);
-    REGISTER_API(Replicate);
-    REGISTER_API(ReplicateVerbatim);
-    REGISTER_API(DeleteKey);
-    REGISTER_API(StringSet);
-    REGISTER_API(StringDMA);
-    REGISTER_API(StringTruncate);
-    REGISTER_API(SetExpire);
-    REGISTER_API(GetExpire);
-    REGISTER_API(ZsetAdd);
-    REGISTER_API(ZsetIncrby);
-    REGISTER_API(ZsetScore);
-    REGISTER_API(ZsetRem);
-    REGISTER_API(ZsetRangeStop);
-    REGISTER_API(ZsetFirstInScoreRange);
-    REGISTER_API(ZsetLastInScoreRange);
-    REGISTER_API(ZsetFirstInLexRange);
-    REGISTER_API(ZsetLastInLexRange);
-    REGISTER_API(ZsetRangeCurrentElement);
-    REGISTER_API(ZsetRangeNext);
-    REGISTER_API(ZsetRangePrev);
-    REGISTER_API(ZsetRangeEndReached);
-    REGISTER_API(HashSet);
-    REGISTER_API(HashGet);
-    REGISTER_API(IsKeysPositionRequest);
-    REGISTER_API(KeyAtPos);
-    REGISTER_API(GetClientId);
-    REGISTER_API(PoolAlloc);
-    REGISTER_API(CreateDataType);
-    REGISTER_API(ModuleTypeSetValue);
-    REGISTER_API(ModuleTypeGetType);
-    REGISTER_API(ModuleTypeGetValue);
-    REGISTER_API(SaveUnsigned);
-    REGISTER_API(LoadUnsigned);
-    REGISTER_API(SaveSigned);
-    REGISTER_API(LoadSigned);
-    REGISTER_API(SaveString);
-    REGISTER_API(SaveStringBuffer);
-    REGISTER_API(LoadString);
-    REGISTER_API(LoadStringBuffer);
-    REGISTER_API(SaveDouble);
-    REGISTER_API(LoadDouble);
-    REGISTER_API(EmitAOF);
-    REGISTER_API(Log);
-    REGISTER_API(StringAppendBuffer);
-    REGISTER_API(RetainString);
-}
-
 /* Global initialization at Redis startup. */
+void moduleRegisterCoreAPI(void);
+
 void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
@@ -3221,4 +3141,99 @@ void moduleCommand(client *c) {
     } else {
         addReply(c,shared.syntaxerr);
     }
+}
+
+/* Register all the APIs we export. Keep this function at the end of the
+ * file so that's easy to seek it to add new entries. */
+void moduleRegisterCoreAPI(void) {
+    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    REGISTER_API(Alloc);
+    REGISTER_API(Calloc);
+    REGISTER_API(Realloc);
+    REGISTER_API(Free);
+    REGISTER_API(Strdup);
+    REGISTER_API(CreateCommand);
+    REGISTER_API(SetModuleAttribs);
+    REGISTER_API(WrongArity);
+    REGISTER_API(ReplyWithLongLong);
+    REGISTER_API(ReplyWithError);
+    REGISTER_API(ReplyWithSimpleString);
+    REGISTER_API(ReplyWithArray);
+    REGISTER_API(ReplySetArrayLength);
+    REGISTER_API(ReplyWithString);
+    REGISTER_API(ReplyWithStringBuffer);
+    REGISTER_API(ReplyWithNull);
+    REGISTER_API(ReplyWithCallReply);
+    REGISTER_API(ReplyWithDouble);
+    REGISTER_API(GetSelectedDb);
+    REGISTER_API(SelectDb);
+    REGISTER_API(OpenKey);
+    REGISTER_API(CloseKey);
+    REGISTER_API(KeyType);
+    REGISTER_API(ValueLength);
+    REGISTER_API(ListPush);
+    REGISTER_API(ListPop);
+    REGISTER_API(StringToLongLong);
+    REGISTER_API(StringToDouble);
+    REGISTER_API(Call);
+    REGISTER_API(CallReplyProto);
+    REGISTER_API(FreeCallReply);
+    REGISTER_API(CallReplyInteger);
+    REGISTER_API(CallReplyType);
+    REGISTER_API(CallReplyLength);
+    REGISTER_API(CallReplyArrayElement);
+    REGISTER_API(CallReplyStringPtr);
+    REGISTER_API(CreateStringFromCallReply);
+    REGISTER_API(CreateString);
+    REGISTER_API(CreateStringFromLongLong);
+    REGISTER_API(CreateStringFromString);
+    REGISTER_API(FreeString);
+    REGISTER_API(StringPtrLen);
+    REGISTER_API(AutoMemory);
+    REGISTER_API(Replicate);
+    REGISTER_API(ReplicateVerbatim);
+    REGISTER_API(DeleteKey);
+    REGISTER_API(StringSet);
+    REGISTER_API(StringDMA);
+    REGISTER_API(StringTruncate);
+    REGISTER_API(SetExpire);
+    REGISTER_API(GetExpire);
+    REGISTER_API(ZsetAdd);
+    REGISTER_API(ZsetIncrby);
+    REGISTER_API(ZsetScore);
+    REGISTER_API(ZsetRem);
+    REGISTER_API(ZsetRangeStop);
+    REGISTER_API(ZsetFirstInScoreRange);
+    REGISTER_API(ZsetLastInScoreRange);
+    REGISTER_API(ZsetFirstInLexRange);
+    REGISTER_API(ZsetLastInLexRange);
+    REGISTER_API(ZsetRangeCurrentElement);
+    REGISTER_API(ZsetRangeNext);
+    REGISTER_API(ZsetRangePrev);
+    REGISTER_API(ZsetRangeEndReached);
+    REGISTER_API(HashSet);
+    REGISTER_API(HashGet);
+    REGISTER_API(IsKeysPositionRequest);
+    REGISTER_API(KeyAtPos);
+    REGISTER_API(GetClientId);
+    REGISTER_API(PoolAlloc);
+    REGISTER_API(CreateDataType);
+    REGISTER_API(ModuleTypeSetValue);
+    REGISTER_API(ModuleTypeGetType);
+    REGISTER_API(ModuleTypeGetValue);
+    REGISTER_API(SaveUnsigned);
+    REGISTER_API(LoadUnsigned);
+    REGISTER_API(SaveSigned);
+    REGISTER_API(LoadSigned);
+    REGISTER_API(SaveString);
+    REGISTER_API(SaveStringBuffer);
+    REGISTER_API(LoadString);
+    REGISTER_API(LoadStringBuffer);
+    REGISTER_API(SaveDouble);
+    REGISTER_API(LoadDouble);
+    REGISTER_API(EmitAOF);
+    REGISTER_API(Log);
+    REGISTER_API(StringAppendBuffer);
+    REGISTER_API(RetainString);
+    REGISTER_API(StringCompare);
 }
