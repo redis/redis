@@ -957,11 +957,17 @@ void configSetCommand(client *c) {
       "maxmemory-samples",server.maxmemory_samples,1,LLONG_MAX) {
     } config_set_numerical_field(
       "datacenter-id",server.datacenter_id,0,UCHAR_MAX) {
-            if (server.cluster_enabled) {
-                if (server.cluster && server.cluster->myself) {
-                    server.cluster->myself->datacenter_id = server.datacenter_id;
-                }
-            }
+         if (server.cluster_enabled) {
+           if (server.cluster && server.cluster->myself) {
+             if (server.cluster->myself->datacenter_id != server.datacenter_id) {
+               serverLog(LL_NOTICE, "my datacenter-id changed from %u to %u",
+                 (unsigned int)server.cluster->myself->datacenter_id, (unsigned int)server.datacenter_id);
+               server.cluster->myself->datacenter_id = server.datacenter_id;
+               /* we will broadcast our config to the other nodes in clusterCron function. */
+               server.cluster->myself->flags |= CLUSTER_NODE_DATACENTER_CHANGED;
+             }
+           }
+         }
     } config_set_numerical_field(
       "timeout",server.maxidletime,0,LONG_MAX) {
     } config_set_numerical_field(

@@ -1597,7 +1597,7 @@ int clusterProcessPacket(clusterLink *link) {
         return 1;
     }
 
-    unsigned char datacenter_id = ntohl(hdr->datacenter_id);
+    unsigned char datacenter_id = hdr->datacenter_id;
     uint16_t flags = ntohs(hdr->flags);
     uint64_t senderCurrentEpoch = 0, senderConfigEpoch = 0;
     clusterNode *sender;
@@ -1652,9 +1652,13 @@ int clusterProcessPacket(clusterLink *link) {
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                  CLUSTER_TODO_FSYNC_CONFIG);
         }
-        if (link->node) {
-            link->node->datacenter_id = datacenter_id;
+
+        if (sender->datacenter_id != datacenter_id) {
+            serverLog(LL_NOTICE, "node(%s:%d) datacenter-id changed from %u to %u",
+                sender->ip, sender->port, sender->datacenter_id, datacenter_id);
+            sender->datacenter_id = datacenter_id;
         }
+
         /* Update the replication offset info for this node. */
         sender->repl_offset = ntohu64(hdr->offset);
         sender->repl_offset_time = mstime();
@@ -2211,7 +2215,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     /* Set the currentEpoch and configEpochs. */
     hdr->currentEpoch = htonu64(server.cluster->currentEpoch);
     hdr->configEpoch = htonu64(master->configEpoch);
-    hdr->datacenter_id = htonl(server.datacenter_id);
+    hdr->datacenter_id = server.datacenter_id;
 
     /* Set the replication offset. */
     if (nodeIsSlave(myself))
@@ -2537,7 +2541,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     unsigned char *claimed_slots = request->myslots;
     int force_ack = request->mflags[0] & CLUSTERMSG_FLAG0_FORCEACK;
     int j;
-    unsigned char node_datacenter_id = ntohl(request->datacenter_id);
+    unsigned char node_datacenter_id = request->datacenter_id;
 
     /* the node is not in the same datacenter with me and not a manual failover.*/
     if (node_datacenter_id != server.datacenter_id && !force_ack) return;
@@ -3151,6 +3155,12 @@ void clusterCron(void) {
     mstime_t handshake_timeout;
 
     iteration++; /* Number of times this function was called so far. */
+
+    if (nodeDatacenterChanged(myself)) {
+        /* braodcast my config to all nodes so they will update their datacenter-id of me. */
+        clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+        myself->flags &= ~CLUSTER_NODE_DATACENTER_CHANGED;
+    }
 
     /* We want to take myself->ip in sync with the cluster-announce-ip option.
      * The option can be set at runtime via CONFIG SET, so we periodically check
