@@ -347,7 +347,7 @@ int freeMemoryIfNeeded(void) {
     mem_reported = zmalloc_used_memory();
     if (mem_reported <= server.maxmemory) return C_OK;
 
-    /* Remove the size of slaves output buffers and AOF buffer from the
+    /* Remove the size of clients output buffers and AOF buffer from the
      * count of used memory. */
     mem_used = mem_reported;
     if (slaves) {
