@@ -93,6 +93,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_REWRITE_PERC  100
 #define AOF_REWRITE_MIN_SIZE (64*1024*1024)
 #define AOF_REWRITE_ITEMS_PER_CMD 64
+#define AOF_READ_DIFF_INTERVAL_BYTES (1024*10)
 #define CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN 10000
 #define CONFIG_DEFAULT_SLOWLOG_MAX_LEN 128
 #define CONFIG_DEFAULT_MAX_CLIENTS 10000
@@ -1365,6 +1366,7 @@ void stopLoading(void);
 
 /* RDB persistence */
 #include "rdb.h"
+int rdbSaveRio(rio *rdb, int *error, int flags);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
