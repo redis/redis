@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>.
- * Copyright (c) 2015, Salvatore Sanfilippo <antirez@gmail.com>.
+ * Copyright (c) 2015-2016, Salvatore Sanfilippo <antirez@gmail.com>.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 
 #include "geo.h"
 #include "geohash_helper.h"
+#include "debugmacro.h"
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */

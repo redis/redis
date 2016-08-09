@@ -615,9 +615,12 @@ void autoMemoryAdd(RedisModuleCtx *ctx, int type, void *ptr) {
 }
 
 /* Mark an object as freed in the auto release queue, so that users can still
- * free things manually if they want. */
-void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
-    if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return;
+ * free things manually if they want.
+ *
+ * The function returns 1 if the object was actually found in the auto memory
+ * pool, otherwise 0 is returned. */
+int autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
+    if (!(ctx->flags & REDISMODULE_CTX_AUTO_MEMORY)) return 0;
 
     int count = (ctx->amqueue_used+1)/2;
     for (int j = 0; j < count; j++) {
@@ -639,10 +642,11 @@ void autoMemoryFreed(RedisModuleCtx *ctx, int type, void *ptr) {
                 /* Reduce the size of the queue because we either moved the top
                  * element elsewhere or freed it */
                 ctx->amqueue_used--;
-                return;
+                return 1;
             }
         }
     }
+    return 0;
 }
 
 /* Release all the objects in queue. */
@@ -717,13 +721,59 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
 }
 
+/* Every call to this function, will make the string 'str' requiring
+ * an additional call to RedisModule_FreeString() in order to really
+ * free the string. Note that the automatic freeing of the string obtained
+ * enabling modules automatic memory management counts for one
+ * RedisModule_FreeString() call (it is just executed automatically).
+ *
+ * Normally you want to call this function when, at the same time
+ * the following conditions are true:
+ *
+ * 1) You have automatic memory management enabled.
+ * 2) You want to create string objects.
+ * 3) Those string objects you create need to live *after* the callback
+ *    function(for example a command implementation) creating them returns.
+ *
+ * Usually you want this in order to store the created string object
+ * into your own data structure, for example when implementing a new data
+ * type.
+ *
+ * Note that when memory management is turned off, you don't need
+ * any call to RetainString() since creating a string will always result
+ * into a string that lives after the callback function returns, if
+ * no FreeString() call is performed. */
+void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
+    if (!autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
+        /* Increment the string reference counting only if we can't
+         * just remove the object from the list of objects that should
+         * be reclaimed. Why we do that, instead of just incrementing
+         * the refcount in any case, and let the automatic FreeString()
+         * call at the end to bring the refcount back at the desired
+         * value? Because this way we ensure that the object refcount
+         * value is 1 (instead of going to 2 to be dropped later to 1)
+         * after the call to this function. This is needed for functions
+         * like RedisModule_StringAppendBuffer() to work. */
+        incrRefCount(str);
+    }
+}
+
 /* Given a string module object, this function returns the string pointer
  * and length of the string. The returned pointer and length should only
  * be used for read only accesses and never modified. */
 const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len) {
+    if (str == NULL) {
+        const char *errmsg = "(NULL string reply referenced in module)";
+        if (len) *len = strlen(errmsg);
+        return errmsg;
+    }
     if (len) *len = sdslen(str->ptr);
     return str->ptr;
 }
+
+/* --------------------------------------------------------------------------
+ * Higher level string operations
+ * ------------------------------------------------------------------------- */
 
 /* Convert the string into a long long integer, storing it at `*ll`.
  * Returns REDISMODULE_OK on success. If the string can't be parsed
@@ -740,6 +790,47 @@ int RM_StringToLongLong(const RedisModuleString *str, long long *ll) {
 int RM_StringToDouble(const RedisModuleString *str, double *d) {
     int retval = getDoubleFromObject(str,d);
     return (retval == C_OK) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Compare two string objects, returning -1, 0 or 1 respectively if
+ * a < b, a == b, a > b. Strings are compared byte by byte as two
+ * binary blobs without any encoding care / collation attempt. */
+int RM_StringCompare(RedisModuleString *a, RedisModuleString *b) {
+    return compareStringObjects(a,b);
+}
+
+/* Return the (possibly modified in encoding) input 'str' object if
+ * the string is unshared, otherwise NULL is returned. */
+RedisModuleString *moduleAssertUnsharedString(RedisModuleString *str) {
+    if (str->refcount != 1) {
+        serverLog(LL_WARNING,
+            "Module attempted to use an in-place string modify operation "
+            "with a string referenced multiple times. Please check the code "
+            "for API usage correctness.");
+        return NULL;
+    }
+    if (str->encoding == OBJ_ENCODING_EMBSTR) {
+        /* Note: here we "leak" the additional allocation that was
+         * used in order to store the embedded string in the object. */
+        str->ptr = sdsnewlen(str->ptr,sdslen(str->ptr));
+        str->encoding = OBJ_ENCODING_RAW;
+    } else if (str->encoding == OBJ_ENCODING_INT) {
+        /* Convert the string from integer to raw encoding. */
+        str->ptr = sdsfromlonglong((long)str->ptr);
+        str->encoding = OBJ_ENCODING_RAW;
+    }
+    return str;
+}
+
+/* Append the specified buffere to the string 'str'. The string must be a
+ * string created by the user that is referenced only a single time, otherwise
+ * REDISMODULE_ERR is returend and the operation is not performed. */
+int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len) {
+    UNUSED(ctx);
+    str = moduleAssertUnsharedString(str);
+    if (str == NULL) return REDISMODULE_ERR;
+    str->ptr = sdscatlen(str->ptr,buf,len);
+    return REDISMODULE_OK;
 }
 
 /* --------------------------------------------------------------------------
@@ -2117,6 +2208,7 @@ void RM_FreeCallReply(RedisModuleCallReply *reply) {
 
 /* Return the reply type. */
 int RM_CallReplyType(RedisModuleCallReply *reply) {
+    if (!reply) return REDISMODULE_REPLY_UNKNOWN;
     return reply->type;
 }
 
@@ -2865,98 +2957,9 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 #define REGISTER_API(name) \
     moduleRegisterApi("RedisModule_" #name, (void *)(unsigned long)RM_ ## name)
 
-/* Register all the APIs we export. */
-void moduleRegisterCoreAPI(void) {
-    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
-    REGISTER_API(Alloc);
-    REGISTER_API(Calloc);
-    REGISTER_API(Realloc);
-    REGISTER_API(Free);
-    REGISTER_API(Strdup);
-    REGISTER_API(CreateCommand);
-    REGISTER_API(SetModuleAttribs);
-    REGISTER_API(WrongArity);
-    REGISTER_API(ReplyWithLongLong);
-    REGISTER_API(ReplyWithError);
-    REGISTER_API(ReplyWithSimpleString);
-    REGISTER_API(ReplyWithArray);
-    REGISTER_API(ReplySetArrayLength);
-    REGISTER_API(ReplyWithString);
-    REGISTER_API(ReplyWithStringBuffer);
-    REGISTER_API(ReplyWithNull);
-    REGISTER_API(ReplyWithCallReply);
-    REGISTER_API(ReplyWithDouble);
-    REGISTER_API(GetSelectedDb);
-    REGISTER_API(SelectDb);
-    REGISTER_API(OpenKey);
-    REGISTER_API(CloseKey);
-    REGISTER_API(KeyType);
-    REGISTER_API(ValueLength);
-    REGISTER_API(ListPush);
-    REGISTER_API(ListPop);
-    REGISTER_API(StringToLongLong);
-    REGISTER_API(StringToDouble);
-    REGISTER_API(Call);
-    REGISTER_API(CallReplyProto);
-    REGISTER_API(FreeCallReply);
-    REGISTER_API(CallReplyInteger);
-    REGISTER_API(CallReplyType);
-    REGISTER_API(CallReplyLength);
-    REGISTER_API(CallReplyArrayElement);
-    REGISTER_API(CallReplyStringPtr);
-    REGISTER_API(CreateStringFromCallReply);
-    REGISTER_API(CreateString);
-    REGISTER_API(CreateStringFromLongLong);
-    REGISTER_API(CreateStringFromString);
-    REGISTER_API(FreeString);
-    REGISTER_API(StringPtrLen);
-    REGISTER_API(AutoMemory);
-    REGISTER_API(Replicate);
-    REGISTER_API(ReplicateVerbatim);
-    REGISTER_API(DeleteKey);
-    REGISTER_API(StringSet);
-    REGISTER_API(StringDMA);
-    REGISTER_API(StringTruncate);
-    REGISTER_API(SetExpire);
-    REGISTER_API(GetExpire);
-    REGISTER_API(ZsetAdd);
-    REGISTER_API(ZsetIncrby);
-    REGISTER_API(ZsetScore);
-    REGISTER_API(ZsetRem);
-    REGISTER_API(ZsetRangeStop);
-    REGISTER_API(ZsetFirstInScoreRange);
-    REGISTER_API(ZsetLastInScoreRange);
-    REGISTER_API(ZsetFirstInLexRange);
-    REGISTER_API(ZsetLastInLexRange);
-    REGISTER_API(ZsetRangeCurrentElement);
-    REGISTER_API(ZsetRangeNext);
-    REGISTER_API(ZsetRangePrev);
-    REGISTER_API(ZsetRangeEndReached);
-    REGISTER_API(HashSet);
-    REGISTER_API(HashGet);
-    REGISTER_API(IsKeysPositionRequest);
-    REGISTER_API(KeyAtPos);
-    REGISTER_API(GetClientId);
-    REGISTER_API(PoolAlloc);
-    REGISTER_API(CreateDataType);
-    REGISTER_API(ModuleTypeSetValue);
-    REGISTER_API(ModuleTypeGetType);
-    REGISTER_API(ModuleTypeGetValue);
-    REGISTER_API(SaveUnsigned);
-    REGISTER_API(LoadUnsigned);
-    REGISTER_API(SaveSigned);
-    REGISTER_API(LoadSigned);
-    REGISTER_API(SaveString);
-    REGISTER_API(SaveStringBuffer);
-    REGISTER_API(LoadString);
-    REGISTER_API(LoadStringBuffer);
-    REGISTER_API(SaveDouble);
-    REGISTER_API(LoadDouble);
-    REGISTER_API(EmitAOF);
-    REGISTER_API(Log);
-}
-
 /* Global initialization at Redis startup. */
+void moduleRegisterCoreAPI(void);
+
 void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
@@ -3144,4 +3147,99 @@ void moduleCommand(client *c) {
     } else {
         addReply(c,shared.syntaxerr);
     }
+}
+
+/* Register all the APIs we export. Keep this function at the end of the
+ * file so that's easy to seek it to add new entries. */
+void moduleRegisterCoreAPI(void) {
+    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    REGISTER_API(Alloc);
+    REGISTER_API(Calloc);
+    REGISTER_API(Realloc);
+    REGISTER_API(Free);
+    REGISTER_API(Strdup);
+    REGISTER_API(CreateCommand);
+    REGISTER_API(SetModuleAttribs);
+    REGISTER_API(WrongArity);
+    REGISTER_API(ReplyWithLongLong);
+    REGISTER_API(ReplyWithError);
+    REGISTER_API(ReplyWithSimpleString);
+    REGISTER_API(ReplyWithArray);
+    REGISTER_API(ReplySetArrayLength);
+    REGISTER_API(ReplyWithString);
+    REGISTER_API(ReplyWithStringBuffer);
+    REGISTER_API(ReplyWithNull);
+    REGISTER_API(ReplyWithCallReply);
+    REGISTER_API(ReplyWithDouble);
+    REGISTER_API(GetSelectedDb);
+    REGISTER_API(SelectDb);
+    REGISTER_API(OpenKey);
+    REGISTER_API(CloseKey);
+    REGISTER_API(KeyType);
+    REGISTER_API(ValueLength);
+    REGISTER_API(ListPush);
+    REGISTER_API(ListPop);
+    REGISTER_API(StringToLongLong);
+    REGISTER_API(StringToDouble);
+    REGISTER_API(Call);
+    REGISTER_API(CallReplyProto);
+    REGISTER_API(FreeCallReply);
+    REGISTER_API(CallReplyInteger);
+    REGISTER_API(CallReplyType);
+    REGISTER_API(CallReplyLength);
+    REGISTER_API(CallReplyArrayElement);
+    REGISTER_API(CallReplyStringPtr);
+    REGISTER_API(CreateStringFromCallReply);
+    REGISTER_API(CreateString);
+    REGISTER_API(CreateStringFromLongLong);
+    REGISTER_API(CreateStringFromString);
+    REGISTER_API(FreeString);
+    REGISTER_API(StringPtrLen);
+    REGISTER_API(AutoMemory);
+    REGISTER_API(Replicate);
+    REGISTER_API(ReplicateVerbatim);
+    REGISTER_API(DeleteKey);
+    REGISTER_API(StringSet);
+    REGISTER_API(StringDMA);
+    REGISTER_API(StringTruncate);
+    REGISTER_API(SetExpire);
+    REGISTER_API(GetExpire);
+    REGISTER_API(ZsetAdd);
+    REGISTER_API(ZsetIncrby);
+    REGISTER_API(ZsetScore);
+    REGISTER_API(ZsetRem);
+    REGISTER_API(ZsetRangeStop);
+    REGISTER_API(ZsetFirstInScoreRange);
+    REGISTER_API(ZsetLastInScoreRange);
+    REGISTER_API(ZsetFirstInLexRange);
+    REGISTER_API(ZsetLastInLexRange);
+    REGISTER_API(ZsetRangeCurrentElement);
+    REGISTER_API(ZsetRangeNext);
+    REGISTER_API(ZsetRangePrev);
+    REGISTER_API(ZsetRangeEndReached);
+    REGISTER_API(HashSet);
+    REGISTER_API(HashGet);
+    REGISTER_API(IsKeysPositionRequest);
+    REGISTER_API(KeyAtPos);
+    REGISTER_API(GetClientId);
+    REGISTER_API(PoolAlloc);
+    REGISTER_API(CreateDataType);
+    REGISTER_API(ModuleTypeSetValue);
+    REGISTER_API(ModuleTypeGetType);
+    REGISTER_API(ModuleTypeGetValue);
+    REGISTER_API(SaveUnsigned);
+    REGISTER_API(LoadUnsigned);
+    REGISTER_API(SaveSigned);
+    REGISTER_API(LoadSigned);
+    REGISTER_API(SaveString);
+    REGISTER_API(SaveStringBuffer);
+    REGISTER_API(LoadString);
+    REGISTER_API(LoadStringBuffer);
+    REGISTER_API(SaveDouble);
+    REGISTER_API(LoadDouble);
+    REGISTER_API(EmitAOF);
+    REGISTER_API(Log);
+    REGISTER_API(StringAppendBuffer);
+    REGISTER_API(RetainString);
+    REGISTER_API(StringCompare);
 }
