@@ -827,7 +827,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags) {
     if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble)) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
     return 1;
 }
 
@@ -894,9 +894,9 @@ int rdbSaveRio(rio *rdb, int *error, int flags) {
              * accumulated diff from parent to child while rewriting in
              * order to have a smaller final write. */
             if (flags & RDB_SAVE_AOF_PREAMBLE &&
-                rdb.processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
+                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
             {
-                processed = rdb.processed_bytes;
+                processed = rdb->processed_bytes;
                 aofReadDiffFromParent();
             }
         }
