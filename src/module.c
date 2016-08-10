@@ -108,6 +108,10 @@ struct RedisModuleKey {
     void *zcurrent;         /* Zset iterator current node. */
     int zer;                /* Zset iterator end reached flag
                                (true if end was reached). */
+
+    /* List iterator. */
+    listTypeIterator* li;
+    listTypeEntry entry;
 };
 typedef struct RedisModuleKey RedisModuleKey;
 
@@ -163,6 +167,7 @@ void RM_CloseKey(RedisModuleKey *key);
 void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
+void RM_ListRangeStop(RedisModuleKey *key);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 
@@ -1408,6 +1413,39 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
     moduleDelKeyIfEmpty(key);
+    autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
+    return decoded;
+}
+
+int RM_ListInRange(RedisModuleKey *key, long index, unsigned char direction) {
+    if (!key->value || key->value->type != OBJ_LIST) return REDISMODULE_ERR;
+
+    RM_ListRangeStop(key);
+
+    key->li = listTypeInitIterator(key->value, index, direction);
+    return REDISMODULE_OK;
+}
+
+int RM_ListRangeNext(RedisModuleKey *key) {
+    if (!key->li) return 0; /* No active iterator. */
+
+    return listTypeNext(key->li, &key->entry);
+}
+
+/* Stop a list iteration. */
+void RM_ListRangeStop(RedisModuleKey *key) {
+    if (key->li != NULL) {
+        listTypeReleaseIterator(key->li);
+    }
+}
+
+RedisModuleString *RM_ListRangeCurrentElement(RedisModuleKey *key) {
+    if (key->li == NULL) return NULL;
+
+    robj *ele = listTypeGet(&key->entry);
+    RedisModuleString *decoded = getDecodedObject(ele);
+    decrRefCount(ele);
+
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
 }
@@ -3179,6 +3217,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ValueLength);
     REGISTER_API(ListPush);
     REGISTER_API(ListPop);
+    REGISTER_API(ListInRange);
+    REGISTER_API(ListRangeNext);
+    REGISTER_API(ListRangeStop);
+    REGISTER_API(ListRangeCurrentElement);
     REGISTER_API(StringToLongLong);
     REGISTER_API(StringToDouble);
     REGISTER_API(Call);
