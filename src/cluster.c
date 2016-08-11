@@ -3998,6 +3998,13 @@ void clusterCommand(redisClient *c) {
                     (char*)c->argv[4]->ptr);
                 return;
             }
+
+            if (nodeIsSlave(n)) {
+                addReplyErrorFormat(c,"The NODE must be master." 
+                                "%s is slave.", (char*)c->argv[4]->ptr);
+                return;
+            }
+            
             server.cluster->migrating_slots_to[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"importing") && c->argc == 5) {
             if (server.cluster->slots[slot] == myself) {
@@ -4010,6 +4017,13 @@ void clusterCommand(redisClient *c) {
                     (char*)c->argv[3]->ptr);
                 return;
             }
+
+            if (nodeIsSlave(n)) {
+                addReplyErrorFormat(c,"The NODE must be master." 
+                                "%s is slave.", (char*)c->argv[4]->ptr);
+                return;
+            }
+
             server.cluster->importing_slots_from[slot] = n;
         } else if (!strcasecmp(c->argv[3]->ptr,"stable") && c->argc == 4) {
             /* CLUSTER SETSLOT <SLOT> STABLE */
@@ -4024,6 +4038,13 @@ void clusterCommand(redisClient *c) {
                     (char*)c->argv[4]->ptr);
                 return;
             }
+
+            if (nodeIsSlave(n)) {
+                addReplyErrorFormat(c,"The NODE must be master." 
+                                "%s is slave.", (char*)c->argv[4]->ptr);
+                return;
+            }
+
             /* If this hash slot was served by 'myself' before to switch
              * make sure there are no longer local keys for this hash slot. */
             if (server.cluster->slots[slot] == myself && n != myself) {
