@@ -168,6 +168,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx);
 robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int *argcp, int *flags, va_list ap);
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ListRangeStop(RedisModuleKey *key);
+void listKeyReset(RedisModuleKey *key);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
 
@@ -1176,6 +1177,7 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
+    listKeyReset(kp);
     zsetKeyReset(kp);
     autoMemoryAdd(ctx,REDISMODULE_AM_KEY,kp);
     return (void*)kp;
@@ -1186,6 +1188,7 @@ void RM_CloseKey(RedisModuleKey *key) {
     if (key == NULL) return;
     if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->key);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
+    RM_ListRangeStop(key);
     RM_ZsetRangeStop(key);
     decrRefCount(key->key);
     autoMemoryFreed(key->ctx,REDISMODULE_AM_KEY,key);
@@ -1417,6 +1420,10 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     return decoded;
 }
 
+void listKeyReset(RedisModuleKey *key) {
+    key->li = NULL;
+}
+
 int RM_ListInRange(RedisModuleKey *key, long index, unsigned char direction) {
     if (!key->value || key->value->type != OBJ_LIST) return REDISMODULE_ERR;
 
@@ -1437,6 +1444,7 @@ void RM_ListRangeStop(RedisModuleKey *key) {
     if (key->li != NULL) {
         listTypeReleaseIterator(key->li);
     }
+    listKeyReset(key);
 }
 
 RedisModuleString *RM_ListRangeCurrentElement(RedisModuleKey *key) {
