@@ -366,9 +366,9 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     if (o->encoding == OBJ_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return C_OK;
-    } else {
-        return isSdsRepresentableAsLongLong(o->ptr,llval);
-    }
+    } 
+
+    return isSdsRepresentableAsLongLong(o->ptr,llval);
 }
 
 /* Try to encode a string object in order to save space */
