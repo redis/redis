@@ -2543,8 +2543,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     int j;
     unsigned char node_datacenter_id = request->datacenter_id;
 
-    /* the node is not in the same datacenter with me and not a manual failover.*/
-    if (node_datacenter_id != server.datacenter_id && !force_ack) return;
+    /* the node is not in the same datacenter with his master and not a manual failover.*/
+    if (node_datacenter_id != master->datacenter_id && !force_ack) return;
 
     /* IF we are not a master serving at least 1 slot, we don't have the
      * right to vote, as the cluster size in Redis Cluster is the number
@@ -2662,11 +2662,24 @@ int clusterGetSlaveRank(void) {
     if (master == NULL) return 0; /* Never called by slaves without master. */
 
     myoffset = replicationGetSlaveOffset();
-    for (j = 0; j < master->numslaves; j++)
-        if (master->slaves[j] != myself &&
-            master->slaves[j]->repl_offset > myoffset &&
-            (master->slaves[j]->datacenter_id == master->datacenter_id
-             || server.datacenter_id != master->datacenter_id)) rank++;
+    for (j = 0; j < master->numslaves; j++) {
+        if (master->slaves[j] != myself) {
+            if (server.datacenter_id != master->datacenter_id) {
+                if (master->slaves[j]->datacenter_id == master->datacenter_id) {
+                    rank++;
+                } else {
+                    if (master->slaves[j]->repl_offset > myoffset) {
+                        rank++;
+                    }
+                }
+            } else {
+                if (master->slaves[j]->datacenter_id == master->datacenter_id &&
+                        master->slaves[j]->repl_offset > myoffset) {
+                    rank++;
+                }
+            }
+        }
+    }
     return rank;
 }
 
