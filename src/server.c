@@ -1080,7 +1080,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          }
 
          /* Trigger an AOF rewrite if needed */
-         if (server.rdb_child_pid == -1 &&
+         if (server.aof_state != AOF_OFF &&
+             server.rdb_child_pid == -1 &&
              server.aof_child_pid == -1 &&
              server.aof_rewrite_perc &&
              server.aof_current_size > server.aof_rewrite_min_size)
