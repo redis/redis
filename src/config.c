@@ -1335,7 +1335,7 @@ void configGetCommand(client *c) {
         sdsfree(aux);
         matches++;
     }
-    setDeferredMultiBulkLength(c,replylen,matches*2);
+    setDeferredMultiBulkLength(c,replylen,matches << 1);
 }
 
 /*-----------------------------------------------------------------------------

@@ -891,7 +891,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2 + (cmd_items << 1)) == 0) return 0;
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -918,7 +918,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                     AOF_REWRITE_ITEMS_PER_CMD : items;
 
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkCount(r,'*',2 + (cmd_items << 1)) == 0) return 0;
                 if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
@@ -972,7 +972,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+            if (rioWriteBulkCount(r,'*',2 + (cmd_items << 1)) == 0) return 0;
             if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
             if (rioWriteBulkObject(r,key) == 0) return 0;
         }

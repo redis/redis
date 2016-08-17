@@ -1981,7 +1981,7 @@ int sentinelMasterLooksSane(sentinelRedisInstance *master) {
         master->flags & SRI_MASTER &&
         master->role_reported == SRI_MASTER &&
         (master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
-        (mstime() - master->info_refresh) < SENTINEL_INFO_PERIOD*2;
+        (mstime() - master->info_refresh) < (SENTINEL_INFO_PERIOD << 1);
 }
 
 /* Process the INFO output from masters. */
@@ -2819,7 +2819,7 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         fields++;
     }
 
-    setDeferredMultiBulkLength(c,mbl,fields*2);
+    setDeferredMultiBulkLength(c,mbl,fields << 1);
 }
 
 /* Output a number of instances contained inside a dictionary as
@@ -3445,7 +3445,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         (ri->flags & SRI_MASTER &&
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
-          (ri->down_after_period+SENTINEL_INFO_PERIOD*2)))
+          (ri->down_after_period+(SENTINEL_INFO_PERIOD << 1))))
     {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
@@ -3826,11 +3826,11 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
 
     /* Last failover attempt started too little time ago? */
     if (mstime() - master->failover_start_time <
-        master->failover_timeout*2)
+        (master->failover_timeout << 1))
     {
         if (master->failover_delay_logged != master->failover_start_time) {
             time_t clock = (master->failover_start_time +
-                            master->failover_timeout*2) / 1000;
+                            (master->failover_timeout << 1)) / 1000;
             char ctimebuf[26];
 
             ctime_r(&clock,ctimebuf);

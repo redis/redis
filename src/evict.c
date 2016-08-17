@@ -320,9 +320,9 @@ unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
     if (LFUTimeElapsed(ldt) >= server.lfu_decay_time && counter) {
-        if (counter > LFU_INIT_VAL*2) {
-            counter /= 2;
-            if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
+        if (counter > (LFU_INIT_VAL << 1)) {
+            counter >>= 1;
+            if (counter < (LFU_INIT_VAL << 1)) counter = LFU_INIT_VAL << 1;
         } else {
             counter--;
         }
