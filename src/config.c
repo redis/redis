@@ -898,20 +898,25 @@ void configSetCommand(client *c) {
         /* Sanity check of single arguments, so that we either refuse the
          * whole configuration string or accept it all, even if a single
          * error in a single client class is present. */
-        for (j = 0; j < vlen; j++) {
-            long val;
+        for (j = 0; j < vlen; j += 4) {
+            long long hard, soft;
+            int hard_err, soft_err;
+            int soft_seconds;
+            char *soft_seconds_eptr;
 
-            if ((j % 4) == 0) {
-                if (getClientTypeByName(v[j]) == -1) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
-            } else {
-                val = memtoll(v[j], &err);
-                if (err || val < 0) {
-                    sdsfreesplitres(v,vlen);
-                    goto badfmt;
-                }
+            if (getClientTypeByName(v[j]) == -1) {
+                sdsfreesplitres(v,vlen);
+                goto badfmt;
+            }
+
+            hard = memtoll(v[j+1],&hard_err);
+            soft = memtoll(v[j+2],&soft_err);
+            soft_seconds = strtoll(v[j+3], &soft_seconds_eptr, 10);
+
+            if (hard_err || soft_err || soft_seconds_eptr[0] != '\0' ||
+                hard < 0 || soft < 0 || soft_seconds < 0) {
+                sdsfreesplitres(v,vlen);
+                goto badfmt;
             }
         }
         /* Finally set the new config */
@@ -921,8 +926,8 @@ void configSetCommand(client *c) {
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
-            hard = strtoll(v[j+1],NULL,10);
-            soft = strtoll(v[j+2],NULL,10);
+            hard = memtoll(v[j+1],NULL);
+            soft = memtoll(v[j+2],NULL);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
