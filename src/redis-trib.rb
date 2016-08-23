@@ -744,7 +744,7 @@ class RedisTrib
                     end
 
                     # Return the first node not matching our current master
-                    node = interleaved.find{|n| n.info[:host] != m.info[:host]}
+                    node = interleaved[ (assigned_replicas + 1) % nodes_count ]
 
                     # If we found a node, use it as a best-first match.
                     # Otherwise, we didn't find a node on a different IP, so we
