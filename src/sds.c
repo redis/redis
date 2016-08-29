@@ -1218,7 +1218,7 @@ int sdsTest(void) {
         sdsfree(x);
         x = sdsnew("aar");
         y = sdsnew("bar");
-        test_cond("sdscmp(bar,bar)", sdscmp(x,y) < 0)
+        test_cond("sdscmp(aar,bar)", sdscmp(x,y) < 0)
 
         sdsfree(y);
         sdsfree(x);
