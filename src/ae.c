@@ -450,6 +450,9 @@ int aeWait(int fd, int mask, long long milliseconds) {
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {
+        // dynamic adjust the loop events capacity
+	if ((eventLoop->max_fd >> 1) > eventLoop->set_size )
+            aeResizeSetSize(eventLoop,eventLoop->set_size * 2);
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
         aeProcessEvents(eventLoop, AE_ALL_EVENTS);
