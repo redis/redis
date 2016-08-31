@@ -930,13 +930,13 @@ int hex_digit_to_int(char c) {
  * quotes or closed quotes followed by non space characters
  * as in: "foo"bar or "foo'
  */
-sds *sdssplitargs(const char *line, int *argc) {
+sds *sdssplitargs(const char *line, size_t len, int *argc) {
     const char *p = line;
     char *current = NULL;
     char **vector = NULL;
 
     *argc = 0;
-    while(1) {
+    while(len--) {
         /* skip blanks */
         while(*p && isspace(*p)) p++;
         if (*p) {

@@ -132,7 +132,7 @@ int clusterLoadConfig(char *filename) {
         if (line[0] == '\n') continue;
 
         /* Split the line into arguments for processing. */
-        argv = sdssplitargs(line,&argc);
+        argv = sdssplitargs(line, SAFE_STRLEN(line), &argc);
         if (argv == NULL) goto fmterr;
 
         /* Handle the special "vars" line. Don't pretend it is the last

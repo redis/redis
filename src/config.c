@@ -188,7 +188,7 @@ void loadServerConfigFromString(char *config) {
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitargs(lines[i],&argc);
+        argv = sdssplitargs(lines[i], sdslen(lines[i]), &argc);
         if (argv == NULL) {
             err = "Unbalanced quotes in configuration line";
             goto loaderr;
@@ -1448,7 +1448,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
         }
 
         /* Not a comment, split into arguments. */
-        argv = sdssplitargs(line,&argc);
+        argv = sdssplitargs(line, sdslen(line), &argc);
         if (argv == NULL) {
             /* Apparently the line is unparsable for some reason, for
              * instance it may have unbalanced quotes. Load it as a
