@@ -326,13 +326,13 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
             server.lfu_log_factor = atoi(argv[1]);
-            if (server.maxmemory_samples < 0) {
+            if (server.lfu_log_factor < 0) {
                 err = "lfu-log-factor must be 0 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
             server.lfu_decay_time = atoi(argv[1]);
-            if (server.maxmemory_samples < 1) {
+            if (server.lfu_decay_time < 0) {
                 err = "lfu-decay-time must be 0 or greater";
                 goto loaderr;
             }
