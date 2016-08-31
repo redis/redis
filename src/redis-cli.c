@@ -252,7 +252,7 @@ static void cliInitHelp(void) {
     }
 
     for (i = 0; i < commandslen; i++) {
-        tmp.argv = sdssplitargs(commandHelp[i].name,&tmp.argc);
+        tmp.argv = sdssplitargs(commandHelp[i].name,SAFE_STRLEN(commandHelp[i].name),&tmp.argc);
         tmp.full = sdsnew(commandHelp[i].name);
         tmp.type = CLI_HELP_COMMAND;
         tmp.org = &commandHelp[i];
@@ -424,7 +424,7 @@ static char *hintsCallback(const char *buf, int *color, int *bold) {
     if (!pref.hints) return NULL;
 
     int i, argc, buflen = strlen(buf);
-    sds *argv = sdssplitargs(buf,&argc);
+    sds *argv = sdssplitargs(buf,SAFE_STRLEN(buf),&argc);
     int endspace = buflen && isspace(buf[buflen-1]);
 
     /* Check if the argument list is empty and return ASAP. */
@@ -1216,7 +1216,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
         argv[1] = sdsnewlen(line+elen,len-elen);
         return argv;
     } else {
-        return sdssplitargs(line,argc);
+        return sdssplitargs(line, SAFE_STRLEN(line), argc);
     }
 }
 
@@ -1251,7 +1251,7 @@ void cliLoadPreferences(void) {
             sds *argv;
             int argc;
 
-            argv = sdssplitargs(buf,&argc);
+            argv = sdssplitargs(buf,SAFE_STRLEN(buf),&argc);
             if (argc > 0) cliSetPreferences(argv,argc,0);
             sdsfreesplitres(argv,argc);
         }

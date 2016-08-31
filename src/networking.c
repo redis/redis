@@ -1021,7 +1021,7 @@ void resetClient(client *c) {
 int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
-    sds *argv, aux;
+    sds *argv;// aux;
     size_t querylen;
 
     /* Search for end of line */
@@ -1042,9 +1042,9 @@ int processInlineBuffer(client *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
-    aux = sdsnewlen(c->querybuf,querylen);
-    argv = sdssplitargs(aux,&argc);
-    sdsfree(aux);
+    //aux = sdsnewlen(c->querybuf,querylen);
+    argv = sdssplitargs(c->querybuf, querylen, &argc);
+    //sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c,"Protocol error: unbalanced quotes in request");
         setProtocolError(c,0);
