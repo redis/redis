@@ -1052,7 +1052,7 @@ void rdbRemoveTempFile(pid_t childpid) {
  * On success a newly allocated object is returned, otherwise NULL. */
 robj *rdbLoadObject(int rdbtype, rio *rdb) {
     robj *o = NULL, *ele, *dec;
-    size_t len;
+    uint64_t len;
     unsigned int i;
 
     if (rdbtype == RDB_TYPE_STRING) {
@@ -1119,7 +1119,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read list/set value. */
-        size_t zsetlen;
+        uint64_t zsetlen;
         size_t maxelelen = 0;
         zset *zs;
 
@@ -1154,7 +1154,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             maxelelen <= server.zset_max_ziplist_value)
                 zsetConvert(o,OBJ_ENCODING_ZIPLIST);
     } else if (rdbtype == RDB_TYPE_HASH) {
-        size_t len;
+        uint64_t len;
         int ret;
         sds field, value;
 
