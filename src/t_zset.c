@@ -2268,7 +2268,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         if (setnum) {
             /* Our union is at least as large as the largest set.
              * Resize the dictionary ASAP to avoid useless rehashing. */
-            dictExpand(accumulator,zuiLength(&src[setnum-1]));
+            dictExpandToOptimalSize(accumulator,zuiLength(&src[setnum-1]));
         }
 
         /* Step 1: Create a dictionary of elements -> aggregated-scores
@@ -2313,7 +2313,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
         /* We now are aware of the final size of the resulting sorted set,
          * let's resize the dictionary embedded inside the sorted set to the
          * right size, in order to save rehashing time. */
-        dictExpand(dstzset->dict,dictSize(accumulator));
+        dictExpandToOptimalSize(dstzset->dict,dictSize(accumulator));
 
         while((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);

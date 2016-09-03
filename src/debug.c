@@ -434,7 +434,7 @@ void debugCommand(client *c) {
 
         if (getLongFromObjectOrReply(c, c->argv[2], &keys, NULL) != C_OK)
             return;
-        dictExpand(c->db->dict,keys);
+        dictExpandToOptimalSize(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
             snprintf(buf,sizeof(buf),"%s:%lu",
                 (c->argc == 3) ? "key" : (char*)c->argv[3]->ptr, j);

@@ -1086,7 +1086,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
             if (len > DICT_HT_INITIAL_SIZE)
-                dictExpand(o->ptr,len);
+                dictExpandToOptimalSize(o->ptr,len);
         } else {
             o = createIntsetObject();
         }
@@ -1105,7 +1105,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     o->ptr = intsetAdd(o->ptr,llval,NULL);
                 } else {
                     setTypeConvert(o,OBJ_ENCODING_HT);
-                    dictExpand(o->ptr,len);
+                    dictExpandToOptimalSize(o->ptr,len);
                 }
             }
 
@@ -1452,8 +1452,8 @@ int rdbLoad(char *filename) {
                 goto eoferr;
             if ((expires_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            dictExpand(db->dict,db_size);
-            dictExpand(db->expires,expires_size);
+            dictExpandToOptimalSize(db->dict,db_size);
+            dictExpandToOptimalSize(db->expires,expires_size);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB

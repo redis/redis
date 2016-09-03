@@ -54,10 +54,11 @@ typedef struct dictEntry {
     } v;
 } dictEntry;
 
-typedef struct dictEntrySlot {
-    unsigned long numentries;
-    dictEntry *entries;
-} dictEntrySlot;
+typedef struct dictEntryVector {
+    uint32_t used;  /* Number of used entries. */
+    uint32_t free;  /* Number of free entries (with key field = NULL). */
+    dictEntry entry[];
+} dictEntryVector;
 
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
@@ -71,7 +72,7 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntrySlot **table;
+    dictEntryVector **table;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
@@ -93,7 +94,7 @@ typedef struct dictIterator {
     dict *d;
     long index;
     int table, safe;
-    dictEntry *entry, *nextEntry;
+    long entry; /* Current entry position in the cluster. */
     /* unsafe iterator fingerprint for misuse detection. */
     long long fingerprint;
 } dictIterator;
@@ -153,6 +154,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
+int dictExpandToOptimalSize(dict *d, unsigned long entries);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
