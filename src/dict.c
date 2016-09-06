@@ -67,7 +67,7 @@ static unsigned int dict_force_resize_ratio = 60;
 
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
-static int _dictKeyIndex(dict *ht, const void *key);
+static int _dictKeyIndex(dict *ht, const void *key, unsigned int *hash);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -147,18 +147,18 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
-dictEntry *dictPushEntry(dictEntryVector **table, unsigned int h, const void *key, const void *val)
+dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *key, const void *val, unsigned int hash)
 {
-    dictEntryVector *dv = table[h];
+    dictEntryVector *dv = table[idx];
     dictEntry *he;
 
     if (dv == NULL) {
-        dv = table[h] = zmalloc(sizeof(dictEntryVector)+sizeof(dictEntry));
+        dv = table[idx] = zmalloc(sizeof(dictEntryVector)+sizeof(dictEntry));
         dv->used = 1;
         dv->free = 0;
         he = dv->entry;
     } else if (dv->free == 0) {
-        dv = table[h] = zrealloc(table[h],sizeof(dictEntryVector)+sizeof(dictEntry)*(dv->used+1));
+        dv = table[idx] = zrealloc(table[idx],sizeof(dictEntryVector)+sizeof(dictEntry)*(dv->used+1));
         he = dv->entry+dv->used;
         dv->used++;
     } else {
@@ -173,6 +173,7 @@ dictEntry *dictPushEntry(dictEntryVector **table, unsigned int h, const void *ke
     }
     he->key = (void*) key;
     he->v.val = (void*) val;
+    he->hash = hash;
     return he;
 }
 
@@ -298,7 +299,8 @@ int dictRehash(dict *d, int n) {
             /* Get the index in the new hash table */
             if (dv->entry[j].key == NULL) continue;
             h = dictHashKey(d, dv->entry[j].key) & d->ht[1].sizemask;
-            dictPushEntry(d->ht[1].table,h,dv->entry[j].key,dv->entry[j].v.val);
+            dictPushEntry(d->ht[1].table,h,dv->entry[j].key,dv->entry[j].v.val,
+                          dv->entry[j].hash);
             d->ht[1].used++;
             d->ht[0].used--;
         }
@@ -379,6 +381,7 @@ int dictAdd(dict *d, void *key, void *val)
 dictEntry *dictAddRaw(dict *d, void *key)
 {
     int index;
+    unsigned int hash;
     dictEntry *entry;
     dictht *ht;
 
@@ -386,13 +389,13 @@ dictEntry *dictAddRaw(dict *d, void *key)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    if ((index = _dictKeyIndex(d, key)) == -1)
+    if ((index = _dictKeyIndex(d, key, &hash)) == -1)
         return NULL;
 
     /* Store the new entry: if we are rehashing all new entries go to
      * the new table. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = dictPushEntry(ht->table,index,key,NULL);
+    entry = dictPushEntry(ht->table,index,key,NULL,hash);
     ht->used++;
     return entry;
 }
@@ -452,14 +455,15 @@ static int dictGenericDelete(dict *d, const void *key, int nofree) {
             uint32_t j;
             for (j = 0; j < entries; j++) {
                 dictEntry *he = dv->entry+j;
-                if (he->key == NULL) continue;
+                if (he->key == NULL || he->hash != h) continue;
                 if (key==he->key || dictCompareKeys(d, key, he->key)) {
                     if (!nofree) {
                         dictFreeKey(d, he);
                         dictFreeVal(d, he);
                     }
                     he->key = NULL;
-                    he->v.val = NULL;
+                    /* No need to clear val / hash fields. The key set
+                     * to NULL is enough to mark the slot as empty. */
                     d->ht[table].used--;
                     dv->free++;
                     dv->used--;
@@ -544,7 +548,7 @@ dictEntry *dictFind(dict *d, const void *key)
             uint32_t j;
             for (j = 0; j < entries; j++) {
                 dictEntry *he = dv->entry+j;
-                if (he->key == NULL) continue; /* Empty slot. */
+                if (he->key == NULL || he->hash != h) continue;
                 if (key==he->key || dictCompareKeys(d, key, he->key))
                     return he;
             }
@@ -1006,7 +1010,7 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static int _dictKeyIndex(dict *d, const void *key)
+static int _dictKeyIndex(dict *d, const void *key, unsigned int *hash)
 {
     unsigned int h, idx, table;
     dictEntryVector *dv;
@@ -1016,6 +1020,7 @@ static int _dictKeyIndex(dict *d, const void *key)
         return -1;
     /* Compute the key hash value */
     h = dictHashKey(d, key);
+    *hash = h;
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
@@ -1025,7 +1030,7 @@ static int _dictKeyIndex(dict *d, const void *key)
             uint32_t j;
             for (j = 0; j < entries; j++) {
                 dictEntry *he = dv->entry+j;
-                if (he->key == NULL) continue;
+                if (he->key == NULL || he->hash != h) continue;
                 if (key==he->key || dictCompareKeys(d, key, he->key))
                     return -1;
             }
