@@ -60,7 +60,7 @@
  * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
 static int dict_can_resize = 1;
-static unsigned int dict_resize_ratio = 20;
+static unsigned int dict_resize_ratio = 10;
 static unsigned int dict_force_resize_ratio = 60;
 
 /* -------------------------- private prototypes ---------------------------- */
@@ -153,14 +153,20 @@ dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *
     dictEntry *he;
 
     if (dv == NULL) {
-        dv = table[idx] = zmalloc(sizeof(dictEntryVector)+sizeof(dictEntry));
+        int initlen = dict_resize_ratio/4;
+        if (initlen == 0) initlen = 1;
+        dv = table[idx] =
+            zcalloc(sizeof(dictEntryVector)+sizeof(dictEntry)*initlen);
         dv->used = 1;
-        dv->free = 0;
+        dv->free = initlen-1;
         he = dv->entry;
     } else if (dv->free == 0) {
-        dv = table[idx] = zrealloc(table[idx],sizeof(dictEntryVector)+sizeof(dictEntry)*(dv->used+1));
+        int newlen = (dv->used+dv->free)*2;
+        dv = table[idx] = zrealloc(table[idx],sizeof(dictEntryVector)+sizeof(dictEntry)*newlen);
         he = dv->entry+dv->used;
         dv->used++;
+        dv->free = newlen - dv->used;
+        memset(dv->entry+dv->used,0,sizeof(dictEntry)*dv->free);
     } else {
         uint32_t entries = dv->used+dv->free;
         uint32_t j;
