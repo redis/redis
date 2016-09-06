@@ -285,6 +285,7 @@ This is the full list of format specifiers:
 * **b** -- C buffer, two arguments needed: C string pointer and `size_t` length.
 * **s** -- RedisModuleString as received in `argv` or by other Redis module APIs returning a RedisModuleString object.
 * **l** -- Long long integer.
+* **d** -- Double. Note that converting the value to a string will use exp formatting to avoid precision loss. If a different representation is needed, the caller should format the number manually to a string.
 * **v** -- Array of RedisModuleString objects.
 * **!** -- This modifier just tells the function to replicate the command to slaves and AOF. It is ignored from the point of view of arguments parsing.
 
