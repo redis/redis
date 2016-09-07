@@ -182,9 +182,14 @@ dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *
         memset(dv->entry+dv->used,0,sizeof(dictEntry)*dv->free);
     } else {
         uint32_t entries = dv->used+dv->free;
-        uint32_t j;
-        for (j = 0; j < entries; j++) {
+        /* Start iterating with j set to the number of buckets already
+         * used: it is likely there are empty buckets at the end after
+         * a reallocation of the entries vector. */
+        uint32_t j = dv->used;
+        uint32_t i = entries;
+        while (i--) {
             if (dv->entry[j].key == NULL) break;
+            j = (j+1)%entries;
         }
         he = dv->entry+j;
         dv->used++;
