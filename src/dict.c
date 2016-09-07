@@ -1157,12 +1157,30 @@ int main(int argc, char **argv) {
 
     start_benchmark();
     for (j = 0; j < count; j++) {
+        sds key = sdsfromlonglong(j);
+        dictEntry *de = dictFind(dict,key);
+        assert(de != NULL);
+        sdsfree(key);
+    }
+    end_benchmark("Linear access of existing elements");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        sds key = sdsfromlonglong(j);
+        dictEntry *de = dictFind(dict,key);
+        assert(de != NULL);
+        sdsfree(key);
+    }
+    end_benchmark("Linear access of existing elements (2nd round)");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
         sds key = sdsfromlonglong(rand() % count);
         dictEntry *de = dictFind(dict,key);
         assert(de != NULL);
         sdsfree(key);
     }
-    end_benchmark("Accessing existing");
+    end_benchmark("Random access of existing elements");
 
     start_benchmark();
     for (j = 0; j < count; j++) {
