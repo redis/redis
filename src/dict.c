@@ -1150,6 +1150,11 @@ int main(int argc, char **argv) {
     end_benchmark("Inserting");
     assert((long)dictSize(dict) == count);
 
+    /* Wait for rehashing. */
+    while (dictIsRehashing(dict)) {
+        dictRehashMilliseconds(dict,100);
+    }
+
     start_benchmark();
     for (j = 0; j < count; j++) {
         sds key = sdsfromlonglong(rand() % count);
