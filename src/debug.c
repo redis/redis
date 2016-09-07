@@ -669,6 +669,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
     #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
+    #elif defined(__s390x__) /* Linux s390x */
+    return (void*) uc->uc_mcontext.gregs[14];
     #endif
 #else
     return NULL;
@@ -808,6 +810,31 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.gregs[16],
         (unsigned long) uc->uc_mcontext.gregs[17],
         (unsigned long) uc->uc_mcontext.gregs[18]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    /* Linux s390x */
+    redisLog(REDIS_WARNING,
+    "\n"
+    "R0 :%016lx R1 :%016lx\nR2 :%016lx R3 :%016lx\n"
+    "R4 :%016lx R5 :%016lx\nR6 :%016lx R7 :%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n",
+        (unsigned long) uc->uc_mcontext.gregs[0],
+        (unsigned long) uc->uc_mcontext.gregs[1],
+        (unsigned long) uc->uc_mcontext.gregs[2],
+        (unsigned long) uc->uc_mcontext.gregs[3],
+        (unsigned long) uc->uc_mcontext.gregs[4],
+        (unsigned long) uc->uc_mcontext.gregs[5],
+        (unsigned long) uc->uc_mcontext.gregs[6],
+        (unsigned long) uc->uc_mcontext.gregs[7],
+        (unsigned long) uc->uc_mcontext.gregs[8],
+        (unsigned long) uc->uc_mcontext.gregs[9],
+        (unsigned long) uc->uc_mcontext.gregs[10],
+        (unsigned long) uc->uc_mcontext.gregs[11],
+        (unsigned long) uc->uc_mcontext.gregs[12],
+        (unsigned long) uc->uc_mcontext.gregs[13],
+        (unsigned long) uc->uc_mcontext.gregs[14]
+        (unsigned long) uc->uc_mcontext.gregs[15]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
     #endif
