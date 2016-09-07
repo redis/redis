@@ -147,13 +147,26 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
-dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *key, const void *val, unsigned int hash)
+/* Push a new entry in a vector of entries, taking care of allocating or
+ * reallocating the vector if needed. If 'orig_entries' is non zero it
+ * means that we are moving entries in the course of rehashing to a bigger
+ * table, from a vector that had 'orig_entires' entries. The function can
+ * use this hint to make better reallocation choices. */
+dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *key, const void *val, unsigned int hash, uint32_t orig_entries)
 {
     dictEntryVector *dv = table[idx];
     dictEntry *he;
 
     if (dv == NULL) {
-        int initlen = dict_resize_ratio/4;
+        int initlen;
+        if (orig_entries) {
+            /* If we are rehashing to a larger table, in the average this
+             * slot will take orig_entries/2 slots, assuming the new table
+             * is double in size. */
+            initlen = orig_entries/2;
+        } else {
+            initlen = dict_resize_ratio/4;
+        }
         if (initlen == 0) initlen = 1;
         dv = table[idx] =
             zcalloc(sizeof(dictEntryVector)+sizeof(dictEntry)*initlen);
@@ -161,7 +174,7 @@ dictEntry *dictPushEntry(dictEntryVector **table, unsigned int idx, const void *
         dv->free = initlen-1;
         he = dv->entry;
     } else if (dv->free == 0) {
-        int newlen = (dv->used+dv->free)*2;
+        int newlen = dv->used*2;
         dv = table[idx] = zrealloc(table[idx],sizeof(dictEntryVector)+sizeof(dictEntry)*newlen);
         he = dv->entry+dv->used;
         dv->used++;
@@ -279,6 +292,7 @@ int dictExpandToOptimalSize(dict *d, unsigned long entries) {
 int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
+    int to_smaller = d->ht[0].size > d->ht[1].size; /* Moving to smaller tab? */
 
     while(n-- && d->ht[0].used != 0) {
         dictEntryVector *dv;
@@ -297,6 +311,7 @@ int dictRehash(dict *d, int n) {
          * to the next, since all the entries of this table will hash into
          * the same slot of the target table. */
         uint32_t entries = dv ? (dv->used + dv->free) : 0;
+        uint32_t entries_hint = to_smaller ? 0 : entries;
         uint32_t j;
 
         for (j = 0; j < entries; j++) {
@@ -304,9 +319,9 @@ int dictRehash(dict *d, int n) {
 
             /* Get the index in the new hash table */
             if (dv->entry[j].key == NULL) continue;
-            h = dictHashKey(d, dv->entry[j].key) & d->ht[1].sizemask;
+            h = dv->entry[j].hash & d->ht[1].sizemask;
             dictPushEntry(d->ht[1].table,h,dv->entry[j].key,dv->entry[j].v.val,
-                          dv->entry[j].hash);
+                          dv->entry[j].hash, entries_hint);
             d->ht[1].used++;
             d->ht[0].used--;
         }
@@ -401,7 +416,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
     /* Store the new entry: if we are rehashing all new entries go to
      * the new table. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = dictPushEntry(ht->table,index,key,NULL,hash);
+    entry = dictPushEntry(ht->table,index,key,NULL,hash,0);
     ht->used++;
     return entry;
 }
