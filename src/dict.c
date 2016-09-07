@@ -571,12 +571,47 @@ dictEntry *dictFind(dict *d, const void *key)
         dv = d->ht[table].table[idx];
         if (dv != NULL) {
             uint32_t entries = dv->used + dv->free;
-            uint32_t j;
-            for (j = 0; j < entries; j++) {
+            /* In order to scan less entries, we use the entries vector
+             * as a sub hash table. The entry is not really guaranteed to
+             * be there, however we try to access it using this pattern and
+             * if possible we also swap the entries so that the next time
+             * we'll succeed in accessing the entry at the first try. */
+            unsigned int h2 = (h<<5)+(h>>16);
+            uint32_t j = h2 % entries, i = entries;
+            while(i--) {
                 dictEntry *he = dv->entry+j;
-                if (he->key == NULL || he->hash != h) continue;
-                if (key==he->key || dictCompareKeys(d, key, he->key))
+                if (he->key == NULL || he->hash != h) {
+                    j = (j+1) % entries;
+                    continue;
+                }
+                if (key==he->key || dictCompareKeys(d, key, he->key)) {
+                    #if 1
+                    if (d->iterators == 0 && /* No interators with indexes. */
+                        dict_can_resize &&   /* No copy on write concerns. */
+                        i != entries-1       /* Not already in right place. */)
+                    {
+                        uint32_t destpos = h2 % entries;
+                        uint32_t target_h2 = (dv->entry[destpos].hash << 5) +
+                                             (dv->entry[destpos].hash >> 16);
+                        // printf("%d -> %d (%d)\n", (int)j, (int)destpos,
+                        // (dv->entry[destpos].key == NULL) ? -1 :
+                        // dv->entry[destpos].hash % entries);
+                        /* Only swap if the entry we are going to replace is
+                         * empty or is not in its final destination. */
+                        if (dv->entry[destpos].key == NULL ||
+                            (target_h2 % entries) != destpos)
+                        {
+                            // printf("From %d to %d\n", (int)j, (int)destpos);
+                            dictEntry copy = *he;
+                            dv->entry[j] = dv->entry[destpos];;
+                            dv->entry[destpos] = copy;
+                            he = dv->entry+destpos;
+                        }
+                    }
+                    #endif
                     return he;
+                }
+                j = (j+1) % entries;
             }
         }
         if (!dictIsRehashing(d)) return NULL;
