@@ -1173,5 +1173,16 @@ int main(int argc, char **argv) {
         sdsfree(key);
     }
     end_benchmark("Accessing missing");
+
+    start_benchmark();
+    for (j = 0; j < count; j++) {
+        sds key = sdsfromlonglong(j);
+        int retval = dictDelete(dict,key);
+        assert(retval == DICT_OK);
+        key[0] += 17; /* Change first number to letter. */
+        retval = dictAdd(dict,key,(void*)j);
+        assert(retval == DICT_OK);
+    }
+    end_benchmark("Removing and adding");
 }
 #endif
