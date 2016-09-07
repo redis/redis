@@ -558,6 +558,18 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
+void debugDv(dictEntryVector *dv) {
+    uint32_t entries = dv->used + dv->free;
+    uint32_t j;
+
+    for (j = 0; j < entries; j++) {
+        unsigned int h2 = (dv->entry[j].hash<<5) + (dv->entry[j].hash>>16);
+        int target = h2 % entries;
+        if (dv->entry[j].key == NULL) target = -1;
+        printf("%d [target=%u]: %s\n", j, target, dv->entry[j].key);
+    }
+}
+
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntryVector *dv;
@@ -570,6 +582,8 @@ dictEntry *dictFind(dict *d, const void *key)
         idx = h & d->ht[table].sizemask;
         dv = d->ht[table].table[idx];
         if (dv != NULL) {
+            // printf("LOOKUP %s\n", key);
+            // debugDv(dv);
             uint32_t entries = dv->used + dv->free;
             /* In order to scan less entries, we use the entries vector
              * as a sub hash table. The entry is not really guaranteed to
@@ -578,7 +592,9 @@ dictEntry *dictFind(dict *d, const void *key)
              * we'll succeed in accessing the entry at the first try. */
             unsigned int h2 = (h<<5)+(h>>16);
             uint32_t j = h2 % entries, i = entries;
+            // printf("SCAN: ");
             while(i--) {
+                // printf("%d ",j);
                 dictEntry *he = dv->entry+j;
                 if (he->key == NULL || he->hash != h) {
                     j = (j+1) % entries;
@@ -590,18 +606,18 @@ dictEntry *dictFind(dict *d, const void *key)
                         dict_can_resize &&   /* No copy on write concerns. */
                         i != entries-1       /* Not already in right place. */)
                     {
-                        uint32_t destpos = h2 % entries;
-                        uint32_t target_h2 = (dv->entry[destpos].hash << 5) +
-                                             (dv->entry[destpos].hash >> 16);
-                        // printf("%d -> %d (%d)\n", (int)j, (int)destpos,
-                        // (dv->entry[destpos].key == NULL) ? -1 :
-                        // dv->entry[destpos].hash % entries);
-                        /* Only swap if the entry we are going to replace is
-                         * empty or is not in its final destination. */
-                        if (dv->entry[destpos].key == NULL ||
-                            (target_h2 % entries) != destpos)
-                        {
-                            // printf("From %d to %d\n", (int)j, (int)destpos);
+                        /* Try to find a suitable position... */
+                        uint32_t destpos, k;
+                        for (k = 0; k < 3; k++) {
+                            destpos = (h2+k) % entries;
+                            uint32_t target_h2 =
+                                (dv->entry[destpos].hash << 5) +
+                                (dv->entry[destpos].hash >> 16);
+                            if (dv->entry[destpos].key == NULL ||
+                                (target_h2 % entries) != destpos)
+                                break; /* Valid position found. */
+                        }
+                        if (k != 3) {
                             dictEntry copy = *he;
                             dv->entry[j] = dv->entry[destpos];;
                             dv->entry[destpos] = copy;
@@ -609,6 +625,7 @@ dictEntry *dictFind(dict *d, const void *key)
                         }
                     }
                     #endif
+                    // printf("\n\n");
                     return he;
                 }
                 j = (j+1) % entries;
@@ -1250,6 +1267,22 @@ int main(int argc, char **argv) {
     }
     end_benchmark("Inserting");
     assert((long)dictSize(dict) == count);
+
+/* --- */
+if (0) {
+    sds key = sdsfromlonglong(1);
+    dictFind(dict,key);
+    dictFind(dict,key);
+    dictFind(dict,key);
+    sdsfree(key);
+
+    key = sdsfromlonglong(82);
+    dictFind(dict,key);
+    dictFind(dict,key);
+    dictFind(dict,key);
+    exit(1);
+}
+/* --- */
 
     /* Wait for rehashing. */
     while (dictIsRehashing(dict)) {
