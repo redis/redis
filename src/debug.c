@@ -40,7 +40,6 @@
 #include <fcntl.h>
 #include "bio.h"
 #include <unistd.h>
-#define _GNU_SOURCE
 #include <dlfcn.h>
 #endif /* HAVE_BACKTRACE */
 
