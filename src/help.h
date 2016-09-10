@@ -928,7 +928,7 @@ struct commandHelp {
     4,
     "1.2.0" },
     { "ZINTERSTORE",
-    "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
+    "destination numkeys key [key ...] [[WEIGHTS weight] | [BYSCORE min max [min max ...]]] [AGGREGATE SUM|SQR|MIN|MAX]",
     "Intersect multiple sorted sets and store the resulting sorted set in a new key",
     4,
     "2.0.0" },
@@ -1008,7 +1008,7 @@ struct commandHelp {
     4,
     "1.2.0" },
     { "ZUNIONSTORE",
-    "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
+    "destination numkeys key [key ...] [[WEIGHTS weight] | [BYSCORE min max [min max ...]]] [AGGREGATE SUM|SQR|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
     "2.0.0" }

@@ -584,6 +584,12 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE SQR - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate sqr]
+            assert_equal {a 1 b 5 d 9 c 13} [r zrange zsetc 0 -1 withscores]
+        }
+
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb]
             assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
@@ -611,6 +617,185 @@ start_server {tags {"zset"}} {
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate max]
             assert_equal {b 2 c 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE SUM - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate sum]
+            assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE SQR - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate SQR]
+            assert_equal {b 5 c 13} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with BYSCORE basics - $encoding" {
+            r del zsetx
+            r del zsety
+            r del zsetz
+            r zadd zsetx 1    point:1:1:-1
+            r zadd zsety 1    point:1:1:-1
+            r zadd zsetz -1   point:1:1:-1
+
+            r zadd zsetx 1.1  point:1.1:1:-1
+            r zadd zsety 1    point:1.1:1:-1
+            r zadd zsetz -1   point:1.1:1:-1
+
+            r zadd zsetx 2    point:2:2:-1
+            r zadd zsety 2    point:2:2:-1
+            r zadd zsetz -1   point:2:2:-1
+
+            r zadd zsetx 3    point:3:3:-1.1
+            r zadd zsety 3    point:3:3:-1.1
+            r zadd zsetz -1.1 point:3:3:-1.1
+
+            r zadd zsetx +inf point:+inf:+inf:+inf
+            r zadd zsety +inf point:+inf:+inf:+inf
+            r zadd zsetz +inf point:+inf:+inf:+inf
+            assert_equal 2 [r zinterstore zsetc 3 zsetx zsety zsetz byscore 1 1.3 1 2 -2 -1]
+            assert_equal 1 [r zinterstore zsetc 3 zsetx zsety zsetz byscore 1 (1.1 1 2 -2 -1]
+            assert_equal 1 [r zinterstore zsetc 3 zsetx zsety zsetz byscore 1 3 (1 2 -2 -1]
+        }
+
+        test "ZINTERSTORE with BYSCORE +inf / -inf - $encoding" {
+            assert_equal 5 [r zinterstore zsetc 3 zsetx zsety zsetz byscore -inf +inf -inf +inf -inf +inf]
+            r zadd zsetx -inf    point:-inf:3:-1.1
+            r zadd zsety 3       point:-inf:3:-1.1
+            r zadd zsetz -1.1    point:-inf:3:-1.1
+            assert_equal 1 [r zinterstore zsetc 3 zsetx zsety zsetz byscore -inf (1 -inf +inf -inf +inf]
+            assert_equal 5 [r zinterstore zsetc 3 zsetx zsety zsetz byscore 1 +inf -inf +inf -inf +inf]
+            assert_equal 2 [r zinterstore zsetc 3 zsetx zsety zsetz byscore 1 +inf 1 1 -inf +inf]
+            assert_equal 1 [r zinterstore zsetc 3 zsetx zsety zsetz byscore -inf 1 1 1 -inf +inf]
+        }
+
+        test "ZINTERSTORE with AGGREGATE MIN - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate min]
+            assert_equal {b 1 c 2} [r zrange zsetc 0 -1 withscores]
+            r del zsetc
+            assert_equal 1 [r zinterstore zsetc 2 zseta zsetb byscore 1 2 1 3 aggregate min]
+            assert_equal {b 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate max]
+            assert_equal {b 2 c 3} [r zrange zsetc 0 -1 withscores]
+            r del zsetc
+            assert_equal 1 [r zinterstore zsetc 2 zseta zsetb byscore 1 2 1 3 aggregate max]
+            assert_equal {b 2} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE SUM - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate sum]
+            assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
+            r del zsetc
+            assert_equal 1 [r zinterstore zsetc 2 zseta zsetb byscore 1 2 1 3 aggregate sum]
+            assert_equal {b 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE SQR - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate sqr]
+            assert_equal {b 5 c 13} [r zrange zsetc 0 -1 withscores]
+            r del zsetc
+            assert_equal 1 [r zinterstore zsetc 2 zseta zsetb byscore 1 2 1 3 aggregate sqr]
+            assert_equal {b 5} [r zrange zsetc 0 -1 withscores]
+
+            r zadd x 0.78 a
+            r zadd y 0.78 a
+            r zadd x 1 b
+            r zadd y 0 b
+            assert_equal 2 [r zinterstore distance 2 x y byscore -1 1 -1 1 aggregate sqr]
+            assert_equal {b 1} [r zrangebyscore distance 0 1 withscores]
+
+            r del zsetx
+            r del zsety
+            r del zsetz
+            r zadd zsetx 1    point:1:2:-1
+            r zadd zsety 2    point:1:2:-1
+            r zadd zsetz -1   point:1:2:-1
+
+            r zadd zsetx 1    point:1:3:-1
+            r zadd zsety 3    point:1:3:-1
+            r zadd zsetz -1   point:1:3:-1
+
+            r zadd zsetx 2    point:2:2:-5
+            r zadd zsety 2    point:2:2:-5
+            r zadd zsetz -5   point:2:2:-5
+
+            r zadd zsetx 2    point:2:3:-5
+            r zadd zsety 3    point:2:3:-5
+            r zadd zsetz -5   point:2:3:-5
+
+            assert_equal 4 [r zinterstore distance 3 zsetx zsety zsetz byscore -inf +inf -inf +inf -inf +inf aggregate sqr]
+            assert_equal {point:1:2:-1 6 point:1:3:-1 11 point:2:2:-5 33 point:2:3:-5 38} [r zrange distance 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE BYSCORE basics - $encoding" {
+            r del zseta zsetb zsetc
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zadd zseta 3 c
+            r zadd zsetb 1 b
+            r zadd zsetb 2 c
+            r zadd zsetb 3 d
+
+            assert_equal 3 [r zunionstore zsetc 2 zseta zsetb byscore 2 3 2 3]
+            assert_equal {b 2 d 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE MIN - $encoding" {
+            r del zsetc
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate min]
+            assert_equal {a 1 b 1 c 2 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE MAX - $encoding" {
+            r del zsetc
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate max]
+            assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE SUM - $encoding" {
+            r del zsetc
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate sum]
+            assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE SQR - $encoding" {
+            r del zsetc
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb byscore 1 3 1 3 aggregate sqr]
+            assert_equal {a 1 b 5 d 9 c 13} [r zrange zsetc 0 -1 withscores]
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
