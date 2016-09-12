@@ -450,12 +450,12 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
     return DICT_ERR; /* not found */
 }
 
-int dictDelete(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,0);
+int dictDelete(dict *d, const void *key) {
+    return dictGenericDelete(d,key,0);
 }
 
-int dictDeleteNoFree(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,1);
+int dictDeleteNoFree(dict *d, const void *key) {
+    return dictGenericDelete(d,key,1);
 }
 
 /* Destroy an entire dictionary */
