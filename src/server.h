@@ -801,6 +801,7 @@ struct redisServer {
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
+    size_t initial_memory_usage; /* Bytes used after initialization. */
     /* Modules */
     dict *moduleapi;            /* Exported APIs dictionary for modules. */
     list *loadmodule_queue;     /* List of modules to load at startup. */

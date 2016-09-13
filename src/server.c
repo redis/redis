@@ -274,7 +274,7 @@ struct redisCommand redisCommandTable[] = {
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
     {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
-    {"memory",memoryCommand,3,"r",0,NULL,0,0,0,0,0},
+    {"memory",memoryCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
@@ -1860,6 +1860,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    server.initial_memory_usage = zmalloc_used_memory();
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
