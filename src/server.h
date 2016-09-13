@@ -532,7 +532,7 @@ typedef struct RedisModuleIO {
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
@@ -1792,6 +1792,7 @@ void readonlyCommand(client *c);
 void readwriteCommand(client *c);
 void dumpCommand(client *c);
 void objectCommand(client *c);
+void memoryCommand(client *c);
 void clientCommand(client *c);
 void evalCommand(client *c);
 void evalShaCommand(client *c);
