@@ -395,13 +395,13 @@ int dictReplace(dict *d, void *key, void *val)
 }
 
 /* Add or Find:
- * dictReplaceRaw() is simply a version of dictAddRaw() that always
+ * dictAddOrFind() is simply a version of dictAddRaw() that always
  * returns the hash entry of the specified key, even if the key already
  * exists and can't be added (in that case the entry of the already
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
-dictEntry *dictReplaceRaw(dict *d, void *key) {
+dictEntry *dictAddOrFind(dict *d, void *key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
     return entry ? entry : existing;
