@@ -1387,7 +1387,7 @@ int zsetDel(robj *zobj, sds ele) {
         dictEntry *de;
         double score;
 
-        de = dictFind(zs->dict,ele);
+        de = dictUnlink(zs->dict,ele);
         if (de != NULL) {
             /* Get the score in order to delete from the skiplist later. */
             score = *(double*)dictGetVal(de);
@@ -1397,12 +1397,11 @@ int zsetDel(robj *zobj, sds ele) {
              * actually releases the SDS string representing the element,
              * which is shared between the skiplist and the hash table, so
              * we need to delete from the skiplist as the final step. */
-            int retval1 = dictDelete(zs->dict,ele);
+            dictFreeUnlinkedEntry(zs->dict,de);
 
             /* Delete from skiplist. */
-            int retval2 = zslDelete(zs->zsl,score,ele,NULL);
-
-            serverAssert(retval1 == DICT_OK && retval2);
+            int retval = zslDelete(zs->zsl,score,ele,NULL);
+            serverAssert(retval);
 
             if (htNeedsResize(zs->dict)) dictResize(zs->dict);
             return 1;

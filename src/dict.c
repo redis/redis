@@ -478,8 +478,9 @@ dictEntry *dictUnlink(dict *ht, const void *key) {
 }
 
 /* You need to call this function to really free the entry after a call
- * to dictUnlink(). */
+ * to dictUnlink(). It's safe to call this function with 'he' = NULL. */
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
+    if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
     zfree(he);
