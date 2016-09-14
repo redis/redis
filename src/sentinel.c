@@ -3674,7 +3674,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
+    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
