@@ -780,6 +780,7 @@ struct redisMemOverhead {
     size_t aof_buffer;
     size_t overhead_total;
     size_t dataset;
+    float dataset_perc;
     size_t num_dbs;
     struct {
         size_t dbid;
