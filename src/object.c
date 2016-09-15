@@ -754,15 +754,15 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;
-            di = dictGetIterator(d);
+            zskiplist *zsl = ((zset*)o->ptr)->zsl;
+            zskiplistNode *znode = zsl->header->level[0].forward;
             asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
-                ele = dictGetKey(de);
-                elesize += sdsAllocSize(ele);
-                elesize += sizeof(struct dictEntry) + sizeof(zskiplistNode);
+            while(znode != NULL && samples < sample_size) {
+                elesize += sdsAllocSize(znode->ele);
+                elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
                 samples++;
+                znode = znode->level[0].forward;
             }
-            dictReleaseIterator(di);
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown sorted set encoding");
