@@ -769,6 +769,25 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+/* This structure is returned by the getMemoryOverheadData() function in
+ * order to return memory overhead information. */
+struct redisMemOverhead {
+    size_t total_allocated;
+    size_t startup_allocated;
+    size_t repl_backlog;
+    size_t clients_slaves;
+    size_t clients_normal;
+    size_t aof_buffer;
+    size_t overhead_total;
+    size_t dataset;
+    size_t num_dbs;
+    struct {
+        size_t dbid;
+        size_t overhead_ht_main;
+        size_t overhead_ht_expires;
+    } *db;
+};
+
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -1481,6 +1500,8 @@ void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
 const char *evictPolicyToString(void);
+struct redisMemOverhead *getMemoryOverheadData(void);
+void freeMemoryOverheadData(struct redisMemOverhead *mh);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */

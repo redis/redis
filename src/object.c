@@ -853,40 +853,21 @@ void objectCommand(client *c) {
     }
 }
 
-/* This structure is returned by the getMemoryOverheadData() function in
- * order to return memory overhead information. */
-struct memoh {
-    size_t total_allocated;
-    size_t startup_allocated;
-    size_t repl_backlog;
-    size_t clients_slaves;
-    size_t clients_normal;
-    size_t aof_buffer;
-    size_t overhead_total;
-    size_t dataset;
-    size_t num_dbs;
-    struct {
-        size_t dbid;
-        size_t overhead_ht_main;
-        size_t overhead_ht_expires;
-    } *db;
-};
-
 /* Release data obtained with getMemoryOverheadData(). */
-void freeMemoryOverheadData(struct memoh *mh) {
+void freeMemoryOverheadData(struct redisMemOverhead *mh) {
     zfree(mh->db);
     zfree(mh);
 }
 
-/* Return a struct memoh filled with memory overhead information used
- * for the MEMORY OVERHEAD and INFO command. The returned structure
- * pointer should be freed calling freeMemoryOverheadData(). */
-struct memoh *getMemoryOverheadData(void) {
+/* Return a struct redisMemOverhead filled with memory overhead
+ * information used for the MEMORY OVERHEAD and INFO command. The returned
+ * structure pointer should be freed calling freeMemoryOverheadData(). */
+struct redisMemOverhead *getMemoryOverheadData(void) {
     int j;
     size_t mem_total = 0;
     size_t mem = 0;
     size_t zmalloc_used = zmalloc_used_memory();
-    struct memoh *mh = zcalloc(sizeof(*mh));
+    struct redisMemOverhead *mh = zcalloc(sizeof(*mh));
 
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;
@@ -982,7 +963,7 @@ void memoryCommand(client *c) {
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"overhead") && c->argc == 2) {
-        struct memoh *mh = getMemoryOverheadData();
+        struct redisMemOverhead *mh = getMemoryOverheadData();
 
         addReplyMultiBulkLen(c,(8+mh->num_dbs)*2);
 
