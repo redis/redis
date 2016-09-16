@@ -810,6 +810,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;
+    mh->peak_allocated = server.stat_peak_memory;
     mem_total += server.initial_memory_usage;
 
     mem = 0;
@@ -889,6 +890,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     if (zmalloc_used > mh->startup_allocated)
         net_usage = zmalloc_used - mh->startup_allocated;
     mh->dataset_perc = (float)mh->dataset*100/net_usage;
+    mh->peak_perc = (float)zmalloc_used*100/mh->peak_allocated;
 
     return mh;
 }
@@ -988,7 +990,10 @@ void memoryCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"overhead") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(9+mh->num_dbs)*2);
+        addReplyMultiBulkLen(c,(11+mh->num_dbs)*2);
+
+        addReplyBulkCString(c,"peak.allocated");
+        addReplyLongLong(c,mh->peak_allocated);
 
         addReplyBulkCString(c,"total.allocated");
         addReplyLongLong(c,mh->total_allocated);
@@ -1029,6 +1034,9 @@ void memoryCommand(client *c) {
 
         addReplyBulkCString(c,"dataset.percentage");
         addReplyDouble(c,mh->dataset_perc);
+
+        addReplyBulkCString(c,"peak.percentage");
+        addReplyDouble(c,mh->peak_perc);
 
         freeMemoryOverheadData(mh);
     } else if (!strcasecmp(c->argv[1]->ptr,"allocator-stats") && c->argc == 2) {

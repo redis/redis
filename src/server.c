@@ -2837,6 +2837,7 @@ sds genRedisInfoString(char *section) {
             "used_memory_rss_human:%s\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
+            "used_memory_peak_perc:%.2f%%\r\n"
             "used_memory_overhead:%zu\r\n"
             "used_memory_startup:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
@@ -2857,6 +2858,7 @@ sds genRedisInfoString(char *section) {
             used_memory_rss_hmem,
             server.stat_peak_memory,
             peak_hmem,
+            mh->peak_perc,
             mh->overhead_total,
             mh->startup_allocated,
             mh->dataset,

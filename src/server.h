@@ -772,6 +772,7 @@ typedef struct redisOpArray {
 /* This structure is returned by the getMemoryOverheadData() function in
  * order to return memory overhead information. */
 struct redisMemOverhead {
+    size_t peak_allocated;
     size_t total_allocated;
     size_t startup_allocated;
     size_t repl_backlog;
@@ -781,6 +782,7 @@ struct redisMemOverhead {
     size_t overhead_total;
     size_t dataset;
     float dataset_perc;
+    float peak_perc;
     size_t num_dbs;
     struct {
         size_t dbid;
