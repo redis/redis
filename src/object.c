@@ -954,7 +954,7 @@ sds getMemoryDoctorReport(void) {
     sds s;
     if (num_reports == 0) {
         s = sdsnew(
-        "Hi Sam, I can't find any memory issue in your instnace. "
+        "Hi Sam, I can't find any memory issue in your instance. "
         "I can only account for what occurs on this base.");
     } else if (empty == 1) {
         s = sdsnew(
