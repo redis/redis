@@ -845,7 +845,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         (argc >= 2 && !strcasecmp(command,"debug") &&
                        !strcasecmp(argv[1],"htstats")) ||
         (argc >= 2 && !strcasecmp(command,"memory") &&
-                       !strcasecmp(argv[1],"allocator-stats")) ||
+                      (!strcasecmp(argv[1],"allocator-stats") ||
+                       !strcasecmp(argv[1],"doctor"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||

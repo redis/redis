@@ -2870,7 +2870,7 @@ sds genRedisInfoString(char *section) {
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
-            zmalloc_get_fragmentation_ratio(server.resident_set_size),
+            mh->fragmentation,
             ZMALLOC_LIB,
             lazyfreeGetPendingObjectsCount()
         );
