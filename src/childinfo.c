@@ -40,6 +40,8 @@ void openChildInfoPipe(void) {
         closeChildInfoPipe();
     } else if (anetNonBlock(NULL,server.child_info_pipe[0]) != ANET_OK) {
         closeChildInfoPipe();
+    } else {
+        memset(&server.child_info_data,0,sizeof(server.child_info_data));
     }
 }
 
