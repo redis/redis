@@ -415,7 +415,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     dictEntry *he, *prevHe;
     int table;
 
-    if (d->ht[0].used == 0) return NULL;
+    if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
+
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
 
