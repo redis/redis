@@ -11,6 +11,84 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.4     Released Mon Sep 26 08:58:21 CEST 2016
+================================================================================
+
+Upgrade urgency CRITICAL: Redis 3.2 and unstable contained a security
+                          vulnerability fixed by this release.
+
+Hello Redis Wizards of the Memory Stores Empire,
+
+this is a Redis critical release in order to fix a security issue
+which is documented clearly here:
+
+    https://github.com/antirez/redis/commit/6d9f8e2462fc2c426d48c941edeb78e5df7d2977
+
+Thanks to Cory Duplantis of Cisco Talos for reporting the issue.
+
+The gist is that using CONFIG SET calls (or by manipulating redis.conf)
+an attacker is able to compromise certain fields of the "server" global
+structure, including the aof filename pointer, that could be made pointing
+to something else. In turn the AOF name is used in different contexts such
+as logging, rename(2) and open(2) syscalls, leading to potential problems.
+
+All Redis 3.2.x versions are affected.
+
+This release also includes other things:
+
+* TCP binding bug fixed when only certain addresses were available for
+a given port.
+
+* A much better crash report that includes part of the Redis binary:
+this will allow to fix bugs even when we just have a crash log and
+no other help from the original poster oft the issue.
+
+* A fix for Redis Cluster redis-trib displaying of info after creating
+a new cluster.
+
+Please check the following list of commits for credits about who did what.
+Thanks to all the contributors and a special thank to Oran Agra for the
+help in this release.
+
+List of commits:
+
+antirez in commit 0539634:
+ Security: CONFIG SET client-output-buffer-limit overflow fixed.
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+antirez in commit c01abcd:
+ fix the fix for the TCP binding.
+ 1 file changed, 15 insertions(+), 10 deletions(-)
+
+oranagra in commit a6d0698:
+ fix tcp binding when IPv6 is unsupported
+ 2 files changed, 14 insertions(+), 10 deletions(-)
+
+antirez in commit 22b6c28:
+ debug.c: no need to define _GNU_SOURCE, is defined in fmacros.h.
+ 1 file changed, 1 deletion(-)
+
+antirez in commit 9e9d398:
+ crash log - improve code dump with more info and called symbols.
+ 1 file changed, 59 insertions(+), 20 deletions(-)
+
+oranagra in commit 3745c5d:
+ crash log - add hex dump of function code
+ 1 file changed, 22 insertions(+)
+
+antirez in commit c1cc07b:
+ Sentinel example config: warn about protected mode.
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+rojingeorge in commit 011dc9f:
+ Display the nodes summary once the cluster is established using redis-trib.rb
+ 1 file changed, 5 insertions(+)
+
+Guo Xiao in commit f4e3a94:
+ Use the standard predefined identifier __func__ (since C99)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 3.2.3     Released Tue Aug 02 10:55:24 CEST 2016
 ================================================================================
 
