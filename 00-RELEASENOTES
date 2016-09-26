@@ -26,13 +26,24 @@ which is documented clearly here:
 
 Thanks to Cory Duplantis of Cisco Talos for reporting the issue.
 
+IMPACT:
+
 The gist is that using CONFIG SET calls (or by manipulating redis.conf)
 an attacker is able to compromise certain fields of the "server" global
 structure, including the aof filename pointer, that could be made pointing
 to something else. In turn the AOF name is used in different contexts such
 as logging, rename(2) and open(2) syscalls, leading to potential problems.
 
+Please note that since having access to CONFIG SET also means to be able
+to change the AOF filename (and many other things) directly, this issue
+actual real world impact is quite small, so I would not panik: if you
+have CONFIG SET level of access, you can do more and more easily.
+
+AFFECTED VERSIONS:
+
 All Redis 3.2.x versions are affected.
+
+OTHER CHANGES IN THIS RELEASE:
 
 This release also includes other things:
 
