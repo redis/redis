@@ -104,7 +104,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
  * 为什么不直接比较flags，而多一个&运算？
  */
 static inline size_t sdslen(const sds s) {
-    unsigned char flags = s[-1]; //TODO : debug here
+    unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
             return SDS_TYPE_5_LEN(flags);
