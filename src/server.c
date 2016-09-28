@@ -1694,7 +1694,7 @@ int listenToPort(int port, int *fds, int *count) {
 
     if (working_set == 0) {
         serverLog(LL_WARNING,
-            "Could not bind to any specied addresses");
+            "Could not bind to any specified addresses");
         return C_ERR;
     }
     return C_OK;
