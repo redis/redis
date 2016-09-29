@@ -63,6 +63,11 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_XX (1<<1)     /* Set if key exists. */
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_AT (1<<4)     /* Set if time in timestamp is given*/
+
+#define OBJ_NSET_EX (OBJ_SET_PX | OBJ_SET_AT)
+#define OBJ_NSET_PX (OBJ_SET_EX | OBJ_SET_AT)
+#define OBJ_NSET_AT (OBJ_SET_EX | OBJ_SET_PX)
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -75,6 +80,11 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
+
+        if ((flags & OBJ_SET_AT) && milliseconds < mstime()){
+            addReplyErrorFormat(c,"invalid expire timestamp in %s",c->cmd->name);
+            return;
+        }
     }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
@@ -85,14 +95,20 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
     setKey(c->db,key,val);
     server.dirty++;
-    if (expire) setExpire(c->db,key,mstime()+milliseconds);
+    if (expire) {
+        if (flags & OBJ_SET_AT) {
+            setExpire(c->db,key,milliseconds);
+        } else {
+            setExpire(c->db,key,mstime()+milliseconds);
+        }
+    }
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
-/* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
+/* SET key value [NX] [XX] [AT <timestamp>] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
     robj *expire = NULL;
@@ -115,7 +131,7 @@ void setCommand(client *c) {
             flags |= OBJ_SET_XX;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_PX) && next)
+                   !(flags & OBJ_NSET_EX) && next)
         {
             flags |= OBJ_SET_EX;
             unit = UNIT_SECONDS;
@@ -123,10 +139,17 @@ void setCommand(client *c) {
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-                   !(flags & OBJ_SET_EX) && next)
+                   !(flags & OBJ_NSET_PX) && next)
         {
             flags |= OBJ_SET_PX;
             unit = UNIT_MILLISECONDS;
+            expire = next;
+            j++;
+        } else if ((a[0] == 'a' || a[0] == 'A') &&
+                   (a[1] == 't' || a[1] == 'T') && a[2] == '\0' &&
+                   !(flags & OBJ_NSET_AT) && next) {
+            flags |= OBJ_SET_AT;
+            unit = UNIT_SECONDS;
             expire = next;
             j++;
         } else {
