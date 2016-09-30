@@ -124,8 +124,12 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             int mask = 0;
             struct kevent *e = state->events+j;
 
-            if (e->filter == EVFILT_READ) mask |= AE_READABLE;
-            if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
+            if (e->filter == EVFILT_READ) {
+                mask |= AE_READABLE;
+            } else if (e->filter == EVFILT_WRITE) {
+                mask |= AE_WRITABLE;
+            }
+
             eventLoop->fired[j].fd = e->ident;
             eventLoop->fired[j].mask = mask;
         }
