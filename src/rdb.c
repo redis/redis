@@ -567,14 +567,27 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
  * Return -1 on error, the size of the serialized value on success. */
 int rdbSaveBinaryDoubleValue(rio *rdb, double val) {
     memrev64ifbe(&val);
-    return rdbWriteRaw(rdb,&val,8);
+    return rdbWriteRaw(rdb,&val,sizeof(val));
 }
 
 /* Loads a double from RDB 8 or greater. See rdbSaveBinaryDoubleValue() for
  * more info. On error -1 is returned, otherwise 0. */
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val) {
-    if (rioRead(rdb,val,8) == 0) return -1;
+    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
     memrev64ifbe(val);
+    return 0;
+}
+
+/* Like rdbSaveBinaryDoubleValue() but single precision. */
+int rdbSaveBinaryFloatValue(rio *rdb, float val) {
+    memrev32ifbe(&val);
+    return rdbWriteRaw(rdb,&val,sizeof(val));
+}
+
+/* Like rdbLoadBinaryDoubleValue() but single precision. */
+int rdbLoadBinaryFloatValue(rio *rdb, float *val) {
+    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
+    memrev32ifbe(val);
     return 0;
 }
 
