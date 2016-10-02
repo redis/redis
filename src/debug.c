@@ -33,6 +33,7 @@
 
 #include <arpa/inet.h>
 #include <signal.h>
+#include <dlfcn.h>
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -40,7 +41,6 @@
 #include <fcntl.h>
 #include "bio.h"
 #include <unistd.h>
-#include <dlfcn.h>
 #endif /* HAVE_BACKTRACE */
 
 #ifdef __CYGWIN__
