@@ -388,6 +388,14 @@ start_server {tags {"zset"}} {
                               0 omega}
         }
 
+        proc create_default_lex_zset_with_multi_score {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              1 alpha1 1 bar1 1 cool1 1 down1
+                              2 elephant2 2 foo2 2 great2 2 hill2
+                              3 omega3}
+        }
+
         test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZCOUNT basics" {
             create_default_lex_zset
 
@@ -415,6 +423,53 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrangebylex zset - \[aaaa]
             assert_equal {} [r zrevrangebylex zset \[elez \[elex]
             assert_equal {} [r zrevrangebylex zset (hill (omega]
+        }
+
+        test "ZRANGEBYSLEX/ZREVRANGEBYLEX/ZLEXCOUNT with BETWEEN" {
+            create_default_lex_zset_with_multi_score
+
+            # ZRANGEBYSLEX
+            assert_equal {alpha1 bar1} [r zrangebylex zset - + BETWEEN 1 1 LIMIT 0 2]
+            assert_equal {alpha1 bar1 cool1} [r zrangebylex zset - (d BETWEEN 1 1]
+            assert_equal {omega3} [r zrangebylex zset - + BETWEEN 3 3]
+            assert_equal {hill alpha1 bar1 cool1} [r zrangebylex zset (great \[cool1 BETWEEN 0 1]
+            assert_equal {hill} [r zrangebylex zset (great + BETWEEN 0 0]
+            assert_equal {} [r zrangebylex zset - + BETWEEN (0 0]
+            assert_equal {} [r zrangebylex zset - + BETWEEN (0 (0]
+            assert_equal {} [r zrangebylex zset - + BETWEEN 0 (0]
+            assert_equal {hill} [r zrangebylex zset (great \[cool1 BETWEEN 0 (1]
+            assert_equal {hill alpha1 bar1 cool1 down1} [r zrangebylex zset (great \[cool1 BETWEEN 0 (2]
+            assert_equal {hill 0 alpha1 1 bar1 1 cool1 1 down1 1} [r zrangebylex zset (great \[cool1 BETWEEN 0 (2 WITHSCORES]
+            assert_equal {alpha1 bar1 cool1} [r zrangebylex zset (great \[cool1 BETWEEN (0 1]
+            assert_equal {alpha1 1 bar1 1 cool1 1} [r zrangebylex zset (great \[cool1 BETWEEN (0 1 WITHSCORES]
+
+            # ZREVRANGEBYLEX
+            assert_equal {down1 cool1} [r zrevrangebylex zset + - BETWEEN 1 1 LIMIT 0 2]
+            assert_equal {cool1 bar1 alpha1} [r zrevrangebylex zset (d - BETWEEN 1 1]
+            assert_equal {omega3} [r zrevrangebylex zset + - BETWEEN 3 3]
+            assert_equal {cool1 bar1 alpha1 hill} [r zrevrangebylex zset \[cool1 (great BETWEEN 1 0]
+            assert_equal {hill} [r zrevrangebylex zset + (great BETWEEN 0 0]
+            assert_equal {} [r zrevrangebylex zset + - BETWEEN (0 0]
+            assert_equal {} [r zrevrangebylex zset + - BETWEEN (0 (0]
+            assert_equal {} [r zrevrangebylex zset + - BETWEEN 0 (0]
+            assert_equal {hill} [r zrevrangebylex zset \[cool1 (great BETWEEN (1 0]
+            assert_equal {down1 cool1 bar1 alpha1 hill} [r zrevrangebylex zset \[cool1 (great BETWEEN (2 0]
+            assert_equal {down1 1 cool1 1 bar1 1 alpha1 1 hill 0} [r zrevrangebylex zset \[cool1 (great BETWEEN (2 0 WITHSCORES]
+            assert_equal {cool1 bar1 alpha1} [r zrevrangebylex zset \[cool1 (great BETWEEN 1 (0]
+            assert_equal {cool1 1 bar1 1 alpha1 1} [r zrevrangebylex zset \[cool1 (great BETWEEN 1 (0 WITHSCORES]
+
+            # ZLEXCOUNT
+            assert_equal 4 [r zlexcount zset - + BETWEEN 1 1]
+            assert_equal 3 [r zlexcount zset - (d BETWEEN 1 1]
+            assert_equal 1 [r zlexcount zset - + BETWEEN 3 3]
+            assert_equal 4 [r zlexcount zset (great \[cool1 BETWEEN 0 1]
+            assert_equal 1 [r zlexcount zset (great + BETWEEN 0 0]
+            assert_equal 0 [r zlexcount zset - + BETWEEN (0 0]
+            assert_equal 0 [r zlexcount zset - + BETWEEN (0 (0]
+            assert_equal 0 [r zlexcount zset - + BETWEEN 0 (0]
+            assert_equal 1 [r zlexcount zset (great \[cool1 BETWEEN 0 (1]
+            assert_equal 5 [r zlexcount zset (great \[cool1 BETWEEN 0 (2]
+            assert_equal 3 [r zlexcount zset (great \[cool1 BETWEEN (0 1]
         }
 
         test "ZRANGEBYSLEX with LIMIT" {

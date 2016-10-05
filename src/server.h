@@ -1457,6 +1457,9 @@ typedef struct {
 typedef struct {
     sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */
+    int scorerange;
+    double minsc, maxsc;
+    int minscex, maxscex;
 } zlexrangespec;
 
 zskiplist *zslCreate(void);
@@ -1483,15 +1486,19 @@ sds ziplistGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
 void zslFreeLexRange(zlexrangespec *spec);
-int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec);
+int zslParseLexRange(robj *min, robj *max, robj* minsc, robj* maxsc, zlexrangespec *spec);
 unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range);
 unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range);
 zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range);
 zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range);
-int zzlLexValueGteMin(unsigned char *p, zlexrangespec *spec);
-int zzlLexValueLteMax(unsigned char *p, zlexrangespec *spec);
+int zzlLexValueGteMin(unsigned char *eptr, zlexrangespec *spec);
+int zzlScoreLexValueGteMin(unsigned char *eptr, unsigned char *sptr, zlexrangespec *spec);
+int zzlLexValueLteMax(unsigned char *eptr, zlexrangespec *spec);
+int zzlScoreLexValueLteMax(unsigned char *eptr, unsigned char *sptr, zlexrangespec *spec);
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
+int zslScoreLexValueGteMin(sds value, double score, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
+int zslScoreLexValueLteMax(sds value, double score, zlexrangespec *spec);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);

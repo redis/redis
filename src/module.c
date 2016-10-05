@@ -1678,7 +1678,7 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     /* Setup the range structure used by the sorted set core implementation
      * in order to seek at the specified element. */
     zlexrangespec *zlrs = &key->zlrs;
-    if (zslParseLexRange(min, max, zlrs) == C_ERR) return REDISMODULE_ERR;
+    if (zslParseLexRange(min, max, NULL, NULL, zlrs) == C_ERR) return REDISMODULE_ERR;
 
     /* Set the range type to lex only after successfully parsing the range,
      * otherwise we don't want the zlexrangespec to be freed. */
