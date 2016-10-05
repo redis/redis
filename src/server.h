@@ -1457,9 +1457,9 @@ typedef struct {
 typedef struct {
     sds min, max;     /* May be set to shared.(minstring|maxstring) */
     int minex, maxex; /* are min or max exclusive? */
-    int scorerange;
-    double minsc, maxsc;
-    int minscex, maxscex;
+    int scorerange;         /* The flag for score range(BETWEEN option) */
+    double minsc, maxsc;    /* The score range */
+    int minscex, maxscex;   /* are minsc or maxsc exclusive? */
 } zlexrangespec;
 
 zskiplist *zslCreate(void);
