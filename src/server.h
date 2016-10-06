@@ -463,6 +463,7 @@ typedef long long mstime_t; /* millisecond time type. */
 struct RedisModule;
 struct RedisModuleIO;
 struct RedisModuleDigest;
+struct RedisModuleCtx;
 struct redisObject;
 
 /* Each module type implementation should export a set of methods in order
@@ -516,6 +517,7 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
+    struct RedisModuleCtx *ctx; /* Optional context, via GetIOContext() call. */
 } RedisModuleIO;
 
 #define moduleInitIOContext(iovar,mtype,rioptr) do { \
@@ -523,6 +525,7 @@ typedef struct RedisModuleIO {
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
+    iovar.ctx = NULL; \
 } while(0);
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
@@ -1222,6 +1225,7 @@ void moduleLoadFromQueue(void);
 int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
+void moduleFreeContext(struct RedisModuleCtx *ctx);
 
 /* Utils */
 long long ustime(void);

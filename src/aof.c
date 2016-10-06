@@ -1023,6 +1023,10 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
     moduleType *mt = mv->type;
     moduleInitIOContext(io,mt,r);
     mt->aof_rewrite(&io,key,mv->value);
+    if (io.ctx) {
+        moduleFreeContext(io.ctx);
+        zfree(io.ctx);
+    }
     return io.error ? 0 : 1;
 }
 

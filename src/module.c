@@ -2959,6 +2959,20 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 }
 
 /* --------------------------------------------------------------------------
+ * IO context handling
+ * -------------------------------------------------------------------------- */
+
+RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
+    if (io->ctx) return io->ctx; /* Can't have more than one... */
+    RedisModuleCtx ctxtemplate = REDISMODULE_CTX_INIT;
+    io->ctx = zmalloc(sizeof(*io));
+    *(io->ctx) = ctxtemplate;
+    io->ctx->module = io->type->module;
+    io->ctx->client = NULL;
+    return io->ctx;
+}
+
+/* --------------------------------------------------------------------------
  * Logging
  * -------------------------------------------------------------------------- */
 
@@ -3342,4 +3356,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringAppendBuffer);
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);
+    REGISTER_API(GetContextFromIO);
 }
