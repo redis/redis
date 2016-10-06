@@ -517,7 +517,7 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
-    struct RedisModuleCtx *ctx; /* Optional context, via GetIOContext() call. */
+    struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
 } RedisModuleIO;
 
 #define moduleInitIOContext(iovar,mtype,rioptr) do { \
