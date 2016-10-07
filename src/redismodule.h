@@ -68,6 +68,8 @@
 #define REDISMODULE_POSITIVE_INFINITE (1.0/0.0)
 #define REDISMODULE_NEGATIVE_INFINITE (-1.0/0.0)
 
+#define REDISMODULE_NOT_USED(V) ((void) V)
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
