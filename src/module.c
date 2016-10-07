@@ -3115,7 +3115,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->timeout_callback = timeout_callback;
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
-    c->bpop.timeout = timeout_ms;
+    c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
     blockClient(c,BLOCKED_MODULE);
     return bc;
@@ -3157,7 +3157,11 @@ void moduleHandleBlockedClients(void) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
         client *c = bc->client;
-        listDelNode(server.unblocked_clients,ln);
+        listDelNode(moduleUnblockedClients,ln);
+        pthread_mutex_unlock(&moduleUnblockedClientsMutex);
+
+        /* Release the lock during the loop, as long as we don't
+         * touch the shared list. */
 
         if (c != NULL) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
@@ -3172,6 +3176,10 @@ void moduleHandleBlockedClients(void) {
         if (bc->privdata && bc->free_privdata)
             bc->free_privdata(bc->privdata);
         zfree(bc);
+        if (c != NULL) unblockClient(bc->client);
+
+        /* Lock again before to iterate the loop. */
+        pthread_mutex_lock(&moduleUnblockedClientsMutex);
     }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
 }
