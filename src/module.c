@@ -3085,7 +3085,21 @@ void unblockClientFromModule(client *c) {
     bc->client = NULL;
 }
 
-int RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
+/* Block a client in the context of a blocking command, returning an handle
+ * which will be used, later, in order to block the client with a call to
+ * RedisModule_UnblockClient(). The arguments specify callback functions
+ * and a timeout after which the client is unblocked.
+ *
+ * The callbacks are called in the following contexts:
+ *
+ * reply_callback:  called after a successful RedisModule_UnblockClient() call
+ *                  in order to reply to the client and unblock it.
+ * reply_timeout:   called when the timeout is reached in order to send an
+ *                  error to the client.
+ * free_privdata:   called in order to free the privata data that is passed
+ *                  by RedisModule_UnblockClient() call.
+ */
+RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
     client *c = ctx->client;
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
@@ -3099,7 +3113,7 @@ int RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, Redis
     c->bpop.timeout = timeout_ms;
 
     blockClient(c,BLOCKED_MODULE);
-    return REDISMODULE_OK;
+    return bc;
 }
 
 /* Unblock a client blocked by `RedisModule_BlockedClient`. This will trigger
@@ -3513,4 +3527,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);
     REGISTER_API(GetContextFromIO);
+    REGISTER_API(BlockClient);
+    REGISTER_API(UnblockClient);
+    REGISTER_API(IsBlockedReplyRequest);
+    REGISTER_API(IsBlockedTimeoutRequest);
+    REGISTER_API(GetBlockedClientPrivateData);
 }

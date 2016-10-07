@@ -84,6 +84,7 @@ typedef struct RedisModuleCallReply RedisModuleCallReply;
 typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleType RedisModuleType;
 typedef struct RedisModuleDigest RedisModuleDigest;
+typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
 
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -194,6 +195,11 @@ int REDISMODULE_API_FUNC(RedisModule_StringAppendBuffer)(RedisModuleCtx *ctx, Re
 void REDISMODULE_API_FUNC(RedisModule_RetainString)(RedisModuleCtx *ctx, RedisModuleString *str);
 int REDISMODULE_API_FUNC(RedisModule_StringCompare)(RedisModuleString *a, RedisModuleString *b);
 RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetContextFromIO)(RedisModuleIO *io);
+RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms);
+int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
+int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx);
+void *REDISMODULE_API_FUNC(RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
@@ -295,6 +301,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RetainString);
     REDISMODULE_GET_API(StringCompare);
     REDISMODULE_GET_API(GetContextFromIO);
+    REDISMODULE_GET_API(BlockClient);
+    REDISMODULE_GET_API(UnblockClient);
+    REDISMODULE_GET_API(IsBlockedReplyRequest);
+    REDISMODULE_GET_API(IsBlockedTimeoutRequest);
+    REDISMODULE_GET_API(GetBlockedClientPrivateData);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
