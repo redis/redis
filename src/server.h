@@ -245,6 +245,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
 #define BLOCKED_LIST 1    /* BLPOP & co. */
 #define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
+#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -619,6 +620,11 @@ typedef struct blockingState {
     /* BLOCKED_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     long long reploffset;   /* Replication offset to reach. */
+
+    /* BLOCKED_MODULE */
+    void *module_blocked_handle; /* RedisModuleBlockedClient structure.
+                                    which is opaque for the Redis core, only
+                                    handled in module.c. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -1226,6 +1232,9 @@ int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc,
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
 void moduleFreeContext(struct RedisModuleCtx *ctx);
+void unblockClientFromModule(client *c);
+void moduleHandleBlockedClients(void);
+void moduleBlockedClientTimedOut(client *c);
 
 /* Utils */
 long long ustime(void);

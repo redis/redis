@@ -1195,6 +1195,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
+    /* Check if there are clients unblocked by modules that implement
+     * blocking commands. */
+    moduleHandleBlockedClients();
+
     /* Try to process pending commands for clients that were just unblocked. */
     if (listLength(server.unblocked_clients))
         processUnblockedClients();
