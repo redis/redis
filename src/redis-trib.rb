@@ -1445,7 +1445,8 @@ class RedisTrib
         xputs ">>> Importing data from #{source_addr} to cluster #{argv[1]}"
         use_copy = opt['copy']
         use_replace = opt['replace']
-        
+        src_db = opt['database']
+
         # Check the existing cluster.
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -1453,11 +1454,14 @@ class RedisTrib
         # Connect to the source node.
         xputs ">>> Connecting to the source Redis instance"
         src_host,src_port = source_addr.split(":")
-        source = Redis.new(:host =>src_host, :port =>src_port)
+        source = Redis.new(:host =>src_host, :port =>src_port, :db =>src_db)
         if source.info['cluster_enabled'].to_i == 1
             xputs "[ERR] The source node should not be a cluster node."
         end
-        xputs "*** Importing #{source.dbsize} keys from DB 0"
+        if src_db != 0
+            xputs "[WARN] Cluster supports only database 0"
+        end
+        xputs "*** Importing #{source.dbsize} keys from DB #{src_db}"
 
         # Build a slot -> node map
         slots = {}
@@ -1660,7 +1664,7 @@ COMMANDS={
 ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
-    "import" => {"from" => :required, "copy" => false, "replace" => false},
+    "import" => {"from" => :required, "copy" => false, "replace" => false, "database" => 0},
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
     "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
     "fix" => {"timeout" => MigrateDefaultTimeout},
