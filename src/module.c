@@ -648,6 +648,11 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     ctx->module = module;
 }
 
+/* Return the current UNIX time in milliseconds. */
+long long RM_Milliseconds(void) {
+    return mstime();
+}
+
 /* --------------------------------------------------------------------------
  * Automatic memory management for modules
  * -------------------------------------------------------------------------- */
@@ -3532,4 +3537,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
     REGISTER_API(GetBlockedClientPrivateData);
+    REGISTER_API(Milliseconds);
 }
