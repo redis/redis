@@ -1445,7 +1445,7 @@ class RedisTrib
         xputs ">>> Importing data from #{source_addr} to cluster #{argv[1]}"
         use_copy = opt['copy']
         use_replace = opt['replace']
-        
+
         # Check the existing cluster.
         load_cluster_info_from_node(argv[0])
         check_cluster
@@ -1669,7 +1669,6 @@ ALLOWED_OPTIONS={
 def show_help
     puts "Usage: redis-trib <command> <options> <arguments ...>\n\n"
     COMMANDS.each{|k,v|
-        o = ""
         puts "  #{k.ljust(15)} #{v[2]}"
         if ALLOWED_OPTIONS[k]
             ALLOWED_OPTIONS[k].each{|optname,has_arg|
