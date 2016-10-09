@@ -1305,6 +1305,11 @@ class RedisTrib
         sleep 1
         wait_cluster_join
         flush_nodes_config # Useful for the replicas
+        # Reset the node information, so that when the
+        # final summary is listed in check_cluster about the newly created cluster
+        # all the nodes would get properly listed as slaves or masters
+        reset_nodes
+        load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
