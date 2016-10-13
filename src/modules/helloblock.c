@@ -39,12 +39,16 @@
 
 /* Reply callback for blocking command HELLO.BLOCK */
 int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     int *myint = RedisModule_GetBlockedClientPrivateData(ctx);
     return RedisModule_ReplyWithLongLong(ctx,*myint);
 }
 
 /* Timeout callback for blocking command HELLO.BLOCK */
 int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
 }
 
@@ -104,6 +108,9 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
     if (RedisModule_Init(ctx,"helloblock",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
