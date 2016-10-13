@@ -102,9 +102,9 @@ ifeq ($(USE_NVML),yes)
 	DEPENDENCY_TARGETS+= nvml
 	FINAL_CFLAGS+= -I../deps/nvml/src/include -DUSE_NVML
 ifeq ($(NVML_DEBUG),yes)
-	FINAL_LIBS+= ../deps/nvml/src/debug/libpmemobj.a ../deps/nvml/src/debug/libpmem.a
+	FINAL_LIBS+= ../deps/nvml/src/debug/libpmemobj.so ../deps/nvml/src/debug/libpmem.so
 else
-	FINAL_LIBS+= ../deps/nvml/src/nondebug/libpmemobj.a ../deps/nvml/src/nondebug/libpmem.a
+	FINAL_LIBS+= ../deps/nvml/src/nondebug/libpmemobj.so ../deps/nvml/src/nondebug/libpmem.so
 endif
 endif
 
