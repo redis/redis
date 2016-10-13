@@ -511,7 +511,8 @@ static int cliConnect(int force) {
             redisFree(context);
         }
 
-        if (config.hostsocket == NULL) {
+        if (config.hostsocket == NULL ||
+            (config.cluster_mode && config.cluster_reissue_command)) {
             context = redisConnect(config.hostip,config.hostport);
         } else {
             context = redisConnectUnix(config.hostsocket);
