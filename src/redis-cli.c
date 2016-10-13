@@ -628,7 +628,6 @@ sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     int bold = strstr(color,"bold") != NULL;
     int ccode = 37; /* Defaults to white. */
     if (strstr(color,"red")) ccode = 31;
-    else if (strstr(color,"red")) ccode = 31;
     else if (strstr(color,"green")) ccode = 32;
     else if (strstr(color,"yellow")) ccode = 33;
     else if (strstr(color,"blue")) ccode = 34;
