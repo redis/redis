@@ -3140,6 +3140,13 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     return REDISMODULE_OK;
 }
 
+/* Abort a blocked client blocking operation: the client will be unblocked
+ * without firing the reply callback. */
+int RM_AbortBlock(RedisModuleBlockedClient *bc) {
+    bc->reply_callback = NULL;
+    return RM_UnblockClient(bc,NULL);
+}
+
 /* This function will check the moduleUnblockedClients queue in order to
  * call the reply callback and really unblock the client.
  *
@@ -3163,7 +3170,7 @@ void moduleHandleBlockedClients(void) {
         /* Release the lock during the loop, as long as we don't
          * touch the shared list. */
 
-        if (c != NULL) {
+        if (c != NULL && bc->reply_callback != NULL) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
             ctx.blocked_privdata = bc->privdata;
@@ -3545,5 +3552,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
     REGISTER_API(GetBlockedClientPrivateData);
+    REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
 }
