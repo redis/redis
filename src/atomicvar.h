@@ -51,8 +51,9 @@
 #ifndef __ATOMIC_VAR_H
 #define __ATOMIC_VAR_H
 
-#if defined(__ATOMIC_RELAXED) && (!defined(__clang__) || __apple_build_version__ > 4210057)
+#if defined(__ATOMIC_RELAXED) && (!defined(__clang__) || !defined(__APPLE__) || __apple_build_version__ > 4210057)
 /* Implementation using __atomic macros. */
+#warning "Hey"
 
 #define atomicIncr(var,count,mutex) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicDecr(var,count,mutex) __atomic_sub_fetch(&var,(count),__ATOMIC_RELAXED)
