@@ -336,7 +336,7 @@ static void cliOutputGenericHelp(void) {
         "      \"help <tab>\" to get a list of possible help topics\n"
         "      \"quit\" to exit\n"
         "\n"
-        "To set redis-cli perferences:\n"
+        "To set redis-cli preferences:\n"
         "      \":set hints\" enable online hints\n"
         "      \":set nohints\" disable online hints\n"
         "Set your preferences in ~/.redisclirc\n",
@@ -1222,7 +1222,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
     }
 }
 
-/* Set the CLI perferences. This function is invoked when an interactive
+/* Set the CLI preferences. This function is invoked when an interactive
  * ":command" is called, or when reading ~/.redisclirc file, in order to
  * set user preferences. */
 void cliSetPreferences(char **argv, int argc, int interactive) {
