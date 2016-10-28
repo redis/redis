@@ -11,6 +11,21 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.5     Released Wed Oct 26 09:16:40 CEST 2016
+================================================================================
+
+Upgrade urgency LOW: This release only fixes a compilation issue due to the
+                     missing -ldl at linking time.
+
+zach shipko in commit 4736407:
+ BSDs don't have -ldl
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+antirez in commit 9ada818:
+ Fix modules compilation when libc malloc is used.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+================================================================================
 Redis 3.2.4     Released Mon Sep 26 08:58:21 CEST 2016
 ================================================================================
 

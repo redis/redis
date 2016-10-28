@@ -65,17 +65,27 @@ ifeq ($(uname_S),SunOS)
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
 else
 ifeq ($(uname_S),Darwin)
-	# Darwin (nothing to do)
+	# Darwin
+	FINAL_LIBS+= -ldl
 else
 ifeq ($(uname_S),AIX)
         # AIX
         FINAL_LDFLAGS+= -Wl,-bexpall
-        FINAL_LIBS+= -pthread -lcrypt -lbsd
-
+        FINAL_LIBS+=-ldl -pthread -lcrypt -lbsd
+else
+ifeq ($(uname_S),OpenBSD)
+	# OpenBSD
+	FINAL_LIBS+= -lpthread
+else
+ifeq ($(uname_S),FreeBSD)
+	# FreeBSD
+	FINAL_LIBS+= -lpthread
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
-	FINAL_LIBS+= -pthread
+	FINAL_LIBS+=-ldl -pthread
+endif
+endif
 endif
 endif
 endif
@@ -95,7 +105,7 @@ endif
 ifeq ($(MALLOC),jemalloc)
 	DEPENDENCY_TARGETS+= jemalloc
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
+	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
