@@ -828,9 +828,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
-            client *client = listNodeValue(ln);
-            mem += getClientOutputBufferMemoryUsage(client);
-            mem += sdsAllocSize(client->querybuf);
+            client *c = listNodeValue(ln);
+            mem += getClientOutputBufferMemoryUsage(c);
+            mem += sdsAllocSize(c->querybuf);
             mem += sizeof(client);
         }
     }
@@ -844,11 +844,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
         listRewind(server.clients,&li);
         while((ln = listNext(&li))) {
-            client *client = listNodeValue(ln);
-            if (client->flags & CLIENT_SLAVE)
+            client *c = listNodeValue(ln);
+            if (c->flags & CLIENT_SLAVE)
                 continue;
-            mem += getClientOutputBufferMemoryUsage(client);
-            mem += sdsAllocSize(client->querybuf);
+            mem += getClientOutputBufferMemoryUsage(c);
+            mem += sdsAllocSize(c->querybuf);
             mem += sizeof(client);
         }
     }
