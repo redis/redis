@@ -1257,6 +1257,7 @@ void cliLoadPreferences(void) {
             if (argc > 0) cliSetPreferences(argv,argc,0);
             sdsfreesplitres(argv,argc);
         }
+        fclose(fp);
     }
     sdsfree(rcfile);
 }
