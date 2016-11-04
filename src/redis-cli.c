@@ -88,6 +88,7 @@ static struct config {
     int interactive;
     int shutdown;
     int monitor_mode;
+    int monitor_skip;
     int pubsub_mode;
     int latency_mode;
     int latency_dist_mode;
@@ -754,11 +755,22 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
+        if (config.monitor_skip) {
+            context->fd = 0;
+            redisFree(context);
+            context = NULL;
+            config.monitor_skip = 0;
+            config.monitor_mode = 0;
+            return cliConnect(1);
+        }
+
+
         if (config.shutdown) {
             redisFree(context);
             context = NULL;
             return REDIS_OK;
         }
+
         if (config.interactive) {
             /* Filter cases where we should reconnect */
             if (context->err == REDIS_ERR_IO &&
@@ -831,6 +843,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
+    int in = 0;
 
     if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
         (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
@@ -893,8 +906,14 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     while(repeat--) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
+            in = 1;
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
             fflush(stdout);
+        }
+
+        if (in == 1) {
+            zfree(argvlen);
+            return REDIS_OK;
         }
 
         if (config.pubsub_mode) {
@@ -2508,11 +2527,24 @@ static void intrinsicLatencyModeStop(int s) {
     force_cancel_loop = 1;
 }
 
+static void defaultSigIntHandler(int s) {
+    UNUSED(s);
+
+    if (config.monitor_mode) {
+        close(context->fd);
+        config.monitor_skip = 1;
+        return;
+    } else {
+        exit(1);
+    }
+}
+
 static void intrinsicLatencyMode(void) {
     long long test_end, run_time, max_latency = 0, runs = 0;
 
     run_time = config.intrinsic_latency_duration*1000000;
     test_end = ustime() + run_time;
+
     signal(SIGINT, intrinsicLatencyModeStop);
 
     while(1) {
@@ -2669,6 +2701,7 @@ int main(int argc, char **argv) {
     if (argc == 0 && !config.eval) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
+        signal(SIGINT, defaultSigIntHandler);
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
