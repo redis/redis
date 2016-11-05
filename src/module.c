@@ -575,8 +575,8 @@ int commandFlagsFromString(char *s) {
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
- * * **"no-monitor"**: Don't propoagate the command on monitor. Use this if
- *                     the command has sensible data among the arguments.
+ * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
+ *                     the command has sensitive data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
  *                    anything else representing the normal scalability
