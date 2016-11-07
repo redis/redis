@@ -2,6 +2,7 @@ Debug
 *.tar.gz
 .cproject
 .project
+tmp
 .settings
 
 .*.swp
