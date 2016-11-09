@@ -352,6 +352,14 @@ void addReplySds(client *c, sds s) {
     }
 }
 
+/* This low level function just adds whatever protocol you send it to the
+ * client buffer, trying the static buffer initially, and using the string
+ * of objects if not possible.
+ *
+ * It is efficient because does not create an SDS object nor an Redis object
+ * if not needed. The object will only be created by calling
+ * _addReplyStringToList() if we fail to extend the existing tail object
+ * in the list of objects. */
 void addReplyString(client *c, const char *s, size_t len) {
     if (prepareClientToWrite(c) != C_OK) return;
     if (_addReplyToBuffer(c,s,len) != C_OK)
@@ -1022,7 +1030,7 @@ int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
     sds *argv, aux;
-    size_t querylen;
+    size_t querylen, protolen;
 
     /* Search for end of line */
     newline = strchr(c->querybuf,'\n');
@@ -1035,6 +1043,7 @@ int processInlineBuffer(client *c) {
         }
         return C_ERR;
     }
+    protolen = (newline - c->querybuf)+1; /* Total protocol bytes of command. */
 
     /* Handle the \r\n case. */
     if (newline && newline != c->querybuf && *(newline-1) == '\r')
@@ -1056,6 +1065,15 @@ int processInlineBuffer(client *c) {
      * RDB file. */
     if (querylen == 0 && c->flags & CLIENT_SLAVE)
         c->repl_ack_time = server.unixtime;
+
+    /* Newline from masters can be used to prevent timeouts, but should
+     * not affect the replication offset since they are always sent
+     * "out of band" directly writing to the socket and without passing
+     * from the output buffers. */
+    if (querylen == 0 && c->flags & CLIENT_MASTER) {
+        c->reploff -= protolen;
+        while (protolen--) chopReplicationBacklog();
+    }
 
     /* Leave data after the first line of the query in the buffer */
     sdsrange(c->querybuf,querylen+2,-1);
@@ -1321,7 +1339,11 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->reploff += nread;
+    if (c->flags & CLIENT_MASTER) {
+        c->reploff += nread;
+        replicationFeedSlavesFromMasterStream(server.slaves,
+                c->querybuf+qblen,nread);
+    }
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
