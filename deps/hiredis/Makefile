@@ -54,7 +54,7 @@ ifeq ($(uname_S),Darwin)
   DYLIB_MAKE_CMD=$(CC) -shared -Wl,-install_name,$(DYLIB_MINOR_NAME) -o $(DYLIBNAME) $(LDFLAGS)
 endif
 
-all: $(DYLIBNAME)
+all: $(DYLIBNAME) $(STLIBNAME)
 
 # Deps (use make dep to generate this)
 net.o: net.c fmacros.h net.h hiredis.h
