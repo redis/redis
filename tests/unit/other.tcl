@@ -52,7 +52,7 @@ start_server {tags {"other"}} {
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
         set _ $err
-    } {*invalid*}
+    } {*index is out of range*}
 
     tags {consistency} {
         if {![catch {package require sha1}]} {

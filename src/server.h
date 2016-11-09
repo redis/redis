@@ -93,6 +93,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_REWRITE_PERC  100
 #define AOF_REWRITE_MIN_SIZE (64*1024*1024)
 #define AOF_REWRITE_ITEMS_PER_CMD 64
+#define AOF_READ_DIFF_INTERVAL_BYTES (1024*10)
 #define CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN 10000
 #define CONFIG_DEFAULT_SLOWLOG_MAX_LEN 128
 #define CONFIG_DEFAULT_MAX_CLIENTS 10000
@@ -136,6 +137,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_AOF_FILENAME "appendonly.aof"
 #define CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define CONFIG_DEFAULT_AOF_LOAD_TRUNCATED 1
+#define CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE 0
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
 #define CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 #define CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE 0
@@ -243,6 +245,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
 #define BLOCKED_LIST 1    /* BLPOP & co. */
 #define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
+#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -461,6 +464,7 @@ typedef long long mstime_t; /* millisecond time type. */
 struct RedisModule;
 struct RedisModuleIO;
 struct RedisModuleDigest;
+struct RedisModuleCtx;
 struct redisObject;
 
 /* Each module type implementation should export a set of methods in order
@@ -514,6 +518,7 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
+    struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
 } RedisModuleIO;
 
 #define moduleInitIOContext(iovar,mtype,rioptr) do { \
@@ -521,6 +526,7 @@ typedef struct RedisModuleIO {
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
+    iovar.ctx = NULL; \
 } while(0);
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
@@ -530,7 +536,7 @@ typedef struct RedisModuleIO {
 #define OBJ_ENCODING_INT 1     /* Encoded as integer */
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
 #define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
@@ -614,6 +620,11 @@ typedef struct blockingState {
     /* BLOCKED_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     long long reploffset;   /* Replication offset to reach. */
+
+    /* BLOCKED_MODULE */
+    void *module_blocked_handle; /* RedisModuleBlockedClient structure.
+                                    which is opaque for the Redis core, only
+                                    handled in module.c. */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -767,6 +778,31 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+/* This structure is returned by the getMemoryOverheadData() function in
+ * order to return memory overhead information. */
+struct redisMemOverhead {
+    size_t peak_allocated;
+    size_t total_allocated;
+    size_t startup_allocated;
+    size_t repl_backlog;
+    size_t clients_slaves;
+    size_t clients_normal;
+    size_t aof_buffer;
+    size_t overhead_total;
+    size_t dataset;
+    size_t total_keys;
+    size_t bytes_per_key;
+    float dataset_perc;
+    float peak_perc;
+    float fragmentation;
+    size_t num_dbs;
+    struct {
+        size_t dbid;
+        size_t overhead_ht_main;
+        size_t overhead_ht_expires;
+    } *db;
+};
+
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -778,6 +814,10 @@ struct clusterState;
 #ifdef _AIX
 #undef hz
 #endif
+
+#define CHILD_INFO_MAGIC 0xC17DDA7A12345678LL
+#define CHILD_INFO_TYPE_RDB 0
+#define CHILD_INFO_TYPE_AOF 1
 
 struct redisServer {
     /* General */
@@ -799,6 +839,7 @@ struct redisServer {
     int cronloops;              /* Number of times the cron function run */
     char runid[CONFIG_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     int sentinel_mode;          /* True if this instance is a Sentinel. */
+    size_t initial_memory_usage; /* Bytes used after initialization. */
     /* Modules */
     dict *moduleapi;            /* Exported APIs dictionary for modules. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
@@ -856,6 +897,8 @@ struct redisServer {
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
+    size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
+    size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -900,6 +943,7 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
+    int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
     int aof_pipe_write_data_to_child;
     int aof_pipe_read_data_from_parent;
@@ -929,6 +973,13 @@ struct redisServer {
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
+    /* Pipe and data structures for child -> parent info sharing. */
+    int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
+    struct {
+        int process_type;           /* AOF or RDB child? */
+        size_t cow_size;            /* Copy on write size. */
+        unsigned long long magic;   /* Magic value to make sure data is valid. */
+    } child_info_data;
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
@@ -1180,6 +1231,10 @@ void moduleLoadFromQueue(void);
 int *moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 moduleType *moduleTypeLookupModuleByID(uint64_t id);
 void moduleTypeNameByID(char *name, uint64_t moduleid);
+void moduleFreeContext(struct RedisModuleCtx *ctx);
+void unblockClientFromModule(client *c);
+void moduleHandleBlockedClients(void);
+void moduleBlockedClientTimedOut(client *c);
 
 /* Utils */
 long long ustime(void);
@@ -1218,6 +1273,8 @@ void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
 void copyClientOutputBuffer(client *dst, client *src);
+size_t sdsZmallocSize(sds s);
+size_t getStringObjectSdsUsedMemory(robj *o);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
@@ -1365,6 +1422,7 @@ void stopLoading(void);
 
 /* RDB persistence */
 #include "rdb.h"
+int rdbSaveRio(rio *rdb, int *error, int flags);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
@@ -1377,6 +1435,13 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
+ssize_t aofReadDiffFromParent(void);
+
+/* Child info */
+void openChildInfoPipe(void);
+void closeChildInfoPipe(void);
+void sendChildInfo(int process_type);
+void receiveChildInfo(void);
 
 /* Sorted sets data type */
 
@@ -1475,6 +1540,8 @@ void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
 const char *evictPolicyToString(void);
+struct redisMemOverhead *getMemoryOverheadData(void);
+void freeMemoryOverheadData(struct redisMemOverhead *mh);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
@@ -1664,6 +1731,7 @@ void incrbyCommand(client *c);
 void decrbyCommand(client *c);
 void incrbyfloatCommand(client *c);
 void selectCommand(client *c);
+void swapdbCommand(client *c);
 void randomkeyCommand(client *c);
 void keysCommand(client *c);
 void scanCommand(client *c);
@@ -1787,6 +1855,7 @@ void readonlyCommand(client *c);
 void readwriteCommand(client *c);
 void dumpCommand(client *c);
 void objectCommand(client *c);
+void memoryCommand(client *c);
 void clientCommand(client *c);
 void evalCommand(client *c);
 void evalShaCommand(client *c);

@@ -244,7 +244,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 
     /* Write the command to every slave. */
-    listRewind(server.slaves,&li);
+    listRewind(slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 

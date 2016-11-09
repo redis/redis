@@ -227,6 +227,8 @@ void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
 }
 
 void HelloTypeDigest(RedisModuleDigest *digest, void *value) {
+    REDISMODULE_NOT_USED(digest);
+    REDISMODULE_NOT_USED(value);
     /* TODO: The DIGEST module interface is yet not implemented. */
 }
 
@@ -237,6 +239,9 @@ void HelloTypeFree(void *value) {
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
     if (RedisModule_Init(ctx,"hellotype",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 

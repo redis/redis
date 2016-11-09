@@ -46,6 +46,8 @@
  * fetch the currently selected DB, the other in order to send the client
  * an integer reply as response. */
 int HelloSimple_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     RedisModule_ReplyWithLongLong(ctx,RedisModule_GetSelectedDb(ctx));
     return REDISMODULE_OK;
 }
@@ -237,6 +239,8 @@ int HelloRandArray_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
  * comments the function implementation). */
 int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
     RedisModuleCallReply *reply;
     RedisModule_AutoMemory(ctx);
 
@@ -519,7 +523,7 @@ int HelloLeftPad_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     /* If the string is already larger than the target len, just return
      * the string itself. */
-    if (strlen >= padlen)
+    if (strlen >= (size_t)padlen)
         return RedisModule_ReplyWithString(ctx,argv[1]);
 
     /* Padding must be a single character in this simple implementation. */
@@ -530,7 +534,7 @@ int HelloLeftPad_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     /* Here we use our pool allocator, for our throw-away allocation. */
     padlen -= strlen;
     char *buf = RedisModule_PoolAlloc(ctx,padlen+strlen);
-    for (size_t j = 0; j < padlen; j++) buf[j] = *ch;
+    for (long long j = 0; j < padlen; j++) buf[j] = *ch;
     memcpy(buf+padlen,str,strlen);
 
     RedisModule_ReplyWithStringBuffer(ctx,buf,padlen+strlen);
