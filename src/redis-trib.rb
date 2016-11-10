@@ -1292,7 +1292,9 @@ class RedisTrib
         xputs ">>> Performing hash slots allocation on #{@nodes.length} nodes..."
         alloc_slots
         show_nodes
-        yes_or_die "Can I set the above configuration?"
+        if !opt['unattended']
+            yes_or_die "Can I set the above configuration?"
+        end
         flush_nodes_config
         xputs ">>> Nodes configuration updated"
         xputs ">>> Assign a different config epoch to each node"
@@ -1658,7 +1660,7 @@ COMMANDS={
 }
 
 ALLOWED_OPTIONS={
-    "create" => {"replicas" => true},
+    "create" => {"replicas" => true, "unattended" => false},
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required, "copy" => false, "replace" => false},
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
