@@ -39,7 +39,6 @@
 
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
-void replicationCacheMasterUsingMyself(void);
 void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(void);

@@ -813,10 +813,16 @@ struct redisMemOverhead {
  * select the correct DB and are able to accept the stream coming from the
  * top-level master. */
 typedef struct rdbSaveInfo {
+    /* Used saving and loading. */
     int repl_stream_db;  /* DB to select in server.master client. */
+
+    /* Used only loading. */
+    int repl_id_is_set;  /* True if repl_id field is set. */
+    char repl_id[CONFIG_RUN_ID_SIZE+1];     /* Replication ID. */
+    long long repl_offset;                  /* Replication offset. */
 } rdbSaveInfo;
 
-#define RDB_SAVE_INFO_INIT {-1}
+#define RDB_SAVE_INFO_INIT {-1,0,"000000000000000000000000000000",-1}
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -1441,6 +1447,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset);
 void changeReplicationId(void);
 void clearReplicationId2(void);
 void chopReplicationBacklog(void);
+void replicationCacheMasterUsingMyself(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
