@@ -57,7 +57,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
-    dictEntry *de = dictFind(db->dict,key->ptr);
+    dictEntry *de = dictUnlink(db->dict,key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
@@ -73,7 +73,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
 
     /* Release the key-val pair, or just the key if we set the val
      * field to NULL in order to lazy free it later. */
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    if (de) {
+        dictFreeUnlinkedEntry(db->dict,de);
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {

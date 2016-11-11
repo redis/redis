@@ -53,7 +53,7 @@ int setTypeAdd(robj *subject, sds value) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
         dict *ht = subject->ptr;
-        dictEntry *de = dictAddRaw(ht,value);
+        dictEntry *de = dictAddRaw(ht,value,NULL);
         if (de) {
             dictSetKey(ht,de,sdsdup(value));
             dictSetVal(ht,de,NULL);

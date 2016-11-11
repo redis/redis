@@ -1192,12 +1192,12 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)node->zl;
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            quicklistLZF *lzf = (quicklistLZF *)current->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }
