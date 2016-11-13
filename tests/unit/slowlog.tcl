@@ -31,12 +31,15 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {0}
 
     test {SLOWLOG - logged entry sanity check} {
+        r select 0
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 4
+        assert_equal [llength $e] 6
         assert_equal [lindex $e 0] 105
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
+        assert_equal [lindex $e 4] 0
+        assert_equal [lindex $e 5] ""
     }
 
     test {SLOWLOG - commands with too many arguments are trimmed} {
@@ -66,5 +69,19 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [r slowlog len] 1
         set e [lindex [r slowlog get] 0]
         assert_equal [lindex $e 3] {debug sleep 0.2}
+    }
+
+    test {SLOWLOG - client name is included} {
+        r client setname foobar
+        r debug sleep 0.2
+        set e [lindex [r slowlog get] 0]
+        assert_equal [lindex $e 5] "foobar"
+    }
+
+    test {SLOWLOG - database id is included} {
+        r select 7
+        r debug sleep 0.2
+        set e [lindex [r slowlog get] 0]
+        assert_equal [lindex $e 4] 7
     }
 }
