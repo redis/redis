@@ -37,11 +37,13 @@ typedef struct slowlogEntry {
     long long id;       /* Unique entry identifier. */
     long long duration; /* Time spent by the query, in nanoseconds. */
     time_t time;        /* Unix time at which the query was executed. */
+    int dbid;           /* Database index the slow command was executed in. */
+    robj *clientName;   /* Name of client who executed command. */
 } slowlogEntry;
 
 /* Exported API */
 void slowlogInit(void);
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration);
+void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration, int dbid, robj *clientName);
 
 /* Exported commands */
 void slowlogCommand(client *c);
