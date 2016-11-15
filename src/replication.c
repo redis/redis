@@ -759,6 +759,9 @@ void replconfCommand(client *c) {
              * to the slave. */
             if (server.masterhost && server.master) replicationSendAck();
             /* Note: this command does not reply anything! */
+        } else if (!strcasecmp(c->argv[j]->ptr,"getdbnum")) {
+            addReplyLongLong(c,(long long)server.dbnum);
+            return;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -1457,7 +1460,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             server.repl_state = REPL_STATE_RECEIVE_AUTH;
             return;
         } else {
-            server.repl_state = REPL_STATE_SEND_PORT;
+            server.repl_state = REPL_STATE_REQUEST_DBNUM;
         }
     }
 
@@ -1469,6 +1472,49 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             sdsfree(err);
             goto error;
         }
+        sdsfree(err);
+        server.repl_state = REPL_STATE_REQUEST_DBNUM;
+    }
+
+    /* Get the master dbnum, because slave's dbnum must be equal to
+     * it's master. */
+    if (server.repl_state == REPL_STATE_REQUEST_DBNUM) {
+        err = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"REPLCONF",
+                "getdbnum","*", NULL);
+        if (err) goto write_error;
+        sdsfree(err);
+        server.repl_state = REPL_STATE_RECEIVE_DBNUM;
+        return;
+    }
+
+    /* Receive REPLCONF getdbnum reply. */
+    if (server.repl_state == REPL_STATE_RECEIVE_DBNUM) {
+        err = sendSynchronousCommand(SYNC_CMD_READ,fd,NULL);
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF listening-port. */
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
+                                "REPLCONF getdbnum: %s", err);
+        } else if (err[0] != ':') {
+            serverLog(LL_NOTICE,"(Non critical) Master reply for command "
+                                "REPLCONF getdbnum is not an integer: %s", err);
+        } else {
+            int j, dbnum = 0;
+            for (j = 1; j < (int)sdslen(err) && err[j] != '\r'; j ++) {
+                if (err[j] > '9' || err[j] < '0') {
+                    dbnum = -1;
+                    break;
+                }
+                dbnum = dbnum*10 + (err[j]-'0');
+            }
+
+            if (dbnum <= 0 || dbnum != server.dbnum) {
+                serverLog(LL_WARNING,"ERROR Slave's dbnum is not equal to Master: %d",dbnum);
+                sdsfree(err);
+                goto error;
+            }
+        }
+        
         sdsfree(err);
         server.repl_state = REPL_STATE_SEND_PORT;
     }

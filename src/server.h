@@ -270,6 +270,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
 #define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
 #define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
+#define REPL_STATE_REQUEST_DBNUM 16 /* Send REPLCONF getdbnum */
+#define REPL_STATE_RECEIVE_DBNUM 17 /* Wait REPLCONF reply */
 #define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
 #define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
