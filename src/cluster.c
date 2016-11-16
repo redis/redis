@@ -129,7 +129,7 @@ int clusterLoadConfig(char *filename) {
         /* Skip blank lines, they can be created either by users manually
          * editing nodes.conf or by the config writing process if stopped
          * before the truncate() call. */
-        if (line[0] == '\n') continue;
+        if (line[0] == '\n' || line[0] == '\0') continue;
 
         /* Split the line into arguments for processing. */
         argv = sdssplitargs(line,&argc);
