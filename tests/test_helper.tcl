@@ -55,6 +55,7 @@ set ::all_tests {
     unit/memefficiency
     unit/hyperloglog
     unit/lazyfree
+    unit/wait
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
