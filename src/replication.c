@@ -1774,7 +1774,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
      * from scratch later, so go to the error path. This happens when
      * the server is loading the dataset or is not connected with its
      * master and so forth. */
-    if (psync_result == PSYNC_TRY_LATER) goto write_error;
+    if (psync_result == PSYNC_TRY_LATER) goto error;
 
     /* Note: if PSYNC does not return WAIT_REPLY, it will take care of
      * uninstalling the read handler from the file descriptor. */
