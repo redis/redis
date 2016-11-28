@@ -148,22 +148,6 @@ void feedReplicationBacklog(void *ptr, size_t len) {
                               server.repl_backlog_histlen + 1;
 }
 
-/* Remove the last byte from the replication backlog. This
- * is useful when we receive an out of band "\n" to keep the connection
- * alive but don't want to count it as replication stream.
- *
- * As a side effect this function adjusts the master replication offset
- * of this instance to account for the missing byte. */
-void chopReplicationBacklog(void) {
-    if (!server.repl_backlog || !server.repl_backlog_histlen) return;
-    if (server.repl_backlog_idx == 0)
-        server.repl_backlog_idx = server.repl_backlog_size-1;
-    else
-        server.repl_backlog_idx--;
-    server.master_repl_offset--;
-    server.repl_backlog_histlen--;
-}
-
 /* Wrapper for feedReplicationBacklog() that takes Redis string objects
  * as input. */
 void feedReplicationBacklogWithObject(robj *o) {
@@ -1530,6 +1514,9 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
                  * new one. */
                 memcpy(server.replid,new,sizeof(server.replid));
                 memcpy(server.cached_master->replid,new,sizeof(server.replid));
+
+                /* Disconnect all the sub-slaves: they need to be notified. */
+                disconnectSlaves();
             }
         }
 
@@ -2553,10 +2540,8 @@ void replicationCron(void) {
             (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
             (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
              server.rdb_child_type != RDB_CHILD_TYPE_SOCKET));
-        int is_subslave = server.masterhost && server.master == NULL &&
-                          slave->replstate == SLAVE_STATE_ONLINE;
 
-        if (is_presync || is_subslave) {
+        if (is_presync) {
             if (write(slave->fd, "\n", 1) == -1) {
                 /* Don't worry about socket errors, it's just a ping. */
             }

@@ -87,6 +87,7 @@ start_server {} {
                     set slave_id [randomInt 5]
                     if {$disconnect} {
                         $R($slave_id) client kill type master
+                        puts "+++ Breaking link for slave #$slave_id"
                     }
                 }
             }
