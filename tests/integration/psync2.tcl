@@ -3,18 +3,15 @@ start_server {} {
 start_server {} {
 start_server {} {
 start_server {} {
-    for {set j 0} {$j < 5} {incr j} {
-        set R($j) [srv [expr 0-$j] client]
-        set R_host($j) [srv [expr 0-$j] host]
-        set R_port($j) [srv [expr 0-$j] port]
-        puts "Log file: [srv [expr 0-$j] stdout]"
-    }
-
     set master_id 0                 ; # Current master
     set start_time [clock seconds]  ; # Test start time
     set counter_value 0             ; # Current value of the Redis counter "x"
 
     # Config
+    set debug_msg 0                 ; # Enable additional debug messages
+
+    set no_exit 0;                  ; # Do not exit at end of the test
+
     set duration 60                 ; # Total test seconds
 
     set genload 1                   ; # Load master with writes at every cycle
@@ -26,6 +23,13 @@ start_server {} {
                                       # master is loaded with writes.
 
     set disconnect_period 1000      ; # Disconnect repl link every N ms.
+
+    for {set j 0} {$j < 5} {incr j} {
+        set R($j) [srv [expr 0-$j] client]
+        set R_host($j) [srv [expr 0-$j] host]
+        set R_port($j) [srv [expr 0-$j] port]
+        if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
+    }
 
     while {([clock seconds]-$start_time) < $duration} {
 
@@ -87,7 +91,9 @@ start_server {} {
                     set slave_id [randomInt 5]
                     if {$disconnect} {
                         $R($slave_id) client kill type master
-                        puts "+++ Breaking link for slave #$slave_id"
+                        if {$debug_msg} {
+                            puts "+++ Breaking link for slave #$slave_id"
+                        }
                     }
                 }
             }
@@ -112,17 +118,27 @@ start_server {} {
         # and sometimes a full resync will be needed.
         $R($master_id) slaveof 127.0.0.1 0 ;# We use port zero to make it fail.
 
-        for {set j 0} {$j < 5} {incr j} {
-            puts "$j: sync_full: [status $R($j) sync_full]"
-            puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
-            puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
-            puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
-            puts "---"
+        if {$debug_msg} {
+            for {set j 0} {$j < 5} {incr j} {
+                puts "$j: sync_full: [status $R($j) sync_full]"
+                puts "$j: id1      : [status $R($j) master_replid]:[status $R($j) master_repl_offset]"
+                puts "$j: id2      : [status $R($j) master_replid2]:[status $R($j) second_repl_offset]"
+                puts "$j: backlog  : firstbyte=[status $R($j) repl_backlog_first_byte_offset] len=[status $R($j) repl_backlog_histlen]"
+                puts "---"
+            }
+        }
+
+        test "PSYNC2: total sum of full synchronizations is exactly 4" {
+            set sum 0
+            for {set j 0} {$j < 5} {incr j} {
+                incr sum [status $R($j) sync_full]
+            }
+            assert {$sum == 4}
         }
     }
 
-# XXXXXXXXXXXX
-    while 1 { puts -nonewline .; flush stdout; after 1000}
-# XXXXXXXXXXXX
+    if {$no_exit} {
+        while 1 { puts -nonewline .; flush stdout; after 1000}
+    }
 
 }}}}}
