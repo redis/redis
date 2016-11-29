@@ -12,7 +12,7 @@ start_server {} {
 
     set no_exit 0;                  ; # Do not exit at end of the test
 
-    set duration 60                 ; # Total test seconds
+    set duration 20                 ; # Total test seconds
 
     set genload 1                   ; # Load master with writes at every cycle
 
@@ -31,7 +31,11 @@ start_server {} {
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
 
+    set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
+        test "PSYNC2: --- CYCLE $cycle ---" {
+            incr cycle
+        }
 
         # Create a random replication layout.
         # Start with switching master (this simulates a failover).
