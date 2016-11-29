@@ -1,4 +1,4 @@
-start_server {tags {"wait"}} {
+start_server {tags {"psync2"}} {
 start_server {} {
 start_server {} {
 start_server {} {
@@ -139,6 +139,40 @@ start_server {} {
             }
             assert {$sum == 4}
         }
+    }
+
+    test "PSYNC2: Bring the master back again for next test" {
+        $R($master_id) slaveof no one
+        set master_host $R_host($master_id)
+        set master_port $R_port($master_id)
+        for {set j 0} {$j < 5} {incr j} {
+            if {$j == $master_id} continue
+            $R($j) slaveof $master_host $master_port
+        }
+
+        # Wait for slaves to sync
+        wait_for_condition 50 1000 {
+            [status $R($master_id) connected_slaves] == 4
+        } else {
+            fail "Slave not reconnecting"
+        }
+    }
+
+    test "PSYNC2: Partial resync after restart using RDB aux fields" {
+        # Pick a random slave
+        set slave_id [expr {($master_id+1)%5}]
+        set sync_count [status $R($master_id) sync_full]
+        catch {
+            $R($slave_id) config rewrite
+            $R($slave_id) debug restart
+        }
+        wait_for_condition 50 1000 {
+            [status $R($master_id) connected_slaves] == 4
+        } else {
+            fail "Slave not reconnecting"
+        }
+        set new_sync_count [status $R($master_id) sync_full]
+        assert {$sync_count == $new_sync_count}
     }
 
     if {$no_exit} {
