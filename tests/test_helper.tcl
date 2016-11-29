@@ -41,6 +41,7 @@ set ::all_tests {
     integration/rdb
     integration/convert-zipmap-hash-on-load
     integration/logging
+    integration/psync2
     unit/pubsub
     unit/slowlog
     unit/scripting
