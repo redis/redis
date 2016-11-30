@@ -245,7 +245,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"hellotype",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,HelloTypeRdbLoad,HelloTypeRdbSave,HelloTypeAofRewrite,HelloTypeDigest,HelloTypeFree);
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = HelloTypeRdbLoad,
+        .rdb_save = HelloTypeRdbSave,
+        .aof_rewrite = HelloTypeAofRewrite,
+        .free = HelloTypeFree
+    };
+
+    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,&tm);
     if (HelloType == NULL) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hellotype.insert",

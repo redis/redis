@@ -476,6 +476,7 @@ typedef void *(*moduleTypeLoadFunc)(struct RedisModuleIO *io, int encver);
 typedef void (*moduleTypeSaveFunc)(struct RedisModuleIO *io, void *value);
 typedef void (*moduleTypeRewriteFunc)(struct RedisModuleIO *io, struct redisObject *key, void *value);
 typedef void (*moduleTypeDigestFunc)(struct RedisModuleDigest *digest, void *value);
+typedef size_t (*moduleTypeMemUsageFunc)(void *value);
 typedef void (*moduleTypeFreeFunc)(void *value);
 
 /* The module type, which is referenced in each value of a given type, defines
@@ -486,6 +487,7 @@ typedef struct RedisModuleType {
     moduleTypeLoadFunc rdb_load;
     moduleTypeSaveFunc rdb_save;
     moduleTypeRewriteFunc aof_rewrite;
+    moduleTypeMemUsageFunc mem_usage;
     moduleTypeDigestFunc digest;
     moduleTypeFreeFunc free;
     char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */

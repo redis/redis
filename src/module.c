@@ -2666,7 +2666,7 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
- * documentation, especially the INTRO.md file.
+ * documentation, especially the TYPES.md file.
  *
  * * **name**: A 9 characters data type name that MUST be unique in the Redis
  *   Modules ecosystem. Be creative... and there will be no collisions. Use
@@ -2685,11 +2685,30 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *   still load old data produced by an older version if the rdb_load
  *   callback is able to check the encver value and act accordingly.
  *   The encver must be a positive value between 0 and 1023.
+ * * **typemethods_ptr** is a pointer to a RedisModuleTypeMethods structure
+ *   that should be populated with the methods callbacks and structure
+ *   version, like in the following example:
+ *
+ *      RedisModuleTypeMethods tm = {
+ *          .version = REDISMODULE_TYPE_METHOD_VERSION,
+ *          .rdb_load = myType_RDBLoadCallBack,
+ *          .rdb_save = myType_RDBSaveCallBack,
+ *          .aof_rewrite = myType_AOFRewriteCallBack,
+ *          .free = myType_FreeCallBack,
+ *
+ *          // Optional fields
+ *          .digest = myType_DigestCallBack,
+ *          .mem_usage = myType_MemUsageCallBack,
+ *      }
+ *
  * * **rdb_load**: A callback function pointer that loads data from RDB files.
  * * **rdb_save**: A callback function pointer that saves data to RDB files.
  * * **aof_rewrite**: A callback function pointer that rewrites data as commands.
  * * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
  * * **free**: A callback function pointer that can free a type value.
+ *
+ * The **digest* and **mem_usage** methods should currently be omitted since
+ * they are not yet implemented inside the Redis modules core.
  *
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
@@ -2709,19 +2728,33 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  *          BalancedTreeType = RM_CreateDataType(...);
  *      }
  */
-moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, moduleTypeLoadFunc rdb_load, moduleTypeSaveFunc rdb_save, moduleTypeRewriteFunc aof_rewrite, moduleTypeDigestFunc digest, moduleTypeFreeFunc free) {
+moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr) {
     uint64_t id = moduleTypeEncodeId(name,encver);
     if (id == 0) return NULL;
     if (moduleTypeLookupModuleByName(name) != NULL) return NULL;
 
-    moduleType *mt = zmalloc(sizeof(*mt));
+    long typemethods_version = ((long*)typemethods_ptr)[0];
+    if (typemethods_version == 0) return NULL;
+
+    struct typemethods {
+        uint64_t version;
+        moduleTypeLoadFunc rdb_load;
+        moduleTypeSaveFunc rdb_save;
+        moduleTypeRewriteFunc aof_rewrite;
+        moduleTypeDigestFunc digest;
+        moduleTypeMemUsageFunc mem_usage;
+        moduleTypeFreeFunc free;
+    } *tms = (struct typemethods*) typemethods_ptr;
+
+    moduleType *mt = zcalloc(sizeof(*mt));
     mt->id = id;
     mt->module = ctx->module;
-    mt->rdb_load = rdb_load;
-    mt->rdb_save = rdb_save;
-    mt->aof_rewrite = aof_rewrite;
-    mt->digest = digest;
-    mt->free = free;
+    mt->rdb_load = tms->rdb_load;
+    mt->rdb_save = tms->rdb_save;
+    mt->aof_rewrite = tms->aof_rewrite;
+    mt->mem_usage = tms->mem_usage;
+    mt->digest = tms->digest;
+    mt->free = tms->free;
     memcpy(mt->name,name,sizeof(mt->name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
