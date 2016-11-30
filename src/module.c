@@ -3436,6 +3436,14 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     return io->ctx;
 }
 
+/* Returns a RedisModuleString with the name of the key currently saving or
+ * loading, when an IO data type callback is called.  There is no guarantee
+ * that the key name is always available, so this may return NULL.
+ */
+const RedisModuleString *RM_GetKeyNameFromIO(RedisModuleIO *io) {
+    return io->key;
+}
+
 /* --------------------------------------------------------------------------
  * Logging
  * -------------------------------------------------------------------------- */
@@ -5151,6 +5159,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RetainString);
     REGISTER_API(StringCompare);
     REGISTER_API(GetContextFromIO);
+    REGISTER_API(GetKeyNameFromIO);
     REGISTER_API(BlockClient);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
