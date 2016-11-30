@@ -2286,8 +2286,10 @@ void RM_FreeCallReply_Rec(RedisModuleCallReply *reply, int freenested){
  * to have the first level function to return on nested replies, but only
  * if called by the module API. */
 void RM_FreeCallReply(RedisModuleCallReply *reply) {
+
+    RedisModuleCtx *ctx = reply->ctx;
     RM_FreeCallReply_Rec(reply,0);
-    autoMemoryFreed(reply->ctx,REDISMODULE_AM_REPLY,reply);
+    autoMemoryFreed(ctx,REDISMODULE_AM_REPLY,reply);
 }
 
 /* Return the reply type. */
