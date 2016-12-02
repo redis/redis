@@ -7,7 +7,16 @@
 Use like malloc(). Memory allocated with this function is reported in
 Redis INFO memory, used for keys eviction according to maxmemory settings
 and in general is taken into account as memory allocated by Redis.
-You should avoid to use malloc().
+You should avoid using malloc().
+
+## `RM_Calloc`
+
+    void *RM_Calloc(size_t nmemb, size_t size);
+
+Use like calloc(). Memory allocated with this function is reported in
+Redis INFO memory, used for keys eviction according to maxmemory settings
+and in general is taken into account as memory allocated by Redis.
+You should avoid using calloc() directly.
 
 ## `RM_Realloc`
 
@@ -150,6 +159,12 @@ Called by `RM_Init()` to setup the `ctx->module` structure.
 This is an internal function, Redis modules developers don't need
 to use it.
 
+## `RM_Milliseconds`
+
+    long long RM_Milliseconds(void);
+
+Return the current UNIX time in milliseconds.
+
 ## `RM_AutoMemory`
 
     void RM_AutoMemory(RedisModuleCtx *ctx);
@@ -169,6 +184,16 @@ with `RedisModule_FreeString()`, unless automatic memory is enabled.
 The string is created by copying the `len` bytes starting
 at `ptr`. No reference is retained to the passed buffer.
 
+## `RM_CreateStringPrintf`
+
+    RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, ...);
+
+Create a new module string object from a printf format and arguments.
+The returned string must be freed with `RedisModule_FreeString()`, unless
+automatic memory is enabled.
+
+The string is created using the sds formatter function sdscatvprintf().
+
 ## `RM_CreateStringFromLongLong`
 
     RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll);
@@ -183,7 +208,7 @@ enabling automatic memory management.
 
     RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
 
-Like `RedisModule_CreatString()`, but creates a string starting from an existing
+Like `RedisModule_CreatString()`, but creates a string starting from another
 RedisModuleString.
 
 The returned string must be released with `RedisModule_FreeString()` or by
@@ -200,9 +225,36 @@ It is possible to call this function even when automatic memory management
 is enabled. In that case the string will be released ASAP and removed
 from the pool of string to release at the end.
 
+## `RM_RetainString`
+
+    void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str);
+
+Every call to this function, will make the string 'str' requiring
+an additional call to `RedisModule_FreeString()` in order to really
+free the string. Note that the automatic freeing of the string obtained
+enabling modules automatic memory management counts for one
+`RedisModule_FreeString()` call (it is just executed automatically).
+
+Normally you want to call this function when, at the same time
+the following conditions are true:
+
+1) You have automatic memory management enabled.
+2) You want to create string objects.
+3) Those string objects you create need to live *after* the callback
+   function(for example a command implementation) creating them returns.
+
+Usually you want this in order to store the created string object
+into your own data structure, for example when implementing a new data
+type.
+
+Note that when memory management is turned off, you don't need
+any call to RetainString() since creating a string will always result
+into a string that lives after the callback function returns, if
+no FreeString() call is performed.
+
 ## `RM_StringPtrLen`
 
-    const char *RM_StringPtrLen(RedisModuleString *str, size_t *len);
+    const char *RM_StringPtrLen(const RedisModuleString *str, size_t *len);
 
 Given a string module object, this function returns the string pointer
 and length of the string. The returned pointer and length should only
@@ -210,7 +262,7 @@ be used for read only accesses and never modified.
 
 ## `RM_StringToLongLong`
 
-    int RM_StringToLongLong(RedisModuleString *str, long long *ll);
+    int RM_StringToLongLong(const RedisModuleString *str, long long *ll);
 
 Convert the string into a long long integer, storing it at `*ll`.
 Returns `REDISMODULE_OK` on success. If the string can't be parsed
@@ -219,11 +271,27 @@ is returned.
 
 ## `RM_StringToDouble`
 
-    int RM_StringToDouble(RedisModuleString *str, double *d);
+    int RM_StringToDouble(const RedisModuleString *str, double *d);
 
 Convert the string into a double, storing it at `*d`.
 Returns `REDISMODULE_OK` on success or `REDISMODULE_ERR` if the string is
 not a valid string representation of a double value.
+
+## `RM_StringCompare`
+
+    int RM_StringCompare(RedisModuleString *a, RedisModuleString *b);
+
+Compare two string objects, returning -1, 0 or 1 respectively if
+a < b, a == b, a > b. Strings are compared byte by byte as two
+binary blobs without any encoding care / collation attempt.
+
+## `RM_StringAppendBuffer`
+
+    int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len);
+
+Append the specified buffere to the string 'str'. The string must be a
+string created by the user that is referenced only a single time, otherwise
+`REDISMODULE_ERR` is returend and the operation is not performed.
 
 ## `RM_WrongArity`
 
@@ -951,11 +1019,11 @@ that returned the reply object.
 
 ## `RM_CreateDataType`
 
-    moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, moduleTypeLoadFunc rdb_load, moduleTypeSaveFunc rdb_save, moduleTypeRewriteFunc aof_rewrite, moduleTypeDigestFunc digest, moduleTypeFreeFunc free);
+    moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver, void *typemethods_ptr);
 
 Register a new data type exported by the module. The parameters are the
 following. Please for in depth documentation check the modules API
-documentation, especially the INTRO.md file.
+documentation, especially the TYPES.md file.
 
 * **name**: A 9 characters data type name that MUST be unique in the Redis
   Modules ecosystem. Be creative... and there will be no collisions. Use
@@ -974,11 +1042,30 @@ documentation, especially the INTRO.md file.
   still load old data produced by an older version if the rdb_load
   callback is able to check the encver value and act accordingly.
   The encver must be a positive value between 0 and 1023.
+* **typemethods_ptr** is a pointer to a RedisModuleTypeMethods structure
+  that should be populated with the methods callbacks and structure
+  version, like in the following example:
+
+     RedisModuleTypeMethods tm = {
+         .version = `REDISMODULE_TYPE_METHOD_VERSION`,
+         .rdb_load = myType_RDBLoadCallBack,
+         .rdb_save = myType_RDBSaveCallBack,
+         .aof_rewrite = myType_AOFRewriteCallBack,
+         .free = myType_FreeCallBack,
+
+         // Optional fields
+         .digest = myType_DigestCallBack,
+         .mem_usage = myType_MemUsageCallBack,
+     }
+
 * **rdb_load**: A callback function pointer that loads data from RDB files.
 * **rdb_save**: A callback function pointer that saves data to RDB files.
 * **aof_rewrite**: A callback function pointer that rewrites data as commands.
 * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
 * **free**: A callback function pointer that can free a type value.
+
+The **digest* and **mem_usage** methods should currently be omitted since
+they are not yet implemented inside the Redis modules core.
 
 Note: the module name "AAAAAAAAA" is reserved and produces an error, it
 happens to be pretty lame as well.
@@ -1115,6 +1202,21 @@ It is possible to load back the value with `RedisModule_LoadDouble()`.
 In the context of the rdb_save method of a module data type, loads back the
 double value saved by `RedisModule_SaveDouble()`.
 
+## `RM_SaveFloat`
+
+    void RM_SaveFloat(RedisModuleIO *io, float value);
+
+In the context of the rdb_save method of a module data type, saves a float 
+value to the RDB file. The float can be a valid number, a NaN or infinity.
+It is possible to load back the value with `RedisModule_LoadFloat()`.
+
+## `RM_LoadFloat`
+
+    float RM_LoadFloat(RedisModuleIO *io);
+
+In the context of the rdb_save method of a module data type, loads back the
+float value saved by `RedisModule_SaveFloat()`.
+
 ## `RM_EmitAOF`
 
     void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...);
@@ -1125,10 +1227,20 @@ by a module. The command works exactly like `RedisModule_Call()` in the way
 the parameters are passed, but it does not return anything as the error
 handling is performed by Redis itself.
 
+## `RM_LogRaw`
+
+    void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap);
+
+This is the low level function implementing both:
+
+ `RM_Log()`
+ `RM_LogIOError()`
+
 ## `RM_Log`
 
     void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...);
 
+/*
 Produces a log message to the standard Redis log, the format accepts
 printf-alike specifiers, while level is a string describing the log
 level to use when emitting the log, and must be one of the following:
@@ -1142,4 +1254,75 @@ If the specified log level is invalid, verbose is used by default.
 There is a fixed limit to the length of the log line this function is able
 to emit, this limti is not specified but is guaranteed to be more than
 a few lines of text.
+
+## `RM_LogIOError`
+
+    void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...);
+
+Log errors from RDB / AOF serialization callbacks.
+
+This function should be used when a callback is returning a critical
+error to the caller since cannot load or save the data for some
+critical reason.
+
+## `RM_BlockClient`
+
+    RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms);
+
+Block a client in the context of a blocking command, returning an handle
+which will be used, later, in order to block the client with a call to
+`RedisModule_UnblockClient()`. The arguments specify callback functions
+and a timeout after which the client is unblocked.
+
+The callbacks are called in the following contexts:
+
+reply_callback:  called after a successful `RedisModule_UnblockClient()` call
+                 in order to reply to the client and unblock it.
+reply_timeout:   called when the timeout is reached in order to send an
+                 error to the client.
+free_privdata:   called in order to free the privata data that is passed
+                 by `RedisModule_UnblockClient()` call.
+
+## `RM_UnblockClient`
+
+    int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata);
+
+Unblock a client blocked by ``RedisModule_BlockedClient``. This will trigger
+the reply callbacks to be called in order to reply to the client.
+The 'privdata' argument will be accessible by the reply callback, so
+the caller of this function can pass any value that is needed in order to
+actually reply to the client.
+
+A common usage for 'privdata' is a thread that computes something that
+needs to be passed to the client, included but not limited some slow
+to compute reply or some reply obtained via networking.
+
+Note: this function can be called from threads spawned by the module.
+
+## `RM_AbortBlock`
+
+    int RM_AbortBlock(RedisModuleBlockedClient *bc);
+
+Abort a blocked client blocking operation: the client will be unblocked
+without firing the reply callback.
+
+## `RM_IsBlockedReplyRequest`
+
+    int RM_IsBlockedReplyRequest(RedisModuleCtx *ctx);
+
+Return non-zero if a module command was called in order to fill the
+reply for a blocked client.
+
+## `RM_IsBlockedTimeoutRequest`
+
+    int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx);
+
+Return non-zero if a module command was called in order to fill the
+reply for a blocked client that timed out.
+
+## `RM_GetBlockedClientPrivateData`
+
+    void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx);
+
+Get the privata data set by `RedisModule_UnblockClient()`
 
