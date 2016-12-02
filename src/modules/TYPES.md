@@ -47,23 +47,25 @@ be stored in the global variable.
     #define MYTYPE_ENCODING_VERSION 0
 
     int RedisModule_OnLoad(RedisModuleCtx *ctx) {
-        MyType = RedisModule_CreateDataType("MyType-AZ", MYTYPE_ENCODING_VERSION,
-            MyTypeRDBLoad, MyTypeRDBSave, MyTypeAOFRewrite, MyTypeDigest,
-            MyTypeFree);
+	RedisModuleTypeMethods tm = {
+	    .version = REDISMODULE_TYPE_METHOD_VERSION,
+	    .rdb_load = MyTypeRDBLoad,
+	    .rdb_save = MyTypeRDBSave,
+	    .aof_rewrite = MyTypeAOFRewrite,
+	    .free = MyTypeFree
+	};
+
+        MyType = RedisModule_CreateDataType("MyType-AZ",
+		MYTYPE_ENCODING_VERSION, &tm);
         if (MyType == NULL) return REDISMODULE_ERR;
     }
 
 As you can see from the example above, a single API call is needed in order to
 register the new type. However a number of function pointers are passed as
-arguments. The prototype of `RedisModule_CreateDataType` is the following:
-
-    moduleType *RedisModule_CreateDataType(RedisModuleCtx *ctx,
-               const char *name, int encver,
-               moduleTypeLoadFunc rdb_load,
-               moduleTypeSaveFunc rdb_save,
-               moduleTypeRewriteFunc aof_rewrite,
-               moduleTypeDigestFunc digest,
-               moduleTypeFreeFunc free);
+arguments. Certain are optionals while some are mandatory. The above set
+of methods *must* be passed, while `.digest` and `.mem_usage` are optional
+and are currently not actually supported by the modules internals, so for
+now you can just ignore them.
 
 The `ctx` argument is the context that we receive in the `OnLoad` function.
 The type `name` is a 9 character name in the character set that includes
@@ -73,6 +75,9 @@ Note that **this name must be unique** for each data type in the Redis
 ecosystem, so be creative, use both lower-case and upper case if it makes
 sense, and try to use the convention of mixing the type name with the name
 of the author of the module, to create a 9 character unique name.
+
+**NOTE:** It is very important that the name is exactly 9 chars or the
+registration of the type will fail. Read more to understand why.
 
 For example if I'm building a *b-tree* data structure and my name is *antirez*
 I'll call my type **btree1-az**. The name, converted to a 64 bit integer,
@@ -95,12 +100,14 @@ there is data found for a different encoding version (and the encoding version
 is passed as argument to `rdb_load`), so that the module can still load old
 RDB files.
 
-The remaining arguments `rdb_load`, `rdb_save`, `aof_rewrite`, `digest` and
-`free` are all callbacks with the following prototypes and uses:
+The last argument is a structure used in order to pass the type methods to the
+registration function: `rdb_load`, `rdb_save`, `aof_rewrite`, `digest` and
+`free` and `mem_usage` are all callbacks with the following prototypes and uses:
 
     typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
     typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
     typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString *key, void *value);
+    typedef size_t (*RedisModuleTypeMemUsageFunc)(void *value);
     typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
     typedef void (*RedisModuleTypeFreeFunc)(void *value);
 
@@ -108,6 +115,7 @@ The remaining arguments `rdb_load`, `rdb_save`, `aof_rewrite`, `digest` and
 * `rdb_save` is called when saving data to the RDB file.
 * `aof_rewrite` is called when the AOF is being rewritten, and the module needs to tell Redis what is the sequence of commands to recreate the content of a given key.
 * `digest` is called when `DEBUG DIGEST` is executed and a key holding this module type is found. Currently this is not yet implemented so the function ca be left empty.
+* `mem_usage` is called when the `MEMORY` command ask for the total memory consumed by a specific key, and is used in order to get the amount of bytes used by the module value.
 * `free` is called when a key with the module native type is deleted via `DEL` or in any other mean, in order to let the module reclaim the memory associated with such a value.
 
 Ok, but *why* modules types require a 9 characters name?
