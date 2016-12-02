@@ -1247,7 +1247,7 @@ void zaddGenericCommand(client *c, int flags) {
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
     elements = c->argc-scoreidx;
-    if (elements % 2) {
+    if (elements % 2 || !elements) {
         addReply(c,shared.syntaxerr);
         return;
     }
