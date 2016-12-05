@@ -80,35 +80,18 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     return step;
 }
 
-int geohashBitsComparator(const GeoHashBits *a, const GeoHashBits *b) {
-    /* If step not equal, compare on step.  Else, compare on bits. */
-    return a->step != b->step ? a->step - b->step : a->bits - b->bits;
-}
-
+/* Return the bounding box of the search area centered at latitude,longitude
+ * having a radius of radius_meter. bounds[0] - bounds[2] is the minimum
+ * and maxium longitude, while bounds[1] - bounds[3] is the minimum and
+ * maximum latitude. */
 int geohashBoundingBox(double longitude, double latitude, double radius_meters,
                        double *bounds) {
     if (!bounds) return 0;
 
-    double lonr, latr;
-    lonr = deg_rad(longitude);
-    latr = deg_rad(latitude);
-
-    if (radius_meters > EARTH_RADIUS_IN_METERS)
-        radius_meters = EARTH_RADIUS_IN_METERS;
-    double distance = radius_meters / EARTH_RADIUS_IN_METERS;
-    double min_latitude = latr - distance;
-    double max_latitude = latr + distance;
-
-    /* Note: we're being lazy and not accounting for coordinates near poles */
-    double min_longitude, max_longitude;
-    double difference_longitude = asin(sin(distance) / cos(latr));
-    min_longitude = lonr - difference_longitude;
-    max_longitude = lonr + difference_longitude;
-
-    bounds[0] = rad_deg(min_longitude);
-    bounds[1] = rad_deg(min_latitude);
-    bounds[2] = rad_deg(max_longitude);
-    bounds[3] = rad_deg(max_latitude);
+    bounds[0] = longitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+    bounds[2] = longitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
+    bounds[1] = latitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
+    bounds[3] = latitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
     return 1;
 }
 
@@ -161,7 +144,7 @@ GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double 
             < radius_meters) decrease_step = 1;
     }
 
-    if (decrease_step) {
+    if (steps > 1 && decrease_step) {
         steps--;
         geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
         geohashNeighbors(&hash,&neighbors);
