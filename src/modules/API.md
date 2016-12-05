@@ -1062,6 +1062,7 @@ documentation, especially the TYPES.md file.
 * **rdb_save**: A callback function pointer that saves data to RDB files.
 * **aof_rewrite**: A callback function pointer that rewrites data as commands.
 * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
+* **mem_usage**: A callback function pointer that is used for `MEMORY`.
 * **free**: A callback function pointer that can free a type value.
 
 The **digest* and **mem_usage** methods should currently be omitted since
