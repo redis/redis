@@ -55,7 +55,7 @@ be stored in the global variable.
 	    .free = MyTypeFree
 	};
 
-        MyType = RedisModule_CreateDataType("MyType-AZ",
+        MyType = RedisModule_CreateDataType(ctx, "MyType-AZ",
 		MYTYPE_ENCODING_VERSION, &tm);
         if (MyType == NULL) return REDISMODULE_ERR;
     }
@@ -115,7 +115,7 @@ registration function: `rdb_load`, `rdb_save`, `aof_rewrite`, `digest` and
 * `rdb_save` is called when saving data to the RDB file.
 * `aof_rewrite` is called when the AOF is being rewritten, and the module needs to tell Redis what is the sequence of commands to recreate the content of a given key.
 * `digest` is called when `DEBUG DIGEST` is executed and a key holding this module type is found. Currently this is not yet implemented so the function ca be left empty.
-* `mem_usage` is called when the `MEMORY` command ask for the total memory consumed by a specific key, and is used in order to get the amount of bytes used by the module value.
+* `mem_usage` is called when the `MEMORY` command asks for the total memory consumed by a specific key, and is used in order to get the amount of bytes used by the module value.
 * `free` is called when a key with the module native type is deleted via `DEL` or in any other mean, in order to let the module reclaim the memory associated with such a value.
 
 Ok, but *why* modules types require a 9 characters name?
