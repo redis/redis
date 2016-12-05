@@ -102,7 +102,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeSaveFunc rdb_save;
     RedisModuleTypeRewriteFunc aof_rewrite;
     RedisModuleTypeMemUsageFunc mem_usage;
-    RedisModuleTypeRewriteFunc digest;
+    RedisModuleTypeDigestFunc digest;
     RedisModuleTypeFreeFunc free;
 } RedisModuleTypeMethods;
 
