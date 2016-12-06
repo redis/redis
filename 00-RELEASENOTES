@@ -11,6 +11,48 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.0-RC2     Released Tue Dec 06 09:25:35 CET 2016
+================================================================================
+
+Upgrade urgency LOW: This release mainly fixes a rare GEO API bug and a crash
+                     related to the modules subsystem.
+
+Redis 4.0.0-RC2 (version number 3.9.102) just fixes two bugs:
+
+1. GEORADIUS could fail reporting items with very big radius lengths because
+   of a bug in the bounding box computation function. This was fixed and tests
+   with large radius sizes were added.
+
+2. There was a crash in the modules subsystem that was not merged into RC1 for
+   an error, while it was already fixed into the "unstable" branch.
+
+The list of commits follows:
+
+wangshaonan in commit 77241e8:
+ Add '\n' to MEMORY DOCTOR command output message when num_reports is 0 or empty is 1
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Chris Lamb in commit 0ee6a23:
+ src/rdb.c: Correct "whenver" -> "whenever" typo.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Yossi Gottlieb in commit 2d0d2c8:
+ Fix typo in RedisModuleTypeMethods declaration.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Dvir Volk in commit 0fb9f34:
+ fix memory corruption on RM_FreeCallReply
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 41994f2:
+ Geo: improve fuzz test.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+antirez in commit ef9b4cf:
+ Geo: fix computation of bounding box.
+ 2 files changed, 33 insertions(+), 44 deletions(-)
+
+================================================================================
 Redis 4.0.0-RC1   Released Fri Dec 2 10:40:01 CEST 2016
 ================================================================================
 
