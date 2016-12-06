@@ -955,14 +955,14 @@ sds getMemoryDoctorReport(void) {
     if (num_reports == 0) {
         s = sdsnew(
         "Hi Sam, I can't find any memory issue in your instance. "
-        "I can only account for what occurs on this base.");
+        "I can only account for what occurs on this base.\n");
     } else if (empty == 1) {
         s = sdsnew(
         "Hi Sam, this instance is empty or is using very little memory, "
         "my issues detector can't be used in these conditions. "
         "Please, leave for your mission on Earth and fill it with some data. "
         "The new Sam and I will be back to our programming as soon as I "
-        "finished rebooting.");
+        "finished rebooting.\n");
     } else {
         s = sdsnew("Sam, I detected a few issues in this Redis instance memory implants:\n\n");
         if (big_peak) {
