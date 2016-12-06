@@ -11,6 +11,50 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.6     Released Tue Dec 06 09:33:29 CET 2016
+================================================================================
+
+Upgrade urgency MODERATE: GEORADIUS, BITFIELD and Redis Cluster minor fixes.
+
+This release mainly fixes three bugs:
+
+1. A bug with BITFIELD that may cause the bitmap corruption when setting offsets
+   larger than the current string size.
+
+2. A GEORADIUS bug that may happen when using very large radius lengths, in
+   the range of 10000km or alike, due to wrong bounding box calculation.
+
+3. A bug with Redis Cluster which crashes when reading a nodes configuration
+   file with zero bytes at the end, which sometimes happens with certain ext4
+   configurations after a system crash.
+
+The following is the list of commits:
+
+antirez in commit f20f3ea:
+ Geo: improve fuzz test.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+antirez in commit 8c22086:
+ Geo: fix computation of bounding box.
+ 2 files changed, 33 insertions(+), 27 deletions(-)
+
+antirez in commit 92958df:
+ Cluster: handle zero bytes at the end of nodes.conf.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0ee28ae:
+ Test: regression test for #3564 added.
+ 1 file changed, 9 insertions(+)
+
+sunhe in commit 289fadb:
+ bitops.c/bitfieldCommand: update higest_write_offset with check
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+jybaek in commit f4f7d2c:
+ Add missing fclose()
+ 1 file changed, 1 insertion(+)
+
+================================================================================
 Redis 3.2.5     Released Wed Oct 26 09:16:40 CEST 2016
 ================================================================================
 
