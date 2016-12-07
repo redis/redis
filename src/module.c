@@ -613,6 +613,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
+        else if (!strcasecmp(t,"raw-output")) flags |= CMD_RAW_OUTPUT;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -672,6 +673,8 @@ int commandFlagsFromString(char *s) {
  *                     example, is unable to report the position of the
  *                     keys, programmatically creates key names, or any
  *                     other reason.
+ * * **"raw-output"**: The command reply consists of raw output (like INFO)
+ *                     and not a standard Redis protocol reply.
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
