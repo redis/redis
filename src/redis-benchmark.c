@@ -438,7 +438,11 @@ static void showLatencyReport(void) {
         printf("  %d requests completed in %.2f seconds\n", config.requests_finished,
             (float)config.totlatency/1000);
         printf("  %d parallel clients\n", config.numclients);
-        printf("  %d bytes payload\n", config.datasize);
+	if (config.datasize >= 0) {
+            printf("  %d bytes payload\n", config.datasize);
+	} else {
+            printf("  Unknown bytes payload\n");
+	}
         printf("  keep alive: %d\n", config.keepalive);
         printf("\n");
 
@@ -702,6 +706,7 @@ int main(int argc, const char **argv) {
 
     /* Run benchmark with command in the remainder of the arguments. */
     if (argc) {
+	config.datasize = -1;
         sds title = sdsnew(argv[0]);
         for (i = 1; i < argc; i++) {
             title = sdscatlen(title, " ", 1);
