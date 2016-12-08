@@ -4841,6 +4841,7 @@ try_again:
 
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
+        ttl = 0;
         expireat = getExpire(c->db,kv[j]);
         if (expireat != -1) {
             ttl = expireat-mstime();
