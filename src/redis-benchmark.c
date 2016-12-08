@@ -438,11 +438,11 @@ static void showLatencyReport(void) {
         printf("  %d requests completed in %.2f seconds\n", config.requests_finished,
             (float)config.totlatency/1000);
         printf("  %d parallel clients\n", config.numclients);
-	if (config.datasize >= 0) {
+        if (config.datasize >= 0) {
             printf("  %d bytes payload\n", config.datasize);
-	} else {
+        } else {
             printf("  Unknown bytes payload\n");
-	}
+        }
         printf("  keep alive: %d\n", config.keepalive);
         printf("\n");
 
