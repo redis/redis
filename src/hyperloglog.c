@@ -993,33 +993,51 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     } else {
         serverPanic("Unknown HyperLogLog encoding in hllCount()");
     }
+    
+    if(server.hll_use_loglogbeta) {
+        /* For loglog-beta there is a single formula to compute 
+         * cardinality for the enture range
+         */
 
-    /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
-    E = (1/E)*alpha*m*m;
+        double zl = log(ez + 1);
+        double beta = -0.370393911*ez +
+                       0.070471823*zl +
+                       0.17393686*pow(zl,2) +
+                       0.16339839*pow(zl,3) +
+                      -0.09237745*pow(zl,4) +
+                       0.03738027*pow(zl,5) +
+                      -0.005384159*pow(zl,6) +
+                       0.00042419*pow(zl,7);
+        
+        E  = alpha*m*(m-ez)*(1/(E+beta));
+    } else {
+        /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
+        E = (1/E)*alpha*m*m;
 
-    /* Use the LINEARCOUNTING algorithm for small cardinalities.
-     * For larger values but up to 72000 HyperLogLog raw approximation is
-     * used since linear counting error starts to increase. However HyperLogLog
-     * shows a strong bias in the range 2.5*16384 - 72000, so we try to
-     * compensate for it. */
-    if (E < m*2.5 && ez != 0) {
-        E = m*log(m/ez); /* LINEARCOUNTING() */
-    } else if (m == 16384 && E < 72000) {
-        /* We did polynomial regression of the bias for this range, this
-         * way we can compute the bias for a given cardinality and correct
-         * according to it. Only apply the correction for P=14 that's what
-         * we use and the value the correction was verified with. */
-        double bias = 5.9119*1.0e-18*(E*E*E*E)
-                      -1.4253*1.0e-12*(E*E*E)+
-                      1.2940*1.0e-7*(E*E)
-                      -5.2921*1.0e-3*E+
-                      83.3216;
-        E -= E*(bias/100);
+        /* Use the LINEARCOUNTING algorithm for small cardinalities.
+        * For larger values but up to 72000 HyperLogLog raw approximation is
+        * used since linear counting error starts to increase. However HyperLogLog
+        * shows a strong bias in the range 2.5*16384 - 72000, so we try to
+        * compensate for it. */
+        if (E < m*2.5 && ez != 0) {
+            E = m*log(m/ez); /* LINEARCOUNTING() */
+        } else if (m == 16384 && E < 72000) {
+            /* We did polynomial regression of the bias for this range, this
+            * way we can compute the bias for a given cardinality and correct
+            * according to it. Only apply the correction for P=14 that's what
+            * we use and the value the correction was verified with. */
+            double bias = 5.9119*1.0e-18*(E*E*E*E)
+                        -1.4253*1.0e-12*(E*E*E)+
+                        1.2940*1.0e-7*(E*E)
+                        -5.2921*1.0e-3*E+
+                        83.3216;
+            E -= E*(bias/100);
+        }
+        /* We don't apply the correction for E > 1/30 of 2^32 since we use
+        * a 64 bit function and 6 bit counters. To apply the correction for
+        * 1/30 of 2^64 is not needed since it would require a huge set
+        * to approach such a value. */
     }
-    /* We don't apply the correction for E > 1/30 of 2^32 since we use
-     * a 64 bit function and 6 bit counters. To apply the correction for
-     * 1/30 of 2^64 is not needed since it would require a huge set
-     * to approach such a value. */
     return (uint64_t) E;
 }
 
