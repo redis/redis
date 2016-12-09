@@ -1400,6 +1400,7 @@ void initServerConfig(void) {
     server.lazyfree_lazy_eviction = CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION;
     server.lazyfree_lazy_expire = CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE;
     server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
+    server.hll_use_loglogbeta = CONFIG_DEFAULT_HLL_USE_LOGLOGBETA;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
