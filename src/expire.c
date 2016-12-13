@@ -315,8 +315,17 @@ void expireSlaveKeys(void) {
 /* Track keys that received an EXPIRE or similar command in the context
  * of a writable slave. */
 void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
-    if (slaveKeysWithExpire == NULL)
-        slaveKeysWithExpire = dictCreate(&keyptrDictType,NULL);
+    if (slaveKeysWithExpire == NULL) {
+        static dictType dt = {
+            dictSdsHash,                /* hash function */
+            NULL,                       /* key dup */
+            NULL,                       /* val dup */
+            dictSdsKeyCompare,          /* key compare */
+            dictSdsDestructor,          /* key destructor */
+            NULL                        /* val destructor */
+        };
+        slaveKeysWithExpire = dictCreate(&dt,NULL);
+    }
     if (db->id > 63) return;
 
     dictEntry *de = dictAddOrFind(slaveKeysWithExpire,key->ptr);

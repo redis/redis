@@ -1742,6 +1742,11 @@ void evictionPoolAlloc(void);
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
 
+/* Keys hashing / comparison functions for dict.c hash tables. */
+unsigned int dictSdsHash(const void *key);
+int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
+void dictSdsDestructor(void *privdata, void *val);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
