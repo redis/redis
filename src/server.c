@@ -870,8 +870,11 @@ void clientsCron(void) {
 void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
-    if (server.active_expire_enabled && server.masterhost == NULL)
+    if (server.active_expire_enabled && server.masterhost == NULL) {
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+    } else if (server.masterhost != NULL) {
+        expireSlaveKeys();
+    }
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad

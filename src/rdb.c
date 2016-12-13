@@ -1552,7 +1552,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
         dbAdd(db,key,val);
 
         /* Set the expire time if needed */
-        if (expiretime != -1) setExpire(db,key,expiretime);
+        if (expiretime != -1) setExpire(NULL,db,key,expiretime);
 
         decrRefCount(key);
     }
