@@ -334,6 +334,12 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
     dictSetUnsignedIntegerVal(de,dbids);
 }
 
+/* Return the number of keys we are tracking. */
+size_t getSlaveKeyWithExpireCount(void) {
+    if (slaveKeysWithExpire == NULL) return 0;
+    return dictSize(slaveKeysWithExpire);
+}
+
 /* Remove the keys in the hash table. We need to do that when data is
  * flushed from the server. We may receive new keys from the master with
  * the same name/db and it is no longer a good idea to expire them.
