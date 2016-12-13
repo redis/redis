@@ -217,7 +217,7 @@ void activeExpireCycle(int type) {
 }
 
 /*-----------------------------------------------------------------------------
- * Expires of keys crated in writable slaves
+ * Expires of keys created in writable slaves
  *
  * Normally slaves do not process expires: they wait the masters to synthesize
  * DEL operations in order to retain consistency. However writable slaves are
