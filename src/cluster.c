@@ -4750,7 +4750,6 @@ void migrateCommand(client *c) {
     int copy, replace, j;
     long timeout;
     long dbid;
-    long long ttl, expireat;
     robj **ov = NULL; /* Objects to migrate. */
     robj **kv = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
@@ -4765,7 +4764,6 @@ void migrateCommand(client *c) {
     /* Initialization */
     copy = 0;
     replace = 0;
-    ttl = 0;
 
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
@@ -4841,8 +4839,9 @@ try_again:
 
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
-        ttl = 0;
-        expireat = getExpire(c->db,kv[j]);
+        long long ttl = 0;
+        long long expireat = getExpire(c->db,kv[j]);
+
         if (expireat != -1) {
             ttl = expireat-mstime();
             if (ttl < 1) ttl = 1;
