@@ -1858,12 +1858,12 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
         } else {
             /* Are we still within the range? */
             if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueLteMax(ln->score,&key->zrs))
+                !zslValueLteMax(next->score,&key->zrs))
             {
                 key->zer = 1;
                 return 0;
             } else if (key->ztype == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zslLexValueLteMax(ln->ele,&key->zlrs)) {
+                if (!zslLexValueLteMax(next->ele,&key->zlrs)) {
                     key->zer = 1;
                     return 0;
                 }
@@ -1921,7 +1921,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
         } else {
             /* Are we still within the range? */
             if (key->ztype == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueGteMin(ln->score,&key->zrs))
+                !zslValueGteMin(prev->score,&key->zrs))
             {
                 key->zer = 1;
                 return 0;
