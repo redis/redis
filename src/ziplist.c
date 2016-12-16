@@ -8,24 +8,31 @@
  *
  * ----------------------------------------------------------------------------
  *
- * ZIPLIST OVERALL LAYOUT:
- * The general layout of the ziplist is as follows:
- * <zlbytes><zltail><zllen><entry><entry><zlend>
+ * ZIPLIST OVERALL LAYOUT
  *
- * <zlbytes> is an unsigned integer to hold the number of bytes that the
- * ziplist occupies. This value needs to be stored to be able to resize the
+ * The general layout of the ziplist is as follows:
+ *
+ * <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
+ *
+ * All fields are stored in little endian.
+ *
+ * <uint32_t zlbytes> is an unsigned integer to hold the number of bytes that
+ * the ziplist occupies. This value needs to be stored to be able to resize the
  * entire structure without the need to traverse it first.
  *
- * <zltail> is the offset to the last entry in the list. This allows a pop
- * operation on the far side of the list without the need for full traversal.
+ * <uint32_t zltail> is the offset to the last entry in the list. This allows
+ * a pop operation on the far side of the list without the need for full
+ * traversal.
  *
- * <zllen> is the number of entries.When this value is larger than 2**16-2,
- * we need to traverse the entire list to know how many items it holds.
+ * <uint16_t zllen> is the number of entries. When this value is larger
+ * than 2^16-2, we need to traverse the entire list to know how many items it
+ * holds.
  *
- * <zlend> is a single byte special value, equal to 255, which indicates the
- * end of the list.
+ * <uint8_t zlend> is a single byte special value, equal to 255, which
+ * indicates the end of the list.
  *
- * ZIPLIST ENTRIES:
+ * ZIPLIST ENTRIES
+ *
  * Every entry in the ziplist is prefixed by a header that contains two pieces
  * of information. First, the length of the previous entry is stored to be
  * able to traverse the list from back to front. Second, the encoding with an
