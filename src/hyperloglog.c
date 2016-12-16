@@ -993,9 +993,9 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     } else {
         serverPanic("Unknown HyperLogLog encoding in hllCount()");
     }
-    
+
     if(server.hll_use_loglogbeta) {
-        /* For loglog-beta there is a single formula to compute 
+        /* For loglog-beta there is a single formula to compute
          * cardinality for the enture range
          */
 
@@ -1008,8 +1008,8 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
                        0.03738027*pow(zl,5) +
                       -0.005384159*pow(zl,6) +
                        0.00042419*pow(zl,7);
-        
-        E  = alpha*m*(m-ez)*(1/(E+beta));
+
+        E  = llroundl(alpha*m*(m-ez)*(1/(E+beta)));
     } else {
         /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
         E = (1/E)*alpha*m*m;
