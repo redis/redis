@@ -1035,7 +1035,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
  *
  * In general we want a system that eventually always ends with different
  * masters having different configuration epochs whatever happened, since
- * nothign is worse than a split-brain condition in a distributed system.
+ * nothing is worse than a split-brain condition in a distributed system.
  *
  * BEHAVIOR
  *
