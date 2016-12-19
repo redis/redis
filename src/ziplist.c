@@ -249,7 +249,7 @@ static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, un
         } else if ((encoding) == ZIP_STR_14B) {                                \
             (lensize) = 2;                                                     \
             (len) = (((ptr)[0] & 0x3f) << 8) | (ptr)[1];                       \
-        } else if (encoding == ZIP_STR_32B) {                                  \
+        } else if ((encoding) == ZIP_STR_32B) {                                \
             (lensize) = 5;                                                     \
             (len) = ((ptr)[1] << 24) |                                         \
                     ((ptr)[2] << 16) |                                         \
