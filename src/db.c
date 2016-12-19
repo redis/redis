@@ -147,6 +147,18 @@ robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     return o;
 }
 
+robj *lookupKeyReadOrMultiReply(client *c, robj *key, robj *reply, int nreps) {
+    robj *o = lookupKeyRead(c->db, key);
+    int j;
+    if (!o) {
+        addReplyMultiBulkLen(c,nreps);
+        for (j = 0; j < nreps; j++) {
+            addReply(c,reply);
+        }
+    }
+    return o;
+}
+
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyWrite(c->db, key);
     if (!o) addReply(c,reply);
