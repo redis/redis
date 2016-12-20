@@ -2802,10 +2802,22 @@ non-backward compatible changes introduced in the 4.0 release:
 
 * Writable slaves do not propagate writes to their sub-slaves, so writes to
   writable slaves remain just local.
+
 * The RDB format changed. Redis 4.0 is still able to read 3.2 (and all the
   past versions) files, but not the other way around.
+
 * Certain log formats and sentences are different in Redis 4.0.
+
 * Certain INFO fields, especially related to replication, are now different.
+
+* GEODIST, GEOPOS and GEOHASH return values changed for non existing keys:
+  Previously the return value was inconsistent between non existing key
+  and non existing elements. Now the return is always like if the key
+  contains no elements if the key does not exist. So, for instance,
+  "GEOHASH non_existing_key A B C" now returns an array of 3 NULL values
+  as it should. In general this change should not break compatibility with
+  the past since in the past two different forms were provided by the server
+  and the new behavior is one of the two.
 
 --------------------------------------------------------------------------------
 
