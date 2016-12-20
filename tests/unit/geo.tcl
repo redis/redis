@@ -254,10 +254,11 @@ start_server {tags {"geo"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 geo_random_point lon lat
                 lappend argv $lon $lat "place:$j"
-                if {[geo_distance $lon $lat $search_lon $search_lat] < $radius_m} {
+                set distance [geo_distance $lon $lat $search_lon $search_lat]
+                if {$distance < $radius_m} {
                     lappend tcl_result "place:$j"
-                    lappend debuginfo "place:$j $lon $lat [expr {[geo_distance $lon $lat $search_lon $search_lat]/1000}] km"
                 }
+                lappend debuginfo "place:$j $lon $lat [expr {$distance/1000}] km"
             }
             r geoadd mypoints {*}$argv
             set res [lsort [r georadius mypoints $search_lon $search_lat $radius_km km]]
