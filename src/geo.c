@@ -684,16 +684,15 @@ void geohashCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk))
-        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
+    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
      * missing elements. */
     addReplyMultiBulkLen(c,c->argc-2);
     for (j = 2; j < c->argc; j++) {
         double score;
-        if (zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
+        if (!zobj || zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
             addReply(c,shared.nullbulk);
         } else {
             /* The internal format we use for geocoding is a bit different
