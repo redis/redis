@@ -346,7 +346,7 @@ int HelloToggleCase_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
 /* HELLO.MORE.EXPIRE key milliseconds.
  *
- * If they key has already an associated TTL, extends it by "milliseconds"
+ * If the key has already an associated TTL, extends it by "milliseconds"
  * milliseconds. Otherwise no operation is performed. */
 int HelloMoreExpire_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
