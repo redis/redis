@@ -242,7 +242,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"hellotype",1,REDISMODULE_APIVER_1)
+    const char *module_desc =
+        "This mudule just show the implementation of new data types.The new\n"
+	"data type hellotype is just a linked list of 64 bit integers where\n"
+	"elements are inserted in-place, so it's ordered. There is no pop  \n"
+	"or push operation but just insert.\n";
+    if (RedisModule_Init(ctx,"hellotype",module_desc,1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     RedisModuleTypeMethods tm = {
@@ -256,15 +261,25 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,&tm);
     if (HelloType == NULL) return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hellotype.insert",
+    const char *insert_desc =
+        "hellotype.insert <key> <value>\n"
+        "return integer: the key length";
+    if (RedisModule_CreateCommand(ctx,"hellotype.insert", insert_desc,
         HelloTypeInsert_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hellotype.range",
+    const char *range_desc =
+        "hellotype.range <key> <first> <count>\n"
+        "return array: list of elements in the specified range.";
+    if (RedisModule_CreateCommand(ctx,"hellotype.range", range_desc,
         HelloTypeRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hellotype.len",
+    const char *len_desc =
+        "hellotype.len key\n"
+        "return integer: number of fields in the hellotype, or 0 when key   \n"
+	"does not exist.";
+    if (RedisModule_CreateCommand(ctx,"hellotype.len", len_desc,
         HelloTypeLen_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

@@ -111,10 +111,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"helloblock",1,REDISMODULE_APIVER_1)
+    const char *module_desc =
+	"This module show the implementation of a block redis command.The  \n"
+	"command hello.block show how to execute a block command in certain\n"
+	"timeout.";
+    if (RedisModule_Init(ctx,"helloblock",module_desc,1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.block",
+    const char *block_desc =
+	"hello.block <delay> <timeout>\n"
+	"return integer or string: a random number if delay (in seconds) less\n"
+	"than timeout (in ms) otherwise return \"Request timedout\"";
+    if (RedisModule_CreateCommand(ctx,"hello.block", block_desc,
         HelloBlock_RedisCommand,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

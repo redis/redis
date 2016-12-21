@@ -544,7 +544,11 @@ int HelloLeftPad_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (RedisModule_Init(ctx,"helloworld",1,REDISMODULE_APIVER_1)
+    const char* module_desc =
+	"This module is a basic redis module.It shows how to access redis  \n"
+	"native data (which type is string,list,hash,set,zset) and how to  \n"
+	"manipulate it then send reply to client.";
+    if (RedisModule_Init(ctx,"helloworld",module_desc,1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     /* Log the list of parameters passing loading the module. */
@@ -553,68 +557,124 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         printf("Module loaded with ARGV[%d] = %s\n", j, s);
     }
 
-    if (RedisModule_CreateCommand(ctx,"hello.simple",
+    const char *simple_desc =
+	"hello.simple\n"
+        "return integer: the currently selected DB id";
+    if (RedisModule_CreateCommand(ctx,"hello.simple", simple_desc,
         HelloSimple_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.push.native",
+    const char *push_native_desc =
+	"hello.push.native <key> <value>\n"
+        "return integer: the length of the list after the operation.";
+    if (RedisModule_CreateCommand(ctx,"hello.push.native", push_native_desc,
         HelloPushNative_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.push.call",
+    const char *push_call_desc =
+	"hello.push.call <key> <value>\n"
+        "return integer: the length of the list after the operation.";
+    if (RedisModule_CreateCommand(ctx,"hello.push.call", push_call_desc,
         HelloPushCall_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.push.call2",
+    const char *push_call2_desc =
+	"hello.push.call2 <key> <value>\n"
+        "return integer: the length of the list after the operation.";
+    if (RedisModule_CreateCommand(ctx,"hello.push.call2", push_call2_desc,
         HelloPushCall2_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.list.sum.len",
+    const char *list_sum_len_desc =
+	"hello.list.sum.len <key>\n"
+        "return integer: the total length of all the items inside a list";
+    if (RedisModule_CreateCommand(ctx,"hello.list.sum.len", list_sum_len_desc,
         HelloListSumLen_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.list.splice",
+    const char *list_splice_desc =
+	"hello.list.splice <srclist> <dstlist> <count>\n"
+        "return integer: the length of the srclist after the operation.";
+    if (RedisModule_CreateCommand(ctx,"hello.list.splice", list_splice_desc,
         HelloListSplice_RedisCommand,"write deny-oom",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.list.splice.auto",
+    const char *list_splice_auto_desc =
+	"hello.list.splice.auto <srclist> <dstlist> <count>\n"
+        "return integer: the length of the srclist after the operation.";
+    if (RedisModule_CreateCommand(ctx,"hello.list.splice.auto", list_splice_auto_desc,
         HelloListSpliceAuto_RedisCommand,
         "write deny-oom",1,2,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.rand.array",
+    const char *rand_array_desc =
+	"hello.rand.array <count>\n"
+        "return array: outputs <count> random numbers.";
+    if (RedisModule_CreateCommand(ctx,"hello.rand.array", rand_array_desc,
         HelloRandArray_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.repl1",
+    const char *repl1_desc =
+	"hello.repl1\n"
+        "return integer: 0";
+    if (RedisModule_CreateCommand(ctx,"hello.repl1", repl1_desc,
         HelloRepl1_RedisCommand,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.repl2",
+    const char *repl2_desc =
+	"hello.repl2 <list-key>\n"
+        "return integer: increase all the elements (that must have a numerical\n"
+        " value) by 1, returning the sum of all the elements in the list\n";
+    if (RedisModule_CreateCommand(ctx,"hello.repl2", repl2_desc,
         HelloRepl2_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.toggle.case",
+    const char *toggle_case_desc =
+	"hello.toggle.case <key>\n"
+        "return string: toggle the case of each character of the key from  \n"
+	"lower to upper case or the other way around, then return OK";
+    if (RedisModule_CreateCommand(ctx,"hello.toggle.case", toggle_case_desc,
         HelloToggleCase_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.more.expire",
+    const char *more_expire_desc =
+	"hello.more.expire <key> <milliseconds>\n"
+        "return string: if the key has already an associated TTL, extends  \n"
+	"it by <milliseconds> milliseconds otherwise do nothing,return OK";
+    if (RedisModule_CreateCommand(ctx,"hello.more.expire", more_expire_desc,
         HelloMoreExpire_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.zsumrange",
+    const char *zsumrange_desc =
+	"hello.zsumrange <key> <startscore> <endscore>\n"
+        "return array: compute the sum of scores in key from <startscore> to\n"
+	"<endscore>, then the sum from <endscore> to <startscore>, return an\n"
+	"array with two sum number as elements";
+    if (RedisModule_CreateCommand(ctx,"hello.zsumrange", zsumrange_desc,
         HelloZsumRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.lexrange",
+    const char *lexrange_desc =
+	"hello.lexrange <key> <min_lex> <max_lex> <min_age> <max_age>\n"
+        "return string: all the sorted set items that are lexicographically\n"
+        "between the specified range.";
+    if (RedisModule_CreateCommand(ctx,"hello.lexrange", lexrange_desc,
         HelloLexRange_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.hcopy",
+    const char *hcopy_desc =
+	"hello.hcopy <key> <srcfield> <dstfield>\n"
+	"return integer: 1 if the copy is performed (srcfield exists)\n"
+	"otherwise 0.";
+    if (RedisModule_CreateCommand(ctx,"hello.hcopy", hcopy_desc,
         HelloHCopy_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"hello.leftpad",
+    const char *leftpad_desc =
+	"hello.leftpad <str> <len> <ch>\n"
+        "return string: if the <str> len less than <len> expand <str>\n"
+	"to <len> with <ch>,otherwise do nothing,return new <str>";
+    if (RedisModule_CreateCommand(ctx,"hello.leftpad", leftpad_desc,
         HelloLeftPad_RedisCommand,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

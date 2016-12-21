@@ -95,7 +95,7 @@ order to report keys, like in the following example:
 
 ## `RM_CreateCommand`
 
-    int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
+    int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, const char *desc, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
 
 Register a new command in the Redis server, that will be handled by
 calling the function pointer 'func' using the RedisModule calling
@@ -152,7 +152,7 @@ example "write deny-oom". The set of flags are:
 
 ## `RM_SetModuleAttribs`
 
-    void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
+    void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, const char *desc, int ver, int apiver);
 
 Called by `RM_Init()` to setup the `ctx->module` structure.
 

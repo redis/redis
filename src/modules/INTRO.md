@@ -67,10 +67,14 @@ simple module that implements a command that outputs a random number.
     }
 
     int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-        if (RedisModule_Init(ctx,"helloworld",1,REDISMODULE_APIVER_1)
+	const char *module_desc = "This is a demo module";
+        if (RedisModule_Init(ctx,"helloworld",module_desc,1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-        if (RedisModule_CreateCommand(ctx,"helloworld.rand",
+	const char *rand_desc =
+	    "helloworld.rand\n"
+	    "return integer: a rand number";
+        if (RedisModule_CreateCommand(ctx,"helloworld.rand", rand_desc,
             HelloworldRand_RedisCommand) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
@@ -101,7 +105,8 @@ It should be the first function called by the module `OnLoad` function.
 The following is the function prototype:
 
     int RedisModule_Init(RedisModuleCtx *ctx, const char *modulename,
-                         int module_version, int api_version);
+                         const char *moduledesc,int module_version,
+			 int api_version);
 
 The `Init` function announces the Redis core that the module has a given
 name, its version (that is reported by `MODULE LIST`), and that is willing
@@ -118,7 +123,7 @@ The second function called, `RedisModule_CreateCommand`, is used in order
 to register commands into the Redis core. The following is the prototype:
 
     int RedisModule_CreateCommand(RedisModuleCtx *ctx, const char *cmdname,
-                                  RedisModuleCmdFunc cmdfunc);
+                           const char *cmddesc,RedisModuleCmdFunc cmdfunc);
 
 As you can see, most Redis modules API calls all take as first argument
 the `context` of the module, so that they have a reference to the module

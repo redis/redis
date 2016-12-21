@@ -118,8 +118,8 @@ void REDISMODULE_API_FUNC(RedisModule_Free)(void *ptr);
 void *REDISMODULE_API_FUNC(RedisModule_Calloc)(size_t nmemb, size_t size);
 char *REDISMODULE_API_FUNC(RedisModule_Strdup)(const char *str);
 int REDISMODULE_API_FUNC(RedisModule_GetApi)(const char *, void *);
-int REDISMODULE_API_FUNC(RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
-int REDISMODULE_API_FUNC(RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
+int REDISMODULE_API_FUNC(RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, const char *desc, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
+int REDISMODULE_API_FUNC(RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, const char *desc, int ver, int apiver);
 int REDISMODULE_API_FUNC(RedisModule_WrongArity)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithLongLong)(RedisModuleCtx *ctx, long long ll);
 int REDISMODULE_API_FUNC(RedisModule_GetSelectedDb)(RedisModuleCtx *ctx);
@@ -216,8 +216,8 @@ int REDISMODULE_API_FUNC(RedisModule_AbortBlock)(RedisModuleBlockedClient *bc);
 long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
 
 /* This is included inline inside each Redis module. */
-static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
-static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
+static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, const char* desc,int ver, int apiver) __attribute__((unused));
+static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, const char* desc,int ver, int apiver) {
     void *getapifuncptr = ((void**)ctx)[0];
     RedisModule_GetApi = (int (*)(const char *, void *)) (unsigned long)getapifuncptr;
     REDISMODULE_GET_API(Alloc);
@@ -323,7 +323,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(AbortBlock);
     REDISMODULE_GET_API(Milliseconds);
 
-    RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
+    RedisModule_SetModuleAttribs(ctx,name,desc,ver,apiver);
     return REDISMODULE_OK;
 }
 

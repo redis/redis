@@ -210,26 +210,44 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
-    if (RedisModule_Init(ctx,"test",1,REDISMODULE_APIVER_1)
+    const char *module_desc =
+	"This module show the implementation of a unit tests";
+    if (RedisModule_Init(ctx,"test",module_desc,1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.call",
+    const char *call_desc =
+	"test.call [value ...]\n"
+        "return string: OK";
+    if (RedisModule_CreateCommand(ctx,"test.call", call_desc,
         TestCall,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.string.append",
+    const char *string_append_desc =
+	"test.string.append [value ...]\n"
+        "return string: foobar";
+    if (RedisModule_CreateCommand(ctx,"test.string.append", string_append_desc,
         TestStringAppend,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.string.append.am",
+    const char *string_append_am_desc =
+	"test.string.append.am [value ...]\n"
+        "return string: foobar";
+    if (RedisModule_CreateCommand(ctx,"test.string.append.am", string_append_am_desc,
         TestStringAppendAM,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.string.printf",
+    const char *string_printf_desc =
+	"test.string.printf [value ...]\n"
+        "return string: Got <count> args, arg[1]:<arg1> ,arg[2]:...";
+    if (RedisModule_CreateCommand(ctx,"test.string.printf", string_printf_desc,
         TestStringPrintf,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"test.it",
+    const char *it_desc =
+	"test.it\n"
+        "return string: \"ALL TESTS PASSED\" if all case pass otherwise  \"\n"
+	"SOME TEST NOT PASSED! Check server logs\"";
+    if (RedisModule_CreateCommand(ctx,"test.it", it_desc,
         TestIt,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
