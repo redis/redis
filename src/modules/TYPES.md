@@ -325,7 +325,7 @@ method we'll do something like this:
         da->count = RedisModule_LoadUnsigned(io);
         da->values = RedisModule_Alloc(da->count * sizeof(double));
         for (size_t j = 0; j < da->count; j++)
-            da->values = RedisModule_LoadDouble(io);
+            da->values[j] = RedisModule_LoadDouble(io);
         return da;
     }
 
