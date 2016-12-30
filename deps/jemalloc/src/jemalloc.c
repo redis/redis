@@ -2591,3 +2591,35 @@ jemalloc_postfork_child(void)
 }
 
 /******************************************************************************/
+
+/* Helps the application decide if a pointer is worth re-allocating in order to reduce fragmentation.
+ * returns 0 if the allocation is in the currently active run,
+ * or when it is not causing any frag issue (large or huge bin)
+ * returns the bin utilization and run utilization both in fixed point 16:16.
+ * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW
+je_get_defrag_hint(void* ptr, int *bin_util, int *run_util) {
+    int defrag = 0;
+    arena_chunk_t *chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(ptr);
+    if (likely(chunk != ptr)) { /* indication that this is not a HUGE alloc */
+        size_t pageind = ((uintptr_t)ptr - (uintptr_t)chunk) >> LG_PAGE;
+        size_t mapbits = arena_mapbits_get(chunk, pageind);
+        if (likely((mapbits & CHUNK_MAP_LARGE) == 0)) { /* indication that this is not a LARGE alloc */
+            arena_t *arena = extent_node_arena_get(&chunk->node);
+            size_t rpages_ind = pageind - arena_mapbits_small_runind_get(chunk, pageind);
+            arena_run_t *run = &arena_miscelm_get(chunk, rpages_ind)->run;
+            arena_bin_t *bin = &arena->bins[run->binind];
+            malloc_mutex_lock(&bin->lock);
+            /* runs that are in the same chunk in as the current chunk, are likely to be the next currun */
+            if (chunk != (arena_chunk_t *)CHUNK_ADDR2BASE(bin->runcur)) {
+                arena_bin_info_t *bin_info = &arena_bin_info[run->binind];
+                size_t availregs = bin_info->nregs * bin->stats.curruns;
+                *bin_util = (bin->stats.curregs<<16) / availregs;
+                *run_util = ((bin_info->nregs - run->nfree)<<16) / bin_info->nregs;
+                defrag = 1;
+            }
+            malloc_mutex_unlock(&bin->lock);
+        }
+    }
+    return defrag;
+}

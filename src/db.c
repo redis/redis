@@ -665,7 +665,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         privdata[0] = keys;
         privdata[1] = o;
         do {
-            cursor = dictScan(ht, cursor, scanCallback, privdata);
+            cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
         } while (cursor &&
               maxiterations-- &&
               listLength(keys) < (unsigned long)count);
