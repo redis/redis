@@ -885,6 +885,7 @@ static unsigned long rev(unsigned long v) {
 unsigned long dictScan(dict *d,
                        unsigned long v,
                        dictScanFunction *fn,
+                       dictScanBucketFunction* bucketfn,
                        void *privdata)
 {
     dictht *t0, *t1;
@@ -898,6 +899,7 @@ unsigned long dictScan(dict *d,
         m0 = t0->sizemask;
 
         /* Emit entries at cursor */
+        if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
@@ -919,6 +921,7 @@ unsigned long dictScan(dict *d,
         m1 = t1->sizemask;
 
         /* Emit entries at cursor */
+        if (bucketfn) bucketfn(privdata, &t0->table[v & m0]);
         de = t0->table[v & m0];
         while (de) {
             next = de->next;
@@ -930,6 +933,7 @@ unsigned long dictScan(dict *d,
          * of the index pointed to by the cursor in the smaller table */
         do {
             /* Emit entries at cursor */
+            if (bucketfn) bucketfn(privdata, &t1->table[v & m1]);
             de = t1->table[v & m1];
             while (de) {
                 next = de->next;
@@ -1038,6 +1042,35 @@ void dictEnableResize(void) {
 
 void dictDisableResize(void) {
     dict_can_resize = 0;
+}
+
+unsigned int dictGetHash(dict *d, const void *key) {
+    return dictHashKey(d, key);
+}
+
+/* Replace an old key pointer in the dictionary with a new pointer.
+ * oldkey is a dead pointer and should not be accessed.
+ * the hash value should be provided using dictGetHash.
+ * no string / key comparison is performed.
+ * return value is the dictEntry if found, or NULL if not found. */
+dictEntry *dictReplaceKeyPtr(dict *d, const void *oldptr, void *newptr, unsigned int hash) {
+    dictEntry *he;
+    unsigned int idx, table;
+
+    if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
+    for (table = 0; table <= 1; table++) {
+        idx = hash & d->ht[table].sizemask;
+        he = d->ht[table].table[idx];
+        while(he) {
+            if (oldptr==he->key) {
+                he->key = newptr;
+                return he;
+            }
+            he = he->next;
+        }
+        if (!dictIsRehashing(d)) return NULL;
+    }
+    return NULL;
 }
 
 /* ------------------------------- Debugging ---------------------------------*/

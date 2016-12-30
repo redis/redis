@@ -876,6 +876,10 @@ void databasesCron(void) {
         expireSlaveKeys();
     }
 
+    /* Defrag keys gradually. */
+    if (server.active_defrag_enabled)
+        activeDefragCycle();
+
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -1332,6 +1336,12 @@ void initServerConfig(void) {
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
     server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
+    server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
+    server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
+    server.active_defrag_threshold_lower = CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER;
+    server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
+    server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
+    server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
@@ -1368,6 +1378,7 @@ void initServerConfig(void) {
     server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
     server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
+    server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
@@ -1718,6 +1729,10 @@ void resetServerStats(void) {
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
+    server.stat_active_defrag_hits = 0;
+    server.stat_active_defrag_misses = 0;
+    server.stat_active_defrag_key_hits = 0;
+    server.stat_active_defrag_key_misses = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_rejected_conn = 0;
@@ -2873,6 +2888,7 @@ sds genRedisInfoString(char *section) {
             "maxmemory_policy:%s\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n"
+            "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
             zmalloc_used,
             hmem,
@@ -2894,6 +2910,7 @@ sds genRedisInfoString(char *section) {
             evict_policy,
             mh->fragmentation,
             ZMALLOC_LIB,
+            server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
         );
         freeMemoryOverheadData(mh);
@@ -3013,7 +3030,11 @@ sds genRedisInfoString(char *section) {
             "pubsub_patterns:%lu\r\n"
             "latest_fork_usec:%lld\r\n"
             "migrate_cached_sockets:%ld\r\n"
-            "slave_expires_tracked_keys:%zu\r\n",
+            "slave_expires_tracked_keys:%zu\r\n"
+            "active_defrag_hits:%lld\r\n"
+            "active_defrag_misses:%lld\r\n"
+            "active_defrag_key_hits:%lld\r\n"
+            "active_defrag_key_misses:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -3033,7 +3054,11 @@ sds genRedisInfoString(char *section) {
             listLength(server.pubsub_patterns),
             server.stat_fork_time,
             dictSize(server.migrate_cached_sockets),
-            getSlaveKeyWithExpireCount());
+            getSlaveKeyWithExpireCount(),
+            server.stat_active_defrag_hits,
+            server.stat_active_defrag_misses,
+            server.stat_active_defrag_key_hits,
+            server.stat_active_defrag_key_misses);
     }
 
     /* Replication */
