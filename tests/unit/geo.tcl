@@ -221,18 +221,26 @@ start_server {tags {"geo"}} {
     }
 
     test {GEOADD + GEORANGE randomized test} {
-        set attempt 20
+        set attempt 30
         while {[incr attempt -1]} {
             set rv [lindex $regression_vectors $rv_idx]
             incr rv_idx
 
             unset -nocomplain debuginfo
-            set srand_seed [randomInt 1000000]
+            set srand_seed [clock milliseconds]
             if {$rv ne {}} {set srand_seed [lindex $rv 0]}
             lappend debuginfo "srand_seed is $srand_seed"
             expr {srand($srand_seed)} ; # If you need a reproducible run
             r del mypoints
-            set radius_km [expr {[randomInt 200]+10}]
+
+            if {[randomInt 10] == 0} {
+                # From time to time use very big radiuses
+                set radius_km [expr {[randomInt 50000]+10}]
+            } else {
+                # Normally use a few - ~200km radiuses to stress
+                # test the code the most in edge cases.
+                set radius_km [expr {[randomInt 200]+10}]
+            }
             if {$rv ne {}} {set radius_km [lindex $rv 1]}
             set radius_m [expr {$radius_km*1000}]
             geo_random_point search_lon search_lat
