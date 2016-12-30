@@ -657,7 +657,7 @@ long long RM_Milliseconds(void) {
  * Automatic memory management for modules
  * -------------------------------------------------------------------------- */
 
-/* Enable automatic memory management. See API.md for more information.
+/* Enable automatic memory management. See INTRO.md for more information.
  *
  * The function must be called as the first function of a command implementation
  * that wants to use automatic memory. */

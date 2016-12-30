@@ -169,7 +169,7 @@ Return the current UNIX time in milliseconds.
 
     void RM_AutoMemory(RedisModuleCtx *ctx);
 
-Enable automatic memory management. See API.md for more information.
+Enable automatic memory management. See INTRO.md for more information.
 
 The function must be called as the first function of a command implementation
 that wants to use automatic memory.
