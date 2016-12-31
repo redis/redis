@@ -136,6 +136,8 @@ void unblockClient(client *c) {
         unblockClientWaitingData(c);
     } else if (c->btype == BLOCKED_WAIT) {
         unblockClientWaitingReplicas(c);
+    } else if (c->btype == BLOCKED_MODULE) {
+        unblockClientFromModule(c);
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
@@ -153,12 +155,15 @@ void unblockClient(client *c) {
 }
 
 /* This function gets called when a blocked client timed out in order to
- * send it a reply of some kind. */
+ * send it a reply of some kind. After this function is called,
+ * unblockClient() will be called with the same client as argument. */
 void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST) {
         addReply(c,shared.nullmultibulk);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
+    } else if (c->btype == BLOCKED_MODULE) {
+        moduleBlockedClientTimedOut(c);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
     }

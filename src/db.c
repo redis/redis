@@ -53,7 +53,13 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             server.aof_child_pid == -1 &&
             !(flags & LOOKUP_NOTOUCH))
         {
-            val->lru = LRU_CLOCK();
+            if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+                unsigned long ldt = val->lru >> 8;
+                unsigned long counter = LFULogIncr(val->lru & 255);
+                val->lru = (ldt << 8) | counter;
+            } else {
+                val->lru = LRU_CLOCK();
+            }
         }
         return val;
     } else {
@@ -169,7 +175,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
-    dictReplace(db->dict, key->ptr, val);
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        robj *old = dictGetVal(de);
+        int saved_lru = old->lru;
+        dictReplace(db->dict, key->ptr, val);
+        val->lru = saved_lru;
+    } else {
+        dictReplace(db->dict, key->ptr, val);
+    }
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -177,7 +190,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  *
  * 1) The ref count of the value object is incremented.
  * 2) clients WATCHing for the destination key notified.
- * 3) The expire time of the key is reset (the key is made persistent). */
+ * 3) The expire time of the key is reset (the key is made persistent).
+ *
+ * All the new keys in the database should be craeted via this interface. */
 void setKey(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
@@ -317,6 +332,7 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
             slotToKeyFlush();
         }
     }
+    if (dbnum == -1) flushSlaveKeysWithExpireList();
     return removed;
 }
 
@@ -400,7 +416,7 @@ void flushallCommand(client *c) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
         int saved_dirty = server.dirty;
-        rdbSave(server.rdb_filename);
+        rdbSave(server.rdb_filename,NULL);
         server.dirty = saved_dirty;
     }
     server.dirty++;
@@ -458,7 +474,7 @@ void selectCommand(client *c) {
         return;
     }
     if (selectDb(c,id) == C_ERR) {
-        addReplyError(c,"invalid DB index");
+        addReplyError(c,"DB index is out of range");
     } else {
         addReply(c,shared.ok);
     }
@@ -838,7 +854,7 @@ void renameGenericCommand(client *c, int nx) {
         dbDelete(c->db,c->argv[2]);
     }
     dbAdd(c->db,c->argv[2],o);
-    if (expire != -1) setExpire(c->db,c->argv[2],expire);
+    if (expire != -1) setExpire(c,c->db,c->argv[2],expire);
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
@@ -904,13 +920,98 @@ void moveCommand(client *c) {
         return;
     }
     dbAdd(dst,c->argv[1],o);
-    if (expire != -1) setExpire(dst,c->argv[1],expire);
+    if (expire != -1) setExpire(c,dst,c->argv[1],expire);
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
     dbDelete(src,c->argv[1]);
     server.dirty++;
     addReply(c,shared.cone);
+}
+
+/* Helper function for dbSwapDatabases(): scans the list of keys that have
+ * one or more blocked clients for B[LR]POP or other list blocking commands
+ * and signal the keys are ready if they are lists. See the comment where
+ * the function is used for more info. */
+void scanDatabaseForReadyLists(redisDb *db) {
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(db->blocking_keys);
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+        robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
+        if (value && value->type == OBJ_LIST)
+            signalListAsReady(db, key);
+    }
+    dictReleaseIterator(di);
+}
+
+/* Swap two databases at runtime so that all clients will magically see
+ * the new database even if already connected. Note that the client
+ * structure c->db points to a given DB, so we need to be smarter and
+ * swap the underlying referenced structures, otherwise we would need
+ * to fix all the references to the Redis DB structure.
+ *
+ * Returns C_ERR if at least one of the DB ids are out of range, otherwise
+ * C_OK is returned. */
+int dbSwapDatabases(int id1, int id2) {
+    if (id1 < 0 || id1 >= server.dbnum ||
+        id2 < 0 || id2 >= server.dbnum) return C_ERR;
+    if (id1 == id2) return C_OK;
+    redisDb aux = server.db[id1];
+    redisDb *db1 = &server.db[id1], *db2 = &server.db[id2];
+
+    /* Swap hash tables. Note that we don't swap blocking_keys,
+     * ready_keys and watched_keys, since we want clients to
+     * remain in the same DB they were. */
+    db1->dict = db2->dict;
+    db1->expires = db2->expires;
+    db1->avg_ttl = db2->avg_ttl;
+
+    db2->dict = aux.dict;
+    db2->expires = aux.expires;
+    db2->avg_ttl = aux.avg_ttl;
+
+    /* Now we need to handle clients blocked on lists: as an effect
+     * of swapping the two DBs, a client that was waiting for list
+     * X in a given DB, may now actually be unblocked if X happens
+     * to exist in the new version of the DB, after the swap.
+     *
+     * However normally we only do this check for efficiency reasons
+     * in dbAdd() when a list is created. So here we need to rescan
+     * the list of clients blocked on lists and signal lists as ready
+     * if needed. */
+    scanDatabaseForReadyLists(db1);
+    scanDatabaseForReadyLists(db2);
+    return C_OK;
+}
+
+/* SWAPDB db1 db2 */
+void swapdbCommand(client *c) {
+    long id1, id2;
+
+    /* Not allowed in cluster mode: we have just DB 0 there. */
+    if (server.cluster_enabled) {
+        addReplyError(c,"SWAPDB is not allowed in cluster mode");
+        return;
+    }
+
+    /* Get the two DBs indexes. */
+    if (getLongFromObjectOrReply(c, c->argv[1], &id1,
+        "invalid first DB index") != C_OK)
+        return;
+
+    if (getLongFromObjectOrReply(c, c->argv[2], &id2,
+        "invalid second DB index") != C_OK)
+        return;
+
+    /* Swap... */
+    if (dbSwapDatabases(id1,id2) == C_ERR) {
+        addReplyError(c,"DB index is out of range");
+        return;
+    } else {
+        server.dirty++;
+        addReply(c,shared.ok);
+    }
 }
 
 /*-----------------------------------------------------------------------------
@@ -924,14 +1025,22 @@ int removeExpire(redisDb *db, robj *key) {
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
-void setExpire(redisDb *db, robj *key, long long when) {
+/* Set an expire to the specified key. If the expire is set in the context
+ * of an user calling a command 'c' is the client, otherwise 'c' is set
+ * to NULL. The 'when' parameter is the absolute unix time in milliseconds
+ * after which the key will no longer be considered valid. */
+void setExpire(client *c, redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
-    de = dictReplaceRaw(db->expires,dictGetKey(kde));
+    de = dictAddOrFind(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
+
+    int writable_slave = server.masterhost && server.repl_slave_ro == 0;
+    if (c && writable_slave && !(c->flags & CLIENT_MASTER))
+        rememberSlaveKeyWithExpire(db,key);
 }
 
 /* Return the expire time of the specified key, or -1 if no expire
@@ -1008,134 +1117,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
         "expired",key,db->id);
     return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
                                          dbSyncDelete(db,key);
-}
-
-/*-----------------------------------------------------------------------------
- * Expires Commands
- *----------------------------------------------------------------------------*/
-
-/* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
- * and PEXPIREAT. Because the commad second argument may be relative or absolute
- * the "basetime" argument is used to signal what the base time is (either 0
- * for *AT variants of the command, or the current time for relative expires).
- *
- * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(client *c, long long basetime, int unit) {
-    robj *key = c->argv[1], *param = c->argv[2];
-    long long when; /* unix time in milliseconds when the key will expire. */
-
-    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
-        return;
-
-    if (unit == UNIT_SECONDS) when *= 1000;
-    when += basetime;
-
-    /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL) {
-        addReply(c,shared.czero);
-        return;
-    }
-
-    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
-     * should never be executed as a DEL when load the AOF or in the context
-     * of a slave instance.
-     *
-     * Instead we take the other branch of the IF statement setting an expire
-     * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (when <= mstime() && !server.loading && !server.masterhost) {
-        robj *aux;
-
-        int deleted = server.lazyfree_lazy_expire ? dbAsyncDelete(c->db,key) :
-                                                    dbSyncDelete(c->db,key);
-        serverAssertWithInfo(c,key,deleted);
-        server.dirty++;
-
-        /* Replicate/AOF this as an explicit DEL or UNLINK. */
-        aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
-        rewriteClientCommandVector(c,2,aux,key);
-        signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        addReply(c, shared.cone);
-        return;
-    } else {
-        setExpire(c->db,key,when);
-        addReply(c,shared.cone);
-        signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
-        server.dirty++;
-        return;
-    }
-}
-
-void expireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
-}
-
-void expireatCommand(client *c) {
-    expireGenericCommand(c,0,UNIT_SECONDS);
-}
-
-void pexpireCommand(client *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
-}
-
-void pexpireatCommand(client *c) {
-    expireGenericCommand(c,0,UNIT_MILLISECONDS);
-}
-
-void ttlGenericCommand(client *c, int output_ms) {
-    long long expire, ttl = -1;
-
-    /* If the key does not exist at all, return -2 */
-    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
-        addReplyLongLong(c,-2);
-        return;
-    }
-    /* The key exists. Return -1 if it has no expire, or the actual
-     * TTL value otherwise. */
-    expire = getExpire(c->db,c->argv[1]);
-    if (expire != -1) {
-        ttl = expire-mstime();
-        if (ttl < 0) ttl = 0;
-    }
-    if (ttl == -1) {
-        addReplyLongLong(c,-1);
-    } else {
-        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
-    }
-}
-
-void ttlCommand(client *c) {
-    ttlGenericCommand(c, 0);
-}
-
-void pttlCommand(client *c) {
-    ttlGenericCommand(c, 1);
-}
-
-void persistCommand(client *c) {
-    dictEntry *de;
-
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
-    if (de == NULL) {
-        addReply(c,shared.czero);
-    } else {
-        if (removeExpire(c->db,c->argv[1])) {
-            addReply(c,shared.cone);
-            server.dirty++;
-        } else {
-            addReply(c,shared.czero);
-        }
-    }
-}
-
-/* TOUCH key1 [key2 key3 ... keyN] */
-void touchCommand(client *c) {
-    int touched = 0;
-    for (int j = 1; j < c->argc; j++)
-        if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
-    addReplyLongLong(c,touched);
 }
 
 /* -----------------------------------------------------------------------------

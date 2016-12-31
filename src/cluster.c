@@ -129,7 +129,7 @@ int clusterLoadConfig(char *filename) {
         /* Skip blank lines, they can be created either by users manually
          * editing nodes.conf or by the config writing process if stopped
          * before the truncate() call. */
-        if (line[0] == '\n') continue;
+        if (line[0] == '\n' || line[0] == '\0') continue;
 
         /* Split the line into arguments for processing. */
         argv = sdssplitargs(line,&argc);
@@ -2805,7 +2805,7 @@ void clusterHandleSlaveFailover(void) {
      * and wait for replies), and the failover retry time (the time to wait
      * before trying to get voted again).
      *
-     * Timeout is MIN(NODE_TIMEOUT*2,2000) milliseconds.
+     * Timeout is MAX(NODE_TIMEOUT*2,2000) milliseconds.
      * Retry is two times the Timeout.
      */
     auth_timeout = server.cluster_node_timeout*2;
@@ -4660,7 +4660,7 @@ void restoreCommand(client *c) {
 
     /* Create the key and set the TTL if any */
     dbAdd(c->db,c->argv[1],obj);
-    if (ttl) setExpire(c->db,c->argv[1],mstime()+ttl);
+    if (ttl) setExpire(c,c->db,c->argv[1],mstime()+ttl);
     signalModifiedKey(c->db,c->argv[1]);
     addReply(c,shared.ok);
     server.dirty++;
@@ -4793,7 +4793,6 @@ void migrateCommand(client *c) {
     int copy, replace, j;
     long timeout;
     long dbid;
-    long long ttl, expireat;
     robj **ov = NULL; /* Objects to migrate. */
     robj **kv = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
@@ -4808,7 +4807,6 @@ void migrateCommand(client *c) {
     /* Initialization */
     copy = 0;
     replace = 0;
-    ttl = 0;
 
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
@@ -4884,7 +4882,9 @@ try_again:
 
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
-        expireat = getExpire(c->db,kv[j]);
+        long long ttl = 0;
+        long long expireat = getExpire(c->db,kv[j]);
+
         if (expireat != -1) {
             ttl = expireat-mstime();
             if (ttl < 1) ttl = 1;

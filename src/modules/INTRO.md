@@ -6,6 +6,7 @@ The modules documentation is composed of the following files:
 * `INTRO.md` (this file). An overview about Redis Modules system and API. It's a good idea to start your reading here.
 * `API.md` is generated from module.c top comments of RedisMoule functions. It is a good reference in order to understand how each function works.
 * `TYPES.md` covers the implementation of native data types into modules.
+* `BLOCK.md` shows how to write blocking commands that will not reply immediately, but will block the client, without blocking the Redis server, and will provide a reply whenever will be possible.
 
 Redis modules make possible to extend Redis functionality using external
 modules, implementing new Redis commands at a speed and with features

@@ -8,24 +8,31 @@
  *
  * ----------------------------------------------------------------------------
  *
- * ZIPLIST OVERALL LAYOUT:
- * The general layout of the ziplist is as follows:
- * <zlbytes><zltail><zllen><entry><entry><zlend>
+ * ZIPLIST OVERALL LAYOUT
  *
- * <zlbytes> is an unsigned integer to hold the number of bytes that the
- * ziplist occupies. This value needs to be stored to be able to resize the
+ * The general layout of the ziplist is as follows:
+ *
+ * <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
+ *
+ * All fields are stored in little endian.
+ *
+ * <uint32_t zlbytes> is an unsigned integer to hold the number of bytes that
+ * the ziplist occupies. This value needs to be stored to be able to resize the
  * entire structure without the need to traverse it first.
  *
- * <zltail> is the offset to the last entry in the list. This allows a pop
- * operation on the far side of the list without the need for full traversal.
+ * <uint32_t zltail> is the offset to the last entry in the list. This allows
+ * a pop operation on the far side of the list without the need for full
+ * traversal.
  *
- * <zllen> is the number of entries.When this value is larger than 2**16-2,
- * we need to traverse the entire list to know how many items it holds.
+ * <uint16_t zllen> is the number of entries. When this value is larger
+ * than 2^16-2, we need to traverse the entire list to know how many items it
+ * holds.
  *
- * <zlend> is a single byte special value, equal to 255, which indicates the
- * end of the list.
+ * <uint8_t zlend> is a single byte special value, equal to 255, which
+ * indicates the end of the list.
  *
- * ZIPLIST ENTRIES:
+ * ZIPLIST ENTRIES
+ *
  * Every entry in the ziplist is prefixed by a header that contains two pieces
  * of information. First, the length of the previous entry is stored to be
  * able to traverse the list from back to front. Second, the encoding with an
@@ -242,7 +249,7 @@ static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, un
         } else if ((encoding) == ZIP_STR_14B) {                                \
             (lensize) = 2;                                                     \
             (len) = (((ptr)[0] & 0x3f) << 8) | (ptr)[1];                       \
-        } else if (encoding == ZIP_STR_32B) {                                  \
+        } else if ((encoding) == ZIP_STR_32B) {                                \
             (lensize) = 5;                                                     \
             (len) = ((ptr)[1] << 24) |                                         \
                     ((ptr)[2] << 16) |                                         \
@@ -1029,7 +1036,7 @@ void ziplistRepr(unsigned char *zl) {
 
     printf(
         "{total bytes %d} "
-        "{length %u}\n"
+        "{num entries %u}\n"
         "{tail offset %u}\n",
         intrev32ifbe(ZIPLIST_BYTES(zl)),
         intrev16ifbe(ZIPLIST_LENGTH(zl)),
@@ -1038,16 +1045,15 @@ void ziplistRepr(unsigned char *zl) {
     while(*p != ZIP_END) {
         zipEntry(p, &entry);
         printf(
-            "{"
-                "addr 0x%08lx, "
-                "index %2d, "
-                "offset %5ld, "
-                "rl: %5u, "
-                "hs %2u, "
-                "pl: %5u, "
-                "pls: %2u, "
-                "payload %5u"
-            "} ",
+            "{\n"
+                "\taddr 0x%08lx,\n"
+                "\tindex %2d,\n"
+                "\toffset %5ld,\n"
+                "\thdr+entry len: %5u,\n"
+                "\thdr len%2u,\n"
+                "\tprevrawlen: %5u,\n"
+                "\tprevrawlensize: %2u,\n"
+                "\tpayload %5u\n",
             (long unsigned)p,
             index,
             (unsigned long) (p-zl),
@@ -1056,8 +1062,14 @@ void ziplistRepr(unsigned char *zl) {
             entry.prevrawlen,
             entry.prevrawlensize,
             entry.len);
+        printf("\tbytes: ");
+        for (unsigned int i = 0; i < entry.headersize+entry.len; i++) {
+            printf("%02x|",p[i]);
+        }
+        printf("\n");
         p += entry.headersize;
         if (ZIP_IS_STR(entry.encoding)) {
+            printf("\t[str]");
             if (entry.len > 40) {
                 if (fwrite(p,40,1,stdout) == 0) perror("fwrite");
                 printf("...");
@@ -1066,9 +1078,9 @@ void ziplistRepr(unsigned char *zl) {
                     fwrite(p,entry.len,1,stdout) == 0) perror("fwrite");
             }
         } else {
-            printf("%lld", (long long) zipLoadInteger(p,entry.encoding));
+            printf("\t[int]%lld", (long long) zipLoadInteger(p,entry.encoding));
         }
-        printf("\n");
+        printf("\n}\n");
         p += entry.len;
         index++;
     }

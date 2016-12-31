@@ -5,7 +5,7 @@
  * works, how a new data type is created, and how to write basic methods
  * for RDB loading, saving and AOF rewriting.
  *
- * ------------------------------------------------------------------------------
+ * -----------------------------------------------------------------------------
  *
  * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -227,6 +227,8 @@ void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
 }
 
 void HelloTypeDigest(RedisModuleDigest *digest, void *value) {
+    REDISMODULE_NOT_USED(digest);
+    REDISMODULE_NOT_USED(value);
     /* TODO: The DIGEST module interface is yet not implemented. */
 }
 
@@ -237,10 +239,21 @@ void HelloTypeFree(void *value) {
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
     if (RedisModule_Init(ctx,"hellotype",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,HelloTypeRdbLoad,HelloTypeRdbSave,HelloTypeAofRewrite,HelloTypeDigest,HelloTypeFree);
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = HelloTypeRdbLoad,
+        .rdb_save = HelloTypeRdbSave,
+        .aof_rewrite = HelloTypeAofRewrite,
+        .free = HelloTypeFree
+    };
+
+    HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,&tm);
     if (HelloType == NULL) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"hellotype.insert",

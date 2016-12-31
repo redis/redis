@@ -45,9 +45,11 @@ typedef struct configEnum {
 
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
+    {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
     {"volatile-random",MAXMEMORY_VOLATILE_RANDOM},
     {"volatile-ttl",MAXMEMORY_VOLATILE_TTL},
     {"allkeys-lru",MAXMEMORY_ALLKEYS_LRU},
+    {"allkeys-lfu",MAXMEMORY_ALLKEYS_LFU},
     {"allkeys-random",MAXMEMORY_ALLKEYS_RANDOM},
     {"noeviction",MAXMEMORY_NO_EVICTION},
     {NULL, 0}
@@ -281,6 +283,10 @@ void loadServerConfigFromString(char *config) {
                 }
                 fclose(logfp);
             }
+        } else if (!strcasecmp(argv[0],"always-show-logo") && argc == 2) {
+            if ((server.always_show_logo = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
             if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -322,6 +328,18 @@ void loadServerConfigFromString(char *config) {
             server.maxmemory_samples = atoi(argv[1]);
             if (server.maxmemory_samples <= 0) {
                 err = "maxmemory-samples must be 1 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
+            server.lfu_log_factor = atoi(argv[1]);
+            if (server.maxmemory_samples < 0) {
+                err = "lfu-log-factor must be 0 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
+            server.lfu_decay_time = atoi(argv[1]);
+            if (server.maxmemory_samples < 1) {
+                err = "lfu-decay-time must be 0 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
@@ -463,6 +481,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.aof_load_truncated = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"aof-use-rdb-preamble") && argc == 2) {
+            if ((server.aof_use_rdb_preamble = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
@@ -600,8 +622,9 @@ void loadServerConfigFromString(char *config) {
             unsigned long long hard, soft;
             int soft_seconds;
 
-            if (class == -1) {
-                err = "Unrecognized client limit class";
+            if (class == -1 || class == CLIENT_TYPE_MASTER) {
+                err = "Unrecognized client limit class: the user specified "
+                "an invalid one, or 'master' which has no buffer limits.";
                 goto loaderr;
             }
             hard = memtoll(argv[2],NULL);
@@ -621,6 +644,16 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
             server.slave_priority = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"slave-announce-ip") && argc == 2) {
+            zfree(server.slave_announce_ip);
+            server.slave_announce_ip = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"slave-announce-port") && argc == 2) {
+            server.slave_announce_port = atoi(argv[1]);
+            if (server.slave_announce_port < 0 ||
+                server.slave_announce_port > 65535)
+            {
+                err = "Invalid port"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"min-slaves-to-write") && argc == 2) {
             server.repl_min_slaves_to_write = atoi(argv[1]);
             if (server.repl_min_slaves_to_write < 0) {
@@ -880,7 +913,8 @@ void configSetCommand(client *c) {
             long val;
 
             if ((j % 4) == 0) {
-                if (getClientTypeByName(v[j]) == -1) {
+                int class = getClientTypeByName(v[j]);
+                if (class == -1 || class == CLIENT_TYPE_MASTER) {
                     sdsfreesplitres(v,vlen);
                     goto badfmt;
                 }
@@ -913,6 +947,9 @@ void configSetCommand(client *c) {
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
+    } config_set_special_field("slave-announce-ip") {
+        zfree(server.slave_announce_ip);
+        server.slave_announce_ip = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
 
     /* Boolean fields.
      * config_set_bool_field(name,var). */
@@ -928,6 +965,8 @@ void configSetCommand(client *c) {
       "aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync) {
     } config_set_bool_field(
       "aof-load-truncated",server.aof_load_truncated) {
+    } config_set_bool_field(
+      "aof-use-rdb-preamble",server.aof_use_rdb_preamble) {
     } config_set_bool_field(
       "slave-serve-stale-data",server.repl_serve_stale_data) {
     } config_set_bool_field(
@@ -968,6 +1007,11 @@ void configSetCommand(client *c) {
              }
            }
          }
+    } config_set_numerical_field(
+      "lfu-log-factor",server.lfu_log_factor,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "lfu-decay-time",server.lfu_decay_time,0,LLONG_MAX) {
+
     } config_set_numerical_field(
       "timeout",server.maxidletime,0,LONG_MAX) {
     } config_set_numerical_field(
@@ -1010,6 +1054,8 @@ void configSetCommand(client *c) {
       "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,LLONG_MAX) {
     } config_set_numerical_field(
       "slave-priority",server.slave_priority,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "slave-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,LLONG_MAX) {
         refreshGoodSlavesCount();
@@ -1082,7 +1128,7 @@ badfmt: /* Bad format errors */
  *----------------------------------------------------------------------------*/
 
 #define config_get_string_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,0)) { \
+    if (stringmatch(pattern,_name,1)) { \
         addReplyBulkCString(c,_name); \
         addReplyBulkCString(c,_var ? _var : ""); \
         matches++; \
@@ -1090,7 +1136,7 @@ badfmt: /* Bad format errors */
 } while(0);
 
 #define config_get_bool_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,0)) { \
+    if (stringmatch(pattern,_name,1)) { \
         addReplyBulkCString(c,_name); \
         addReplyBulkCString(c,_var ? "yes" : "no"); \
         matches++; \
@@ -1098,7 +1144,7 @@ badfmt: /* Bad format errors */
 } while(0);
 
 #define config_get_numerical_field(_name,_var) do { \
-    if (stringmatch(pattern,_name,0)) { \
+    if (stringmatch(pattern,_name,1)) { \
         ll2string(buf,sizeof(buf),_var); \
         addReplyBulkCString(c,_name); \
         addReplyBulkCString(c,buf); \
@@ -1107,7 +1153,7 @@ badfmt: /* Bad format errors */
 } while(0);
 
 #define config_get_enum_field(_name,_var,_enumvar) do { \
-    if (stringmatch(pattern,_name,0)) { \
+    if (stringmatch(pattern,_name,1)) { \
         addReplyBulkCString(c,_name); \
         addReplyBulkCString(c,configEnumGetNameOrUnknown(_enumvar,_var)); \
         matches++; \
@@ -1130,6 +1176,7 @@ void configGetCommand(client *c) {
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
+    config_get_string_field("slave-announce-ip",server.slave_announce_ip);
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
@@ -1174,6 +1221,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
+    config_get_numerical_field("slave-announce-port",server.slave_announce_port);
     config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("hz",server.hz);
@@ -1208,6 +1256,8 @@ void configGetCommand(client *c) {
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
             server.aof_load_truncated);
+    config_get_bool_field("aof-use-rdb-preamble",
+            server.aof_use_rdb_preamble);
     config_get_bool_field("lazyfree-lazy-eviction",
             server.lazyfree_lazy_eviction);
     config_get_bool_field("lazyfree-lazy-expire",
@@ -1231,12 +1281,12 @@ void configGetCommand(client *c) {
 
     /* Everything we can't handle with macros follows. */
 
-    if (stringmatch(pattern,"appendonly",0)) {
+    if (stringmatch(pattern,"appendonly",1)) {
         addReplyBulkCString(c,"appendonly");
         addReplyBulkCString(c,server.aof_state == AOF_OFF ? "no" : "yes");
         matches++;
     }
-    if (stringmatch(pattern,"dir",0)) {
+    if (stringmatch(pattern,"dir",1)) {
         char buf[1024];
 
         if (getcwd(buf,sizeof(buf)) == NULL)
@@ -1246,7 +1296,7 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,buf);
         matches++;
     }
-    if (stringmatch(pattern,"save",0)) {
+    if (stringmatch(pattern,"save",1)) {
         sds buf = sdsempty();
         int j;
 
@@ -1262,7 +1312,7 @@ void configGetCommand(client *c) {
         sdsfree(buf);
         matches++;
     }
-    if (stringmatch(pattern,"client-output-buffer-limit",0)) {
+    if (stringmatch(pattern,"client-output-buffer-limit",1)) {
         sds buf = sdsempty();
         int j;
 
@@ -1280,14 +1330,14 @@ void configGetCommand(client *c) {
         sdsfree(buf);
         matches++;
     }
-    if (stringmatch(pattern,"unixsocketperm",0)) {
+    if (stringmatch(pattern,"unixsocketperm",1)) {
         char buf[32];
         snprintf(buf,sizeof(buf),"%o",server.unixsocketperm);
         addReplyBulkCString(c,"unixsocketperm");
         addReplyBulkCString(c,buf);
         matches++;
     }
-    if (stringmatch(pattern,"slaveof",0)) {
+    if (stringmatch(pattern,"slaveof",1)) {
         char buf[256];
 
         addReplyBulkCString(c,"slaveof");
@@ -1299,7 +1349,7 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,buf);
         matches++;
     }
-    if (stringmatch(pattern,"notify-keyspace-events",0)) {
+    if (stringmatch(pattern,"notify-keyspace-events",1)) {
         robj *flagsobj = createObject(OBJ_STRING,
             keyspaceEventsFlagsToString(server.notify_keyspace_events));
 
@@ -1308,7 +1358,7 @@ void configGetCommand(client *c) {
         decrRefCount(flagsobj);
         matches++;
     }
-    if (stringmatch(pattern,"bind",0)) {
+    if (stringmatch(pattern,"bind",1)) {
         sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
 
         addReplyBulkCString(c,"bind");
@@ -1863,6 +1913,7 @@ int rewriteConfig(char *path) {
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,CONFIG_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigNumericalOption(state,"timeout",server.maxidletime,CONFIG_DEFAULT_CLIENT_TIMEOUT);
     rewriteConfigNumericalOption(state,"tcp-keepalive",server.tcpkeepalive,CONFIG_DEFAULT_TCP_KEEPALIVE);
+    rewriteConfigNumericalOption(state,"slave-announce-port",server.slave_announce_port,CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT);
     rewriteConfigEnumOption(state,"loglevel",server.verbosity,loglevel_enum,CONFIG_DEFAULT_VERBOSITY);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
@@ -1876,6 +1927,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"dbfilename",server.rdb_filename,CONFIG_DEFAULT_RDB_FILENAME);
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state);
+    rewriteConfigStringOption(state,"slave-announce-ip",server.slave_announce_ip,CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP);
     rewriteConfigStringOption(state,"masterauth",server.masterauth,NULL);
     rewriteConfigStringOption(state,"cluster-announce-ip",server.cluster_announce_ip,NULL);
     rewriteConfigYesNoOption(state,"slave-serve-stale-data",server.repl_serve_stale_data,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA);
@@ -1926,6 +1978,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hz",server.hz,CONFIG_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
     rewriteConfigYesNoOption(state,"aof-load-truncated",server.aof_load_truncated,CONFIG_DEFAULT_AOF_LOAD_TRUNCATED);
+    rewriteConfigYesNoOption(state,"aof-use-rdb-preamble",server.aof_use_rdb_preamble,CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE);
     rewriteConfigEnumOption(state,"supervised",server.supervised_mode,supervised_mode_enum,SUPERVISED_NONE);
     rewriteConfigNumericalOption(state,"datacenter-id",server.datacenter_id,0);
     rewriteConfigYesNoOption(state,"lazyfree-lazy-eviction",server.lazyfree_lazy_eviction,CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION);

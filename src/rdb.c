@@ -41,13 +41,30 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
-#define rdbExitReportCorruptRDB(reason) rdbCheckThenExit(reason, __LINE__);
+#define rdbExitReportCorruptRDB(...) rdbCheckThenExit(__LINE__,__VA_ARGS__)
 
-void rdbCheckThenExit(char *reason, int where) {
-    serverLog(LL_WARNING, "Corrupt RDB detected at rdb.c:%d (%s). "
-        "Running 'redis-check-rdb %s'",
-        where, reason, server.rdb_filename);
-    redis_check_rdb(server.rdb_filename);
+extern int rdbCheckMode;
+void rdbCheckError(const char *fmt, ...);
+void rdbCheckSetError(const char *fmt, ...);
+
+void rdbCheckThenExit(int linenum, char *reason, ...) {
+    va_list ap;
+    char msg[1024];
+    int len;
+
+    len = snprintf(msg,sizeof(msg),
+        "Internal error in RDB reading function at rdb.c:%d -> ", linenum);
+    va_start(ap,reason);
+    vsnprintf(msg+len,sizeof(msg)-len,reason,ap);
+    va_end(ap);
+
+    if (!rdbCheckMode) {
+        serverLog(LL_WARNING, "%s", msg);
+        char *argv[2] = {"",server.rdb_filename};
+        redis_check_rdb_main(2,argv);
+    } else {
+        rdbCheckError("%s",msg);
+    }
     exit(1);
 }
 
@@ -162,7 +179,8 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
         if (rioRead(rdb,&len,8) == 0) return -1;
         *lenptr = ntohu64(len);
     } else {
-        rdbExitReportCorruptRDB("Unknown length encoding in rdbLoadLen()");
+        rdbExitReportCorruptRDB(
+            "Unknown length encoding %d in rdbLoadLen()",type);
         return -1; /* Never reached. */
     }
     return 0;
@@ -230,7 +248,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         val = (int32_t)v;
     } else {
         val = 0; /* anti-warning */
-        rdbExitReportCorruptRDB("Unknown RDB integer encoding type");
+        rdbExitReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
     }
     if (plain || sds) {
         char buf[LONG_STR_SIZE], *p;
@@ -332,7 +350,10 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) == 0) goto err;
+    if (lzf_decompress(c,clen,val,len) == 0) {
+        if (rdbCheckMode) rdbCheckSetError("Invalid LZF compressed string");
+        goto err;
+    }
     zfree(c);
 
     if (plain || sds) {
@@ -444,7 +465,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
         default:
-            rdbExitReportCorruptRDB("Unknown RDB encoding type");
+            rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
         }
     }
 
@@ -546,14 +567,27 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
  * Return -1 on error, the size of the serialized value on success. */
 int rdbSaveBinaryDoubleValue(rio *rdb, double val) {
     memrev64ifbe(&val);
-    return rdbWriteRaw(rdb,&val,8);
+    return rdbWriteRaw(rdb,&val,sizeof(val));
 }
 
 /* Loads a double from RDB 8 or greater. See rdbSaveBinaryDoubleValue() for
  * more info. On error -1 is returned, otherwise 0. */
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val) {
-    if (rioRead(rdb,val,8) == 0) return -1;
+    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
     memrev64ifbe(val);
+    return 0;
+}
+
+/* Like rdbSaveBinaryDoubleValue() but single precision. */
+int rdbSaveBinaryFloatValue(rio *rdb, float val) {
+    memrev32ifbe(&val);
+    return rdbWriteRaw(rdb,&val,sizeof(val));
+}
+
+/* Like rdbLoadBinaryDoubleValue() but single precision. */
+int rdbLoadBinaryFloatValue(rio *rdb, float *val) {
+    if (rioRead(rdb,val,sizeof(*val)) == 0) return -1;
+    memrev32ifbe(val);
     return 0;
 }
 
@@ -736,6 +770,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
 
         /* Then write the module-specific representation. */
         mt->rdb_save(&io,mv->value);
+        if (io.ctx) {
+            moduleFreeContext(io.ctx);
+            zfree(io.ctx);
+        }
         return io.error ? -1 : (ssize_t)io.bytes;
     } else {
         serverPanic("Unknown object type");
@@ -797,14 +835,28 @@ int rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 }
 
 /* Save a few default AUX fields with information about the RDB generated. */
-int rdbSaveInfoAuxFields(rio *rdb) {
+int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
+    int aof_preamble = (flags & RDB_SAVE_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
     if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
+
+    /* Handle saving options that generate aux fields. */
+    if (rsi) {
+        if (rsi->repl_stream_db &&
+            rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
+            == -1)
+        {
+            return -1;
+        }
+    }
+    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+    if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset) == -1) return -1;
     return 1;
 }
 
@@ -816,19 +868,20 @@ int rdbSaveInfoAuxFields(rio *rdb) {
  * When the function returns C_ERR and if 'error' is not NULL, the
  * integer pointed by 'error' is set to the value of errno just after the I/O
  * error. */
-int rdbSaveRio(rio *rdb, int *error) {
+int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     dictIterator *di = NULL;
     dictEntry *de;
     char magic[10];
     int j;
     long long now = mstime();
     uint64_t cksum;
+    size_t processed = 0;
 
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",RDB_VERSION);
     if (rdbWriteRaw(rdb,magic,9) == -1) goto werr;
-    if (rdbSaveInfoAuxFields(rdb) == -1) goto werr;
+    if (rdbSaveInfoAuxFields(rdb,flags,rsi) == -1) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -865,6 +918,16 @@ int rdbSaveRio(rio *rdb, int *error) {
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+
+            /* When this RDB is produced as part of an AOF rewrite, move
+             * accumulated diff from parent to child while rewriting in
+             * order to have a smaller final write. */
+            if (flags & RDB_SAVE_AOF_PREAMBLE &&
+                rdb->processed_bytes > processed+AOF_READ_DIFF_INTERVAL_BYTES)
+            {
+                processed = rdb->processed_bytes;
+                aofReadDiffFromParent();
+            }
         }
         dictReleaseIterator(di);
     }
@@ -894,7 +957,7 @@ werr:
  * While the suffix is the 40 bytes hex string we announced in the prefix.
  * This way processes receiving the payload can understand when it ends
  * without doing any processing of the content. */
-int rdbSaveRioWithEOFMark(rio *rdb, int *error) {
+int rdbSaveRioWithEOFMark(rio *rdb, int *error, rdbSaveInfo *rsi) {
     char eofmark[RDB_EOF_MARK_SIZE];
 
     getRandomHexChars(eofmark,RDB_EOF_MARK_SIZE);
@@ -902,7 +965,7 @@ int rdbSaveRioWithEOFMark(rio *rdb, int *error) {
     if (rioWrite(rdb,"$EOF:",5) == 0) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     if (rioWrite(rdb,"\r\n",2) == 0) goto werr;
-    if (rdbSaveRio(rdb,error) == C_ERR) goto werr;
+    if (rdbSaveRio(rdb,error,RDB_SAVE_NONE,rsi) == C_ERR) goto werr;
     if (rioWrite(rdb,eofmark,RDB_EOF_MARK_SIZE) == 0) goto werr;
     return C_OK;
 
@@ -913,7 +976,7 @@ werr: /* Write error. */
 }
 
 /* Save the DB on disk. Return C_ERR on error, C_OK on success. */
-int rdbSave(char *filename) {
+int rdbSave(char *filename, rdbSaveInfo *rsi) {
     char tmpfile[256];
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
     FILE *fp;
@@ -934,7 +997,7 @@ int rdbSave(char *filename) {
     }
 
     rioInitWithFile(&rdb,fp);
-    if (rdbSaveRio(&rdb,&error) == C_ERR) {
+    if (rdbSaveRio(&rdb,&error,RDB_SAVE_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
     }
@@ -972,14 +1035,15 @@ werr:
     return C_ERR;
 }
 
-int rdbSaveBackground(char *filename) {
+int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
     long long start;
 
-    if (server.rdb_child_pid != -1) return C_ERR;
+    if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
+    openChildInfoPipe();
 
     start = ustime();
     if ((childpid = fork()) == 0) {
@@ -988,15 +1052,18 @@ int rdbSaveBackground(char *filename) {
         /* Child */
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-bgsave");
-        retval = rdbSave(filename);
+        retval = rdbSave(filename,rsi);
         if (retval == C_OK) {
-            size_t private_dirty = zmalloc_get_private_dirty();
+            size_t private_dirty = zmalloc_get_private_dirty(-1);
 
             if (private_dirty) {
                 serverLog(LL_NOTICE,
                     "RDB: %zu MB of memory used by copy-on-write",
                     private_dirty/(1024*1024));
             }
+
+            server.child_info_data.cow_size = private_dirty;
+            sendChildInfo(CHILD_INFO_TYPE_RDB);
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -1005,6 +1072,7 @@ int rdbSaveBackground(char *filename) {
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
+            closeChildInfoPipe();
             server.lastbgsave_status = C_ERR;
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
@@ -1031,7 +1099,7 @@ void rdbRemoveTempFile(pid_t childpid) {
  * On success a newly allocated object is returned, otherwise NULL. */
 robj *rdbLoadObject(int rdbtype, rio *rdb) {
     robj *o = NULL, *ele, *dec;
-    size_t len;
+    uint64_t len;
     unsigned int i;
 
     if (rdbtype == RDB_TYPE_STRING) {
@@ -1098,7 +1166,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read list/set value. */
-        size_t zsetlen;
+        uint64_t zsetlen;
         size_t maxelelen = 0;
         zset *zs;
 
@@ -1133,7 +1201,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             maxelelen <= server.zset_max_ziplist_value)
                 zsetConvert(o,OBJ_ENCODING_ZIPLIST);
     } else if (rdbtype == RDB_TYPE_HASH) {
-        size_t len;
+        uint64_t len;
         int ret;
         sds field, value;
 
@@ -1275,7 +1343,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     hashTypeConvert(o, OBJ_ENCODING_HT);
                 break;
             default:
-                rdbExitReportCorruptRDB("Unknown encoding");
+                rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
     } else if (rdbtype == RDB_TYPE_MODULE) {
@@ -1300,7 +1368,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
         o = createModuleObject(mt,ptr);
     } else {
-        rdbExitReportCorruptRDB("Unknown object type");
+        rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
     }
     return o;
 }
@@ -1352,67 +1420,61 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
-int rdbLoad(char *filename) {
+/* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
+ * otherwise C_ERR is returned and 'errno' is set accordingly. */
+int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
     uint64_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
     long long expiretime, now = mstime();
-    FILE *fp;
-    rio rdb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-
-    rioInitWithFile(&rdb,fp);
-    rdb.update_cksum = rdbLoadProgressCallback;
-    rdb.max_processing_chunk = server.loading_process_events_interval_bytes;
-    if (rioRead(&rdb,buf,9) == 0) goto eoferr;
+    rdb->update_cksum = rdbLoadProgressCallback;
+    rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
+    if (rioRead(rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
-        fclose(fp);
         serverLog(LL_WARNING,"Wrong signature trying to load DB from file");
         errno = EINVAL;
         return C_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
-        fclose(fp);
         serverLog(LL_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
         return C_ERR;
     }
 
-    startLoading(fp);
     while(1) {
         robj *key, *val;
         expiretime = -1;
 
         /* Read type. */
-        if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+        if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
 
         /* Handle special types. */
         if (type == RDB_OPCODE_EXPIRETIME) {
             /* EXPIRETIME: load an expire associated with the next key
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
-            if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadTime(rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
             /* the EXPIRETIME opcode specifies time in seconds, so convert
              * into milliseconds. */
             expiretime *= 1000;
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
-            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadMillisecondTime(rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
         } else if (type == RDB_OPCODE_SELECTDB) {
             /* SELECTDB: Select the specified database. */
-            if ((dbid = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
+            if ((dbid = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
                 serverLog(LL_WARNING,
@@ -1427,9 +1489,9 @@ int rdbLoad(char *filename) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
             uint64_t db_size, expires_size;
-            if ((db_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
+            if ((db_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
-            if ((expires_size = rdbLoadLen(&rdb,NULL)) == RDB_LENERR)
+            if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
@@ -1441,8 +1503,8 @@ int rdbLoad(char *filename) {
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
-            if ((auxkey = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+            if ((auxkey = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
 
             if (((char*)auxkey->ptr)[0] == '%') {
                 /* All the fields with a name staring with '%' are considered
@@ -1451,6 +1513,15 @@ int rdbLoad(char *filename) {
                 serverLog(LL_NOTICE,"RDB '%s': %s",
                     (char*)auxkey->ptr,
                     (char*)auxval->ptr);
+            } else if (!strcasecmp(auxkey->ptr,"repl-stream-db")) {
+                if (rsi) rsi->repl_stream_db = atoi(auxval->ptr);
+            } else if (!strcasecmp(auxkey->ptr,"repl-id")) {
+                if (rsi && sdslen(auxval->ptr) == CONFIG_RUN_ID_SIZE) {
+                    memcpy(rsi->repl_id,auxval->ptr,CONFIG_RUN_ID_SIZE+1);
+                    rsi->repl_id_is_set = 1;
+                }
+            } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
+                if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
@@ -1464,9 +1535,9 @@ int rdbLoad(char *filename) {
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+        if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,rdb)) == NULL) goto eoferr;
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
@@ -1481,15 +1552,15 @@ int rdbLoad(char *filename) {
         dbAdd(db,key,val);
 
         /* Set the expire time if needed */
-        if (expiretime != -1) setExpire(db,key,expiretime);
+        if (expiretime != -1) setExpire(NULL,db,key,expiretime);
 
         decrRefCount(key);
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
-        uint64_t cksum, expected = rdb.cksum;
+        uint64_t cksum, expected = rdb->cksum;
 
-        if (rioRead(&rdb,&cksum,8) == 0) goto eoferr;
+        if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
         memrev64ifbe(&cksum);
         if (cksum == 0) {
             serverLog(LL_WARNING,"RDB file was saved with checksum disabled: no check performed.");
@@ -1498,15 +1569,33 @@ int rdbLoad(char *filename) {
             rdbExitReportCorruptRDB("RDB CRC error");
         }
     }
-
-    fclose(fp);
-    stopLoading();
     return C_OK;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
     serverLog(LL_WARNING,"Short read or OOM loading DB. Unrecoverable error, aborting now.");
     rdbExitReportCorruptRDB("Unexpected EOF reading RDB file");
     return C_ERR; /* Just to avoid warning */
+}
+
+/* Like rdbLoadRio() but takes a filename instead of a rio stream. The
+ * filename is open for reading and a rio stream object created in order
+ * to do the actual loading. Moreover the ETA displayed in the INFO
+ * output is initialized and finalized.
+ *
+ * If you pass an 'rsi' structure initialied with RDB_SAVE_OPTION_INIT, the
+ * loading code will fiil the information fields in the structure. */
+int rdbLoad(char *filename, rdbSaveInfo *rsi) {
+    FILE *fp;
+    rio rdb;
+    int retval;
+
+    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    startLoading(fp);
+    rioInitWithFile(&rdb,fp);
+    retval = rdbLoadRio(&rdb,rsi);
+    fclose(fp);
+    stopLoading();
+    return retval;
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
@@ -1656,7 +1745,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
-int rdbSaveToSlavesSockets(void) {
+int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
     int *fds;
     uint64_t *clientids;
     int numfds;
@@ -1666,7 +1755,7 @@ int rdbSaveToSlavesSockets(void) {
     long long start;
     int pipefds[2];
 
-    if (server.rdb_child_pid != -1) return C_ERR;
+    if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
 
     /* Before to fork, create a pipe that will be used in order to
      * send back to the parent the IDs of the slaves that successfully
@@ -1701,6 +1790,7 @@ int rdbSaveToSlavesSockets(void) {
     }
 
     /* Create the child process. */
+    openChildInfoPipe();
     start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
@@ -1713,18 +1803,21 @@ int rdbSaveToSlavesSockets(void) {
         closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-to-slaves");
 
-        retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL);
+        retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL,rsi);
         if (retval == C_OK && rioFlush(&slave_sockets) == 0)
             retval = C_ERR;
 
         if (retval == C_OK) {
-            size_t private_dirty = zmalloc_get_private_dirty();
+            size_t private_dirty = zmalloc_get_private_dirty(-1);
 
             if (private_dirty) {
                 serverLog(LL_NOTICE,
                     "RDB: %zu MB of memory used by copy-on-write",
                     private_dirty/(1024*1024));
             }
+
+            server.child_info_data.cow_size = private_dirty;
+            sendChildInfo(CHILD_INFO_TYPE_RDB);
 
             /* If we are returning OK, at least one slave was served
              * with the RDB file as expected, so we need to send a report
@@ -1794,6 +1887,7 @@ int rdbSaveToSlavesSockets(void) {
             }
             close(pipefds[0]);
             close(pipefds[1]);
+            closeChildInfoPipe();
         } else {
             serverLog(LL_NOTICE,"Background RDB transfer started by pid %d",
                 childpid);
@@ -1814,19 +1908,41 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
-    if (rdbSave(server.rdb_filename) == C_OK) {
+    if (rdbSave(server.rdb_filename,NULL) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReply(c,shared.err);
     }
 }
 
+/* BGSAVE [SCHEDULE] */
 void bgsaveCommand(client *c) {
+    int schedule = 0;
+
+    /* The SCHEDULE option changes the behavior of BGSAVE when an AOF rewrite
+     * is in progress. Instead of returning an error a BGSAVE gets scheduled. */
+    if (c->argc > 1) {
+        if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"schedule")) {
+            schedule = 1;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
-        addReplyError(c,"Can't BGSAVE while AOF log rewriting is in progress");
-    } else if (rdbSaveBackground(server.rdb_filename) == C_OK) {
+        if (schedule) {
+            server.rdb_bgsave_scheduled = 1;
+            addReplyStatus(c,"Background saving scheduled");
+        } else {
+            addReplyError(c,
+                "An AOF log rewriting in progress: can't BGSAVE right now. "
+                "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
+                "possible.");
+        }
+    } else if (rdbSaveBackground(server.rdb_filename,NULL) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);

@@ -30,8 +30,9 @@
 #include "server.h"
 #include <sys/uio.h>
 #include <math.h>
+#include <ctype.h>
 
-static void setProtocolError(client *c, int pos);
+static void setProtocolError(const char *errstr, client *c, int pos);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -109,6 +110,7 @@ client *createClient(int fd) {
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
+    c->slave_ip[0] = '\0';
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -351,6 +353,14 @@ void addReplySds(client *c, sds s) {
     }
 }
 
+/* This low level function just adds whatever protocol you send it to the
+ * client buffer, trying the static buffer initially, and using the string
+ * of objects if not possible.
+ *
+ * It is efficient because does not create an SDS object nor an Redis object
+ * if not needed. The object will only be created by calling
+ * _addReplyStringToList() if we fail to extend the existing tail object
+ * in the list of objects. */
 void addReplyString(client *c, const char *s, size_t len) {
     if (prepareClientToWrite(c) != C_OK) return;
     if (_addReplyToBuffer(c,s,len) != C_OK)
@@ -1030,7 +1040,7 @@ int processInlineBuffer(client *c) {
     if (newline == NULL) {
         if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c,"Protocol error: too big inline request");
-            setProtocolError(c,0);
+            setProtocolError("too big inline request",c,0);
         }
         return C_ERR;
     }
@@ -1046,7 +1056,7 @@ int processInlineBuffer(client *c) {
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c,"Protocol error: unbalanced quotes in request");
-        setProtocolError(c,0);
+        setProtocolError("unbalanced quotes in inline request",c,0);
         return C_ERR;
     }
 
@@ -1080,11 +1090,29 @@ int processInlineBuffer(client *c) {
 
 /* Helper function. Trims query buffer to make the function that processes
  * multi bulk requests idempotent. */
-static void setProtocolError(client *c, int pos) {
+#define PROTO_DUMP_LEN 128
+static void setProtocolError(const char *errstr, client *c, int pos) {
     if (server.verbosity <= LL_VERBOSE) {
         sds client = catClientInfoString(sdsempty(),c);
+
+        /* Sample some protocol to given an idea about what was inside. */
+        char buf[256];
+        if (sdslen(c->querybuf) < PROTO_DUMP_LEN) {
+            snprintf(buf,sizeof(buf),"Query buffer during protocol error: '%s'", c->querybuf);
+        } else {
+            snprintf(buf,sizeof(buf),"Query buffer during protocol error: '%.*s' (... more %zu bytes ...) '%.*s'", PROTO_DUMP_LEN/2, c->querybuf, sdslen(c->querybuf)-PROTO_DUMP_LEN, PROTO_DUMP_LEN/2, c->querybuf+sdslen(c->querybuf)-PROTO_DUMP_LEN/2);
+        }
+
+        /* Remove non printable chars. */
+        char *p = buf;
+        while (*p != '\0') {
+            if (!isprint(*p)) *p = '.';
+            p++;
+        }
+
+        /* Log all the client and protocol info. */
         serverLog(LL_VERBOSE,
-            "Protocol error from client: %s", client);
+            "Protocol error (%s) from client: %s. %s", errstr, client, buf);
         sdsfree(client);
     }
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -1105,7 +1133,7 @@ int processMultibulkBuffer(client *c) {
         if (newline == NULL) {
             if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                 addReplyError(c,"Protocol error: too big mbulk count string");
-                setProtocolError(c,0);
+                setProtocolError("too big mbulk count string",c,0);
             }
             return C_ERR;
         }
@@ -1120,7 +1148,7 @@ int processMultibulkBuffer(client *c) {
         ok = string2ll(c->querybuf+1,newline-(c->querybuf+1),&ll);
         if (!ok || ll > 1024*1024) {
             addReplyError(c,"Protocol error: invalid multibulk length");
-            setProtocolError(c,pos);
+            setProtocolError("invalid mbulk count",c,pos);
             return C_ERR;
         }
 
@@ -1146,7 +1174,7 @@ int processMultibulkBuffer(client *c) {
                 if (sdslen(c->querybuf) > PROTO_INLINE_MAX_SIZE) {
                     addReplyError(c,
                         "Protocol error: too big bulk count string");
-                    setProtocolError(c,0);
+                    setProtocolError("too big bulk count string",c,0);
                     return C_ERR;
                 }
                 break;
@@ -1160,14 +1188,14 @@ int processMultibulkBuffer(client *c) {
                 addReplyErrorFormat(c,
                     "Protocol error: expected '$', got '%c'",
                     c->querybuf[pos]);
-                setProtocolError(c,pos);
+                setProtocolError("expected $ but got something else",c,pos);
                 return C_ERR;
             }
 
             ok = string2ll(c->querybuf+pos+1,newline-(c->querybuf+pos+1),&ll);
             if (!ok || ll < 0 || ll > 512*1024*1024) {
                 addReplyError(c,"Protocol error: invalid bulk length");
-                setProtocolError(c,pos);
+                setProtocolError("invalid bulk length",c,pos);
                 return C_ERR;
             }
 
@@ -1241,8 +1269,10 @@ void processInputBuffer(client *c) {
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
-         * this flag has been set (i.e. don't process more commands). */
-        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) break;
+         * this flag has been set (i.e. don't process more commands).
+         *
+         * The same applies for clients we want to terminate ASAP. */
+        if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
         if (!c->reqtype) {
@@ -1318,7 +1348,11 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->reploff += nread;
+    if (c->flags & CLIENT_MASTER) {
+        c->reploff += nread;
+        replicationFeedSlavesFromMasterStream(server.slaves,
+                c->querybuf+qblen,nread);
+    }
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
@@ -1607,6 +1641,26 @@ void clientCommand(client *c) {
     } else {
         addReplyError(c, "Syntax error, try CLIENT (LIST | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
     }
+}
+
+/* This callback is bound to POST and "Host:" command names. Those are not
+ * really commands, but are used in security attacks in order to talk to
+ * Redis instances via HTTP, with a technique called "cross protocol scripting"
+ * which exploits the fact that services like Redis will discard invalid
+ * HTTP headers and will process what follows.
+ *
+ * As a protection against this attack, Redis will terminate the connection
+ * when a POST or "Host:" header is seen, and will log the event from
+ * time to time (to avoid creating a DOS as a result of too many logs). */
+void securityWarningCommand(client *c) {
+    static time_t logged_time;
+    time_t now = time(NULL);
+
+    if (labs(now-logged_time) > 60) {
+        serverLog(LL_WARNING,"Possible SECURITY ATTACK detected. It looks like somebody is sending POST or Host: commands to Redis. This is likely due to an attacker attempting to use Cross Protocol Scripting to compromise your Redis instance. Connection aborted.");
+        logged_time = now;
+    }
+    freeClientAsync(c);
 }
 
 /* Rewrite the command vector of the client. All the new objects ref count

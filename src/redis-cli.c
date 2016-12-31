@@ -161,7 +161,7 @@ static void cliRefreshPrompt(void) {
         len = anetFormatAddr(config.prompt, sizeof(config.prompt),
                            config.hostip, config.hostport);
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
+    if (config.dbnum != 0)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
@@ -275,6 +275,10 @@ static void cliIntegrateHelp(void) {
      * don't already match what we have. */
     for (size_t j = 0; j < reply->elements; j++) {
         redisReply *entry = reply->element[j];
+        if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
+            entry->element[0]->type != REDIS_REPLY_STRING ||
+            entry->element[1]->type != REDIS_REPLY_INTEGER ||
+            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
         char *cmdname = entry->element[0]->str;
         int i;
 
@@ -336,7 +340,7 @@ static void cliOutputGenericHelp(void) {
         "      \"help <tab>\" to get a list of possible help topics\n"
         "      \"quit\" to exit\n"
         "\n"
-        "To set redis-cli perferences:\n"
+        "To set redis-cli preferences:\n"
         "      \":set hints\" enable online hints\n"
         "      \":set nohints\" disable online hints\n"
         "Set your preferences in ~/.redisclirc\n",
@@ -843,8 +847,10 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
-                      ((!strcasecmp(argv[1],"jemalloc") && !strcasecmp(argv[2],"info")) ||
-                       !strcasecmp(argv[1],"htstats"))) ||
+                       !strcasecmp(argv[1],"htstats")) ||
+        (argc >= 2 && !strcasecmp(command,"memory") &&
+                      (!strcasecmp(argv[1],"malloc-stats") ||
+                       !strcasecmp(argv[1],"doctor"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
@@ -916,7 +922,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2) {
+            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && argc == 2) {
@@ -1220,7 +1226,7 @@ static sds *cliSplitArgs(char *line, int *argc) {
     }
 }
 
-/* Set the CLI perferences. This function is invoked when an interactive
+/* Set the CLI preferences. This function is invoked when an interactive
  * ":command" is called, or when reading ~/.redisclirc file, in order to
  * set user preferences. */
 void cliSetPreferences(char **argv, int argc, int interactive) {
@@ -1255,6 +1261,7 @@ void cliLoadPreferences(void) {
             if (argc > 0) cliSetPreferences(argv,argc,0);
             sdsfreesplitres(argv,argc);
         }
+        fclose(fp);
     }
     sdsfree(rcfile);
 }
@@ -2402,7 +2409,7 @@ long long powerLawRand(long long min, long long max, double alpha) {
 /* Generates a key name among a set of lru_test_sample_size keys, using
  * an 80-20 distribution. */
 void LRUTestGenKey(char *buf, size_t buflen) {
-    snprintf(buf, buflen, "lru:%lld\n",
+    snprintf(buf, buflen, "lru:%lld",
         powerLawRand(1, config.lru_test_sample_size, 6.2));
 }
 
@@ -2424,8 +2431,11 @@ static void LRUTestMode(void) {
         while(mstime() - start_cycle < 1000) {
             /* Write cycle. */
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++) {
+                char val[6];
+                val[5] = '\0';
+                for (int i = 0; i < 5; i++) val[i] = 'A'+rand()%('z'-'A');
                 LRUTestGenKey(key,sizeof(key));
-                redisAppendCommand(context, "SET %s val",key);
+                redisAppendCommand(context, "SET %s %s",key,val);
             }
             for (j = 0; j < LRU_CYCLE_PIPELINE_SIZE; j++)
                 redisGetReply(context, (void**)&reply);

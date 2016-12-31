@@ -189,4 +189,13 @@ start_server {tags {"bitops"}} {
         r set bits 1
         r bitfield bits get u1 0
     } {0}
+
+    test {BITFIELD regression for #3564} {
+        for {set j 0} {$j < 10} {incr j} {
+            r del mystring
+            set res [r BITFIELD mystring SET i8 0 10 SET i8 64 10 INCRBY i8 10 99900]
+            assert {$res eq {0 0 60}}
+        }
+        r del mystring
+    }
 }
