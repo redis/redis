@@ -200,7 +200,7 @@ API:
 The string returned by the above command must be freed using a corresponding
 call to `RedisModule_FreeString()`:
 
-    void RedisModule_FreeString(RedisModuleString *str);
+    void RedisModule_FreeString(RedisModuleCtx *ctx, RedisModuleString *str);
 
 However if you want to avoid having to free strings, the automatic memory
 management, covered later in this document, can be a good alternative, by
