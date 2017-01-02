@@ -94,15 +94,17 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocatoin wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-robj *activeDefragStringOb(robj* ob) {
+robj *activeDefragStringOb(robj* ob, int *defragged) {
     robj *ret = NULL;
     if (ob->refcount!=1)
         return NULL;
 
     /* try to defrag robj (only if not an EMBSTR type (handled below) */
     if (ob->type!=OBJ_STRING || ob->encoding!=OBJ_ENCODING_EMBSTR) {
-        if ((ret = activeDefragAlloc(ob)))
+        if ((ret = activeDefragAlloc(ob))) {
             ob = ret;
+            (*defragged)++;
+        }
     }
 
     /* try to defrag string object */
@@ -111,18 +113,14 @@ robj *activeDefragStringOb(robj* ob) {
             sds newsds = activeDefragSds((sds)ob->ptr);
             if (newsds) {
                 ob->ptr = newsds;
-                /* we don't need to change the return value here.
-                 * we can return NULL if 'ret' is still NULL (since the object pointer itself wasn't changed).
-                 * but we set return value to ob as an indication that we defragged a pointer (for stats).
-                 * NOTE: if ret is already set and the robj was moved, then our stats will be a bit off 
-                 * since two pointers were moved, but we show only one in the stats */
-                ret = ob;
+                (*defragged)++;
             }
         } else if (ob->encoding==OBJ_ENCODING_EMBSTR) {
             /* the sds is embedded in the object allocation, calculate the offset and update the pointer in the new allocation */
             long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
             if ((ret = activeDefragAlloc(ob))) {
                 ret->ptr = (void*)((intptr_t)ret + ofs);
+                (*defragged)++;
             }
         } else if (ob->encoding!=OBJ_ENCODING_INT) {
             serverPanic("Unknown string encoding");
@@ -191,18 +189,18 @@ void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnod
         if (update[i]->level[i].forward == oldnode)
             update[i]->level[i].forward = newnode;
     }
-    if (zsl->header==oldnode)
-        zsl->header = newnode;
-    if (zsl->tail==oldnode)
-        zsl->tail = newnode;
+    serverAssert(zsl->header!=oldnode);
     if (newnode->level[0].forward) {
         serverAssert(newnode->level[0].forward->backward==oldnode);
         newnode->level[0].forward->backward = newnode;
+    } else {
+        serverAssert(zsl->tail==oldnode);
+        zsl->tail = newnode;
     }
 }
 
 /* Defrag helper for sorted set.
- * Update the robj pointer, defrag the struct and return the new score reference.
+ * Update the robj pointer, defrag the skiplist struct and return the new score reference.
  * we may not access oldele pointer (not even the pointer stored in the skiplist), as it was already freed.
  * newele may be null, in which case we only need to defrag the skiplist, but not update the obj pointer.
  * when return value is non-NULL, it is the score reference that must be updated in the dict record. */
@@ -229,12 +227,34 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
     serverAssert(x && score == x->score && x->ele==oldele);
     if (newele)
         x->ele = newele;
-    
+
     /* try to defrag the skiplist record itself */
     newx = activeDefragAlloc(x);
     if (newx) {
         zslUpdateNode(zsl, x, newx, update);
         return &newx->score;
+    }
+    return NULL;
+}
+
+/* Utility function that replaces an old key pointer in the dictionary with a new pointer.
+ * Additionally, we try to defrag the dictEntry in that dict.
+ * oldkey mey be a dead pointer and should not be accessed (we get a pre-calculated hash value).
+ * newkey may be null if the key pointer wasn't moved.
+ * return value is the the dictEntry if found, or NULL if not found.
+ * NOTE: this is very ugly code, but it let's us avoid the complication of doing a scan on another dict. */
+dictEntry* replaceSateliteDictKeyPtrAndOrDifragDictEntry(dict *d, sds oldkey, sds newkey, unsigned int hash, int *defragged) {
+    dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash);
+    if (deref) {
+        dictEntry *de = *deref;
+        dictEntry *newde = activeDefragAlloc(de);
+        if (newde) {
+            de = *deref = newde;
+            (*defragged)++;
+        }
+        if (newkey)
+            de->key = newkey;
+        return de;
     }
     return NULL;
 }
@@ -252,24 +272,21 @@ int defargKey(redisDb *db, dictEntry *de) {
     
     /* try to defrag the key name */
     newsds = activeDefragSds(keysds);
-    if (newsds) {
-        de->key = newsds;
-        if (dictSize(db->expires)) {
-             /* Dirty code:
-              * i can't search in db->expires for that key after i already released the pointer it holds 
-              * it won't be able to do the string compare */
-            unsigned int hash = dictGetHash(db->dict, newsds);
-            dictReplaceKeyPtr(db->expires, keysds, newsds, hash);
-        }
-        defragged++;
+    if (newsds)
+        defragged++, de->key = newsds;
+    if (dictSize(db->expires)) {
+         /* Dirty code:
+          * i can't search in db->expires for that key after i already released the pointer it holds
+          * it won't be able to do the string compare */
+        unsigned int hash = dictGetHash(db->dict, de->key);
+        replaceSateliteDictKeyPtrAndOrDifragDictEntry(db->expires, keysds, newsds, hash, &defragged);
     }
 
     /* try to defrag robj and / or string value */
     ob = dictGetVal(de);
-    if ((newob = activeDefragStringOb(ob))) {
+    if ((newob = activeDefragStringOb(ob, &defragged))) {
         de->v.val = newob;
         ob = newob;
-        defragged++;
     }
 
     if (ob->type == OBJ_STRING) {
@@ -328,13 +345,15 @@ int defargKey(redisDb *db, dictEntry *de) {
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = (zset*)ob->ptr;
-            zset *newzs = activeDefragAlloc(zs);
+            zset *newzs;
             zskiplist *newzsl;
-            if (newzs)
+            struct zskiplistNode *newheader;
+            if ((newzs = activeDefragAlloc(zs)))
                 defragged++, ob->ptr = zs = newzs;
-            newzsl = activeDefragAlloc(zs->zsl);
-            if (newzsl)
+            if ((newzsl = activeDefragAlloc(zs->zsl)))
                 defragged++, zs->zsl = newzsl;
+            if ((newheader = activeDefragAlloc(zs->zsl->header)))
+                defragged++, zs->zsl->header = newheader;
             d = zs->dict;
             di = dictGetIterator(d);
             while((de = dictNext(di)) != NULL) {
@@ -383,7 +402,6 @@ int defargKey(redisDb *db, dictEntry *de) {
 
 /* defrag scan callback for the main db dictionary */
 void defragScanCallback(void *privdata, const dictEntry *de) {
-    /* TODO: defrag the dictEntry (and also the entriy in expire dict). */
     int defragged = defargKey((redisDb*)privdata, (dictEntry*)de);
     server.stat_active_defrag_hits += defragged;
     if(defragged)

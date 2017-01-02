@@ -179,7 +179,7 @@ void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
 unsigned int dictGetHash(dict *d, const void *key);
-dictEntry *dictReplaceKeyPtr(dict *d, const void *oldptr, void *newptr, unsigned int hash);
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
