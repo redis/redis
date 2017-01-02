@@ -1048,25 +1048,25 @@ unsigned int dictGetHash(dict *d, const void *key) {
     return dictHashKey(d, key);
 }
 
-/* Replace an old key pointer in the dictionary with a new pointer.
+/* Finds the dictEntry reference by using pointer and pre-calculated hash.
  * oldkey is a dead pointer and should not be accessed.
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
- * return value is the dictEntry if found, or NULL if not found. */
-dictEntry *dictReplaceKeyPtr(dict *d, const void *oldptr, void *newptr, unsigned int hash) {
-    dictEntry *he;
+ * return value is the reference to the dictEntry if found, or NULL if not found. */
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash) {
+    dictEntry *he, **heref;
     unsigned int idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
-        he = d->ht[table].table[idx];
+        heref = &d->ht[table].table[idx];
+        he = *heref;
         while(he) {
-            if (oldptr==he->key) {
-                he->key = newptr;
-                return he;
-            }
-            he = he->next;
+            if (oldptr==he->key)
+                return heref;
+            heref = &he->next;
+            he = *heref;
         }
         if (!dictIsRehashing(d)) return NULL;
     }
