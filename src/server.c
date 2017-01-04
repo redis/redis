@@ -981,6 +981,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Sample the RSS here since this is a relatively slow call. */
     server.resident_set_size = zmalloc_get_rss();
 
+    /* Sample the Swap Memorys since this is a relatively slow call. */
+    server.swap_memory = zmalloc_get_swap();
+
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap) {
@@ -1828,6 +1831,7 @@ void initServer(void) {
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.resident_set_size = 0;
+    server.swap_memory = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -2829,6 +2833,7 @@ sds genRedisInfoString(char *section) {
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
+        char swap_memory_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
@@ -2848,6 +2853,7 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
         bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
+        bytesToHuman(swap_memory_hmem,server.swap_memory);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
@@ -2857,6 +2863,8 @@ sds genRedisInfoString(char *section) {
             "used_memory_human:%s\r\n"
             "used_memory_rss:%zu\r\n"
             "used_memory_rss_human:%s\r\n"
+            "swap_memory:%zu\r\n"
+            "swap_memory_human:%s\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
             "used_memory_peak_perc:%.2f%%\r\n"
@@ -2878,6 +2886,8 @@ sds genRedisInfoString(char *section) {
             hmem,
             server.resident_set_size,
             used_memory_rss_hmem,
+            server.swap_memory,
+            swap_memory_hmem,
             server.stat_peak_memory,
             peak_hmem,
             mh->peak_perc,

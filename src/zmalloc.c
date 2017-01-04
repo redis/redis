@@ -405,4 +405,8 @@ size_t zmalloc_get_memory_size(void) {
 #endif
 }
 
-
+size_t zmalloc_get_swap() {
+    size_t swap = 0;
+    swap = zmalloc_get_smap_bytes_by_field("Swap:", getpid());
+    return swap;
+}
