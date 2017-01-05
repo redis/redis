@@ -1798,6 +1798,7 @@ void rpushCommand(client *c);
 void lpushxCommand(client *c);
 void rpushxCommand(client *c);
 void linsertCommand(client *c);
+void liinsertCommand(client *c);
 void lpopCommand(client *c);
 void rpopCommand(client *c);
 void llenCommand(client *c);
