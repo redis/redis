@@ -305,6 +305,55 @@ void linsertCommand(client *c) {
     addReplyLongLong(c,listTypeLength(subject));
 }
 
+void liinsertCommand(client *c) {
+    int where;
+    robj *subject;
+    listTypeIterator *iter;
+    listTypeEntry entry;
+    int inserted = 0;
+    int index = 0;
+    int count = 0;
+
+    if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
+        where = LIST_TAIL;
+    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
+        where = LIST_HEAD;
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    
+    if ((getLongFromObjectOrReply(c, c->argv[3], &index, NULL) != C_OK)) return;
+
+    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,OBJ_LIST)) return;
+
+    /* Seek pivot from head to tail */
+    iter = listTypeInitIterator(subject,0,LIST_TAIL);
+    while (listTypeNext(iter,&entry)) {
+        if (count == index) {
+            listTypeInsert(&entry,c->argv[4],where);
+            inserted = 1;
+            break;
+        }        
+        count++;
+    }
+    listTypeReleaseIterator(iter);
+
+    if (inserted) {
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_LIST,"liinsert",
+                            c->argv[1],c->db->id);
+        server.dirty++;
+    } else {
+        /* Notify client of a failed insert */
+        addReply(c,shared.cnegone);
+        return;
+    }
+
+    addReplyLongLong(c,listTypeLength(subject));
+}
+
 void llenCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
