@@ -734,7 +734,7 @@ int loadAppendOnlyFile(char *filename) {
          * argv/argc of the client instead of the local variables. */
         freeFakeClientArgv(fakeClient);
         fakeClient->cmd = NULL;
-        if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_broken) valid_up_to = ftello(fp);
     }
 
     /* This point can only be reached when EOF is reached without errors.
@@ -787,6 +787,30 @@ uxeof: /* Unexpected AOF end of file. */
     exit(1);
 
 fmterr: /* Format error. */
+    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail is less than a specified size,
+     * try to recover it automatically */
+    if (server.aof_load_broken) {
+        if (valid_up_to == -1) {
+                serverLog(LL_WARNING,"Last valid command offset is invalid");
+        } else if (sb.st_size - valid_up_to < server.aof_load_broken_max_size) {
+            if (truncate(filename,valid_up_to) == -1) {
+                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
+                    strerror(errno));
+            } else {
+                /* Make sure the AOF file descriptor points to the end of the
+                 * file after the truncate call. */
+                if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
+                    serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
+                        strerror(errno));
+                } else {
+                    serverLog(LL_WARNING,
+                        "AOF loaded anyway because aof-load-broken is enabled and broken size '%ld' is less than aof-load-broken-max-size '%ld'",
+                        sb.st_size - valid_up_to, server.aof_load_broken_max_size);
+                    goto loaded_ok;
+                }
+            }
+        }
+    }
     if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);

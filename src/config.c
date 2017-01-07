@@ -479,6 +479,14 @@ void loadServerConfigFromString(char *config) {
             if ((server.aof_load_truncated = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"aof-load-broken") && argc == 2) {
+            if ((server.aof_load_broken = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"aof-load-broken-max-size") &&
+                   argc == 2)
+        {
+            server.aof_load_broken_max_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"aof-use-rdb-preamble") && argc == 2) {
             if ((server.aof_use_rdb_preamble = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -964,6 +972,8 @@ void configSetCommand(client *c) {
     } config_set_bool_field(
       "aof-load-truncated",server.aof_load_truncated) {
     } config_set_bool_field(
+      "aof-load-broken",server.aof_load_broken) {
+    } config_set_bool_field(
       "aof-use-rdb-preamble",server.aof_use_rdb_preamble) {
     } config_set_bool_field(
       "slave-serve-stale-data",server.repl_serve_stale_data) {
@@ -1002,6 +1012,8 @@ void configSetCommand(client *c) {
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
     } config_set_numerical_field(
       "auto-aof-rewrite-min-size",server.aof_rewrite_min_size,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "aof-load-broken-max-size",server.aof_load_broken_max_size,0,LLONG_MAX) {
     } config_set_numerical_field(
       "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
@@ -1170,6 +1182,8 @@ void configGetCommand(client *c) {
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
             server.aof_rewrite_min_size);
+    config_get_numerical_field("aof-load-broken-max-size",
+            server.aof_load_broken_max_size);
     config_get_numerical_field("hash-max-ziplist-entries",
             server.hash_max_ziplist_entries);
     config_get_numerical_field("hash-max-ziplist-value",
@@ -1239,6 +1253,8 @@ void configGetCommand(client *c) {
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
             server.aof_load_truncated);
+    config_get_bool_field("aof-load-broken",
+            server.aof_load_broken);
     config_get_bool_field("aof-use-rdb-preamble",
             server.aof_use_rdb_preamble);
     config_get_bool_field("lazyfree-lazy-eviction",
@@ -1936,6 +1952,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"no-appendfsync-on-rewrite",server.aof_no_fsync_on_rewrite,CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE);
     rewriteConfigNumericalOption(state,"auto-aof-rewrite-percentage",server.aof_rewrite_perc,AOF_REWRITE_PERC);
     rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,AOF_REWRITE_MIN_SIZE);
+    rewriteConfigBytesOption(state,"aof-load-broken-max-size",server.aof_load_broken_max_size,AOF_LOAD_BROKEN_MAX_SIZE);
     rewriteConfigNumericalOption(state,"lua-time-limit",server.lua_time_limit,LUA_SCRIPT_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
@@ -1961,6 +1978,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hz",server.hz,CONFIG_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
     rewriteConfigYesNoOption(state,"aof-load-truncated",server.aof_load_truncated,CONFIG_DEFAULT_AOF_LOAD_TRUNCATED);
+    rewriteConfigYesNoOption(state,"aof-load-broken",server.aof_load_broken,CONFIG_DEFAULT_AOF_LOAD_BROKEN);
     rewriteConfigYesNoOption(state,"aof-use-rdb-preamble",server.aof_use_rdb_preamble,CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE);
     rewriteConfigEnumOption(state,"supervised",server.supervised_mode,supervised_mode_enum,SUPERVISED_NONE);
     rewriteConfigYesNoOption(state,"lazyfree-lazy-eviction",server.lazyfree_lazy_eviction,CONFIG_DEFAULT_LAZYFREE_LAZY_EVICTION);
