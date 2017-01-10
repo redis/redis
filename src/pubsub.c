@@ -67,12 +67,14 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         /* Add the client to the channel -> list of clients hash table */
         de = dictFind(server.pubsub_channels,channel);
         if (de == NULL) {
+            notifySubspaceEvent(NOTIFY_CHANNEL_CREATE,"channel_create",channel);
             clients = listCreate();
             dictAdd(server.pubsub_channels,channel,clients);
             incrRefCount(channel);
         } else {
             clients = dictGetVal(de);
         }
+        notifySubspaceEvent(NOTIFY_SUBSCRIBED,"subscribe",channel);
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
@@ -103,11 +105,13 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
         ln = listSearchKey(clients,c);
         serverAssertWithInfo(c,NULL,ln != NULL);
         listDelNode(clients,ln);
+        notifySubspaceEvent(NOTIFY_SUBSCRIBED,"unsubscribe",channel);
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
             dictDelete(server.pubsub_channels,channel);
+            notifySubspaceEvent(NOTIFY_CHANNEL_DROP,"channel_drop",channel);
         }
     }
     /* Notify the client */
