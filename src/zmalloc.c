@@ -119,8 +119,8 @@ void *zmalloc(size_t size) {
 
 /* Allocation and free functions that bypass the thread cache
  * and go straight to the allocator arena bins.
- * Currently implemented only for jemalloc */
-#if defined(USE_JEMALLOC) && defined(MALLOCX_TCACHE_NONE)
+ * Currently implemented only for jemalloc. Used for online defragmentation. */
+#ifdef HAVE_DEFRAG
 void *zmalloc_no_tcache(size_t size) {
     void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_TCACHE_NONE);
     if (!ptr) zmalloc_oom_handler(size);
