@@ -272,7 +272,7 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. Returns a stat of how many pointers were
  * moved. */
-int defargKey(redisDb *db, dictEntry *de) {
+int defragKey(redisDb *db, dictEntry *de) {
     sds keysds = dictGetKey(de);
     robj *newob, *ob;
     unsigned char *newzl;
@@ -414,7 +414,7 @@ int defargKey(redisDb *db, dictEntry *de) {
 
 /* Defrag scan callback for the main db dictionary. */
 void defragScanCallback(void *privdata, const dictEntry *de) {
-    int defragged = defargKey((redisDb*)privdata, (dictEntry*)de);
+    int defragged = defragKey((redisDb*)privdata, (dictEntry*)de);
     server.stat_active_defrag_hits += defragged;
     if(defragged)
         server.stat_active_defrag_key_hits++;
