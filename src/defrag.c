@@ -308,7 +308,7 @@ int defargKey(redisDb *db, dictEntry *de) {
             quicklistNode *node = ql->head, *newnode;
             if ((newql = activeDefragAlloc(ql)))
                 defragged++, ob->ptr = ql = newql;
-            do {
+            while (node) {
                 if ((newnode = activeDefragAlloc(node))) {
                     if (newnode->prev)
                         newnode->prev->next = newnode;
@@ -323,7 +323,8 @@ int defargKey(redisDb *db, dictEntry *de) {
                 }
                 if ((newzl = activeDefragAlloc(node->zl)))
                     defragged++, node->zl = newzl;
-            } while ((node = node->next));
+                node = node->next;
+            }
         } else if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 defragged++, ob->ptr = newzl;
