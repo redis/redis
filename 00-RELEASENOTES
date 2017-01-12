@@ -95,6 +95,9 @@ Major features
 
 * Redis uses now less memory in order to store the same amount of data. The gain depends a lot on the kind of dataset stored.
 
+* Redis is now able to defragment the used memory and reclaim space incrementally
+while running. See the example `redis.conf` for more information.
+
 Smaller features
 ---
 
