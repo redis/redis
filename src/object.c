@@ -786,6 +786,14 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_MODULE) {
+        moduleValue *mv = o->ptr;
+        moduleType *mt = mv->type;
+        if (mt->mem_usage != NULL) {
+            asize = mt->mem_usage(mv->value);
+        } else {
+            asize = 0;
+        }
     } else {
         serverPanic("Unknown object type");
     }
