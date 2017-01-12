@@ -406,6 +406,9 @@ int defragKey(redisDb *db, dictEntry *de) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (ob->type == OBJ_MODULE) {
+        /* Currently defragmenting modules private data types
+         * is not supported. */
     } else {
         serverPanic("Unknown object type");
     }
