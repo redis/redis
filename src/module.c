@@ -2743,8 +2743,8 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeLoadFunc rdb_load;
         moduleTypeSaveFunc rdb_save;
         moduleTypeRewriteFunc aof_rewrite;
-        moduleTypeDigestFunc digest;
         moduleTypeMemUsageFunc mem_usage;
+        moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
     } *tms = (struct typemethods*) typemethods_ptr;
 
