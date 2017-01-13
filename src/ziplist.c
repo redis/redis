@@ -187,7 +187,7 @@ typedef struct zlentry {
 void ziplistRepr(unsigned char *zl);
 
 /* Return bytes needed to store integer encoded by 'encoding' */
-static unsigned int zipIntSize(unsigned char encoding) {
+unsigned int zipIntSize(unsigned char encoding) {
     switch(encoding) {
     case ZIP_INT_8B:  return 1;
     case ZIP_INT_16B: return 2;
@@ -202,7 +202,7 @@ static unsigned int zipIntSize(unsigned char encoding) {
 
 /* Encode the length 'rawlen' writing it in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. */
-static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
+unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
     unsigned char len = 1, buf[5];
 
     if (ZIP_IS_STR(encoding)) {
@@ -266,7 +266,7 @@ static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, un
 
 /* Encode the length of the previous entry and write it to "p". Return the
  * number of bytes needed to encode this length if "p" is NULL. */
-static unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
+unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
     if (p == NULL) {
         return (len < ZIP_BIGLEN) ? 1 : sizeof(len)+1;
     } else {
@@ -284,7 +284,7 @@ static unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
 
 /* Encode the length of the previous entry and write it to "p". This only
  * uses the larger encoding (required in __ziplistCascadeUpdate). */
-static void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
+void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
     if (p == NULL) return;
     p[0] = ZIP_BIGLEN;
     memcpy(p+1,&len,sizeof(len));
@@ -316,14 +316,14 @@ static void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
 
 /* Return the difference in number of bytes needed to store the length of the
  * previous element 'len', in the entry pointed to by 'p'. */
-static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
+int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
     unsigned int prevlensize;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
     return zipPrevEncodeLength(NULL, len) - prevlensize;
 }
 
 /* Return the total number of bytes used by the entry pointed to by 'p'. */
-static unsigned int zipRawEntryLength(unsigned char *p) {
+unsigned int zipRawEntryLength(unsigned char *p) {
     unsigned int prevlensize, encoding, lensize, len;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
     ZIP_DECODE_LENGTH(p + prevlensize, encoding, lensize, len);
@@ -332,7 +332,7 @@ static unsigned int zipRawEntryLength(unsigned char *p) {
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
  * Stores the integer value in 'v' and its encoding in 'encoding'. */
-static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
+int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
     long long value;
 
     if (entrylen >= 32 || entrylen == 0) return 0;
@@ -359,7 +359,7 @@ static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long
 }
 
 /* Store integer 'value' at 'p', encoded as 'encoding' */
-static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
+void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
     int16_t i16;
     int32_t i32;
     int64_t i64;
@@ -389,7 +389,7 @@ static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encodi
 }
 
 /* Read integer encoded as 'encoding' from 'p' */
-static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
+int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
     int16_t i16;
     int32_t i32;
     int64_t i64, ret = 0;
@@ -421,7 +421,7 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
 }
 
 /* Return a struct with all information about an entry. */
-static void zipEntry(unsigned char *p, zlentry *e) {
+void zipEntry(unsigned char *p, zlentry *e) {
 
     ZIP_DECODE_PREVLEN(p, e->prevrawlensize, e->prevrawlen);
     ZIP_DECODE_LENGTH(p + e->prevrawlensize, e->encoding, e->lensize, e->len);
@@ -441,7 +441,7 @@ unsigned char *ziplistNew(void) {
 }
 
 /* Resize the ziplist. */
-static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
+unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
     zl = zrealloc(zl,len);
     ZIPLIST_BYTES(zl) = intrev32ifbe(len);
     zl[len-1] = ZIP_END;
@@ -468,7 +468,7 @@ static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
  *
  * The pointer "p" points to the first entry that does NOT need to be
  * updated, i.e. consecutive fields MAY need an update. */
-static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
+unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
     size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), rawlen, rawlensize;
     size_t offset, noffset, extra;
     unsigned char *np;
@@ -530,7 +530,7 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
 }
 
 /* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
-static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
+unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
     unsigned int i, totlen, deleted = 0;
     size_t offset;
     int nextdiff = 0;
@@ -590,7 +590,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
 }
 
 /* Insert item at "p". */
-static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
     size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen;
     unsigned int prevlensize, prevlen = 0;
     size_t offset;
