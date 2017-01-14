@@ -1667,7 +1667,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
-            readlen = ok_slaves[0]*sizeof(uint64_t)*2;
+            readlen = ok_slaves[0]*sizeof(uint64_t) << 1;
 
             /* Make space for enough elements as specified by the first
              * uint64_t element in the array. */

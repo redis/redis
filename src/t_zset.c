@@ -1545,7 +1545,7 @@ void zaddGenericCommand(client *c, int flags) {
      * either execute fully or nothing at all. */
     scores = zmalloc(sizeof(double)*elements);
     for (j = 0; j < elements; j++) {
-        if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
+        if (getDoubleFromObjectOrReply(c,c->argv[scoreidx + (j << 1)],&scores[j],NULL)
             != C_OK) goto cleanup;
     }
 
@@ -1573,7 +1573,7 @@ void zaddGenericCommand(client *c, int flags) {
         score = scores[j];
         int retflags = flags;
 
-        ele = c->argv[scoreidx+1+j*2]->ptr;
+        ele = c->argv[scoreidx + 1 + (j << 1)]->ptr;
         int retval = zsetAdd(zobj, score, ele, &retflags, &newscore);
         if (retval == 0) {
             addReplyError(c,nanerr);
@@ -2395,7 +2395,7 @@ void zrangeGenericCommand(client *c, int reverse) {
     rangelen = (end-start)+1;
 
     /* Return the result in form of a multi-bulk reply */
-    addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
+    addReplyMultiBulkLen(c, withscores ? (rangelen << 1) : rangelen);
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;

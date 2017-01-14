@@ -1989,7 +1989,7 @@ int clusterProcessPacket(clusterLink *link) {
         resetManualFailover();
         server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
-        pauseClients(mstime()+(CLUSTER_MF_TIMEOUT*2));
+        pauseClients(mstime()+(CLUSTER_MF_TIMEOUT << 1));
         serverLog(LL_WARNING,"Manual failover requested by slave %.40s.",
             sender->name);
     } else if (type == CLUSTERMSG_TYPE_UPDATE) {
@@ -2302,7 +2302,7 @@ void clusterSendPing(clusterLink *link, int type) {
         if (this == myself) continue;
 
         /* Give a bias to FAIL/PFAIL nodes. */
-        if (maxiterations > wanted*2 &&
+        if (maxiterations > (wanted << 1) &&
             !(this->flags & (CLUSTER_NODE_PFAIL|CLUSTER_NODE_FAIL)))
             continue;
 
@@ -2589,7 +2589,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
                 "Failover auth denied to %.40s: "
                 "can't vote about this master before %lld milliseconds",
                 node->name,
-                (long long) ((server.cluster_node_timeout*2)-
+                (long long) ((server.cluster_node_timeout << 1)-
                              (mstime() - node->slaveof->voted_time)));
         return;
     }
@@ -2777,9 +2777,9 @@ void clusterHandleSlaveFailover(void) {
      * Timeout is MAX(NODE_TIMEOUT*2,2000) milliseconds.
      * Retry is two times the Timeout.
      */
-    auth_timeout = server.cluster_node_timeout*2;
+    auth_timeout = server.cluster_node_timeout << 1;
     if (auth_timeout < 2000) auth_timeout = 2000;
-    auth_retry_time = auth_timeout*2;
+    auth_retry_time = auth_timeout << 1;
 
     /* Pre conditions to run the function, that must be met both in case
      * of an automatic or manual failover:

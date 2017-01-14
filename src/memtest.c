@@ -100,7 +100,7 @@ int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
         *p = (unsigned long)p;
         p++;
         if ((j & 0xffff) == 0 && interactive)
-            memtest_progress_step(j,words*2,'A');
+            memtest_progress_step(j,words << 1,'A');
     }
     /* Test */
     p = l;
@@ -115,7 +115,7 @@ int memtest_addressing(unsigned long *l, size_t bytes, int interactive) {
         }
         p++;
         if ((j & 0xffff) == 0 && interactive)
-            memtest_progress_step(j+words,words*2,'A');
+            memtest_progress_step(j+words,words << 1,'A');
     }
     return 0;
 }
@@ -285,7 +285,7 @@ int memtest_preserving_test(unsigned long *m, size_t bytes, int passes) {
     int errors = 0;
 
     if (bytes & 4095) return 0; /* Can't test across 4k page boundaries. */
-    if (bytes < 4096*2) return 0; /* Can't test a single page. */
+    if (bytes < (4096 << 1)) return 0; /* Can't test a single page. */
 
     while(left) {
         /* If we have to test a single final page, go back a single page
