@@ -832,8 +832,8 @@ void sentinelCollectTerminatedScripts(void) {
             }
             listDelNode(sentinel.scripts_queue,ln);
             sentinelReleaseScriptJob(sj);
-            sentinel.running_scripts--;
         }
+        sentinel.running_scripts--;
     }
 }
 
