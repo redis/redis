@@ -1292,7 +1292,9 @@ class RedisTrib
         xputs ">>> Performing hash slots allocation on #{@nodes.length} nodes..."
         alloc_slots
         show_nodes
-        yes_or_die "Can I set the above configuration?"
+        unless ENV.fetch('AUTO_ACCEPT', false)
+            yes_or_die "Can I set the above configuration?"
+        end
         flush_nodes_config
         xputs ">>> Nodes configuration updated"
         xputs ">>> Assign a different config epoch to each node"
