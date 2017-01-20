@@ -81,6 +81,7 @@ static redisContext *context;
 static struct config {
     char *hostip;
     int hostport;
+    struct timeval connect_timeout;
     char *hostsocket;
     long repeat;
     long interval;
@@ -516,7 +517,8 @@ static int cliConnect(int force) {
         }
 
         if (config.hostsocket == NULL) {
-            context = redisConnect(config.hostip,config.hostport);
+            context = redisConnectWithTimeout(config.hostip,config.hostport,
+                                              config.connect_timeout);
         } else {
             context = redisConnectUnix(config.hostsocket);
         }
@@ -951,7 +953,8 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
             fflush(stdout);
 
             redisFree(c);
-            c = redisConnect(config.hostip,config.hostport);
+            c = redisConnectWithTimeout(config.hostip,config.hostport,
+                                              config.connect_timeout);
             usleep(1000000);
         }
 
@@ -992,6 +995,8 @@ static int parseOptions(int argc, char **argv) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-t") && !lastarg) {
+            config.connect_timeout = (struct timeval){.tv_sec=atoi(argv[++i])};
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
@@ -1108,6 +1113,7 @@ static void usage(void) {
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
+"  -t <timeout>       Server connection timeout in seconds (default: 60).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
 "  -r <repeat>        Execute specified command N times.\n"
@@ -2563,6 +2569,7 @@ int main(int argc, char **argv) {
 
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
+    config.connect_timeout = (struct timeval){ .tv_sec = 60 };
     config.hostsocket = NULL;
     config.repeat = 1;
     config.interval = 0;
