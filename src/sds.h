@@ -84,8 +84,7 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
 /*Get buf address of RAW or EMBSTR */
-static inline char* sdsgetbuf(const sds s)
-{
+static inline char* sdsgetbuf(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
         case SDS_TYPE_5:

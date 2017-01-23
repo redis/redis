@@ -375,30 +375,19 @@ void delcasCommand(client *c) {
     if (c->fd == -1 || (server.masterhost && (c->flags & CLIENT_MASTER))) need_compare = 0;
 
     robj *o = lookupKeyRead(c->db, key);
-    if (o)
-    {
-        if (need_compare)
-        {
+    if (o) {
+        if (need_compare) {
             uint64_t u_version;
-            if (o->type != OBJ_STRING || !version)
-            {
-                //type error or invalid argv version
-                error = 1;
-            }
+            //type error or invalid argv version
+            if (o->type != OBJ_STRING || !version) error = 1;
 
             if (!error && getLongLongFromObjectOrReply(c, version, (long long *)&u_version, NULL) != C_OK) return ;
 
             uint64_t old_u_version = 0;
-            if (!error && tryObjectDecodeCAS(o, &old_u_version))
-            {
-                //value is not cas format
-                error = 1;
-            }
-            if (!error && u_version != old_u_version)
-            {
-                //value's cas version not equal
-                error = 1;
-            }
+            //value is not cas format
+            if (!error && tryObjectDecodeCAS(o, &old_u_version)) error = 1;
+            //value's cas version not equal
+            if (!error && u_version != old_u_version) error = 1;
         }
         //could delete.
         if (!error && dbDelete(c->db, key)) {

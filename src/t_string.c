@@ -156,8 +156,7 @@ void psetexCommand(client *c) {
 
 void setcasGenericCommand(client *c, robj *key, robj *value, robj *version) {
     uint64_t u_version;
-    if (!version)
-    {
+    if (!version) {
         addReplyError(c, "invalid argv version");
         return ;
     }
@@ -173,26 +172,21 @@ void setcasGenericCommand(client *c, robj *key, robj *value, robj *version) {
     when command is from AOF/MASTER sync, it's value already = value+version, so just set directly!
     */
     if (c->fd == -1 || (server.masterhost && (c->flags & CLIENT_MASTER))) need_compare = 0;
-    if (need_compare)
-    {
+    if (need_compare) {
         robj *o = lookupKeyRead(c->db, key);
-        if (o)
-        {
+        if (o) {
             //get o's version
-            if (tryObjectDecodeCAS(o, &old_u_version))
-            {
+            if (tryObjectDecodeCAS(o, &old_u_version)) {
                 addReplyError(c, "value is exist but is not cas");
                 return ;
             }
             //if o's version != u_version
-            if (u_version != old_u_version)
-            {
+            if (u_version != old_u_version) {
                 addReplyErrorFormat(c, "cas version not equal");
                 return ;
             }
         }
-        else if (u_version)
-        {
+        else if (u_version) {
             //when setcas firstly, must version = 0
             //otherwise, i getcas, you delete, i setcas will be fucked up
             addReplyError(c, "value is not exist so your version must = 0");
@@ -200,8 +194,7 @@ void setcasGenericCommand(client *c, robj *key, robj *value, robj *version) {
         }
         //encode new version to value
         new_u_version = ustime();
-        if (tryObjectEncodeCAS(value, &new_u_version))
-        {
+        if (tryObjectEncodeCAS(value, &new_u_version)) {
             addReplyError(c, "encode cas error");
             return ;
         }
@@ -220,24 +213,20 @@ void setcasCommand(client *c) {
 
 int getcasGenericCommand(client *c, robj *key) {
     robj *o = lookupKeyRead(c->db, key);
-    if (o)
-    {
-        if (o->type != OBJ_STRING)
-        {
+    if (o) {
+        if (o->type != OBJ_STRING) {
             addReply(c,shared.wrongtypeerr);
             return C_ERR;
         }
         uint64_t version = 0;
-        if (tryObjectDecodeCAS(o, &version))
-        {
+        if (tryObjectDecodeCAS(o, &version)) {
             addReplyError(c, "value is not cas format");
             return C_ERR;
         }
         //get real string and len
         size_t str_len;
         char *str = tryObjectGetRealValueCAS(o, &str_len);
-        if (!str)
-        {
+        if (!str) {
             addReplyError(c, "value is not cas format");
             return C_ERR;
         }
@@ -247,8 +236,7 @@ int getcasGenericCommand(client *c, robj *key) {
         //client *c, const char *s, size_t len
         addReplyBulkCBuffer(c, str, str_len);
     }
-    else
-    {
+    else {
         //response version = 0 and a nil number
         addReplyMultiBulkLen(c, 2);
         addReply(c, shared.czero);
