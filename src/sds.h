@@ -83,6 +83,25 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/*Get buf address of RAW or EMBSTR */
+static inline char* sdsgetbuf(const sds s)
+{
+    unsigned char flags = s[-1];
+    switch(flags&SDS_TYPE_MASK) {
+        case SDS_TYPE_5:
+            return SDS_HDR(5,s)->buf;
+        case SDS_TYPE_8:
+            return SDS_HDR(8,s)->buf;
+        case SDS_TYPE_16:
+            return SDS_HDR(16,s)->buf;
+        case SDS_TYPE_32:
+            return SDS_HDR(32,s)->buf;
+        case SDS_TYPE_64:
+            return SDS_HDR(64,s)->buf;
+    }
+    return NULL;
+}
+
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {

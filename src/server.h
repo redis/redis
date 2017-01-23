@@ -1182,6 +1182,11 @@ void flagTransaction(client *c);
 void execCommandPropagateMulti(client *c);
 
 /* Redis object implementation */
+int tryObjectEncodeCAS(robj *o, const uint64_t * const u_version);
+int tryObjectEncodeUpdateCAS(robj *o, const uint64_t * const u_version);
+char *tryObjectGetRealValueCAS(robj *o, size_t * const str_len);
+int tryObjectDecodeCAS(robj *o, uint64_t * const u_version);
+robj *tryObjectStringTypeRasingEncoding(robj *o);
 void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
@@ -1481,11 +1486,14 @@ void pingCommand(client *c);
 void echoCommand(client *c);
 void commandCommand(client *c);
 void setCommand(client *c);
+void getcasCommand(client *c);
+void setcasCommand(client *c);
 void setnxCommand(client *c);
 void setexCommand(client *c);
 void psetexCommand(client *c);
 void getCommand(client *c);
 void delCommand(client *c);
+void delcasCommand(client *c);
 void existsCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);

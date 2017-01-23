@@ -357,6 +357,60 @@ void delCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
+/* 
+delete CAS-format string 
+DELETECAS KEY VERSION
+*/
+void delcasCommand(client *c) {
+    robj *key = c->argv[1];
+    robj *version = c->argv[2];
+    int deleted = 0;
+    int error = 0;
+    int need_compare = 1;
+    /*
+    "c->fd == -1" suggest that setcas command is from AOF
+    "c->flags & REDIS_SLAVE" suggest that setcas command is from master (p)sync
+    because it's value already = value+version, so just set directly!
+    */
+    if (c->fd == -1 || (server.masterhost && (c->flags & CLIENT_MASTER))) need_compare = 0;
+
+    robj *o = lookupKeyRead(c->db, key);
+    if (o)
+    {
+        if (need_compare)
+        {
+            uint64_t u_version;
+            if (o->type != OBJ_STRING || !version)
+            {
+                //type error or invalid argv version
+                error = 1;
+            }
+
+            if (!error && getLongLongFromObjectOrReply(c, version, (long long *)&u_version, NULL) != C_OK) return ;
+
+            uint64_t old_u_version = 0;
+            if (!error && tryObjectDecodeCAS(o, &old_u_version))
+            {
+                //value is not cas format
+                error = 1;
+            }
+            if (!error && u_version != old_u_version)
+            {
+                //value's cas version not equal
+                error = 1;
+            }
+        }
+        //could delete.
+        if (!error && dbDelete(c->db, key)) {
+            signalModifiedKey(c->db, key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+            server.dirty++;
+            deleted++;
+        }
+    }
+    addReplyLongLong(c, deleted);
+}
+
 /* EXISTS key1 key2 ... key_N.
  * Return value is the number of keys existing. */
 void existsCommand(client *c) {

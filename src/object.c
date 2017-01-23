@@ -36,6 +36,72 @@
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
+/* CAS-format string =  real value + CAS_BOUND_BEGIN + CAS_BUFF_LEN + CAS_BOUND_END*/
+#define CAS_BUFF_LEN (sizeof (uint64_t) + 2)
+#define CAS_BOUND_BEGIN 6 //`\x06`
+#define CAS_BOUND_END 21 //`\x15`
+
+/* add CAS-format for RAW encoding type string */
+int tryObjectEncodeCAS(robj *o, const uint64_t * const u_version)
+{
+    if (!o || !u_version) return 1;
+    if (o->type != OBJ_STRING || o->encoding != OBJ_ENCODING_RAW) return 1;
+    //create buffer[CAS_BUFF_LEN] = CAS_BOUND_BEGIN + u_version + CAS_BOUND_END
+    char buffer[CAS_BUFF_LEN];
+    buffer[0] = CAS_BOUND_BEGIN;
+    buffer[CAS_BUFF_LEN - 1] = CAS_BOUND_END;
+    *((uint64_t *)(buffer + 1)) = *u_version;
+    o->ptr = sdscatlen(o->ptr, buffer, CAS_BUFF_LEN);
+    if (!o->ptr) return 1;
+    return 0;
+}
+
+/* get CAS version from CAS-format string */
+int tryObjectDecodeCAS(robj *o, uint64_t * const u_version)
+{
+    if (!o || !o->ptr || !u_version) return 1;
+    if (o->type != OBJ_STRING || (o->encoding != OBJ_ENCODING_RAW && o->encoding != OBJ_ENCODING_EMBSTR)) return 1;
+    size_t total_len = sdslen(o->ptr);
+    char* buf = sdsgetbuf(o->ptr);
+    //check if format is cas sds
+    if (total_len <= CAS_BUFF_LEN || !buf || 
+        buf[total_len - CAS_BUFF_LEN] != CAS_BOUND_BEGIN || 
+        buf[total_len - 1] != CAS_BOUND_END) return 1;
+    *u_version = *((uint64_t *)(buf + total_len - CAS_BUFF_LEN + 1));
+    return 0;
+}
+
+/* get real value from CAS-format string */
+char *tryObjectGetRealValueCAS(robj *o, size_t * const str_len)
+{
+    size_t total_len = sdslen(o->ptr);
+    char* buf = sdsgetbuf(o->ptr);
+    *str_len = total_len - CAS_BUFF_LEN;
+    return buf;
+}
+
+/* Try to encode a string object, rasing to RAW encoding type */
+robj *tryObjectStringTypeRasingEncoding(robj *o) {
+    if (o->type != OBJ_STRING || o->encoding == OBJ_ENCODING_RAW) return o;
+    robj *raw = NULL;
+    if (o->encoding == OBJ_ENCODING_INT)
+    {
+        long value = (long)o->ptr;
+        char buf[32];
+        ll2string(buf, 32, value);
+        decrRefCount(shared.integers[value]);
+        raw = createRawStringObject(buf, strlen(buf));
+    }
+    else if (o->encoding == OBJ_ENCODING_EMBSTR)
+    {
+        size_t buf_len = sdslen(o->ptr);
+        char* buf = sdsgetbuf(o->ptr);
+        raw = createRawStringObject(buf, buf_len);
+    }
+    decrRefCount(o);
+    return raw;
+}
+
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;

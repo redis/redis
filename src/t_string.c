@@ -154,6 +154,114 @@ void psetexCommand(client *c) {
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
+void setcasGenericCommand(client *c, robj *key, robj *value, robj *version) {
+    uint64_t u_version;
+    if (!version)
+    {
+        addReplyError(c, "invalid argv version");
+        return ;
+    }
+    if (getLongLongFromObjectOrReply(c, version, (long long *)&u_version, NULL) != C_OK) return ;
+    uint64_t old_u_version;
+    uint64_t new_u_version;
+    int need_compare = 1;
+
+    /*
+    "c->fd == -1" suggest that setcas command is from AOF
+    "server.masterhost != NULL" suggest that i'm a slave of other server = masterhost
+    "c->flags & CLIENT_MASTER" suggest that client is MASTER, or say: setcas command is from master (p)sync
+    when command is from AOF/MASTER sync, it's value already = value+version, so just set directly!
+    */
+    if (c->fd == -1 || (server.masterhost && (c->flags & CLIENT_MASTER))) need_compare = 0;
+    if (need_compare)
+    {
+        robj *o = lookupKeyRead(c->db, key);
+        if (o)
+        {
+            //get o's version
+            if (tryObjectDecodeCAS(o, &old_u_version))
+            {
+                addReplyError(c, "value is exist but is not cas");
+                return ;
+            }
+            //if o's version != u_version
+            if (u_version != old_u_version)
+            {
+                addReplyErrorFormat(c, "cas version not equal");
+                return ;
+            }
+        }
+        else if (u_version)
+        {
+            //when setcas firstly, must version = 0
+            //otherwise, i getcas, you delete, i setcas will be fucked up
+            addReplyError(c, "value is not exist so your version must = 0");
+            return ;
+        }
+        //encode new version to value
+        new_u_version = ustime();
+        if (tryObjectEncodeCAS(value, &new_u_version))
+        {
+            addReplyError(c, "encode cas error");
+            return ;
+        }
+    }
+    setKey(c->db, key, value);
+    server.dirty++;
+    notifyKeyspaceEvent(NOTIFY_STRING, "set", key,c->db->id);
+    addReply(c, shared.ok);
+}
+
+/* SETCAS key value version */
+void setcasCommand(client *c) {
+    c->argv[2] = tryObjectStringTypeRasingEncoding(c->argv[2]);
+    setcasGenericCommand(c, c->argv[1], c->argv[2], c->argv[3]);
+}
+
+int getcasGenericCommand(client *c, robj *key) {
+    robj *o = lookupKeyRead(c->db, key);
+    if (o)
+    {
+        if (o->type != OBJ_STRING)
+        {
+            addReply(c,shared.wrongtypeerr);
+            return C_ERR;
+        }
+        uint64_t version = 0;
+        if (tryObjectDecodeCAS(o, &version))
+        {
+            addReplyError(c, "value is not cas format");
+            return C_ERR;
+        }
+        //get real string and len
+        size_t str_len;
+        char *str = tryObjectGetRealValueCAS(o, &str_len);
+        if (!str)
+        {
+            addReplyError(c, "value is not cas format");
+            return C_ERR;
+        }
+        //response version and a value
+        addReplyMultiBulkLen(c, 2);
+        addReplyLongLong(c, version);
+        //client *c, const char *s, size_t len
+        addReplyBulkCBuffer(c, str, str_len);
+    }
+    else
+    {
+        //response version = 0 and a nil number
+        addReplyMultiBulkLen(c, 2);
+        addReply(c, shared.czero);
+        addReply(c, shared.nullbulk);
+    }
+    return C_OK;
+}
+
+/* GETCAS key, return version and real value */
+void getcasCommand(client *c) {
+    getcasGenericCommand(c, c->argv[1]);
+}
+
 int getGenericCommand(client *c) {
     robj *o;
 
