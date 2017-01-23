@@ -235,6 +235,16 @@ int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
     return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
 }
 
+int anetSetBusyPoll(char *err, int fd, int busy_poll) {
+    if (busy_poll > 0) {
+        if (setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &busy_poll, sizeof(busy_poll)) == -1) {
+            anetSetError(err, "setsockopt SO_BUSY_POLL: %s", strerror(errno));
+            return ANET_ERR;
+        }
+    }
+    return ANET_OK;
+}
+
 static int anetSetReuseAddr(char *err, int fd) {
     int yes = 1;
     /* Make sure connection-intensive things like the redis benckmark
