@@ -246,11 +246,9 @@ void freeStringObject(robj *o) {
 }
 
 void freeListObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_QUICKLIST:
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
-        break;
-    default:
+    } else {
         serverPanic("Unknown list encoding type");
     }
 }
