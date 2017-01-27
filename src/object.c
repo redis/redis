@@ -951,7 +951,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Slaves using more than 10 MB each? */
-        if (mh->clients_slaves / numslaves > (1024*1024*10)) {
+        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
             big_slave_buf = 1;
             num_reports++;
         }
