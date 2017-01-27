@@ -9,78 +9,149 @@
  * ----------------------------------------------------------------------------
  *
  * ZIPLIST OVERALL LAYOUT
+ * ======================
  *
  * The general layout of the ziplist is as follows:
  *
  * <zlbytes> <zltail> <zllen> <entry> <entry> ... <entry> <zlend>
  *
- * All fields are stored in little endian.
+ * NOTE: all fields are stored in little endian, if not specified otherwise.
  *
  * <uint32_t zlbytes> is an unsigned integer to hold the number of bytes that
- * the ziplist occupies. This value needs to be stored to be able to resize the
- * entire structure without the need to traverse it first.
+ * the ziplist occupies, including the four bytes of the zlbytes field itself.
+ * This value needs to be stored to be able to resize the entire structure
+ * without the need to traverse it first.
  *
  * <uint32_t zltail> is the offset to the last entry in the list. This allows
  * a pop operation on the far side of the list without the need for full
  * traversal.
  *
- * <uint16_t zllen> is the number of entries. When this value is larger
- * than 2^16-2, we need to traverse the entire list to know how many items it
- * holds.
+ * <uint16_t zllen> is the number of entries. When there are more than
+ * 2^16-2 entires, this value is set to 2^16-1 and we need to traverse the
+ * entire list to know how many items it holds.
  *
- * <uint8_t zlend> is a single byte special value, equal to 255, which
- * indicates the end of the list.
+ * <uint8_t zlend> is a special entry representing the end of the ziplist.
+ * Is encoded as a single byte equal to 255. No other normal entry starts
+ * with a byte set to the value of 255.
  *
  * ZIPLIST ENTRIES
+ * ===============
  *
- * Every entry in the ziplist is prefixed by a header that contains two pieces
+ * Every entry in the ziplist is prefixed by metadata that contains two pieces
  * of information. First, the length of the previous entry is stored to be
- * able to traverse the list from back to front. Second, the encoding with an
- * optional string length of the entry itself is stored.
+ * able to traverse the list from back to front. Second, the entry encoding is
+ * provided. It represents the entry type, integer or string, and in the case
+ * of strings it also represents the length of the string payload.
+ * So a complete entry is stored like this:
  *
- * The length of the previous entry is encoded in the following way:
- * If this length is smaller than 254 bytes, it will only consume a single
- * byte that takes the length as value. When the length is greater than or
- * equal to 254, it will consume 5 bytes. The first byte is set to 254 to
- * indicate a larger value is following. The remaining 4 bytes take the
- * length of the previous entry as value.
+ * <prevlen> <encoding> <entry-data>
  *
- * The other header field of the entry itself depends on the contents of the
- * entry. When the entry is a string, the first 2 bits of this header will hold
- * the type of encoding used to store the length of the string, followed by the
- * actual length of the string. When the entry is an integer the first 2 bits
- * are both set to 1. The following 2 bits are used to specify what kind of
- * integer will be stored after this header. An overview of the different
- * types and encodings is as follows:
+ * Sometimes the encoding represents the entry itself, like for small integers
+ * as we'll see later. In such a case the <entry-data> part is missing, and we
+ * could have just:
+ *
+ * <prevlen> <encoding>
+ *
+ * The length of the previous entry, <prevlen>, is encoded in the following way:
+ * If this length is smaller than 255 bytes, it will only consume a single
+ * byte representing the length as an unsinged 8 bit integer. When the length
+ * is greater than or equal to 255, it will consume 5 bytes. The first byte is
+ * set to 255 (FF) to indicate a larger value is following. The remaining 4
+ * bytes take the length of the previous entry as value.
+ *
+ * So practically an entry is encoded in the following way:
+ *
+ * <prevlen from 0 to 254> <encoding> <entry>
+ *
+ * Or alternatively if the previous entry length is greater than 254 bytes
+ * the following encoding is used:
+ *
+ * 0xFF <4 bytes unsigned little endian prevlen> <encoding> <entry>
+ *
+ * The encoding field of the entry depends on the content of the
+ * entry. When the entry is a string, the first 2 bits of the encoding first
+ * byte will hold the type of encoding used to store the length of the string,
+ * followed by the actual length of the string. When the entry is an integer
+ * the first 2 bits are both set to 1. The following 2 bits are used to specify
+ * what kind of integer will be stored after this header. An overview of the
+ * different types and encodings is as follows. The first byte is always enough
+ * to determine the kind of entry.
  *
  * |00pppppp| - 1 byte
  *      String value with length less than or equal to 63 bytes (6 bits).
+ *      "pppppp" represents the unsigned 6 bit length.
  * |01pppppp|qqqqqqqq| - 2 bytes
  *      String value with length less than or equal to 16383 bytes (14 bits).
- * |10______|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| - 5 bytes
+ *      IMPORTANT: The 14 bit number is stored in big endian.
+ * |10000000|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| - 5 bytes
  *      String value with length greater than or equal to 16384 bytes.
- * |11000000| - 1 byte
+ *      Only the 4 bytes following the first byte represents the length
+ *      up to 32^2-1. The 6 lower bits of the first byte are not used and
+ *      are set to zero.
+ *      IMPORTANT: The 32 bit number is stored in big endian.
+ * |11000000| - 3 bytes
  *      Integer encoded as int16_t (2 bytes).
- * |11010000| - 1 byte
+ * |11010000| - 5 bytes
  *      Integer encoded as int32_t (4 bytes).
- * |11100000| - 1 byte
+ * |11100000| - 9 bytes
  *      Integer encoded as int64_t (8 bytes).
- * |11110000| - 1 byte
+ * |11110000| - 4 bytes
  *      Integer encoded as 24 bit signed (3 bytes).
- * |11111110| - 1 byte
+ * |11111110| - 2 bytes
  *      Integer encoded as 8 bit signed (1 byte).
  * |1111xxxx| - (with xxxx between 0000 and 1101) immediate 4 bit integer.
  *      Unsigned integer from 0 to 12. The encoded value is actually from
  *      1 to 13 because 0000 and 1111 can not be used, so 1 should be
  *      subtracted from the encoded 4 bit value to obtain the right value.
- * |11111111| - End of ziplist.
+ * |11111111| - End of ziplist special entry.
  *
- * All the integers are represented in little endian byte order.
+ * Like for the ziplist header, all the integers are represented in little
+ * endian byte order, even when this code is compiled in big endian systems.
+ *
+ * EXAMPLES OF ACTUAL ZIPLISTS
+ * ===========================
+ *
+ * The following is a ziplist containing the two elements representing
+ * the strings "2" and "5". It is composed of 15 bytes, that we visually
+ * split into sections:
+ *
+ *  [0f 00 00 00] [0c 00 00 00] [02 00] [00 f3] [02 f6] [ff]
+ *        |             |          |       |       |     |
+ *     zlbytes        zltail    entries   "2"     "5"   end
+ *
+ * The first 4 bytes represent the number 15, that is the number of bytes
+ * the whole ziplist is composed of. The second 4 bytes are the offset
+ * at which the last ziplist entry is found, that is 12, in fact the
+ * last entry, that is "5", is at offset 12 inside the ziplist.
+ * The next 16 bit integer represents the number of elements inside the
+ * ziplist, its value is 2 since there are just two elements inside.
+ * Finally "00 f3" is the first entry representing the number 2. It is
+ * composed of the previous entry length, which is zero because this is
+ * our first entry, and the byte F3 which corresponds to the encoding
+ * |1111xxxx| with xxxx between 0001 and 1101. We need to remove the "F"
+ * higher order bits 1111, and subtract 1 from the "3", so the entry value
+ * is "2". The next entry has a prevlen of 02, since the first entry is
+ * composed of exactly two bytes. The entry itself, F6, is encoded exactly
+ * like the first entry, and 6-1 = 5, so the value of the entry is 5.
+ * Finally the special entry FF signals the end of the ziplist.
+ *
+ * Adding another element to the above string with the value "Hello World"
+ * allows us to show how the ziplist encodes small strings. We'll just show
+ * the hex dump of the entry itself. Imagine the bytes as following the
+ * entry that stores "5" in the ziplist above:
+ *
+ * [02] [0b] [48 65 6c 6c 6f 20 57 6f 72 6c 64]
+ *
+ * The first byte, 02, is the length of the previous entry. The next
+ * byte represents the encoding in the pattern |00pppppp| that means
+ * that the entry is a string of length <pppppp>, so 0B means that
+ * an 11 bytes string follows. From the third byte (48) to the last (64)
+ * there are just the ASCII characters for "Hello World".
  *
  * ----------------------------------------------------------------------------
  *
  * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-2017, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -119,8 +190,13 @@
 #include "endianconv.h"
 #include "redisassert.h"
 
-#define ZIP_END 255
-#define ZIP_BIGLEN 254
+#define ZIP_END 255         /* Special "end of ziplist" entry. */
+#define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
+                               the "prevlen" field prefixing each entry, to be
+                               represented with just a single byte. Otherwise
+                               it is represented as FF AA BB CC DD, where
+                               AA BB CC DD are a 4 bytes unsigned integer
+                               representing the previous entry len. */
 
 /* Different encoding/length possibilities */
 #define ZIP_STR_MASK 0xc0
@@ -133,41 +209,83 @@
 #define ZIP_INT_64B (0xc0 | 2<<4)
 #define ZIP_INT_24B (0xc0 | 3<<4)
 #define ZIP_INT_8B 0xfe
-/* 4 bit integer immediate encoding */
-#define ZIP_INT_IMM_MASK 0x0f
+
+/* 4 bit integer immediate encoding |1111xxxx| with xxxx between
+ * 0001 and 1101. */
+#define ZIP_INT_IMM_MASK 0x0f   /* Mask to extract the 4 bits value. To add
+                                   one is needed to reconstruct the value. */
 #define ZIP_INT_IMM_MIN 0xf1    /* 11110001 */
 #define ZIP_INT_IMM_MAX 0xfd    /* 11111101 */
-#define ZIP_INT_IMM_VAL(v) (v & ZIP_INT_IMM_MASK)
 
 #define INT24_MAX 0x7fffff
 #define INT24_MIN (-INT24_MAX - 1)
 
-/* Macro to determine type */
+/* Macro to determine if the entry is a string. String entries never start
+ * with "11" as most significant bits of the first byte. */
 #define ZIP_IS_STR(enc) (((enc) & ZIP_STR_MASK) < ZIP_STR_MASK)
 
-/* Utility macros */
+/* Utility macros.*/
+
+/* Return total bytes a ziplist is composed of. */
 #define ZIPLIST_BYTES(zl)       (*((uint32_t*)(zl)))
+
+/* Return the offset of the last item inside the ziplist. */
 #define ZIPLIST_TAIL_OFFSET(zl) (*((uint32_t*)((zl)+sizeof(uint32_t))))
+
+/* Return the length of a ziplist, or UINT16_MAX if the length cannot be
+ * determined without scanning the whole ziplist. */
 #define ZIPLIST_LENGTH(zl)      (*((uint16_t*)((zl)+sizeof(uint32_t)*2)))
+
+/* The size of a ziplist header: two 32 bit integers for the total
+ * bytes count and last item offset. One 16 bit integer for the number
+ * of items field. */
 #define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))
+
+/* Size of the "end of ziplist" entry. Just one byte. */
 #define ZIPLIST_END_SIZE        (sizeof(uint8_t))
+
+/* Return the pointer to the first entry of a ziplist. */
 #define ZIPLIST_ENTRY_HEAD(zl)  ((zl)+ZIPLIST_HEADER_SIZE)
+
+/* Return the pointer to the last entry of a ziplist, using the
+ * last entry offset inside the ziplist header. */
 #define ZIPLIST_ENTRY_TAIL(zl)  ((zl)+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)))
+
+/* Return the pointer to the last byte of a ziplist, which is, the
+ * end of ziplist FF entry. */
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
 
-/* We know a positive increment can only be 1 because entries can only be
- * pushed one at a time. */
+/* Increment the number of items field in the ziplist header. Note that this
+ * macro should never overflow the unsigned 16 bit integer, since entires are
+ * always pushed one at a time. When UINT16_MAX is reached we want the count
+ * to stay there to signal that a full scan is needed to get the number of
+ * items inside the ziplist. */
 #define ZIPLIST_INCR_LENGTH(zl,incr) { \
     if (ZIPLIST_LENGTH(zl) < UINT16_MAX) \
         ZIPLIST_LENGTH(zl) = intrev16ifbe(intrev16ifbe(ZIPLIST_LENGTH(zl))+incr); \
 }
 
+/* We use this function to receive information about a ziplist entry.
+ * Note that this is not how the data is actually encoded, is just what we
+ * get filled by a function in order to operate more easily. */
 typedef struct zlentry {
-    unsigned int prevrawlensize, prevrawlen;
-    unsigned int lensize, len;
-    unsigned int headersize;
-    unsigned char encoding;
-    unsigned char *p;
+    unsigned int prevrawlensize; /* Bytes used to encode the previos entry len*/
+    unsigned int prevrawlen;     /* Previous entry len. */
+    unsigned int lensize;        /* Bytes used to encode this entry type/len.
+                                    For example strings have a 1, 2 or 5 bytes
+                                    header. Integers always use a single byte.*/
+    unsigned int len;            /* Bytes used to represent the actual entry.
+                                    For strings this is just the string length
+                                    while for integers it is 1, 2, 3, 4, 8 or
+                                    0 (for 4 bit immediate) depending on the
+                                    number range. */
+    unsigned int headersize;     /* prevrawlensize + lensize. */
+    unsigned char encoding;      /* Set to ZIP_STR_* or ZIP_INT_* depending on
+                                    the entry encoding. However for 4 bits
+                                    immediate integers this can assume a range
+                                    of values and must be range-checked. */
+    unsigned char *p;            /* Pointer to the very start of the entry, that
+                                    is, this points to prev-entry-len field. */
 } zlentry;
 
 #define ZIPLIST_ENTRY_ZERO(zle) { \
@@ -178,15 +296,13 @@ typedef struct zlentry {
 }
 
 /* Extract the encoding from the byte pointed by 'ptr' and set it into
- * 'encoding'. */
+ * 'encoding' field of the zlentry structure. */
 #define ZIP_ENTRY_ENCODING(ptr, encoding) do {  \
     (encoding) = (ptr[0]); \
     if ((encoding) < ZIP_STR_MASK) (encoding) &= ZIP_STR_MASK; \
 } while(0)
 
-void ziplistRepr(unsigned char *zl);
-
-/* Return bytes needed to store integer encoded by 'encoding' */
+/* Return bytes needed to store integer encoded by 'encoding'. */
 unsigned int zipIntSize(unsigned char encoding) {
     switch(encoding) {
     case ZIP_INT_8B:  return 1;
@@ -194,15 +310,26 @@ unsigned int zipIntSize(unsigned char encoding) {
     case ZIP_INT_24B: return 3;
     case ZIP_INT_32B: return 4;
     case ZIP_INT_64B: return 8;
-    default: return 0; /* 4 bit immediate */
     }
-    assert(NULL);
+    if (encoding >= ZIP_INT_IMM_MIN && encoding <= ZIP_INT_IMM_MAX)
+        return 0; /* 4 bit immediate */
+    panic("Invalid integer encoding 0x%02X", encoding);
     return 0;
 }
 
-/* Encode the length 'rawlen' writing it in 'p'. If p is NULL it just returns
- * the amount of bytes required to encode such a length. */
-unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
+/* Write the encoidng header of the entry in 'p'. If p is NULL it just returns
+ * the amount of bytes required to encode such a length. Arguments:
+ *
+ * 'encoding' is the encoding we are using for the entry. It could be
+ * ZIP_INT_* or ZIP_STR_* or between ZIP_INT_IMM_MIN and ZIP_INT_IMM_MAX
+ * for single-byte small immediate integers.
+ *
+ * 'rawlen' is only used for ZIP_STR_* encodings and is the length of the
+ * srting that this entry represents.
+ *
+ * The function returns the number of bytes used by the encoding/length
+ * header stored in 'p'. */
+unsigned int zipStoreEntryEncoding(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
     unsigned char len = 1, buf[5];
 
     if (ZIP_IS_STR(encoding)) {
@@ -231,15 +358,16 @@ unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned 
         buf[0] = encoding;
     }
 
-    /* Store this length at p */
+    /* Store this length at p. */
     memcpy(p,buf,len);
     return len;
 }
 
-/* Decode the length encoded in 'ptr'. The 'encoding' variable will hold the
- * entries encoding, the 'lensize' variable will hold the number of bytes
- * required to encode the entries length, and the 'len' variable will hold the
- * entries length. */
+/* Decode the entry encoding type and data length (string length for strings,
+ * number of bytes used for the integer for integer entries) encoded in 'ptr'.
+ * The 'encoding' variable will hold the entry encoding, the 'lensize'
+ * variable will hold the number of bytes required to encode the entry
+ * length, and the 'len' variable will hold the entry length. */
 #define ZIP_DECODE_LENGTH(ptr, encoding, lensize, len) do {                    \
     ZIP_ENTRY_ENCODING((ptr), (encoding));                                     \
     if ((encoding) < ZIP_STR_MASK) {                                           \
@@ -256,7 +384,7 @@ unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned 
                     ((ptr)[3] <<  8) |                                         \
                     ((ptr)[4]);                                                \
         } else {                                                               \
-            assert(NULL);                                                      \
+            panic("Invalid string encoding 0x%02X", (encoding));               \
         }                                                                      \
     } else {                                                                   \
         (lensize) = 1;                                                         \
@@ -264,45 +392,49 @@ unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned 
     }                                                                          \
 } while(0);
 
+/* Encode the length of the previous entry and write it to "p". This only
+ * uses the larger encoding (required in __ziplistCascadeUpdate). */
+int zipStorePrevEntryLengthLarge(unsigned char *p, unsigned int len) {
+    if (p != NULL) {
+        p[0] = ZIP_BIG_PREVLEN;
+        memcpy(p+1,&len,sizeof(len));
+        memrev32ifbe(p+1);
+    }
+    return 1+sizeof(len);
+}
+
 /* Encode the length of the previous entry and write it to "p". Return the
  * number of bytes needed to encode this length if "p" is NULL. */
-unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
+unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if (p == NULL) {
-        return (len < ZIP_BIGLEN) ? 1 : sizeof(len)+1;
+        return (len < ZIP_BIG_PREVLEN) ? 1 : sizeof(len)+1;
     } else {
-        if (len < ZIP_BIGLEN) {
+        if (len < ZIP_BIG_PREVLEN) {
             p[0] = len;
             return 1;
         } else {
-            p[0] = ZIP_BIGLEN;
-            memcpy(p+1,&len,sizeof(len));
-            memrev32ifbe(p+1);
-            return 1+sizeof(len);
+            return zipStorePrevEntryLengthLarge(p,len);
         }
     }
 }
 
-/* Encode the length of the previous entry and write it to "p". This only
- * uses the larger encoding (required in __ziplistCascadeUpdate). */
-void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
-    if (p == NULL) return;
-    p[0] = ZIP_BIGLEN;
-    memcpy(p+1,&len,sizeof(len));
-    memrev32ifbe(p+1);
-}
-
-/* Decode the number of bytes required to store the length of the previous
- * element, from the perspective of the entry pointed to by 'ptr'. */
+/* Return the number of bytes used to encode the length of the previous
+ * entry. The length is returned by setting the var 'prevlensize'. */
 #define ZIP_DECODE_PREVLENSIZE(ptr, prevlensize) do {                          \
-    if ((ptr)[0] < ZIP_BIGLEN) {                                               \
+    if ((ptr)[0] < ZIP_BIG_PREVLEN) {                                          \
         (prevlensize) = 1;                                                     \
     } else {                                                                   \
         (prevlensize) = 5;                                                     \
     }                                                                          \
 } while(0);
 
-/* Decode the length of the previous element, from the perspective of the entry
- * pointed to by 'ptr'. */
+/* Return the length of the previous element, and the number of bytes that
+ * are used in order to encode the previous element length.
+ * 'ptr' must point to the prevlen prefix of an entry (that encodes the
+ * length of the previos entry in order to navigate the elements backward).
+ * The length of the previous entry is stored in 'prevlen', the number of
+ * bytes needed to encode the previous entry length are stored in
+ * 'prevlensize'. */
 #define ZIP_DECODE_PREVLEN(ptr, prevlensize, prevlen) do {                     \
     ZIP_DECODE_PREVLENSIZE(ptr, prevlensize);                                  \
     if ((prevlensize) == 1) {                                                  \
@@ -314,12 +446,25 @@ void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
     }                                                                          \
 } while(0);
 
-/* Return the difference in number of bytes needed to store the length of the
- * previous element 'len', in the entry pointed to by 'p'. */
+/* Given a pointer 'p' to the prevlen info that prefixes an entry, this
+ * function returns the difference in number of bytes needed to encode
+ * the prevlen if the previous entry changes of size.
+ *
+ * So if A is the number of bytes used right now to encode the 'prevlen'
+ * field.
+ *
+ * And B is the number of bytes that are needed in order to encode the
+ * 'prevlen' if the previous element will be updated to one of size 'len'.
+ *
+ * Then the function returns B - A
+ *
+ * So the function returns a positive number if more space is needed,
+ * a negative number if less space is needed, or zero if the same space
+ * is needed. */
 int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
     unsigned int prevlensize;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
-    return zipPrevEncodeLength(NULL, len) - prevlensize;
+    return zipStorePrevEntryLength(NULL, len) - prevlensize;
 }
 
 /* Return the total number of bytes used by the entry pointed to by 'p'. */
@@ -456,8 +601,8 @@ unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
  * causes a realloc and memmove). However, encoding the prevlen may require
  * that this entry is grown as well. This effect may cascade throughout
  * the ziplist when there are consecutive entries with a size close to
- * ZIP_BIGLEN, so we need to check that the prevlen can be encoded in every
- * consecutive entry.
+ * ZIP_BIG_PREVLEN, so we need to check that the prevlen can be encoded in
+ * every consecutive entry.
  *
  * Note that this effect can also happen in reverse, where the bytes required
  * to encode the prevlen field can shrink. This effect is deliberately ignored,
@@ -477,7 +622,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
     while (p[0] != ZIP_END) {
         zipEntry(p, &cur);
         rawlen = cur.headersize + cur.len;
-        rawlensize = zipPrevEncodeLength(NULL,rawlen);
+        rawlensize = zipStorePrevEntryLength(NULL,rawlen);
 
         /* Abort if there is no next entry. */
         if (p[rawlen] == ZIP_END) break;
@@ -508,7 +653,7 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
             memmove(np+rawlensize,
                 np+next.prevrawlensize,
                 curlen-noffset-next.prevrawlensize-1);
-            zipPrevEncodeLength(np,rawlen);
+            zipStorePrevEntryLength(np,rawlen);
 
             /* Advance the cursor */
             p += rawlen;
@@ -517,9 +662,9 @@ unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
             if (next.prevrawlensize > rawlensize) {
                 /* This would result in shrinking, which we want to avoid.
                  * So, set "rawlen" in the available bytes. */
-                zipPrevEncodeLengthForceLarge(p+rawlen,rawlen);
+                zipStorePrevEntryLengthLarge(p+rawlen,rawlen);
             } else {
-                zipPrevEncodeLength(p+rawlen,rawlen);
+                zipStorePrevEntryLength(p+rawlen,rawlen);
             }
 
             /* Stop here, as the raw length of "next" has not changed. */
@@ -542,7 +687,7 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
         deleted++;
     }
 
-    totlen = p-first.p;
+    totlen = p-first.p; /* Bytes taken by the element(s) to delete. */
     if (totlen > 0) {
         if (p[0] != ZIP_END) {
             /* Storing `prevrawlen` in this entry may increase or decrease the
@@ -550,8 +695,13 @@ unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int
              * There always is room to store this, because it was previously
              * stored by an entry that is now being deleted. */
             nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
+
+            /* Note that there is always space when p jumps backward: if
+             * the new previous entry is large, one of the deleted elements
+             * had a 5 bytes prevlen header, so there is for sure at least
+             * 5 bytes free and we need just 4. */
             p -= nextdiff;
-            zipPrevEncodeLength(p,first.prevrawlen);
+            zipStorePrevEntryLength(p,first.prevrawlen);
 
             /* Update offset for tail */
             ZIPLIST_TAIL_OFFSET(zl) =
@@ -616,14 +766,14 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
         /* 'encoding' is set to the appropriate integer encoding */
         reqlen = zipIntSize(encoding);
     } else {
-        /* 'encoding' is untouched, however zipEncodeLength will use the
+        /* 'encoding' is untouched, however zipStoreEntryEncoding will use the
          * string length to figure out how to encode it. */
         reqlen = slen;
     }
     /* We need space for both the length of the previous entry and
      * the length of the payload. */
-    reqlen += zipPrevEncodeLength(NULL,prevlen);
-    reqlen += zipEncodeLength(NULL,encoding,slen);
+    reqlen += zipStorePrevEntryLength(NULL,prevlen);
+    reqlen += zipStoreEntryEncoding(NULL,encoding,slen);
 
     /* When the insert position is not equal to the tail, we need to
      * make sure that the next entry can hold this entry's length in
@@ -641,7 +791,7 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
         memmove(p+reqlen,p-nextdiff,curlen-offset-1+nextdiff);
 
         /* Encode this entry's raw length in the next entry. */
-        zipPrevEncodeLength(p+reqlen,reqlen);
+        zipStorePrevEntryLength(p+reqlen,reqlen);
 
         /* Update offset for tail */
         ZIPLIST_TAIL_OFFSET(zl) =
@@ -669,8 +819,8 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
     }
 
     /* Write the entry */
-    p += zipPrevEncodeLength(p,prevlen);
-    p += zipEncodeLength(p,encoding,slen);
+    p += zipStorePrevEntryLength(p,prevlen);
+    p += zipStoreEntryEncoding(p,encoding,slen);
     if (ZIP_IS_STR(encoding)) {
         memcpy(p,s,slen);
     } else {
