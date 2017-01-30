@@ -16,8 +16,8 @@ thd_start(void *arg)
 	free(p);
 
 	size = sizeof(arena_ind);
-	if ((err = mallctl("thread.arena", (void *)&arena_ind, &size,
-	    (void *)&main_arena_ind, sizeof(main_arena_ind)))) {
+	if ((err = mallctl("thread.arena", &arena_ind, &size, &main_arena_ind,
+	    sizeof(main_arena_ind)))) {
 		char buf[BUFERROR_BUF];
 
 		buferror(err, buf, sizeof(buf));
@@ -25,8 +25,7 @@ thd_start(void *arg)
 	}
 
 	size = sizeof(arena_ind);
-	if ((err = mallctl("thread.arena", (void *)&arena_ind, &size, NULL,
-	    0))) {
+	if ((err = mallctl("thread.arena", &arena_ind, &size, NULL, 0))) {
 		char buf[BUFERROR_BUF];
 
 		buferror(err, buf, sizeof(buf));
@@ -51,8 +50,7 @@ TEST_BEGIN(test_thread_arena)
 	assert_ptr_not_null(p, "Error in malloc()");
 
 	size = sizeof(arena_ind);
-	if ((err = mallctl("thread.arena", (void *)&arena_ind, &size, NULL,
-	    0))) {
+	if ((err = mallctl("thread.arena", &arena_ind, &size, NULL, 0))) {
 		char buf[BUFERROR_BUF];
 
 		buferror(err, buf, sizeof(buf));

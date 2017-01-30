@@ -48,21 +48,6 @@ size_class() {
   lg_p=$5
   lg_kmax=$6
 
-  if [ ${lg_delta} -ge ${lg_p} ] ; then
-    psz="yes"
-  else
-    pow2 ${lg_p}; p=${pow2_result}
-    pow2 ${lg_grp}; grp=${pow2_result}
-    pow2 ${lg_delta}; delta=${pow2_result}
-    sz=$((${grp} + ${delta} * ${ndelta}))
-    npgs=$((${sz} / ${p}))
-    if [ ${sz} -eq $((${npgs} * ${p})) ] ; then
-      psz="yes"
-    else
-      psz="no"
-    fi
-  fi
-
   lg ${ndelta}; lg_ndelta=${lg_result}; pow2 ${lg_ndelta}
   if [ ${pow2_result} -lt ${ndelta} ] ; then
     rem="yes"
@@ -89,15 +74,14 @@ size_class() {
   else
     lg_delta_lookup="no"
   fi
-  printf '    SC(%3d, %6d, %8d, %6d, %3s, %3s, %2s) \\\n' ${index} ${lg_grp} ${lg_delta} ${ndelta} ${psz} ${bin} ${lg_delta_lookup}
+  printf '    SC(%3d, %6d, %8d, %6d, %3s, %2s) \\\n' ${index} ${lg_grp} ${lg_delta} ${ndelta} ${bin} ${lg_delta_lookup}
   # Defined upon return:
-  # - psz ("yes" or "no")
-  # - bin ("yes" or "no")
   # - lg_delta_lookup (${lg_delta} or "no")
+  # - bin ("yes" or "no")
 }
 
 sep_line() {
-  echo "                                                         \\"
+  echo "                                               \\"
 }
 
 size_classes() {
@@ -111,13 +95,12 @@ size_classes() {
   pow2 ${lg_g}; g=${pow2_result}
 
   echo "#define	SIZE_CLASSES \\"
-  echo "  /* index, lg_grp, lg_delta, ndelta, psz, bin, lg_delta_lookup */ \\"
+  echo "  /* index, lg_grp, lg_delta, ndelta, bin, lg_delta_lookup */ \\"
 
   ntbins=0
   nlbins=0
   lg_tiny_maxclass='"NA"'
   nbins=0
-  npsizes=0
 
   # Tiny size classes.
   ndelta=0
@@ -128,9 +111,6 @@ size_classes() {
     size_class ${index} ${lg_grp} ${lg_delta} ${ndelta} ${lg_p} ${lg_kmax}
     if [ ${lg_delta_lookup} != "no" ] ; then
       nlbins=$((${index} + 1))
-    fi
-    if [ ${psz} = "yes" ] ; then
-      npsizes=$((${npsizes} + 1))
     fi
     if [ ${bin} != "no" ] ; then
       nbins=$((${index} + 1))
@@ -153,25 +133,19 @@ size_classes() {
     index=$((${index} + 1))
     lg_grp=$((${lg_grp} + 1))
     lg_delta=$((${lg_delta} + 1))
-    if [ ${psz} = "yes" ] ; then
-      npsizes=$((${npsizes} + 1))
-    fi
   fi
   while [ ${ndelta} -lt ${g} ] ; do
     size_class ${index} ${lg_grp} ${lg_delta} ${ndelta} ${lg_p} ${lg_kmax}
     index=$((${index} + 1))
     ndelta=$((${ndelta} + 1))
-    if [ ${psz} = "yes" ] ; then
-      npsizes=$((${npsizes} + 1))
-    fi
   done
 
   # All remaining groups.
   lg_grp=$((${lg_grp} + ${lg_g}))
-  while [ ${lg_grp} -lt $((${ptr_bits} - 1)) ] ; do
+  while [ ${lg_grp} -lt ${ptr_bits} ] ; do
     sep_line
     ndelta=1
-    if [ ${lg_grp} -eq $((${ptr_bits} - 2)) ] ; then
+    if [ ${lg_grp} -eq $((${ptr_bits} - 1)) ] ; then
       ndelta_limit=$((${g} - 1))
     else
       ndelta_limit=${g}
@@ -182,9 +156,6 @@ size_classes() {
         nlbins=$((${index} + 1))
         # Final written value is correct:
         lookup_maxclass="((((size_t)1) << ${lg_grp}) + (((size_t)${ndelta}) << ${lg_delta}))"
-      fi
-      if [ ${psz} = "yes" ] ; then
-        npsizes=$((${npsizes} + 1))
       fi
       if [ ${bin} != "no" ] ; then
         nbins=$((${index} + 1))
@@ -212,7 +183,6 @@ size_classes() {
   # - nlbins
   # - nbins
   # - nsizes
-  # - npsizes
   # - lg_tiny_maxclass
   # - lookup_maxclass
   # - small_maxclass
@@ -230,13 +200,13 @@ cat <<EOF
  * be defined prior to inclusion, and it in turn defines:
  *
  *   LG_SIZE_CLASS_GROUP: Lg of size class count for each size doubling.
- *   SIZE_CLASSES: Complete table of SC(index, lg_grp, lg_delta, ndelta, psz,
- *                 bin, lg_delta_lookup) tuples.
+ *   SIZE_CLASSES: Complete table of
+ *                 SC(index, lg_grp, lg_delta, ndelta, bin, lg_delta_lookup)
+ *                 tuples.
  *     index: Size class index.
  *     lg_grp: Lg group base size (no deltas added).
  *     lg_delta: Lg delta to previous size class.
  *     ndelta: Delta multiplier.  size == 1<<lg_grp + ndelta<<lg_delta
- *     psz: 'yes' if a multiple of the page size, 'no' otherwise.
  *     bin: 'yes' if a small bin size class, 'no' otherwise.
  *     lg_delta_lookup: Same as lg_delta if a lookup table size class, 'no'
  *                      otherwise.
@@ -244,7 +214,6 @@ cat <<EOF
  *   NLBINS: Number of bins supported by the lookup table.
  *   NBINS: Number of small size class bins.
  *   NSIZES: Number of size classes.
- *   NPSIZES: Number of size classes that are a multiple of (1U << LG_PAGE).
  *   LG_TINY_MAXCLASS: Lg of maximum tiny size class.
  *   LOOKUP_MAXCLASS: Maximum size class included in lookup table.
  *   SMALL_MAXCLASS: Maximum small size class.
@@ -269,7 +238,6 @@ for lg_z in ${lg_zarr} ; do
         echo "#define	NLBINS			${nlbins}"
         echo "#define	NBINS			${nbins}"
         echo "#define	NSIZES			${nsizes}"
-        echo "#define	NPSIZES			${npsizes}"
         echo "#define	LG_TINY_MAXCLASS	${lg_tiny_maxclass}"
         echo "#define	LOOKUP_MAXCLASS		${lookup_maxclass}"
         echo "#define	SMALL_MAXCLASS		${small_maxclass}"

@@ -73,19 +73,3 @@ test/include/test/jemalloc_test_defs.h
 /test/unit/*.out
 
 /VERSION
-
-*.pdb
-*.sdf
-*.opendb
-*.opensdf
-*.cachefile
-*.suo
-*.user
-*.sln.docstates
-*.tmp
-/msvc/Win32/
-/msvc/x64/
-/msvc/projects/*/*/Debug*/
-/msvc/projects/*/*/Release*/
-/msvc/projects/*/*/Win32/
-/msvc/projects/*/*/x64/
