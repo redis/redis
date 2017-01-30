@@ -52,7 +52,7 @@
     <title>LIBRARY</title>
     <para>This manual describes jemalloc @jemalloc_version@.  More information
     can be found at the <ulink
-    url="http://www.canonware.com/jemalloc/">jemalloc website</ulink>.</para>
+    url="http://jemalloc.net/">jemalloc website</ulink>.</para>
   </refsect1>
   <refsynopsisdiv>
     <title>SYNOPSIS</title>
@@ -180,20 +180,20 @@
     <refsect2>
       <title>Standard API</title>
 
-      <para>The <function>malloc<parameter/></function> function allocates
+      <para>The <function>malloc()</function> function allocates
       <parameter>size</parameter> bytes of uninitialized memory.  The allocated
       space is suitably aligned (after possible pointer coercion) for storage
       of any type of object.</para>
 
-      <para>The <function>calloc<parameter/></function> function allocates
+      <para>The <function>calloc()</function> function allocates
       space for <parameter>number</parameter> objects, each
       <parameter>size</parameter> bytes in length.  The result is identical to
-      calling <function>malloc<parameter/></function> with an argument of
+      calling <function>malloc()</function> with an argument of
       <parameter>number</parameter> * <parameter>size</parameter>, with the
       exception that the allocated memory is explicitly initialized to zero
       bytes.</para>
 
-      <para>The <function>posix_memalign<parameter/></function> function
+      <para>The <function>posix_memalign()</function> function
       allocates <parameter>size</parameter> bytes of memory such that the
       allocation's base address is a multiple of
       <parameter>alignment</parameter>, and returns the allocation in the value
@@ -201,7 +201,7 @@
       <parameter>alignment</parameter> must be a power of 2 at least as large as
       <code language="C">sizeof(<type>void *</type>)</code>.</para>
 
-      <para>The <function>aligned_alloc<parameter/></function> function
+      <para>The <function>aligned_alloc()</function> function
       allocates <parameter>size</parameter> bytes of memory such that the
       allocation's base address is a multiple of
       <parameter>alignment</parameter>.  The requested
@@ -209,7 +209,7 @@
       undefined if <parameter>size</parameter> is not an integral multiple of
       <parameter>alignment</parameter>.</para>
 
-      <para>The <function>realloc<parameter/></function> function changes the
+      <para>The <function>realloc()</function> function changes the
       size of the previously allocated memory referenced by
       <parameter>ptr</parameter> to <parameter>size</parameter> bytes.  The
       contents of the memory are unchanged up to the lesser of the new and old
@@ -217,26 +217,26 @@
       portion of the memory are undefined.  Upon success, the memory referenced
       by <parameter>ptr</parameter> is freed and a pointer to the newly
       allocated memory is returned.  Note that
-      <function>realloc<parameter/></function> may move the memory allocation,
+      <function>realloc()</function> may move the memory allocation,
       resulting in a different return value than <parameter>ptr</parameter>.
       If <parameter>ptr</parameter> is <constant>NULL</constant>, the
-      <function>realloc<parameter/></function> function behaves identically to
-      <function>malloc<parameter/></function> for the specified size.</para>
+      <function>realloc()</function> function behaves identically to
+      <function>malloc()</function> for the specified size.</para>
 
-      <para>The <function>free<parameter/></function> function causes the
+      <para>The <function>free()</function> function causes the
       allocated memory referenced by <parameter>ptr</parameter> to be made
       available for future allocations.  If <parameter>ptr</parameter> is
       <constant>NULL</constant>, no action occurs.</para>
     </refsect2>
     <refsect2>
       <title>Non-standard API</title>
-      <para>The <function>mallocx<parameter/></function>,
-      <function>rallocx<parameter/></function>,
-      <function>xallocx<parameter/></function>,
-      <function>sallocx<parameter/></function>,
-      <function>dallocx<parameter/></function>,
-      <function>sdallocx<parameter/></function>, and
-      <function>nallocx<parameter/></function> functions all have a
+      <para>The <function>mallocx()</function>,
+      <function>rallocx()</function>,
+      <function>xallocx()</function>,
+      <function>sallocx()</function>,
+      <function>dallocx()</function>,
+      <function>sdallocx()</function>, and
+      <function>nallocx()</function> functions all have a
       <parameter>flags</parameter> argument that can be used to specify
       options.  The functions only check the options that are contextually
       relevant.  Use bitwise or (<code language="C">|</code>) operations to
@@ -307,21 +307,19 @@
         </variablelist>
       </para>
 
-      <para>The <function>mallocx<parameter/></function> function allocates at
+      <para>The <function>mallocx()</function> function allocates at
       least <parameter>size</parameter> bytes of memory, and returns a pointer
       to the base address of the allocation.  Behavior is undefined if
-      <parameter>size</parameter> is <constant>0</constant>, or if request size
-      overflows due to size class and/or alignment constraints.</para>
+      <parameter>size</parameter> is <constant>0</constant>.</para>
 
-      <para>The <function>rallocx<parameter/></function> function resizes the
+      <para>The <function>rallocx()</function> function resizes the
       allocation at <parameter>ptr</parameter> to be at least
       <parameter>size</parameter> bytes, and returns a pointer to the base
       address of the resulting allocation, which may or may not have moved from
       its original location.  Behavior is undefined if
-      <parameter>size</parameter> is <constant>0</constant>, or if request size
-      overflows due to size class and/or alignment constraints.</para>
+      <parameter>size</parameter> is <constant>0</constant>.</para>
 
-      <para>The <function>xallocx<parameter/></function> function resizes the
+      <para>The <function>xallocx()</function> function resizes the
       allocation at <parameter>ptr</parameter> in place to be at least
       <parameter>size</parameter> bytes, and returns the real size of the
       allocation.  If <parameter>extra</parameter> is non-zero, an attempt is
@@ -334,32 +332,32 @@
       language="C">(<parameter>size</parameter> + <parameter>extra</parameter>
       &gt; <constant>SIZE_T_MAX</constant>)</code>.</para>
 
-      <para>The <function>sallocx<parameter/></function> function returns the
+      <para>The <function>sallocx()</function> function returns the
       real size of the allocation at <parameter>ptr</parameter>.</para>
 
-      <para>The <function>dallocx<parameter/></function> function causes the
+      <para>The <function>dallocx()</function> function causes the
       memory referenced by <parameter>ptr</parameter> to be made available for
       future allocations.</para>
 
-      <para>The <function>sdallocx<parameter/></function> function is an
-      extension of <function>dallocx<parameter/></function> with a
+      <para>The <function>sdallocx()</function> function is an
+      extension of <function>dallocx()</function> with a
       <parameter>size</parameter> parameter to allow the caller to pass in the
       allocation size as an optimization.  The minimum valid input size is the
       original requested size of the allocation, and the maximum valid input
       size is the corresponding value returned by
-      <function>nallocx<parameter/></function> or
-      <function>sallocx<parameter/></function>.</para>
+      <function>nallocx()</function> or
+      <function>sallocx()</function>.</para>
 
-      <para>The <function>nallocx<parameter/></function> function allocates no
+      <para>The <function>nallocx()</function> function allocates no
       memory, but it performs the same size computation as the
-      <function>mallocx<parameter/></function> function, and returns the real
+      <function>mallocx()</function> function, and returns the real
       size of the allocation that would result from the equivalent
-      <function>mallocx<parameter/></function> function call.  Behavior is
-      undefined if <parameter>size</parameter> is <constant>0</constant>, or if
-      request size overflows due to size class and/or alignment
-      constraints.</para>
+      <function>mallocx()</function> function call, or
+      <constant>0</constant> if the inputs exceed the maximum supported size
+      class and/or alignment.  Behavior is undefined if
+      <parameter>size</parameter> is <constant>0</constant>.</para>
 
-      <para>The <function>mallctl<parameter/></function> function provides a
+      <para>The <function>mallctl()</function> function provides a
       general interface for introspecting the memory allocator, as well as
       setting modifiable parameters and triggering actions.  The
       period-separated <parameter>name</parameter> argument specifies a
@@ -374,12 +372,12 @@
       <parameter>newlen</parameter>; otherwise pass <constant>NULL</constant>
       and <constant>0</constant>.</para>
 
-      <para>The <function>mallctlnametomib<parameter/></function> function
+      <para>The <function>mallctlnametomib()</function> function
       provides a way to avoid repeated name lookups for applications that
       repeatedly query the same portion of the namespace, by translating a name
-      to a &ldquo;Management Information Base&rdquo; (MIB) that can be passed
-      repeatedly to <function>mallctlbymib<parameter/></function>.  Upon
-      successful return from <function>mallctlnametomib<parameter/></function>,
+      to a <quote>Management Information Base</quote> (MIB) that can be passed
+      repeatedly to <function>mallctlbymib()</function>.  Upon
+      successful return from <function>mallctlnametomib()</function>,
       <parameter>mibp</parameter> contains an array of
       <parameter>*miblenp</parameter> integers, where
       <parameter>*miblenp</parameter> is the lesser of the number of components
@@ -408,43 +406,44 @@ for (i = 0; i < nbins; i++) {
 
 	mib[2] = i;
 	len = sizeof(bin_size);
-	mallctlbymib(mib, miblen, &bin_size, &len, NULL, 0);
+	mallctlbymib(mib, miblen, (void *)&bin_size, &len, NULL, 0);
 	/* Do something with bin_size... */
 }]]></programlisting></para>
 
-      <para>The <function>malloc_stats_print<parameter/></function> function
-      writes human-readable summary statistics via the
-      <parameter>write_cb</parameter> callback function pointer and
-      <parameter>cbopaque</parameter> data passed to
-      <parameter>write_cb</parameter>, or
-      <function>malloc_message<parameter/></function> if
-      <parameter>write_cb</parameter> is <constant>NULL</constant>.  This
-      function can be called repeatedly.  General information that never
-      changes during execution can be omitted by specifying "g" as a character
+      <para>The <function>malloc_stats_print()</function> function writes
+      summary statistics via the <parameter>write_cb</parameter> callback
+      function pointer and <parameter>cbopaque</parameter> data passed to
+      <parameter>write_cb</parameter>, or <function>malloc_message()</function>
+      if <parameter>write_cb</parameter> is <constant>NULL</constant>.  The
+      statistics are presented in human-readable form unless <quote>J</quote> is
+      specified as a character within the <parameter>opts</parameter> string, in
+      which case the statistics are presented in <ulink
+      url="http://www.json.org/">JSON format</ulink>.  This function can be
+      called repeatedly.  General information that never changes during
+      execution can be omitted by specifying <quote>g</quote> as a character
       within the <parameter>opts</parameter> string.  Note that
-      <function>malloc_message<parameter/></function> uses the
-      <function>mallctl*<parameter/></function> functions internally, so
-      inconsistent statistics can be reported if multiple threads use these
-      functions simultaneously.  If <option>--enable-stats</option> is
-      specified during configuration, &ldquo;m&rdquo; and &ldquo;a&rdquo; can
-      be specified to omit merged arena and per arena statistics, respectively;
-      &ldquo;b&rdquo;, &ldquo;l&rdquo;, and &ldquo;h&rdquo; can be specified to
-      omit per size class statistics for bins, large objects, and huge objects,
-      respectively.  Unrecognized characters are silently ignored.  Note that
-      thread caching may prevent some statistics from being completely up to
-      date, since extra locking would be required to merge counters that track
-      thread cache operations.
-      </para>
+      <function>malloc_message()</function> uses the
+      <function>mallctl*()</function> functions internally, so inconsistent
+      statistics can be reported if multiple threads use these functions
+      simultaneously.  If <option>--enable-stats</option> is specified during
+      configuration, <quote>m</quote> and <quote>a</quote> can be specified to
+      omit merged arena and per arena statistics, respectively;
+      <quote>b</quote>, <quote>l</quote>, and <quote>h</quote> can be specified
+      to omit per size class statistics for bins, large objects, and huge
+      objects, respectively.  Unrecognized characters are silently ignored.
+      Note that thread caching may prevent some statistics from being completely
+      up to date, since extra locking would be required to merge counters that
+      track thread cache operations.</para>
 
-      <para>The <function>malloc_usable_size<parameter/></function> function
+      <para>The <function>malloc_usable_size()</function> function
       returns the usable size of the allocation pointed to by
       <parameter>ptr</parameter>.  The return value may be larger than the size
       that was requested during allocation.  The
-      <function>malloc_usable_size<parameter/></function> function is not a
-      mechanism for in-place <function>realloc<parameter/></function>; rather
+      <function>malloc_usable_size()</function> function is not a
+      mechanism for in-place <function>realloc()</function>; rather
       it is provided solely as a tool for introspection purposes.  Any
       discrepancy between the requested allocation size and the size reported
-      by <function>malloc_usable_size<parameter/></function> should not be
+      by <function>malloc_usable_size()</function> should not be
       depended on, since such behavior is entirely implementation-dependent.
       </para>
     </refsect2>
@@ -455,19 +454,20 @@ for (i = 0; i < nbins; i++) {
     routines, the allocator initializes its internals based in part on various
     options that can be specified at compile- or run-time.</para>
 
-    <para>The string pointed to by the global variable
-    <varname>malloc_conf</varname>, the &ldquo;name&rdquo; of the file
-    referenced by the symbolic link named <filename
-    class="symlink">/etc/malloc.conf</filename>, and the value of the
+    <para>The string specified via <option>--with-malloc-conf</option>, the
+    string pointed to by the global variable <varname>malloc_conf</varname>, the
+    <quote>name</quote> of the file referenced by the symbolic link named
+    <filename class="symlink">/etc/malloc.conf</filename>, and the value of the
     environment variable <envar>MALLOC_CONF</envar>, will be interpreted, in
     that order, from left to right as options.  Note that
     <varname>malloc_conf</varname> may be read before
-    <function>main<parameter/></function> is entered, so the declaration of
+    <function>main()</function> is entered, so the declaration of
     <varname>malloc_conf</varname> should specify an initializer that contains
-    the final value to be read by jemalloc.  <varname>malloc_conf</varname> is
-    a compile-time setting, whereas <filename
-    class="symlink">/etc/malloc.conf</filename> and <envar>MALLOC_CONF</envar>
-    can be safely set any time prior to program invocation.</para>
+    the final value to be read by jemalloc.  <option>--with-malloc-conf</option>
+    and <varname>malloc_conf</varname> are compile-time mechanisms, whereas
+    <filename class="symlink">/etc/malloc.conf</filename> and
+    <envar>MALLOC_CONF</envar> can be safely set any time prior to program
+    invocation.</para>
 
     <para>An options string is a comma-separated list of option:value pairs.
     There is one key corresponding to each <link
@@ -517,23 +517,18 @@ for (i = 0; i < nbins; i++) {
     common case, but it increases memory usage and fragmentation, since a
     bounded number of objects can remain allocated in each thread cache.</para>
 
-    <para>Memory is conceptually broken into equal-sized chunks, where the
-    chunk size is a power of two that is greater than the page size.  Chunks
-    are always aligned to multiples of the chunk size.  This alignment makes it
-    possible to find metadata for user objects very quickly.</para>
-
-    <para>User objects are broken into three categories according to size:
-    small, large, and huge.  Small and large objects are managed entirely by
-    arenas; huge objects are additionally aggregated in a single data structure
-    that is shared by all threads.  Huge objects are typically used by
-    applications infrequently enough that this single data structure is not a
-    scalability issue.</para>
-
-    <para>Each chunk that is managed by an arena tracks its contents as runs of
+    <para>Memory is conceptually broken into equal-sized chunks, where the chunk
+    size is a power of two that is greater than the page size.  Chunks are
+    always aligned to multiples of the chunk size.  This alignment makes it
+    possible to find metadata for user objects very quickly.  User objects are
+    broken into three categories according to size: small, large, and huge.
+    Multiple small and large objects can reside within a single chunk, whereas
+    huge objects each have one or more chunks backing them.  Each chunk that
+    contains small and/or large objects tracks its contents as runs of
     contiguous pages (unused, backing a set of small objects, or backing one
-    large object).  The combination of chunk alignment and chunk page maps
-    makes it possible to determine all metadata regarding small and large
-    allocations in constant time.</para>
+    large object).  The combination of chunk alignment and chunk page maps makes
+    it possible to determine all metadata regarding small and large allocations
+    in constant time.</para>
 
     <para>Small objects are managed in groups by page runs.  Each run maintains
     a bitmap to track which regions are in use.  Allocation requests that are no
@@ -546,8 +541,8 @@ for (i = 0; i < nbins; i++) {
     are smaller than four times the page size, large size classes are smaller
     than the chunk size (see the <link
     linkend="opt.lg_chunk"><mallctl>opt.lg_chunk</mallctl></link> option), and
-    huge size classes extend from the chunk size up to one size class less than
-    the full address space size.</para>
+    huge size classes extend from the chunk size up to the largest size class
+    that does not exceed <constant>PTRDIFF_MAX</constant>.</para>
 
     <para>Allocations are packed tightly together, which can be an issue for
     multi-threaded applications.  If you need to assure that allocations do not
@@ -555,14 +550,14 @@ for (i = 0; i < nbins; i++) {
     nearest multiple of the cacheline size, or specify cacheline alignment when
     allocating.</para>
 
-    <para>The <function>realloc<parameter/></function>,
-    <function>rallocx<parameter/></function>, and
-    <function>xallocx<parameter/></function> functions may resize allocations
+    <para>The <function>realloc()</function>,
+    <function>rallocx()</function>, and
+    <function>xallocx()</function> functions may resize allocations
     without moving them under limited circumstances.  Unlike the
-    <function>*allocx<parameter/></function> API, the standard API does not
+    <function>*allocx()</function> API, the standard API does not
     officially round up the usable size of an allocation to the nearest size
     class, so technically it is necessary to call
-    <function>realloc<parameter/></function> to grow e.g. a 9-byte allocation to
+    <function>realloc()</function> to grow e.g. a 9-byte allocation to
     16 bytes, or shrink a 16-byte allocation to 9 bytes.  Growth and shrinkage
     trivially succeeds in place as long as the pre-size and post-size both round
     up to the same size class.  No other API guarantees are made regarding
@@ -665,7 +660,7 @@ for (i = 0; i < nbins; i++) {
           <entry>[1280 KiB, 1536 KiB, 1792 KiB]</entry>
         </row>
         <row>
-          <entry morerows="6">Huge</entry>
+          <entry morerows="8">Huge</entry>
           <entry>256 KiB</entry>
           <entry>[2 MiB]</entry>
         </row>
@@ -693,6 +688,14 @@ for (i = 0; i < nbins; i++) {
           <entry>...</entry>
           <entry>...</entry>
         </row>
+        <row>
+          <entry>512 PiB</entry>
+          <entry>[2560 PiB, 3 EiB, 3584 PiB, 4 EiB]</entry>
+        </row>
+        <row>
+          <entry>1 EiB</entry>
+          <entry>[5 EiB, 6 EiB, 7 EiB]</entry>
+        </row>
       </tbody>
       </tgroup>
     </table>
@@ -700,7 +703,7 @@ for (i = 0; i < nbins; i++) {
   <refsect1 id="mallctl_namespace">
     <title>MALLCTL NAMESPACE</title>
     <para>The following names are defined in the namespace accessible via the
-    <function>mallctl*<parameter/></function> functions.  Value types are
+    <function>mallctl*()</function> functions.  Value types are
     specified in parentheses, their readable/writable statuses are encoded as
     <literal>rw</literal>, <literal>r-</literal>, <literal>-w</literal>, or
     <literal>--</literal>, and required build configuration flags follow, if
@@ -731,7 +734,7 @@ for (i = 0; i < nbins; i++) {
           <literal>rw</literal>
         </term>
         <listitem><para>If a value is passed in, refresh the data from which
-        the <function>mallctl*<parameter/></function> functions report values,
+        the <function>mallctl*()</function> functions report values,
         and increment the epoch.  Return the current epoch.  This is useful for
         detecting whether another thread caused a refresh.</para></listitem>
       </varlistentry>
@@ -773,6 +776,17 @@ for (i = 0; i < nbins; i++) {
           <literal>r-</literal>
         </term>
         <listitem><para><option>--enable-lazy-lock</option> was specified
+        during build configuration.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="config.malloc_conf">
+        <term>
+          <mallctl>config.malloc_conf</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Embedded configure-time-specified run-time options
+        string, empty unless <option>--with-malloc-conf</option> was specified
         during build configuration.</para></listitem>
       </varlistentry>
 
@@ -904,12 +918,12 @@ for (i = 0; i < nbins; i++) {
         settings are supported if
         <citerefentry><refentrytitle>sbrk</refentrytitle>
         <manvolnum>2</manvolnum></citerefentry> is supported by the operating
-        system: &ldquo;disabled&rdquo;, &ldquo;primary&rdquo;, and
-        &ldquo;secondary&rdquo;; otherwise only &ldquo;disabled&rdquo; is
-        supported.  The default is &ldquo;secondary&rdquo; if
+        system: <quote>disabled</quote>, <quote>primary</quote>, and
+        <quote>secondary</quote>; otherwise only <quote>disabled</quote> is
+        supported.  The default is <quote>secondary</quote> if
         <citerefentry><refentrytitle>sbrk</refentrytitle>
         <manvolnum>2</manvolnum></citerefentry> is supported by the operating
-        system; &ldquo;disabled&rdquo; otherwise.
+        system; <quote>disabled</quote> otherwise.
         </para></listitem>
       </varlistentry>
 
@@ -929,12 +943,26 @@ for (i = 0; i < nbins; i++) {
       <varlistentry id="opt.narenas">
         <term>
           <mallctl>opt.narenas</mallctl>
-          (<type>size_t</type>)
+          (<type>unsigned</type>)
           <literal>r-</literal>
         </term>
         <listitem><para>Maximum number of arenas to use for automatic
         multiplexing of threads and arenas.  The default is four times the
         number of CPUs, or one if there is a single CPU.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.purge">
+        <term>
+          <mallctl>opt.purge</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Purge mode is &ldquo;ratio&rdquo; (default) or
+        &ldquo;decay&rdquo;.  See <link
+        linkend="opt.lg_dirty_mult"><mallctl>opt.lg_dirty_mult</mallctl></link>
+        for details of the ratio mode.  See <link
+        linkend="opt.decay_time"><mallctl>opt.decay_time</mallctl></link> for
+        details of the decay mode.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.lg_dirty_mult">
@@ -959,6 +987,26 @@ for (i = 0; i < nbins; i++) {
         for related dynamic control options.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.decay_time">
+        <term>
+          <mallctl>opt.decay_time</mallctl>
+          (<type>ssize_t</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Approximate time in seconds from the creation of a set
+        of unused dirty pages until an equivalent set of unused dirty pages is
+        purged and/or reused.  The pages are incrementally purged according to a
+        sigmoidal decay curve that starts and ends with zero purge rate.  A
+        decay time of 0 causes all unused dirty pages to be purged immediately
+        upon creation.  A decay time of -1 disables purging.  The default decay
+        time is 10 seconds.  See <link
+        linkend="arenas.decay_time"><mallctl>arenas.decay_time</mallctl></link>
+        and <link
+        linkend="arena.i.decay_time"><mallctl>arena.&lt;i&gt;.decay_time</mallctl></link>
+        for related dynamic control options.
+        </para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.stats_print">
         <term>
           <mallctl>opt.stats_print</mallctl>
@@ -966,19 +1014,19 @@ for (i = 0; i < nbins; i++) {
           <literal>r-</literal>
         </term>
         <listitem><para>Enable/disable statistics printing at exit.  If
-        enabled, the <function>malloc_stats_print<parameter/></function>
+        enabled, the <function>malloc_stats_print()</function>
         function is called at program exit via an
         <citerefentry><refentrytitle>atexit</refentrytitle>
         <manvolnum>3</manvolnum></citerefentry> function.  If
         <option>--enable-stats</option> is specified during configuration, this
         has the potential to cause deadlock for a multi-threaded process that
         exits while one or more threads are executing in the memory allocation
-        functions.  Furthermore, <function>atexit<parameter/></function> may
+        functions.  Furthermore, <function>atexit()</function> may
         allocate memory during application initialization and then deadlock
         internally when jemalloc in turn calls
-        <function>atexit<parameter/></function>, so this option is not
-        univerally usable (though the application can register its own
-        <function>atexit<parameter/></function> function with equivalent
+        <function>atexit()</function>, so this option is not
+        universally usable (though the application can register its own
+        <function>atexit()</function> function with equivalent
         functionality).  Therefore, this option should only be used with care;
         it is primarily intended as a performance tuning aid during application
         development.  This option is disabled by default.</para></listitem>
@@ -991,15 +1039,16 @@ for (i = 0; i < nbins; i++) {
           <literal>r-</literal>
           [<option>--enable-fill</option>]
         </term>
-        <listitem><para>Junk filling.  If set to "alloc", each byte of
-        uninitialized allocated memory will be initialized to
-        <literal>0xa5</literal>.  If set to "free", all deallocated memory will
-        be initialized to <literal>0x5a</literal>.  If set to "true", both
-        allocated and deallocated memory will be initialized, and if set to
-        "false", junk filling be disabled entirely.  This is intended for
-        debugging and will impact performance negatively.  This option is
-        "false" by default unless <option>--enable-debug</option> is specified
-        during configuration, in which case it is "true" by default unless
+        <listitem><para>Junk filling.  If set to <quote>alloc</quote>, each byte
+        of uninitialized allocated memory will be initialized to
+        <literal>0xa5</literal>.  If set to <quote>free</quote>, all deallocated
+        memory will be initialized to <literal>0x5a</literal>.  If set to
+        <quote>true</quote>, both allocated and deallocated memory will be
+        initialized, and if set to <quote>false</quote>, junk filling be
+        disabled entirely.  This is intended for debugging and will impact
+        performance negatively.  This option is <quote>false</quote> by default
+        unless <option>--enable-debug</option> is specified during
+        configuration, in which case it is <quote>true</quote> by default unless
         running inside <ulink
         url="http://valgrind.org/">Valgrind</ulink>.</para></listitem>
       </varlistentry>
@@ -1054,8 +1103,8 @@ for (i = 0; i < nbins; i++) {
         <listitem><para>Zero filling enabled/disabled.  If enabled, each byte
         of uninitialized allocated memory will be initialized to 0.  Note that
         this initialization only happens once for each byte, so
-        <function>realloc<parameter/></function> and
-        <function>rallocx<parameter/></function> calls do not zero memory that
+        <function>realloc()</function> and
+        <function>rallocx()</function> calls do not zero memory that
         was previously allocated.  This is intended for debugging and will
         impact performance negatively.  This option is disabled by default.
         </para></listitem>
@@ -1150,7 +1199,8 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         the <command>jeprof</command> command, which is based on the
         <command>pprof</command> that is developed as part of the <ulink
         url="http://code.google.com/p/gperftools/">gperftools
-        package</ulink>.</para></listitem>
+        package</ulink>.  See <link linkend="heap_profile_format">HEAP PROFILE
+        FORMAT</link> for heap profile format documentation.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.prof_prefix">
@@ -1277,11 +1327,11 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <filename>&lt;prefix&gt;.&lt;pid&gt;.&lt;seq&gt;.f.heap</filename>,
         where <literal>&lt;prefix&gt;</literal> is controlled by the <link
         linkend="opt.prof_prefix"><mallctl>opt.prof_prefix</mallctl></link>
-        option.  Note that <function>atexit<parameter/></function> may allocate
+        option.  Note that <function>atexit()</function> may allocate
         memory during application initialization and then deadlock internally
-        when jemalloc in turn calls <function>atexit<parameter/></function>, so
-        this option is not univerally usable (though the application can
-        register its own <function>atexit<parameter/></function> function with
+        when jemalloc in turn calls <function>atexit()</function>, so
+        this option is not universally usable (though the application can
+        register its own <function>atexit()</function> function with
         equivalent functionality).  This option is disabled by
         default.</para></listitem>
       </varlistentry>
@@ -1340,7 +1390,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <link
         linkend="thread.allocated"><mallctl>thread.allocated</mallctl></link>
         mallctl.  This is useful for avoiding the overhead of repeated
-        <function>mallctl*<parameter/></function> calls.</para></listitem>
+        <function>mallctl*()</function> calls.</para></listitem>
       </varlistentry>
 
       <varlistentry id="thread.deallocated">
@@ -1367,7 +1417,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <link
         linkend="thread.deallocated"><mallctl>thread.deallocated</mallctl></link>
         mallctl.  This is useful for avoiding the overhead of repeated
-        <function>mallctl*<parameter/></function> calls.</para></listitem>
+        <function>mallctl*()</function> calls.</para></listitem>
       </varlistentry>
 
       <varlistentry id="thread.tcache.enabled">
@@ -1418,8 +1468,8 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         can cause asynchronous string deallocation.  Furthermore, each
         invocation of this interface can only read or write; simultaneous
         read/write is not supported due to string lifetime limitations.  The
-        name string must nil-terminated and comprised only of characters in the
-        sets recognized
+        name string must be nil-terminated and comprised only of characters in
+        the sets recognized
         by <citerefentry><refentrytitle>isgraph</refentrytitle>
         <manvolnum>3</manvolnum></citerefentry> and
         <citerefentry><refentrytitle>isblank</refentrytitle>
@@ -1467,7 +1517,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Flush the specified thread-specific cache (tcache).  The
         same considerations apply to this interface as to <link
         linkend="thread.tcache.flush"><mallctl>thread.tcache.flush</mallctl></link>,
-        except that the tcache will never be automatically be discarded.
+        except that the tcache will never be automatically discarded.
         </para></listitem>
       </varlistentry>
 
@@ -1489,10 +1539,42 @@ malloc_conf = "xmalloc:true";]]></programlisting>
           (<type>void</type>)
           <literal>--</literal>
         </term>
-        <listitem><para>Purge unused dirty pages for arena &lt;i&gt;, or for
+        <listitem><para>Purge all unused dirty pages for arena &lt;i&gt;, or for
         all arenas if &lt;i&gt; equals <link
         linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.
         </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="arena.i.decay">
+        <term>
+          <mallctl>arena.&lt;i&gt;.decay</mallctl>
+          (<type>void</type>)
+          <literal>--</literal>
+        </term>
+        <listitem><para>Trigger decay-based purging of unused dirty pages for
+        arena &lt;i&gt;, or for all arenas if &lt;i&gt; equals <link
+        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.
+        The proportion of unused dirty pages to be purged depends on the current
+        time; see <link
+        linkend="opt.decay_time"><mallctl>opt.decay_time</mallctl></link> for
+        details.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="arena.i.reset">
+        <term>
+          <mallctl>arena.&lt;i&gt;.reset</mallctl>
+          (<type>void</type>)
+          <literal>--</literal>
+        </term>
+        <listitem><para>Discard all of the arena's extant allocations.  This
+        interface can only be used with arenas created via <link
+        linkend="arenas.extend"><mallctl>arenas.extend</mallctl></link>.  None
+        of the arena's discarded/cached allocations may accessed afterward.  As
+        part of this requirement, all thread caches which were used to
+        allocate/deallocate in conjunction with the arena must be flushed
+        beforehand.  This interface cannot be used if running inside Valgrind,
+        nor if the <link linkend="opt.quarantine">quarantine</link> size is
+        non-zero.</para></listitem>
       </varlistentry>
 
       <varlistentry id="arena.i.dss">
@@ -1521,6 +1603,22 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         impose the new ratio.  See <link
         linkend="opt.lg_dirty_mult"><mallctl>opt.lg_dirty_mult</mallctl></link>
         for additional information.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="arena.i.decay_time">
+        <term>
+          <mallctl>arena.&lt;i&gt;.decay_time</mallctl>
+          (<type>ssize_t</type>)
+          <literal>rw</literal>
+        </term>
+        <listitem><para>Current per-arena approximate time in seconds from the
+        creation of a set of unused dirty pages until an equivalent set of
+        unused dirty pages is purged and/or reused.  Each time this interface is
+        set, all currently unused dirty pages are considered to have fully
+        decayed, which causes immediate purging of all unused dirty pages unless
+        the decay time is set to -1 (i.e. purging disabled).  See <link
+        linkend="opt.decay_time"><mallctl>opt.decay_time</mallctl></link> for
+        additional information.</para></listitem>
       </varlistentry>
 
       <varlistentry id="arena.i.chunk_hooks">
@@ -1757,6 +1855,21 @@ typedef struct {
         for additional information.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="arenas.decay_time">
+        <term>
+          <mallctl>arenas.decay_time</mallctl>
+          (<type>ssize_t</type>)
+          <literal>rw</literal>
+        </term>
+        <listitem><para>Current default per-arena approximate time in seconds
+        from the creation of a set of unused dirty pages until an equivalent set
+        of unused dirty pages is purged and/or reused, used to initialize <link
+        linkend="arena.i.decay_time"><mallctl>arena.&lt;i&gt;.decay_time</mallctl></link>
+        during arena creation.  See <link
+        linkend="opt.decay_time"><mallctl>opt.decay_time</mallctl></link> for
+        additional information.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="arenas.quantum">
         <term>
           <mallctl>arenas.quantum</mallctl>
@@ -1976,7 +2089,7 @@ typedef struct {
           [<option>--enable-prof</option>]
         </term>
         <listitem><para>Average number of bytes allocated between
-        inverval-based profile dumps.  See the
+        interval-based profile dumps.  See the
         <link
         linkend="opt.lg_prof_interval"><mallctl>opt.lg_prof_interval</mallctl></link>
         option for additional information.</para></listitem>
@@ -2075,6 +2188,25 @@ typedef struct {
         linkend="stats.resident"><mallctl>stats.resident</mallctl></link>.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="stats.retained">
+        <term>
+          <mallctl>stats.retained</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Total number of bytes in virtual memory mappings that
+        were retained rather than being returned to the operating system via
+        e.g. <citerefentry><refentrytitle>munmap</refentrytitle>
+        <manvolnum>2</manvolnum></citerefentry>.  Retained virtual memory is
+        typically untouched, decommitted, or purged, so it has no strongly
+        associated physical memory (see <link
+        linkend="arena.i.chunk_hooks">chunk hooks</link> for details).  Retained
+        memory is excluded from mapped memory statistics, e.g. <link
+        linkend="stats.mapped"><mallctl>stats.mapped</mallctl></link>.
+        </para></listitem>
+      </varlistentry>
+
       <varlistentry id="stats.arenas.i.dss">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.dss</mallctl>
@@ -2098,6 +2230,19 @@ typedef struct {
         <listitem><para>Minimum ratio (log base 2) of active to dirty pages.
         See <link
         linkend="opt.lg_dirty_mult"><mallctl>opt.lg_dirty_mult</mallctl></link>
+        for details.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.decay_time">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.decay_time</mallctl>
+          (<type>ssize_t</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Approximate time in seconds from the creation of a set
+        of unused dirty pages until an equivalent set of unused dirty pages is
+        purged and/or reused.  See <link
+        linkend="opt.decay_time"><mallctl>opt.decay_time</mallctl></link>
         for details.</para></listitem>
       </varlistentry>
 
@@ -2140,6 +2285,18 @@ typedef struct {
           [<option>--enable-stats</option>]
         </term>
         <listitem><para>Number of mapped bytes.</para></listitem>
+      </varlistentry>
+
+      <varlistentry id="stats.arenas.i.retained">
+        <term>
+          <mallctl>stats.arenas.&lt;i&gt;.retained</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+          [<option>--enable-stats</option>]
+        </term>
+        <listitem><para>Number of retained bytes.  See <link
+        linkend="stats.retained"><mallctl>stats.retained</mallctl></link> for
+        details.</para></listitem>
       </varlistentry>
 
       <varlistentry id="stats.arenas.i.metadata.mapped">
@@ -2523,6 +2680,53 @@ typedef struct {
       </varlistentry>
     </variablelist>
   </refsect1>
+  <refsect1 id="heap_profile_format">
+    <title>HEAP PROFILE FORMAT</title>
+    <para>Although the heap profiling functionality was originally designed to
+    be compatible with the
+    <command>pprof</command> command that is developed as part of the <ulink
+    url="http://code.google.com/p/gperftools/">gperftools
+    package</ulink>, the addition of per thread heap profiling functionality
+    required a different heap profile format.  The <command>jeprof</command>
+    command is derived from <command>pprof</command>, with enhancements to
+    support the heap profile format described here.</para>
+
+    <para>In the following hypothetical heap profile, <constant>[...]</constant>
+    indicates elision for the sake of compactness.  <programlisting><![CDATA[
+heap_v2/524288
+  t*: 28106: 56637512 [0: 0]
+  [...]
+  t3: 352: 16777344 [0: 0]
+  [...]
+  t99: 17754: 29341640 [0: 0]
+  [...]
+@ 0x5f86da8 0x5f5a1dc [...] 0x29e4d4e 0xa200316 0xabb2988 [...]
+  t*: 13: 6688 [0: 0]
+  t3: 12: 6496 [0: ]
+  t99: 1: 192 [0: 0]
+[...]
+
+MAPPED_LIBRARIES:
+[...]]]></programlisting> The following matches the above heap profile, but most
+tokens are replaced with <constant>&lt;description&gt;</constant> to indicate
+descriptions of the corresponding fields.  <programlisting><![CDATA[
+<heap_profile_format_version>/<mean_sample_interval>
+  <aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
+  [...]
+  <thread_3_aggregate>: <curobjs>: <curbytes>[<cumobjs>: <cumbytes>]
+  [...]
+  <thread_99_aggregate>: <curobjs>: <curbytes>[<cumobjs>: <cumbytes>]
+  [...]
+@ <top_frame> <frame> [...] <frame> <frame> <frame> [...]
+  <backtrace_aggregate>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
+  <backtrace_thread_3>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
+  <backtrace_thread_99>: <curobjs>: <curbytes> [<cumobjs>: <cumbytes>]
+[...]
+
+MAPPED_LIBRARIES:
+</proc/<pid>/maps>]]></programlisting></para>
+  </refsect1>
+
   <refsect1 id="debugging_malloc_problems">
     <title>DEBUGGING MALLOC PROBLEMS</title>
     <para>When debugging, it is a good idea to configure/build jemalloc with
@@ -2532,7 +2736,7 @@ typedef struct {
     of run-time assertions that catch application errors such as double-free,
     write-after-free, etc.</para>
 
-    <para>Programs often accidentally depend on &ldquo;uninitialized&rdquo;
+    <para>Programs often accidentally depend on <quote>uninitialized</quote>
     memory actually being filled with zero bytes.  Junk filling
     (see the <link linkend="opt.junk"><mallctl>opt.junk</mallctl></link>
     option) tends to expose such bugs in the form of obviously incorrect
@@ -2561,29 +2765,29 @@ typedef struct {
     to override the function which emits the text strings forming the errors
     and warnings if for some reason the <constant>STDERR_FILENO</constant> file
     descriptor is not suitable for this.
-    <function>malloc_message<parameter/></function> takes the
+    <function>malloc_message()</function> takes the
     <parameter>cbopaque</parameter> pointer argument that is
     <constant>NULL</constant> unless overridden by the arguments in a call to
-    <function>malloc_stats_print<parameter/></function>, followed by a string
+    <function>malloc_stats_print()</function>, followed by a string
     pointer.  Please note that doing anything which tries to allocate memory in
     this function is likely to result in a crash or deadlock.</para>
 
     <para>All messages are prefixed by
-    &ldquo;<computeroutput>&lt;jemalloc&gt;: </computeroutput>&rdquo;.</para>
+    <quote><computeroutput>&lt;jemalloc&gt;: </computeroutput></quote>.</para>
   </refsect1>
   <refsect1 id="return_values">
     <title>RETURN VALUES</title>
     <refsect2>
       <title>Standard API</title>
-      <para>The <function>malloc<parameter/></function> and
-      <function>calloc<parameter/></function> functions return a pointer to the
+      <para>The <function>malloc()</function> and
+      <function>calloc()</function> functions return a pointer to the
       allocated memory if successful; otherwise a <constant>NULL</constant>
       pointer is returned and <varname>errno</varname> is set to
       <errorname>ENOMEM</errorname>.</para>
 
-      <para>The <function>posix_memalign<parameter/></function> function
+      <para>The <function>posix_memalign()</function> function
       returns the value 0 if successful; otherwise it returns an error value.
-      The <function>posix_memalign<parameter/></function> function will fail
+      The <function>posix_memalign()</function> function will fail
       if:
         <variablelist>
           <varlistentry>
@@ -2602,11 +2806,11 @@ typedef struct {
         </variablelist>
       </para>
 
-      <para>The <function>aligned_alloc<parameter/></function> function returns
+      <para>The <function>aligned_alloc()</function> function returns
       a pointer to the allocated memory if successful; otherwise a
       <constant>NULL</constant> pointer is returned and
       <varname>errno</varname> is set.  The
-      <function>aligned_alloc<parameter/></function> function will fail if:
+      <function>aligned_alloc()</function> function will fail if:
         <variablelist>
           <varlistentry>
             <term><errorname>EINVAL</errorname></term>
@@ -2623,44 +2827,44 @@ typedef struct {
         </variablelist>
       </para>
 
-      <para>The <function>realloc<parameter/></function> function returns a
+      <para>The <function>realloc()</function> function returns a
       pointer, possibly identical to <parameter>ptr</parameter>, to the
       allocated memory if successful; otherwise a <constant>NULL</constant>
       pointer is returned, and <varname>errno</varname> is set to
       <errorname>ENOMEM</errorname> if the error was the result of an
-      allocation failure.  The <function>realloc<parameter/></function>
+      allocation failure.  The <function>realloc()</function>
       function always leaves the original buffer intact when an error occurs.
       </para>
 
-      <para>The <function>free<parameter/></function> function returns no
+      <para>The <function>free()</function> function returns no
       value.</para>
     </refsect2>
     <refsect2>
       <title>Non-standard API</title>
-      <para>The <function>mallocx<parameter/></function> and
-      <function>rallocx<parameter/></function> functions return a pointer to
+      <para>The <function>mallocx()</function> and
+      <function>rallocx()</function> functions return a pointer to
       the allocated memory if successful; otherwise a <constant>NULL</constant>
       pointer is returned to indicate insufficient contiguous memory was
       available to service the allocation request.  </para>
 
-      <para>The <function>xallocx<parameter/></function> function returns the
+      <para>The <function>xallocx()</function> function returns the
       real size of the resulting resized allocation pointed to by
       <parameter>ptr</parameter>, which is a value less than
       <parameter>size</parameter> if the allocation could not be adequately
       grown in place.  </para>
 
-      <para>The <function>sallocx<parameter/></function> function returns the
+      <para>The <function>sallocx()</function> function returns the
       real size of the allocation pointed to by <parameter>ptr</parameter>.
       </para>
 
-      <para>The <function>nallocx<parameter/></function> returns the real size
+      <para>The <function>nallocx()</function> returns the real size
       that would result from a successful equivalent
-      <function>mallocx<parameter/></function> function call, or zero if
+      <function>mallocx()</function> function call, or zero if
       insufficient memory is available to perform the size computation.  </para>
 
-      <para>The <function>mallctl<parameter/></function>,
-      <function>mallctlnametomib<parameter/></function>, and
-      <function>mallctlbymib<parameter/></function> functions return 0 on
+      <para>The <function>mallctl()</function>,
+      <function>mallctlnametomib()</function>, and
+      <function>mallctlbymib()</function> functions return 0 on
       success; otherwise they return an error value.  The functions will fail
       if:
         <variablelist>
@@ -2696,13 +2900,13 @@ typedef struct {
             <term><errorname>EFAULT</errorname></term>
 
             <listitem><para>An interface with side effects failed in some way
-            not directly related to <function>mallctl*<parameter/></function>
+            not directly related to <function>mallctl*()</function>
             read/write processing.</para></listitem>
           </varlistentry>
         </variablelist>
       </para>
 
-      <para>The <function>malloc_usable_size<parameter/></function> function
+      <para>The <function>malloc_usable_size()</function> function
       returns the usable size of the allocation pointed to by
       <parameter>ptr</parameter>.  </para>
     </refsect2>
@@ -2750,13 +2954,13 @@ malloc_conf = "lg_chunk:24";]]></programlisting></para>
   </refsect1>
   <refsect1 id="standards">
     <title>STANDARDS</title>
-    <para>The <function>malloc<parameter/></function>,
-    <function>calloc<parameter/></function>,
-    <function>realloc<parameter/></function>, and
-    <function>free<parameter/></function> functions conform to ISO/IEC
-    9899:1990 (&ldquo;ISO C90&rdquo;).</para>
+    <para>The <function>malloc()</function>,
+    <function>calloc()</function>,
+    <function>realloc()</function>, and
+    <function>free()</function> functions conform to ISO/IEC
+    9899:1990 (<quote>ISO C90</quote>).</para>
 
-    <para>The <function>posix_memalign<parameter/></function> function conforms
-    to IEEE Std 1003.1-2001 (&ldquo;POSIX.1&rdquo;).</para>
+    <para>The <function>posix_memalign()</function> function conforms
+    to IEEE Std 1003.1-2001 (<quote>POSIX.1</quote>).</para>
   </refsect1>
 </refentry>

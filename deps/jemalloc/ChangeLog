@@ -4,6 +4,226 @@ brevity.  Much more detail can be found in the git revision history:
 
     https://github.com/jemalloc/jemalloc
 
+* 4.4.0 (December 3, 2016)
+
+  New features:
+  - Add configure support for *-*-linux-android.  (@cferris1000, @jasone)
+  - Add the --disable-syscall configure option, for use on systems that place
+    security-motivated limitations on syscall(2).  (@jasone)
+  - Add support for Debian GNU/kFreeBSD.  (@thesam)
+
+  Optimizations:
+  - Add extent serial numbers and use them where appropriate as a sort key that
+    is higher priority than address, so that the allocation policy prefers older
+    extents.  This tends to improve locality (decrease fragmentation) when
+    memory grows downward.  (@jasone)
+  - Refactor madvise(2) configuration so that MADV_FREE is detected and utilized
+    on Linux 4.5 and newer.  (@jasone)
+  - Mark partially purged arena chunks as non-huge-page.  This improves
+    interaction with Linux's transparent huge page functionality.  (@jasone)
+
+  Bug fixes:
+  - Fix size class computations for edge conditions involving extremely large
+    allocations.  This regression was first released in 4.0.0.  (@jasone,
+    @ingvarha)
+  - Remove overly restrictive assertions related to the cactive statistic.  This
+    regression was first released in 4.1.0.  (@jasone)
+  - Implement a more reliable detection scheme for os_unfair_lock on macOS.
+    (@jszakmeister)
+
+* 4.3.1 (November 7, 2016)
+
+  Bug fixes:
+  - Fix a severe virtual memory leak.  This regression was first released in
+    4.3.0.  (@interwq, @jasone)
+  - Refactor atomic and prng APIs to restore support for 32-bit platforms that
+    use pre-C11 toolchains, e.g. FreeBSD's mips.  (@jasone)
+
+* 4.3.0 (November 4, 2016)
+
+  This is the first release that passes the test suite for multiple Windows
+  configurations, thanks in large part to @glandium setting up continuous
+  integration via AppVeyor (and Travis CI for Linux and OS X).
+
+  New features:
+  - Add "J" (JSON) support to malloc_stats_print().  (@jasone)
+  - Add Cray compiler support.  (@ronawho)
+
+  Optimizations:
+  - Add/use adaptive spinning for bootstrapping and radix tree node
+    initialization.  (@jasone)
+
+  Bug fixes:
+  - Fix large allocation to search starting in the optimal size class heap,
+    which can substantially reduce virtual memory churn and fragmentation.  This
+    regression was first released in 4.0.0.  (@mjp41, @jasone)
+  - Fix stats.arenas.<i>.nthreads accounting.  (@interwq)
+  - Fix and simplify decay-based purging.  (@jasone)
+  - Make DSS (sbrk(2)-related) operations lockless, which resolves potential
+    deadlocks during thread exit.  (@jasone)
+  - Fix over-sized allocation of radix tree leaf nodes.  (@mjp41, @ogaun,
+    @jasone)
+  - Fix over-sized allocation of arena_t (plus associated stats) data
+    structures.  (@jasone, @interwq)
+  - Fix EXTRA_CFLAGS to not affect configuration.  (@jasone)
+  - Fix a Valgrind integration bug.  (@ronawho)
+  - Disallow 0x5a junk filling when running in Valgrind.  (@jasone)
+  - Fix a file descriptor leak on Linux.  This regression was first released in
+    4.2.0.  (@vsarunas, @jasone)
+  - Fix static linking of jemalloc with glibc.  (@djwatson)
+  - Use syscall(2) rather than {open,read,close}(2) during boot on Linux.  This
+    works around other libraries' system call wrappers performing reentrant
+    allocation.  (@kspinka, @Whissi, @jasone)
+  - Fix OS X default zone replacement to work with OS X 10.12.  (@glandium,
+    @jasone)
+  - Fix cached memory management to avoid needless commit/decommit operations
+    during purging, which resolves permanent virtual memory map fragmentation
+    issues on Windows.  (@mjp41, @jasone)
+  - Fix TSD fetches to avoid (recursive) allocation.  This is relevant to
+    non-TLS and Windows configurations.  (@jasone)
+  - Fix malloc_conf overriding to work on Windows.  (@jasone)
+  - Forcibly disable lazy-lock on Windows (was forcibly *enabled*).  (@jasone)
+
+* 4.2.1 (June 8, 2016)
+
+  Bug fixes:
+  - Fix bootstrapping issues for configurations that require allocation during
+    tsd initialization (e.g. --disable-tls).  (@cferris1000, @jasone)
+  - Fix gettimeofday() version of nstime_update().  (@ronawho)
+  - Fix Valgrind regressions in calloc() and chunk_alloc_wrapper().  (@ronawho)
+  - Fix potential VM map fragmentation regression.  (@jasone)
+  - Fix opt_zero-triggered in-place huge reallocation zeroing.  (@jasone)
+  - Fix heap profiling context leaks in reallocation edge cases.  (@jasone)
+
+* 4.2.0 (May 12, 2016)
+
+  New features:
+  - Add the arena.<i>.reset mallctl, which makes it possible to discard all of
+    an arena's allocations in a single operation.  (@jasone)
+  - Add the stats.retained and stats.arenas.<i>.retained statistics.  (@jasone)
+  - Add the --with-version configure option.  (@jasone)
+  - Support --with-lg-page values larger than actual page size.  (@jasone)
+
+  Optimizations:
+  - Use pairing heaps rather than red-black trees for various hot data
+    structures.  (@djwatson, @jasone)
+  - Streamline fast paths of rtree operations.  (@jasone)
+  - Optimize the fast paths of calloc() and [m,d,sd]allocx().  (@jasone)
+  - Decommit unused virtual memory if the OS does not overcommit.  (@jasone)
+  - Specify MAP_NORESERVE on Linux if [heuristic] overcommit is active, in order
+    to avoid unfortunate interactions during fork(2).  (@jasone)
+
+  Bug fixes:
+  - Fix chunk accounting related to triggering gdump profiles.  (@jasone)
+  - Link against librt for clock_gettime(2) if glibc < 2.17.  (@jasone)
+  - Scale leak report summary according to sampling probability.  (@jasone)
+
+* 4.1.1 (May 3, 2016)
+
+  This bugfix release resolves a variety of mostly minor issues, though the
+  bitmap fix is critical for 64-bit Windows.
+
+  Bug fixes:
+  - Fix the linear scan version of bitmap_sfu() to shift by the proper amount
+    even when sizeof(long) is not the same as sizeof(void *), as on 64-bit
+    Windows.  (@jasone)
+  - Fix hashing functions to avoid unaligned memory accesses (and resulting
+    crashes).  This is relevant at least to some ARM-based platforms.
+    (@rkmisra)
+  - Fix fork()-related lock rank ordering reversals.  These reversals were
+    unlikely to cause deadlocks in practice except when heap profiling was
+    enabled and active.  (@jasone)
+  - Fix various chunk leaks in OOM code paths.  (@jasone)
+  - Fix malloc_stats_print() to print opt.narenas correctly.  (@jasone)
+  - Fix MSVC-specific build/test issues.  (@rustyx, @yuslepukhin)
+  - Fix a variety of test failures that were due to test fragility rather than
+    core bugs.  (@jasone)
+
+* 4.1.0 (February 28, 2016)
+
+  This release is primarily about optimizations, but it also incorporates a lot
+  of portability-motivated refactoring and enhancements.  Many people worked on
+  this release, to an extent that even with the omission here of minor changes
+  (see git revision history), and of the people who reported and diagnosed
+  issues, so much of the work was contributed that starting with this release,
+  changes are annotated with author credits to help reflect the collaborative
+  effort involved.
+
+  New features:
+  - Implement decay-based unused dirty page purging, a major optimization with
+    mallctl API impact.  This is an alternative to the existing ratio-based
+    unused dirty page purging, and is intended to eventually become the sole
+    purging mechanism.  New mallctls:
+    + opt.purge
+    + opt.decay_time
+    + arena.<i>.decay
+    + arena.<i>.decay_time
+    + arenas.decay_time
+    + stats.arenas.<i>.decay_time
+    (@jasone, @cevans87)
+  - Add --with-malloc-conf, which makes it possible to embed a default
+    options string during configuration.  This was motivated by the desire to
+    specify --with-malloc-conf=purge:decay , since the default must remain
+    purge:ratio until the 5.0.0 release.  (@jasone)
+  - Add MS Visual Studio 2015 support.  (@rustyx, @yuslepukhin)
+  - Make *allocx() size class overflow behavior defined.  The maximum
+    size class is now less than PTRDIFF_MAX to protect applications against
+    numerical overflow, and all allocation functions are guaranteed to indicate
+    errors rather than potentially crashing if the request size exceeds the
+    maximum size class.  (@jasone)
+  - jeprof:
+    + Add raw heap profile support.  (@jasone)
+    + Add --retain and --exclude for backtrace symbol filtering.  (@jasone)
+
+  Optimizations:
+  - Optimize the fast path to combine various bootstrapping and configuration
+    checks and execute more streamlined code in the common case.  (@interwq)
+  - Use linear scan for small bitmaps (used for small object tracking).  In
+    addition to speeding up bitmap operations on 64-bit systems, this reduces
+    allocator metadata overhead by approximately 0.2%.  (@djwatson)
+  - Separate arena_avail trees, which substantially speeds up run tree
+    operations.  (@djwatson)
+  - Use memoization (boot-time-computed table) for run quantization.  Separate
+    arena_avail trees reduced the importance of this optimization.  (@jasone)
+  - Attempt mmap-based in-place huge reallocation.  This can dramatically speed
+    up incremental huge reallocation.  (@jasone)
+
+  Incompatible changes:
+  - Make opt.narenas unsigned rather than size_t.  (@jasone)
+
+  Bug fixes:
+  - Fix stats.cactive accounting regression.  (@rustyx, @jasone)
+  - Handle unaligned keys in hash().  This caused problems for some ARM systems.
+    (@jasone, @cferris1000)
+  - Refactor arenas array.  In addition to fixing a fork-related deadlock, this
+    makes arena lookups faster and simpler.  (@jasone)
+  - Move retained memory allocation out of the default chunk allocation
+    function, to a location that gets executed even if the application installs
+    a custom chunk allocation function.  This resolves a virtual memory leak.
+    (@buchgr)
+  - Fix a potential tsd cleanup leak.  (@cferris1000, @jasone)
+  - Fix run quantization.  In practice this bug had no impact unless
+    applications requested memory with alignment exceeding one page.
+    (@jasone, @djwatson)
+  - Fix LinuxThreads-specific bootstrapping deadlock.  (Cosmin Paraschiv)
+  - jeprof:
+    + Don't discard curl options if timeout is not defined.  (@djwatson)
+    + Detect failed profile fetches.  (@djwatson)
+  - Fix stats.arenas.<i>.{dss,lg_dirty_mult,decay_time,pactive,pdirty} for
+    --disable-stats case.  (@jasone)
+
+* 4.0.4 (October 24, 2015)
+
+  This bugfix release fixes another xallocx() regression.  No other regressions
+  have come to light in over a month, so this is likely a good starting point
+  for people who prefer to wait for "dot one" releases with all the major issues
+  shaken out.
+
+  Bug fixes:
+  - Fix xallocx(..., MALLOCX_ZERO to zero the last full trailing page of large
+    allocations that have been randomly assigned an offset of 0 when
+    --enable-cache-oblivious configure option is enabled.
+
 * 4.0.3 (September 24, 2015)
 
   This bugfix release continues the trend of xallocx() and heap profiling fixes.

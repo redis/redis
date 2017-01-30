@@ -1,6 +1,6 @@
 /*
  * The following hash function is based on MurmurHash3, placed into the public
- * domain by Austin Appleby.  See http://code.google.com/p/smhasher/ for
+ * domain by Austin Appleby.  See https://github.com/aappleby/smhasher for
  * details.
  */
 /******************************************************************************/
@@ -49,12 +49,28 @@ JEMALLOC_INLINE uint32_t
 hash_get_block_32(const uint32_t *p, int i)
 {
 
+	/* Handle unaligned read. */
+	if (unlikely((uintptr_t)p & (sizeof(uint32_t)-1)) != 0) {
+		uint32_t ret;
+
+		memcpy(&ret, (uint8_t *)(p + i), sizeof(uint32_t));
+		return (ret);
+	}
+
 	return (p[i]);
 }
 
 JEMALLOC_INLINE uint64_t
 hash_get_block_64(const uint64_t *p, int i)
 {
+
+	/* Handle unaligned read. */
+	if (unlikely((uintptr_t)p & (sizeof(uint64_t)-1)) != 0) {
+		uint64_t ret;
+
+		memcpy(&ret, (uint8_t *)(p + i), sizeof(uint64_t));
+		return (ret);
+	}
 
 	return (p[i]);
 }
@@ -321,13 +337,18 @@ hash_x64_128(const void *key, const int len, const uint32_t seed,
 JEMALLOC_INLINE void
 hash(const void *key, size_t len, const uint32_t seed, size_t r_hash[2])
 {
+
+	assert(len <= INT_MAX); /* Unfortunate implementation limitation. */
+
 #if (LG_SIZEOF_PTR == 3 && !defined(JEMALLOC_BIG_ENDIAN))
-	hash_x64_128(key, len, seed, (uint64_t *)r_hash);
+	hash_x64_128(key, (int)len, seed, (uint64_t *)r_hash);
 #else
-	uint64_t hashes[2];
-	hash_x86_128(key, len, seed, hashes);
-	r_hash[0] = (size_t)hashes[0];
-	r_hash[1] = (size_t)hashes[1];
+	{
+		uint64_t hashes[2];
+		hash_x86_128(key, (int)len, seed, hashes);
+		r_hash[0] = (size_t)hashes[0];
+		r_hash[1] = (size_t)hashes[1];
+	}
 #endif
 }
 #endif

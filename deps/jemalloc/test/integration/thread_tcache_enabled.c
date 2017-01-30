@@ -16,7 +16,8 @@ thd_start(void *arg)
 	bool e0, e1;
 
 	sz = sizeof(bool);
-	if ((err = mallctl("thread.tcache.enabled", &e0, &sz, NULL, 0))) {
+	if ((err = mallctl("thread.tcache.enabled", (void *)&e0, &sz, NULL,
+	    0))) {
 		if (err == ENOENT) {
 			assert_false(config_tcache,
 			    "ENOENT should only be returned if tcache is "
@@ -27,53 +28,53 @@ thd_start(void *arg)
 
 	if (e0) {
 		e1 = false;
-		assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz),
-		    0, "Unexpected mallctl() error");
+		assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+		    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 		assert_true(e0, "tcache should be enabled");
 	}
 
 	e1 = true;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_false(e0, "tcache should be disabled");
 
 	e1 = true;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_true(e0, "tcache should be enabled");
 
 	e1 = false;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_true(e0, "tcache should be enabled");
 
 	e1 = false;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
-	assert_false(e0, "tcache should be disabled");
-
-	free(malloc(1));
-	e1 = true;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_false(e0, "tcache should be disabled");
 
 	free(malloc(1));
 	e1 = true;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
+	assert_false(e0, "tcache should be disabled");
+
+	free(malloc(1));
+	e1 = true;
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_true(e0, "tcache should be enabled");
 
 	free(malloc(1));
 	e1 = false;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_true(e0, "tcache should be enabled");
 
 	free(malloc(1));
 	e1 = false;
-	assert_d_eq(mallctl("thread.tcache.enabled", &e0, &sz, &e1, sz), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("thread.tcache.enabled", (void *)&e0, &sz,
+	    (void *)&e1, sz), 0, "Unexpected mallctl() error");
 	assert_false(e0, "tcache should be disabled");
 
 	free(malloc(1));
