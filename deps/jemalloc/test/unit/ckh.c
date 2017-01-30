@@ -7,8 +7,8 @@ TEST_BEGIN(test_new_delete)
 
 	tsd = tsd_fetch();
 
-	assert_false(ckh_new(tsd, &ckh, 2, ckh_string_hash, ckh_string_keycomp),
-	    "Unexpected ckh_new() error");
+	assert_false(ckh_new(tsd, &ckh, 2, ckh_string_hash,
+	    ckh_string_keycomp), "Unexpected ckh_new() error");
 	ckh_delete(tsd, &ckh);
 
 	assert_false(ckh_new(tsd, &ckh, 3, ckh_pointer_hash,
@@ -32,8 +32,8 @@ TEST_BEGIN(test_count_insert_search_remove)
 
 	tsd = tsd_fetch();
 
-	assert_false(ckh_new(tsd, &ckh, 2, ckh_string_hash, ckh_string_keycomp),
-	    "Unexpected ckh_new() error");
+	assert_false(ckh_new(tsd, &ckh, 2, ckh_string_hash,
+	    ckh_string_keycomp), "Unexpected ckh_new() error");
 	assert_zu_eq(ckh_count(&ckh), 0,
 	    "ckh_count() should return %zu, but it returned %zu", ZU(0),
 	    ckh_count(&ckh));

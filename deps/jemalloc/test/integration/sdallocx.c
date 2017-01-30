@@ -1,7 +1,7 @@
 #include "test/jemalloc_test.h"
 
-#define	MAXALIGN (((size_t)1) << 25)
-#define	NITER 4
+#define	MAXALIGN (((size_t)1) << 22)
+#define	NITER 3
 
 TEST_BEGIN(test_basic)
 {
