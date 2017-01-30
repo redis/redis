@@ -4,7 +4,7 @@
 #endif
 
 /*
- * The malloc_default_purgeable_zone function is only available on >= 10.6.
+ * The malloc_default_purgeable_zone() function is only available on >= 10.6.
  * We need to check whether it is present at runtime, thus the weak_import.
  */
 extern malloc_zone_t *malloc_default_purgeable_zone(void)
@@ -13,8 +13,9 @@ JEMALLOC_ATTR(weak_import);
 /******************************************************************************/
 /* Data. */
 
-static malloc_zone_t zone;
-static struct malloc_introspection_t zone_introspect;
+static malloc_zone_t *default_zone, *purgeable_zone;
+static malloc_zone_t jemalloc_zone;
+static struct malloc_introspection_t jemalloc_zone_introspect;
 
 /******************************************************************************/
 /* Function prototypes for non-inline static functions. */
@@ -56,7 +57,7 @@ zone_size(malloc_zone_t *zone, void *ptr)
 	 * not work in practice, we must check all pointers to assure that they
 	 * reside within a mapped chunk before determining size.
 	 */
-	return (ivsalloc(ptr, config_prof));
+	return (ivsalloc(tsdn_fetch(), ptr, config_prof));
 }
 
 static void *
@@ -87,7 +88,7 @@ static void
 zone_free(malloc_zone_t *zone, void *ptr)
 {
 
-	if (ivsalloc(ptr, config_prof) != 0) {
+	if (ivsalloc(tsdn_fetch(), ptr, config_prof) != 0) {
 		je_free(ptr);
 		return;
 	}
@@ -99,7 +100,7 @@ static void *
 zone_realloc(malloc_zone_t *zone, void *ptr, size_t size)
 {
 
-	if (ivsalloc(ptr, config_prof) != 0)
+	if (ivsalloc(tsdn_fetch(), ptr, config_prof) != 0)
 		return (je_realloc(ptr, size));
 
 	return (realloc(ptr, size));
@@ -121,9 +122,11 @@ zone_memalign(malloc_zone_t *zone, size_t alignment, size_t size)
 static void
 zone_free_definite_size(malloc_zone_t *zone, void *ptr, size_t size)
 {
+	size_t alloc_size;
 
-	if (ivsalloc(ptr, config_prof) != 0) {
-		assert(ivsalloc(ptr, config_prof) == size);
+	alloc_size = ivsalloc(tsdn_fetch(), ptr, config_prof);
+	if (alloc_size != 0) {
+		assert(alloc_size == size);
 		je_free(ptr);
 		return;
 	}
@@ -162,89 +165,103 @@ static void
 zone_force_unlock(malloc_zone_t *zone)
 {
 
+	/*
+	 * Call jemalloc_postfork_child() rather than
+	 * jemalloc_postfork_parent(), because this function is executed by both
+	 * parent and child.  The parent can tolerate having state
+	 * reinitialized, but the child cannot unlock mutexes that were locked
+	 * by the parent.
+	 */
 	if (isthreaded)
-		jemalloc_postfork_parent();
+		jemalloc_postfork_child();
 }
 
-JEMALLOC_ATTR(constructor)
-void
-register_zone(void)
+static void
+zone_init(void)
 {
 
-	/*
-	 * If something else replaced the system default zone allocator, don't
-	 * register jemalloc's.
-	 */
-	malloc_zone_t *default_zone = malloc_default_zone();
-	malloc_zone_t *purgeable_zone = NULL;
-	if (!default_zone->zone_name ||
-	    strcmp(default_zone->zone_name, "DefaultMallocZone") != 0) {
-		return;
-	}
-
-	zone.size = (void *)zone_size;
-	zone.malloc = (void *)zone_malloc;
-	zone.calloc = (void *)zone_calloc;
-	zone.valloc = (void *)zone_valloc;
-	zone.free = (void *)zone_free;
-	zone.realloc = (void *)zone_realloc;
-	zone.destroy = (void *)zone_destroy;
-	zone.zone_name = "jemalloc_zone";
-	zone.batch_malloc = NULL;
-	zone.batch_free = NULL;
-	zone.introspect = &zone_introspect;
-	zone.version = JEMALLOC_ZONE_VERSION;
+	jemalloc_zone.size = (void *)zone_size;
+	jemalloc_zone.malloc = (void *)zone_malloc;
+	jemalloc_zone.calloc = (void *)zone_calloc;
+	jemalloc_zone.valloc = (void *)zone_valloc;
+	jemalloc_zone.free = (void *)zone_free;
+	jemalloc_zone.realloc = (void *)zone_realloc;
+	jemalloc_zone.destroy = (void *)zone_destroy;
+	jemalloc_zone.zone_name = "jemalloc_zone";
+	jemalloc_zone.batch_malloc = NULL;
+	jemalloc_zone.batch_free = NULL;
+	jemalloc_zone.introspect = &jemalloc_zone_introspect;
+	jemalloc_zone.version = JEMALLOC_ZONE_VERSION;
 #if (JEMALLOC_ZONE_VERSION >= 5)
-	zone.memalign = zone_memalign;
+	jemalloc_zone.memalign = zone_memalign;
 #endif
 #if (JEMALLOC_ZONE_VERSION >= 6)
-	zone.free_definite_size = zone_free_definite_size;
+	jemalloc_zone.free_definite_size = zone_free_definite_size;
 #endif
 #if (JEMALLOC_ZONE_VERSION >= 8)
-	zone.pressure_relief = NULL;
+	jemalloc_zone.pressure_relief = NULL;
 #endif
 
-	zone_introspect.enumerator = NULL;
-	zone_introspect.good_size = (void *)zone_good_size;
-	zone_introspect.check = NULL;
-	zone_introspect.print = NULL;
-	zone_introspect.log = NULL;
-	zone_introspect.force_lock = (void *)zone_force_lock;
-	zone_introspect.force_unlock = (void *)zone_force_unlock;
-	zone_introspect.statistics = NULL;
+	jemalloc_zone_introspect.enumerator = NULL;
+	jemalloc_zone_introspect.good_size = (void *)zone_good_size;
+	jemalloc_zone_introspect.check = NULL;
+	jemalloc_zone_introspect.print = NULL;
+	jemalloc_zone_introspect.log = NULL;
+	jemalloc_zone_introspect.force_lock = (void *)zone_force_lock;
+	jemalloc_zone_introspect.force_unlock = (void *)zone_force_unlock;
+	jemalloc_zone_introspect.statistics = NULL;
 #if (JEMALLOC_ZONE_VERSION >= 6)
-	zone_introspect.zone_locked = NULL;
+	jemalloc_zone_introspect.zone_locked = NULL;
 #endif
 #if (JEMALLOC_ZONE_VERSION >= 7)
-	zone_introspect.enable_discharge_checking = NULL;
-	zone_introspect.disable_discharge_checking = NULL;
-	zone_introspect.discharge = NULL;
-#ifdef __BLOCKS__
-	zone_introspect.enumerate_discharged_pointers = NULL;
-#else
-	zone_introspect.enumerate_unavailable_without_blocks = NULL;
+	jemalloc_zone_introspect.enable_discharge_checking = NULL;
+	jemalloc_zone_introspect.disable_discharge_checking = NULL;
+	jemalloc_zone_introspect.discharge = NULL;
+#  ifdef __BLOCKS__
+	jemalloc_zone_introspect.enumerate_discharged_pointers = NULL;
+#  else
+	jemalloc_zone_introspect.enumerate_unavailable_without_blocks = NULL;
+#  endif
 #endif
-#endif
+}
+
+static malloc_zone_t *
+zone_default_get(void)
+{
+	malloc_zone_t **zones = NULL;
+	unsigned int num_zones = 0;
 
 	/*
-	 * The default purgeable zone is created lazily by OSX's libc.  It uses
-	 * the default zone when it is created for "small" allocations
-	 * (< 15 KiB), but assumes the default zone is a scalable_zone.  This
-	 * obviously fails when the default zone is the jemalloc zone, so
-	 * malloc_default_purgeable_zone is called beforehand so that the
-	 * default purgeable zone is created when the default zone is still
-	 * a scalable_zone.  As purgeable zones only exist on >= 10.6, we need
-	 * to check for the existence of malloc_default_purgeable_zone() at
-	 * run time.
+	 * On OSX 10.12, malloc_default_zone returns a special zone that is not
+	 * present in the list of registered zones. That zone uses a "lite zone"
+	 * if one is present (apparently enabled when malloc stack logging is
+	 * enabled), or the first registered zone otherwise. In practice this
+	 * means unless malloc stack logging is enabled, the first registered
+	 * zone is the default.  So get the list of zones to get the first one,
+	 * instead of relying on malloc_default_zone.
 	 */
-	if (malloc_default_purgeable_zone != NULL)
-		purgeable_zone = malloc_default_purgeable_zone();
+	if (KERN_SUCCESS != malloc_get_all_zones(0, NULL,
+	    (vm_address_t**)&zones, &num_zones)) {
+		/*
+		 * Reset the value in case the failure happened after it was
+		 * set.
+		 */
+		num_zones = 0;
+	}
 
-	/* Register the custom zone.  At this point it won't be the default. */
-	malloc_zone_register(&zone);
+	if (num_zones)
+		return (zones[0]);
+
+	return (malloc_default_zone());
+}
+
+/* As written, this function can only promote jemalloc_zone. */
+static void
+zone_promote(void)
+{
+	malloc_zone_t *zone;
 
 	do {
-		default_zone = malloc_default_zone();
 		/*
 		 * Unregister and reregister the default zone.  On OSX >= 10.6,
 		 * unregistering takes the last registered zone and places it
@@ -255,6 +272,7 @@ register_zone(void)
 		 */
 		malloc_zone_unregister(default_zone);
 		malloc_zone_register(default_zone);
+
 		/*
 		 * On OSX 10.6, having the default purgeable zone appear before
 		 * the default zone makes some things crash because it thinks it
@@ -266,9 +284,47 @@ register_zone(void)
 		 * above, i.e. the default zone.  Registering it again then puts
 		 * it at the end, obviously after the default zone.
 		 */
-		if (purgeable_zone) {
+		if (purgeable_zone != NULL) {
 			malloc_zone_unregister(purgeable_zone);
 			malloc_zone_register(purgeable_zone);
 		}
-	} while (malloc_default_zone() != &zone);
+
+		zone = zone_default_get();
+	} while (zone != &jemalloc_zone);
+}
+
+JEMALLOC_ATTR(constructor)
+void
+zone_register(void)
+{
+
+	/*
+	 * If something else replaced the system default zone allocator, don't
+	 * register jemalloc's.
+	 */
+	default_zone = zone_default_get();
+	if (!default_zone->zone_name || strcmp(default_zone->zone_name,
+	    "DefaultMallocZone") != 0)
+		return;
+
+	/*
+	 * The default purgeable zone is created lazily by OSX's libc.  It uses
+	 * the default zone when it is created for "small" allocations
+	 * (< 15 KiB), but assumes the default zone is a scalable_zone.  This
+	 * obviously fails when the default zone is the jemalloc zone, so
+	 * malloc_default_purgeable_zone() is called beforehand so that the
+	 * default purgeable zone is created when the default zone is still
+	 * a scalable_zone.  As purgeable zones only exist on >= 10.6, we need
+	 * to check for the existence of malloc_default_purgeable_zone() at
+	 * run time.
+	 */
+	purgeable_zone = (malloc_default_purgeable_zone == NULL) ? NULL :
+	    malloc_default_purgeable_zone();
+
+	/* Register the custom zone.  At this point it won't be the default. */
+	zone_init();
+	malloc_zone_register(&jemalloc_zone);
+
+	/* Promote the custom zone to be default. */
+	zone_promote();
 }

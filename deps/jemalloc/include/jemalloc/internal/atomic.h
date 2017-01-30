@@ -28,8 +28,8 @@
  * callers.
  *
  *   <t> atomic_read_<t>(<t> *p) { return (*p); }
- *   <t> atomic_add_<t>(<t> *p, <t> x) { return (*p + x); }
- *   <t> atomic_sub_<t>(<t> *p, <t> x) { return (*p - x); }
+ *   <t> atomic_add_<t>(<t> *p, <t> x) { return (*p += x); }
+ *   <t> atomic_sub_<t>(<t> *p, <t> x) { return (*p -= x); }
  *   bool atomic_cas_<t>(<t> *p, <t> c, <t> s)
  *   {
  *     if (*p != c)

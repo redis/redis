@@ -10,20 +10,19 @@ const char	*dss_prec_names[] = {
 	"N/A"
 };
 
-/* Current dss precedence default, used when creating new arenas. */
-static dss_prec_t	dss_prec_default = DSS_PREC_DEFAULT;
-
 /*
- * Protects sbrk() calls.  This avoids malloc races among threads, though it
- * does not protect against races with threads that call sbrk() directly.
+ * Current dss precedence default, used when creating new arenas.  NB: This is
+ * stored as unsigned rather than dss_prec_t because in principle there's no
+ * guarantee that sizeof(dss_prec_t) is the same as sizeof(unsigned), and we use
+ * atomic operations to synchronize the setting.
  */
-static malloc_mutex_t	dss_mtx;
+static unsigned		dss_prec_default = (unsigned)DSS_PREC_DEFAULT;
 
 /* Base address of the DSS. */
 static void		*dss_base;
-/* Current end of the DSS, or ((void *)-1) if the DSS is exhausted. */
-static void		*dss_prev;
-/* Current upper limit on DSS addresses. */
+/* Atomic boolean indicating whether the DSS is exhausted. */
+static unsigned		dss_exhausted;
+/* Atomic current upper limit on DSS addresses. */
 static void		*dss_max;
 
 /******************************************************************************/
@@ -47,9 +46,7 @@ chunk_dss_prec_get(void)
 
 	if (!have_dss)
 		return (dss_prec_disabled);
-	malloc_mutex_lock(&dss_mtx);
-	ret = dss_prec_default;
-	malloc_mutex_unlock(&dss_mtx);
+	ret = (dss_prec_t)atomic_read_u(&dss_prec_default);
 	return (ret);
 }
 
@@ -59,15 +56,46 @@ chunk_dss_prec_set(dss_prec_t dss_prec)
 
 	if (!have_dss)
 		return (dss_prec != dss_prec_disabled);
-	malloc_mutex_lock(&dss_mtx);
-	dss_prec_default = dss_prec;
-	malloc_mutex_unlock(&dss_mtx);
+	atomic_write_u(&dss_prec_default, (unsigned)dss_prec);
 	return (false);
 }
 
+static void *
+chunk_dss_max_update(void *new_addr)
+{
+	void *max_cur;
+	spin_t spinner;
+
+	/*
+	 * Get the current end of the DSS as max_cur and assure that dss_max is
+	 * up to date.
+	 */
+	spin_init(&spinner);
+	while (true) {
+		void *max_prev = atomic_read_p(&dss_max);
+
+		max_cur = chunk_dss_sbrk(0);
+		if ((uintptr_t)max_prev > (uintptr_t)max_cur) {
+			/*
+			 * Another thread optimistically updated dss_max.  Wait
+			 * for it to finish.
+			 */
+			spin_adaptive(&spinner);
+			continue;
+		}
+		if (!atomic_cas_p(&dss_max, max_prev, max_cur))
+			break;
+	}
+	/* Fixed new_addr can only be supported if it is at the edge of DSS. */
+	if (new_addr != NULL && max_cur != new_addr)
+		return (NULL);
+
+	return (max_cur);
+}
+
 void *
-chunk_alloc_dss(arena_t *arena, void *new_addr, size_t size, size_t alignment,
-    bool *zero, bool *commit)
+chunk_alloc_dss(tsdn_t *tsdn, arena_t *arena, void *new_addr, size_t size,
+    size_t alignment, bool *zero, bool *commit)
 {
 	cassert(have_dss);
 	assert(size > 0 && (size & chunksize_mask) == 0);
@@ -80,28 +108,20 @@ chunk_alloc_dss(arena_t *arena, void *new_addr, size_t size, size_t alignment,
 	if ((intptr_t)size < 0)
 		return (NULL);
 
-	malloc_mutex_lock(&dss_mtx);
-	if (dss_prev != (void *)-1) {
-
+	if (!atomic_read_u(&dss_exhausted)) {
 		/*
 		 * The loop is necessary to recover from races with other
 		 * threads that are using the DSS for something other than
 		 * malloc.
 		 */
-		do {
-			void *ret, *cpad, *dss_next;
+		while (true) {
+			void *ret, *cpad, *max_cur, *dss_next, *dss_prev;
 			size_t gap_size, cpad_size;
 			intptr_t incr;
-			/* Avoid an unnecessary system call. */
-			if (new_addr != NULL && dss_max != new_addr)
-				break;
 
-			/* Get the current end of the DSS. */
-			dss_max = chunk_dss_sbrk(0);
-
-			/* Make sure the earlier condition still holds. */
-			if (new_addr != NULL && dss_max != new_addr)
-				break;
+			max_cur = chunk_dss_max_update(new_addr);
+			if (max_cur == NULL)
+				goto label_oom;
 
 			/*
 			 * Calculate how much padding is necessary to
@@ -120,22 +140,29 @@ chunk_alloc_dss(arena_t *arena, void *new_addr, size_t size, size_t alignment,
 			cpad_size = (uintptr_t)ret - (uintptr_t)cpad;
 			dss_next = (void *)((uintptr_t)ret + size);
 			if ((uintptr_t)ret < (uintptr_t)dss_max ||
-			    (uintptr_t)dss_next < (uintptr_t)dss_max) {
-				/* Wrap-around. */
-				malloc_mutex_unlock(&dss_mtx);
-				return (NULL);
-			}
+			    (uintptr_t)dss_next < (uintptr_t)dss_max)
+				goto label_oom; /* Wrap-around. */
 			incr = gap_size + cpad_size + size;
+
+			/*
+			 * Optimistically update dss_max, and roll back below if
+			 * sbrk() fails.  No other thread will try to extend the
+			 * DSS while dss_max is greater than the current DSS
+			 * max reported by sbrk(0).
+			 */
+			if (atomic_cas_p(&dss_max, max_cur, dss_next))
+				continue;
+
+			/* Try to allocate. */
 			dss_prev = chunk_dss_sbrk(incr);
-			if (dss_prev == dss_max) {
+			if (dss_prev == max_cur) {
 				/* Success. */
-				dss_max = dss_next;
-				malloc_mutex_unlock(&dss_mtx);
 				if (cpad_size != 0) {
 					chunk_hooks_t chunk_hooks =
 					    CHUNK_HOOKS_INITIALIZER;
-					chunk_dalloc_wrapper(arena,
+					chunk_dalloc_wrapper(tsdn, arena,
 					    &chunk_hooks, cpad, cpad_size,
+					    arena_extent_sn_next(arena), false,
 					    true);
 				}
 				if (*zero) {
@@ -147,68 +174,65 @@ chunk_alloc_dss(arena_t *arena, void *new_addr, size_t size, size_t alignment,
 					*commit = pages_decommit(ret, size);
 				return (ret);
 			}
-		} while (dss_prev != (void *)-1);
-	}
-	malloc_mutex_unlock(&dss_mtx);
 
+			/*
+			 * Failure, whether due to OOM or a race with a raw
+			 * sbrk() call from outside the allocator.  Try to roll
+			 * back optimistic dss_max update; if rollback fails,
+			 * it's due to another caller of this function having
+			 * succeeded since this invocation started, in which
+			 * case rollback is not necessary.
+			 */
+			atomic_cas_p(&dss_max, dss_next, max_cur);
+			if (dss_prev == (void *)-1) {
+				/* OOM. */
+				atomic_write_u(&dss_exhausted, (unsigned)true);
+				goto label_oom;
+			}
+		}
+	}
+label_oom:
 	return (NULL);
+}
+
+static bool
+chunk_in_dss_helper(void *chunk, void *max)
+{
+
+	return ((uintptr_t)chunk >= (uintptr_t)dss_base && (uintptr_t)chunk <
+	    (uintptr_t)max);
 }
 
 bool
 chunk_in_dss(void *chunk)
 {
-	bool ret;
 
 	cassert(have_dss);
 
-	malloc_mutex_lock(&dss_mtx);
-	if ((uintptr_t)chunk >= (uintptr_t)dss_base
-	    && (uintptr_t)chunk < (uintptr_t)dss_max)
-		ret = true;
-	else
-		ret = false;
-	malloc_mutex_unlock(&dss_mtx);
-
-	return (ret);
+	return (chunk_in_dss_helper(chunk, atomic_read_p(&dss_max)));
 }
 
 bool
+chunk_dss_mergeable(void *chunk_a, void *chunk_b)
+{
+	void *max;
+
+	cassert(have_dss);
+
+	max = atomic_read_p(&dss_max);
+	return (chunk_in_dss_helper(chunk_a, max) ==
+	    chunk_in_dss_helper(chunk_b, max));
+}
+
+void
 chunk_dss_boot(void)
 {
 
 	cassert(have_dss);
 
-	if (malloc_mutex_init(&dss_mtx))
-		return (true);
 	dss_base = chunk_dss_sbrk(0);
-	dss_prev = dss_base;
+	dss_exhausted = (unsigned)(dss_base == (void *)-1);
 	dss_max = dss_base;
-
-	return (false);
-}
-
-void
-chunk_dss_prefork(void)
-{
-
-	if (have_dss)
-		malloc_mutex_prefork(&dss_mtx);
-}
-
-void
-chunk_dss_postfork_parent(void)
-{
-
-	if (have_dss)
-		malloc_mutex_postfork_parent(&dss_mtx);
-}
-
-void
-chunk_dss_postfork_child(void)
-{
-
-	if (have_dss)
-		malloc_mutex_postfork_child(&dss_mtx);
 }
 
 /******************************************************************************/
