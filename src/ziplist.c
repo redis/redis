@@ -797,9 +797,9 @@ unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned cha
 
         /* Encode this entry's raw length in the next entry. */
         if (forcelarge)
-            zipStorePrevEntryLength(p+reqlen,reqlen);
-        else
             zipStorePrevEntryLengthLarge(p+reqlen,reqlen);
+        else
+            zipStorePrevEntryLength(p+reqlen,reqlen);
 
         /* Update offset for tail */
         ZIPLIST_TAIL_OFFSET(zl) =
