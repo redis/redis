@@ -1547,6 +1547,13 @@ int clusterProcessPacket(clusterLink *link) {
     redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %lu bytes",
         type, (unsigned long) totlen);
 
+    /* if both nodes in "ok" clusters, they shouldn't have to meet each other */
+    if (hdr->state == REDIS_CLUSTER_OK
+            && server.cluster->state == REDIS_CLUSTER_OK
+            && type == CLUSTERMSG_TYPE_MEET) {
+        return 1;
+    }
+
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
     if (totlen > sdslen(link->rcvbuf)) return 1;
