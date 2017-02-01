@@ -319,9 +319,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
-     * of this script. */
+     * of this script. We always allow write commands when runnning a
+     * maxmemory-script function. */
     if (cmd->flags & REDIS_CMD_WRITE) {
-        if (server.lua_random_dirty) {
+        if (server.lua_random_dirty && server.lua_maxmemory_script == 0) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands");
             goto cleanup;
@@ -343,9 +344,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
-     * in the middle. */
+     * in the middle. We never run during a maxmemory-script run to avoid
+     * recursion. */
     if (server.maxmemory && server.lua_write_dirty == 0 &&
-        (cmd->flags & REDIS_CMD_DENYOOM))
+        (cmd->flags & REDIS_CMD_DENYOOM) && server.lua_maxmemory_script == 0)
     {
         if (freeMemoryIfNeeded() == REDIS_ERR) {
             luaPushError(lua, shared.oomerr->ptr);
@@ -1201,4 +1203,91 @@ void scriptCommand(redisClient *c) {
     } else {
         addReplyError(c, "Unknown SCRIPT subcommand or wrong # of args.");
     }
+}
+
+int scriptingEviction(redisDb *db) {
+    /* Run our custom maxmemory-script
+     *
+     * We return REDIS_OK if we freed an item and REDIS_ERR if there was an
+     * error or we failed to delete anything. */
+
+    int j, err;
+    char *sha = server.maxmemory_script;
+    char funcname[43];
+    lua_State *lua = server.lua;
+
+    if (server.maxmemory_script == NULL) {
+        redisLog(REDIS_WARNING,"maxmemory-policy script requires maxmemory-script");
+        return REDIS_ERR;
+    }
+
+    /* Create internal function name, converting to lowercase */
+    funcname[0] = 'f';
+    funcname[1] = '_';
+    for (j = 0; j < 40; j++)
+        funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+            sha[j]+('a'-'A') : sha[j];
+    funcname[42] = '\0';
+
+    /* Push the pcall error handler function on the stack */
+    lua_getglobal(lua, "__redis__err__handler");
+
+    /* Lookup function */
+    lua_getglobal(lua, funcname);
+    if (lua_isnil(lua,-1)) {
+        redisLog(REDIS_WARNING,"Could not find maxmemory-script script %s", sha);
+        lua_pop(lua,1);
+        return REDIS_ERR;
+    }
+
+    /* Select database */
+    selectDb(server.lua_client,db->id);
+
+    /* Call script, disabling purity/randomness detection */
+    server.lua_maxmemory_script = 1;
+    err = lua_pcall(lua,0,1,-2);
+    server.lua_maxmemory_script = 0;
+
+    /* Call the Lua garbage collector from time to time to avoid a
+     * full cycle performed by Lua, which adds too latency.
+     *
+     * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
+     * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
+     * for every command uses too much CPU. */
+    #define LUA_GC_CYCLE_PERIOD 50
+    {
+        static long gc_count = 0;
+
+        gc_count++;
+        if (gc_count == LUA_GC_CYCLE_PERIOD) {
+            lua_gc(lua,LUA_GCSTEP,LUA_GC_CYCLE_PERIOD);
+            gc_count = 0;
+        }
+    }
+
+    int retval = REDIS_ERR;
+
+    if (err) {
+        redisLog(REDIS_WARNING,"Error running maxmemory-script %s: %s\n",
+            sha, lua_tostring(lua,-1));
+        goto cleanup;
+    }
+
+    if (lua_type(lua,-1) != LUA_TBOOLEAN) {
+        redisLog(REDIS_WARNING,"Error running maxmemory-script %s: "
+            "did not return return a boolean", sha);
+        goto cleanup;
+    }
+
+    /* Error if we returned false; we couldn't find anything to remove */
+    if (!lua_toboolean(lua,-1)) goto cleanup;
+
+    /* We found something to free */
+    retval = REDIS_OK;
+
+cleanup:
+    /* Consume reply and remove error handler */
+    lua_pop(lua,2);
+
+    return retval;
 }

@@ -355,7 +355,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_MAXMEMORY_VOLATILE_RANDOM 2
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
-#define REDIS_MAXMEMORY_NO_EVICTION 5
+#define REDIS_MAXMEMORY_SCRIPT 5
+#define REDIS_MAXMEMORY_NO_EVICTION 6
 #define REDIS_DEFAULT_MAXMEMORY_POLICY REDIS_MAXMEMORY_NO_EVICTION
 
 /* Scripting */
@@ -865,6 +866,7 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
+    char *maxmemory_script;         /* SHA of script for maxmemory-policy script */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */
@@ -913,6 +915,8 @@ struct redisServer {
                              execution of the current script. */
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
+    int lua_maxmemory_script; /* True if we we are currently running a custom
+                                 maxmemory-script function. */
     int lua_kill;         /* Kill the script if true. */
     /* Latency monitor */
     long long latency_monitor_threshold;
@@ -1382,6 +1386,7 @@ void sentinelIsRunning(void);
 
 /* Scripting */
 void scriptingInit(void);
+int scriptingEviction(redisDb *db);
 
 /* Blocked clients */
 void processUnblockedClients(void);

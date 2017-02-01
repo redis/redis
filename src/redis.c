@@ -1471,6 +1471,7 @@ void initServerConfig(void) {
     server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
+    server.maxmemory_script = NULL;
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
@@ -1494,6 +1495,7 @@ void initServerConfig(void) {
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
+    server.lua_maxmemory_script = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
@@ -3257,7 +3259,8 @@ int freeMemoryIfNeeded(void) {
             dict *dict;
 
             if (server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_LRU ||
-                server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_RANDOM)
+                server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_RANDOM ||
+                server.maxmemory_policy == REDIS_MAXMEMORY_SCRIPT)
             {
                 dict = server.db[j].dict;
             } else {
@@ -3326,6 +3329,13 @@ int freeMemoryIfNeeded(void) {
                         bestval = thisval;
                     }
                 }
+            }
+
+            /* script */
+            else if (server.maxmemory_policy == REDIS_MAXMEMORY_SCRIPT) {
+                long long delta = (long long) zmalloc_used_memory();
+                if (scriptingEviction(db) == REDIS_OK) keys_freed++;
+                mem_freed += delta;
             }
 
             /* Finally remove the selected key. */
