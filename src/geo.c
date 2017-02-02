@@ -352,7 +352,7 @@ int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, d
         if (debugmsg) {
             GeoHashRange long_range, lat_range;
             geohashGetCoordRange(&long_range,&lat_range);
-            GeoHashArea myarea = {{0}};
+            GeoHashArea myarea = {{0,0},{0,0},{0,0}};
             geohashDecode(long_range, lat_range, neighbors[i], &myarea);
 
             /* Dump center square. */

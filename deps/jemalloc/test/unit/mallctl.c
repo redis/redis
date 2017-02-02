@@ -12,16 +12,18 @@ TEST_BEGIN(test_mallctl_errors)
 	    EPERM, "mallctl() should return EPERM on attempt to write "
 	    "read-only value");
 
-	assert_d_eq(mallctl("epoch", NULL, NULL, &epoch, sizeof(epoch)-1),
-	    EINVAL, "mallctl() should return EINVAL for input size mismatch");
-	assert_d_eq(mallctl("epoch", NULL, NULL, &epoch, sizeof(epoch)+1),
-	    EINVAL, "mallctl() should return EINVAL for input size mismatch");
+	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch,
+	    sizeof(epoch)-1), EINVAL,
+	    "mallctl() should return EINVAL for input size mismatch");
+	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&epoch,
+	    sizeof(epoch)+1), EINVAL,
+	    "mallctl() should return EINVAL for input size mismatch");
 
 	sz = sizeof(epoch)-1;
-	assert_d_eq(mallctl("epoch", &epoch, &sz, NULL, 0), EINVAL,
+	assert_d_eq(mallctl("epoch", (void *)&epoch, &sz, NULL, 0), EINVAL,
 	    "mallctl() should return EINVAL for output size mismatch");
 	sz = sizeof(epoch)+1;
-	assert_d_eq(mallctl("epoch", &epoch, &sz, NULL, 0), EINVAL,
+	assert_d_eq(mallctl("epoch", (void *)&epoch, &sz, NULL, 0), EINVAL,
 	    "mallctl() should return EINVAL for output size mismatch");
 }
 TEST_END
@@ -56,18 +58,20 @@ TEST_BEGIN(test_mallctlbymib_errors)
 	assert_d_eq(mallctlnametomib("epoch", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 
-	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, &epoch,
+	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, (void *)&epoch,
 	    sizeof(epoch)-1), EINVAL,
 	    "mallctlbymib() should return EINVAL for input size mismatch");
-	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, &epoch,
+	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, (void *)&epoch,
 	    sizeof(epoch)+1), EINVAL,
 	    "mallctlbymib() should return EINVAL for input size mismatch");
 
 	sz = sizeof(epoch)-1;
-	assert_d_eq(mallctlbymib(mib, miblen, &epoch, &sz, NULL, 0), EINVAL,
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&epoch, &sz, NULL, 0),
+	    EINVAL,
 	    "mallctlbymib() should return EINVAL for output size mismatch");
 	sz = sizeof(epoch)+1;
-	assert_d_eq(mallctlbymib(mib, miblen, &epoch, &sz, NULL, 0), EINVAL,
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&epoch, &sz, NULL, 0),
+	    EINVAL,
 	    "mallctlbymib() should return EINVAL for output size mismatch");
 }
 TEST_END
@@ -83,18 +87,19 @@ TEST_BEGIN(test_mallctl_read_write)
 	assert_zu_eq(sz, sizeof(old_epoch), "Unexpected output size");
 
 	/* Read. */
-	assert_d_eq(mallctl("epoch", &old_epoch, &sz, NULL, 0), 0,
+	assert_d_eq(mallctl("epoch", (void *)&old_epoch, &sz, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
 	assert_zu_eq(sz, sizeof(old_epoch), "Unexpected output size");
 
 	/* Write. */
-	assert_d_eq(mallctl("epoch", NULL, NULL, &new_epoch, sizeof(new_epoch)),
-	    0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("epoch", NULL, NULL, (void *)&new_epoch,
+	    sizeof(new_epoch)), 0, "Unexpected mallctl() failure");
 	assert_zu_eq(sz, sizeof(old_epoch), "Unexpected output size");
 
 	/* Read+write. */
-	assert_d_eq(mallctl("epoch", &old_epoch, &sz, &new_epoch,
-	    sizeof(new_epoch)), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("epoch", (void *)&old_epoch, &sz,
+	    (void *)&new_epoch, sizeof(new_epoch)), 0,
+	    "Unexpected mallctl() failure");
 	assert_zu_eq(sz, sizeof(old_epoch), "Unexpected output size");
 }
 TEST_END
@@ -117,29 +122,30 @@ TEST_END
 TEST_BEGIN(test_mallctl_config)
 {
 
-#define	TEST_MALLCTL_CONFIG(config) do {				\
-	bool oldval;							\
+#define	TEST_MALLCTL_CONFIG(config, t) do {				\
+	t oldval;							\
 	size_t sz = sizeof(oldval);					\
-	assert_d_eq(mallctl("config."#config, &oldval, &sz, NULL, 0),	\
-	    0, "Unexpected mallctl() failure");				\
+	assert_d_eq(mallctl("config."#config, (void *)&oldval, &sz,	\
+	    NULL, 0), 0, "Unexpected mallctl() failure");		\
 	assert_b_eq(oldval, config_##config, "Incorrect config value");	\
 	assert_zu_eq(sz, sizeof(oldval), "Unexpected output size");	\
 } while (0)
 
-	TEST_MALLCTL_CONFIG(cache_oblivious);
-	TEST_MALLCTL_CONFIG(debug);
-	TEST_MALLCTL_CONFIG(fill);
-	TEST_MALLCTL_CONFIG(lazy_lock);
-	TEST_MALLCTL_CONFIG(munmap);
-	TEST_MALLCTL_CONFIG(prof);
-	TEST_MALLCTL_CONFIG(prof_libgcc);
-	TEST_MALLCTL_CONFIG(prof_libunwind);
-	TEST_MALLCTL_CONFIG(stats);
-	TEST_MALLCTL_CONFIG(tcache);
-	TEST_MALLCTL_CONFIG(tls);
-	TEST_MALLCTL_CONFIG(utrace);
-	TEST_MALLCTL_CONFIG(valgrind);
-	TEST_MALLCTL_CONFIG(xmalloc);
+	TEST_MALLCTL_CONFIG(cache_oblivious, bool);
+	TEST_MALLCTL_CONFIG(debug, bool);
+	TEST_MALLCTL_CONFIG(fill, bool);
+	TEST_MALLCTL_CONFIG(lazy_lock, bool);
+	TEST_MALLCTL_CONFIG(malloc_conf, const char *);
+	TEST_MALLCTL_CONFIG(munmap, bool);
+	TEST_MALLCTL_CONFIG(prof, bool);
+	TEST_MALLCTL_CONFIG(prof_libgcc, bool);
+	TEST_MALLCTL_CONFIG(prof_libunwind, bool);
+	TEST_MALLCTL_CONFIG(stats, bool);
+	TEST_MALLCTL_CONFIG(tcache, bool);
+	TEST_MALLCTL_CONFIG(tls, bool);
+	TEST_MALLCTL_CONFIG(utrace, bool);
+	TEST_MALLCTL_CONFIG(valgrind, bool);
+	TEST_MALLCTL_CONFIG(xmalloc, bool);
 
 #undef TEST_MALLCTL_CONFIG
 }
@@ -153,7 +159,8 @@ TEST_BEGIN(test_mallctl_opt)
 	t oldval;							\
 	size_t sz = sizeof(oldval);					\
 	int expected = config_##config ? 0 : ENOENT;			\
-	int result = mallctl("opt."#opt, &oldval, &sz, NULL, 0);	\
+	int result = mallctl("opt."#opt, (void *)&oldval, &sz, NULL,	\
+	    0);								\
 	assert_d_eq(result, expected,					\
 	    "Unexpected mallctl() result for opt."#opt);		\
 	assert_zu_eq(sz, sizeof(oldval), "Unexpected output size");	\
@@ -162,8 +169,10 @@ TEST_BEGIN(test_mallctl_opt)
 	TEST_MALLCTL_OPT(bool, abort, always);
 	TEST_MALLCTL_OPT(size_t, lg_chunk, always);
 	TEST_MALLCTL_OPT(const char *, dss, always);
-	TEST_MALLCTL_OPT(size_t, narenas, always);
+	TEST_MALLCTL_OPT(unsigned, narenas, always);
+	TEST_MALLCTL_OPT(const char *, purge, always);
 	TEST_MALLCTL_OPT(ssize_t, lg_dirty_mult, always);
+	TEST_MALLCTL_OPT(ssize_t, decay_time, always);
 	TEST_MALLCTL_OPT(bool, stats_print, always);
 	TEST_MALLCTL_OPT(const char *, junk, fill);
 	TEST_MALLCTL_OPT(size_t, quarantine, fill);
@@ -194,7 +203,7 @@ TEST_BEGIN(test_manpage_example)
 	size_t len, miblen;
 
 	len = sizeof(nbins);
-	assert_d_eq(mallctl("arenas.nbins", &nbins, &len, NULL, 0), 0,
+	assert_d_eq(mallctl("arenas.nbins", (void *)&nbins, &len, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
 
 	miblen = 4;
@@ -205,8 +214,8 @@ TEST_BEGIN(test_manpage_example)
 
 		mib[2] = i;
 		len = sizeof(bin_size);
-		assert_d_eq(mallctlbymib(mib, miblen, &bin_size, &len, NULL, 0),
-		    0, "Unexpected mallctlbymib() failure");
+		assert_d_eq(mallctlbymib(mib, miblen, (void *)&bin_size, &len,
+		    NULL, 0), 0, "Unexpected mallctlbymib() failure");
 		/* Do something with bin_size... */
 	}
 }
@@ -255,25 +264,25 @@ TEST_BEGIN(test_tcache)
 	/* Create tcaches. */
 	for (i = 0; i < NTCACHES; i++) {
 		sz = sizeof(unsigned);
-		assert_d_eq(mallctl("tcache.create", &tis[i], &sz, NULL, 0), 0,
-		    "Unexpected mallctl() failure, i=%u", i);
+		assert_d_eq(mallctl("tcache.create", (void *)&tis[i], &sz, NULL,
+		    0), 0, "Unexpected mallctl() failure, i=%u", i);
 	}
 
 	/* Exercise tcache ID recycling. */
 	for (i = 0; i < NTCACHES; i++) {
-		assert_d_eq(mallctl("tcache.destroy", NULL, NULL, &tis[i],
-		    sizeof(unsigned)), 0, "Unexpected mallctl() failure, i=%u",
-		    i);
+		assert_d_eq(mallctl("tcache.destroy", NULL, NULL,
+		    (void *)&tis[i], sizeof(unsigned)), 0,
+		    "Unexpected mallctl() failure, i=%u", i);
 	}
 	for (i = 0; i < NTCACHES; i++) {
 		sz = sizeof(unsigned);
-		assert_d_eq(mallctl("tcache.create", &tis[i], &sz, NULL, 0), 0,
-		    "Unexpected mallctl() failure, i=%u", i);
+		assert_d_eq(mallctl("tcache.create", (void *)&tis[i], &sz, NULL,
+		    0), 0, "Unexpected mallctl() failure, i=%u", i);
 	}
 
 	/* Flush empty tcaches. */
 	for (i = 0; i < NTCACHES; i++) {
-		assert_d_eq(mallctl("tcache.flush", NULL, NULL, &tis[i],
+		assert_d_eq(mallctl("tcache.flush", NULL, NULL, (void *)&tis[i],
 		    sizeof(unsigned)), 0, "Unexpected mallctl() failure, i=%u",
 		    i);
 	}
@@ -318,16 +327,16 @@ TEST_BEGIN(test_tcache)
 
 	/* Flush some non-empty tcaches. */
 	for (i = 0; i < NTCACHES/2; i++) {
-		assert_d_eq(mallctl("tcache.flush", NULL, NULL, &tis[i],
+		assert_d_eq(mallctl("tcache.flush", NULL, NULL, (void *)&tis[i],
 		    sizeof(unsigned)), 0, "Unexpected mallctl() failure, i=%u",
 		    i);
 	}
 
 	/* Destroy tcaches. */
 	for (i = 0; i < NTCACHES; i++) {
-		assert_d_eq(mallctl("tcache.destroy", NULL, NULL, &tis[i],
-		    sizeof(unsigned)), 0, "Unexpected mallctl() failure, i=%u",
-		    i);
+		assert_d_eq(mallctl("tcache.destroy", NULL, NULL,
+		    (void *)&tis[i], sizeof(unsigned)), 0,
+		    "Unexpected mallctl() failure, i=%u", i);
 	}
 }
 TEST_END
@@ -337,15 +346,17 @@ TEST_BEGIN(test_thread_arena)
 	unsigned arena_old, arena_new, narenas;
 	size_t sz = sizeof(unsigned);
 
-	assert_d_eq(mallctl("arenas.narenas", &narenas, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas, &sz, NULL, 0),
+	    0, "Unexpected mallctl() failure");
 	assert_u_eq(narenas, opt_narenas, "Number of arenas incorrect");
 	arena_new = narenas - 1;
-	assert_d_eq(mallctl("thread.arena", &arena_old, &sz, &arena_new,
-	    sizeof(unsigned)), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("thread.arena", (void *)&arena_old, &sz,
+	    (void *)&arena_new, sizeof(unsigned)), 0,
+	    "Unexpected mallctl() failure");
 	arena_new = 0;
-	assert_d_eq(mallctl("thread.arena", &arena_old, &sz, &arena_new,
-	    sizeof(unsigned)), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("thread.arena", (void *)&arena_old, &sz,
+	    (void *)&arena_new, sizeof(unsigned)), 0,
+	    "Unexpected mallctl() failure");
 }
 TEST_END
 
@@ -354,17 +365,20 @@ TEST_BEGIN(test_arena_i_lg_dirty_mult)
 	ssize_t lg_dirty_mult, orig_lg_dirty_mult, prev_lg_dirty_mult;
 	size_t sz = sizeof(ssize_t);
 
-	assert_d_eq(mallctl("arena.0.lg_dirty_mult", &orig_lg_dirty_mult, &sz,
-	    NULL, 0), 0, "Unexpected mallctl() failure");
+	test_skip_if(opt_purge != purge_mode_ratio);
+
+	assert_d_eq(mallctl("arena.0.lg_dirty_mult",
+	    (void *)&orig_lg_dirty_mult, &sz, NULL, 0), 0,
+	    "Unexpected mallctl() failure");
 
 	lg_dirty_mult = -2;
 	assert_d_eq(mallctl("arena.0.lg_dirty_mult", NULL, NULL,
-	    &lg_dirty_mult, sizeof(ssize_t)), EFAULT,
+	    (void *)&lg_dirty_mult, sizeof(ssize_t)), EFAULT,
 	    "Unexpected mallctl() success");
 
 	lg_dirty_mult = (sizeof(size_t) << 3);
 	assert_d_eq(mallctl("arena.0.lg_dirty_mult", NULL, NULL,
-	    &lg_dirty_mult, sizeof(ssize_t)), EFAULT,
+	    (void *)&lg_dirty_mult, sizeof(ssize_t)), EFAULT,
 	    "Unexpected mallctl() success");
 
 	for (prev_lg_dirty_mult = orig_lg_dirty_mult, lg_dirty_mult = -1;
@@ -372,11 +386,44 @@ TEST_BEGIN(test_arena_i_lg_dirty_mult)
 	    = lg_dirty_mult, lg_dirty_mult++) {
 		ssize_t old_lg_dirty_mult;
 
-		assert_d_eq(mallctl("arena.0.lg_dirty_mult", &old_lg_dirty_mult,
-		    &sz, &lg_dirty_mult, sizeof(ssize_t)), 0,
-		    "Unexpected mallctl() failure");
+		assert_d_eq(mallctl("arena.0.lg_dirty_mult",
+		    (void *)&old_lg_dirty_mult, &sz, (void *)&lg_dirty_mult,
+		    sizeof(ssize_t)), 0, "Unexpected mallctl() failure");
 		assert_zd_eq(old_lg_dirty_mult, prev_lg_dirty_mult,
 		    "Unexpected old arena.0.lg_dirty_mult");
+	}
+}
+TEST_END
+
+TEST_BEGIN(test_arena_i_decay_time)
+{
+	ssize_t decay_time, orig_decay_time, prev_decay_time;
+	size_t sz = sizeof(ssize_t);
+
+	test_skip_if(opt_purge != purge_mode_decay);
+
+	assert_d_eq(mallctl("arena.0.decay_time", (void *)&orig_decay_time, &sz,
+	    NULL, 0), 0, "Unexpected mallctl() failure");
+
+	decay_time = -2;
+	assert_d_eq(mallctl("arena.0.decay_time", NULL, NULL,
+	    (void *)&decay_time, sizeof(ssize_t)), EFAULT,
+	    "Unexpected mallctl() success");
+
+	decay_time = 0x7fffffff;
+	assert_d_eq(mallctl("arena.0.decay_time", NULL, NULL,
+	    (void *)&decay_time, sizeof(ssize_t)), 0,
+	    "Unexpected mallctl() failure");
+
+	for (prev_decay_time = decay_time, decay_time = -1;
+	    decay_time < 20; prev_decay_time = decay_time, decay_time++) {
+		ssize_t old_decay_time;
+
+		assert_d_eq(mallctl("arena.0.decay_time", (void *)&old_decay_time,
+		    &sz, (void *)&decay_time, sizeof(ssize_t)), 0,
+		    "Unexpected mallctl() failure");
+		assert_zd_eq(old_decay_time, prev_decay_time,
+		    "Unexpected old arena.0.decay_time");
 	}
 }
 TEST_END
@@ -391,9 +438,29 @@ TEST_BEGIN(test_arena_i_purge)
 	assert_d_eq(mallctl("arena.0.purge", NULL, NULL, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
 
-	assert_d_eq(mallctl("arenas.narenas", &narenas, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas, &sz, NULL, 0),
+	    0, "Unexpected mallctl() failure");
 	assert_d_eq(mallctlnametomib("arena.0.purge", mib, &miblen), 0,
+	    "Unexpected mallctlnametomib() failure");
+	mib[1] = narenas;
+	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
+	    "Unexpected mallctlbymib() failure");
+}
+TEST_END
+
+TEST_BEGIN(test_arena_i_decay)
+{
+	unsigned narenas;
+	size_t sz = sizeof(unsigned);
+	size_t mib[3];
+	size_t miblen = 3;
+
+	assert_d_eq(mallctl("arena.0.decay", NULL, NULL, NULL, 0), 0,
+	    "Unexpected mallctl() failure");
+
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas, &sz, NULL, 0),
+	    0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctlnametomib("arena.0.decay", mib, &miblen), 0,
 	    "Unexpected mallctlnametomib() failure");
 	mib[1] = narenas;
 	assert_d_eq(mallctlbymib(mib, miblen, NULL, NULL, NULL, 0), 0,
@@ -413,31 +480,35 @@ TEST_BEGIN(test_arena_i_dss)
 	    "Unexpected mallctlnametomib() error");
 
 	dss_prec_new = "disabled";
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_old, &sz, &dss_prec_new,
-	    sizeof(dss_prec_new)), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_old, &sz,
+	    (void *)&dss_prec_new, sizeof(dss_prec_new)), 0,
+	    "Unexpected mallctl() failure");
 	assert_str_ne(dss_prec_old, "primary",
 	    "Unexpected default for dss precedence");
 
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_new, &sz, &dss_prec_old,
-	    sizeof(dss_prec_old)), 0, "Unexpected mallctl() failure");
-
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_old, &sz, NULL, 0), 0,
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_new, &sz,
+	    (void *)&dss_prec_old, sizeof(dss_prec_old)), 0,
 	    "Unexpected mallctl() failure");
+
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_old, &sz, NULL,
+	    0), 0, "Unexpected mallctl() failure");
 	assert_str_ne(dss_prec_old, "primary",
 	    "Unexpected value for dss precedence");
 
 	mib[1] = narenas_total_get();
 	dss_prec_new = "disabled";
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_old, &sz, &dss_prec_new,
-	    sizeof(dss_prec_new)), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_old, &sz,
+	    (void *)&dss_prec_new, sizeof(dss_prec_new)), 0,
+	    "Unexpected mallctl() failure");
 	assert_str_ne(dss_prec_old, "primary",
 	    "Unexpected default for dss precedence");
 
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_new, &sz, &dss_prec_old,
-	    sizeof(dss_prec_new)), 0, "Unexpected mallctl() failure");
-
-	assert_d_eq(mallctlbymib(mib, miblen, &dss_prec_old, &sz, NULL, 0), 0,
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_new, &sz,
+	    (void *)&dss_prec_old, sizeof(dss_prec_new)), 0,
 	    "Unexpected mallctl() failure");
+
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&dss_prec_old, &sz, NULL,
+	    0), 0, "Unexpected mallctl() failure");
 	assert_str_ne(dss_prec_old, "primary",
 	    "Unexpected value for dss precedence");
 }
@@ -448,14 +519,14 @@ TEST_BEGIN(test_arenas_initialized)
 	unsigned narenas;
 	size_t sz = sizeof(narenas);
 
-	assert_d_eq(mallctl("arenas.narenas", &narenas, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas, &sz, NULL, 0),
+	    0, "Unexpected mallctl() failure");
 	{
 		VARIABLE_ARRAY(bool, initialized, narenas);
 
 		sz = narenas * sizeof(bool);
-		assert_d_eq(mallctl("arenas.initialized", initialized, &sz,
-		    NULL, 0), 0, "Unexpected mallctl() failure");
+		assert_d_eq(mallctl("arenas.initialized", (void *)initialized,
+		    &sz, NULL, 0), 0, "Unexpected mallctl() failure");
 	}
 }
 TEST_END
@@ -465,17 +536,19 @@ TEST_BEGIN(test_arenas_lg_dirty_mult)
 	ssize_t lg_dirty_mult, orig_lg_dirty_mult, prev_lg_dirty_mult;
 	size_t sz = sizeof(ssize_t);
 
-	assert_d_eq(mallctl("arenas.lg_dirty_mult", &orig_lg_dirty_mult, &sz,
-	    NULL, 0), 0, "Unexpected mallctl() failure");
+	test_skip_if(opt_purge != purge_mode_ratio);
+
+	assert_d_eq(mallctl("arenas.lg_dirty_mult", (void *)&orig_lg_dirty_mult,
+	    &sz, NULL, 0), 0, "Unexpected mallctl() failure");
 
 	lg_dirty_mult = -2;
 	assert_d_eq(mallctl("arenas.lg_dirty_mult", NULL, NULL,
-	    &lg_dirty_mult, sizeof(ssize_t)), EFAULT,
+	    (void *)&lg_dirty_mult, sizeof(ssize_t)), EFAULT,
 	    "Unexpected mallctl() success");
 
 	lg_dirty_mult = (sizeof(size_t) << 3);
 	assert_d_eq(mallctl("arenas.lg_dirty_mult", NULL, NULL,
-	    &lg_dirty_mult, sizeof(ssize_t)), EFAULT,
+	    (void *)&lg_dirty_mult, sizeof(ssize_t)), EFAULT,
 	    "Unexpected mallctl() success");
 
 	for (prev_lg_dirty_mult = orig_lg_dirty_mult, lg_dirty_mult = -1;
@@ -483,11 +556,44 @@ TEST_BEGIN(test_arenas_lg_dirty_mult)
 	    lg_dirty_mult, lg_dirty_mult++) {
 		ssize_t old_lg_dirty_mult;
 
-		assert_d_eq(mallctl("arenas.lg_dirty_mult", &old_lg_dirty_mult,
-		    &sz, &lg_dirty_mult, sizeof(ssize_t)), 0,
-		    "Unexpected mallctl() failure");
+		assert_d_eq(mallctl("arenas.lg_dirty_mult",
+		    (void *)&old_lg_dirty_mult, &sz, (void *)&lg_dirty_mult,
+		    sizeof(ssize_t)), 0, "Unexpected mallctl() failure");
 		assert_zd_eq(old_lg_dirty_mult, prev_lg_dirty_mult,
 		    "Unexpected old arenas.lg_dirty_mult");
+	}
+}
+TEST_END
+
+TEST_BEGIN(test_arenas_decay_time)
+{
+	ssize_t decay_time, orig_decay_time, prev_decay_time;
+	size_t sz = sizeof(ssize_t);
+
+	test_skip_if(opt_purge != purge_mode_decay);
+
+	assert_d_eq(mallctl("arenas.decay_time", (void *)&orig_decay_time, &sz,
+	    NULL, 0), 0, "Unexpected mallctl() failure");
+
+	decay_time = -2;
+	assert_d_eq(mallctl("arenas.decay_time", NULL, NULL,
+	    (void *)&decay_time, sizeof(ssize_t)), EFAULT,
+	    "Unexpected mallctl() success");
+
+	decay_time = 0x7fffffff;
+	assert_d_eq(mallctl("arenas.decay_time", NULL, NULL,
+	    (void *)&decay_time, sizeof(ssize_t)), 0,
+	    "Expected mallctl() failure");
+
+	for (prev_decay_time = decay_time, decay_time = -1;
+	    decay_time < 20; prev_decay_time = decay_time, decay_time++) {
+		ssize_t old_decay_time;
+
+		assert_d_eq(mallctl("arenas.decay_time",
+		    (void *)&old_decay_time, &sz, (void *)&decay_time,
+		    sizeof(ssize_t)), 0, "Unexpected mallctl() failure");
+		assert_zd_eq(old_decay_time, prev_decay_time,
+		    "Unexpected old arenas.decay_time");
 	}
 }
 TEST_END
@@ -498,8 +604,8 @@ TEST_BEGIN(test_arenas_constants)
 #define	TEST_ARENAS_CONSTANT(t, name, expected) do {			\
 	t name;								\
 	size_t sz = sizeof(t);						\
-	assert_d_eq(mallctl("arenas."#name, &name, &sz, NULL, 0), 0,	\
-	    "Unexpected mallctl() failure");				\
+	assert_d_eq(mallctl("arenas."#name, (void *)&name, &sz, NULL,	\
+	    0), 0, "Unexpected mallctl() failure");			\
 	assert_zu_eq(name, expected, "Incorrect "#name" size");		\
 } while (0)
 
@@ -519,8 +625,8 @@ TEST_BEGIN(test_arenas_bin_constants)
 #define	TEST_ARENAS_BIN_CONSTANT(t, name, expected) do {		\
 	t name;								\
 	size_t sz = sizeof(t);						\
-	assert_d_eq(mallctl("arenas.bin.0."#name, &name, &sz, NULL, 0),	\
-	    0, "Unexpected mallctl() failure");				\
+	assert_d_eq(mallctl("arenas.bin.0."#name, (void *)&name, &sz,	\
+	    NULL, 0), 0, "Unexpected mallctl() failure");		\
 	assert_zu_eq(name, expected, "Incorrect "#name" size");		\
 } while (0)
 
@@ -538,8 +644,8 @@ TEST_BEGIN(test_arenas_lrun_constants)
 #define	TEST_ARENAS_LRUN_CONSTANT(t, name, expected) do {		\
 	t name;								\
 	size_t sz = sizeof(t);						\
-	assert_d_eq(mallctl("arenas.lrun.0."#name, &name, &sz, NULL,	\
-	    0), 0, "Unexpected mallctl() failure");			\
+	assert_d_eq(mallctl("arenas.lrun.0."#name, (void *)&name, &sz,	\
+	    NULL, 0), 0, "Unexpected mallctl() failure");		\
 	assert_zu_eq(name, expected, "Incorrect "#name" size");		\
 } while (0)
 
@@ -555,8 +661,8 @@ TEST_BEGIN(test_arenas_hchunk_constants)
 #define	TEST_ARENAS_HCHUNK_CONSTANT(t, name, expected) do {		\
 	t name;								\
 	size_t sz = sizeof(t);						\
-	assert_d_eq(mallctl("arenas.hchunk.0."#name, &name, &sz, NULL,	\
-	    0), 0, "Unexpected mallctl() failure");			\
+	assert_d_eq(mallctl("arenas.hchunk.0."#name, (void *)&name,	\
+	    &sz, NULL, 0), 0, "Unexpected mallctl() failure");		\
 	assert_zu_eq(name, expected, "Incorrect "#name" size");		\
 } while (0)
 
@@ -571,12 +677,12 @@ TEST_BEGIN(test_arenas_extend)
 	unsigned narenas_before, arena, narenas_after;
 	size_t sz = sizeof(unsigned);
 
-	assert_d_eq(mallctl("arenas.narenas", &narenas_before, &sz, NULL, 0), 0,
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas_before, &sz,
+	    NULL, 0), 0, "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("arenas.extend", (void *)&arena, &sz, NULL, 0), 0,
 	    "Unexpected mallctl() failure");
-	assert_d_eq(mallctl("arenas.extend", &arena, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() failure");
-	assert_d_eq(mallctl("arenas.narenas", &narenas_after, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() failure");
+	assert_d_eq(mallctl("arenas.narenas", (void *)&narenas_after, &sz, NULL,
+	    0), 0, "Unexpected mallctl() failure");
 
 	assert_u_eq(narenas_before+1, narenas_after,
 	    "Unexpected number of arenas before versus after extension");
@@ -590,12 +696,14 @@ TEST_BEGIN(test_stats_arenas)
 #define	TEST_STATS_ARENAS(t, name) do {					\
 	t name;								\
 	size_t sz = sizeof(t);						\
-	assert_d_eq(mallctl("stats.arenas.0."#name, &name, &sz, NULL,	\
-	    0), 0, "Unexpected mallctl() failure");			\
+	assert_d_eq(mallctl("stats.arenas.0."#name, (void *)&name, &sz,	\
+	    NULL, 0), 0, "Unexpected mallctl() failure");		\
 } while (0)
 
-	TEST_STATS_ARENAS(const char *, dss);
 	TEST_STATS_ARENAS(unsigned, nthreads);
+	TEST_STATS_ARENAS(const char *, dss);
+	TEST_STATS_ARENAS(ssize_t, lg_dirty_mult);
+	TEST_STATS_ARENAS(ssize_t, decay_time);
 	TEST_STATS_ARENAS(size_t, pactive);
 	TEST_STATS_ARENAS(size_t, pdirty);
 
@@ -620,10 +728,13 @@ main(void)
 	    test_tcache,
 	    test_thread_arena,
 	    test_arena_i_lg_dirty_mult,
+	    test_arena_i_decay_time,
 	    test_arena_i_purge,
+	    test_arena_i_decay,
 	    test_arena_i_dss,
 	    test_arenas_initialized,
 	    test_arenas_lg_dirty_mult,
+	    test_arenas_decay_time,
 	    test_arenas_constants,
 	    test_arenas_bin_constants,
 	    test_arenas_lrun_constants,

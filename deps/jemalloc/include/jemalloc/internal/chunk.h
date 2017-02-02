@@ -48,32 +48,30 @@ extern size_t		chunk_npages;
 
 extern const chunk_hooks_t	chunk_hooks_default;
 
-chunk_hooks_t	chunk_hooks_get(arena_t *arena);
-chunk_hooks_t	chunk_hooks_set(arena_t *arena,
+chunk_hooks_t	chunk_hooks_get(tsdn_t *tsdn, arena_t *arena);
+chunk_hooks_t	chunk_hooks_set(tsdn_t *tsdn, arena_t *arena,
     const chunk_hooks_t *chunk_hooks);
 
-bool	chunk_register(const void *chunk, const extent_node_t *node);
+bool	chunk_register(tsdn_t *tsdn, const void *chunk,
+    const extent_node_t *node);
 void	chunk_deregister(const void *chunk, const extent_node_t *node);
 void	*chunk_alloc_base(size_t size);
-void	*chunk_alloc_cache(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *new_addr, size_t size, size_t alignment, bool *zero,
-    bool dalloc_node);
-void	*chunk_alloc_wrapper(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *new_addr, size_t size, size_t alignment, bool *zero, bool *commit);
-void	chunk_dalloc_cache(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *chunk, size_t size, bool committed);
-void	chunk_dalloc_arena(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *chunk, size_t size, bool zeroed, bool committed);
-void	chunk_dalloc_wrapper(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *chunk, size_t size, bool committed);
-bool	chunk_purge_arena(arena_t *arena, void *chunk, size_t offset,
+void	*chunk_alloc_cache(tsdn_t *tsdn, arena_t *arena,
+    chunk_hooks_t *chunk_hooks, void *new_addr, size_t size, size_t alignment,
+    size_t *sn, bool *zero, bool *commit, bool dalloc_node);
+void	*chunk_alloc_wrapper(tsdn_t *tsdn, arena_t *arena,
+    chunk_hooks_t *chunk_hooks, void *new_addr, size_t size, size_t alignment,
+    size_t *sn, bool *zero, bool *commit);
+void	chunk_dalloc_cache(tsdn_t *tsdn, arena_t *arena,
+    chunk_hooks_t *chunk_hooks, void *chunk, size_t size, size_t sn,
+    bool committed);
+void	chunk_dalloc_wrapper(tsdn_t *tsdn, arena_t *arena,
+    chunk_hooks_t *chunk_hooks, void *chunk, size_t size, size_t sn,
+    bool zeroed, bool committed);
+bool	chunk_purge_wrapper(tsdn_t *tsdn, arena_t *arena,
+    chunk_hooks_t *chunk_hooks, void *chunk, size_t size, size_t offset,
     size_t length);
-bool	chunk_purge_wrapper(arena_t *arena, chunk_hooks_t *chunk_hooks,
-    void *chunk, size_t size, size_t offset, size_t length);
 bool	chunk_boot(void);
-void	chunk_prefork(void);
-void	chunk_postfork_parent(void);
-void	chunk_postfork_child(void);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/

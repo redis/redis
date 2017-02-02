@@ -19,8 +19,8 @@ thd_start(void *arg)
 	size_t sz;
 
 	sz = sizeof(arena_ind);
-	assert_d_eq(mallctl("arenas.extend", &arena_ind, &sz, NULL, 0), 0,
-	    "Error in arenas.extend");
+	assert_d_eq(mallctl("arenas.extend", (void *)&arena_ind, &sz, NULL, 0),
+	    0, "Error in arenas.extend");
 
 	if (thread_ind % 4 != 3) {
 		size_t mib[3];

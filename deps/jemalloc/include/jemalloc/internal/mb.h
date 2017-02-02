@@ -42,7 +42,7 @@ mb_write(void)
 	    : /* Inputs. */
 	    : "memory" /* Clobbers. */
 	    );
-#else
+#  else
 	/*
 	 * This is hopefully enough to keep the compiler from reordering
 	 * instructions around this one.
@@ -52,7 +52,7 @@ mb_write(void)
 	    : /* Inputs. */
 	    : "memory" /* Clobbers. */
 	    );
-#endif
+#  endif
 }
 #elif (defined(__amd64__) || defined(__x86_64__))
 JEMALLOC_INLINE void
@@ -104,9 +104,9 @@ mb_write(void)
 {
 	malloc_mutex_t mtx;
 
-	malloc_mutex_init(&mtx);
-	malloc_mutex_lock(&mtx);
-	malloc_mutex_unlock(&mtx);
+	malloc_mutex_init(&mtx, "mb", WITNESS_RANK_OMIT);
+	malloc_mutex_lock(TSDN_NULL, &mtx);
+	malloc_mutex_unlock(TSDN_NULL, &mtx);
 }
 #endif
 #endif

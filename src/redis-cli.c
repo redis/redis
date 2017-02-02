@@ -1271,6 +1271,11 @@ static void repl(void) {
     int argc;
     sds *argv;
 
+    /* Initialize the help and, if possible, use the COMMAND command in order
+     * to retrieve missing entries. */
+    cliInitHelp();
+    cliIntegrateHelp();
+
     config.interactive = 1;
     linenoiseSetMultiLine(1);
     linenoiseSetCompletionCallback(completionCallback);
@@ -2600,11 +2605,6 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
-
-    /* Initialize the help and, if possible, use the COMMAND command in order
-     * to retrieve missing entries. */
-    cliInitHelp();
-    cliIntegrateHelp();
 
     /* Latency mode */
     if (config.latency_mode) {

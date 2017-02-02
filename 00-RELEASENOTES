@@ -11,6 +11,101 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.7     Released Tue Jan 31 16:21:41 CET 2017
+================================================================================
+
+Upgrade urgency HIGH: This release fixes important security and correctness
+                      issues. It is especially important to upgrade for Redis
+                      Cluster users and for users running Redis in their laptop
+                      since a cross-scripting attack is fixed in this release.
+
+Main bugs fixes and improvements in this release:
+
+1. MIGRATE could incorrectly move keys between Redis Cluster nodes by turning
+   keys with an expire set into persisting keys. This bug was introduced with
+   the multiple-keys migration recently. It is now fixed. Only applies to
+   Redis Cluster users that use the resharding features of Redis Cluster.
+
+2. As Redis 4.0 beta and the unstable branch already did (for some months at
+   this point), Redis 3.2.7 also aliases the Host: and POST commands to QUIT
+   avoiding to process the remaining pipeline if there are pending commands.
+   This is a security protection against a "Cross Scripting" attack, that
+   usually involves trying to feed Redis with HTTP in order to execute commands.
+   Example: a developer is running a local copy of Redis for development
+   purposes. She also runs a web browser in the same computer. The web browser
+   could send an HTTP request to http://127.0.0.1:6379 in order to access the
+   Redis instance, since a specially crafted HTTP requesta may also be partially
+   valid Redis protocol. However if POST and Host: break the connection, this
+   problem should be avoided. IMPORTANT: It is important to realize that it
+   is not impossible that another way will be found to talk with a localhost
+   Redis using a Cross Protocol attack not involving sending POST or Host: so
+   this is only a layer of protection but not a definitive fix for this class
+   of issues.
+
+3. A ziplist bug that could cause data corruption, could crash the server and
+   MAY ALSO HAVE SECURITY IMPLICATIONS was fixed. The bug looks complex to
+   exploit, but attacks always get worse, never better (cit). The bug is very
+   very hard to catch in practice, it required manual analysis of the ziplist
+   code in order to be found. However it is also possible that rarely it
+   happened in the wild. Upgrading is required if you use LINSERT and other
+   in-the-middle list manipulation commands.
+
+4. We upgraded to Jemalloc 4.4.0 since the version we used to ship with Redis
+   was an early 4.0 release of Jemalloc. This version may have several
+   improvements including the ability to better reclaim/use the memory of
+   system.
+
+The following is the list of commits:
+
+antirez in commit 3876d98:
+ Ziplist: insertion bug under particular conditions fixed.
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+antirez in commit 153f2f0:
+ Jemalloc updated to 4.4.0.
+ 150 files changed, 17271 insertions(+), 6356 deletions(-)
+
+miter in commit ca532c9:
+ Change switch statment to if statment
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+oranagra in commit a735035:
+ fix rare assertion in DEBUG DIGEST
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit b917e3f:
+ Verify pairs are provided after subcommands
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1177cf6:
+ Avoid geo.c warning in initialization.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 874804d:
+ Security: Cross Protocol Scripting protection.
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit 273cd7f:
+ Ziplist: remove static from functions, they prevent good crash reports.
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+Jan-Erik Rediger in commit 389b9f5:
+ Initialize help only in repl mode
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+Yossi Gottlieb in commit 1370a88:
+ Fix redis-cli rare crash.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 68aab8e:
+ MIGRATE: Remove upfront ttl initialization.
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+Jan-Erik Rediger in commit 788e892:
+ Reset the ttl for additional keys
+ 1 file changed, 1 insertion(+)
+
+================================================================================
 Redis 3.2.6     Released Tue Dec 06 09:33:29 CET 2016
 ================================================================================
 
