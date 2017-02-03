@@ -72,7 +72,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
-    struct epoll_event ee;
+    struct epoll_event ee = {0}; /* avoid valgrind warning */
     /* If the fd was already monitored for some event, we need a MOD
      * operation. Otherwise we need an ADD operation. */
     int op = eventLoop->events[fd].mask == AE_NONE ?
@@ -82,7 +82,6 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     mask |= eventLoop->events[fd].mask; /* Merge old events */
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
-    ee.data.u64 = 0; /* avoid valgrind warning */
     ee.data.fd = fd;
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
     return 0;
@@ -90,13 +89,12 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     aeApiState *state = eventLoop->apidata;
-    struct epoll_event ee;
+    struct epoll_event ee = {0}; /* avoid valgrind warning */
     int mask = eventLoop->events[fd].mask & (~delmask);
 
     ee.events = 0;
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
-    ee.data.u64 = 0; /* avoid valgrind warning */
     ee.data.fd = fd;
     if (mask != AE_NONE) {
         epoll_ctl(state->epfd,EPOLL_CTL_MOD,fd,&ee);

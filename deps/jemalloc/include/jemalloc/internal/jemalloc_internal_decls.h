@@ -17,7 +17,18 @@
 #    include <sys/uio.h>
 #  endif
 #  include <pthread.h>
+#  ifdef JEMALLOC_OS_UNFAIR_LOCK
+#    include <os/lock.h>
+#  endif
+#  ifdef JEMALLOC_GLIBC_MALLOC_HOOK
+#    include <sched.h>
+#  endif
 #  include <errno.h>
+#  include <sys/time.h>
+#  include <time.h>
+#  ifdef JEMALLOC_HAVE_MACH_ABSOLUTE_TIME
+#    include <mach/mach_time.h>
+#  endif
 #endif
 #include <sys/types.h>
 

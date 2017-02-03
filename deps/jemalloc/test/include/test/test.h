@@ -311,6 +311,9 @@ label_test_end:								\
 #define	test(...)							\
 	p_test(__VA_ARGS__, NULL)
 
+#define	test_no_malloc_init(...)					\
+	p_test_no_malloc_init(__VA_ARGS__, NULL)
+
 #define	test_skip_if(e) do {						\
 	if (e) {							\
 		test_skip("%s:%s:%d: Test skipped: (%s)",		\
@@ -324,6 +327,7 @@ void	test_fail(const char *format, ...) JEMALLOC_FORMAT_PRINTF(1, 2);
 
 /* For private use by macros. */
 test_status_t	p_test(test_t *t, ...);
+test_status_t	p_test_no_malloc_init(test_t *t, ...);
 void	p_test_init(const char *name);
 void	p_test_fini(void);
 void	p_test_fail(const char *prefix, const char *message);

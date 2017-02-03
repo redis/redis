@@ -251,7 +251,10 @@ int startAppendOnly(void) {
             strerror(errno));
         return C_ERR;
     }
-    if (rewriteAppendOnlyFileBackground() == C_ERR) {
+    if (server.rdb_child_pid != -1) {
+        server.aof_rewrite_scheduled = 1;
+        serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
+    } else if (rewriteAppendOnlyFileBackground() == C_ERR) {
         close(server.aof_fd);
         serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
         return C_ERR;
@@ -721,6 +724,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
     if (!feof(fp)) {
+        if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
         serverLog(LL_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
         exit(1);
     }
@@ -750,10 +754,12 @@ uxeof: /* Unexpected AOF end of file. */
             }
         }
     }
+    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
     exit(1);
 
 fmterr: /* Format error. */
+    if (fakeClient) freeFakeClient(fakeClient); /* avoid valgrind warning */
     serverLog(LL_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);
 }
@@ -763,7 +769,7 @@ fmterr: /* Format error. */
  * ------------------------------------------------------------------------- */
 
 /* Delegate writing an object to writing a bulk string or bulk long long.
- * This is not placed in rio.c since that adds the redis.h dependency. */
+ * This is not placed in rio.c since that adds the server.h dependency. */
 int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
@@ -1258,7 +1264,7 @@ int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
     long long start;
 
-    if (server.aof_child_pid != -1) return C_ERR;
+    if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
     start = ustime();
     if ((childpid = fork()) == 0) {

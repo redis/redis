@@ -8,8 +8,8 @@ TEST_BEGIN(test_overflow)
 	void *p;
 
 	sz = sizeof(unsigned);
-	assert_d_eq(mallctl("arenas.nhchunks", &nhchunks, &sz, NULL, 0), 0,
-	    "Unexpected mallctl() error");
+	assert_d_eq(mallctl("arenas.nhchunks", (void *)&nhchunks, &sz, NULL, 0),
+	    0, "Unexpected mallctl() error");
 
 	miblen = sizeof(mib) / sizeof(size_t);
 	assert_d_eq(mallctlnametomib("arenas.hchunk.0.size", mib, &miblen), 0,
@@ -17,8 +17,8 @@ TEST_BEGIN(test_overflow)
 	mib[2] = nhchunks - 1;
 
 	sz = sizeof(size_t);
-	assert_d_eq(mallctlbymib(mib, miblen, &max_size_class, &sz, NULL, 0), 0,
-	    "Unexpected mallctlbymib() error");
+	assert_d_eq(mallctlbymib(mib, miblen, (void *)&max_size_class, &sz,
+	    NULL, 0), 0, "Unexpected mallctlbymib() error");
 
 	assert_ptr_null(malloc(max_size_class + 1),
 	    "Expected OOM due to over-sized allocation request");

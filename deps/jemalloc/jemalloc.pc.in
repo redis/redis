@@ -6,7 +6,7 @@ install_suffix=@install_suffix@
 
 Name: jemalloc
 Description: A general purpose malloc(3) implementation that emphasizes fragmentation avoidance and scalable concurrency support.
-URL: http://www.canonware.com/jemalloc
+URL: http://jemalloc.net/
 Version: @jemalloc_version@
 Cflags: -I${includedir}
 Libs: -L${libdir} -ljemalloc${install_suffix}

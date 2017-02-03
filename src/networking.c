@@ -105,6 +105,7 @@ client *createClient(int fd) {
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
+    c->slave_ip[0] = '\0';
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -1231,10 +1232,10 @@ int processMultibulkBuffer(client *c) {
             {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
-                c->querybuf = sdsempty();
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
-                c->querybuf = sdsMakeRoomFor(c->querybuf,c->bulklen+2);
+                c->querybuf = sdsnewlen(NULL,c->bulklen+2);
+                sdsclear(c->querybuf);
                 pos = 0;
             } else {
                 c->argv[c->argc++] =
@@ -1268,8 +1269,10 @@ void processInputBuffer(client *c) {
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
-         * this flag has been set (i.e. don't process more commands). */
-        if (c->flags & CLIENT_CLOSE_AFTER_REPLY) break;
+         * this flag has been set (i.e. don't process more commands).
+         *
+         * The same applies for clients we want to terminate ASAP. */
+        if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
         /* Determine request type when unknown. */
         if (!c->reqtype) {
@@ -1295,6 +1298,9 @@ void processInputBuffer(client *c) {
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == C_OK)
                 resetClient(c);
+            /* freeMemoryIfNeeded may flush slave output buffers. This may result
+             * into a slave, that may be the active client, to be freed. */
+            if (server.current_client == NULL) break;
         }
     }
     server.current_client = NULL;
@@ -1467,9 +1473,8 @@ sds getAllClientsInfoString(void) {
     listNode *ln;
     listIter li;
     client *client;
-    sds o = sdsempty();
-
-    o = sdsMakeRoomFor(o,200*listLength(server.clients));
+    sds o = sdsnewlen(NULL,200*listLength(server.clients));
+    sdsclear(o);
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
@@ -1630,8 +1635,28 @@ void clientCommand(client *c) {
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port | GETNAME | SETNAME connection-name)");
+        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
     }
+}
+
+/* This callback is bound to POST and "Host:" command names. Those are not
+ * really commands, but are used in security attacks in order to talk to
+ * Redis instances via HTTP, with a technique called "cross protocol scripting"
+ * which exploits the fact that services like Redis will discard invalid
+ * HTTP headers and will process what follows.
+ *
+ * As a protection against this attack, Redis will terminate the connection
+ * when a POST or "Host:" header is seen, and will log the event from
+ * time to time (to avoid creating a DOS as a result of too many logs). */
+void securityWarningCommand(client *c) {
+    static time_t logged_time;
+    time_t now = time(NULL);
+
+    if (labs(now-logged_time) > 60) {
+        serverLog(LL_WARNING,"Possible SECURITY ATTACK detected. It looks like somebody is sending POST or Host: commands to Redis. This is likely due to an attacker attempting to use Cross Protocol Scripting to compromise your Redis instance. Connection aborted.");
+        logged_time = now;
+    }
+    freeClientAsync(c);
 }
 
 /* Rewrite the command vector of the client. All the new objects ref count
@@ -1909,7 +1934,7 @@ int clientsArePaused(void) {
  * and so forth.
  *
  * It calls the event loop in order to process a few events. Specifically we
- * try to call the event loop for times as long as we receive acknowledge that
+ * try to call the event loop 4 times as long as we receive acknowledge that
  * some event was processed, in order to go forward with the accept, read,
  * write, close sequence needed to serve a client.
  *

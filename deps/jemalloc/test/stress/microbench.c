@@ -1,7 +1,8 @@
 #include "test/jemalloc_test.h"
 
 JEMALLOC_INLINE_C void
-time_func(timedelta_t *timer, uint64_t nwarmup, uint64_t niter, void (*func)(void))
+time_func(timedelta_t *timer, uint64_t nwarmup, uint64_t niter,
+    void (*func)(void))
 {
 	uint64_t i;
 

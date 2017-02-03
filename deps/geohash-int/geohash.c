@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2013-2014, yinqiwen <yinqiwen@gmail.com>
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>.
- * Copyright (c) 2015, Salvatore Sanfilippo <antirez@gmail.com>.
+ * Copyright (c) 2015-2016, Salvatore Sanfilippo <antirez@gmail.com>.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -118,7 +118,7 @@ void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range) {
     lat_range->min = GEO_LAT_MIN;
 }
 
-int geohashEncode(GeoHashRange *long_range, GeoHashRange *lat_range,
+int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash) {
     /* Check basic arguments sanity. */
