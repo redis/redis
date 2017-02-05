@@ -46,8 +46,8 @@ start_server {tags {"defrag"}} {
             r config set maxmemory-policy allkeys-lru
             r debug populate 700000 asdf 150
             r debug populate 170000 asdf 300
-            set frag [s mem_fragmentation_ratio]
-            assert {$frag >= 1.7}
+            set frag [s allocator_frag_ratio]
+            assert {$frag >= 1.4}
             r config set activedefrag yes
             after 1500 ;# active defrag tests the status once a second.
             set hits [s active_defrag_hits]
@@ -71,8 +71,8 @@ start_server {tags {"defrag"}} {
             r memory purge
 
             # test the the fragmentation is lower and that the defragger stopped working
-            set frag [s mem_fragmentation_ratio]
-            assert {$frag < 1.4}
+            set frag [s allocator_frag_ratio]
+            assert {$frag < 1.2}
             set misses [s active_defrag_misses]
             after 500
             set misses2 [s active_defrag_misses]

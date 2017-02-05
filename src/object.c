@@ -818,7 +818,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->startup_allocated = server.initial_memory_usage;
     mh->peak_allocated = server.stat_peak_memory;
     mh->fragmentation =
-        zmalloc_get_fragmentation_ratio(server.resident_set_size);
+        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
+    mh->allocator_frag =
+        (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_frag_bytes =
+        server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
+
     mem_total += server.initial_memory_usage;
 
     mem = 0;
