@@ -31,6 +31,8 @@
 #ifndef ANET_H
 #define ANET_H
 
+#include <sys/types.h>
+
 #define ANET_OK 0
 #define ANET_ERR -1
 #define ANET_ERR_LEN 256

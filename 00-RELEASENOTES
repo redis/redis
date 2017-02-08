@@ -10,6 +10,1823 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+================================================================================
+Redis 3.2.7     Released Tue Jan 31 16:21:41 CET 2017
+================================================================================
+
+Upgrade urgency HIGH: This release fixes important security and correctness
+                      issues. It is especially important to upgrade for Redis
+                      Cluster users and for users running Redis in their laptop
+                      since a cross-scripting attack is fixed in this release.
+
+Main bugs fixes and improvements in this release:
+
+1. MIGRATE could incorrectly move keys between Redis Cluster nodes by turning
+   keys with an expire set into persisting keys. This bug was introduced with
+   the multiple-keys migration recently. It is now fixed. Only applies to
+   Redis Cluster users that use the resharding features of Redis Cluster.
+
+2. As Redis 4.0 beta and the unstable branch already did (for some months at
+   this point), Redis 3.2.7 also aliases the Host: and POST commands to QUIT
+   avoiding to process the remaining pipeline if there are pending commands.
+   This is a security protection against a "Cross Scripting" attack, that
+   usually involves trying to feed Redis with HTTP in order to execute commands.
+   Example: a developer is running a local copy of Redis for development
+   purposes. She also runs a web browser in the same computer. The web browser
+   could send an HTTP request to http://127.0.0.1:6379 in order to access the
+   Redis instance, since a specially crafted HTTP requesta may also be partially
+   valid Redis protocol. However if POST and Host: break the connection, this
+   problem should be avoided. IMPORTANT: It is important to realize that it
+   is not impossible that another way will be found to talk with a localhost
+   Redis using a Cross Protocol attack not involving sending POST or Host: so
+   this is only a layer of protection but not a definitive fix for this class
+   of issues.
+
+3. A ziplist bug that could cause data corruption, could crash the server and
+   MAY ALSO HAVE SECURITY IMPLICATIONS was fixed. The bug looks complex to
+   exploit, but attacks always get worse, never better (cit). The bug is very
+   very hard to catch in practice, it required manual analysis of the ziplist
+   code in order to be found. However it is also possible that rarely it
+   happened in the wild. Upgrading is required if you use LINSERT and other
+   in-the-middle list manipulation commands.
+
+4. We upgraded to Jemalloc 4.4.0 since the version we used to ship with Redis
+   was an early 4.0 release of Jemalloc. This version may have several
+   improvements including the ability to better reclaim/use the memory of
+   system.
+
+The following is the list of commits:
+
+antirez in commit 3876d98:
+ Ziplist: insertion bug under particular conditions fixed.
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+antirez in commit 153f2f0:
+ Jemalloc updated to 4.4.0.
+ 150 files changed, 17271 insertions(+), 6356 deletions(-)
+
+miter in commit ca532c9:
+ Change switch statment to if statment
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+oranagra in commit a735035:
+ fix rare assertion in DEBUG DIGEST
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit b917e3f:
+ Verify pairs are provided after subcommands
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1177cf6:
+ Avoid geo.c warning in initialization.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 874804d:
+ Security: Cross Protocol Scripting protection.
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit 273cd7f:
+ Ziplist: remove static from functions, they prevent good crash reports.
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+Jan-Erik Rediger in commit 389b9f5:
+ Initialize help only in repl mode
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+Yossi Gottlieb in commit 1370a88:
+ Fix redis-cli rare crash.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 68aab8e:
+ MIGRATE: Remove upfront ttl initialization.
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+Jan-Erik Rediger in commit 788e892:
+ Reset the ttl for additional keys
+ 1 file changed, 1 insertion(+)
+
+================================================================================
+Redis 3.2.6     Released Tue Dec 06 09:33:29 CET 2016
+================================================================================
+
+Upgrade urgency MODERATE: GEORADIUS, BITFIELD and Redis Cluster minor fixes.
+
+This release mainly fixes three bugs:
+
+1. A bug with BITFIELD that may cause the bitmap corruption when setting offsets
+   larger than the current string size.
+
+2. A GEORADIUS bug that may happen when using very large radius lengths, in
+   the range of 10000km or alike, due to wrong bounding box calculation.
+
+3. A bug with Redis Cluster which crashes when reading a nodes configuration
+   file with zero bytes at the end, which sometimes happens with certain ext4
+   configurations after a system crash.
+
+The following is the list of commits:
+
+antirez in commit f20f3ea:
+ Geo: improve fuzz test.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+antirez in commit 8c22086:
+ Geo: fix computation of bounding box.
+ 2 files changed, 33 insertions(+), 27 deletions(-)
+
+antirez in commit 92958df:
+ Cluster: handle zero bytes at the end of nodes.conf.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0ee28ae:
+ Test: regression test for #3564 added.
+ 1 file changed, 9 insertions(+)
+
+sunhe in commit 289fadb:
+ bitops.c/bitfieldCommand: update higest_write_offset with check
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+jybaek in commit f4f7d2c:
+ Add missing fclose()
+ 1 file changed, 1 insertion(+)
+
+================================================================================
+Redis 3.2.5     Released Wed Oct 26 09:16:40 CEST 2016
+================================================================================
+
+Upgrade urgency LOW: This release only fixes a compilation issue due to the
+                     missing -ldl at linking time.
+
+zach shipko in commit 4736407:
+ BSDs don't have -ldl
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+antirez in commit 9ada818:
+ Fix modules compilation when libc malloc is used.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+================================================================================
+Redis 3.2.4     Released Mon Sep 26 08:58:21 CEST 2016
+================================================================================
+
+Upgrade urgency CRITICAL: Redis 3.2 and unstable contained a security
+                          vulnerability fixed by this release.
+
+Hello Redis Wizards of the Memory Stores Empire,
+
+this is a Redis critical release in order to fix a security issue
+which is documented clearly here:
+
+    https://github.com/antirez/redis/commit/6d9f8e2462fc2c426d48c941edeb78e5df7d2977
+
+Thanks to Cory Duplantis of Cisco Talos for reporting the issue.
+
+IMPACT:
+
+The gist is that using CONFIG SET calls (or by manipulating redis.conf)
+an attacker is able to compromise certain fields of the "server" global
+structure, including the aof filename pointer, that could be made pointing
+to something else. In turn the AOF name is used in different contexts such
+as logging, rename(2) and open(2) syscalls, leading to potential problems.
+
+Please note that since having access to CONFIG SET also means to be able
+to change the AOF filename (and many other things) directly, this issue
+actual real world impact is quite small, so I would not panik: if you
+have CONFIG SET level of access, you can do more and more easily.
+
+AFFECTED VERSIONS:
+
+All Redis 3.2.x versions are affected.
+
+OTHER CHANGES IN THIS RELEASE:
+
+This release also includes other things:
+
+* TCP binding bug fixed when only certain addresses were available for
+a given port.
+
+* A much better crash report that includes part of the Redis binary:
+this will allow to fix bugs even when we just have a crash log and
+no other help from the original poster oft the issue.
+
+* A fix for Redis Cluster redis-trib displaying of info after creating
+a new cluster.
+
+Please check the following list of commits for credits about who did what.
+Thanks to all the contributors and a special thank to Oran Agra for the
+help in this release.
+
+List of commits:
+
+antirez in commit 0539634:
+ Security: CONFIG SET client-output-buffer-limit overflow fixed.
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+antirez in commit c01abcd:
+ fix the fix for the TCP binding.
+ 1 file changed, 15 insertions(+), 10 deletions(-)
+
+oranagra in commit a6d0698:
+ fix tcp binding when IPv6 is unsupported
+ 2 files changed, 14 insertions(+), 10 deletions(-)
+
+antirez in commit 22b6c28:
+ debug.c: no need to define _GNU_SOURCE, is defined in fmacros.h.
+ 1 file changed, 1 deletion(-)
+
+antirez in commit 9e9d398:
+ crash log - improve code dump with more info and called symbols.
+ 1 file changed, 59 insertions(+), 20 deletions(-)
+
+oranagra in commit 3745c5d:
+ crash log - add hex dump of function code
+ 1 file changed, 22 insertions(+)
+
+antirez in commit c1cc07b:
+ Sentinel example config: warn about protected mode.
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+rojingeorge in commit 011dc9f:
+ Display the nodes summary once the cluster is established using redis-trib.rb
+ 1 file changed, 5 insertions(+)
+
+Guo Xiao in commit f4e3a94:
+ Use the standard predefined identifier __func__ (since C99)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
+Redis 3.2.3     Released Tue Aug 02 10:55:24 CEST 2016
+================================================================================
+
+Upgrade urgency MODERATE: Fix replication delay and redis-cli security issue.
+
+Hello,
+
+this is a minor release of Redis addressing two bugs:
+
+1. There was an inverted if statement logic problem in replication.c causing
+   a replication delay. This is not an actual problem since things work
+   as expected, but worth to fix ASAP anyway.
+
+2. Redis-cli created the history file with insecure permissions, allowing
+   reding from the file. This was actually a bug in linenoise which is
+   now fixed. The applied fix is from Chris Lamb.
+
+List of commits:
+
+Qu Chen in commit e67ad1d:
+ Fix a bug to delay bgsave while AOF rewrite in progress for replication
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 7153668:
+ Update linenoise to fix insecure redis-cli history file creation.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+================================================================================
+Redis 3.2.2     Released Thu Jul 28 14:14:54 CEST 2016
+================================================================================
+
+Upgrade urgency MODERATE: A Redis server and a Sentinel crash are now fixed.
+                          GEORADIUS errors in reported entries are fixed.
+
+Hi all! Redis 3.2.2 is finally out with non trivial bugfixes and a few new
+features. Let's start from the bugs:
+
+1. There was a bug in the List type implementation, able to cause the
+   crash of the server under certain (non trivial to replicate) circumstances
+   when the LSET command was used. Now the bug is fixed and a new stress tester
+   that was able to easily trigger the bug was added to the test suite.
+
+2. Redis Sentinel, when monitoring multiple masters, could crash after
+   a Sentinel address update event.
+
+3. Redis Sentinel now checks slaves INFO state more often when disconnected.
+   This is not really a bug fix, but may allow to more easily detect that
+   a slave is able to fail over its master reducing certain delays.
+
+4. It was possible, under a variety of conditions, that the AOF and RDB children
+   process could spawn at the same time. This is known to trash disk I/O,
+   AOF performances, and to ultimately create latency in the Redis server.
+   Normally Redis avoids to have the two writing children at the same time, but
+   there were edge cases discovered by Oran Agra (that also co-authored the
+   fix with me) where the double-fork could happen. In order to fix this bug
+   non trivial changes to the replication code were operated, however it was
+   important to back port this fix into 3.2.2 because the bug could lead to
+   bad latency experiences in certain cases.
+
+5. Many GEORADIUS bugs are now fixed \o/. This started as a failing CI
+   test. I grepped for more clues and there were a number of random failures
+   in the points reported by GEORADIUS. The errors were found to be related
+   to three different bugs (one of these was a bug in the test itself).
+   It's not a critical bug: the effect is to, sometimes, don't report objects
+   that are near the radius, but only with specific sets of coordinates
+   and radius settings. However now the issues are fixed and the error
+   vectors were added as regression tests.
+
+And now the good news (not that bug fixes are not good...), that is, the
+new features!
+
+1. Now slaves support the slave-announce-ip and slave-announce-port options.
+   Using these features a slave can be reported by the master `INFO` output
+   and `ROLE` command as having arbitrary IP and port. This allows to have
+   Sentinel deployments when working with containers or NAT-ed environments
+   more easily.
+
+2. The RDB check utlity is now part of Redis and uses the same RDB code that
+   Redis uses in order to load the dataset in memory, so a given version
+   of Redis is always able to check the RDB it produced... without another
+   external check tool which is supposed to be taken in sync with the
+   rdb.c implementation. This in turn also means that the new RDB checking
+   is able to spot more complex bugs, since it really loads the dataset
+   instead of just skipping bytes.
+
+About the redis-check-dump utility, now it is also able to show certain
+information about the RDB file, like the version that produced it, when
+it was produced, and so forth. Example:
+
+    ./redis-check-rdb dump.rdb
+    [offset 0] Checking RDB file dump.rdb
+    [offset 32] AUX FIELD redis-ver = '3.2.2'
+    [offset 46] AUX FIELD redis-bits = '64'
+    [offset 58] AUX FIELD ctime = '1469710178'
+    [offset 73] AUX FIELD used-mem = '1186528'
+
+The ability to check how much memory was used by the instance that produced
+the RDB file can be especially useful.
+
+For credits and the full change log, see the list of commits below, that was
+modified in order to be a bit less verbose compared to the last releases.
+
+Enjoy!
+Salvatore
+
+antirez in commit 0a45fbc:
+ Ability of slave to announce arbitrary ip/port to master.
+ 6 files changed, 129 insertions(+), 17 deletions(-)
+
+antirez in commit c3982c0:
+ redis-benchmark: new option to show server errors on stdout.
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+antirez in commit fdafe23:
+ Multiple GEORADIUS bugs fixed.
+ 6 files changed, 177 insertions(+), 21 deletions(-)
+
+antirez in commit a1bfe22:
+ Replication: when possible start RDB saving ASAP.
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit 7ca69af:
+ Sentinel: new test unit 07 that tests master down conditions.
+ 1 file changed, 68 insertions(+)
+
+antirez in commit 5b5e652:
+ Sentinel: check Slave INFO state more often when disconnected.
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+antirez in commit 21cffc2:
+ Avoid simultaneous RDB and AOF child process.
+ 4 files changed, 51 insertions(+), 8 deletions(-)
+
+antirez in commit 017378e:
+ Replication: start BGSAVE for replication always in replicationCron().
+ 1 file changed, 15 insertions(+), 12 deletions(-)
+
+antirez in commit 940be9a:
+ Regression test for issue #3333.
+ 1 file changed, 6 insertions(+)
+
+antirez in commit 21736b4:
+ getLongLongFromObject: use string2ll() instead of strict_strtoll().
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+antirez in commit 0b748e9:
+ redis-cli: check SELECT reply type just in state updated.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+sskorgal in commit 1158386:
+ Fix for redis_cli printing default DB when select command fails.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 026f9fc:
+ Sentinel: fix cross-master Sentinel address update.
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+antirez in commit 11523b3:
+ CONFIG GET is now no longer case sensitive.
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+antirez in commit f5a7f4f:
+ Fix test for new RDB checksum failure message.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 4c6ff74:
+ Make tcp-keepalive default to 300 in internal conf.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 27dbec2:
+ In Redis RDB check: more details in error reportings.
+ 1 file changed, 24 insertions(+), 13 deletions(-)
+
+antirez in commit 41f3004:
+ In Redis RDB check: log decompression errors.
+ 2 files changed, 23 insertions(+), 2 deletions(-)
+
+antirez in commit 278fe3e:
+ In Redis RDB check: log object type on error.
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit a117dfa:
+ Added a trivial program to randomly corrupt RDB files in /utils.
+ 1 file changed, 44 insertions(+)
+
+antirez in commit f5110c3:
+ In Redis RDB check: minor output message changes.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit 35b18bf:
+ In Redis RDB check: better error reporting.
+ 4 files changed, 71 insertions(+), 14 deletions(-)
+
+antirez in commit f578f08:
+ In Redis RDB check: initial POC.
+ 2 files changed, 189 insertions(+), 647 deletions(-)
+
+tielei in commit 7f1e1ca:
+ A string with 21 chars is not representable as a 64-bit integer.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 7a3a595:
+ Test: new randomized stress tester for #3343 alike bugs.
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+antirez in commit c75ca10:
+ Stress tester WIP.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 2c3fcf8:
+ Regression test for issue #3343 exact min crash sequence.
+ 1 file changed, 16 insertions(+)
+
+antirez in commit 7041967:
+ Fix quicklistReplaceAtIndex() by updating the quicklist ziplist size.
+ 1 file changed, 1 insertion(+)
+
+================================================================================
+Redis 3.2.1     Released Fri Jun 17 15:01:56 CEST 2016
+================================================================================
+
+Upgrade urgency HIGH: Critical fix to Redis Sentinel, due to 3.2.0 regression
+                      compared to 3.0.
+
+Hey, this is Redis 3.2.1, and this release should bring some grain of
+maturity to Redis 3.2. The list of commits following this note will tell
+you the details, but the main things addressed in this release are the
+following:
+
+1. A critical bug in Sentinel was hopefully fixed. During the big 3.2
+   refactoring of Redis Sentinel, in order to implement connection sharing
+   to make Sentinel able to scale better (few Sentinels to monitor many
+   masters), a bug was introduced that mis-counted the number of pending
+   commands in the Redis link. This in turn resulted into an inability to talk
+   with certain Redis instances. A common result of this bug was the inability
+   of Redis Sentinel to reconfigure back the old master, after a failover,
+   when it is reachable again, as the slave of the new master. This was due
+   to the inability to talk with the old master at all.
+
+2. BITFIELD bugs fixed.
+
+3. GEO commands fixes on syntax errors and edge cases.
+
+4. RESTORE now accepts dumps generated by older Redis versions.
+
+5. Jemalloc now is really configured to save you memory, for a problem a
+   change in the jemalloc configuration did not really survived when the
+   3.2.0 release was finalized.
+
+6. TTL and TYPE command no longer alter the last access time of a key, for
+   LRU evictions purposes. A new TOUCH command was introduced *just* to
+   update the access time of a key.
+
+7. A bug was fixed in redis-cli, that connected to the instance running on the
+   port 6379 if there was one, regardless of what was specified.
+
+8. TCP keep alive is now enabled by default. This should fix most ghost
+   connections problems without resulting in any practical change in otherwise
+   sane deployments.
+
+9. A Sentinel crash that could happen during failovers was fixed.
+
+And of course, more minor things that you can read in the detailed log
+below. There are still reported bugs for 3.2 that were not fixed in this
+release, but nothing critical AFAIK, and I wanted to release this one ASAP,
+so likely a new release will not be too far.
+
+Enjoy,
+Salvatore
+
++-------------------------------------------------------------------------------
+| config set list-max-ziplist-size didn't support negative values, unlike config file
+| By oranagra, 2016-05-22 20:35:14 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/8207e828043e37a0d7e058530d2886bb3ff395ff
+
+
+ src/config.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fix Sentinel pending commands counting.
+| By antirez, 2016-06-16 19:24:34 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/6ad0371c9b4206a7a6692d50c9a301457baf9b6d
+
+This bug most experienced effect was an inability of Redis to
+reconfigure back old masters to slaves after they are reachable again
+after a failover. This was due to failing to reset the count of the
+pending commands properly, so the master appeared fovever down.
+
+Was introduced in Redis 3.2 new Sentinel connection sharing feature
+which is a lot more complex than the 3.0 code, but more scalable.
+
+Many thanks to people reporting the issue, and especially to
+@sskorgal for investigating the issue in depth.
+
+Hopefully closes #3285.
+
+ src/sentinel.c | 1 +
+ 1 file changed, 1 insertion(+)
+
++-------------------------------------------------------------------------------
+| redis-cli: really connect to the right server.
+| By antirez, 2016-06-16 17:23:31 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/58f1d446c35e8fe62df7c9ebe10f3c40a386c022
+
+I recently introduced populating the autocomplete help array with the
+COMMAND command if available. However this was performed before parsing
+the arguments, defaulting to instance 6379. After the connection is
+performed it remains stable.
+
+The effect is that if there is an instance running on port 6339,
+whatever port you specify is ignored and 6379 is connected to instead.
+The right port will be selected only after a reconnection.
+
+Close #3314.
+
+ src/redis-cli.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| Remove debug printing
+| By Jan-Erik Rediger, 2016-05-21 13:50:01 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b6007b324b81dbd4ffe519b3bdb19ab65fbb407f
+
+
+ src/redis-cli.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
++-------------------------------------------------------------------------------
+| RESTORE: accept RDB dumps with older versions.
+| By antirez, 2016-06-16 15:53:57 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f592b4d3178963878084a522b4fd050772c335ae
+
+Reference issue #3218.
+
+Checking the code I can't find a reason why the original RESTORE
+code was so opinionated about restoring only the current version. The
+code in to `rdb.c` appears to be capable as always to restore data from
+older versions of Redis, and the only places where it is needed the
+current version in order to correctly restore data, is while loading the
+opcodes, not the values itself as it happens in the case of RESTORE.
+
+For the above reasons, this commit enables RESTORE to accept older
+versions of values payloads.
+
+ src/cluster.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| CLIENT error message was out of date
+| By oranagra, 2016-05-23 11:42:21 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/047ced4473ee35485e22e45db8b8b4a272bf1177
+
+
+ src/networking.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| fix georadius returns multiple replies
+| By oranagra, 2016-05-23 13:58:50 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/14e04847ac2960aefe31dccbec63d2503cf09ca5
+
+
+ src/geo.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| Minor aesthetic fixes to PR #3264.
+| By antirez, 2016-06-16 12:54:33 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/bd23ea3f9f3defbbdf512864ee1a88fd02665a7f
+
+Comment format fixed + local var modified from camel case to underscore
+separators as Redis code base normally does (camel case is mostly used
+for global symbols like structure names, function names, global vars,
+...).
+
+ src/bitops.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
++-------------------------------------------------------------------------------
+| check WRONGTYPE in BITFIELD before looping on the operations.
+| By oranagra, 2016-05-24 23:31:36 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/2a3ee58ec73b6abdeeb4890937b25191119bce35
+
+optimization: lookup key only once, and grow at once to the max need
+fixes #3259 and #3221, and also an early return if wrongtype is discovered by SET
+
+ src/bitops.c | 27 ++++++++++++++++++---------
+ 1 file changed, 18 insertions(+), 9 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix crash in BITFIELD GET on non existing key or wrong type see #3259
+| By oranagra, 2016-05-24 14:52:43 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/a2e27b810edfad18b3ecc9c176a4606f94a2f0e4
+
+this was a bug in the recent refactoring: bee963c4459223d874e3294a0d8638a588d33c8e
+
+ src/bitops.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix check when can't send the command to the promoted slave
+| By MOON_CLJ, 2016-05-26 13:10:12 +0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/26555f5e008b099b888ef39cabec632f4b31a038
+
+
+ src/sentinel.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Test TOUCH and new TTL / TYPE behavior about object access time.
+| By antirez, 2016-06-15 17:15:18 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f1c237cb6a647ad5400b0ebce124fd9802ea7f89
+
+
+ tests/test_helper.tcl          |  1 +
+ tests/unit/introspection-2.tcl | 23 +++++++++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
++-------------------------------------------------------------------------------
+| GETRANGE: return empty string with negative, inverted start/end.
+| By antirez, 2016-06-15 12:48:58 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/d4831e328759bf5bd07c2c6e6ce1d60e84ba196f
+
+
+ src/bitops.c   | 4 ++--
+ src/t_string.c | 4 ++++
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| Remove additional round brackets from fix for #3282.
+| By antirez, 2016-06-15 12:16:39 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/9942070f5a41fa3bc953e9628a7248aeb7c0befa
+
+
+ src/bitops.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| bitcount bug:return non-zero value when start > end (both negative)
+| By wenduo, 2016-05-30 16:21:08 +0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f45fa5d05f47a5729786a69962119c9b3dc12645
+
+
+ src/bitops.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
++-------------------------------------------------------------------------------
+| Regression test for #3282.
+| By antirez, 2016-06-15 11:49:49 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0cb86064e602a093a23b56943a7321fe1af64984
+
+
+ tests/unit/bitops.tcl | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
++-------------------------------------------------------------------------------
+| TTL and TYPE LRU access fixed. TOUCH implemented.
+| By antirez, 2016-06-14 15:33:59 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b23aa6706ac79a1c86c64aef07bd35e38f10f842
+
+
+ src/db.c     | 61 +++++++++++++++++++++++++++++++++++++++++++++++++++++-------
+ src/server.c |  1 +
+ src/server.h |  6 +++++-
+ 3 files changed, 60 insertions(+), 8 deletions(-)
+
++-------------------------------------------------------------------------------
+| redis-cli help.h updated.
+| By antirez, 2016-06-14 14:45:48 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/6e4204fec9c78f3300d887ebc3db014df2c8b33e
+
+
+ src/help.h | 43 +++++++++++++++++++++++++++++--------------
+ 1 file changed, 29 insertions(+), 14 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fix GEORADIUS wrong output with radius > Earth radius.
+| By antirez, 2016-05-30 12:45:49 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/bb43f4cab2f756c0412ca2b94d9e29c3db5025ab
+
+Close #3266
+
+ deps/geohash-int/geohash_helper.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
++-------------------------------------------------------------------------------
+| Geo: fix typo in geohashEstimateStepsByRadius().
+| By antirez, 2016-05-30 15:31:19 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/16102bc0af0912a0c9a92aedddf796eb24a80b9e
+
+I'm the author of this line but I can't see a good reason for it to
+don't be a typo, a step of 26 should be valid with 52 bits per
+coordinate, moreover the line was:
+
+    if (step > 26) step = 25;
+
+So a step of 26 was actually already used, except when one of 27 was
+computed (which is invalid) only then it was trimmed to 25 instead of
+26.
+
+All tests passing after the change.
+
+ deps/geohash-int/geohash_helper.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Avoid undefined behavior in BITFIELD implementation.
+| By antirez, 2016-05-31 11:52:07 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/014bf8044285c6d401d83e6e24829d276ab837f9
+
+Probably there is no compiler that will actaully break the code or raise
+a signal for unsigned -> signed overflowing conversion, still it was
+apparently possible to write it in a more correct way.
+
+All tests passing.
+
+ src/bitops.c | 23 +++++++++++++++--------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
++-------------------------------------------------------------------------------
+| Now that SPOP can be called by scripts use BLPOP on 's' flag test.
+| By antirez, 2016-05-31 16:43:21 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b4e5e2ec1ad7e9d1f4e7e559b61e0ecd4e50f2da
+
+
+ tests/unit/scripting.tcl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Test: run GEO tests by default.
+| By antirez, 2016-05-31 16:43:49 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/df419281a19e13429b27814a3e384f6f029c3519
+
+Thanks to @oranagra for noticing it was missing.
+
+ tests/test_helper.tcl | 1 +
+ 1 file changed, 1 insertion(+)
+
++-------------------------------------------------------------------------------
+| Enable tcp-keepalive by default.
+| By antirez, 2016-06-13 12:03:14 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/40cfe13141c7178d22fd43e4ffbecc37686e0b43
+
+
+ redis.conf | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix some compiler warnings
+| By Pierre Chapuis, 2016-06-05 15:34:43 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/a650aaaf4f074ec428b450ef88799db1dcd34b0f
+
+
+ src/bitops.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fixed typo in Sentinel compareSlavesForPromotion() comment.
+| By antirez, 2016-06-10 09:15:01 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3fd4baf1e77f125a306d57b788b72de5026c0564
+
+
+ src/sentinel.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| fix comment "b>a" to "a > b"
+| By andyli, 2016-06-07 14:42:50 +0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/8d029a5950f4ef40723c02b5c486b171aff0189c
+
+
+ src/sentinel.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| fix pidfile in redis.conf
+| By bogdanvlviv, 2016-04-19 14:43:06 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/6937f5960d1803ca0eda1ab6f4bc60023f50c914
+
+
+ redis.conf | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Include 'fd_set' type name
+| By jspraul, 2016-06-07 16:46:00 -0400
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b5758cc5ce6c51ff75c86f9216214fe4d5e4c257
+
+Fix an MSYS2-build-breaking error: unknown type name ‘fd_set’
+ src/ae_select.c | 1 +
+ 1 file changed, 1 insertion(+)
+
++-------------------------------------------------------------------------------
+| Allow SPOP from Lua scripts
+| By Itamar Haber, 2016-05-28 20:01:46 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/620783e3b582e9ba6e1d8fbd47987281ce0b6317
+
+The existing `R` flag appears to be sufficient and there's no apparent reason why the command should be blocked.
+ src/server.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| minor fixes - mainly signalModifiedKey, and GEORADIUS
+| By oranagra, 2016-05-09 09:12:38 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/603234076f4e59967f331bc97de3c0db9947c8ef
+
+
+ src/geo.c    |  1 +
+ src/sds.c    |  8 ++++----
+ src/server.c |  2 +-
+ src/server.h |  3 +--
+ src/t_set.c  |  9 ++++++---
+ src/t_zset.c | 12 ++++++------
+ 6 files changed, 19 insertions(+), 16 deletions(-)
+
++-------------------------------------------------------------------------------
+| Code to access object string bytes repeated 3x refactored into 1 function.
+| By antirez, 2016-05-18 15:35:17 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/2e6b99499abb5ff1fbeee3bac4d064e5ff4ea256
+
+
+ src/bitops.c | 74 ++++++++++++++++++++++++++++++++----------------------------
+ 1 file changed, 39 insertions(+), 35 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix crash in BITFIELD GET when key is integer encoded
+| By oranagra, 2016-05-10 11:19:45 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/dcaeafc8280eb8329e7ce68e7ab02c67d98f0cf4
+
+
+ src/bitops.c | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
++-------------------------------------------------------------------------------
+| Clarify that the LOG_STR_SIZE includes null term.
+| By antirez, 2016-05-18 15:23:18 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/4ad088818a3353ebd619e8d43847b5d58108af20
+
+
+ src/server.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Test for BITFIELD regression #3221.
+| By antirez, 2016-05-18 14:53:30 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f991cdc3e19c187035855355808575efd6b4c149
+
+
+ tests/unit/bitfield.tcl | 5 +++++
+ 1 file changed, 5 insertions(+)
+
++-------------------------------------------------------------------------------
+| reduce struct padding by reordering members
+| By oranagra, 2016-05-16 20:12:11 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/cb3e89e2cb0753d2d111eaeadc9c73cbe24025ab
+
+
+ src/quicklist.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Actually use --with-lg-quantum=3 to build jemalloc.
+| By antirez, 2016-05-18 11:58:36 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/a7f0fb448c110e125eece44dc955d6939e494daa
+
+This change is documented in deps/README.md but was lost in one way or
+the other, neutralizing the benefits of 24 bytes size classes (and
+others).
+
+Close #3208.
+
+ deps/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| redis-cli: integrate help.h with COMMAND output.
+| By antirez, 2016-05-07 13:03:25 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/029dc0d97fd492a2fd579796d4c1cc04053c7190
+
+Use the COMMAND output to fill with partial information the built-in
+help. This makes redis-cli able to at least complete commands that are
+exported by the Redis server it is connected to, but were not available
+in the help.h file when the redis-cli binary was compiled.
+
+ src/redis-cli.c | 80 +++++++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 70 insertions(+), 10 deletions(-)
+
++-------------------------------------------------------------------------------
+| Removed dofile() from Lua
+| By Adam Baldwin, 2012-10-25 20:27:10 -0700
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/95def3aee044468504bb07633084afd49b085db3
+
+
+ src/scripting.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+
+================================================================================
+Redis 3.2.0     Released Fri May 06 08:47:10 CEST 2016
+================================================================================
+
+Upgrade urgency HIGH: 3.2-RC users should upgrade ASAP to this more
+                      stable release of Redis.
+
+Hello, this is Redis 3.2.0 stable! And with the new release there is a new
+format for the changelog. Now it is composed of a "letter" like the one
+you are reading, followed by all the commits composing the release for people
+interested in the details.
+
+There are a few changes between the latest release candidate of Redis 3.2
+and the final 3.2.0 release. The main ones are the obvious bug fixes you
+can find detailed below, also a few new things:
+
+Critical bugs fixed:
+
+* There was a problem in the way a cluster instance loaded the AOF that
+  could cause data written via scripts to be lost during reshardings.
+
+New things:
+
+* There is a new very powerful BITFIELD command. Check the documentation
+  here: http://redis.io/commands/BITFIELD
+
+* CONFIG GET is allowed during the loading of the dataset.
+
+* The DEBUG command have new features and can show an help with DEBUG HELP.
+
+* redis-cli show hits about the commands arguments to the right.
+
+* GEORADIUS got a STORE / STOREDIST option to store the result into a target
+  key (as as orted set) instead of reporting it to the user.
+
+* Redis Cluster replicas migration now works in a slightly different way. In
+  the past a slave could migrate only to a master that used to have slaves
+  in the past (and if there was still trace of this information). Now instead
+  if a new slave gets at least a slot, and at least one other master in the
+  cluster has a slave, then the new master is considered a valid target for
+  replica migration. So if it will be orphaned and there is a spare slave
+  it will get one.
+
+* CLUSTER SLOTS output now includes the node ID (in a backward compatible
+  manner).
+
+* A lot of bug fixes you can read in the commits details below, with the
+  authors that kindly provided many useful patches. Thanks.
+
+As usually what "stable" means is that we are confident the release is mature,
+however do your tests before putting it into production in your environemnt
+as it's fresh meat anyway.
+
+Cheers,
+Salvatore
+
++-------------------------------------------------------------------------------
+| Cluster: don't check scripts key slots during AOF loading.
+| By antirez, 2016-05-05 23:37:08 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/746e1bebb4baf876c1e8cd2fe2d468a1c41e5dc3
+
+
+ src/scripting.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| redis-cli: remove debugging message.
+| By antirez, 2016-05-05 18:05:37 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3907b059280898c6340b53982b3b65957535da7c
+
+
+ src/redis-cli.c | 1 -
+ 1 file changed, 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Revert "Fix commandCommand arity"
+| By antirez, 2016-05-05 17:35:33 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f01a2714582a9a916b41e6cb90e42474a104925d
+
+This reverts commit 1189a4eae6d009fc0da8d50fd542ba1391542165.
+
+Actually this is wrong, the command can be called without args at all.
+
+ src/server.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Fix commandCommand arity
+| By Ruben Bridgewater, 2016-01-04 11:39:45 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/1189a4eae6d009fc0da8d50fd542ba1391542165
+
+
+ src/server.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Fix a possible race condition of sdown detection if the connection to master/slave/sentinel decames disconnected just after the last PONG and before the next PING.
+| By Daniel Shih, 2016-01-12 17:06:47 +0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/d9dc0d777b775f2fe4f23f42e1b4130f4de1ed72
+
+
+ src/sentinel.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
++-------------------------------------------------------------------------------
+| Fix nanosecond conversion
+| By Jan-Erik Rediger, 2016-01-13 10:22:29 -0700
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/13bd702844eda7bccc7c672b6ff77f53e21ab841
+
+1 microsecond = 1000 nanoseconds
+1e3 = 1000
+10e3 = 10000
+
+ src/redis-cli.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| redis-cli: don't free historyfile, is used later.
+| By antirez, 2016-05-05 13:57:57 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f6b7df3aec1d8fddf3121c4315fea4bf45cc4cfe
+
+
+ src/redis-cli.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Cluster test 12: reshard back just a few slots to speedup the test.
+| By antirez, 2016-05-05 11:49:27 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/97ce72fa2d348f914fc40ccf0a32008c7362b817
+
+
+ tests/cluster/tests/12-replica-migration-2.tcl | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
++-------------------------------------------------------------------------------
+| Cluster: make getNodeByQuery() responsible of -CLUSTERDOWN errors.
+| By antirez, 2016-05-05 11:33:43 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/708f486c77b455fa7ae1e87cf31278474eb9d432
+
+This fixes a bug introduced by d827dbf, and makes the code consistent
+with the logic of always allowing, while the cluster is down, commands
+that don't target any key.
+
+As a side effect the code is also simpler now.
+
+ src/cluster.c | 13 +++++++++++--
+ src/server.c  | 26 ++++++++++----------------
+ 2 files changed, 21 insertions(+), 18 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fixes a typo
+| By Itamar Haber, 2016-01-28 21:47:18 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/1fc2ed61bec2f2bf266b48e566a197c5214b4350
+
+
+ src/cluster.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Reverse redirect address parse
+| By David Cavar, 2016-02-09 15:04:42 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/787d5ab9be45bf4feb6cfa8a227c185c93aaadae
+
+Fix issue in case the redirect address is in ipv6 format. Parse from behind to extract last part of the response which represents actual port.
+ src/redis-cli.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Bind both IPv4 and IPv6 or exit with an error by default.
+| By antirez, 2016-05-05 10:02:42 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0fda06225f19b18a370d63ac650a8bb61020235d
+
+Thanks to @tushar2708 for the PR. I applied a slightly different fix.
+Thanks to @cespare for reporting.
+
+Close #3024
+Close #3020
+
+ src/server.c | 18 ++++++++++--------
+ 1 file changed, 10 insertions(+), 8 deletions(-)
+
++-------------------------------------------------------------------------------
+| Quick fix to avoid false positive in replica migration test.
+| By antirez, 2016-05-05 09:45:31 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/65707fa6b5bb38b5818af57ab93b9b1da47d708a
+
+
+ tests/cluster/tests/12-replica-migration-2.tcl | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Ensure slots are rechecked on EXEC.
+| By Chris Thunes, 2016-03-11 15:22:36 -0500
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/1f3ed652e2a6cfcbbd5300a31f5771f2ce842e98
+
+Fixes #2515.
+
+ src/server.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix for #3187
+| By therealbill, 2016-04-22 10:43:48 -0500
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3a4810678904af013901a896ab0bb3c71856644c
+
+I've renamed maxmemoryToString to evictPolicyToString since that is
+more accurate (and easier to mentally connect with the correct data), as
+well as updated the function to user server.maxmemory_policy rather than
+server.maxmemory. Now with a default config it is actually returning
+the correct policy rather than volatile-lru.
+
+ src/config.c | 4 ++--
+ src/server.c | 2 +-
+ src/server.h | 2 +-
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fixed typo in README.md
+| By Seth Bergman, 2016-04-30 11:58:48 -0500
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/bba53d7fc7a759b53d72a7c3be17a00abe32039e
+
+
+ README.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| fix variable
+| By Ryosuke Hasebe, 2016-03-30 23:09:36 +0900
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/ab7581489871eebcf0253915acc26efb27f5df23
+
+
+ src/redis-trib.rb | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix check_open_slots
+| By Ryosuke Hasebe, 2016-03-30 21:56:22 +0900
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0fcf896ac14c6e5c57e3b79e836dd8bf7dad94b5
+
+
+ src/redis-trib.rb | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Minor redis-cli wording change in --help output.
+| By antirez, 2016-05-04 22:34:17 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b8a63635e39ce312b2c5664f2c2a59184849b8fb
+
+
+ src/redis-cli.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Allow CONFIG GET during loading.
+| By antirez, 2016-05-04 15:45:38 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/ae95de93312d6bb2c8c365c31f2a3fd0b6d2c100
+
+Thanks to @oranagra for the idea of allowing CONFIG GET during loading.
+
+ src/config.c | 6 ++++++
+ src/server.c | 2 +-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Command "r" flag removed from commands not accessing the key space.
+| By antirez, 2016-05-04 15:42:14 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3ff8f57ef32e3b1ddd407b65d474f610881bef34
+
+Thanks to @oranagra for the hint about misplaced 'r' flags.
+
+ src/server.c | 70 ++++++++++++++++++++++++++++++------------------------------
+ 1 file changed, 35 insertions(+), 35 deletions(-)
+
++-------------------------------------------------------------------------------
+| DEBUG command self documentation.
+| By antirez, 2016-05-04 12:45:55 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/07b852d24ec8d7cb47044b096baf0af1410c69ed
+
+
+ src/debug.c  | 49 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ src/server.c |  2 +-
+ 2 files changed, 49 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| various cleanups and minor fixes
+| By Oran Agra, 2016-04-25 16:49:57 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/cfc08b65b04cf972ebeadf3be9f39f2acd7672b3
+
+
+ src/adlist.c             | 18 ++++++------------
+ src/ae_epoll.c           |  6 ++----
+ src/aof.c                |  5 ++++-
+ src/db.c                 |  2 +-
+ src/rdb.c                |  6 ++++--
+ src/rio.c                |  5 +++--
+ src/rio.h                |  2 ++
+ src/server.h             |  3 +--
+ tests/support/test.tcl   |  6 ------
+ tests/unit/bitops.tcl    |  2 +-
+ tests/unit/other.tcl     |  1 +
+ tests/unit/scripting.tcl | 27 ++++++++++++++-------------
+ 12 files changed, 39 insertions(+), 44 deletions(-)
+
++-------------------------------------------------------------------------------
+| dict.c minor optimization
+| By Oran Agra, 2016-04-25 16:48:25 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/6710c8dc15680b756de26d1d45df110987b951b3
+
+
+ src/dict.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
++-------------------------------------------------------------------------------
+| networking.c minor optimization
+| By Oran Agra, 2016-04-25 16:48:09 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/be5c0869821b16f18104d9ea62ab42bfa0615816
+
+
+ src/networking.c | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
++-------------------------------------------------------------------------------
+| add DEBUG JEMALLC PURGE and JEMALLOC INFO cleanup
+| By Oran Agra, 2016-04-25 16:47:42 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3ede6c7a506bcff3c7d2147c8af140dd4102a36e
+
+
+ src/debug.c     | 17 ++++++++++++++++-
+ src/redis-cli.c |  2 +-
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| fix small issues in redis 3.2
+| By Oran Agra, 2016-04-25 14:19:28 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/e2fab184efd01ffa0d510739f4d819a30b1d6787
+
+
+ src/config.c | 2 ++
+ src/rdb.c    | 2 +-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| additional fix to issue #2948
+| By Oran Agra, 2016-04-25 14:18:40 +0300
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/9d57ceec08687545c2a63a2c18c28e2bcaf74664
+
+
+ src/networking.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
++-------------------------------------------------------------------------------
+| Reply with error on negative geo radius.
+| By antirez, 2016-05-04 08:59:56 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/7ba2cf5f8bea9cd125e773de147e3ea9b19ee2b0
+
+Thanks to @tidwall for reporting.
+Close #3194.
+
+ src/geo.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Cluster regression test for #3043.
+| By antirez, 2016-05-02 18:36:09 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/38cf2bd257d09b360be6adf450d59592a359696d
+
+The test works but is very slow so far, since it involves resharding
+1/5 of all the cluster slots from master 0 to the other 4 masters and
+back into the original master.
+
+ tests/cluster/tests/12-replica-migration-2.tcl | 61 ++++++++++++++++++++++++++
+ 1 file changed, 61 insertions(+)
+
++-------------------------------------------------------------------------------
+| New masters with slots are now targets of migration if others are.
+| By antirez, 2016-05-02 16:41:56 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/7b618823c189c24313effbccda7022d167ea419c
+
+This fixes issue #3043.
+
+Before this fix, after a complete resharding of a master slots
+to other nodes, the master remains empty and the slaves migrate away
+to other masters with non-zero nodes. However the old master now empty,
+is no longer considered a target for migration, because the system has
+no way to tell it had slaves in the past.
+
+This fix leaves the algorithm used in the past untouched, but adds a
+new rule. When a new or old master which is empty and without slaves,
+are assigend with their first slot, if other masters in the cluster have
+slaves, they are automatically considered to be targets for replicas
+migration.
+
+ src/cluster.c | 36 +++++++++++++++++++++++++++++++++++-
+ 1 file changed, 35 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Test ZINCRBY return value.
+| By antirez, 2016-05-02 08:57:30 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/1101b515c73dcb0ff4a868ba38a91dcebb5b85cc
+
+
+ tests/unit/type/zset.tcl | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
++-------------------------------------------------------------------------------
+| redis-cli preferences and rc file support.
+| By antirez, 2016-04-13 13:58:30 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/bbf93108ef2a7ac7bd53e26c96bf838f7c5e72df
+
+
+ src/redis-cli.c | 102 ++++++++++++++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 85 insertions(+), 17 deletions(-)
+
++-------------------------------------------------------------------------------
+| redis-cli hints.
+| By antirez, 2016-04-13 12:34:14 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/3fd3fca0dd38cb21c900e4ba98e3d41f333335aa
+
+
+ deps/linenoise/linenoise.c |  8 +++++++
+ deps/linenoise/linenoise.h |  2 +-
+ src/redis-cli.c            | 53 ++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 62 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Linenoise updated again (hints support).
+| By antirez, 2016-04-12 23:39:18 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/34354473ffe8d60b80acdbc8c16b194f8bbd70a0
+
+
+ deps/linenoise/README.markdown | 176 ++++++++++++++++++++++++++++++++++++++++-
+ deps/linenoise/example.c       |  10 +++
+ deps/linenoise/linenoise.c     |  55 ++++++++++++-
+ deps/linenoise/linenoise.h     |  15 +++-
+ 4 files changed, 248 insertions(+), 8 deletions(-)
+
++-------------------------------------------------------------------------------
+| Linenoise updated.
+| By antirez, 2016-04-06 13:37:27 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/58229cd766fa02f399267310b5b488aac2c55a6a
+
+As a side effect, cat commands.txt | redis-cli now is able to handle
+lines more than 4096 bytes.
+
+ deps/linenoise/linenoise.c | 60 ++++++++++++++++++++++++++++++++++------------
+ 1 file changed, 45 insertions(+), 15 deletions(-)
+
++-------------------------------------------------------------------------------
+| ae.c: Fix delay until next timer event.
+| By antirez, 2016-04-04 14:08:16 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/29645f1f44926ac2662ed768fe1e369775a30b66
+
+This fix was written by Anthony LaTorre.
+The old code mis-calculated the amount of time to wait till next event.
+
+ src/ae.c | 21 ++++++++++++---------
+ 1 file changed, 12 insertions(+), 9 deletions(-)
+
++-------------------------------------------------------------------------------
+| ae.c: comment to explain why we have a useless maxId check.
+| By antirez, 2016-04-04 12:23:10 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/aa79c1f1c1d288e4cc2c0f4689ad01488678bf9d
+
+
+ src/ae.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Fix ae.c to avoid timers infinite loop.
+| By antirez, 2016-01-08 15:05:14 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0b69c9865619b54b75576e67aaafe7b018734bec
+
+This fix was suggested by Anthony LaTorre, that provided also a good
+test case that was used to verify the fix.
+
+The problem with the old implementation is that, the time returned by
+a timer event (that is the time after it want to run again) is added
+to the event *start time*. So if the event takes, in order to run, more
+than the time it says it want to be scheduled again for running, an
+infinite loop is triggered.
+
+ src/ae.c          | 51 ++++++++++++++++++++++-----------------------------
+ src/ae.h          |  3 +++
+ src/anet.h        |  2 ++
+ src/redis-trib.rb |  2 +-
+ 4 files changed, 28 insertions(+), 30 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: overflow wrap behavior fuzz tester.
+| By antirez, 2016-03-02 17:22:42 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/258857cd62e0eb70da32742651a55213fbc28a53
+
+
+ tests/unit/bitfield.tcl | 51 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
++-------------------------------------------------------------------------------
+| BITFIELD basic unit tests.
+| By antirez, 2016-03-02 16:31:02 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/35d05d6dc5d7fb810e732f9de7b05c6b14933fb6
+
+
+ tests/unit/bitfield.tcl | 86 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 85 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: Farest bit set is offset+bits-1. Off by one error fixed.
+| By antirez, 2016-03-02 16:20:28 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/6cf83feffad7f7b7693a207a9d63278354769ece
+
+
+ src/bitops.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: overflow fuzzy testing.
+| By antirez, 2016-03-02 15:15:18 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/b4d65c9501be01531eb8fbeb4ba2b444e35d6494
+
+
+ tests/test_helper.tcl   |  1 +
+ tests/unit/bitfield.tcl | 52 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 53 insertions(+)
+
++-------------------------------------------------------------------------------
+| Fix typo in bitops.tcl comment.
+| By antirez, 2016-03-02 15:14:53 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/d75e0fdbe6ecf3074b18c4dd1e8b71a474254ccc
+
+
+ tests/unit/bitops.tcl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| More BITFIELD fixes. Overflow conditional simplified.
+| By antirez, 2016-03-02 15:13:45 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/5f3ef73ed41be6e051daad9fdb7efa91b4ca682d
+
+See issue #3114.
+
+ src/bitops.c | 17 ++++++++---------
+ 1 file changed, 8 insertions(+), 9 deletions(-)
+
++-------------------------------------------------------------------------------
+| bitops/bitfield: fix length, overflow condition and *sign
+| By Sun He, 2016-03-02 18:11:30 +0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/5b9aa5026204fb6c8b0098d4e47c2e001cf06151
+
+
+ src/bitops.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fix INFO commandstats reporting when argv is rewritten.
+| By antirez, 2016-03-02 08:51:27 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/ba9154d7e7bf959b002533384319a1e90545447b
+
+We want to report the original command in the stats, for example GEOADD,
+even when what is actually executed is the ZADD implementation.
+
+ src/scripting.c | 2 +-
+ src/server.c    | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: refactoring & fix of retval on FAIL.
+| By antirez, 2016-02-29 09:08:46 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/76b22e3728e37fe11582b71802bf98a2be09623f
+
+
+ src/bitops.c | 32 ++++++++++++++++++++++++--------
+ 1 file changed, 24 insertions(+), 8 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: Fix #<index> form parsing.
+| By antirez, 2016-02-26 15:53:29 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/c333a9e2d7873190b22aaee8835a188bc55b60dc
+
+
+ src/bitops.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD: Support #<index> offsets form.
+| By antirez, 2016-02-26 15:16:24 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f84871cb5dd3bb3c04bfd7ac53b6e06b246f511f
+
+
+ src/bitops.c | 29 +++++++++++++++++++++++------
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
++-------------------------------------------------------------------------------
+| BITFIELD command initial implementation.
+| By antirez, 2016-02-25 23:31:45 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/761a77287107ce53dbf4755f1435cc9660b6c86d
+
+The new bitfield command is an extension to the Redis bit operations,
+where not just single bit operations are performed, but the array of
+bits composing a string, can be addressed at random, not aligned
+offsets, with any width unsigned and signed integers like u8, s5, u10
+(up to 64 bit signed integers and 63 bit unsigned integers).
+
+The BITFIELD command supports subcommands that can SET, GET, or INCRBY
+those arbitrary bit counters, with multiple overflow semantics.
+
+Trivial and credits:
+
+A similar command was imagined a few times in the past, but for
+some reason looked a bit far fetched or not well specified.
+Finally the command was proposed again in a clear form by
+Yoav Steinberg from Redis Labs, that proposed a set of commands on
+arbitrary sized integers stored at bit offsets.
+
+Starting from this proposal I wrote an initial specification of a single
+command with sub-commands similar to what Yoav envisioned, using short
+names for types definitions, and adding control on the overflow.
+
+This commit is the resulting implementation.
+
+Examples:
+
+    BITFIELD mykey OVERFLOW wrap INCRBY i2 10 -1 GET i2 10
+
+ src/bitops.c | 506 +++++++++++++++++++++++++++++++++++++++++++++++++++++++----
+ src/server.c |   1 +
+ src/server.h |   1 +
+ 3 files changed, 476 insertions(+), 32 deletions(-)
+
++-------------------------------------------------------------------------------
+| Eliminates engineers near the equator & prime meridian
+| By Itamar Haber, 2016-02-18 15:11:30 -0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/4b89ea3a95ef72353e14e0eb5cbf293bf2dc8b48
+
+
+ src/geo.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fixes a typo in a comment
+| By Itamar Haber, 2016-02-18 15:01:34 -0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0f46f9bd423a146f96e1993aca6221e1305f9a28
+
+
+ src/geo.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Adjusts accuracy for GEODIST
+| By Itamar Haber, 2016-02-18 15:00:39 -0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/9de844603c5203ae6ff6e7882a3dcb47a9f79a85
+
+
+ src/geo.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| addReplyHumanLongDouble() API added.
+| By antirez, 2016-02-18 22:08:47 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/79e553a58d7f814fd08482b118561fcf9854b1df
+
+Send a long double or double as a bulk reply, in a human friendly
+format.
+
+ src/networking.c | 9 +++++++++
+ src/server.h     | 1 +
+ 2 files changed, 10 insertions(+)
+
++-------------------------------------------------------------------------------
+| Fix GEORADIUS STORE/DIST refcount after backport to 3.2.
+| By antirez, 2016-02-18 15:33:02 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/158d1e2fbf6badb881a4d78623fd1bffde34cc49
+
+
+ src/geo.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
++-------------------------------------------------------------------------------
+| GEOADD STORE/STOREDIST tests.
+| By antirez, 2016-02-18 14:42:42 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/123cd88286127cc20684bf0457cb51107a67cfa2
+
+
+ tests/unit/geo.tcl | 54 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
++-------------------------------------------------------------------------------
+| New options for GEORADIUS: STORE and STOREDIST.
+| By antirez, 2016-02-18 10:24:11 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0b6daf5a6b27447f03c76387b8b707ce0ab7b08d
+
+Related to issue #3019.
+
+ src/geo.c    | 143 +++++++++++++++++++++++++++++++++++++++++------------------
+ src/server.c |   4 +-
+ src/server.h |   1 +
+ src/t_zset.c |  18 +++++---
+ 4 files changed, 117 insertions(+), 49 deletions(-)
+
++-------------------------------------------------------------------------------
+| Include full paths on RDB/AOF files errors.
+| By antirez, 2016-02-15 16:14:56 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/f7af1beaab938b7e319d1b91d7736f043b7ef682
+
+Close #3086.
+
+ src/aof.c | 17 +++++++++++++++--
+ src/rdb.c | 19 +++++++++++++++++--
+ 2 files changed, 32 insertions(+), 4 deletions(-)
+
++-------------------------------------------------------------------------------
+| Remove Lua state reference from buffers in lua_cmsgpack.
+| By antirez, 2016-02-10 09:12:17 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0b4a628fc716ab6b88c9823b143de174601a790d
+
+
+ deps/lua/src/lua_cmsgpack.c | 53 +++++++++++++++++++++------------------------
+ 1 file changed, 25 insertions(+), 28 deletions(-)
+
++-------------------------------------------------------------------------------
+| cmsgpack: pass correct osize values to lua allocator, update correct buf free space in cmsgpack
+| By yoav@monfort.co.il, 2016-02-07 20:24:28 +0200
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/43509f686452fba68966aa89b87d1be065b50e17
+
+
+ deps/lua/src/lua_cmsgpack.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
++-------------------------------------------------------------------------------
+| Fixes a typo
+| By Itamar Haber, 2016-02-03 11:04:09 -0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/cd9f7c6976f81c0e9ffae9e34b31eda19384a7dd
+
+
+ src/server.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
++-------------------------------------------------------------------------------
+| Adds keyspace notifications for lrem
+| By Itamar Haber, 2016-02-02 09:58:19 -0800
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/bf30f5a73922e5111d6a39da7351e22357213134
+
+
+ src/t_list.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Typo ASII -> ASCII fixed in comment.
+| By antirez, 2016-01-29 12:08:10 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0c7c7631d206964b8bf1dae3db286a3acda4edad
+
+
+ src/server.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
++-------------------------------------------------------------------------------
+| Cluster: include node IDs in SLOTS output.
+| By antirez, 2016-01-29 12:00:38 +0100
++--------------------------------------------------------------------------------
+https://github.com/antirez/redis/commit/0f3fb0097ae70e36ee65468b79f0be4160934bb4
+
+CLUSTER SLOTS now includes IDs in the nodes description associated with
+a given slot range. Certain client libraries implementations need a way
+to reference a node in an unique way, so they were relying on CLUSTER
+NODES, that is not a stable API and may change frequently depending on
+Redis Cluster future requirements.
+
+ src/cluster.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~ OLD STYLE CHANGELOG ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 --[ Redis 3.2.0 RC3 (version 3.1.103) ] Release date: 28 jan 2016
 
 Upgrade urgency MODERATE: this release fixes a non trivial Sentinel crash.

@@ -29,7 +29,7 @@ arena_dalloc_junk_small_intercept(void *ptr, arena_bin_info_t *bin_info)
 
 	arena_dalloc_junk_small_orig(ptr, bin_info);
 	for (i = 0; i < bin_info->reg_size; i++) {
-		assert_c_eq(((char *)ptr)[i], 0x5a,
+		assert_u_eq(((uint8_t *)ptr)[i], JEMALLOC_FREE_JUNK,
 		    "Missing junk fill for byte %zu/%zu of deallocated region",
 		    i, bin_info->reg_size);
 	}
@@ -44,7 +44,7 @@ arena_dalloc_junk_large_intercept(void *ptr, size_t usize)
 
 	arena_dalloc_junk_large_orig(ptr, usize);
 	for (i = 0; i < usize; i++) {
-		assert_c_eq(((char *)ptr)[i], 0x5a,
+		assert_u_eq(((uint8_t *)ptr)[i], JEMALLOC_FREE_JUNK,
 		    "Missing junk fill for byte %zu/%zu of deallocated region",
 		    i, usize);
 	}
@@ -69,7 +69,7 @@ huge_dalloc_junk_intercept(void *ptr, size_t usize)
 static void
 test_junk(size_t sz_min, size_t sz_max)
 {
-	char *s;
+	uint8_t *s;
 	size_t sz_prev, sz, i;
 
 	if (opt_junk_free) {
@@ -82,23 +82,23 @@ test_junk(size_t sz_min, size_t sz_max)
 	}
 
 	sz_prev = 0;
-	s = (char *)mallocx(sz_min, 0);
+	s = (uint8_t *)mallocx(sz_min, 0);
 	assert_ptr_not_null((void *)s, "Unexpected mallocx() failure");
 
 	for (sz = sallocx(s, 0); sz <= sz_max;
 	    sz_prev = sz, sz = sallocx(s, 0)) {
 		if (sz_prev > 0) {
-			assert_c_eq(s[0], 'a',
+			assert_u_eq(s[0], 'a',
 			    "Previously allocated byte %zu/%zu is corrupted",
 			    ZU(0), sz_prev);
-			assert_c_eq(s[sz_prev-1], 'a',
+			assert_u_eq(s[sz_prev-1], 'a',
 			    "Previously allocated byte %zu/%zu is corrupted",
 			    sz_prev-1, sz_prev);
 		}
 
 		for (i = sz_prev; i < sz; i++) {
 			if (opt_junk_alloc) {
-				assert_c_eq(s[i], 0xa5,
+				assert_u_eq(s[i], JEMALLOC_ALLOC_JUNK,
 				    "Newly allocated byte %zu/%zu isn't "
 				    "junk-filled", i, sz);
 			}
@@ -107,7 +107,7 @@ test_junk(size_t sz_min, size_t sz_max)
 
 		if (xallocx(s, sz+1, 0, 0) == sz) {
 			watch_junking(s);
-			s = (char *)rallocx(s, sz+1, 0);
+			s = (uint8_t *)rallocx(s, sz+1, 0);
 			assert_ptr_not_null((void *)s,
 			    "Unexpected rallocx() failure");
 			assert_true(!opt_junk_free || saw_junking,
@@ -244,7 +244,6 @@ int
 main(void)
 {
 
-	assert(!config_fill || opt_junk_alloc || opt_junk_free);
 	return (test(
 	    test_junk_small,
 	    test_junk_large,

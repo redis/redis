@@ -1,0 +1,29 @@
+language: c
+
+matrix:
+  include:
+    - os: linux
+      compiler: gcc
+    - os: linux
+      compiler: gcc
+      env:
+        - EXTRA_FLAGS=-m32
+      addons:
+        apt:
+          packages:
+          - gcc-multilib
+    - os: osx
+      compiler: clang
+    - os: osx
+      compiler: clang
+      env:
+        - EXTRA_FLAGS=-m32
+
+before_script:
+  - autoconf
+  - ./configure${EXTRA_FLAGS:+ CC="$CC $EXTRA_FLAGS"}
+  - make -j3
+  - make -j3 tests
+
+script:
+  - make check

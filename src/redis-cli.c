@@ -63,6 +63,8 @@
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
 #define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
+#define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
+#define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
 
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
@@ -118,11 +120,17 @@ static struct config {
     int last_cmd_type;
 } config;
 
+/* User preferences. */
+static struct pref {
+    int hints;
+} pref;
+
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(void);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
+static int cliConnect(int force);
 
 /*------------------------------------------------------------------------------
  * Utility functions
@@ -153,34 +161,41 @@ static void cliRefreshPrompt(void) {
         len = anetFormatAddr(config.prompt, sizeof(config.prompt),
                            config.hostip, config.hostport);
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
+    if (config.dbnum != 0)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
 }
 
-static sds getHistoryPath() {
+/* Return the name of the dotfile for the specified 'dotfilename'.
+ * Normally it just concatenates user $HOME to the file specified
+ * in 'dotfilename'. However if the environment varialbe 'envoverride'
+ * is set, its value is taken as the path.
+ *
+ * The function returns NULL (if the file is /dev/null or cannot be
+ * obtained for some error), or an SDS string that must be freed by
+ * the user. */
+static sds getDotfilePath(char *envoverride, char *dotfilename) {
     char *path = NULL;
-    sds historyPath = NULL;
+    sds dotPath = NULL;
 
-    /* check the env for a histfile override */
-    path = getenv(REDIS_CLI_HISTFILE_ENV);
+    /* Check the env for a dotfile override. */
+    path = getenv(envoverride);
     if (path != NULL && *path != '\0') {
         if (!strcmp("/dev/null", path)) {
             return NULL;
         }
 
-        /* if the env is set, return it */
-        historyPath = sdscatprintf(sdsempty(), "%s", path);
+        /* If the env is set, return it. */
+        dotPath = sdsnew(path);
     } else {
         char *home = getenv("HOME");
         if (home != NULL && *home != '\0') {
-            /* otherwise, return the default */
-            historyPath = sdscatprintf(sdsempty(), "%s/%s", home, REDIS_CLI_HISTFILE_DEFAULT);
+            /* If no override is set use $HOME/<dotfilename>. */
+            dotPath = sdscatprintf(sdsempty(), "%s/%s", home, dotfilename);
         }
     }
-
-    return historyPath;
+    return dotPath;
 }
 
 /*------------------------------------------------------------------------------
@@ -224,11 +239,11 @@ static void cliInitHelp(void) {
     helpEntry tmp;
 
     helpEntriesLen = len = commandslen+groupslen;
-    helpEntries = malloc(sizeof(helpEntry)*len);
+    helpEntries = zmalloc(sizeof(helpEntry)*len);
 
     for (i = 0; i < groupslen; i++) {
         tmp.argc = 1;
-        tmp.argv = malloc(sizeof(sds));
+        tmp.argv = zmalloc(sizeof(sds));
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
@@ -245,6 +260,65 @@ static void cliInitHelp(void) {
     }
 }
 
+/* cliInitHelp() setups the helpEntries array with the command and group
+ * names from the help.h file. However the Redis instance we are connecting
+ * to may support more commands, so this function integrates the previous
+ * entries with additional entries obtained using the COMMAND command
+ * available in recent versions of Redis. */
+static void cliIntegrateHelp(void) {
+    if (cliConnect(0) == REDIS_ERR) return;
+
+    redisReply *reply = redisCommand(context, "COMMAND");
+    if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
+
+    /* Scan the array reported by COMMAND and fill only the entries that
+     * don't already match what we have. */
+    for (size_t j = 0; j < reply->elements; j++) {
+        redisReply *entry = reply->element[j];
+        if (entry->type != REDIS_REPLY_ARRAY || entry->elements < 4 ||
+            entry->element[0]->type != REDIS_REPLY_STRING ||
+            entry->element[1]->type != REDIS_REPLY_INTEGER ||
+            entry->element[3]->type != REDIS_REPLY_INTEGER) return;
+        char *cmdname = entry->element[0]->str;
+        int i;
+
+        for (i = 0; i < helpEntriesLen; i++) {
+            helpEntry *he = helpEntries+i;
+            if (!strcasecmp(he->argv[0],cmdname))
+                break;
+        }
+        if (i != helpEntriesLen) continue;
+
+        helpEntriesLen++;
+        helpEntries = zrealloc(helpEntries,sizeof(helpEntry)*helpEntriesLen);
+        helpEntry *new = helpEntries+(helpEntriesLen-1);
+
+        new->argc = 1;
+        new->argv = zmalloc(sizeof(sds));
+        new->argv[0] = sdsnew(cmdname);
+        new->full = new->argv[0];
+        new->type = CLI_HELP_COMMAND;
+        sdstoupper(new->argv[0]);
+
+        struct commandHelp *ch = zmalloc(sizeof(*ch));
+        ch->name = new->argv[0];
+        ch->params = sdsempty();
+        int args = llabs(entry->element[1]->integer);
+        if (entry->element[3]->integer == 1) {
+            ch->params = sdscat(ch->params,"key ");
+            args--;
+        }
+        while(args--) ch->params = sdscat(ch->params,"arg ");
+        if (entry->element[1]->integer < 0)
+            ch->params = sdscat(ch->params,"...options...");
+        ch->summary = "Help not available";
+        ch->group = 0;
+        ch->since = "not known";
+        new->org = ch;
+    }
+    freeReplyObject(reply);
+}
+
 /* Output command help to stdout. */
 static void cliOutputCommandHelp(struct commandHelp *help, int group) {
     printf("\r\n  \x1b[1m%s\x1b[0m \x1b[90m%s\x1b[0m\r\n", help->name, help->params);
@@ -259,11 +333,17 @@ static void cliOutputCommandHelp(struct commandHelp *help, int group) {
 static void cliOutputGenericHelp(void) {
     sds version = cliVersion();
     printf(
-        "redis-cli %s\r\n"
-        "Type: \"help @<group>\" to get a list of commands in <group>\r\n"
-        "      \"help <command>\" for help on <command>\r\n"
-        "      \"help <tab>\" to get a list of possible help topics\r\n"
-        "      \"quit\" to exit\r\n",
+        "redis-cli %s\n"
+        "To get help about Redis commands type:\n"
+        "      \"help @<group>\" to get a list of commands in <group>\n"
+        "      \"help <command>\" for help on <command>\n"
+        "      \"help <tab>\" to get a list of possible help topics\n"
+        "      \"quit\" to exit\n"
+        "\n"
+        "To set redis-cli perferences:\n"
+        "      \":set hints\" enable online hints\n"
+        "      \":set nohints\" disable online hints\n"
+        "Set your preferences in ~/.redisclirc\n",
         version
     );
     sdsfree(version);
@@ -314,6 +394,7 @@ static void cliOutputHelp(int argc, char **argv) {
     printf("\r\n");
 }
 
+/* Linenoise completion callback. */
 static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     size_t startpos = 0;
     int mask;
@@ -340,6 +421,58 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
             sdsfree(tmp);
         }
     }
+}
+
+/* Linenoise hints callback. */
+static char *hintsCallback(const char *buf, int *color, int *bold) {
+    if (!pref.hints) return NULL;
+
+    int i, argc, buflen = strlen(buf);
+    sds *argv = sdssplitargs(buf,&argc);
+    int endspace = buflen && isspace(buf[buflen-1]);
+
+    /* Check if the argument list is empty and return ASAP. */
+    if (argc == 0) {
+        sdsfreesplitres(argv,argc);
+        return NULL;
+    }
+
+    for (i = 0; i < helpEntriesLen; i++) {
+        if (!(helpEntries[i].type & CLI_HELP_COMMAND)) continue;
+
+        if (strcasecmp(argv[0],helpEntries[i].full) == 0)
+        {
+            *color = 90;
+            *bold = 0;
+            sds hint = sdsnew(helpEntries[i].org->params);
+
+            /* Remove arguments from the returned hint to show only the
+             * ones the user did not yet typed. */
+            int toremove = argc-1;
+            while(toremove > 0 && sdslen(hint)) {
+                if (hint[0] == '[') break;
+                if (hint[0] == ' ') toremove--;
+                sdsrange(hint,1,-1);
+            }
+
+            /* Add an initial space if needed. */
+            if (!endspace) {
+                sds newhint = sdsnewlen(" ",1);
+                newhint = sdscatsds(newhint,hint);
+                sdsfree(hint);
+                hint = newhint;
+            }
+
+            sdsfreesplitres(argv,argc);
+            return hint;
+        }
+    }
+    sdsfreesplitres(argv,argc);
+    return NULL;
+}
+
+static void freeHintsCallback(void *ptr) {
+    sdsfree(ptr);
 }
 
 /*------------------------------------------------------------------------------
@@ -665,7 +798,7 @@ static int cliReadReply(int output_raw_strings) {
         p = strchr(s+1,' ');    /* MOVED[S]3999[P]127.0.0.1:6381 */
         *p = '\0';
         slot = atoi(s+1);
-        s = strchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
+        s = strrchr(p+1,':');    /* MOVED 3999[P]127.0.0.1[S]6381 */
         *s = '\0';
         sdsfree(config.hostip);
         config.hostip = sdsnew(p+1);
@@ -714,7 +847,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
-                      (!strcasecmp(argv[1],"jemalloc") ||
+                      ((!strcasecmp(argv[1],"jemalloc") && !strcasecmp(argv[2],"info")) ||
                        !strcasecmp(argv[1],"htstats"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
@@ -755,7 +888,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     }
 
     /* Setup argument length */
-    argvlen = malloc(argc*sizeof(size_t));
+    argvlen = zmalloc(argc*sizeof(size_t));
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
@@ -778,16 +911,16 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             printf("Entering slave output mode...  (press Ctrl-C to quit)\n");
             slaveMode();
             config.slave_mode = 0;
-            free(argvlen);
+            zfree(argvlen);
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
         if (cliReadReply(output_raw) != REDIS_OK) {
-            free(argvlen);
+            zfree(argvlen);
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2) {
+            if (!strcasecmp(command,"select") && argc == 2 && config.last_cmd_type != REDIS_REPLY_ERROR) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && argc == 2) {
@@ -798,7 +931,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         fflush(stdout); /* Make it grep friendly */
     }
 
-    free(argvlen);
+    zfree(argvlen);
     return REDIS_OK;
 }
 
@@ -1023,7 +1156,8 @@ static void usage(void) {
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
 "When no command is given, redis-cli starts in interactive mode.\n"
-"Type \"help\" in interactive mode for information on available commands.\n"
+"Type \"help\" in interactive mode for information on available commands\n"
+"and settings.\n"
 "\n",
         version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
     sdsfree(version);
@@ -1090,6 +1224,46 @@ static sds *cliSplitArgs(char *line, int *argc) {
     }
 }
 
+/* Set the CLI perferences. This function is invoked when an interactive
+ * ":command" is called, or when reading ~/.redisclirc file, in order to
+ * set user preferences. */
+void cliSetPreferences(char **argv, int argc, int interactive) {
+    if (!strcasecmp(argv[0],":set") && argc >= 2) {
+        if (!strcasecmp(argv[1],"hints")) pref.hints = 1;
+        else if (!strcasecmp(argv[1],"nohints")) pref.hints = 0;
+        else {
+            printf("%sunknown redis-cli preference '%s'\n",
+                interactive ? "" : ".redisclirc: ",
+                argv[1]);
+        }
+    } else {
+        printf("%sunknown redis-cli internal command '%s'\n",
+            interactive ? "" : ".redisclirc: ",
+            argv[0]);
+    }
+}
+
+/* Load the ~/.redisclirc file if any. */
+void cliLoadPreferences(void) {
+    sds rcfile = getDotfilePath(REDIS_CLI_RCFILE_ENV,REDIS_CLI_RCFILE_DEFAULT);
+    if (rcfile == NULL) return;
+    FILE *fp = fopen(rcfile,"r");
+    char buf[1024];
+
+    if (fp) {
+        while(fgets(buf,sizeof(buf),fp) != NULL) {
+            sds *argv;
+            int argc;
+
+            argv = sdssplitargs(buf,&argc);
+            if (argc > 0) cliSetPreferences(argv,argc,0);
+            sdsfreesplitres(argv,argc);
+        }
+        fclose(fp);
+    }
+    sdsfree(rcfile);
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -1097,17 +1271,25 @@ static void repl(void) {
     int argc;
     sds *argv;
 
+    /* Initialize the help and, if possible, use the COMMAND command in order
+     * to retrieve missing entries. */
+    cliInitHelp();
+    cliIntegrateHelp();
+
     config.interactive = 1;
     linenoiseSetMultiLine(1);
     linenoiseSetCompletionCallback(completionCallback);
+    linenoiseSetHintsCallback(hintsCallback);
+    linenoiseSetFreeHintsCallback(freeHintsCallback);
 
-    /* Only use history when stdin is a tty. */
+    /* Only use history and load the rc file when stdin is a tty. */
     if (isatty(fileno(stdin))) {
-        historyfile = getHistoryPath();
+        historyfile = getDotfilePath(REDIS_CLI_HISTFILE_ENV,REDIS_CLI_HISTFILE_DEFAULT);
         if (historyfile != NULL) {
             history = 1;
             linenoiseHistoryLoad(historyfile);
         }
+        cliLoadPreferences();
     }
 
     cliRefreshPrompt();
@@ -1119,13 +1301,16 @@ static void repl(void) {
 
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
-                free(line);
+                linenoiseFree(line);
                 continue;
             } else if (argc > 0) {
                 if (strcasecmp(argv[0],"quit") == 0 ||
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
+                } else if (argv[0][0] == ':') {
+                    cliSetPreferences(argv,argc,1);
+                    continue;
                 } else if (strcasecmp(argv[0],"restart") == 0) {
                     if (config.eval) {
                         config.eval_ldb = 1;
@@ -1175,7 +1360,7 @@ static void repl(void) {
             sdsfreesplitres(argv,argc);
         }
         /* linenoise() returns malloc-ed lines like readline() */
-        free(line);
+        linenoiseFree(line);
     }
     exit(0);
 }
@@ -2040,7 +2225,7 @@ static char *getInfoField(char *info, char *field) {
     n1 = strchr(p,'\r');
     n2 = strchr(p,',');
     if (n2 && n2 < n1) n1 = n2;
-    result = malloc(sizeof(char)*(n1-p)+1);
+    result = zmalloc(sizeof(char)*(n1-p)+1);
     memcpy(result,p,(n1-p));
     result[n1-p] = '\0';
     return result;
@@ -2054,7 +2239,7 @@ static long getLongInfoField(char *info, char *field) {
 
     if (!value) return LONG_MIN;
     l = strtol(value,NULL,10);
-    free(value);
+    zfree(value);
     return l;
 }
 
@@ -2351,7 +2536,7 @@ static void intrinsicLatencyMode(void) {
         }
 
         double avg_us = (double)run_time/runs;
-        double avg_ns = avg_us * 10e3;
+        double avg_ns = avg_us * 1e3;
         if (force_cancel_loop || end > test_end) {
             printf("\n%lld total runs "
                 "(avg latency: "
@@ -2406,6 +2591,8 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
 
+    pref.hints = 1;
+
     spectrum_palette = spectrum_palette_color;
     spectrum_palette_size = spectrum_palette_color_size;
 
@@ -2414,7 +2601,6 @@ int main(int argc, char **argv) {
     else
         config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
-    cliInitHelp();
 
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;

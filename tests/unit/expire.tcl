@@ -198,4 +198,10 @@ start_server {tags {"expire"}} {
         r set foo b
         lsort [r keys *]
     } {a e foo s t}
+
+    test {EXPIRE with empty string as TTL should report an error} {
+        r set foo bar
+        catch {r expire foo ""} e
+        set e
+    } {*not an integer*}
 }

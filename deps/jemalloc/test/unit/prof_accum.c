@@ -68,8 +68,9 @@ TEST_BEGIN(test_idump)
 	test_skip_if(!config_prof);
 
 	active = true;
-	assert_d_eq(mallctl("prof.active", NULL, NULL, &active, sizeof(active)),
-	    0, "Unexpected mallctl failure while activating profiling");
+	assert_d_eq(mallctl("prof.active", NULL, NULL, (void *)&active,
+	    sizeof(active)), 0,
+	    "Unexpected mallctl failure while activating profiling");
 
 	prof_dump_open = prof_dump_open_intercept;
 

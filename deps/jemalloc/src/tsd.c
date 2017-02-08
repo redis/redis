@@ -77,7 +77,7 @@ tsd_cleanup(void *arg)
 		/* Do nothing. */
 		break;
 	case tsd_state_nominal:
-#define O(n, t)								\
+#define	O(n, t)								\
 		n##_cleanup(tsd);
 MALLOC_TSD
 #undef O
@@ -106,15 +106,17 @@ MALLOC_TSD
 	}
 }
 
-bool
+tsd_t *
 malloc_tsd_boot0(void)
 {
+	tsd_t *tsd;
 
 	ncleanups = 0;
 	if (tsd_boot0())
-		return (true);
-	*tsd_arenas_cache_bypassp_get(tsd_fetch()) = true;
-	return (false);
+		return (NULL);
+	tsd = tsd_fetch();
+	*tsd_arenas_tdata_bypassp_get(tsd) = true;
+	return (tsd);
 }
 
 void
@@ -122,7 +124,7 @@ malloc_tsd_boot1(void)
 {
 
 	tsd_boot1();
-	*tsd_arenas_cache_bypassp_get(tsd_fetch()) = false;
+	*tsd_arenas_tdata_bypassp_get(tsd_fetch()) = false;
 }
 
 #ifdef _WIN32
@@ -148,13 +150,15 @@ _tls_callback(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 #ifdef _MSC_VER
 #  ifdef _M_IX86
 #    pragma comment(linker, "/INCLUDE:__tls_used")
+#    pragma comment(linker, "/INCLUDE:_tls_callback")
 #  else
 #    pragma comment(linker, "/INCLUDE:_tls_used")
+#    pragma comment(linker, "/INCLUDE:tls_callback")
 #  endif
 #  pragma section(".CRT$XLY",long,read)
 #endif
 JEMALLOC_SECTION(".CRT$XLY") JEMALLOC_ATTR(used)
-static BOOL	(WINAPI *const tls_callback)(HINSTANCE hinstDLL,
+BOOL	(WINAPI *const tls_callback)(HINSTANCE hinstDLL,
     DWORD fdwReason, LPVOID lpvReserved) = _tls_callback;
 #endif
 
@@ -167,10 +171,10 @@ tsd_init_check_recursion(tsd_init_head_t *head, tsd_init_block_t *block)
 	tsd_init_block_t *iter;
 
 	/* Check whether this thread has already inserted into the list. */
-	malloc_mutex_lock(&head->lock);
+	malloc_mutex_lock(TSDN_NULL, &head->lock);
 	ql_foreach(iter, &head->blocks, link) {
 		if (iter->thread == self) {
-			malloc_mutex_unlock(&head->lock);
+			malloc_mutex_unlock(TSDN_NULL, &head->lock);
 			return (iter->data);
 		}
 	}
@@ -178,7 +182,7 @@ tsd_init_check_recursion(tsd_init_head_t *head, tsd_init_block_t *block)
 	ql_elm_new(block, link);
 	block->thread = self;
 	ql_tail_insert(&head->blocks, block, link);
-	malloc_mutex_unlock(&head->lock);
+	malloc_mutex_unlock(TSDN_NULL, &head->lock);
 	return (NULL);
 }
 
@@ -186,8 +190,8 @@ void
 tsd_init_finish(tsd_init_head_t *head, tsd_init_block_t *block)
 {
 
-	malloc_mutex_lock(&head->lock);
+	malloc_mutex_lock(TSDN_NULL, &head->lock);
 	ql_remove(&head->blocks, block, link);
-	malloc_mutex_unlock(&head->lock);
+	malloc_mutex_unlock(TSDN_NULL, &head->lock);
 }
 #endif
