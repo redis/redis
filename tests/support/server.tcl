@@ -40,6 +40,11 @@ proc kill_server config {
                     test "Check for memory leaks (pid $pid)" {
                         set output {0 leaks}
                         catch {exec leaks $pid} output
+                        if {[string match {*process does not exist*} $output] ||
+                            [string match {*cannot examine*} $output]} {
+                            # In a few tests we kill the server process.
+                            set output "0 leaks"
+                        }
                         set output
                     } {*0 leaks*}
                 }
@@ -49,10 +54,15 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     catch {exec kill $pid}
+    if {$::valgrind} {
+        set max_wait 60000
+    } else {
+        set max_wait 10000
+    }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= 5000} {
+        if {$wait >= $max_wait} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
@@ -65,6 +75,9 @@ proc kill_server config {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
+
+    # Remove this pid from the set of active pids in the test server.
+    send_data_packet $::test_server_fd server-killed $pid
 }
 
 proc is_alive config {
@@ -79,7 +92,7 @@ proc is_alive config {
 proc ping_server {host port} {
     set retval 0
     if {[catch {
-        set fd [socket $::host $::port]
+        set fd [socket $host $port]
         fconfigure $fd -translation binary
         puts $fd "PING\r\n"
         flush $fd
@@ -99,6 +112,22 @@ proc ping_server {host port} {
         }
     }
     return $retval
+}
+
+# Return 1 if the server at the specified addr is reachable by PING, otherwise
+# returns 0. Performs a try every 50 milliseconds for the specified number
+# of retries.
+proc server_is_up {host port retrynum} {
+    after 10 ;# Use a small delay to make likely a first-try success.
+    set retval 0
+    while {[incr retrynum -1]} {
+        if {[catch {ping_server $host $port} ping]} {
+            set ping 0
+        }
+        if {$ping} {return 1}
+        after 50
+    }
+    return 0
 }
 
 # doesn't really belong here, but highly coupled to code in start_server
@@ -157,10 +186,10 @@ proc start_server {options {code undefined}} {
             dict set config $directive $arguments
         }
     }
-    
+
     # use a different directory every time a server is started
     dict set config dir [tmpdir server]
-    
+
     # start every server on a different port
     set ::port [find_available_port [expr {$::port+1}]]
     dict set config port $::port
@@ -169,7 +198,7 @@ proc start_server {options {code undefined}} {
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
     }
-    
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     set fp [open $config_file w+]
@@ -183,31 +212,26 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &
+        set pid [exec valgrind --track-origins=yes --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
+    } elseif ($::stack_logging) {
+        set pid [exec /usr/bin/env MallocStackLogging=1 MallocLogFile=/tmp/malloc_log.txt src/redis-server $config_file > $stdout 2> $stderr &]
     } else {
-        exec src/redis-server $config_file > $stdout 2> $stderr &
+        set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
     }
-    
+
+    # Tell the test server about this new instance.
+    send_data_packet $::test_server_fd server-spawned $pid
+
     # check that the server actually started
     # ugly but tries to be as fast as possible...
     if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-    set serverisup 0
 
     if {$::verbose} {
         puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
     }
 
-    after 10
     if {$code ne "undefined"} {
-        while {[incr retrynum -1]} {
-            catch {
-                if {[ping_server $::host $::port]} {
-                    set serverisup 1
-                }
-            }
-            if {$serverisup} break
-            after 50
-        }
+        set serverisup [server_is_up $::host $::port $retrynum]
     } else {
         set serverisup 1
     }
@@ -222,10 +246,10 @@ proc start_server {options {code undefined}} {
         start_server_error $config_file $err
         return
     }
-    
-    # find out the pid
-    while {![info exists pid]} {
-        regexp {\[(\d+)\]} [exec cat $stdout] _ pid
+
+    # Wait for actual startup
+    while {![info exists _pid]} {
+        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
         after 100
     }
 
@@ -254,7 +278,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec grep "ready to accept" | wc -l < $stdout] > 0} {
+            if {[exec grep -i "Ready to accept" | wc -l < $stdout] > 0} {
                 break
             }
             after 10

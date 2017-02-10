@@ -1,8 +1,7 @@
 start_server {
     tags {list ziplist}
     overrides {
-        "list-max-ziplist-value" 200000
-        "list-max-ziplist-entries" 256
+        "list-max-ziplist-size" 16
     }
 } {
     test {Explicit regression for a list bug} {
@@ -12,6 +11,50 @@ start_server {
         r rpush l [lindex $mylist 1]
         assert_equal [r lindex l 0] [lindex $mylist 0]
         assert_equal [r lindex l 1] [lindex $mylist 1]
+    }
+
+    test {Regression for quicklist #3343 bug} {
+        r del mylist
+        r lpush mylist 401
+        r lpush mylist 392
+        r rpush mylist [string repeat x 5105]"799"
+        r lset mylist -1 [string repeat x 1014]"702"
+        r lpop mylist
+        r lset mylist -1 [string repeat x 4149]"852"
+        r linsert mylist before 401 [string repeat x 9927]"12"
+        r lrange mylist 0 -1
+        r ping ; # It's enough if the server is still alive
+    } {PONG}
+
+    test {Stress tester for #3343-alike bugs} {
+        r del key
+        for {set j 0} {$j < 10000} {incr j} {
+            set op [randomInt 6]
+            set small_signed_count [expr 5-[randomInt 10]]
+            if {[randomInt 2] == 0} {
+                set ele [randomInt 1000]
+            } else {
+                set ele [string repeat x [randomInt 10000]][randomInt 1000]
+            }
+            switch $op {
+                0 {r lpush key $ele}
+                1 {r rpush key $ele}
+                2 {r lpop key}
+                3 {r rpop key}
+                4 {
+                    catch {r lset key $small_signed_count $ele}
+                }
+                5 {
+                    set otherele [randomInt 1000]
+                    if {[randomInt 2] == 0} {
+                        set where before
+                    } else {
+                        set where after
+                    }
+                    r linsert key $where $otherele $ele
+                }
+            }
+        }
     }
 
     tags {slow} {

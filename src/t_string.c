@@ -27,19 +27,19 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 #include <math.h> /* isnan(), isinf() */
 
 /*-----------------------------------------------------------------------------
  * String Commands
  *----------------------------------------------------------------------------*/
 
-static int checkStringLength(redisClient *c, long long size) {
+static int checkStringLength(client *c, long long size) {
     if (size > 512*1024*1024) {
         addReplyError(c,"string exceeds maximum allowed size (512MB)");
-        return REDIS_ERR;
+        return C_ERR;
     }
-    return REDIS_OK;
+    return C_OK;
 }
 
 /* The setGenericCommand() function implements the SET operation with different
@@ -58,62 +58,74 @@ static int checkStringLength(redisClient *c, long long size) {
  * If ok_reply is NULL "+OK" is used.
  * If abort_reply is NULL, "$-1" is used. */
 
-#define REDIS_SET_NO_FLAGS 0
-#define REDIS_SET_NX (1<<0)     /* Set if key not exists. */
-#define REDIS_SET_XX (1<<1)     /* Set if key exists. */
+#define OBJ_SET_NO_FLAGS 0
+#define OBJ_SET_NX (1<<0)     /* Set if key not exists. */
+#define OBJ_SET_XX (1<<1)     /* Set if key exists. */
+#define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
+#define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
-void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
-        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
+        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
             return;
         if (milliseconds <= 0) {
-            addReplyError(c,"invalid expire time in SETEX");
+            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & REDIS_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & REDIS_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
+        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
     setKey(c->db,key,val);
     server.dirty++;
-    if (expire) setExpire(c->db,key,mstime()+milliseconds);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",key,c->db->id);
-    if (expire) notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
+    if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
+    notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+    if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
 /* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
-void setCommand(redisClient *c) {
+void setCommand(client *c) {
     int j;
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
-    int flags = REDIS_SET_NO_FLAGS;
+    int flags = OBJ_SET_NO_FLAGS;
 
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
-            flags |= REDIS_SET_NX;
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+            !(flags & OBJ_SET_XX))
+        {
+            flags |= OBJ_SET_NX;
         } else if ((a[0] == 'x' || a[0] == 'X') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
-            flags |= REDIS_SET_XX;
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & OBJ_SET_NX))
+        {
+            flags |= OBJ_SET_XX;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & OBJ_SET_PX) && next)
+        {
+            flags |= OBJ_SET_EX;
             unit = UNIT_SECONDS;
             expire = next;
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & OBJ_SET_EX) && next)
+        {
+            flags |= OBJ_SET_PX;
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
@@ -127,54 +139,54 @@ void setCommand(redisClient *c) {
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 
-void setnxCommand(redisClient *c) {
+void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,REDIS_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
-void setexCommand(redisClient *c) {
+void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
-void psetexCommand(redisClient *c) {
+void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
-int getGenericCommand(redisClient *c) {
+int getGenericCommand(client *c) {
     robj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
-        return REDIS_OK;
+        return C_OK;
 
-    if (o->type != REDIS_STRING) {
+    if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
-        return REDIS_ERR;
+        return C_ERR;
     } else {
         addReplyBulk(c,o);
-        return REDIS_OK;
+        return C_OK;
     }
 }
 
-void getCommand(redisClient *c) {
+void getCommand(client *c) {
     getGenericCommand(c);
 }
 
-void getsetCommand(redisClient *c) {
-    if (getGenericCommand(c) == REDIS_ERR) return;
+void getsetCommand(client *c) {
+    if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c->db,c->argv[1],c->argv[2]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
 
-void setrangeCommand(redisClient *c) {
+void setrangeCommand(client *c) {
     robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != REDIS_OK)
+    if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != C_OK)
         return;
 
     if (offset < 0) {
@@ -191,16 +203,16 @@ void setrangeCommand(redisClient *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != REDIS_OK)
+        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
-        o = createObject(REDIS_STRING,sdsempty());
+        o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
 
         /* Key exists, check type */
-        if (checkType(c,o,REDIS_STRING))
+        if (checkType(c,o,OBJ_STRING))
             return;
 
         /* Return existing string length when setting nothing */
@@ -211,43 +223,38 @@ void setrangeCommand(redisClient *c) {
         }
 
         /* Return when the resulting string exceeds allowed size */
-        if (checkStringLength(c,offset+sdslen(value)) != REDIS_OK)
+        if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
         /* Create a copy when the object is shared or encoded. */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 
     if (sdslen(value) > 0) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,
+        notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
         server.dirty++;
     }
     addReplyLongLong(c,sdslen(o->ptr));
 }
 
-void getrangeCommand(redisClient *c) {
+void getrangeCommand(client *c) {
     robj *o;
-    long start, end;
+    long long start, end;
     char *str, llbuf[32];
     size_t strlen;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
         return;
-    if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
-        checkType(c,o,REDIS_STRING)) return;
+        checkType(c,o,OBJ_STRING)) return;
 
-    if (o->encoding == REDIS_ENCODING_INT) {
+    if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
@@ -256,22 +263,26 @@ void getrangeCommand(redisClient *c) {
     }
 
     /* Convert negative indexes */
+    if (start < 0 && end < 0 && start > end) {
+        addReply(c,shared.emptybulk);
+        return;
+    }
     if (start < 0) start = strlen+start;
     if (end < 0) end = strlen+end;
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((unsigned)end >= strlen) end = strlen-1;
+    if ((unsigned long long)end >= strlen) end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
-    if (start > end) {
+    if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }
 }
 
-void mgetCommand(redisClient *c) {
+void mgetCommand(client *c) {
     int j;
 
     addReplyMultiBulkLen(c,c->argc-1);
@@ -280,7 +291,7 @@ void mgetCommand(redisClient *c) {
         if (o == NULL) {
             addReply(c,shared.nullbulk);
         } else {
-            if (o->type != REDIS_STRING) {
+            if (o->type != OBJ_STRING) {
                 addReply(c,shared.nullbulk);
             } else {
                 addReplyBulk(c,o);
@@ -289,7 +300,7 @@ void mgetCommand(redisClient *c) {
     }
 }
 
-void msetGenericCommand(redisClient *c, int nx) {
+void msetGenericCommand(client *c, int nx) {
     int j, busykeys = 0;
 
     if ((c->argc % 2) == 0) {
@@ -313,27 +324,27 @@ void msetGenericCommand(redisClient *c, int nx) {
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
         setKey(c->db,c->argv[j],c->argv[j+1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",c->argv[j],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
-void msetCommand(redisClient *c) {
+void msetCommand(client *c) {
     msetGenericCommand(c,0);
 }
 
-void msetnxCommand(redisClient *c) {
+void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(redisClient *c, long long incr) {
+void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,REDIS_STRING)) return;
-    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != REDIS_OK) return;
+    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
@@ -342,49 +353,59 @@ void incrDecrCommand(redisClient *c, long long incr) {
         return;
     }
     value += incr;
-    new = createStringObjectFromLongLong(value);
-    if (o)
-        dbOverwrite(c->db,c->argv[1],new);
-    else
-        dbAdd(c->db,c->argv[1],new);
+
+    if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
+        (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
+        value >= LONG_MIN && value <= LONG_MAX)
+    {
+        new = o;
+        o->ptr = (void*)((long)value);
+    } else {
+        new = createStringObjectFromLongLong(value);
+        if (o) {
+            dbOverwrite(c->db,c->argv[1],new);
+        } else {
+            dbAdd(c->db,c->argv[1],new);
+        }
+    }
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
     addReply(c,shared.crlf);
 }
 
-void incrCommand(redisClient *c) {
+void incrCommand(client *c) {
     incrDecrCommand(c,1);
 }
 
-void decrCommand(redisClient *c) {
+void decrCommand(client *c) {
     incrDecrCommand(c,-1);
 }
 
-void incrbyCommand(redisClient *c) {
+void incrbyCommand(client *c) {
     long long incr;
 
-    if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != REDIS_OK) return;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
     incrDecrCommand(c,incr);
 }
 
-void decrbyCommand(redisClient *c) {
+void decrbyCommand(client *c) {
     long long incr;
 
-    if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != REDIS_OK) return;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
     incrDecrCommand(c,-incr);
 }
 
-void incrbyfloatCommand(redisClient *c) {
+void incrbyfloatCommand(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o != NULL && checkType(c,o,REDIS_STRING)) return;
-    if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != REDIS_OK ||
-        getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != REDIS_OK)
+    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
+        getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
         return;
 
     value += incr;
@@ -392,13 +413,13 @@ void incrbyfloatCommand(redisClient *c) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
-    new = createStringObjectFromLongDouble(value);
+    new = createStringObjectFromLongDouble(value,1);
     if (o)
         dbOverwrite(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
     addReplyBulk(c,new);
 
@@ -411,7 +432,7 @@ void incrbyfloatCommand(redisClient *c) {
     rewriteClientCommandArgument(c,2,new);
 }
 
-void appendCommand(redisClient *c) {
+void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
 
@@ -424,36 +445,29 @@ void appendCommand(redisClient *c) {
         totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
-        if (checkType(c,o,REDIS_STRING))
+        if (checkType(c,o,OBJ_STRING))
             return;
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
         totlen = stringObjectLen(o)+sdslen(append->ptr);
-        if (checkStringLength(c,totlen) != REDIS_OK)
+        if (checkStringLength(c,totlen) != C_OK)
             return;
 
-        /* If the object is shared or encoded, we have to make a copy */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
-
         /* Append the value */
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"append",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
     server.dirty++;
     addReplyLongLong(c,totlen);
 }
 
-void strlenCommand(redisClient *c) {
+void strlenCommand(client *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,REDIS_STRING)) return;
+        checkType(c,o,OBJ_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
 }

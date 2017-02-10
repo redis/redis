@@ -4,6 +4,7 @@
 dump.rdb
 redis-benchmark
 redis-check-aof
+redis-check-rdb
 redis-check-dump
 redis-cli
 redis-sentinel
@@ -19,9 +20,11 @@ src/transfer.sh
 src/configs
 redis.ds
 src/redis.conf
+src/nodes.conf
 deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a
 .make-*
 .prerequisites
 *.dSYM
+Makefile.dep

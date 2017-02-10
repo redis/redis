@@ -5,135 +5,183 @@
 /* Data. */
 
 static malloc_mutex_t	base_mtx;
-
-/*
- * Current pages that are being used for internal memory allocations.  These
- * pages are carved up in cacheline-size quanta, so that there is no chance of
- * false cache line sharing.
- */
-static void		*base_pages;
-static void		*base_next_addr;
-static void		*base_past_addr; /* Addr immediately past base_pages. */
+static size_t		base_extent_sn_next;
+static extent_tree_t	base_avail_szsnad;
 static extent_node_t	*base_nodes;
+static size_t		base_allocated;
+static size_t		base_resident;
+static size_t		base_mapped;
 
 /******************************************************************************/
-/* Function prototypes for non-inline static functions. */
 
-static bool	base_pages_alloc(size_t minsize);
-
-/******************************************************************************/
-
-static bool
-base_pages_alloc(size_t minsize)
+static extent_node_t *
+base_node_try_alloc(tsdn_t *tsdn)
 {
-	size_t csize;
-	bool zero;
+	extent_node_t *node;
 
-	assert(minsize != 0);
-	csize = CHUNK_CEILING(minsize);
-	zero = false;
-	base_pages = chunk_alloc(csize, chunksize, true, &zero,
-	    chunk_dss_prec_get());
-	if (base_pages == NULL)
-		return (true);
-	base_next_addr = base_pages;
-	base_past_addr = (void *)((uintptr_t)base_pages + csize);
+	malloc_mutex_assert_owner(tsdn, &base_mtx);
 
-	return (false);
+	if (base_nodes == NULL)
+		return (NULL);
+	node = base_nodes;
+	base_nodes = *(extent_node_t **)node;
+	JEMALLOC_VALGRIND_MAKE_MEM_UNDEFINED(node, sizeof(extent_node_t));
+	return (node);
 }
 
-void *
-base_alloc(size_t size)
+static void
+base_node_dalloc(tsdn_t *tsdn, extent_node_t *node)
 {
-	void *ret;
-	size_t csize;
 
-	/* Round size up to nearest multiple of the cacheline size. */
-	csize = CACHELINE_CEILING(size);
+	malloc_mutex_assert_owner(tsdn, &base_mtx);
 
-	malloc_mutex_lock(&base_mtx);
-	/* Make sure there's enough space for the allocation. */
-	if ((uintptr_t)base_next_addr + csize > (uintptr_t)base_past_addr) {
-		if (base_pages_alloc(csize)) {
-			malloc_mutex_unlock(&base_mtx);
-			return (NULL);
+	JEMALLOC_VALGRIND_MAKE_MEM_UNDEFINED(node, sizeof(extent_node_t));
+	*(extent_node_t **)node = base_nodes;
+	base_nodes = node;
+}
+
+static void
+base_extent_node_init(extent_node_t *node, void *addr, size_t size)
+{
+	size_t sn = atomic_add_z(&base_extent_sn_next, 1) - 1;
+
+	extent_node_init(node, NULL, addr, size, sn, true, true);
+}
+
+static extent_node_t *
+base_chunk_alloc(tsdn_t *tsdn, size_t minsize)
+{
+	extent_node_t *node;
+	size_t csize, nsize;
+	void *addr;
+
+	malloc_mutex_assert_owner(tsdn, &base_mtx);
+	assert(minsize != 0);
+	node = base_node_try_alloc(tsdn);
+	/* Allocate enough space to also carve a node out if necessary. */
+	nsize = (node == NULL) ? CACHELINE_CEILING(sizeof(extent_node_t)) : 0;
+	csize = CHUNK_CEILING(minsize + nsize);
+	addr = chunk_alloc_base(csize);
+	if (addr == NULL) {
+		if (node != NULL)
+			base_node_dalloc(tsdn, node);
+		return (NULL);
+	}
+	base_mapped += csize;
+	if (node == NULL) {
+		node = (extent_node_t *)addr;
+		addr = (void *)((uintptr_t)addr + nsize);
+		csize -= nsize;
+		if (config_stats) {
+			base_allocated += nsize;
+			base_resident += PAGE_CEILING(nsize);
 		}
 	}
-	/* Allocate. */
-	ret = base_next_addr;
-	base_next_addr = (void *)((uintptr_t)base_next_addr + csize);
-	malloc_mutex_unlock(&base_mtx);
-
-	return (ret);
+	base_extent_node_init(node, addr, csize);
+	return (node);
 }
 
+/*
+ * base_alloc() guarantees demand-zeroed memory, in order to make multi-page
+ * sparse data structures such as radix tree nodes efficient with respect to
+ * physical memory usage.
+ */
 void *
-base_calloc(size_t number, size_t size)
+base_alloc(tsdn_t *tsdn, size_t size)
 {
-	void *ret = base_alloc(number * size);
+	void *ret;
+	size_t csize, usize;
+	extent_node_t *node;
+	extent_node_t key;
 
-	if (ret != NULL)
-		memset(ret, 0, number * size);
+	/*
+	 * Round size up to nearest multiple of the cacheline size, so that
+	 * there is no chance of false cache line sharing.
+	 */
+	csize = CACHELINE_CEILING(size);
 
-	return (ret);
-}
-
-extent_node_t *
-base_node_alloc(void)
-{
-	extent_node_t *ret;
-
-	malloc_mutex_lock(&base_mtx);
-	if (base_nodes != NULL) {
-		ret = base_nodes;
-		base_nodes = *(extent_node_t **)ret;
-		malloc_mutex_unlock(&base_mtx);
+	usize = s2u(csize);
+	extent_node_init(&key, NULL, NULL, usize, 0, false, false);
+	malloc_mutex_lock(tsdn, &base_mtx);
+	node = extent_tree_szsnad_nsearch(&base_avail_szsnad, &key);
+	if (node != NULL) {
+		/* Use existing space. */
+		extent_tree_szsnad_remove(&base_avail_szsnad, node);
 	} else {
-		malloc_mutex_unlock(&base_mtx);
-		ret = (extent_node_t *)base_alloc(sizeof(extent_node_t));
+		/* Try to allocate more space. */
+		node = base_chunk_alloc(tsdn, csize);
+	}
+	if (node == NULL) {
+		ret = NULL;
+		goto label_return;
 	}
 
+	ret = extent_node_addr_get(node);
+	if (extent_node_size_get(node) > csize) {
+		extent_node_addr_set(node, (void *)((uintptr_t)ret + csize));
+		extent_node_size_set(node, extent_node_size_get(node) - csize);
+		extent_tree_szsnad_insert(&base_avail_szsnad, node);
+	} else
+		base_node_dalloc(tsdn, node);
+	if (config_stats) {
+		base_allocated += csize;
+		/*
+		 * Add one PAGE to base_resident for every page boundary that is
+		 * crossed by the new allocation.
+		 */
+		base_resident += PAGE_CEILING((uintptr_t)ret + csize) -
+		    PAGE_CEILING((uintptr_t)ret);
+	}
+	JEMALLOC_VALGRIND_MAKE_MEM_DEFINED(ret, csize);
+label_return:
+	malloc_mutex_unlock(tsdn, &base_mtx);
 	return (ret);
 }
 
 void
-base_node_dealloc(extent_node_t *node)
+base_stats_get(tsdn_t *tsdn, size_t *allocated, size_t *resident,
+    size_t *mapped)
 {
 
-	malloc_mutex_lock(&base_mtx);
-	*(extent_node_t **)node = base_nodes;
-	base_nodes = node;
-	malloc_mutex_unlock(&base_mtx);
+	malloc_mutex_lock(tsdn, &base_mtx);
+	assert(base_allocated <= base_resident);
+	assert(base_resident <= base_mapped);
+	*allocated = base_allocated;
+	*resident = base_resident;
+	*mapped = base_mapped;
+	malloc_mutex_unlock(tsdn, &base_mtx);
 }
 
 bool
 base_boot(void)
 {
 
-	base_nodes = NULL;
-	if (malloc_mutex_init(&base_mtx))
+	if (malloc_mutex_init(&base_mtx, "base", WITNESS_RANK_BASE))
 		return (true);
+	base_extent_sn_next = 0;
+	extent_tree_szsnad_new(&base_avail_szsnad);
+	base_nodes = NULL;
 
 	return (false);
 }
 
 void
-base_prefork(void)
+base_prefork(tsdn_t *tsdn)
 {
 
-	malloc_mutex_prefork(&base_mtx);
+	malloc_mutex_prefork(tsdn, &base_mtx);
 }
 
 void
-base_postfork_parent(void)
+base_postfork_parent(tsdn_t *tsdn)
 {
 
-	malloc_mutex_postfork_parent(&base_mtx);
+	malloc_mutex_postfork_parent(tsdn, &base_mtx);
 }
 
 void
-base_postfork_child(void)
+base_postfork_child(tsdn_t *tsdn)
 {
 
-	malloc_mutex_postfork_child(&base_mtx);
+	malloc_mutex_postfork_child(tsdn, &base_mtx);
 }

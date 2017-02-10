@@ -43,6 +43,84 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
 
+        test "ZADD with options syntax error with incomplete pair" {
+            r del ztmp
+            catch {r zadd ztmp xx 10 x 20} err
+            set err
+        } {ERR*}
+
+        test "ZADD XX option without key - $encoding" {
+            r del ztmp
+            assert {[r zadd ztmp xx 10 x] == 0}
+            assert {[r type ztmp] eq {none}}
+        }
+
+        test "ZADD XX existing key - $encoding" {
+            r del ztmp
+            r zadd ztmp 10 x
+            assert {[r zadd ztmp xx 20 y] == 0}
+            assert {[r zcard ztmp] == 1}
+        }
+
+        test "ZADD XX returns the number of elements actually added" {
+            r del ztmp
+            r zadd ztmp 10 x
+            set retval [r zadd ztmp 10 x 20 y 30 z]
+            assert {$retval == 2}
+        }
+
+        test "ZADD XX updates existing elements score" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd ztmp xx 5 foo 11 x 21 y 40 zap
+            assert {[r zcard ztmp] == 3}
+            assert {[r zscore ztmp x] == 11}
+            assert {[r zscore ztmp y] == 21}
+        }
+
+        test "ZADD XX and NX are not compatible" {
+            r del ztmp
+            catch {r zadd ztmp xx nx 10 x} err
+            set err
+        } {ERR*}
+
+        test "ZADD NX with non exisitng key" {
+            r del ztmp
+            r zadd ztmp nx 10 x 20 y 30 z
+            assert {[r zcard ztmp] == 3}
+        }
+
+        test "ZADD NX only add new elements without updating old ones" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            assert {[r zadd ztmp nx 11 x 21 y 100 a 200 b] == 2}
+            assert {[r zscore ztmp x] == 10}
+            assert {[r zscore ztmp y] == 20}
+            assert {[r zscore ztmp a] == 100}
+            assert {[r zscore ztmp b] == 200}
+        }
+
+        test "ZADD INCR works like ZINCRBY" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            r zadd ztmp INCR 15 x
+            assert {[r zscore ztmp x] == 25}
+        }
+
+        test "ZADD INCR works with a single score-elemenet pair" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            catch {r zadd ztmp INCR 15 x 10 y} err
+            set err
+        } {ERR*}
+
+        test "ZADD CH option changes return value to all changed elements" {
+            r del ztmp
+            r zadd ztmp 10 x 20 y 30 z
+            assert {[r zadd ztmp 11 x 21 y 30 z] == 0}
+            assert {[r zadd ztmp ch 12 x 22 y 30 z] == 2}
+        }
+
         test "ZINCRBY calls leading to NaN result in error" {
             r zincrby myzset +inf abc
             assert_error "*NaN*" {r zincrby myzset -inf abc}
@@ -77,6 +155,8 @@ start_server {tags {"zset"}} {
         }
 
         test "ZCARD basics - $encoding" {
+            r del ztmp
+            r zadd ztmp 10 a 20 b 30 c
             assert_equal 3 [r zcard ztmp]
             assert_equal 0 [r zcard zdoesntexist]
         }
@@ -210,6 +290,12 @@ start_server {tags {"zset"}} {
             assert_equal  6 [r zscore zset bar]
         }
 
+        test "ZINCRBY return value" {
+            r del ztmp
+            set retval [r zincrby ztmp 1.0 x]
+            assert {$retval == 1.0}
+        }
+
         proc create_default_zset {} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
         }
@@ -294,6 +380,62 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz str 1}
             assert_error "*not*float*" {r zrangebyscore fooz 1 str}
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
+        }
+
+        proc create_default_lex_zset {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              0 omega}
+        }
+
+        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZCOUNT basics" {
+            create_default_lex_zset
+
+            # inclusive range
+            assert_equal {alpha bar cool} [r zrangebylex zset - \[cool]
+            assert_equal {bar cool down} [r zrangebylex zset \[bar \[down]
+            assert_equal {great hill omega} [r zrangebylex zset \[g +]
+            assert_equal {cool bar alpha} [r zrevrangebylex zset \[cool -]
+            assert_equal {down cool bar} [r zrevrangebylex zset \[down \[bar]
+            assert_equal {omega hill great foo elephant down} [r zrevrangebylex zset + \[d]
+            assert_equal 3 [r zlexcount zset \[ele \[h]
+
+            # exclusive range
+            assert_equal {alpha bar} [r zrangebylex zset - (cool]
+            assert_equal {cool} [r zrangebylex zset (bar (down]
+            assert_equal {hill omega} [r zrangebylex zset (great +]
+            assert_equal {bar alpha} [r zrevrangebylex zset (cool -]
+            assert_equal {cool} [r zrevrangebylex zset (down (bar]
+            assert_equal {omega hill} [r zrevrangebylex zset + (great]
+            assert_equal 2 [r zlexcount zset (ele (great]
+
+            # inclusive and exclusive
+            assert_equal {} [r zrangebylex zset (az (b]
+            assert_equal {} [r zrangebylex zset (z +]
+            assert_equal {} [r zrangebylex zset - \[aaaa]
+            assert_equal {} [r zrevrangebylex zset \[elez \[elex]
+            assert_equal {} [r zrevrangebylex zset (hill (omega]
+        }
+
+        test "ZRANGEBYSLEX with LIMIT" {
+            create_default_lex_zset
+            assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
+            assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 0 0]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 2 0]
+            assert_equal {bar} [r zrangebylex zset \[bar \[down LIMIT 0 1]
+            assert_equal {cool} [r zrangebylex zset \[bar \[down LIMIT 1 1]
+            assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
+            assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
+            assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+        }
+
+        test "ZRANGEBYLEX with invalid lex range specifiers" {
+            assert_error "*not*string*" {r zrangebylex fooz foo bar}
+            assert_error "*not*string*" {r zrangebylex fooz \[foo bar}
+            assert_error "*not*string*" {r zrangebylex fooz foo \[bar}
+            assert_error "*not*string*" {r zrangebylex fooz +x \[bar}
+            assert_error "*not*string*" {r zrangebylex fooz -x \[bar}
         }
 
         test "ZREMRANGEBYSCORE basics" {
@@ -532,6 +674,28 @@ start_server {tags {"zset"}} {
         r zrange to_here 0 -1
     } {100}
 
+    test {ZUNIONSTORE result is sorted} {
+        # Create two sets with common and not common elements, perform
+        # the UNION, check that elements are still sorted.
+        r del one two dest
+        set cmd1 [list r zadd one]
+        set cmd2 [list r zadd two]
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend cmd1 [expr rand()] [randomInt 1000]
+            lappend cmd2 [expr rand()] [randomInt 1000]
+        }
+        {*}$cmd1
+        {*}$cmd2
+        assert {[r zcard one] > 100}
+        assert {[r zcard two] > 100}
+        r zunionstore dest 2 one two
+        set oldscore 0
+        foreach {ele score} [r zrange dest 0 -1 withscores] {
+            assert {$score >= $oldscore}
+            set oldscore $score
+        }
+    }
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
@@ -706,6 +870,111 @@ start_server {tags {"zset"}} {
                 }
             }
             assert_equal {} $err
+        }
+
+        test "ZRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
+            set lexset {}
+            r del zset
+            for {set j 0} {$j < $elements} {incr j} {
+                set e [randstring 0 30 alpha]
+                lappend lexset $e
+                r zadd zset 0 $e
+            }
+            set lexset [lsort -unique $lexset]
+            for {set j 0} {$j < 100} {incr j} {
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
+                set mininc [randomInt 2]
+                set maxinc [randomInt 2]
+                if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
+                if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
+                set rev [randomInt 2]
+                if {$rev} {
+                    set cmd zrevrangebylex
+                } else {
+                    set cmd zrangebylex
+                }
+
+                # Make sure data is the same in both sides
+                assert {[r zrange zset 0 -1] eq $lexset}
+
+                # Get the Redis output
+                set output [r $cmd zset $cmin $cmax]
+                if {$rev} {
+                    set outlen [r zlexcount zset $cmax $cmin]
+                } else {
+                    set outlen [r zlexcount zset $cmin $cmax]
+                }
+
+                # Compute the same output via Tcl
+                set o {}
+                set copy $lexset
+                if {(!$rev && [string compare $min $max] > 0) ||
+                    ($rev && [string compare $max $min] > 0)} {
+                    # Empty output when ranges are inverted.
+                } else {
+                    if {$rev} {
+                        # Invert the Tcl array using Redis itself.
+                        set copy [r zrevrange zset 0 -1]
+                        # Invert min / max as well
+                        lassign [list $min $max $mininc $maxinc] \
+                            max min maxinc mininc
+                    }
+                    foreach e $copy {
+                        set mincmp [string compare $e $min]
+                        set maxcmp [string compare $e $max]
+                        if {
+                             ($mininc && $mincmp >= 0 || !$mininc && $mincmp > 0)
+                             &&
+                             ($maxinc && $maxcmp <= 0 || !$maxinc && $maxcmp < 0)
+                        } {
+                            lappend o $e
+                        }
+                    }
+                }
+                assert {$o eq $output}
+                assert {$outlen eq [llength $output]}
+            }
+        }
+
+        test "ZREMRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
+            set lexset {}
+            r del zset zsetcopy
+            for {set j 0} {$j < $elements} {incr j} {
+                set e [randstring 0 30 alpha]
+                lappend lexset $e
+                r zadd zset 0 $e
+            }
+            set lexset [lsort -unique $lexset]
+            for {set j 0} {$j < 100} {incr j} {
+                # Copy...
+                r zunionstore zsetcopy 1 zset
+                set lexsetcopy $lexset
+
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
+                set mininc [randomInt 2]
+                set maxinc [randomInt 2]
+                if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
+                if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
+
+                # Make sure data is the same in both sides
+                assert {[r zrange zset 0 -1] eq $lexset}
+
+                # Get the range we are going to remove
+                set torem [r zrangebylex zset $cmin $cmax]
+                set toremlen [r zlexcount zset $cmin $cmax]
+                r zremrangebylex zsetcopy $cmin $cmax
+                set output [r zrange zsetcopy 0 -1]
+
+                # Remove the range with Tcl from the original list
+                if {$toremlen} {
+                    set first [lsearch -exact $lexsetcopy [lindex $torem 0]]
+                    set last [expr {$first+$toremlen-1}]
+                    set lexsetcopy [lreplace $lexsetcopy $first $last]
+                }
+                assert {$lexsetcopy eq $output}
+            }
         }
 
         test "ZSETs skiplist implementation backlink consistency test - $encoding" {

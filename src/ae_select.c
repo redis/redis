@@ -29,6 +29,7 @@
  */
 
 
+#include <sys/select.h>
 #include <string.h>
 
 typedef struct aeApiState {
@@ -45,6 +46,12 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     FD_ZERO(&state->rfds);
     FD_ZERO(&state->wfds);
     eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    /* Just ensure we have enough room in the fd_set type. */
+    if (setsize >= FD_SETSIZE) return -1;
     return 0;
 }
 

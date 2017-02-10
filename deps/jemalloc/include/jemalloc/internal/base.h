@@ -9,14 +9,13 @@
 /******************************************************************************/
 #ifdef JEMALLOC_H_EXTERNS
 
-void	*base_alloc(size_t size);
-void	*base_calloc(size_t number, size_t size);
-extent_node_t *base_node_alloc(void);
-void	base_node_dealloc(extent_node_t *node);
+void	*base_alloc(tsdn_t *tsdn, size_t size);
+void	base_stats_get(tsdn_t *tsdn, size_t *allocated, size_t *resident,
+    size_t *mapped);
 bool	base_boot(void);
-void	base_prefork(void);
-void	base_postfork_parent(void);
-void	base_postfork_child(void);
+void	base_prefork(tsdn_t *tsdn);
+void	base_postfork_parent(tsdn_t *tsdn);
+void	base_postfork_child(tsdn_t *tsdn);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/

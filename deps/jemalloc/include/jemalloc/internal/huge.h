@@ -9,28 +9,23 @@
 /******************************************************************************/
 #ifdef JEMALLOC_H_EXTERNS
 
-/* Huge allocation statistics. */
-extern uint64_t		huge_nmalloc;
-extern uint64_t		huge_ndalloc;
-extern size_t		huge_allocated;
-
-/* Protects chunk-related data structures. */
-extern malloc_mutex_t	huge_mtx;
-
-void	*huge_malloc(size_t size, bool zero);
-void	*huge_palloc(size_t size, size_t alignment, bool zero);
-void	*huge_ralloc_no_move(void *ptr, size_t oldsize, size_t size,
-    size_t extra);
-void	*huge_ralloc(void *ptr, size_t oldsize, size_t size, size_t extra,
-    size_t alignment, bool zero, bool try_tcache_dalloc);
-void	huge_dalloc(void *ptr, bool unmap);
-size_t	huge_salloc(const void *ptr);
-prof_ctx_t	*huge_prof_ctx_get(const void *ptr);
-void	huge_prof_ctx_set(const void *ptr, prof_ctx_t *ctx);
-bool	huge_boot(void);
-void	huge_prefork(void);
-void	huge_postfork_parent(void);
-void	huge_postfork_child(void);
+void	*huge_malloc(tsdn_t *tsdn, arena_t *arena, size_t usize, bool zero);
+void	*huge_palloc(tsdn_t *tsdn, arena_t *arena, size_t usize,
+    size_t alignment, bool zero);
+bool	huge_ralloc_no_move(tsdn_t *tsdn, void *ptr, size_t oldsize,
+    size_t usize_min, size_t usize_max, bool zero);
+void	*huge_ralloc(tsd_t *tsd, arena_t *arena, void *ptr, size_t oldsize,
+    size_t usize, size_t alignment, bool zero, tcache_t *tcache);
+#ifdef JEMALLOC_JET
+typedef void (huge_dalloc_junk_t)(void *, size_t);
+extern huge_dalloc_junk_t *huge_dalloc_junk;
+#endif
+void	huge_dalloc(tsdn_t *tsdn, void *ptr);
+arena_t	*huge_aalloc(const void *ptr);
+size_t	huge_salloc(tsdn_t *tsdn, const void *ptr);
+prof_tctx_t	*huge_prof_tctx_get(tsdn_t *tsdn, const void *ptr);
+void	huge_prof_tctx_set(tsdn_t *tsdn, const void *ptr, prof_tctx_t *tctx);
+void	huge_prof_tctx_reset(tsdn_t *tsdn, const void *ptr);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/

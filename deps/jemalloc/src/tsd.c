@@ -7,21 +7,22 @@
 static unsigned ncleanups;
 static malloc_tsd_cleanup_t cleanups[MALLOC_TSD_CLEANUPS_MAX];
 
+malloc_tsd_data(, , tsd_t, TSD_INITIALIZER)
+
 /******************************************************************************/
 
 void *
 malloc_tsd_malloc(size_t size)
 {
 
-	/* Avoid choose_arena() in order to dodge bootstrapping issues. */
-	return (arena_malloc(arenas[0], size, false, false));
+	return (a0malloc(CACHELINE_CEILING(size)));
 }
 
 void
 malloc_tsd_dalloc(void *wrapper)
 {
 
-	idalloc(wrapper);
+	a0dalloc(wrapper);
 }
 
 void
@@ -67,10 +68,63 @@ malloc_tsd_cleanup_register(bool (*f)(void))
 }
 
 void
-malloc_tsd_boot(void)
+tsd_cleanup(void *arg)
 {
+	tsd_t *tsd = (tsd_t *)arg;
+
+	switch (tsd->state) {
+	case tsd_state_uninitialized:
+		/* Do nothing. */
+		break;
+	case tsd_state_nominal:
+#define	O(n, t)								\
+		n##_cleanup(tsd);
+MALLOC_TSD
+#undef O
+		tsd->state = tsd_state_purgatory;
+		tsd_set(tsd);
+		break;
+	case tsd_state_purgatory:
+		/*
+		 * The previous time this destructor was called, we set the
+		 * state to tsd_state_purgatory so that other destructors
+		 * wouldn't cause re-creation of the tsd.  This time, do
+		 * nothing, and do not request another callback.
+		 */
+		break;
+	case tsd_state_reincarnated:
+		/*
+		 * Another destructor deallocated memory after this destructor
+		 * was called.  Reset state to tsd_state_purgatory and request
+		 * another callback.
+		 */
+		tsd->state = tsd_state_purgatory;
+		tsd_set(tsd);
+		break;
+	default:
+		not_reached();
+	}
+}
+
+tsd_t *
+malloc_tsd_boot0(void)
+{
+	tsd_t *tsd;
 
 	ncleanups = 0;
+	if (tsd_boot0())
+		return (NULL);
+	tsd = tsd_fetch();
+	*tsd_arenas_tdata_bypassp_get(tsd) = true;
+	return (tsd);
+}
+
+void
+malloc_tsd_boot1(void)
+{
+
+	tsd_boot1();
+	*tsd_arenas_tdata_bypassp_get(tsd_fetch()) = false;
 }
 
 #ifdef _WIN32
@@ -96,12 +150,48 @@ _tls_callback(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 #ifdef _MSC_VER
 #  ifdef _M_IX86
 #    pragma comment(linker, "/INCLUDE:__tls_used")
+#    pragma comment(linker, "/INCLUDE:_tls_callback")
 #  else
 #    pragma comment(linker, "/INCLUDE:_tls_used")
+#    pragma comment(linker, "/INCLUDE:tls_callback")
 #  endif
 #  pragma section(".CRT$XLY",long,read)
 #endif
 JEMALLOC_SECTION(".CRT$XLY") JEMALLOC_ATTR(used)
-static const BOOL	(WINAPI *tls_callback)(HINSTANCE hinstDLL,
+BOOL	(WINAPI *const tls_callback)(HINSTANCE hinstDLL,
     DWORD fdwReason, LPVOID lpvReserved) = _tls_callback;
+#endif
+
+#if (!defined(JEMALLOC_MALLOC_THREAD_CLEANUP) && !defined(JEMALLOC_TLS) && \
+    !defined(_WIN32))
+void *
+tsd_init_check_recursion(tsd_init_head_t *head, tsd_init_block_t *block)
+{
+	pthread_t self = pthread_self();
+	tsd_init_block_t *iter;
+
+	/* Check whether this thread has already inserted into the list. */
+	malloc_mutex_lock(TSDN_NULL, &head->lock);
+	ql_foreach(iter, &head->blocks, link) {
+		if (iter->thread == self) {
+			malloc_mutex_unlock(TSDN_NULL, &head->lock);
+			return (iter->data);
+		}
+	}
+	/* Insert block into list. */
+	ql_elm_new(block, link);
+	block->thread = self;
+	ql_tail_insert(&head->blocks, block, link);
+	malloc_mutex_unlock(TSDN_NULL, &head->lock);
+	return (NULL);
+}
+
+void
+tsd_init_finish(tsd_init_head_t *head, tsd_init_block_t *block)
+{
+
+	malloc_mutex_lock(TSDN_NULL, &head->lock);
+	ql_remove(&head->blocks, block, link);
+	malloc_mutex_unlock(TSDN_NULL, &head->lock);
+}
 #endif

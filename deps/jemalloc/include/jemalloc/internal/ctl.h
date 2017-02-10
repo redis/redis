@@ -21,21 +21,27 @@ struct ctl_named_node_s {
 	/* If (nchildren == 0), this is a terminal node. */
 	unsigned		nchildren;
 	const			ctl_node_t *children;
-	int			(*ctl)(const size_t *, size_t, void *, size_t *,
-	    void *, size_t);
+	int			(*ctl)(tsd_t *, const size_t *, size_t, void *,
+	    size_t *, void *, size_t);
 };
 
 struct ctl_indexed_node_s {
 	struct ctl_node_s	node;
-	const ctl_named_node_t	*(*index)(const size_t *, size_t, size_t);
+	const ctl_named_node_t	*(*index)(tsdn_t *, const size_t *, size_t,
+	    size_t);
 };
 
 struct ctl_arena_stats_s {
 	bool			initialized;
 	unsigned		nthreads;
 	const char		*dss;
+	ssize_t			lg_dirty_mult;
+	ssize_t			decay_time;
 	size_t			pactive;
 	size_t			pdirty;
+
+	/* The remainder are only populated if config_stats is true. */
+
 	arena_stats_t		astats;
 
 	/* Aggregate stats for small size classes, based on bin stats. */
@@ -46,22 +52,16 @@ struct ctl_arena_stats_s {
 
 	malloc_bin_stats_t	bstats[NBINS];
 	malloc_large_stats_t	*lstats;	/* nlclasses elements. */
+	malloc_huge_stats_t	*hstats;	/* nhclasses elements. */
 };
 
 struct ctl_stats_s {
 	size_t			allocated;
 	size_t			active;
+	size_t			metadata;
+	size_t			resident;
 	size_t			mapped;
-	struct {
-		size_t		current;	/* stats_chunks.curchunks */
-		uint64_t	total;		/* stats_chunks.nchunks */
-		size_t		high;		/* stats_chunks.highchunks */
-	} chunks;
-	struct {
-		size_t		allocated;	/* huge_allocated */
-		uint64_t	nmalloc;	/* huge_nmalloc */
-		uint64_t	ndalloc;	/* huge_ndalloc */
-	} huge;
+	size_t			retained;
 	unsigned		narenas;
 	ctl_arena_stats_t	*arenas;	/* (narenas + 1) elements. */
 };
@@ -70,16 +70,17 @@ struct ctl_stats_s {
 /******************************************************************************/
 #ifdef JEMALLOC_H_EXTERNS
 
-int	ctl_byname(const char *name, void *oldp, size_t *oldlenp, void *newp,
-    size_t newlen);
-int	ctl_nametomib(const char *name, size_t *mibp, size_t *miblenp);
-
-int	ctl_bymib(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
+int	ctl_byname(tsd_t *tsd, const char *name, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen);
+int	ctl_nametomib(tsdn_t *tsdn, const char *name, size_t *mibp,
+    size_t *miblenp);
+
+int	ctl_bymib(tsd_t *tsd, const size_t *mib, size_t miblen, void *oldp,
+    size_t *oldlenp, void *newp, size_t newlen);
 bool	ctl_boot(void);
-void	ctl_prefork(void);
-void	ctl_postfork_parent(void);
-void	ctl_postfork_child(void);
+void	ctl_prefork(tsdn_t *tsdn);
+void	ctl_postfork_parent(tsdn_t *tsdn);
+void	ctl_postfork_child(tsdn_t *tsdn);
 
 #define	xmallctl(name, oldp, oldlenp, newp, newlen) do {		\
 	if (je_mallctl(name, oldp, oldlenp, newp, newlen)		\

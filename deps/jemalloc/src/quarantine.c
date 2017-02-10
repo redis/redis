@@ -1,7 +1,8 @@
+#define	JEMALLOC_QUARANTINE_C_
 #include "jemalloc/internal/jemalloc_internal.h"
 
 /*
- * quarantine pointers close to NULL are used to encode state information that
+ * Quarantine pointers close to NULL are used to encode state information that
  * is used for cleaning up during thread shutdown.
  */
 #define	QUARANTINE_STATE_REINCARNATED	((quarantine_t *)(uintptr_t)1)
@@ -9,47 +10,25 @@
 #define	QUARANTINE_STATE_MAX		QUARANTINE_STATE_PURGATORY
 
 /******************************************************************************/
-/* Data. */
-
-typedef struct quarantine_obj_s quarantine_obj_t;
-typedef struct quarantine_s quarantine_t;
-
-struct quarantine_obj_s {
-	void	*ptr;
-	size_t	usize;
-};
-
-struct quarantine_s {
-	size_t			curbytes;
-	size_t			curobjs;
-	size_t			first;
-#define	LG_MAXOBJS_INIT 10
-	size_t			lg_maxobjs;
-	quarantine_obj_t	objs[1]; /* Dynamically sized ring buffer. */
-};
-
-static void	quarantine_cleanup(void *arg);
-
-malloc_tsd_data(static, quarantine, quarantine_t *, NULL)
-malloc_tsd_funcs(JEMALLOC_INLINE, quarantine, quarantine_t *, NULL,
-    quarantine_cleanup)
-
-/******************************************************************************/
 /* Function prototypes for non-inline static functions. */
 
-static quarantine_t	*quarantine_init(size_t lg_maxobjs);
-static quarantine_t	*quarantine_grow(quarantine_t *quarantine);
-static void	quarantine_drain(quarantine_t *quarantine, size_t upper_bound);
+static quarantine_t	*quarantine_grow(tsd_t *tsd, quarantine_t *quarantine);
+static void	quarantine_drain_one(tsdn_t *tsdn, quarantine_t *quarantine);
+static void	quarantine_drain(tsdn_t *tsdn, quarantine_t *quarantine,
+    size_t upper_bound);
 
 /******************************************************************************/
 
 static quarantine_t *
-quarantine_init(size_t lg_maxobjs)
+quarantine_init(tsdn_t *tsdn, size_t lg_maxobjs)
 {
 	quarantine_t *quarantine;
+	size_t size;
 
-	quarantine = (quarantine_t *)imalloc(offsetof(quarantine_t, objs) +
-	    ((ZU(1) << lg_maxobjs) * sizeof(quarantine_obj_t)));
+	size = offsetof(quarantine_t, objs) + ((ZU(1) << lg_maxobjs) *
+	    sizeof(quarantine_obj_t));
+	quarantine = (quarantine_t *)iallocztm(tsdn, size, size2index(size),
+	    false, NULL, true, arena_get(TSDN_NULL, 0, true), true);
 	if (quarantine == NULL)
 		return (NULL);
 	quarantine->curbytes = 0;
@@ -57,19 +36,38 @@ quarantine_init(size_t lg_maxobjs)
 	quarantine->first = 0;
 	quarantine->lg_maxobjs = lg_maxobjs;
 
-	quarantine_tsd_set(&quarantine);
-
 	return (quarantine);
 }
 
+void
+quarantine_alloc_hook_work(tsd_t *tsd)
+{
+	quarantine_t *quarantine;
+
+	if (!tsd_nominal(tsd))
+		return;
+
+	quarantine = quarantine_init(tsd_tsdn(tsd), LG_MAXOBJS_INIT);
+	/*
+	 * Check again whether quarantine has been initialized, because
+	 * quarantine_init() may have triggered recursive initialization.
+	 */
+	if (tsd_quarantine_get(tsd) == NULL)
+		tsd_quarantine_set(tsd, quarantine);
+	else
+		idalloctm(tsd_tsdn(tsd), quarantine, NULL, true, true);
+}
+
 static quarantine_t *
-quarantine_grow(quarantine_t *quarantine)
+quarantine_grow(tsd_t *tsd, quarantine_t *quarantine)
 {
 	quarantine_t *ret;
 
-	ret = quarantine_init(quarantine->lg_maxobjs + 1);
-	if (ret == NULL)
+	ret = quarantine_init(tsd_tsdn(tsd), quarantine->lg_maxobjs + 1);
+	if (ret == NULL) {
+		quarantine_drain_one(tsd_tsdn(tsd), quarantine);
 		return (quarantine);
+	}
 
 	ret->curbytes = quarantine->curbytes;
 	ret->curobjs = quarantine->curobjs;
@@ -89,54 +87,44 @@ quarantine_grow(quarantine_t *quarantine)
 		memcpy(&ret->objs[ncopy_a], quarantine->objs, ncopy_b *
 		    sizeof(quarantine_obj_t));
 	}
+	idalloctm(tsd_tsdn(tsd), quarantine, NULL, true, true);
 
+	tsd_quarantine_set(tsd, ret);
 	return (ret);
 }
 
 static void
-quarantine_drain(quarantine_t *quarantine, size_t upper_bound)
+quarantine_drain_one(tsdn_t *tsdn, quarantine_t *quarantine)
+{
+	quarantine_obj_t *obj = &quarantine->objs[quarantine->first];
+	assert(obj->usize == isalloc(tsdn, obj->ptr, config_prof));
+	idalloctm(tsdn, obj->ptr, NULL, false, true);
+	quarantine->curbytes -= obj->usize;
+	quarantine->curobjs--;
+	quarantine->first = (quarantine->first + 1) & ((ZU(1) <<
+	    quarantine->lg_maxobjs) - 1);
+}
+
+static void
+quarantine_drain(tsdn_t *tsdn, quarantine_t *quarantine, size_t upper_bound)
 {
 
-	while (quarantine->curbytes > upper_bound && quarantine->curobjs > 0) {
-		quarantine_obj_t *obj = &quarantine->objs[quarantine->first];
-		assert(obj->usize == isalloc(obj->ptr, config_prof));
-		idalloc(obj->ptr);
-		quarantine->curbytes -= obj->usize;
-		quarantine->curobjs--;
-		quarantine->first = (quarantine->first + 1) & ((ZU(1) <<
-		    quarantine->lg_maxobjs) - 1);
-	}
+	while (quarantine->curbytes > upper_bound && quarantine->curobjs > 0)
+		quarantine_drain_one(tsdn, quarantine);
 }
 
 void
-quarantine(void *ptr)
+quarantine(tsd_t *tsd, void *ptr)
 {
 	quarantine_t *quarantine;
-	size_t usize = isalloc(ptr, config_prof);
+	size_t usize = isalloc(tsd_tsdn(tsd), ptr, config_prof);
 
 	cassert(config_fill);
 	assert(opt_quarantine);
 
-	quarantine = *quarantine_tsd_get();
-	if ((uintptr_t)quarantine <= (uintptr_t)QUARANTINE_STATE_MAX) {
-		if (quarantine == NULL) {
-			if ((quarantine = quarantine_init(LG_MAXOBJS_INIT)) ==
-			    NULL) {
-				idalloc(ptr);
-				return;
-			}
-		} else {
-			if (quarantine == QUARANTINE_STATE_PURGATORY) {
-				/*
-				 * Make a note that quarantine() was called
-				 * after quarantine_cleanup() was called.
-				 */
-				quarantine = QUARANTINE_STATE_REINCARNATED;
-				quarantine_tsd_set(&quarantine);
-			}
-			idalloc(ptr);
-			return;
-		}
+	if ((quarantine = tsd_quarantine_get(tsd)) == NULL) {
+		idalloctm(tsd_tsdn(tsd), ptr, NULL, false, true);
+		return;
 	}
 	/*
 	 * Drain one or more objects if the quarantine size limit would be
@@ -145,11 +133,11 @@ quarantine(void *ptr)
 	if (quarantine->curbytes + usize > opt_quarantine) {
 		size_t upper_bound = (opt_quarantine >= usize) ? opt_quarantine
 		    - usize : 0;
-		quarantine_drain(quarantine, upper_bound);
+		quarantine_drain(tsd_tsdn(tsd), quarantine, upper_bound);
 	}
 	/* Grow the quarantine ring buffer if it's full. */
 	if (quarantine->curobjs == (ZU(1) << quarantine->lg_maxobjs))
-		quarantine = quarantine_grow(quarantine);
+		quarantine = quarantine_grow(tsd, quarantine);
 	/* quarantine_grow() must free a slot if it fails to grow. */
 	assert(quarantine->curobjs < (ZU(1) << quarantine->lg_maxobjs));
 	/* Append ptr if its size doesn't exceed the quarantine size. */
@@ -161,50 +149,35 @@ quarantine(void *ptr)
 		obj->usize = usize;
 		quarantine->curbytes += usize;
 		quarantine->curobjs++;
-		if (opt_junk)
-			memset(ptr, 0x5a, usize);
+		if (config_fill && unlikely(opt_junk_free)) {
+			/*
+			 * Only do redzone validation if Valgrind isn't in
+			 * operation.
+			 */
+			if ((!config_valgrind || likely(!in_valgrind))
+			    && usize <= SMALL_MAXCLASS)
+				arena_quarantine_junk_small(ptr, usize);
+			else
+				memset(ptr, JEMALLOC_FREE_JUNK, usize);
+		}
 	} else {
 		assert(quarantine->curbytes == 0);
-		idalloc(ptr);
+		idalloctm(tsd_tsdn(tsd), ptr, NULL, false, true);
 	}
 }
 
-static void
-quarantine_cleanup(void *arg)
+void
+quarantine_cleanup(tsd_t *tsd)
 {
-	quarantine_t *quarantine = *(quarantine_t **)arg;
+	quarantine_t *quarantine;
 
-	if (quarantine == QUARANTINE_STATE_REINCARNATED) {
-		/*
-		 * Another destructor deallocated memory after this destructor
-		 * was called.  Reset quarantine to QUARANTINE_STATE_PURGATORY
-		 * in order to receive another callback.
-		 */
-		quarantine = QUARANTINE_STATE_PURGATORY;
-		quarantine_tsd_set(&quarantine);
-	} else if (quarantine == QUARANTINE_STATE_PURGATORY) {
-		/*
-		 * The previous time this destructor was called, we set the key
-		 * to QUARANTINE_STATE_PURGATORY so that other destructors
-		 * wouldn't cause re-creation of the quarantine.  This time, do
-		 * nothing, so that the destructor will not be called again.
-		 */
-	} else if (quarantine != NULL) {
-		quarantine_drain(quarantine, 0);
-		idalloc(quarantine);
-		quarantine = QUARANTINE_STATE_PURGATORY;
-		quarantine_tsd_set(&quarantine);
+	if (!config_fill)
+		return;
+
+	quarantine = tsd_quarantine_get(tsd);
+	if (quarantine != NULL) {
+		quarantine_drain(tsd_tsdn(tsd), quarantine, 0);
+		idalloctm(tsd_tsdn(tsd), quarantine, NULL, true, true);
+		tsd_quarantine_set(tsd, NULL);
 	}
-}
-
-bool
-quarantine_boot(void)
-{
-
-	cassert(config_fill);
-
-	if (quarantine_tsd_boot())
-		return (true);
-
-	return (false);
 }

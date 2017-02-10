@@ -60,6 +60,14 @@ start_server {tags {"protocol"}} {
         assert_error "*wrong*arguments*ping*" {r ping x y z}
     }
 
+    test "Unbalanced number of quotes" {
+        reconnect
+        r write "set \"\"\"test-key\"\"\" test-value\r\n"
+        r write "ping\r\n"
+        r flush
+        assert_error "*unbalanced*" {r read}
+    }
+
     set c 0
     foreach seq [list "\x00" "*\x00" "$\x00"] {
         incr c

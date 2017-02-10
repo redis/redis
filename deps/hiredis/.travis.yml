@@ -1,0 +1,39 @@
+language: c
+sudo: false
+compiler:
+  - gcc
+  - clang
+
+os:
+  - linux
+  - osx
+
+before_script:
+    - if [ "$TRAVIS_OS_NAME" == "osx" ] ; then brew update; brew install redis; fi
+
+addons:
+  apt:
+    packages:
+    - libc6-dbg
+    - libc6-dev
+    - libc6:i386
+    - libc6-dev-i386
+    - libc6-dbg:i386
+    - gcc-multilib
+    - valgrind
+
+env:
+    - CFLAGS="-Werror"
+    - PRE="valgrind --track-origins=yes --leak-check=full"
+    - TARGET="32bit" TARGET_VARS="32bit-vars" CFLAGS="-Werror"
+    - TARGET="32bit" TARGET_VARS="32bit-vars" PRE="valgrind --track-origins=yes --leak-check=full"
+
+matrix:
+  exclude:
+    - os: osx
+      env: PRE="valgrind --track-origins=yes --leak-check=full"
+
+    - os: osx
+      env: TARGET="32bit" TARGET_VARS="32bit-vars" PRE="valgrind --track-origins=yes --leak-check=full"
+
+script: make $TARGET CFLAGS="$CFLAGS" && make check PRE="$PRE" && make $TARGET_VARS hiredis-example
