@@ -11,6 +11,35 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.8     Released Sun Feb 12 16:11:18 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: This release reverts back the Jemalloc upgrade
+                          that is believed to potentially cause a server
+                          deadlock. A MIGRATE crash is also fixed.
+
+Two important bug fixes, the first of one is critical:
+
+1. Apparently Jemalloc 4.4.0 may contain a deadlock under particular
+   conditions. See https://github.com/antirez/redis/issues/3799.
+   We reverted back to the previously used Jemalloc versions and plan
+   to upgrade Jemalloc again after having more info about the
+   cause of the bug.
+
+2. MIGRATE could crash the server after a socket error. See for reference:
+   https://github.com/antirez/redis/issues/3796.
+
+List of commits:
+
+antirez in commit 7178cac:
+ Revert "Jemalloc updated to 4.4.0."
+ 150 files changed, 6330 insertions(+), 17245 deletions(-)
+
+antirez in commit 33fad43:
+ Fix MIGRATE closing of cached socket on error.
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+================================================================================
 Redis 3.2.7     Released Tue Jan 31 16:21:41 CET 2017
 ================================================================================
 
