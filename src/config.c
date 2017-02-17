@@ -46,12 +46,12 @@ typedef struct configEnum {
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
-    {"volatile-random",MAXMEMORY_VOLATILE_RANDOM},
-    {"volatile-ttl",MAXMEMORY_VOLATILE_TTL},
-    {"allkeys-lru",MAXMEMORY_ALLKEYS_LRU},
-    {"allkeys-lfu",MAXMEMORY_ALLKEYS_LFU},
-    {"allkeys-random",MAXMEMORY_ALLKEYS_RANDOM},
-    {"noeviction",MAXMEMORY_NO_EVICTION},
+    {"volatile-random", MAXMEMORY_VOLATILE_RANDOM},
+    {"volatile-ttl", MAXMEMORY_VOLATILE_TTL},
+    {"allkeys-lru", MAXMEMORY_ALLKEYS_LRU},
+    {"allkeys-lfu", MAXMEMORY_ALLKEYS_LFU},
+    {"allkeys-random", MAXMEMORY_ALLKEYS_RANDOM},
+    {"noeviction", MAXMEMORY_NO_EVICTION},
     {NULL, 0}
 };
 
