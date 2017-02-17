@@ -653,6 +653,11 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+typedef struct disconnectionCallbackWrapper {
+    uint64_t clientId;
+    void (*cb)(uint64_t);
+} disconnectionCallbackWrapper;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
@@ -701,6 +706,9 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+
+    dict *modules_visited; /* modules visited by client */
+    list *client_disconnected; /* client disconnection hooks/callbacks */
 
     /* Response buffer */
     int bufpos;
@@ -1293,6 +1301,9 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
+
+/* Hooks */
+void hookToDisconnection(client *c, void (*cb)(uint64_t));
 
 /* networking.c -- Networking and Client related operations */
 client *createClient(int fd);

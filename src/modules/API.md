@@ -150,6 +150,22 @@ example "write deny-oom". The set of flags are:
                     keys, programmatically creates key names, or any
                     other reason.
 
+## `RM_HookToDisconnection`
+
+    int RM_HookToDisconnection(RedisModuleCtx *ctx, void (*cb)(uint64_t));
+
+Register a new command in the Redis server, that will be handled by
+calling the function pointer 'func' using the RedisModule calling
+convention. The function returns `REDISMODULE_ERR` if the specified command
+name is already busy or a set of invalid flags were passed, otherwise
+`REDISMODULE_OK` is returned and the new command is registered.
+
+This function must be called during the initialization of the module
+inside the `RedisModule_OnLoad()` function. Calling this function outside
+of the initialization function is not defined.
+
+The command function type is the following:
+
 ## `RM_SetModuleAttribs`
 
     void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
