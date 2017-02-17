@@ -154,17 +154,10 @@ example "write deny-oom". The set of flags are:
 
     int RM_HookToDisconnection(RedisModuleCtx *ctx, void (*cb)(uint64_t));
 
-Register a new command in the Redis server, that will be handled by
-calling the function pointer 'func' using the RedisModule calling
-convention. The function returns `REDISMODULE_ERR` if the specified command
-name is already busy or a set of invalid flags were passed, otherwise
-`REDISMODULE_OK` is returned and the new command is registered.
+Hooks to a disconnection of a client.
+Whenever a client disconnects from the server, 'cb' will be called with the disconnected client id.
 
-This function must be called during the initialization of the module
-inside the `RedisModule_OnLoad()` function. Calling this function outside
-of the initialization function is not defined.
-
-The command function type is the following:
+Notice: 'cb' won't be called for client that have never interacted with the module.
 
 ## `RM_SetModuleAttribs`
 
