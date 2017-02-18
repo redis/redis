@@ -628,7 +628,7 @@ the string, and later call StringDMA() again to get the pointer.
 
     int RM_StringTruncate(RedisModuleKey *key, size_t newlen);
 
-If the string is open for writing and is of string type, resize it, padding
+If the key is open for writing and is of string type, resize it, padding
 with zero bytes if the new length is greater than the old one.
 
 After this call, `RM_StringDMA()` must be called again to continue
