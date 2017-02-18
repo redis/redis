@@ -114,7 +114,7 @@ The command function type is the following:
 And is supposed to always return `REDISMODULE_OK`.
 
 The set of flags 'strflags' specify the behavior of the command, and should
-be passed as a C string compoesd of space separated words, like for
+be passed as a C string composed of space separated words, like for
 example "write deny-oom". The set of flags are:
 
 * **"write"**:     The command may modify the data set (it may also read
