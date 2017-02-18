@@ -150,6 +150,15 @@ example "write deny-oom". The set of flags are:
                     keys, programmatically creates key names, or any
                     other reason.
 
+## `RM_HookToDisconnection`
+
+    int RM_HookToDisconnection(RedisModuleCtx *ctx, void (*cb)(uint64_t));
+
+Hooks to a disconnection of a client.
+Whenever a client disconnects from the server, 'cb' will be called with the disconnected client id.
+
+Notice: 'cb' won't be called for client that have never interacted with the module.
+
 ## `RM_SetModuleAttribs`
 
     void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
