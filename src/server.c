@@ -3796,7 +3796,9 @@ void hookToDisconnection(client *c, void (*cb)(uint64_t)) {
     wrp->clientId = c->id;
     wrp->cb = cb;
 
-    listAddNodeTail(c->client_disconnected, wrp);
+    if (listAddNodeTail(c->client_disconnected, wrp) == NULL) {
+        zfree(wrp);
+    }
 }
 
 /* The End */
