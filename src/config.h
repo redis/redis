@@ -206,4 +206,10 @@ void setproctitle(const char *fmt, ...);
 #endif
 #endif
 
+/* Make sure we can test for ARM just checking for __arm__, since sometimes
+ * __arm is defined but __arm__ is not. */
+#if defined(__arm) && !defined(__arm__)
+#define __arm__
+#endif
+
 #endif
