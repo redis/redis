@@ -211,5 +211,8 @@ void setproctitle(const char *fmt, ...);
 #if defined(__arm) && !defined(__arm__)
 #define __arm__
 #endif
+#if defined (__aarch64__) && !defined(__arm64__)
+#define __arm64__
+#endif
 
 #endif

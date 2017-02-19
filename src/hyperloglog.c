@@ -401,7 +401,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
         uint64_t k;
 
 #if (BYTE_ORDER == LITTLE_ENDIAN)
-	#ifdef __arm__
+	#if defined(__arm__) && !defined(__arm64__)
 	memcpy(&k,data,sizeof(uint64_t));
 	#else
         k = *((uint64_t*)data);
