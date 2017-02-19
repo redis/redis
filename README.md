@@ -46,7 +46,7 @@ After building Redis, it is a good idea to test it using:
 Fixing build problems with dependencies or cached build options
 ---------
 
-Redis has some dependencies which are included into the `deps` directory.
+Redis has some dependencies which are included in the `deps` directory.
 `make` does not automatically rebuild dependencies even if something in
 the source code of dependencies changes.
 
@@ -435,7 +435,7 @@ top comment inside `server.c`.
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
-There are tons of commands implementations inside th Redis source code
+There are tons of commands implementations inside the Redis source code
 that can serve as examples of actual commands implementations. To write
 a few toy commands can be a good exercise to familiarize with the code base.
 
