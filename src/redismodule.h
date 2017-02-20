@@ -94,6 +94,8 @@ typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString
 typedef size_t (*RedisModuleTypeMemUsageFunc)(const void *value);
 typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
 typedef void (*RedisModuleTypeFreeFunc)(void *value);
+typedef void (*RedisModuleConnectionCallbackFunc)(RedisModuleCtx *ctx);
+typedef void (*RedisModuleDisconnectionCallbackFunc)(RedisModuleCtx *ctx);
 
 #define REDISMODULE_TYPE_METHOD_VERSION 1
 typedef struct RedisModuleTypeMethods {
@@ -119,6 +121,8 @@ void *REDISMODULE_API_FUNC(RedisModule_Calloc)(size_t nmemb, size_t size);
 char *REDISMODULE_API_FUNC(RedisModule_Strdup)(const char *str);
 int REDISMODULE_API_FUNC(RedisModule_GetApi)(const char *, void *);
 int REDISMODULE_API_FUNC(RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep);
+int REDISMODULE_API_FUNC(RedisModule_HookToConnection)(RedisModuleCtx *ctx, RedisModuleConnectionCallbackFunc callback);
+int REDISMODULE_API_FUNC(RedisModule_HookToDisconnection)(RedisModuleCtx *ctx, RedisModuleDisconnectionCallbackFunc callback);
 int REDISMODULE_API_FUNC(RedisModule_SetModuleAttribs)(RedisModuleCtx *ctx, const char *name, int ver, int apiver);
 int REDISMODULE_API_FUNC(RedisModule_WrongArity)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithLongLong)(RedisModuleCtx *ctx, long long ll);
@@ -226,6 +230,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(Realloc);
     REDISMODULE_GET_API(Strdup);
     REDISMODULE_GET_API(CreateCommand);
+    REDISMODULE_GET_API(HookToConnection);
+    REDISMODULE_GET_API(HookToDisconnection);
     REDISMODULE_GET_API(SetModuleAttribs);
     REDISMODULE_GET_API(WrongArity);
     REDISMODULE_GET_API(ReplyWithLongLong);

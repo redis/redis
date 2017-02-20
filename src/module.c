@@ -42,11 +42,15 @@
 
 /* This structure represents a module inside the system. */
 struct RedisModule {
-    void *handle;   /* Module dlopen() handle. */
-    char *name;     /* Module name. */
-    int ver;        /* Module version. We use just progressive integers. */
-    int apiver;     /* Module API version as requested during initialization.*/
-    list *types;    /* Module data types. */
+    void *handle;                       /* Module dlopen() handle. */
+    char *name;                         /* Module name. */
+    int ver;                            /* Module version. We use just progressive integers. */
+    int apiver;                         /* Module API version as requested during initialization.*/
+    list *types;                        /* Module data types. */
+    void (*connectCallback)(void *);    /* Client connection callback */
+    void (*disconnectCallback)(void *); /* Client disconnection callback */
+    connectCallbackHandle *ccbh;        /* Client connection callback hook handle */
+    disconnectCallbackHandle *dcbh;     /* Client disconnection callback hook handle */
 };
 typedef struct RedisModule RedisModule;
 
@@ -632,6 +636,101 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     return REDISMODULE_OK;
 }
 
+/*
+    A direct to hook to client connection event
+    Creates a RedisModuleCtx and fires the callback that is assigned to the module.
+*/
+void HK_ConnectionCallback(uint64_t clientId, client *c, void *state) {
+    UNUSED(clientId);
+
+    RedisModule *m = (RedisModule*)state;
+    if (m == NULL ||
+        m->connectCallback == NULL) return;
+
+    void (*cb)(RedisModuleCtx *) = (void (*)(RedisModuleCtx *))m->connectCallback;
+    if (cb == NULL) return;
+
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    ctx.module = m;
+    ctx.client = c;
+
+    cb(&ctx);
+    moduleFreeContext(&ctx);
+}
+
+/*
+    A direct to hook to client disconnection event
+    Creates a RedisModuleCtx and fires the callback that is assigned to the module.
+*/
+void HK_DisconnectionCallback(uint64_t clientId, void *state) {
+    RedisModule *m = (RedisModule*)state;
+    if (m == NULL ||
+        m->disconnectCallback == NULL) return;
+
+    void (*cb)(RedisModuleCtx *) = (void (*)(RedisModuleCtx *))m->disconnectCallback;
+    if (cb == NULL) return;
+
+    client c;
+    c.id = clientId;
+
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    ctx.module = m;
+    ctx.client = &c;
+
+    cb(&ctx);
+    moduleFreeContext(&ctx);
+}
+
+/*
+    Hooks a given callback to client connection event
+    and passes ctx to that callback.
+    Use RM_GetClientId to extract the connected client id from ctx.
+    Returns REDISMODULE_OK on success.
+    Returns REDISMODULE_ERR on failure.
+*/
+int RM_HookToConnection(RedisModuleCtx *ctx, void (*cb)(RedisModuleCtx *)) {
+    if (ctx == NULL ||
+        ctx->module == NULL) {
+            return REDISMODULE_ERR;
+    }
+
+    RedisModule *m = ctx->module;
+
+    /* Overriding is forbidden */
+    if (m->ccbh != NULL) return REDISMODULE_ERR;
+
+    m->ccbh = hookToClientConnection(HK_ConnectionCallback, (void *)m);
+    if (m->ccbh == NULL) return REDISMODULE_ERR;
+
+    m->connectCallback = (void (*)(void *))cb;
+    return REDISMODULE_OK;
+}
+
+/*
+    Hooks a given callback to client disconnection event
+    and passes ctx to that callback.
+    Use RM_GetClientId to extract the disconnected client id from ctx.
+    Returns REDISMODULE_OK on success.
+    Returns REDISMODULE_ERR on failure.
+*/
+int RM_HookToDisconnection(RedisModuleCtx *ctx, void (*cb)(RedisModuleCtx *)) {
+    if (ctx == NULL ||
+        ctx->module == NULL) {
+            return REDISMODULE_ERR;
+    }
+
+    RedisModule *m = ctx->module;
+
+    /* Overriding is forbidden */
+    if (m->dcbh != NULL) return REDISMODULE_ERR;
+
+    m->dcbh = hookToClientDisconnection(HK_DisconnectionCallback, (void *)m);
+    if (m->dcbh == NULL) return REDISMODULE_ERR;
+
+    m->disconnectCallback = (void (*)(void *))cb;
+    return REDISMODULE_OK;
+}
+
 /* Called by RM_Init() to setup the `ctx->module` structure.
  *
  * This is an internal function, Redis modules developers don't need
@@ -645,6 +744,10 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->connectCallback = NULL;
+    module->disconnectCallback = NULL;
+    module->ccbh = NULL;
+    module->dcbh = NULL;
     ctx->module = module;
 }
 
@@ -3407,7 +3510,16 @@ int moduleUnload(sds name) {
     }
     dictReleaseIterator(di);
 
-    /* Unregister all the hooks. TODO: Yet no hooks support here. */
+    /* Unregister all the hooks. */
+    if (module->ccbh != NULL &&
+        freeClientConnectionHook(module->ccbh) == C_ERR) {
+            serverLog(LL_WARNING, "Error when trying to unhook client connection callback in module %s", module->name);
+    }
+
+    if (module->dcbh != NULL &&
+        freeClientDisconnectionHook(module->dcbh) == C_ERR) {
+            serverLog(LL_WARNING, "Error when trying to unhook client disconnection callback in module %s", module->name);
+    }
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
@@ -3494,6 +3606,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
+    REGISTER_API(HookToConnection);
+    REGISTER_API(HookToDisconnection);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);

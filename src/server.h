@@ -875,6 +875,8 @@ struct redisServer {
     /* Modules */
     dict *moduleapi;            /* Exported APIs dictionary for modules. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
+    list *connectCallbacks;     /* Client connection callbacks */
+    list *disconnectCallbacks;  /* Client disconnection callbacks */
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1233,6 +1235,26 @@ typedef struct {
     dictIterator *di;
 } setTypeIterator;
 
+/*
+    Stores a callback that hooks to client connection event
+    and stores a state that can be passed externely.
+    Provides an handle for freeing the hook.
+*/
+typedef struct connectCallbackHandle {
+    void (*cb)(uint64_t, client *, void *);
+    void *state;
+} connectCallbackHandle;
+
+/*
+    Stores a callback that hooks to client disconnection event
+    and stores a state that can be passed externely.
+    Provides an handle for freeing the hook.
+*/
+typedef struct disconnectCallbackHandle {
+    void (*cb)(uint64_t, void *);
+    void *state;
+} disconnectCallbackHandle;
+
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
@@ -1284,6 +1306,12 @@ void moduleFreeContext(struct RedisModuleCtx *ctx);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
+
+/* Hooks */
+connectCallbackHandle *hookToClientConnection(void (*cb)(uint64_t, client *, void *), void *state);
+disconnectCallbackHandle *hookToClientDisconnection(void (*cb)(uint64_t, void *), void *state);
+int freeClientConnectionHook(connectCallbackHandle *handle);
+int freeClientDisconnectionHook(disconnectCallbackHandle *handle);
 
 /* Utils */
 long long ustime(void);

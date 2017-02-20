@@ -1766,6 +1766,8 @@ void initServer(void) {
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
+    server.connectCallbacks = listCreate();
+    server.disconnectCallbacks = listCreate();
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -3789,6 +3791,86 @@ int main(int argc, char **argv) {
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;
+}
+
+/*
+    Hooks a given callback to client connection event
+    and receives a state that is passed to the callback.
+    Returns an handle that can be used to unhook the callback.
+    Returns NULL on failure.
+*/
+connectCallbackHandle *hookToClientConnection(void (*cb)(uint64_t, client *, void *), void *state) {
+    connectCallbackHandle *handle = zmalloc(sizeof(connectCallbackHandle));
+    if (handle == NULL) return NULL;
+
+    handle->cb    = cb;
+    handle->state = state;
+
+    list *lst;
+    if ((lst = listAddNodeTail(server.connectCallbacks, handle)) == NULL) {
+        zfree(handle);
+        return NULL;
+    }
+
+    return handle;
+}
+
+/*
+    Hooks a given callback to client disconnection event
+    and receives a state that is passed to the callback.
+    Returns an handle that can be used to unhook the callback.
+    Returns NULL on failure.
+*/
+disconnectCallbackHandle *hookToClientDisconnection(void (*cb)(uint64_t, void *), void *state) {
+    disconnectCallbackHandle *handle = zmalloc(sizeof(disconnectCallbackHandle));
+    if (handle == NULL) return NULL;
+
+    handle->cb    = cb;
+    handle->state = state;
+
+    list *lst;
+    if ((lst = listAddNodeTail(server.disconnectCallbacks, handle)) == NULL) {
+        zfree(handle);
+        return NULL;
+    }
+
+    return handle;
+}
+
+/*
+    Unhooks a given handle from client connection event.
+    Returns C_OK on success.
+    Returns C_ERR on failure.
+*/
+int freeClientConnectionHook(connectCallbackHandle *handle) {
+    if (handle == NULL) return C_ERR;
+    listNode *ln;
+    if ((ln = listSearchKey(server.connectCallbacks, handle)) == NULL) {
+        return C_ERR;
+    }
+
+    listDelNode(server.connectCallbacks, ln);
+    zfree(handle);
+
+    return C_OK;
+}
+
+/*
+    Unhooks a given handle from client disconnection event.
+    Returns C_OK on success.
+    Returns C_ERR on failure.
+*/
+int freeClientDisconnectionHook(disconnectCallbackHandle *handle) {
+    if (handle == NULL) return C_ERR;
+    listNode *ln;
+    if ((ln = listSearchKey(server.disconnectCallbacks, handle)) == NULL) {
+        return C_ERR;
+    }
+
+    listDelNode(server.disconnectCallbacks, ln);
+    zfree(handle);
+
+    return C_OK;
 }
 
 /* The End */

@@ -132,6 +132,18 @@ client *createClient(int fd) {
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) listAddNodeTail(server.clients,c);
     initClientMultiState(c);
+
+    /* Fires client connection event to all hooked callbacks */
+    listNode *ln;
+    listIter iter;
+    listRewind(server.connectCallbacks, &iter);
+    while ((ln = listNext(&iter)) != NULL) {
+        connectCallbackHandle *handle = (connectCallbackHandle*)ln->value;
+        if (handle != NULL) {
+            handle->cb(c->id, c, handle->state);
+        }
+    }
+
     return c;
 }
 
@@ -815,6 +827,16 @@ void freeClient(client *c) {
     /* Free data structures. */
     listRelease(c->reply);
     freeClientArgv(c);
+
+    /* Fires client disconnection event to all hooked callbacks */
+    listIter iter;
+    listRewind(server.disconnectCallbacks, &iter);
+    while ((ln = listNext(&iter)) != NULL) {
+        disconnectCallbackHandle *handle = (disconnectCallbackHandle*)ln->value;
+        if (handle != NULL) {
+            handle->cb(c->id, handle->state);
+        }
+    }
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
