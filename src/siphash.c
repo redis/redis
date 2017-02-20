@@ -40,6 +40,13 @@
 #include <string.h>
 #include <ctype.h>
 
+/* Test of the CPU is Little Endian and supports not aligned accesses.
+ * Two interesting conditions to speedup the function that happen to be
+ * in most of x86 servers. */
+#if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__)
+#define UNALIGNED_LE_CPU
+#endif
+
 #define ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
 
 #define U32TO8_LE(p, v)                                                        \
@@ -52,11 +59,15 @@
     U32TO8_LE((p), (uint32_t)((v)));                                           \
     U32TO8_LE((p) + 4, (uint32_t)((v) >> 32));
 
+#ifdef UNALIGNED_LE_CPU
+#define U8TO64_LE(p) (*((uint64_t*)(p)))
+#else
 #define U8TO64_LE(p)                                                           \
     (((uint64_t)((p)[0])) | ((uint64_t)((p)[1]) << 8) |                        \
      ((uint64_t)((p)[2]) << 16) | ((uint64_t)((p)[3]) << 24) |                 \
      ((uint64_t)((p)[4]) << 32) | ((uint64_t)((p)[5]) << 40) |                 \
      ((uint64_t)((p)[6]) << 48) | ((uint64_t)((p)[7]) << 56))
+#endif
 
 #define U8TO64_LE_NOCASE(p)                                                    \
     (((uint64_t)(tolower((p)[0]))) |                                           \
@@ -87,8 +98,10 @@
     } while (0)
 
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
+#ifndef UNALIGNED_LE_CPU
     uint64_t hash;
     uint8_t *out = (uint8_t*) &hash;
+#endif
     uint64_t v0 = 0x736f6d6570736575ULL;
     uint64_t v1 = 0x646f72616e646f6dULL;
     uint64_t v2 = 0x6c7967656e657261ULL;
@@ -139,15 +152,20 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     SIPROUND;
 
     b = v0 ^ v1 ^ v2 ^ v3;
+#ifndef UNALIGNED_LE_CPU
     U64TO8_LE(out, b);
-
     return hash;
+#else
+    return b;
+#endif
 }
 
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 {
+#ifndef UNALIGNED_LE_CPU
     uint64_t hash;
     uint8_t *out = (uint8_t*) &hash;
+#endif
     uint64_t v0 = 0x736f6d6570736575ULL;
     uint64_t v1 = 0x646f72616e646f6dULL;
     uint64_t v2 = 0x6c7967656e657261ULL;
@@ -198,9 +216,12 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
     SIPROUND;
 
     b = v0 ^ v1 ^ v2 ^ v3;
+#ifndef UNALIGNED_LE_CPU
     U64TO8_LE(out, b);
-
     return hash;
+#else
+    return b;
+#endif
 }
 
 
