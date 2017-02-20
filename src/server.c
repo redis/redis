@@ -482,16 +482,16 @@ int dictObjKeyCompare(void *privdata, const void *key1,
     return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
 }
 
-unsigned int dictObjHash(const void *key) {
+uint64_t dictObjHash(const void *key) {
     const robj *o = key;
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
 }
 
-unsigned int dictSdsHash(const void *key) {
+uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-unsigned int dictSdsCaseHash(const void *key) {
+uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
@@ -513,7 +513,7 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
     return cmp;
 }
 
-unsigned int dictEncObjHash(const void *key) {
+uint64_t dictEncObjHash(const void *key) {
     robj *o = (robj*) key;
 
     if (sdsEncodedObject(o)) {
@@ -526,7 +526,7 @@ unsigned int dictEncObjHash(const void *key) {
             len = ll2string(buf,32,(long)o->ptr);
             return dictGenHashFunction((unsigned char*)buf, len);
         } else {
-            unsigned int hash;
+            uint64_t hash;
 
             o = getDecodedObject(o);
             hash = dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
@@ -3639,7 +3639,9 @@ int main(int argc, char **argv) {
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
-    dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
+    char hashseed[16];
+    getRandomHexChars(hashseed,sizeof(hashseed));
+    dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
     moduleInitModulesSystem();

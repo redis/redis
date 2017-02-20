@@ -3264,7 +3264,7 @@ void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
 /* server.moduleapi dictionary type. Only uses plain C strings since
  * this gets queries from modules. */
 
-unsigned int dictCStringKeyHash(const void *key) {
+uint64_t dictCStringKeyHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
