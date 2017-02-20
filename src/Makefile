@@ -208,7 +208,7 @@ $(REDIS_CHECK_AOF_NAME): $(REDIS_CHECK_AOF_OBJ)
 	$(REDIS_LD) -o $@ $^ $(FINAL_LIBS)
 
 dict-benchmark: dict.c zmalloc.c sds.c
-	$(REDIS_CC) $(FINAL_CFLAGS) dict.c zmalloc.c sds.c -D DICT_BENCHMARK_MAIN -o dict-benchmark
+	$(REDIS_CC) $(FINAL_CFLAGS) dict.c zmalloc.c sds.c siphash.c -D DICT_BENCHMARK_MAIN -o dict-benchmark
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
