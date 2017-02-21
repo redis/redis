@@ -14,6 +14,7 @@
 
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
@@ -27,11 +28,14 @@ PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
 
-# Default allocator
+# Default allocator defaults to Jemalloc if it's not an ARM
+MALLOC=libc
+ifneq ($(uname_M),armv6l)
+ifneq ($(uname_M),armv7l)
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
-else
-	MALLOC=libc
+endif
+endif
 endif
 
 # Backwards compatibility for selecting an allocator
