@@ -19,18 +19,23 @@
    This version was modified by Salvatore Sanfilippo <antirez@gmail.com>
    in the following ways:
 
-   1. Hard-code 2-4 rounds in the hope the compiler can optimize it more
+   1. We use SipHash 1-2. This is not believed to be as strong as the
+      suggested 2-4 variant, but AFAIK there are not trivial attacks
+      against this reduced-rounds version, and it runs at the same speed
+      as Murmurhash2 that we used previously, why the 2-4 variant slowed
+      down Redis by a 4% figure more or less.
+   2. Hard-code rounds in the hope the compiler can optimize it more
       in this raw from. Anyway we always want the standard 2-4 variant.
-   2. Modify the prototype and implementation so that the function directly
+   3. Modify the prototype and implementation so that the function directly
       returns an uint64_t value, the hash itself, instead of receiving an
       output buffer. This also means that the output size is set to 8 bytes
       and the 16 bytes output code handling was removed.
-   3. Provide a case insensitive variant to be used when hashing strings that
+   4. Provide a case insensitive variant to be used when hashing strings that
       must be considered identical by the hash table regardless of the case.
       If we don't have directly a case insensitive hash function, we need to
       perform a text transformation in some temporary buffer, which is costly.
-   4. Remove debugging code.
-   5. Modified the original test.c file to be a stand-alone function testing
+   5. Remove debugging code.
+   6. Modified the original test.c file to be a stand-alone function testing
       the function in the new form (returing an uint64_t) using just the
       relevant test vector.
  */
@@ -132,7 +137,6 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
         v3 ^= m;
 
         SIPROUND;
-        SIPROUND;
 
         v0 ^= m;
     }
@@ -151,13 +155,10 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     v3 ^= b;
 
     SIPROUND;
-    SIPROUND;
 
     v0 ^= b;
     v2 ^= 0xff;
 
-    SIPROUND;
-    SIPROUND;
     SIPROUND;
     SIPROUND;
 
@@ -196,7 +197,6 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
         v3 ^= m;
 
         SIPROUND;
-        SIPROUND;
 
         v0 ^= m;
     }
@@ -215,13 +215,10 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
     v3 ^= b;
 
     SIPROUND;
-    SIPROUND;
 
     v0 ^= b;
     v2 ^= 0xff;
 
-    SIPROUND;
-    SIPROUND;
     SIPROUND;
     SIPROUND;
 
@@ -308,7 +305,11 @@ const uint8_t vectors_sip64[64][8] = {
 
 
 /* Test siphash using a test vector. Returns 0 if the function passed
- * all the tests, otherwise 1 is returned. */
+ * all the tests, otherwise 1 is returned.
+ *
+ * IMPORTANT: The test vector is for SipHash 2-4. Before running
+ * the test revert back the siphash() function to 2-4 rounds since
+ * now it uses 1-2 rounds. */
 int siphash_test(void) {
     uint8_t in[64], k[16];
     int i;
