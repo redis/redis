@@ -221,7 +221,7 @@ is a function to do this:
 Similarly in order to parse a string as a number:
 
     long long myval;
-    if (RedisModule_StringToLongLong(ctx,argv[1],&myval) == REDISMODULE_OK) {
+    if (RedisModule_StringToLongLong(argv[1],&myval) == REDISMODULE_OK) {
         /* Do something with 'myval' */
     }
 
