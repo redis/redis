@@ -88,7 +88,7 @@ tags {"aof"} {
             set pattern "*Bad file format reading the append only file*"
             set retry 10
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -113,7 +113,7 @@ tags {"aof"} {
             set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -137,7 +137,7 @@ tags {"aof"} {
             set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
             while {$retry} {
-                set result [exec tail -n1 < [dict get $srv stdout]]
+                set result [exec tail -1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
