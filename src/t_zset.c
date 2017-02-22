@@ -2510,6 +2510,10 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
                 {
                     return;
                 }
+                if ((offset < 0) || (limit < 0)) {
+                    addReplyError(c,"arguments to LIMIT must be positive integers");
+                    return;
+                }
                 pos += 3; remaining -= 3;
             } else {
                 addReply(c,shared.syntaxerr);
