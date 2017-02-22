@@ -620,7 +620,7 @@ void loadServerConfigFromString(char *config) {
         {
             server.cluster_migration_barrier = atoi(argv[1]);
             if (server.cluster_migration_barrier < 0) {
-                err = "cluster migration barrier must zero or positive";
+                err = "cluster migration barrier must be zero or positive";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-slave-validity-factor")
