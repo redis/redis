@@ -575,7 +575,7 @@ int startBgsaveForReplication(int mincapa) {
      * otherwise slave will miss repl-stream-db. */
     if (rsiptr) {
         if (socket_target)
-            retval = rdbSaveToSlavesSockets(rsiptr);
+            retval = rdbSaveToSlavesSockets(mincapa, rsiptr);
         else
             retval = rdbSaveBackground(server.rdb_filename,rsiptr);
     } else {
@@ -593,6 +593,7 @@ int startBgsaveForReplication(int mincapa) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                slave->replstate = REPL_STATE_NONE;
                 slave->flags &= ~CLIENT_SLAVE;
                 listDelNode(server.slaves,ln);
                 addReplyError(slave,
@@ -611,8 +612,11 @@ int startBgsaveForReplication(int mincapa) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
-                    replicationSetupSlaveForFullResync(slave,
-                            getPsyncInitialOffset());
+                /* Check slave has at least the minimum capabilities */
+                if ((mincapa & slave->slave_capa) != mincapa)
+                    continue;
+                replicationSetupSlaveForFullResync(slave,
+                        getPsyncInitialOffset());
             }
         }
     }

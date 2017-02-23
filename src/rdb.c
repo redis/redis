@@ -1907,7 +1907,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves
  * that are currently in SLAVE_STATE_WAIT_BGSAVE_START state. */
-int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
+int rdbSaveToSlavesSockets(int mincapa, rdbSaveInfo *rsi) {
     int *fds;
     uint64_t *clientids;
     int numfds;
@@ -1940,6 +1940,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         client *slave = ln->value;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+            /* Check slave has at least the minimum capabilities */
+            if ((mincapa & slave->slave_capa) != mincapa)
+                continue;
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
             replicationSetupSlaveForFullResync(slave,getPsyncInitialOffset());
