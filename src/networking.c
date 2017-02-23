@@ -371,6 +371,8 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
+    if (c->flags & CLIENT_MASTER)
+        serverLog(LL_WARNING,"Error sent to master: %s", s);
 }
 
 void addReplyError(client *c, const char *err) {
