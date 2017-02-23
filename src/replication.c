@@ -1090,12 +1090,13 @@ void replicationCreateMasterClient(int fd, int dbid) {
 }
 
 void restartAOF() {
-    int retry = 10;
-    while (retry-- && startAppendOnly() == C_ERR) {
+    unsigned int tries, max_tries = 10;
+    for (tries = 0; tries < max_tries; ++tries) {
+        if (tries) sleep(1);
+        if (startAppendOnly() == C_OK) break;
         serverLog(LL_WARNING,"Failed enabling the AOF after successful master synchronization! Trying it again in one second.");
-        sleep(1);
     }
-    if (!retry) {
+    if (tries == max_tries) {
         serverLog(LL_WARNING,"FATAL: this replica instance finished the synchronization with its master, but the AOF can't be turned on. Exiting now.");
         exit(1);
     }
