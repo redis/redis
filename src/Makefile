@@ -65,6 +65,13 @@ DEBUG=-g -ggdb
 
 ifeq ($(uname_S),SunOS)
 	# SunOS
+        ifneq ($(@@),32bit)
+		CFLAGS+= -m64
+		LDFLAGS+= -m64
+	endif
+	DEBUG=-g
+	DEBUG_FLAGS=-g
+	export CFLAGS LDFLAGS DEBUG DEBUG_FLAGS
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lrt
