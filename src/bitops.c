@@ -665,7 +665,7 @@ void bitopCommand(client *c) {
          * result in GCC compiling the code using multiple-words load/store
          * operations that are not supported even in ARM >= v6. */
         j = 0;
-        #ifndef __arm__
+        #ifndef USE_ALIGNED_ACCESS
         if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;

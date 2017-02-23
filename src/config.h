@@ -215,4 +215,13 @@ void setproctitle(const char *fmt, ...);
 #define __arm64__
 #endif
 
+/* Make sure we can test for SPARC just checking for __sparc__. */
+#if defined(__sparc) && !defined(__sparc__)
+#define __sparc__
+#endif
+
+#if defined(__sparc__) || defined(__arm__)
+#define USE_ALIGNED_ACCESS
+#endif
+
 #endif
