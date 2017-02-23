@@ -1234,7 +1234,7 @@ int processMultibulkBuffer(client *c) {
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
-                c->querybuf = sdsnewlen(NULL,c->bulklen+2);
+                c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
                 sdsclear(c->querybuf);
                 pos = 0;
             } else {
@@ -1477,7 +1477,7 @@ sds getAllClientsInfoString(void) {
     listNode *ln;
     listIter li;
     client *client;
-    sds o = sdsnewlen(NULL,200*listLength(server.clients));
+    sds o = sdsnewlen(SDS_NOINIT,200*listLength(server.clients));
     sdsclear(o);
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {

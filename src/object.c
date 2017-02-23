@@ -98,7 +98,9 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
-    if (ptr) {
+    if (ptr == SDS_NOINIT)
+        sh->buf[len] = '\0';
+    else if (ptr) {
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
