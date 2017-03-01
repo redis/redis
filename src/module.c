@@ -3217,8 +3217,8 @@ void moduleHandleBlockedClients(void) {
         }
         if (bc->privdata && bc->free_privdata)
             bc->free_privdata(bc->privdata);
-        zfree(bc);
         if (c != NULL) unblockClient(c);
+        zfree(bc);
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
