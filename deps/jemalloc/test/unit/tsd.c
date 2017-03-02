@@ -58,18 +58,18 @@ thd_start(void *arg)
 	data_t d = (data_t)(uintptr_t)arg;
 	void *p;
 
-	assert_x_eq(*data_tsd_get(), DATA_INIT,
+	assert_x_eq(*data_tsd_get(true), DATA_INIT,
 	    "Initial tsd get should return initialization value");
 
 	p = malloc(1);
 	assert_ptr_not_null(p, "Unexpected malloc() failure");
 
 	data_tsd_set(&d);
-	assert_x_eq(*data_tsd_get(), d,
+	assert_x_eq(*data_tsd_get(true), d,
 	    "After tsd set, tsd get should return value that was set");
 
 	d = 0;
-	assert_x_eq(*data_tsd_get(), (data_t)(uintptr_t)arg,
+	assert_x_eq(*data_tsd_get(true), (data_t)(uintptr_t)arg,
 	    "Resetting local data should have no effect on tsd");
 
 	free(p);
@@ -79,7 +79,7 @@ thd_start(void *arg)
 TEST_BEGIN(test_tsd_main_thread)
 {
 
-	thd_start((void *) 0xa5f3e329);
+	thd_start((void *)(uintptr_t)0xa5f3e329);
 }
 TEST_END
 
@@ -99,6 +99,11 @@ int
 main(void)
 {
 
+	/* Core tsd bootstrapping must happen prior to data_tsd_boot(). */
+	if (nallocx(1, 0) == 0) {
+		malloc_printf("Initialization error");
+		return (test_status_fail);
+	}
 	data_tsd_boot();
 
 	return (test(

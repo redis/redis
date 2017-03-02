@@ -73,7 +73,7 @@ start_server {tags {"aofrw"}} {
         r config set appendonly no
         r exec
         wait_for_condition 50 100 {
-            [string match {*Killing*AOF*child*} [exec tail -n5 < [srv 0 stdout]]]
+            [string match {*Killing*AOF*child*} [exec tail -5 < [srv 0 stdout]]]
         } else {
             fail "Can't find 'Killing AOF child' into recent logs"
         }

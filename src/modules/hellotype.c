@@ -226,10 +226,12 @@ void HelloTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value
     }
 }
 
-void HelloTypeDigest(RedisModuleDigest *digest, void *value) {
-    REDISMODULE_NOT_USED(digest);
-    REDISMODULE_NOT_USED(value);
-    /* TODO: The DIGEST module interface is yet not implemented. */
+/* The goal of this function is to return the amount of memory used by
+ * the HelloType value. */
+size_t HelloTypeMemUsage(const void *value) {
+    const struct HelloTypeObject *hto = value;
+    struct HelloTypeNode *node = hto->head;
+    return sizeof(*hto) + sizeof(*node)*hto->len;
 }
 
 void HelloTypeFree(void *value) {
@@ -250,6 +252,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .rdb_load = HelloTypeRdbLoad,
         .rdb_save = HelloTypeRdbSave,
         .aof_rewrite = HelloTypeAofRewrite,
+        .mem_usage = HelloTypeMemUsage,
         .free = HelloTypeFree
     };
 

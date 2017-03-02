@@ -3,7 +3,7 @@
 #define	rbtn_black_height(a_type, a_field, a_rbt, r_height) do {	\
     a_type *rbp_bh_t;							\
     for (rbp_bh_t = (a_rbt)->rbt_root, (r_height) = 0;			\
-      rbp_bh_t != &(a_rbt)->rbt_nil;					\
+	 rbp_bh_t != NULL;						\
       rbp_bh_t = rbtn_left_get(a_type, a_field, rbp_bh_t)) {		\
 	if (!rbtn_red_get(a_type, a_field, rbp_bh_t)) {			\
 	    (r_height)++;						\
@@ -21,7 +21,7 @@ struct node_s {
 };
 
 static int
-node_cmp(node_t *a, node_t *b) {
+node_cmp(const node_t *a, const node_t *b) {
 	int ret;
 
 	assert_u32_eq(a->magic, NODE_MAGIC, "Bad magic");
@@ -68,38 +68,43 @@ TEST_BEGIN(test_rb_empty)
 TEST_END
 
 static unsigned
-tree_recurse(node_t *node, unsigned black_height, unsigned black_depth,
-    node_t *nil)
+tree_recurse(node_t *node, unsigned black_height, unsigned black_depth)
 {
 	unsigned ret = 0;
-	node_t *left_node = rbtn_left_get(node_t, link, node);
-	node_t *right_node = rbtn_right_get(node_t, link, node);
+	node_t *left_node;
+	node_t *right_node;
+
+	if (node == NULL)
+		return (ret);
+
+	left_node = rbtn_left_get(node_t, link, node);
+	right_node = rbtn_right_get(node_t, link, node);
 
 	if (!rbtn_red_get(node_t, link, node))
 		black_depth++;
 
 	/* Red nodes must be interleaved with black nodes. */
 	if (rbtn_red_get(node_t, link, node)) {
-		assert_false(rbtn_red_get(node_t, link, left_node),
-		    "Node should be black");
-		assert_false(rbtn_red_get(node_t, link, right_node),
-		    "Node should be black");
+		if (left_node != NULL)
+			assert_false(rbtn_red_get(node_t, link, left_node),
+				"Node should be black");
+		if (right_node != NULL)
+			assert_false(rbtn_red_get(node_t, link, right_node),
+			    "Node should be black");
 	}
 
-	if (node == nil)
-		return (ret);
 	/* Self. */
 	assert_u32_eq(node->magic, NODE_MAGIC, "Bad magic");
 
 	/* Left subtree. */
-	if (left_node != nil)
-		ret += tree_recurse(left_node, black_height, black_depth, nil);
+	if (left_node != NULL)
+		ret += tree_recurse(left_node, black_height, black_depth);
 	else
 		ret += (black_depth != black_height);
 
 	/* Right subtree. */
-	if (right_node != nil)
-		ret += tree_recurse(right_node, black_height, black_depth, nil);
+	if (right_node != NULL)
+		ret += tree_recurse(right_node, black_height, black_depth);
 	else
 		ret += (black_depth != black_height);
 
@@ -181,8 +186,7 @@ node_remove(tree_t *tree, node_t *node, unsigned nnodes)
 	node->magic = 0;
 
 	rbtn_black_height(node_t, link, tree, black_height);
-	imbalances = tree_recurse(tree->rbt_root, black_height, 0,
-	    &(tree->rbt_nil));
+	imbalances = tree_recurse(tree->rbt_root, black_height, 0);
 	assert_u_eq(imbalances, 0, "Tree is unbalanced");
 	assert_u_eq(tree_iterate(tree), nnodes-1,
 	    "Unexpected node iteration count");
@@ -210,6 +214,15 @@ remove_reverse_iterate_cb(tree_t *tree, node_t *node, void *data)
 	node_remove(tree, node, *nnodes);
 
 	return (ret);
+}
+
+static void
+destroy_cb(node_t *node, void *data)
+{
+	unsigned *nnodes = (unsigned *)data;
+
+	assert_u_gt(*nnodes, 0, "Destruction removed too many nodes");
+	(*nnodes)--;
 }
 
 TEST_BEGIN(test_rb_random)
@@ -244,7 +257,6 @@ TEST_BEGIN(test_rb_random)
 		for (j = 1; j <= NNODES; j++) {
 			/* Initialize tree and nodes. */
 			tree_new(&tree);
-			tree.rbt_nil.magic = 0;
 			for (k = 0; k < j; k++) {
 				nodes[k].magic = NODE_MAGIC;
 				nodes[k].key = bag[k];
@@ -257,7 +269,7 @@ TEST_BEGIN(test_rb_random)
 				rbtn_black_height(node_t, link, &tree,
 				    black_height);
 				imbalances = tree_recurse(tree.rbt_root,
-				    black_height, 0, &(tree.rbt_nil));
+				    black_height, 0);
 				assert_u_eq(imbalances, 0,
 				    "Tree is unbalanced");
 
@@ -278,7 +290,7 @@ TEST_BEGIN(test_rb_random)
 			}
 
 			/* Remove nodes. */
-			switch (i % 4) {
+			switch (i % 5) {
 			case 0:
 				for (k = 0; k < j; k++)
 					node_remove(&tree, &nodes[k], j - k);
@@ -313,6 +325,12 @@ TEST_BEGIN(test_rb_random)
 				} while (start != NULL);
 				assert_u_eq(nnodes, 0,
 				    "Removal terminated early");
+				break;
+			} case 4: {
+				unsigned nnodes = j;
+				tree_destroy(&tree, destroy_cb, &nnodes);
+				assert_u_eq(nnodes, 0,
+				    "Destruction terminated early");
 				break;
 			} default:
 				not_reached();

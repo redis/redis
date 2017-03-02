@@ -60,32 +60,30 @@ p_test_fini(void)
 	malloc_printf("%s: %s\n", test_name, test_status_string(test_status));
 }
 
-test_status_t
-p_test(test_t *t, ...)
+static test_status_t
+p_test_impl(bool do_malloc_init, test_t *t, va_list ap)
 {
 	test_status_t ret;
-	va_list ap;
 
-	/*
-	 * Make sure initialization occurs prior to running tests.  Tests are
-	 * special because they may use internal facilities prior to triggering
-	 * initialization as a side effect of calling into the public API.  This
-	 * is a final safety that works even if jemalloc_constructor() doesn't
-	 * run, as for MSVC builds.
-	 */
-	if (nallocx(1, 0) == 0) {
-		malloc_printf("Initialization error");
-		return (test_status_fail);
+	if (do_malloc_init) {
+		/*
+		 * Make sure initialization occurs prior to running tests.
+		 * Tests are special because they may use internal facilities
+		 * prior to triggering initialization as a side effect of
+		 * calling into the public API.
+		 */
+		if (nallocx(1, 0) == 0) {
+			malloc_printf("Initialization error");
+			return (test_status_fail);
+		}
 	}
 
 	ret = test_status_pass;
-	va_start(ap, t);
 	for (; t != NULL; t = va_arg(ap, test_t *)) {
 		t();
 		if (test_status > ret)
 			ret = test_status;
 	}
-	va_end(ap);
 
 	malloc_printf("--- %s: %u/%u, %s: %u/%u, %s: %u/%u ---\n",
 	    test_status_string(test_status_pass),
@@ -94,6 +92,34 @@ p_test(test_t *t, ...)
 	    test_counts[test_status_skip], test_count,
 	    test_status_string(test_status_fail),
 	    test_counts[test_status_fail], test_count);
+
+	return (ret);
+}
+
+test_status_t
+p_test(test_t *t, ...)
+{
+	test_status_t ret;
+	va_list ap;
+
+	ret = test_status_pass;
+	va_start(ap, t);
+	ret = p_test_impl(true, t, ap);
+	va_end(ap);
+
+	return (ret);
+}
+
+test_status_t
+p_test_no_malloc_init(test_t *t, ...)
+{
+	test_status_t ret;
+	va_list ap;
+
+	ret = test_status_pass;
+	va_start(ap, t);
+	ret = p_test_impl(false, t, ap);
+	va_end(ap);
 
 	return (ret);
 }

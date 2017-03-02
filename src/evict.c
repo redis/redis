@@ -336,11 +336,34 @@ unsigned long LFUDecrAndReturn(robj *o) {
  * server when there is data to add in order to make space if needed.
  * --------------------------------------------------------------------------*/
 
+/* We don't want to count AOF buffers and slaves output buffers as
+ * used memory: the eviction should use mostly data size. This function
+ * returns the sum of AOF and slaves buffer. */
+size_t freeMemoryGetNotCountedMemory(void) {
+    size_t overhead = 0;
+    int slaves = listLength(server.slaves);
+
+    if (slaves) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            client *slave = listNodeValue(ln);
+            overhead += getClientOutputBufferMemoryUsage(slave);
+        }
+    }
+    if (server.aof_state != AOF_OFF) {
+        overhead += sdslen(server.aof_buf)+aofRewriteBufferSize();
+    }
+    return overhead;
+}
+
 int freeMemoryIfNeeded(void) {
     size_t mem_reported, mem_used, mem_tofree, mem_freed;
-    int slaves = listLength(server.slaves);
     mstime_t latency, eviction_latency;
     long long delta;
+    int slaves = listLength(server.slaves);
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
@@ -350,24 +373,8 @@ int freeMemoryIfNeeded(void) {
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
     mem_used = mem_reported;
-    if (slaves) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = listNodeValue(ln);
-            unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
-            if (obuf_bytes > mem_used)
-                mem_used = 0;
-            else
-                mem_used -= obuf_bytes;
-        }
-    }
-    if (server.aof_state != AOF_OFF) {
-        mem_used -= sdslen(server.aof_buf);
-        mem_used -= aofRewriteBufferSize();
-    }
+    size_t overhead = freeMemoryGetNotCountedMemory();
+    mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
@@ -498,6 +505,22 @@ int freeMemoryIfNeeded(void) {
              * deliver data to the slaves fast enough, so we force the
              * transmission here inside the loop. */
             if (slaves) flushSlavesOutputBuffers();
+
+            /* Normally our stop condition is the ability to release
+             * a fixed, pre-computed amount of memory. However when we
+             * are deleting objects in another thread, it's better to
+             * check, from time to time, if we already reached our target
+             * memory, since the "mem_freed" amount is computed only
+             * across the dbAsyncDelete() call, while the thread can
+             * release the memory all the time. */
+            if (server.lazyfree_lazy_eviction && !(keys_freed % 16)) {
+                overhead = freeMemoryGetNotCountedMemory();
+                mem_used = zmalloc_used_memory();
+                mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
+                if (mem_used <= server.maxmemory) {
+                    mem_freed = mem_tofree;
+                }
+            }
         }
 
         if (!keys_freed) {

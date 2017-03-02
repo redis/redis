@@ -246,11 +246,9 @@ void freeStringObject(robj *o) {
 }
 
 void freeListObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_QUICKLIST:
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
-        break;
-    default:
+    } else {
         serverPanic("Unknown list encoding type");
     }
 }
@@ -786,6 +784,14 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_MODULE) {
+        moduleValue *mv = o->ptr;
+        moduleType *mt = mv->type;
+        if (mt->mem_usage != NULL) {
+            asize = mt->mem_usage(mv->value);
+        } else {
+            asize = 0;
+        }
     } else {
         serverPanic("Unknown object type");
     }
@@ -945,7 +951,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Slaves using more than 10 MB each? */
-        if (mh->clients_slaves / numslaves > (1024*1024*10)) {
+        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
             big_slave_buf = 1;
             num_reports++;
         }

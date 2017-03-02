@@ -2743,8 +2743,8 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeLoadFunc rdb_load;
         moduleTypeSaveFunc rdb_save;
         moduleTypeRewriteFunc aof_rewrite;
-        moduleTypeDigestFunc digest;
         moduleTypeMemUsageFunc mem_usage;
+        moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
     } *tms = (struct typemethods*) typemethods_ptr;
 
@@ -3264,7 +3264,7 @@ void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
 /* server.moduleapi dictionary type. Only uses plain C strings since
  * this gets queries from modules. */
 
-unsigned int dictCStringKeyHash(const void *key) {
+uint64_t dictCStringKeyHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
