@@ -2512,6 +2512,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Setup our fake client for command execution. */
     c->flags |= CLIENT_MODULE;
+    c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
     c->cmd = c->lastcmd = cmd;
