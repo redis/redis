@@ -40,7 +40,9 @@ struct ckh_s {
 #endif
 
 	/* Used for pseudo-random number generation. */
-	uint64_t	prng_state;
+#define	CKH_A		1103515241
+#define	CKH_C		12347
+	uint32_t	prng_state;
 
 	/* Total number of items. */
 	size_t		count;
@@ -72,7 +74,7 @@ bool	ckh_iter(ckh_t *ckh, size_t *tabind, void **key, void **data);
 bool	ckh_insert(tsd_t *tsd, ckh_t *ckh, const void *key, const void *data);
 bool	ckh_remove(tsd_t *tsd, ckh_t *ckh, const void *searchkey, void **key,
     void **data);
-bool	ckh_search(ckh_t *ckh, const void *searchkey, void **key, void **data);
+bool	ckh_search(ckh_t *ckh, const void *seachkey, void **key, void **data);
 void	ckh_string_hash(const void *key, size_t r_hash[2]);
 bool	ckh_string_keycomp(const void *k1, const void *k2);
 void	ckh_pointer_hash(const void *key, size_t r_hash[2]);

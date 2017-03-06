@@ -1385,7 +1385,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
 
 void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     char tmpfile[256], *err = NULL;
-    int dfd, maxtries = 5;
+    int dfd = -1, maxtries = 5;
     int sockerr = 0, psync_result;
     socklen_t errlen = sizeof(sockerr);
     UNUSED(el);
@@ -1640,6 +1640,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 error:
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+    if (dfd != -1) close(dfd);
     close(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REPL_STATE_CONNECT;

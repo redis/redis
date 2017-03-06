@@ -35,10 +35,6 @@ any of the following arguments (not a definitive list) to 'configure':
     will cause files to be installed into /usr/local/include, /usr/local/lib,
     and /usr/local/man.
 
---with-version=<major>.<minor>.<bugfix>-<nrev>-g<gid>
-    Use the specified version string rather than trying to generate one (if in
-    a git repository) or use existing the VERSION file (if present).
-
 --with-rpath=<colon-separated-rpath>
     Embed one or more library paths, so that libjemalloc can find the libraries
     it is linked to.  This works only on ELF-based systems.
@@ -87,14 +83,6 @@ any of the following arguments (not a definitive list) to 'configure':
     Append <suffix> to the base name of all installed files, such that multiple
     versions of jemalloc can coexist in the same installation directory.  For
     example, libjemalloc.so.0 becomes libjemalloc<suffix>.so.0.
-
---with-malloc-conf=<malloc_conf>
-    Embed <malloc_conf> as a run-time options string that is processed prior to
-    the malloc_conf global variable, the /etc/malloc.conf symlink, and the
-    MALLOC_CONF environment variable.  For example, to change the default chunk
-    size to 256 KiB:
-
-      --with-malloc-conf=lg_chunk:18
 
 --disable-cc-silence
     Disable code that silences non-useful compiler warnings.  This is mainly
@@ -205,11 +193,6 @@ any of the following arguments (not a definitive list) to 'configure':
     comes at the cost of one extra page per large allocation, which in the
     most extreme case increases physical memory usage for the 16 KiB size class
     to 20 KiB.
-
---disable-syscall
-    Disable use of syscall(2) rather than {open,read,write,close}(2).  This is
-    intended as a workaround for systems that place security limitations on
-    syscall(2).
 
 --with-xslroot=<path>
     Specify where to find DocBook XSL stylesheets when building the
@@ -331,15 +314,6 @@ LDFLAGS="?"
 
 PATH="?"
     'configure' uses this to find programs.
-
-In some cases it may be necessary to work around configuration results that do
-not match reality.  For example, Linux 4.5 added support for the MADV_FREE flag
-to madvise(2), which can cause problems if building on a host with MADV_FREE
-support and deploying to a target without.  To work around this, use a cache
-file to override the relevant configuration variable defined in configure.ac,
-e.g.:
-
-    echo "je_cv_madv_free=no" > config.cache && ./configure -C
 
 === Advanced compilation =======================================================
 
