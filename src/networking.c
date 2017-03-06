@@ -972,10 +972,15 @@ int writeToClient(int fd, client *c, int handler_installed) {
          * scenario think about 'KEYS *' against the loopback interface).
          *
          * However if we are over the maxmemory limit we ignore that and
-         * just deliver as much data as it is possible to deliver. */
+         * just deliver as much data as it is possible to deliver.
+         *
+         * Moreover, we also send as much as possible if the client is
+         * a slave (otherwise, on high-speed traffic, the replication
+         * buffer will grow indefinitely) */
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
-             zmalloc_used_memory() < server.maxmemory)) break;
+             zmalloc_used_memory() < server.maxmemory) &&
+            !(c->flags & CLIENT_SLAVE)) break;
     }
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
