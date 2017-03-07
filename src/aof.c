@@ -203,6 +203,26 @@ void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
+/* Kills an AOFRW child process if exists */
+static void killAppendOnlyChild(void) {
+    int statloc;
+    /* No AOFRW child? return. */
+    if (server.aof_child_pid == -1) return;
+    /* Kill AOFRW child, wait for child exit. */
+    serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
+        (long) server.aof_child_pid);
+    if (kill(server.aof_child_pid,SIGUSR1) != -1) {
+        while(wait3(&statloc,0,NULL) != server.aof_child_pid);
+    }
+    /* Reset the buffer accumulating changes while the child saves. */
+    aofRewriteBufferReset();
+    aofRemoveTempFile(server.aof_child_pid);
+    server.aof_child_pid = -1;
+    server.aof_rewrite_time_start = -1;
+    /* Close pipes used for IPC between the two processes. */
+    aofClosePipes();
+}
+
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
@@ -214,23 +234,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
-    /* rewrite operation in progress? kill it, wait child exit */
-    if (server.aof_child_pid != -1) {
-        int statloc;
-
-        serverLog(LL_NOTICE,"Killing running AOF rewrite child: %ld",
-            (long) server.aof_child_pid);
-        if (kill(server.aof_child_pid,SIGUSR1) != -1) {
-            while(wait3(&statloc,0,NULL) != server.aof_child_pid);
-        }
-        /* reset the buffer accumulating changes while the child saves */
-        aofRewriteBufferReset();
-        aofRemoveTempFile(server.aof_child_pid);
-        server.aof_child_pid = -1;
-        server.aof_rewrite_time_start = -1;
-        /* close pipes used for IPC between the two processes. */
-        aofClosePipes();
-    }
+    killAppendOnlyChild();
 }
 
 /* Called when the user switches from "appendonly no" to "appendonly yes"
@@ -255,10 +259,16 @@ int startAppendOnly(void) {
     if (server.rdb_child_pid != -1) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
-    } else if (rewriteAppendOnlyFileBackground() == C_ERR) {
-        close(newfd);
-        serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
-        return C_ERR;
+    } else {
+        if (server.aof_child_pid != -1) {
+            serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
+            killAppendOnlyChild();
+        }
+        if (rewriteAppendOnlyFileBackground() == C_ERR) {
+            close(newfd);
+            serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
+            return C_ERR;
+        }
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
