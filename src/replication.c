@@ -1943,6 +1943,11 @@ void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
+
+    /* Update repl_no_slaves_since timestamp when role changed from 
+     * slave to master, avoid replication backlog free in replication cron. */
+    server.repl_no_slaves_since = server.unixtime;
+
     /* When a slave is turned into a master, the current replication ID
      * (that was inherited from the master at synchronization time) is
      * used as secondary ID up to the current offset, and a new replication
