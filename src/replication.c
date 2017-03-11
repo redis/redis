@@ -1776,6 +1776,9 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> SLAVE sync: Master accepted a Partial Resynchronization.");
+        /* Create backlog before psync begin if this slave psync with
+         * master after server startup. */
+        if (server.repl_backlog == NULL) createReplicationBacklog();
         return;
     }
 
