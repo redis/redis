@@ -1334,6 +1334,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
             == -1)
         {
             sdsfree(cmd);
+            va_end(ap);
             return sdscatprintf(sdsempty(),"-Writing to master: %s",
                     strerror(errno));
         }
