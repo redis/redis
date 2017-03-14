@@ -1676,7 +1676,7 @@ int listenToPort(int port, int *fds, int *count) {
                 (*count)++;
             } else if (errno == EAFNOSUPPORT) {
                 unsupported++;
-                serverLog(LL_WARNING,"Not listening to IPv6: unsupproted");
+                serverLog(LL_WARNING,"Not listening to IPv6: unsupported");
             }
 
             if (*count == 1 || unsupported) {
@@ -1688,7 +1688,7 @@ int listenToPort(int port, int *fds, int *count) {
                     (*count)++;
                 } else if (errno == EAFNOSUPPORT) {
                     unsupported++;
-                    serverLog(LL_WARNING,"Not listening to IPv4: unsupproted");
+                    serverLog(LL_WARNING,"Not listening to IPv4: unsupported");
                 }
             }
             /* Exit the loop if we were able to bind * on IPv4 and IPv6,
