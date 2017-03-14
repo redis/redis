@@ -817,8 +817,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;
     mh->peak_allocated = server.stat_peak_memory;
-    mh->fragmentation =
+    mh->rss_frag =
         (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
+    mh->rss_frag_bytes =
+        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
     mh->allocator_frag =
         (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
     mh->allocator_frag_bytes =
@@ -942,7 +944,7 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Fragmentation is higher than 1.4? */
-        if (mh->fragmentation > 1.4) {
+        if (mh->allocator_frag > 1.4) {
             high_frag = 1;
             num_reports++;
         }
@@ -1081,7 +1083,7 @@ void memoryCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(14+mh->num_dbs)*2);
+        addReplyMultiBulkLen(c,(20+mh->num_dbs)*2);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1135,8 +1137,26 @@ void memoryCommand(client *c) {
         addReplyBulkCString(c,"peak.percentage");
         addReplyDouble(c,mh->peak_perc);
 
-        addReplyBulkCString(c,"fragmentation");
-        addReplyDouble(c,mh->fragmentation);
+        addReplyBulkCString(c,"allocator.allocated");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
+
+        addReplyBulkCString(c,"allocator.active");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
+
+        addReplyBulkCString(c,"allocator.resident");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
+
+        addReplyBulkCString(c,"rss-overhead.ratio");
+        addReplyDouble(c,mh->rss_frag);
+
+        addReplyBulkCString(c,"rss-overhead.bytes");
+        addReplyLongLong(c,mh->rss_frag_bytes);
+
+        addReplyBulkCString(c,"fragmentation.ratio");
+        addReplyDouble(c,mh->allocator_frag);
+
+        addReplyBulkCString(c,"fragmentation.bytes");
+        addReplyLongLong(c,mh->allocator_frag_bytes);
 
         freeMemoryOverheadData(mh);
     } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
