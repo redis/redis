@@ -253,7 +253,7 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
  * doing a scan on another dict. */
-dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, unsigned int hash, int *defragged) {
+dictEntry* replaceSatelliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sds newkey, unsigned int hash, int *defragged) {
     dictEntry **deref = dictFindEntryRefByPtrAndHash(d, oldkey, hash);
     if (deref) {
         dictEntry *de = *deref;
@@ -290,7 +290,7 @@ int defragKey(redisDb *db, dictEntry *de) {
           * I can't search in db->expires for that key after i already released
           * the pointer it holds it won't be able to do the string compare */
         unsigned int hash = dictGetHash(db->dict, de->key);
-        replaceSateliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
+        replaceSatelliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
     }
 
     /* Try to defrag robj and / or string value. */
@@ -558,7 +558,7 @@ void activeDefragCycle(void) {
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
             /* Once in 16 scan iterations, or 1000 pointer reallocations
              * (if we have a lot of pointers in one hash bucket), check if we
-             * reached the tiem limit. */
+             * reached the time limit. */
             if (cursor && (++iterations > 16 || server.stat_active_defrag_hits - defragged > 1000)) {
                 if ((ustime() - start) > timelimit) {
                     return;

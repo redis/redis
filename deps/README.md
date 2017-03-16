@@ -28,7 +28,7 @@ This is never upgraded since it's part of the Redis project. If there are change
 Hiredis
 ---
 
-Hiredis uses the SDS string library, that must be the same version used inside Redis itself. Hiredis is also very critical for Sentinel. Historically Redis often used forked versions of hiredis in a way or the other. In order to upgrade it is adviced to take a lot of care:
+Hiredis uses the SDS string library, that must be the same version used inside Redis itself. Hiredis is also very critical for Sentinel. Historically Redis often used forked versions of hiredis in a way or the other. In order to upgrade it is advised to take a lot of care:
 
 1. Check with diff if hiredis API changed and what impact it could have in Redis.
 2. Make sure thet the SDS library inside Hiredis and inside Redis are compatible.

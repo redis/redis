@@ -879,7 +879,7 @@ promote: /* Promote to dense representation. */
      *
      * Note that this in turn means that PFADD will make sure the command
      * is propagated to slaves / AOF, so if there is a sparse -> dense
-     * convertion, it will be performed in all the slaves as well. */
+     * conversion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
     serverAssert(dense_retval == 1);
     return dense_retval;
