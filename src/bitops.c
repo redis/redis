@@ -104,6 +104,7 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     unsigned long skipval, word = 0, one;
     long pos = 0; /* Position of bit, to return to the caller. */
     unsigned long j;
+    int found;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -117,21 +118,27 @@ long redisBitpos(void *s, unsigned long count, int bit) {
     /* Skip initial bits not aligned to sizeof(unsigned long) byte by byte. */
     skipval = bit ? 0 : UCHAR_MAX;
     c = (unsigned char*) s;
+    found = 0;
     while((unsigned long)c & (sizeof(*l)-1) && count) {
-        if (*c != skipval) break;
+        if (*c != skipval) {
+            found = 1;
+            break;
+        }
         c++;
         count--;
         pos += 8;
     }
 
     /* Skip bits with full word step. */
-    skipval = bit ? 0 : ULONG_MAX;
     l = (unsigned long*) c;
-    while (count >= sizeof(*l)) {
-        if (*l != skipval) break;
-        l++;
-        count -= sizeof(*l);
-        pos += sizeof(*l)*8;
+    if (!found) {
+        skipval = bit ? 0 : ULONG_MAX;
+        while (count >= sizeof(*l)) {
+            if (*l != skipval) break;
+            l++;
+            count -= sizeof(*l);
+            pos += sizeof(*l)*8;
+        }
     }
 
     /* Load bytes into "word" considering the first byte as the most significant
@@ -654,8 +661,11 @@ void bitopCommand(client *c) {
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
-         * vanilla algorithm. */
+         * vanilla algorithm. On ARM we skip the fast path since it will
+         * result in GCC compiling the code using multiple-words load/store
+         * operations that are not supported even in ARM >= v6. */
         j = 0;
+        #ifndef USE_ALIGNED_ACCESS
         if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
@@ -716,6 +726,7 @@ void bitopCommand(client *c) {
                 }
             }
         }
+        #endif
 
         /* j is set to the next byte to process by the previous loop. */
         for (; j < maxlen; j++) {

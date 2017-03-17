@@ -37,11 +37,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
-#include <ctype.h>
 
 #include "dict.h"
 #include "zmalloc.h"
@@ -71,77 +71,28 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
-static uint32_t dict_hash_function_seed = 5381;
+static uint8_t dict_hash_function_seed[16];
 
-void dictSetHashFunctionSeed(uint32_t seed) {
-    dict_hash_function_seed = seed;
+void dictSetHashFunctionSeed(uint8_t *seed) {
+    memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
 }
 
-uint32_t dictGetHashFunctionSeed(void) {
+uint8_t *dictGetHashFunctionSeed(void) {
     return dict_hash_function_seed;
 }
 
-/* MurmurHash2, by Austin Appleby
- * Note - This code makes a few assumptions about how your machine behaves -
- * 1. We can read a 4-byte value from any address without crashing
- * 2. sizeof(int) == 4
- *
- * And it has a few limitations -
- *
- * 1. It will not work incrementally.
- * 2. It will not produce the same results on little-endian and big-endian
- *    machines.
- */
-unsigned int dictGenHashFunction(const void *key, int len) {
-    /* 'm' and 'r' are mixing constants generated offline.
-     They're not really 'magic', they just happen to work well.  */
-    uint32_t seed = dict_hash_function_seed;
-    const uint32_t m = 0x5bd1e995;
-    const int r = 24;
+/* The default hashing function uses SipHash implementation
+ * in siphash.c. */
 
-    /* Initialize the hash to a 'random' value */
-    uint32_t h = seed ^ len;
+uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
+uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
-    /* Mix 4 bytes at a time into the hash */
-    const unsigned char *data = (const unsigned char *)key;
-
-    while(len >= 4) {
-        uint32_t k = *(uint32_t*)data;
-
-        k *= m;
-        k ^= k >> r;
-        k *= m;
-
-        h *= m;
-        h ^= k;
-
-        data += 4;
-        len -= 4;
-    }
-
-    /* Handle the last few bytes of the input array  */
-    switch(len) {
-    case 3: h ^= data[2] << 16;
-    case 2: h ^= data[1] << 8;
-    case 1: h ^= data[0]; h *= m;
-    };
-
-    /* Do a few final mixes of the hash to ensure the last few
-     * bytes are well-incorporated. */
-    h ^= h >> 13;
-    h *= m;
-    h ^= h >> 15;
-
-    return (unsigned int)h;
+uint64_t dictGenHashFunction(const void *key, int len) {
+    return siphash(key,len,dict_hash_function_seed);
 }
 
-/* And a case insensitive hash function (based on djb hash) */
-unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = (unsigned int)dict_hash_function_seed;
-
-    while (len--)
-        hash = ((hash << 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
-    return hash;
+uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
+    return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
 /* ----------------------------- API implementation ------------------------- */
@@ -1158,7 +1109,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d) {
 
 #include "sds.h"
 
-unsigned int hashCallback(const void *key) {
+uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
