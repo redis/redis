@@ -399,9 +399,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            aeFileEvent *fe = &eventLoop->events[fd];
+            int mask = eventLoop->fired[j].mask;
             int rfired = 0;
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
