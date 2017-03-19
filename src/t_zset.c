@@ -2110,7 +2110,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-unsigned int dictSdsHash(const void *key);
+uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 dictType setAccumulatorDictType = {
