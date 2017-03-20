@@ -331,7 +331,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define UNUSED(V) ((void) V)
 
 #define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^32 elements */
-#define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
+#define ZSKIPLIST_P 1/M_E     /* Skiplist P = 1/e */
 
 /* Append only defines */
 #define AOF_FSYNC_NO 0
