@@ -672,6 +672,7 @@ void HK_DisconnectionCallback(uint64_t clientId, void *state) {
 
     client c;
     c.id = clientId;
+    selectDb(&c,0); // Selecting DB #0 by default for dummy clients (look at 'client *createClient(int fd)' at networking.c)
 
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     ctx.module = m;
