@@ -133,14 +133,16 @@ client *createClient(int fd) {
     if (fd != -1) listAddNodeTail(server.clients,c);
     initClientMultiState(c);
 
-    /* Fires client connection event to all hooked callbacks */
-    listNode *ln;
-    listIter iter;
-    listRewind(server.connectCallbacks, &iter);
-    while ((ln = listNext(&iter)) != NULL) {
-        connectCallbackHandle *handle = (connectCallbackHandle*)ln->value;
-        if (handle != NULL) {
-            handle->cb(c->id, c, handle->state);
+    /* Fires client connection event to all hooked callbacks (given that it's not a dummy client) */
+    if (fd != -1) {
+        listNode *ln;
+        listIter iter;
+        listRewind(server.connectCallbacks, &iter);
+        while ((ln = listNext(&iter)) != NULL) {
+            connectCallbackHandle *handle = (connectCallbackHandle *) ln->value;
+            if (handle != NULL) {
+                handle->cb(c->id, c, handle->state);
+            }
         }
     }
 
@@ -828,13 +830,15 @@ void freeClient(client *c) {
     listRelease(c->reply);
     freeClientArgv(c);
 
-    /* Fires client disconnection event to all hooked callbacks */
-    listIter iter;
-    listRewind(server.disconnectCallbacks, &iter);
-    while ((ln = listNext(&iter)) != NULL) {
-        disconnectCallbackHandle *handle = (disconnectCallbackHandle*)ln->value;
-        if (handle != NULL) {
-            handle->cb(c->id, handle->state);
+    /* Fires client disconnection event to all hooked callbacks (given that it's not a dummy client) */
+    if (c->fd != -1) {
+        listIter iter;
+        listRewind(server.disconnectCallbacks, &iter);
+        while ((ln = listNext(&iter)) != NULL) {
+            disconnectCallbackHandle *handle = (disconnectCallbackHandle *) ln->value;
+            if (handle != NULL) {
+                handle->cb(c->id, handle->state);
+            }
         }
     }
 

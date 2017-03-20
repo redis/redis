@@ -42,12 +42,18 @@ int Commands_LastDisconnected(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 void OnConnection(RedisModuleCtx *ctx) {
+    RedisModule_AutoMemory(ctx);
+    RedisModule_Call(ctx, "INCR", "c", "counter_test"); // you can call RM_Call inside an hook
+
     currentClients++;
     totalClients++;
     lastConnectionId = RedisModule_GetClientId(ctx);
 }
 
 void OnDisconnection(RedisModuleCtx *ctx) {
+    RedisModule_AutoMemory(ctx);
+    RedisModule_Call(ctx, "DECR", "c", "counter_test");
+
     currentClients--;
     lastDisconnectionId = RedisModule_GetClientId(ctx);
 }
