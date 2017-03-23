@@ -573,7 +573,7 @@ To create a new key, open it for writing and then write to it using one
 of the key writing functions. Example:
 
     RedisModuleKey *key;
-    key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_READ);
+    key = RedisModule_OpenKey(ctx,argv[1],REDISMODULE_WRITE);
     if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_EMPTY) {
         RedisModule_StringSet(key,argv[2]);
     }
