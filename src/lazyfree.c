@@ -97,11 +97,14 @@ void emptyDbAsync(redisDb *db) {
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
  * and scheduiling the old for lazy freeing. */
 void slotToKeyFlushAsync(void) {
-    zskiplist *oldsl = server.cluster->slots_to_keys;
-    server.cluster->slots_to_keys = zslCreate();
-    atomicIncr(lazyfree_objects,oldsl->length,
+    rax *old = server.cluster->slots_to_keys;
+
+    server.cluster->slots_to_keys = raxNew();
+    memset(server.cluster->slots_keys_count,0,
+           sizeof(server.cluster->slots_keys_count));
+    atomicIncr(lazyfree_objects,old->numele,
         lazyfree_objects_mutex);
-    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,oldsl);
+    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,old);
 }
 
 /* Release objects from the lazyfree thread. It's just decrRefCount()
@@ -125,8 +128,8 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
 
 /* Release the skiplist mapping Redis Cluster keys to slots in the
  * lazyfree thread. */
-void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl) {
-    size_t len = sl->length;
-    zslFree(sl);
+void lazyfreeFreeSlotsMapFromBioThread(rax *rt) {
+    size_t len = rt->numele;
+    raxFree(rt);
     atomicDecr(lazyfree_objects,len,lazyfree_objects_mutex);
 }

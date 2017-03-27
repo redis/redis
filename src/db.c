@@ -1301,90 +1301,85 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
 
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
- * while rehashing the cluster. */
-void slotToKeyAdd(robj *key) {
+ * while rehashing the cluster and in other conditions when we need to
+ * understand if we have keys for a given hash slot. */
+void slotToKeyUpdateKey(robj *key, int add) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned char buf[64];
+    unsigned char *indexed = buf;
+    size_t keylen = sdslen(key->ptr);
 
-    sds sdskey = sdsdup(key->ptr);
-    zslInsert(server.cluster->slots_to_keys,hashslot,sdskey);
+    server.cluster->slots_keys_count[hashslot] += add ? 1 : -1;
+    if (keylen+2 > 64) indexed = zmalloc(keylen+2);
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    memcpy(indexed+2,key->ptr,keylen);
+    if (add) {
+        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
+    } else {
+        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2);
+    }
+    if (indexed != buf) zfree(indexed);
+}
+
+void slotToKeyAdd(robj *key) {
+    slotToKeyUpdateKey(key,1);
 }
 
 void slotToKeyDel(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
-    zslDelete(server.cluster->slots_to_keys,hashslot,key->ptr,NULL);
+    slotToKeyUpdateKey(key,0);
 }
 
 void slotToKeyFlush(void) {
-    zslFree(server.cluster->slots_to_keys);
-    server.cluster->slots_to_keys = zslCreate();
+    raxFree(server.cluster->slots_to_keys);
+    server.cluster->slots_to_keys = raxNew();
+    memset(server.cluster->slots_keys_count,0,
+           sizeof(server.cluster->slots_keys_count));
 }
 
 /* Pupulate the specified array of objects with keys in the specified slot.
  * New objects are returned to represent keys, it's up to the caller to
  * decrement the reference count to release the keys names. */
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
-    zskiplistNode *n;
-    zrangespec range;
+    raxIterator iter;
     int j = 0;
+    unsigned char indexed[2];
 
-    range.min = range.max = hashslot;
-    range.minex = range.maxex = 0;
-
-    n = zslFirstInRange(server.cluster->slots_to_keys, &range);
-    while(n && n->score == hashslot && count--) {
-        keys[j++] = createStringObject(n->ele,sdslen(n->ele));
-        n = n->level[0].forward;
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_keys);
+    raxSeek(&iter,indexed,2,">=");
+    while(count-- && raxNext(&iter,NULL,0,NULL)) {
+        if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
+        keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
     }
+    raxStop(&iter);
     return j;
 }
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
 unsigned int delKeysInSlot(unsigned int hashslot) {
-    zskiplistNode *n;
-    zrangespec range;
+    raxIterator iter;
     int j = 0;
+    unsigned char indexed[2];
 
-    range.min = range.max = hashslot;
-    range.minex = range.maxex = 0;
+    indexed[0] = (hashslot >> 8) & 0xff;
+    indexed[1] = hashslot & 0xff;
+    raxStart(&iter,server.cluster->slots_to_keys);
+    while(server.cluster->slots_keys_count[hashslot]) {
+        raxSeek(&iter,indexed,2,">=");
+        raxNext(&iter,NULL,0,NULL);
 
-    n = zslFirstInRange(server.cluster->slots_to_keys, &range);
-    while(n && n->score == hashslot) {
-        sds sdskey = n->ele;
-        robj *key = createStringObject(sdskey,sdslen(sdskey));
-        n = n->level[0].forward; /* Go to the next item before freeing it. */
+        robj *key = createStringObject((char*)iter.key+2,iter.key_len-2);
         dbDelete(&server.db[0],key);
         decrRefCount(key);
         j++;
     }
+    raxStop(&iter);
     return j;
 }
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
-    zskiplist *zsl = server.cluster->slots_to_keys;
-    zskiplistNode *zn;
-    zrangespec range;
-    int rank, count = 0;
-
-    range.min = range.max = hashslot;
-    range.minex = range.maxex = 0;
-
-    /* Find first element in range */
-    zn = zslFirstInRange(zsl, &range);
-
-    /* Use rank of first element, if any, to determine preliminary count */
-    if (zn != NULL) {
-        rank = zslGetRank(zsl, zn->score, zn->ele);
-        count = (zsl->length - (rank - 1));
-
-        /* Find last element in range */
-        zn = zslLastInRange(zsl, &range);
-
-        /* Use rank of last element, if any, to determine the actual count */
-        if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->ele);
-            count -= (zsl->length - rank);
-        }
-    }
-    return count;
+    return server.cluster->slots_keys_count[hashslot];
 }
