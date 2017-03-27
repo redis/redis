@@ -476,8 +476,10 @@ void clusterInit(void) {
         }
     }
 
-    /* The slots -> keys map is a sorted set. Init it. */
-    server.cluster->slots_to_keys = zslCreate();
+    /* The slots -> keys map is a radix tree. Initialize it here. */
+    server.cluster->slots_to_keys = raxNew();
+    memset(server.cluster->slots_keys_count,0,
+           sizeof(server.cluster->slots_keys_count));
 
     /* Set myself->port / cport to my listening ports, we'll just need to
      * discover the IP address via MEET messages. */
