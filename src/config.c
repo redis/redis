@@ -384,10 +384,15 @@ void loadServerConfigFromString(char *config) {
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
 #ifdef USE_NVML
-        } else if (!strcasecmp(argv[0],"pmfile") && argc != 2) {
+        } else if (!strcasecmp(argv[0],"pmfile") && (argc == 3)) {
             server.pm_file_path = zstrdup(argv[1]);
             long long size = memtoll(argv[2],NULL);
-            if (size < CONFIG_MIN_PM_FILE_SIZE) {
+            if (size == 0) {
+                if (access(server.pm_file_path, F_OK) != 0) {
+                    err = "If pmfile size == 0 pmfile must exist prior to "
+                        "server start"; goto loaderr;
+                }
+            } else if (size < CONFIG_MIN_PM_FILE_SIZE) {
                 err = "Invalid pmfile size"; goto loaderr;
             }
             server.pm_file_size = size;
