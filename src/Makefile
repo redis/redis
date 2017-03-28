@@ -106,6 +106,7 @@ ifeq ($(NVML_DEBUG),yes)
 else
 	FINAL_LIBS+= ../deps/nvml/src/nondebug/libpmemobj.a ../deps/nvml/src/nondebug/libpmem.a
 endif
+	FINAL_LIBS+= -ldl
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
