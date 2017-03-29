@@ -517,7 +517,11 @@ void hsetCommand(client *c) {
 
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
-    update = hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+    robj* field = getDecodedObject(c->argv[2]);
+    robj* value = getDecodedObject(c->argv[3]);
+    update = hashTypeSet(o,field->ptr,value->ptr,HASH_SET_COPY);
+    decrRefCount(field);
+    decrRefCount(value);
     addReply(c, update ? shared.czero : shared.cone);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
