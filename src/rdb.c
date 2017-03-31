@@ -704,23 +704,24 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
-            dictEntry *de;
+            zskiplist *zsl = zs->zsl;
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,zsl->length)) == -1) return -1;
             nwritten += n;
 
-            while((de = dictNext(di)) != NULL) {
-                sds ele = dictGetKey(de);
-                double *score = dictGetVal(de);
+            zskiplistNode *zn = zsl->tail;
+            while (zn != NULL) {
+                sds ele = zn->ele;
+                double *score = &zn->score;
 
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1) return -1;
                 nwritten += n;
                 if ((n = rdbSaveBinaryDoubleValue(rdb,*score)) == -1) return -1;
                 nwritten += n;
+
+                zn = zn->backward;
             }
-            dictReleaseIterator(di);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
