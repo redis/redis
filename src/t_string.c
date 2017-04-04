@@ -400,7 +400,7 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new, *aux;
+    robj *o, *new;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
@@ -422,14 +422,6 @@ void incrbyfloatCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
     addReplyBulk(c,new);
-
-    /* Always replicate INCRBYFLOAT as a SET command with the final value
-     * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart. */
-    aux = createStringObject("SET",3);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
-    rewriteClientCommandArgument(c,2,new);
 }
 
 void appendCommand(client *c) {

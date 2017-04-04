@@ -628,17 +628,6 @@ void hincrbyfloatCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
-
-    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
-     * in order to make sure that differences in float pricision or formatting
-     * will not create differences in replicas or after an AOF restart. */
-    robj *aux, *newobj;
-    aux = createStringObject("HSET",4);
-    newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,aux);
-    decrRefCount(aux);
-    rewriteClientCommandArgument(c,3,newobj);
-    decrRefCount(newobj);
 }
 
 static void addHashFieldToReply(client *c, robj *o, sds field) {
