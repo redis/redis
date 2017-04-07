@@ -1315,9 +1315,9 @@ void slotToKeyUpdateKey(robj *key, int add) {
     indexed[1] = hashslot & 0xff;
     memcpy(indexed+2,key->ptr,keylen);
     if (add) {
-        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
+        raxInsert(server.cluster->slots_to_keys,indexed,keylen+2,NULL,NULL);
     } else {
-        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2);
+        raxRemove(server.cluster->slots_to_keys,indexed,keylen+2,NULL);
     }
     if (indexed != buf) zfree(indexed);
 }
@@ -1348,8 +1348,8 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     indexed[0] = (hashslot >> 8) & 0xff;
     indexed[1] = hashslot & 0xff;
     raxStart(&iter,server.cluster->slots_to_keys);
-    raxSeek(&iter,indexed,2,">=");
-    while(count-- && raxNext(&iter,NULL,0,NULL)) {
+    raxSeek(&iter,">=",indexed,2);
+    while(count-- && raxNext(&iter)) {
         if (iter.key[0] != indexed[0] || iter.key[1] != indexed[1]) break;
         keys[j++] = createStringObject((char*)iter.key+2,iter.key_len-2);
     }
@@ -1368,8 +1368,8 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     indexed[1] = hashslot & 0xff;
     raxStart(&iter,server.cluster->slots_to_keys);
     while(server.cluster->slots_keys_count[hashslot]) {
-        raxSeek(&iter,indexed,2,">=");
-        raxNext(&iter,NULL,0,NULL);
+        raxSeek(&iter,">=",indexed,2);
+        raxNext(&iter);
 
         robj *key = createStringObject((char*)iter.key+2,iter.key_len-2);
         dbDelete(&server.db[0],key);
