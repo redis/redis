@@ -402,6 +402,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_PROPAGATE)
 
+#define RLIMIT_DECR_STEP    16
+
 /* Command propagation flags, see propagate() function */
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
