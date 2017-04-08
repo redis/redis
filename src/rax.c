@@ -186,10 +186,10 @@ raxNode *raxReallocForData(raxNode *n, void *data) {
 void raxSetData(raxNode *n, void *data) {
     n->iskey = 1;
     if (data != NULL) {
+        n->isnull = 0;
         void **ndata = (void**)
             ((char*)n+raxNodeCurrentLength(n)-sizeof(void*));
         memcpy(ndata,&data,sizeof(data));
-        n->isnull = 0;
     } else {
         n->isnull = 1;
     }
@@ -396,6 +396,7 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
                   position to 0 to signal this node represents
                   the searched key. */
     }
+    debugnode("Lookup stop node is",h);
     if (stopnode) *stopnode = h;
     if (plink) *plink = parentlink;
     if (splitpos && h->iscompr) *splitpos = j;
@@ -424,18 +425,21 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
      * our key. We have just to reallocate the node and make space for the
      * data pointer. */
     if (i == len && (!h->iscompr || j == 0 /* not in the middle if j is 0 */)) {
+        debugf("### Insert: node representing key exists\n");
+        if (!h->iskey || h->isnull) {
+            h = raxReallocForData(h,data);
+            if (h) memcpy(parentlink,&h,sizeof(h));
+        }
+        if (h == NULL) {
+            errno = ENOMEM;
+            return 0;
+        }
         if (h->iskey) {
             if (old) *old = raxGetData(h);
             raxSetData(h,data);
             errno = 0;
             return 0; /* Element already exists. */
         }
-        h = raxReallocForData(h,data);
-        if (h == NULL) {
-            errno = ENOMEM;
-            return 0;
-        }
-        memcpy(parentlink,&h,sizeof(h));
         raxSetData(h,data);
         rax->numele++;
         return 1; /* Element inserted. */
@@ -734,9 +738,7 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     }
 
     /* We walked the radix tree as far as we could, but still there are left
-     * chars in our string. We need to insert the missing nodes.
-     * Note: while loop never entered if the node was split by ALGO2,
-     * since i == len. */
+     * chars in our string. We need to insert the missing nodes. */
     while(i < len) {
         raxNode *child;
 
@@ -1091,6 +1093,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 /* This is the core of raxFree(): performs a depth-first scan of the
  * tree and releases all the nodes found. */
 void raxRecursiveFree(rax *rax, raxNode *n) {
+    debugnode("free traversing",n);
     int numchildren = n->iscompr ? 1 : n->size;
     raxNode **cp = raxNodeLastChildPtr(n);
     while(numchildren--) {
