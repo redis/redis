@@ -3236,6 +3236,9 @@ void moduleHandleBlockedClients(void) {
         if (bc->privdata && bc->free_privdata)
             bc->free_privdata(bc->privdata);
         if (c != NULL) unblockClient(c);
+        /* Free 'bc' only after unblocking the client, since it is
+         * referenced in the client blocking context, and must be valid
+         * when calling unblockClient(). */
         zfree(bc);
 
         /* Lock again before to iterate the loop. */
