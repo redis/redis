@@ -413,8 +413,6 @@ size_t zmalloc_get_memory_size(void) {
     if (sysctl(mib, 2, &size, &len, NULL, 0) == 0)
         return (size_t)size;
     return 0L;          /* Failed? */
-#endif /* sysctl and sysconf variants */
-
 #else
     return 0L;          /* Unknown OS. */
 #endif
