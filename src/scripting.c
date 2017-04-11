@@ -900,7 +900,6 @@ void scriptingInit(int setup) {
         server.lua_caller = NULL;
         server.lua_timedout = 0;
         server.lua_always_replicate_commands = 0; /* Only DEBUG can change it.*/
-        server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
         ldbInit();
     }
 
