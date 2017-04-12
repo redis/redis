@@ -1027,6 +1027,13 @@ void resetClient(client *c) {
     }
 }
 
+/* Like processMultibulkBuffer(), but for the inline protocol instead of RESP,
+ * this function consumes the client query buffer and creates a command ready
+ * to be executed inside the client structure. Returns C_OK if the command
+ * is ready to be executed, or C_ERR if there is still protocol to read to
+ * have a well formed command. The function also returns C_ERR when there is
+ * a protocol error: in such a case the client structure is setup to reply
+ * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
@@ -1119,6 +1126,17 @@ static void setProtocolError(const char *errstr, client *c, int pos) {
     sdsrange(c->querybuf,pos,-1);
 }
 
+/* Process the query buffer for client 'c', setting up the client argument
+ * vector for command execution. Returns C_OK if after running the function
+ * the client has a well-formed ready to be processed command, otherwise
+ * C_ERR if there is still to read more buffer to get the full command.
+ * The function also returns C_ERR when there is a protocol error: in such a
+ * case the client structure is setup to reply with the error and close
+ * the connection.
+ *
+ * This function is called if processInputBuffer() detects that the next
+ * command is in RESP format, so the first byte in the command is found
+ * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int pos = 0, ok;
@@ -1253,10 +1271,14 @@ int processMultibulkBuffer(client *c) {
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return C_OK;
 
-    /* Still not read to process the command */
+    /* Still not ready to process the command */
     return C_ERR;
 }
 
+/* This function is called every time, in the client structure 'c', there is
+ * more query buffer to process, because we read more data from the socket
+ * or because a client was blocked and later reactivated, so there could be
+ * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     server.current_client = c;
     /* Keep processing while there is something in the input buffer */
