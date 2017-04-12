@@ -107,6 +107,7 @@ client *createClient(int fd) {
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
+    c->replquery = NULL;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
@@ -798,6 +799,10 @@ void freeClient(client *c) {
     sdsfree(c->querybuf);
     c->querybuf = NULL;
 
+    /* Free cached replication query */
+    sdsfree(c->replquery);
+    c->replquery = NULL;
+
     /* Deallocate structures used to block on blocking ops. */
     if (c->flags & CLIENT_BLOCKED) unblockClient(c);
     dictRelease(c->bpop.keys);
@@ -1027,6 +1032,11 @@ void resetClient(client *c) {
     }
 }
 
+void appendReplQueryIfNeeded(client *c, const char *s, size_t len) {
+    if (!(c->flags & CLIENT_MASTER) || c->replquery == NULL) return;
+    c->replquery = sdscatlen(c->replquery, s, len);
+}
+
 /* Like processMultibulkBuffer(), but for the inline protocol instead of RESP,
  * this function consumes the client query buffer and creates a command ready
  * to be executed inside the client structure. Returns C_OK if the command
@@ -1074,6 +1084,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
+    appendReplQueryIfNeeded(c,c->querybuf,querylen+2);
     sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
@@ -1172,6 +1183,7 @@ int processMultibulkBuffer(client *c) {
 
         pos = (newline-c->querybuf)+2;
         if (ll <= 0) {
+            appendReplQueryIfNeeded(c,c->querybuf,pos);
             sdsrange(c->querybuf,pos,-1);
             return C_OK;
         }
@@ -1225,6 +1237,7 @@ int processMultibulkBuffer(client *c) {
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
                  * avoiding a large copy of data. */
+                appendReplQueryIfNeeded(c,c->querybuf,pos);
                 sdsrange(c->querybuf,pos,-1);
                 pos = 0;
                 qblen = sdslen(c->querybuf);
@@ -1248,6 +1261,7 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 (signed) sdslen(c->querybuf) == c->bulklen+2)
             {
+                appendReplQueryIfNeeded(c,c->querybuf,c->bulklen+2);
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
@@ -1266,7 +1280,10 @@ int processMultibulkBuffer(client *c) {
     }
 
     /* Trim to pos */
-    if (pos) sdsrange(c->querybuf,pos,-1);
+    if (pos) {
+        appendReplQueryIfNeeded(c,c->querybuf,pos);
+        sdsrange(c->querybuf,pos,-1);
+    }
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return C_OK;
@@ -1324,6 +1341,15 @@ void processInputBuffer(client *c) {
              * into a slave, that may be the active client, to be freed. */
             if (server.current_client == NULL) break;
         }
+
+        if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
+            size_t querylen = sdslen(c->replquery);
+            c->reploff += querylen;
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->replquery,querylen);
+            sdsfree(c->replquery);
+            c->replquery = sdsempty();
+        }
     }
     server.current_client = NULL;
 }
@@ -1370,11 +1396,6 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) {
-        c->reploff += nread;
-        replicationFeedSlavesFromMasterStream(server.slaves,
-                c->querybuf+qblen,nread);
-    }
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
