@@ -52,8 +52,8 @@
 static struct config {
     aeEventLoop *el;
     const char *hostip;
-    int hostport;
     const char *hostsocket;
+    int hostport;
     int numclients;
     int liveclients;
     int requests;
