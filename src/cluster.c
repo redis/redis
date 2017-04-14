@@ -1363,8 +1363,9 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 clusterNodeFailureReportsCount(node) == 0)
             {
                 uint32_t pongtime = ntohl(g->pong_received);
-                if (pongtime > node->pong_received)
+                if (pongtime > node->pong_received) {
                     node->pong_received = pongtime;
+                }
             }
 
             /* If we already know this node, but it is not reachable, and
