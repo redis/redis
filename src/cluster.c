@@ -1362,7 +1362,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->ping_sent == 0 &&
                 clusterNodeFailureReportsCount(node) == 0)
             {
-                uint32_t pongtime = ntohl(g->pong_received);
+                mstime_t pongtime = ntohl(g->pong_received);
+                pongtime *= 1000; /* Convert back to milliseconds. */
                 if (pongtime > node->pong_received) {
                     node->pong_received = pongtime;
                 }
@@ -2353,8 +2354,8 @@ void clusterSendPing(clusterLink *link, int type) {
         freshnodes--;
         gossip = &(hdr->data.ping.gossip[gossipcount]);
         memcpy(gossip->nodename,this->name,CLUSTER_NAMELEN);
-        gossip->ping_sent = htonl(this->ping_sent);
-        gossip->pong_received = htonl(this->pong_received);
+        gossip->ping_sent = htonl(this->ping_sent/1000);
+        gossip->pong_received = htonl(this->pong_received/1000);
         memcpy(gossip->ip,this->ip,sizeof(this->ip));
         gossip->port = htons(this->port);
         gossip->cport = htons(this->cport);
