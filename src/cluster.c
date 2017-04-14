@@ -1354,6 +1354,19 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 }
             }
 
+            /* If from our POV the node is up (no failure flags are set),
+             * we have no pending ping for the node, nor we have failure
+             * reports for this node, update the last pong time with the
+             * one we see from the other nodes. */
+            if (!(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
+                node->ping_sent == 0 &&
+                clusterNodeFailureReportsCount(node) == 0)
+            {
+                uint32_t pongtime = ntohl(g->pong_received);
+                if (pongtime > node->pong_received)
+                    node->pong_received = pongtime;
+            }
+
             /* If we already know this node, but it is not reachable, and
              * we see a different address in the gossip section of a node that
              * can talk with this other node, update the address, disconnect
