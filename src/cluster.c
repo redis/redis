@@ -1365,7 +1365,14 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             {
                 mstime_t pongtime = ntohl(g->pong_received);
                 pongtime *= 1000; /* Convert back to milliseconds. */
-                if (pongtime > node->pong_received) {
+
+                /* Replace the pong time with the received one only if
+                 * it's greater than our view but is not in the future
+                 * (with 500 milliseconds tolerance) from the POV of our
+                 * clock. */
+                if (pongtime <= (server.mstime+500) &&
+                    pongtime > node->pong_received)
+                {
                     node->pong_received = pongtime;
                 }
             }
