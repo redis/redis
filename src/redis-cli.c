@@ -308,7 +308,7 @@ static void cliIntegrateHelp(void) {
             ch->params = sdscat(ch->params,"key ");
             args--;
         }
-        while(args--) ch->params = sdscat(ch->params,"arg ");
+        while(args-- > 1) ch->params = sdscat(ch->params,"arg ");
         if (entry->element[1]->integer < 0)
             ch->params = sdscat(ch->params,"...options...");
         ch->summary = "Help not available";
