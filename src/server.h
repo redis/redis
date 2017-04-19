@@ -895,8 +895,7 @@ typedef struct {
     long long timeout;
     long long lastuse;
     long sending_msgs;
-    long long send_total;
-    long long recv_total;
+    long long delivered_msgs;
     list *blocked_clients;
     void *batched_iterator;
 } asyncMigrationClient;

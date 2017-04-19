@@ -565,11 +565,10 @@ releaseClientFromAsyncMigration(client *c) {
     batchedObjectIterator *it = ac->batched_iterator;
 
     serverLog(LL_WARNING, "async_migration: closed connection %s:%d (DB=%d): "
-            "sending_msgs = %ld, send/recv = %lld/%lld, "
+            "sending_msgs = %ld, delivered_msgs = %lld, "
             "blocked_clients = %ld, batched_iterator = %ld"
             "timeout = %lld(ms), elapsed = %lld(ms)",
-            ac->host, ac->port, c->db->id,
-            ac->sending_msgs, ac->send_total, ac->recv_total,
+            ac->host, ac->port, c->db->id, ac->sending_msgs, ac->delivered_msgs,
             (long)listLength(ac->blocked_clients), (it != NULL) ? (long)listLength(it->iterator_list) : -1,
             ac->timeout, mstime() - ac->lastuse);
 
@@ -663,8 +662,7 @@ openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeou
     ac->timeout = timeout;
     ac->lastuse = mstime();
     ac->sending_msgs = 0;
-    ac->send_total = 0;
-    ac->recv_total = 0;
+    ac->delivered_msgs = 0;
     ac->blocked_clients = listCreate();
     ac->batched_iterator = NULL;
 
@@ -877,7 +875,6 @@ migrateAsyncCommand(client *c) {
     ac->lastuse = mstime();
     ac->batched_iterator = it;
     ac->sending_msgs = moreAsyncMigrationMessageMicroseconds(ac, 4, 500);
-    ac->send_total += ac->sending_msgs;
 
     testAsyncMigrationClientStatusOrBlock(c, NULL, 1);
 
