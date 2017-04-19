@@ -1078,6 +1078,7 @@ void replicationCreateMasterClient(int fd, int dbid) {
     server.master->flags |= CLIENT_MASTER;
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
+    server.master->read_reploff = server.master->reploff;
     memcpy(server.master->replid, server.master_replid,
         sizeof(server.master_replid));
     /* If master offset is set to -1, this master is old and is not
@@ -2117,6 +2118,12 @@ void replicationCacheMaster(client *c) {
 
     /* Unlink the client from the server structures. */
     unlinkClient(c);
+
+    /* Fix the master specific fields: we want to discard to non processed
+     * query buffers and non processed offsets. */
+    sdsclear(server.master->querybuf);
+    sdsclear(server.master->pending_querybuf);
+    server.master->read_reploff = server.master->reploff;
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */
