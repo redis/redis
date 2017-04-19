@@ -250,14 +250,17 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_LUA_DEBUG_SYNC (1<<26)  /* EVAL debugging without fork() */
 #define CLIENT_MODULE (1<<27) /* Non connected client used by some module. */
 
+#define CLIENT_ASYNC_MIGRATION (1<<28) /* This client is an asynchronous migration connection. */
+
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
-#define BLOCKED_NONE 0    /* Not blocked, no CLIENT_BLOCKED flag set. */
-#define BLOCKED_LIST 1    /* BLPOP & co. */
-#define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
-#define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
-#define BLOCKED_STREAM 4  /* XREAD. */
-#define BLOCKED_NUM 5     /* Number of blocked states. */
+#define BLOCKED_NONE 0              /* Not blocked, no CLIENT_BLOCKED flag set. */
+#define BLOCKED_LIST 1              /* BLPOP & co. */
+#define BLOCKED_WAIT 2              /* WAIT for synchronous replication. */
+#define BLOCKED_MODULE 3            /* Blocked by a loadable module. */
+#define BLOCKED_STREAM 4            /* XREAD. */
+#define BLOCKED_ASYNC_MIGRATION 5   /* Blocked by asynchronous migration. */
+#define BLOCKED_NUM 6               /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -734,6 +737,8 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
+
+    list *async_migration;  /* fence queue that client is blocking in */
 
     /* Response buffer */
     int bufpos;
@@ -1832,6 +1837,11 @@ void dictSdsDestructor(void *privdata, void *val);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
+
+/* Asynchronous Migration */
+void cleanupClientsForAsyncMigration();
+void releaseClientFromAsyncMigration(client *c);
+void unblockClientFromAsyncMigration(client *c);
 
 /* Commands prototypes */
 void authCommand(client *c);
