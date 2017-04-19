@@ -2120,10 +2120,12 @@ void replicationCacheMaster(client *c) {
     unlinkClient(c);
 
     /* Fix the master specific fields: we want to discard to non processed
-     * query buffers and non processed offsets. */
+     * query buffers and non processed offsets, including pending
+     * transactions. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
     server.master->read_reploff = server.master->reploff;
+    if (c->flags & CLIENT_MULTI) discardTransaction(c);
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */
