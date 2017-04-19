@@ -887,6 +887,18 @@ struct clusterState;
 #define CHILD_INFO_TYPE_RDB 0
 #define CHILD_INFO_TYPE_AOF 1
 
+typedef struct {
+    client *c;
+    int used;
+    sds host;
+    int port;
+    long long timeout;
+    long long lastuse;
+    long sending_msgs;
+    void *batched_iter;
+    list *blocked_list;
+} asyncMigrationClient;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -936,6 +948,7 @@ struct redisServer {
     int clients_paused;         /* True if clients are currently paused */
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
+    asyncMigrationClient *async_migration_clients; /* MIGARTE-ASYNC cached clients */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */

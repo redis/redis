@@ -1865,6 +1865,12 @@ void initServer(void) {
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
+    server.async_migration_clients = zmalloc(sizeof(asyncMigrationClient) * server.dbnum);
+    for (j = 0; j < server.dbnum; j ++) {
+        asyncMigrationClient *ac = server.async_migration_clients + j;
+        memset(ac, 0, sizeof(*ac));
+    }
+
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
