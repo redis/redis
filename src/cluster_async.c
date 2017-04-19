@@ -142,19 +142,23 @@ numberOfRestoreCommandsFromObject(robj *val, long long maxbulks) {
         }
         break;
     }
+
+    /* 1 x RESTORE-PAYLOAD */
     if (numbulks <= maxbulks) {
         return 1;
     }
-    return (numbulks + maxbulks - 1) / maxbulks;
+
+    /* n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL */
+    return 1 + (numbulks + maxbulks - 1) / maxbulks;
 }
 
 static long
 estimateNumberOfRestoreCommands(redisDb *db, robj *key, long long maxbulks) {
     robj *val = lookupKeyWrite(db, key);
-    if (val != NULL) {
-        return numberOfRestoreCommandsFromObject(val, maxbulks);
+    if (val == NULL) {
+        return 0;
     }
-    return 0;
+    return 1 + numberOfRestoreCommandsFromObject(val, maxbulks);
 }
 
 static asyncMigrationClient *getAsyncMigrationClient(int db);
@@ -206,7 +210,7 @@ singleObjectIteratorNextStagePrepare(client *c, singleObjectIterator *it, unsign
     } while(0);
 
     long n = numberOfRestoreCommandsFromObject(val, maxbulks);
-    if (n >= 2) {
+    if (n != 1) {
         it->stage = STAGE_CHUNKED;
     } else {
         it->stage = STAGE_PAYLOAD;
@@ -428,6 +432,87 @@ singleObjectIteratorNext(client *c, singleObjectIterator *it,
     default:
         serverPanic("invalid stage=%d of singleObjectIterator", it->stage);
     }
+}
+
+/* ============================ Iterators: batchedObjectIterator =========================== */
+
+typedef struct {
+    long long timeout;
+    long long maxbulks;
+    long long maxbytes;
+    dict *keys;
+    list *iterator_list;
+    list *released_keys;
+    long estimate_msgs;
+} batchedObjectIterator;
+
+static batchedObjectIterator *
+createBatchedObjectIterator(long long timeout, unsigned int maxbulks, unsigned int maxbytes) {
+    batchedObjectIterator *it = zmalloc(sizeof(batchedObjectIterator));
+    it->timeout = timeout;
+    it->maxbulks = maxbulks;
+    it->maxbytes = maxbytes;
+    it->keys = dictCreate(&setDictType, NULL);
+    it->iterator_list = listCreate();
+    listSetFreeMethod(it->iterator_list, freeSingleObjectIteratorVoid);
+    it->released_keys = listCreate();
+    listSetFreeMethod(it->released_keys, decrRefCountVoid);
+    it->estimate_msgs = 0;
+    return it;
+}
+
+static void
+freeBatchedObjectIterator(batchedObjectIterator *it) {
+    dictRelease(it->keys);
+    listRelease(it->iterator_list);
+    listRelease(it->released_keys);
+    zfree(it);
+}
+
+static int
+batchedObjectIteratorHasNext(batchedObjectIterator *it) {
+    list *ll = it->iterator_list;
+    while (listLength(ll) != 0) {
+        listNode *head = listFirst(ll);
+        singleObjectIterator *sp = listNodeValue(head);
+        if (singleObjectIteratorHasNext(sp)) {
+            return 1;
+        }
+        if (sp->val != NULL) {
+            incrRefCount(sp->key);
+            listAddNodeTail(it->released_keys, sp->key);
+        }
+        listDelNode(ll, head);
+    }
+    return 0;
+}
+
+static int
+batchedObjectIteratorNext(client *c, batchedObjectIterator *it) {
+    list *ll = it->iterator_list;
+    if (listLength(ll) != 0) {
+        listNode *head = listFirst(ll);
+        singleObjectIterator *sp = listNodeValue(head);
+        return singleObjectIteratorNext(c, sp, it->timeout, it->maxbulks, it->maxbytes);
+    }
+    return 0;
+}
+
+static int
+batchedObjectIteratorContains(batchedObjectIterator *it, robj *key) {
+    return dictFind(it->keys, key->ptr) != NULL;
+}
+
+static int
+batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it, robj *key) {
+    if (dictFind(it->keys, key->ptr) != NULL) {
+        return 0;
+    }
+    dictAdd(it->keys, sdsdup(key->ptr), NULL);
+
+    listAddNodeTail(it->iterator_list, createSingleObjectIterator(key));
+    it->estimate_msgs += estimateNumberOfRestoreCommands(db, key, it->maxbulks);
+    return 1;
 }
 
 /* ============================ Clients for Asynchronous Migration ========================= */
