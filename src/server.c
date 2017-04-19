@@ -309,7 +309,15 @@ struct redisCommand redisCommandTable[] = {
     {"xread",xreadCommand,-3,"rs",0,xreadGetKeys,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
+    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0},
+    {"migrate-async",migrateAsyncCommand,-7,"ws",0,migrateAsyncGetKeys,0,0,0,0,0},
+    {"migrate-async-dump",migrateAsyncDumpCommand,-4,"r",0,NULL,0,0,0,0,0},
+    {"migrate-async-fence",migrateAsyncFenceCommand,0,"rs",0,NULL,0,0,0,0,0},
+    {"migrate-async-cancel",migrateAsyncCancelCommand,0,"F",0,NULL,0,0,0,0,0},
+    {"migrate-async-status",migrateAsyncStatusCommand,0,"F",0,NULL,0,0,0,0,0},
+    {"restore-async",restoreAsyncCommand,-2,"wm",0,NULL,0,0,0,0,0},
+    {"restore-async-auth",restoreAsyncAuthCommand,2,"F",0,NULL,0,0,0,0,0},
+    {"restore-async-ack",restoreAsyncAckCommand,3,"w",0,NULL,0,0,0,0,0},
 };
 
 /*============================ Utility functions ============================ */
@@ -2381,7 +2389,9 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (server.requirepass && !c->authenticated
+            && c->cmd->proc != authCommand
+            && c->cmd->proc != restoreAsyncAuthCommand)
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
