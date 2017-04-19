@@ -738,7 +738,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
 
-    list *async_migration;  /* fence queue that client is blocking in */
+    list *migration_fence;  /* fence queue that client is blocking in */
 
     /* Response buffer */
     int bufpos;
@@ -897,8 +897,8 @@ typedef struct {
     long sending_msgs;
     long long send_total;
     long long recv_total;
-    void *batched_iter;
-    list *blocked_list;
+    list *blocked_clients;
+    void *batched_iterator;
 } asyncMigrationClient;
 
 struct redisServer {

@@ -522,20 +522,81 @@ getAsyncMigrationClient(int db) {
     return &server.async_migration_clients[db];
 }
 
+static void
+notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
+    batchedObjectIterator *it = ac->batched_iterator;
+    list *ll = ac->blocked_clients;
+    while (listLength(ll) != 0) {
+        listNode *head = listFirst(ll);
+        client *c = listNodeValue(head);
+        serverAssert(c->migration_fence == ll);
+
+        if (errmsg != NULL) {
+            addReplyError(c, errmsg);
+        } else {
+            addReplyLongLong(c, (it != NULL) ? listLength(it->released_keys) : -1);
+        }
+        listDelNode(ll, head);
+
+        c->migration_fence = NULL;
+        unblockClient(c);
+    }
+}
+
+void
+unblockClientFromAsyncMigration(client *c) {
+    list *ll = c->migration_fence;
+    if (ll != NULL) {
+        listNode *node = listSearchKey(ll, c);
+        serverAssert(node != NULL);
+        listDelNode(ll, node);
+    }
+}
+
+void
+releaseClientFromAsyncMigration(client *c) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    serverAssert(ac->c == c);
+
+    batchedObjectIterator *it = ac->batched_iterator;
+
+    serverLog(LL_WARNING, "async_migration: unlink client %s:%d (DB=%d): "
+            "sending_msgs = %ld, send_total = %lld, recv_total = %lld, "
+            "blocked_clients = %ld, batched_iterator = %ld"
+            "timeout = %lld(ms), elapsed = %lld(ms) (connection lost)",
+            ac->host, ac->port, c->db->id, ac->sending_msgs, ac->send_total, ac->recv_total,
+            (long)listLength(ac->blocked_clients), it != NULL ? (long)listLength(it->iterator_list) : -1,
+            ac->timeout, mstime() - ac->lastuse);
+
+    notifyAsyncMigrationClient(ac, "interrupted: connection lost");
+
+    sdsfree(ac->host);
+    if (it != NULL) {
+        freeBatchedObjectIterator(it);
+    }
+    serverAssert(listLength(ac->blocked_clients) == 0);
+    listRelease(ac->blocked_clients);
+
+    c->flags &= ~CLIENT_ASYNC_MIGRATION;
+
+    memset(ac, 0, sizeof(*ac));
+}
+
+static int
+closeAsyncMigartionClientWithError(int db, const char *errmsg) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(db);
+    if (ac->c != NULL) {
+        notifyAsyncMigrationClient(ac, errmsg);
+        freeClient(ac->c);
+        return 1;
+    }
+    return 0;
+}
+
 /* ============================ TODO == TODO == TODO ======================================= */
 
 void cleanupClientsForAsyncMigration() {
     /* TODO */
-}
-
-void releaseClientFromAsyncMigration(client *c) {
-    /* TODO */
-    (void)c;
-}
-
-void unblockClientFromAsyncMigration(client *c) {
-    /* TODO */
-    (void)c;
 }
 
 int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
