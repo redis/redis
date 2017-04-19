@@ -314,9 +314,10 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
     list *ll = listCreate();
     listSetFreeMethod(ll, decrRefCountVoid);
 
-    long long total = 0, len = 0, more = 1;
+    long long hint = 0, len = 0, more = 1;
 
     if (val->type == OBJ_LIST) {
+        hint = listTypeLength(val);
         listTypeIterator *li = listTypeInitIterator(val, it->lindex, LIST_TAIL);
         do {
             listTypeEntry entry;
@@ -337,10 +338,10 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
             }
         } while (more && listLength(ll) < maxbulks && len < maxbytes);
         listTypeReleaseIterator(li);
-        total = listTypeLength(val);
     }
 
     if (val->type == OBJ_ZSET) {
+        hint = zsetLength(val);
         zset *zs = val->ptr;
         long long rank = (long long)zsetLength(val) - it->zindex;
         zskiplistNode *node = (rank >= 1) ? zslGetElementByRank(zs->zsl, rank) : NULL;
@@ -361,7 +362,6 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
                 more = 0;
             }
         } while (more && listLength(ll) < maxbulks && len < maxbytes);
-        total = zsetLength(val);
     }
 
     if (val->type == OBJ_HASH || val->type == OBJ_SET) {
@@ -370,6 +370,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
             loop = 100;
         }
         dict *ht = val->ptr;
+        hint = dictSize(ht);
         void *pd[] = {ll, val, &len};
         do {
             it->cursor = dictScan(ht, it->cursor, singleObjectIteratorScanCallback, NULL, pd);
@@ -377,7 +378,6 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
                 more = 0;
             }
         } while (more && listLength(ll) < maxbulks && len < maxbytes && (-- loop) >= 0);
-        total = dictSize(ht);
     }
 
     int sending_msgs = 0;
@@ -389,7 +389,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
         addReplyBulkCString(c, type);
         addReplyBulk(c, key);
         addReplyBulkLongLong(c, ttl);
-        addReplyBulkLongLong(c, total);
+        addReplyBulkLongLong(c, hint);
 
         while (listLength(ll) != 0) {
             listNode *head = listFirst(ll);
@@ -768,6 +768,34 @@ migrateAsyncDumpCommand(client *c) {
 }
 
 /* ============================ Command: MIGRATE-ASNYC ===================================== */
+
+static unsigned int
+getAsyncMigrationClientBufferLimit(unsigned int maxbytes) {
+    clientBufferLimitsConfig *p = &server.client_obuf_limits[CLIENT_TYPE_NORMAL];
+    if (p->soft_limit_bytes != 0 && p->soft_limit_bytes < maxbytes) {
+        maxbytes = p->soft_limit_bytes;
+    }
+    if (p->hard_limit_bytes != 0 && p->hard_limit_bytes < maxbytes) {
+        maxbytes = p->hard_limit_bytes;
+    }
+    return maxbytes;
+}
+
+static long
+genAsyncMigrationMessageMicroseconds(asyncMigrationClient *ac, long atleast, long long usecs) {
+    batchedObjectIterator *it = ac->batched_iterator;
+    long long deadline = ustime() + usecs;
+    long msgs = 0;
+    while (batchedObjectIteratorHasNext(it)) {
+        if ((long long)getClientOutputBufferMemoryUsage(ac->c) >= it->maxbytes) {
+            return msgs;
+        }
+        if ((msgs += batchedObjectIteratorNext(ac->c, it)) >= atleast && deadline <= ustime()) {
+            return msgs;
+        }
+    }
+    return msgs;
+}
 
 /* ============================ TODO == TODO == TODO ======================================= */
 
