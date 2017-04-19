@@ -709,7 +709,7 @@ cleanupClientsForAsyncMigration() {
             continue;
         }
         batchedObjectIterator *it = ac->batched_iterator;
-        long long timeout = (it != NULL) ? ac->timeout : 1000LL * 60;
+        long long timeout = (it != NULL) ? ac->timeout : 1000 * 60;
         if (mstime() - ac->lastuse <= timeout) {
             continue;
         }
@@ -717,6 +717,57 @@ cleanupClientsForAsyncMigration() {
                 "interrupted: migration timeout" : "interrupted: idle timeout");
     }
 }
+
+/* ============================ Command: MIGRATE-ASNYC-DUMP ================================ */
+
+/* *
+ * MGRTONE-ASYNC-DUMP $timeout $maxbulks $key1 [$key2 ...]
+ * */
+void
+migrateAsyncDumpCommand(client *c) {
+    if (c->argc <= 3) {
+        addReplyError(c, "wrong number of arguments for MGRTONE-ASYNC-DUMP");
+        return;
+    }
+
+    long long timeout;
+    if (getLongLongFromObject(c->argv[1], &timeout) != C_OK ||
+            !(timeout >= 0 && timeout <= INT_MAX)) {
+        addReplyErrorFormat(c, "invalid value of timeout (%s)",
+                (char *)c->argv[1]->ptr);
+        return;
+    }
+    if (timeout == 0) {
+        timeout = 1000 * 10;
+    }
+
+    long long maxbulks;
+    if (getLongLongFromObject(c->argv[2], &maxbulks) != C_OK ||
+            !(maxbulks >= 0 && maxbulks <= INT_MAX)) {
+        addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
+                (char *)c->argv[2]->ptr);
+        return;
+    }
+    if (maxbulks == 0) {
+        maxbulks = 200;
+    }
+
+    batchedObjectIterator *it = createBatchedObjectIterator(timeout, maxbulks, INT_MAX);
+    for (int i = 3; i < c->argc; i ++) {
+        batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
+    }
+
+    void *ptr = addDeferredMultiBulkLength(c);
+    int total = 0;
+    while (batchedObjectIteratorHasNext(it)) {
+        total += batchedObjectIteratorNext(c, it);
+    }
+    setDeferredMultiBulkLength(c, ptr, total);
+
+    freeBatchedObjectIterator(it);
+}
+
+/* ============================ Command: MIGRATE-ASNYC ===================================== */
 
 /* ============================ TODO == TODO == TODO ======================================= */
 
@@ -730,11 +781,6 @@ int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *n
 }
 
 void migrateAsyncCommand(client *c) {
-    /* TODO */
-    (void)c;
-}
-
-void migrateAsyncDumpCommand(client *c) {
     /* TODO */
     (void)c;
 }
