@@ -311,11 +311,10 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
         serverPanic("invalid object.type=%d of singleObjectIterator", val->type);
     }
 
-    int more = 1;
     list *ll = listCreate();
     listSetFreeMethod(ll, decrRefCountVoid);
 
-    long long total = 0, len = 0;
+    long long total = 0, len = 0, more = 1;
 
     if (val->type == OBJ_LIST) {
         listTypeIterator *li = listTypeInitIterator(val, it->lindex, LIST_TAIL);
@@ -340,6 +339,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
         listTypeReleaseIterator(li);
         total = listTypeLength(val);
     }
+
     if (val->type == OBJ_ZSET) {
         zset *zs = val->ptr;
         long long rank = (long long)zsetLength(val) - it->zindex;
@@ -363,6 +363,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
         } while (more && listLength(ll) < maxbulks && len < maxbytes);
         total = zsetLength(val);
     }
+
     if (val->type == OBJ_HASH || val->type == OBJ_SET) {
         int loop = maxbulks * 10;
         if (loop < 100) {
@@ -546,11 +547,14 @@ notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
 void
 unblockClientFromAsyncMigration(client *c) {
     list *ll = c->migration_fence;
-    if (ll != NULL) {
-        listNode *node = listSearchKey(ll, c);
-        serverAssert(node != NULL);
-        listDelNode(ll, node);
+    if (ll == NULL) {
+        return;
     }
+    listNode *node = listSearchKey(ll, c);
+    serverAssert(node != NULL);
+
+    c->migration_fence = NULL;
+    listDelNode(ll, node);
 }
 
 void
@@ -560,21 +564,21 @@ releaseClientFromAsyncMigration(client *c) {
 
     batchedObjectIterator *it = ac->batched_iterator;
 
-    serverLog(LL_WARNING, "async_migration: unlink client %s:%d (DB=%d): "
-            "sending_msgs = %ld, send_total = %lld, recv_total = %lld, "
+    serverLog(LL_WARNING, "async_migration: closed connection %s:%d (DB=%d): "
+            "sending_msgs = %ld, send/recv = %lld/%lld, "
             "blocked_clients = %ld, batched_iterator = %ld"
-            "timeout = %lld(ms), elapsed = %lld(ms) (connection lost)",
-            ac->host, ac->port, c->db->id, ac->sending_msgs, ac->send_total, ac->recv_total,
-            (long)listLength(ac->blocked_clients), it != NULL ? (long)listLength(it->iterator_list) : -1,
+            "timeout = %lld(ms), elapsed = %lld(ms)",
+            ac->host, ac->port, c->db->id,
+            ac->sending_msgs, ac->send_total, ac->recv_total,
+            (long)listLength(ac->blocked_clients), (it != NULL) ? (long)listLength(it->iterator_list) : -1,
             ac->timeout, mstime() - ac->lastuse);
 
-    notifyAsyncMigrationClient(ac, "interrupted: connection lost");
+    notifyAsyncMigrationClient(ac, "interrupted: closed connection");
 
     sdsfree(ac->host);
     if (it != NULL) {
         freeBatchedObjectIterator(it);
     }
-    serverAssert(listLength(ac->blocked_clients) == 0);
     listRelease(ac->blocked_clients);
 
     c->flags &= ~CLIENT_ASYNC_MIGRATION;
@@ -583,21 +587,138 @@ releaseClientFromAsyncMigration(client *c) {
 }
 
 static int
-closeAsyncMigartionClientWithError(int db, const char *errmsg) {
+closeAsyncMigartionClientErrorFormat(int db, const char *fmt, ...) {
     asyncMigrationClient *ac = getAsyncMigrationClient(db);
-    if (ac->c != NULL) {
-        notifyAsyncMigrationClient(ac, errmsg);
-        freeClient(ac->c);
+    if (ac->c == NULL) {
+        return 0;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
+    va_end(ap);
+
+    serverLog(LL_WARNING, "async_migration: closed connection %s:%d (DB=%d), (%s)",
+            ac->host, ac->port, db, errmsg);
+
+    notifyAsyncMigrationClient(ac, errmsg);
+    freeClient(ac->c);
+
+    sdsfree(errmsg);
+
+    serverAssert(ac->c == NULL && ac->batched_iterator == NULL);
+    return 1;
+}
+
+static asyncMigrationClient *
+openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeout) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(db);
+    if (ac->c != NULL && reuse) {
+        if (ac->port == port && !strcmp(ac->host, host)) {
+            return ac;
+        }
+    }
+
+    int fd = anetTcpNonBlockConnect(server.neterr, host, port);
+    if (fd == -1) {
+        serverLog(LL_WARNING, "async_migration: connect to %s:%d (DB=%d) failed, %s",
+            host, port, db, server.neterr);
+        return NULL;
+    }
+
+    anetEnableTcpNoDelay(server.neterr, fd);
+
+    int wait = timeout;
+    if (wait > 10) {
+        wait = 10;
+    }
+    if ((aeWait(fd, AE_WRITABLE, wait) & AE_WRITABLE) == 0) {
+        serverLog(LL_WARNING, "async_migration: aeWait %s:%d (DB=%d) failed, io error or timeout",
+                host, port, db);
+        close(fd);
+        return NULL;
+    }
+
+    client *c = createClient(fd);
+    if (c == NULL) {
+        serverLog(LL_WARNING, "async_migration: createClient %s:%d (DB=%d) failed, %s",
+                host, port, db, server.neterr);
+        return NULL;
+    }
+    if (selectDb(c, db) != C_OK) {
+        serverLog(LL_WARNING, "async_migration: selectDb %s:%d (DB=%d) failed",
+                host, port, db);
+        freeClient(c);
+        return NULL;
+    }
+    closeAsyncMigartionClientErrorFormat(db, "interrupted: replaced by %s:%d reuse = %d",
+            host, port, reuse);
+
+    c->flags |= CLIENT_ASYNC_MIGRATION;
+    c->authenticated = 1;
+
+    ac->c = c;
+    ac->init = 0;
+    ac->host = sdsdup(host);
+    ac->port = port;
+    ac->timeout = timeout;
+    ac->lastuse = mstime();
+    ac->sending_msgs = 0;
+    ac->send_total = 0;
+    ac->recv_total = 0;
+    ac->blocked_clients = listCreate();
+    ac->batched_iterator = NULL;
+
+    serverLog(LL_WARNING, "async_migration: connect to %s:%d (DB=%d) OK",
+            host, port, db);
+    return ac;
+}
+
+static int
+testAsyncMigrationClient(client *c, robj *key, int wait) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    if (ac->c == NULL) {
+        return 0;
+    }
+
+    batchedObjectIterator *it = ac->batched_iterator;
+    if (it == NULL) {
+        return 0;
+    }
+    if (key != NULL && !batchedObjectIteratorContains(it, key)) {
+        return 0;
+    }
+    if (!wait) {
         return 1;
     }
-    return 0;
+    serverAssert(c->migration_fence == NULL);
+
+    list *ll = ac->blocked_clients;
+
+    c->migration_fence = ll;
+    listAddNodeTail(ll, c);
+
+    blockClient(c, BLOCKED_ASYNC_MIGRATION);
+    return 1;
+}
+
+void
+cleanupClientsForAsyncMigration() {
+    for (int db = 0; db < server.dbnum; db ++) {
+        asyncMigrationClient *ac = getAsyncMigrationClient(db);
+        if (ac->c == NULL) {
+            continue;
+        }
+        batchedObjectIterator *it = ac->batched_iterator;
+        long long timeout = (it != NULL) ? ac->timeout : 1000LL * 60;
+        if (mstime() - ac->lastuse <= timeout) {
+            continue;
+        }
+        closeAsyncMigartionClientErrorFormat(db, (it != NULL) ?
+                "interrupted: migration timeout" : "interrupted: idle timeout");
+    }
 }
 
 /* ============================ TODO == TODO == TODO ======================================= */
-
-void cleanupClientsForAsyncMigration() {
-    /* TODO */
-}
 
 int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     /* TODO */
