@@ -721,7 +721,7 @@ cleanupClientsForAsyncMigration() {
 /* ============================ Command: MIGRATE-ASNYC-DUMP ================================ */
 
 /* *
- * MGRTONE-ASYNC-DUMP $timeout $maxbulks $key1 [$key2 ...]
+ * MIGRATE-ASYNC-DUMP $timeout $maxbulks $key1 [$key2 ...]
  * */
 void
 migrateAsyncDumpCommand(client *c) {
