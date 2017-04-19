@@ -183,7 +183,7 @@ singleObjectIteratorNextStagePrepare(client *c, singleObjectIterator *it, unsign
         if (ac->init == 0) {
             ac->init = 1;
             if (server.requirepass != NULL) {
-                /* RESTORE-ASYNC-AUTH $password */
+                /* RESTORE-ASYNC-AUTH $passwd */
                 addReplyMultiBulkLen(c, 2);
                 addReplyBulkCString(c, "RESTORE-ASYNC-AUTH");
                 addReplyBulkCString(c, server.requirepass);
@@ -887,6 +887,57 @@ migrateAsyncCommand(client *c) {
     freeBatchedObjectIterator(it);
 }
 
+/* ============================ Command: RESTORE-ASYNC-AUTH ================================ */
+
+static void
+asyncMigrationReplyAckString(client *c, const char *msg) {
+    do {
+        /* SLOTSRESTORE-ASYNC-ACK $errno $message */
+        addReplyMultiBulkLen(c, 3);
+        addReplyBulkCString(c, "RESTORE-ASYNC-ACK");
+        addReplyBulkLongLong(c, 0);
+        addReplyBulkCString(c, msg);
+    } while (0);
+}
+
+static void
+asyncMigrationReplyAckErrorFormat(client *c, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
+    va_end(ap);
+
+    do {
+        /* SLOTSRESTORE-ASYNC-ACK $errno $message */
+        addReplyMultiBulkLen(c, 3);
+        addReplyBulkCString(c, "RESTORE-ASYNC-ACK");
+        addReplyBulkLongLong(c, 1);
+        addReplyBulkSds(c, errmsg);
+    } while (0);
+
+    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+}
+
+extern int time_independent_strcmp(const char *a, const char *b);
+
+/* *
+ * RESTORE-ASYNC-AUTH $passwd
+ * */
+void
+restoreAsyncAuthCommand(client *c) {
+    if (!server.requirepass) {
+        asyncMigrationReplyAckErrorFormat(c, "Client sent AUTH, but no password is set");
+        return;
+    }
+    if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
+        c->authenticated = 1;
+        asyncMigrationReplyAckString(c, "OK");
+    } else {
+        c->authenticated = 0;
+        asyncMigrationReplyAckErrorFormat(c, "invalid password");
+    }
+}
+
 /* ============================ TODO == TODO == TODO ======================================= */
 
 int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
@@ -923,11 +974,6 @@ int *restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *n
 }
 
 void restoreAsyncCommand(client *c) {
-    /* TODO */
-    (void)c;
-}
-
-void restoreAsyncAuthCommand(client *c) {
     /* TODO */
     (void)c;
 }
