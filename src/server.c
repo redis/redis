@@ -311,7 +311,7 @@ struct redisCommand redisCommandTable[] = {
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0},
     {"migrate-async",migrateAsyncCommand,-7,"ws",0,migrateAsyncGetKeys,0,0,0,0,0},
-    {"migrate-async-dump",migrateAsyncDumpCommand,-4,"r",0,NULL,0,0,0,0,0},
+    {"migrate-async-dump",migrateAsyncDumpCommand,-4,"rm",0,NULL,0,0,0,0,0},
     {"migrate-async-fence",migrateAsyncFenceCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"migrate-async-cancel",migrateAsyncCancelCommand,1,"F",0,NULL,0,0,0,0,0},
     {"migrate-async-status",migrateAsyncStatusCommand,1,"F",0,NULL,0,0,0,0,0},

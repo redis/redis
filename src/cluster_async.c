@@ -770,16 +770,11 @@ cleanupClientsForAsyncMigration() {
  * */
 void
 migrateAsyncDumpCommand(client *c) {
-    if (c->argc <= 3) {
-        addReplyError(c, "wrong number of arguments for MIGRATE-ASYNC-DUMP");
-        return;
-    }
-
     long long timeout;
     if (getLongLongFromObject(c->argv[1], &timeout) != C_OK ||
             !(timeout >= 0 && timeout <= INT_MAX)) {
         addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                (char *)c->argv[1]->ptr);
+                c->argv[1]->ptr);
         return;
     }
     if (timeout == 0) {
@@ -788,16 +783,18 @@ migrateAsyncDumpCommand(client *c) {
 
     long long maxbulks;
     if (getLongLongFromObject(c->argv[2], &maxbulks) != C_OK ||
-            !(maxbulks >= 0 && maxbulks <= INT_MAX)) {
+            !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                (char *)c->argv[2]->ptr);
+                c->argv[2]->ptr);
         return;
     }
     if (maxbulks == 0) {
         maxbulks = 200;
     }
 
-    batchedObjectIterator *it = createBatchedObjectIterator(timeout, maxbulks, INT_MAX);
+    long long maxbytes = INT_MAX / 2;
+
+    batchedObjectIterator *it = createBatchedObjectIterator(timeout, maxbulks, maxbytes);
     for (int i = 3; i < c->argc; i ++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
@@ -815,7 +812,7 @@ migrateAsyncDumpCommand(client *c) {
 /* ============================ Command: MIGRATE-ASNYC ===================================== */
 
 static unsigned int
-calcAsyncMigrationClientBufferLimit(unsigned int maxbytes) {
+asyncMigrationClientBufferLimit(unsigned int maxbytes) {
     clientBufferLimitsConfig *p = &server.client_obuf_limits[CLIENT_TYPE_NORMAL];
     if (p->soft_limit_bytes != 0 && p->soft_limit_bytes < maxbytes) {
         maxbytes = p->soft_limit_bytes;
@@ -826,20 +823,20 @@ calcAsyncMigrationClientBufferLimit(unsigned int maxbytes) {
     return maxbytes;
 }
 
-static long
-moreAsyncMigrationMessageMicroseconds(asyncMigrationClient *ac, long atleast, long long usecs) {
+static int
+asyncMigrationNextInMicroseconds(asyncMigrationClient *ac, int atleast, long long usecs) {
     batchedObjectIterator *it = ac->batched_iterator;
     long long deadline = ustime() + usecs;
-    long msgs = 0;
+    int sending_msgs = 0;
     while (batchedObjectIteratorHasNext(it)) {
-        if ((long long)getClientOutputBufferMemoryUsage(ac->c) >= it->maxbytes) {
-            return msgs;
+        if ((unsigned long)it->maxbytes <= getClientOutputBufferMemoryUsage(ac->c)) {
+            break;
         }
-        if ((msgs += batchedObjectIteratorNext(ac->c, it)) >= atleast && deadline <= ustime()) {
-            return msgs;
+        if ((sending_msgs += batchedObjectIteratorNext(ac->c, it)) >= atleast && deadline <= ustime()) {
+            break;
         }
     }
-    return msgs;
+    return sending_msgs;
 }
 
 /* *
@@ -847,21 +844,18 @@ moreAsyncMigrationMessageMicroseconds(asyncMigrationClient *ac, long atleast, lo
  * */
 void
 migrateAsyncCommand(client *c) {
-    if (c->argc <= 6) {
-        addReplyError(c, "wrong number of arguments for MIGRATE-ASYNC");
-        return;
-    }
     if (asyncMigrationClientStatusOrWait(c, 0) != 0) {
-        addReplyError(c, "the specified DB is being migrated");
+        addReplyError(c, "migration client is busy");
         return;
     }
 
     sds host = c->argv[1]->ptr;
+
     long long port;
     if (getLongLongFromObject(c->argv[2], &port) != C_OK ||
             !(port >= 1 && port < 65536)) {
         addReplyErrorFormat(c, "invalid value of port (%s)",
-                (char *)c->argv[2]->ptr);
+                c->argv[2]->ptr);
         return;
     }
 
@@ -869,7 +863,7 @@ migrateAsyncCommand(client *c) {
     if (getLongLongFromObject(c->argv[3], &timeout) != C_OK ||
             !(timeout >= 0 && timeout <= INT_MAX)) {
         addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                (char *)c->argv[3]->ptr);
+                c->argv[3]->ptr);
         return;
     }
     if (timeout == 0) {
@@ -878,9 +872,9 @@ migrateAsyncCommand(client *c) {
 
     long long maxbulks;
     if (getLongLongFromObject(c->argv[4], &maxbulks) != C_OK ||
-            !(maxbulks >= 0 && maxbulks <= INT_MAX)) {
+            !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                (char *)c->argv[4]->ptr);
+                c->argv[4]->ptr);
         return;
     }
     if (maxbulks == 0) {
@@ -892,22 +886,19 @@ migrateAsyncCommand(client *c) {
 
     long long maxbytes;
     if (getLongLongFromObject(c->argv[5], &maxbytes) != C_OK ||
-            !(maxbytes >= 0 && maxbytes <= INT_MAX)) {
+            !(maxbytes >= 0 && maxbytes <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbytes (%s)",
-                (char *)c->argv[5]->ptr);
+                c->argv[5]->ptr);
         return;
     }
     if (maxbytes == 0) {
         maxbytes = 1024 * 1024;
     }
-    if (maxbytes > INT_MAX / 2) {
-        maxbytes = INT_MAX / 2;
-    }
-    maxbytes = calcAsyncMigrationClientBufferLimit(maxbytes);
+    maxbytes = asyncMigrationClientBufferLimit(maxbytes);
 
-    asyncMigrationClient *ac = openAsyncMigrationClient(c->db->id, host, port, 1, timeout);
+    asyncMigrationClient *ac = asyncMigrationClientOpen(c->db->id, host, port, 1, timeout);
     if (ac == NULL) {
-        addReplyErrorFormat(c, "create client to %s:%d failed", host, (int)port);
+        addReplyErrorFormat(c, "connect to %s:%d failed", host, (int)port);
         return;
     }
     serverAssert(ac->sending_msgs == 0);
@@ -920,15 +911,15 @@ migrateAsyncCommand(client *c) {
 
     ac->timeout = timeout;
     ac->lastuse = mstime();
+    ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
     ac->batched_iterator = it;
-    ac->sending_msgs = moreAsyncMigrationMessageMicroseconds(ac, 4, 500);
 
-    testAsyncMigrationClientStatusOrBlock(c, NULL, 1);
+    asyncMigrationClientStatusOrWait(c, 1);
 
     if (ac->sending_msgs != 0) {
         return;
     }
-    notifyAsyncMigrationClient(ac, NULL);
+    asyncMigrationClientInterrupt(ac, NULL);
 
     ac->batched_iterator = NULL;
     freeBatchedObjectIterator(it);
@@ -939,7 +930,7 @@ migrateAsyncCommand(client *c) {
 static void
 asyncMigrationReplyAckString(client *c, const char *msg) {
     do {
-        /* SLOTSRESTORE-ASYNC-ACK $errno $message */
+        /* RESTORE-ASYNC-ACK $errno $message */
         addReplyMultiBulkLen(c, 3);
         addReplyBulkCString(c, "RESTORE-ASYNC-ACK");
         addReplyBulkLongLong(c, 0);
@@ -955,7 +946,7 @@ asyncMigrationReplyAckErrorFormat(client *c, const char *fmt, ...) {
     va_end(ap);
 
     do {
-        /* SLOTSRESTORE-ASYNC-ACK $errno $message */
+        /* RESTORE-ASYNC-ACK $errno $message */
         addReplyMultiBulkLen(c, 3);
         addReplyBulkCString(c, "RESTORE-ASYNC-ACK");
         addReplyBulkLongLong(c, 1);
