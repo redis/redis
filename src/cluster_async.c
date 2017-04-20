@@ -925,6 +925,27 @@ migrateAsyncCommand(client *c) {
     freeBatchedObjectIterator(it);
 }
 
+/* ============================ Command: MIGRATE-ASNYC-{FENCE/CANCEL/STATUS} =============== */
+
+/* *
+ * MIGRATE-ASYNC-FENCE
+ * */
+void
+migrateAsyncFenceCommand(client *c) {
+    int blocked = asyncMigrationClientStatusOrWait(c, 1);
+    if (blocked == 0) {
+        addReply(c, shared.ok);
+    }
+}
+
+/* *
+ * MIGRATE-ASYNC-CANCEL
+ * */
+void
+migrateAsyncCancelCommand(client *c) {
+    addReplyLongLong(c, asyncMigartionClientCancelErrorFormat(c->db->id, "interrupted: canceled"));
+}
+
 /* ============================ Command: RESTORE-ASYNC-AUTH ================================ */
 
 static void
@@ -987,17 +1008,7 @@ int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *n
     return NULL;
 }
 
-void migrateAsyncFenceCommand(client *c) {
-    /* TODO */
-    (void)c;
-}
-
 void migrateAsyncStatusCommand(client *c) {
-    /* TODO */
-    (void)c;
-}
-
-void migrateAsyncCancelCommand(client *c) {
     /* TODO */
     (void)c;
 }
