@@ -895,9 +895,8 @@ typedef struct {
     long long timeout;
     long long lastuse;
     long sending_msgs;
-    long long delivered_msgs;
-    list *blocked_clients;
-    void *batched_iterator;
+    list *bclients;
+    void *iterator;
 } asyncMigrationClient;
 
 struct redisServer {
