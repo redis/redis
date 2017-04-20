@@ -557,7 +557,7 @@ batchedObjectIteratorContains(batchedObjectIterator *it, robj *key) {
 
 static int
 batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it, robj *key) {
-    if (dictFind(it->keys, key->ptr) != NULL) {
+    if (batchedObjectIteratorContains(it, key)) {
         return 0;
     }
     dictAdd(it->keys, sdsdup(key->ptr), NULL);
@@ -575,7 +575,7 @@ getAsyncMigrationClient(int db) {
 }
 
 static void
-notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
+asyncMigrationClientInterrupt(asyncMigrationClient *ac, const char *errmsg) {
     batchedObjectIterator *it = ac->batched_iterator;
     list *ll = ac->blocked_clients;
     while (listLength(ll) != 0) {
@@ -588,9 +588,10 @@ notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
         } else {
             addReplyLongLong(c, (it != NULL) ? listLength(it->released_keys) : -1);
         }
-        listDelNode(ll, head);
 
         c->migration_waitq = NULL;
+        listDelNode(ll, head);
+
         unblockClient(c);
     }
 }
@@ -598,14 +599,13 @@ notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
 void
 unblockClientFromAsyncMigration(client *c) {
     list *ll = c->migration_waitq;
-    if (ll == NULL) {
-        return;
-    }
-    listNode *node = listSearchKey(ll, c);
-    serverAssert(node != NULL);
+    if (ll != NULL) {
+        listNode *node = listSearchKey(ll, c);
+        serverAssert(node != NULL);
 
-    c->migration_waitq = NULL;
-    listDelNode(ll, node);
+        c->migration_waitq = NULL;
+        listDelNode(ll, node);
+    }
 }
 
 void
@@ -615,7 +615,7 @@ releaseClientFromAsyncMigration(client *c) {
 
     batchedObjectIterator *it = ac->batched_iterator;
 
-    serverLog(LL_WARNING, "async_migration: closed connection %s:%d (DB=%d): "
+    serverLog(LL_WARNING, "async_migration: lost connection %s:%d (DB=%d): "
             "sending_msgs = %ld, delivered_msgs = %lld, "
             "blocked_clients = %ld, batched_iterator = %ld"
             "timeout = %lld(ms), elapsed = %lld(ms)",
@@ -623,7 +623,7 @@ releaseClientFromAsyncMigration(client *c) {
             (long)listLength(ac->blocked_clients), (it != NULL) ? (long)listLength(it->iterator_list) : -1,
             ac->timeout, mstime() - ac->lastuse);
 
-    notifyAsyncMigrationClient(ac, "interrupted: closed connection");
+    asyncMigrationClientInterrupt(ac, "interrupted: lost connection");
 
     sdsfree(ac->host);
     if (it != NULL) {
@@ -637,7 +637,7 @@ releaseClientFromAsyncMigration(client *c) {
 }
 
 static int
-closeAsyncMigartionClientErrorFormat(int db, const char *fmt, ...) {
+asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
     asyncMigrationClient *ac = getAsyncMigrationClient(db);
     if (ac->c == NULL) {
         return 0;
@@ -647,10 +647,10 @@ closeAsyncMigartionClientErrorFormat(int db, const char *fmt, ...) {
     sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
     va_end(ap);
 
-    serverLog(LL_WARNING, "async_migration: closed connection %s:%d (DB=%d), (%s)",
+    serverLog(LL_WARNING, "async_migration: canceled connection %s:%d (DB=%d) (%s)",
             ac->host, ac->port, db, errmsg);
 
-    notifyAsyncMigrationClient(ac, errmsg);
+    asyncMigrationClientInterrupt(ac, errmsg);
     freeClient(ac->c);
 
     sdsfree(errmsg);
@@ -660,7 +660,7 @@ closeAsyncMigartionClientErrorFormat(int db, const char *fmt, ...) {
 }
 
 static asyncMigrationClient *
-openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeout) {
+asyncMigrationClientOpen(int db, sds host, int port, int reuse, long long timeout) {
     asyncMigrationClient *ac = getAsyncMigrationClient(db);
     if (ac->c != NULL && reuse) {
         if (ac->port == port && !strcmp(ac->host, host)) {
@@ -670,19 +670,19 @@ openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeou
 
     int fd = anetTcpNonBlockConnect(server.neterr, host, port);
     if (fd == -1) {
-        serverLog(LL_WARNING, "async_migration: connect to %s:%d (DB=%d) failed, %s",
+        serverLog(LL_WARNING, "async_migration: anetTcpNonBlockConnect %s:%d (DB=%d) failed (%s)",
             host, port, db, server.neterr);
         return NULL;
     }
 
-    anetEnableTcpNoDelay(server.neterr, fd);
+    anetEnableTcpNoDelay(NULL, fd);
 
     int wait = timeout;
     if (wait > 10) {
         wait = 10;
     }
     if ((aeWait(fd, AE_WRITABLE, wait) & AE_WRITABLE) == 0) {
-        serverLog(LL_WARNING, "async_migration: aeWait %s:%d (DB=%d) failed, io error or timeout",
+        serverLog(LL_WARNING, "async_migration: aeWait %s:%d (DB=%d) failed (io error or timeout)",
                 host, port, db);
         close(fd);
         return NULL;
@@ -690,7 +690,7 @@ openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeou
 
     client *c = createClient(fd);
     if (c == NULL) {
-        serverLog(LL_WARNING, "async_migration: createClient %s:%d (DB=%d) failed, %s",
+        serverLog(LL_WARNING, "async_migration: createClient %s:%d (DB=%d) failed (%s)",
                 host, port, db, server.neterr);
         return NULL;
     }
@@ -700,7 +700,7 @@ openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeou
         freeClient(c);
         return NULL;
     }
-    closeAsyncMigartionClientErrorFormat(db, "interrupted: replaced by %s:%d reuse = %d",
+    asyncMigartionClientCancelErrorFormat(db, "interrupted: replaced by %s:%d (reuse=%d)",
             host, port, reuse);
 
     c->flags |= CLIENT_ASYNC_MIGRATION;
@@ -723,20 +723,16 @@ openAsyncMigrationClient(int db, sds host, int port, int reuse, long long timeou
 }
 
 static int
-testAsyncMigrationClientStatusOrBlock(client *c, robj *key, int wait) {
+asyncMigrationClientStatusOrWait(client *c, int block) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
     if (ac->c == NULL) {
         return 0;
     }
-
     batchedObjectIterator *it = ac->batched_iterator;
     if (it == NULL) {
         return 0;
     }
-    if (key != NULL && !batchedObjectIteratorContains(it, key)) {
-        return 0;
-    }
-    if (!wait) {
+    if (!block) {
         return 1;
     }
     serverAssert(c->migration_waitq == NULL);
@@ -762,7 +758,7 @@ cleanupClientsForAsyncMigration() {
         if (mstime() - ac->lastuse <= timeout) {
             continue;
         }
-        closeAsyncMigartionClientErrorFormat(db, (it != NULL) ?
+        asyncMigartionClientCancelErrorFormat(db, (it != NULL) ?
                 "interrupted: migration timeout" : "interrupted: idle timeout");
     }
 }
@@ -855,7 +851,7 @@ migrateAsyncCommand(client *c) {
         addReplyError(c, "wrong number of arguments for MIGRATE-ASYNC");
         return;
     }
-    if (testAsyncMigrationClientStatusOrBlock(c, NULL, 0) != 0) {
+    if (asyncMigrationClientStatusOrWait(c, 0) != 0) {
         addReplyError(c, "the specified DB is being migrated");
         return;
     }
