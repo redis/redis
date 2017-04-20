@@ -201,10 +201,10 @@ singleObjectIteratorNextStagePrepare(client *c, singleObjectIterator *it, unsign
     }
 
     do {
-        /* RESTORE-ASYNC remove $key */
+        /* RESTORE-ASYNC delete $key */
         addReplyMultiBulkLen(c, 3);
         addReplyBulkCString(c, "RESTORE-ASYNC");
-        addReplyBulkCString(c, "remove");
+        addReplyBulkCString(c, "delete");
         addReplyBulk(c, key);
         sending_msgs ++;
     } while(0);
@@ -360,7 +360,7 @@ singleObjectIteratorNextStageChunkedTypeZSet(singleObjectIterator *it,
 }
 
 static int
-singleObjectIteratorNextStageChunkedTypeHashOrSet(singleObjectIterator *it,
+singleObjectIteratorNextStageChunkedTypeHashOrDict(singleObjectIterator *it,
         list *ll, robj *val, long long *psize, unsigned int maxbulks, unsigned int maxbytes) {
     serverAssert(val->type == OBJ_HASH || val->type == OBJ_SET);
     serverAssert(val->encoding == OBJ_ENCODING_HT);
@@ -426,7 +426,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
                 &maxsize, maxbulks, maxbytes);
         break;
     case OBJ_HASH: case OBJ_SET:
-        done = singleObjectIteratorNextStageChunkedTypeHashOrSet(it, ll, val,
+        done = singleObjectIteratorNextStageChunkedTypeHashOrDict(it, ll, val,
                 &maxsize, maxbulks, maxbytes);
         break;
     }
@@ -723,7 +723,7 @@ asyncMigrationClientOpen(int db, sds host, int port, int reuse, long long timeou
 }
 
 static int
-asyncMigrationClientStatusOrWait(client *c, int block) {
+asyncMigrationClientStatusOrBlock(client *c, int block) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
     if (ac->c == NULL) {
         return 0;
@@ -844,8 +844,8 @@ asyncMigrationNextInMicroseconds(asyncMigrationClient *ac, int atleast, long lon
  * */
 void
 migrateAsyncCommand(client *c) {
-    if (asyncMigrationClientStatusOrWait(c, 0) != 0) {
-        addReplyError(c, "migration client is busy");
+    if (asyncMigrationClientStatusOrBlock(c, 0)) {
+        addReplyError(c, "the specified DB is being migrated");
         return;
     }
 
@@ -914,7 +914,7 @@ migrateAsyncCommand(client *c) {
     ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
     ac->batched_iterator = it;
 
-    asyncMigrationClientStatusOrWait(c, 1);
+    asyncMigrationClientStatusOrBlock(c, 1);
 
     if (ac->sending_msgs != 0) {
         return;
@@ -932,10 +932,10 @@ migrateAsyncCommand(client *c) {
  * */
 void
 migrateAsyncFenceCommand(client *c) {
-    int blocked = asyncMigrationClientStatusOrWait(c, 1);
-    if (blocked == 0) {
-        addReply(c, shared.ok);
+    if (asyncMigrationClientStatusOrBlock(c, 1)) {
+        return;
     }
+    addReplyLongLong(c, -1);
 }
 
 /* *
@@ -997,6 +997,402 @@ restoreAsyncAuthCommand(client *c) {
     }
 }
 
+/* ============================ Command: RESTORE-ASYNC ===================================== */
+
+/* RESTORE-ASYNC select $db */
+static int
+restoreAsyncHandleOrReplySelectDb(client *c) {
+    long long db;
+    if (getLongLongFromObject(c->argv[2], &db) != C_OK ||
+            !(db >= 0 && db <= INT_MAX) || selectDb(c, db) != C_OK) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid value of db (%s)",
+                c->argv[2]->ptr);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+/* RESTORE-ASYNC delete $key */
+static int
+restoreAsyncHandleOrReplyDeleteKey(client *c, robj *key) {
+    if (dbDelete(c->db, key)) {
+        signalModifiedKey(c->db, key);
+        server.dirty ++;
+    }
+    return C_OK;
+}
+
+/* RESTORE-ASYNC expire $key $ttlms */
+static int
+restoreAsyncHandleOrReplyExpireKey(client *c, robj *key) {
+    robj *val = lookupKeyWrite(c->db, key);
+    if (val == NULL) {
+        asyncMigrationReplyAckErrorFormat(c, "the specified key doesn't exist (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+extern int verifyDumpPayload(unsigned char *p, size_t len);
+
+/* RESTORE-ASYNC object $key $ttlms $payload */
+static int
+restoreAsyncHandleOrReplyTypeObject(client *c, robj *key) {
+    if (lookupKeyWrite(c->db, key) != NULL) {
+        asyncMigrationReplyAckErrorFormat(c, "the specified key already exists (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+
+    rio payload;
+    void *bytes = c->argv[4]->ptr;
+    if (verifyDumpPayload(bytes, sdslen(bytes)) != C_OK) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload checksum (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+    rioInitWithBuffer(&payload, bytes);
+
+    int type = rdbLoadObjectType(&payload);
+    if (type == -1) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload type (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+
+    robj *val = rdbLoadObject(type, &payload);
+    if (val == NULL) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload body (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+
+    dbAdd(c->db, key, val);
+    return C_OK;
+}
+
+/* RESTORE-ASYNC string $key $ttlms $payload */
+static int
+restoreAsyncHandleOrReplyTypeString(client *c, robj *key) {
+    if (lookupKeyWrite(c->db, key) != NULL) {
+        asyncMigrationReplyAckErrorFormat(c, "the specified key already exists (%s)",
+                key->ptr);
+        return C_ERR;
+    }
+
+    robj *val = c->argv[4] = tryObjectEncoding(c->argv[4]);
+
+    incrRefCount(val);
+    dbAdd(c->db, key, val);
+    return C_OK;
+}
+
+/* RESTORE-ASYNC list $key $ttlms $maxsize [$elem1 ...] */
+static int
+restoreAsyncHandleOrReplyTypeList(client *c, robj *key) {
+    robj *val = lookupKeyWrite(c->db, key);
+    if (val != NULL) {
+        if (val->type != OBJ_LIST || val->encoding != OBJ_ENCODING_QUICKLIST) {
+            asyncMigrationReplyAckErrorFormat(c, "wrong type (expect=%d/%d,got=%d/%d)",
+                    OBJ_LIST, OBJ_ENCODING_QUICKLIST, val->type, val->encoding);
+            return C_ERR;
+        }
+    } else {
+        val = createQuicklistObject();
+        quicklistSetOptions(val->ptr, server.list_max_ziplist_size,
+                server.list_compress_depth);
+        dbAdd(c->db, key, val);
+    }
+
+    robj **argv = &c->argv[5]; int argc = c->argc - 5;
+
+    for (int i = 0; i < argc; i ++) {
+        listTypePush(val, argv[i], LIST_TAIL);
+    }
+    return C_OK;
+}
+
+/* RESTORE-ASYNC hash $key $ttlms $maxsize [$hkey1 $hval1 ...] */
+static int
+restoreAsyncHandleOrReplyTypeHash(client *c, robj *key, long long size) {
+    robj *val = lookupKeyWrite(c->db, key);
+    if (val != NULL) {
+        if (val->type != OBJ_HASH || val->encoding != OBJ_ENCODING_HT) {
+            asyncMigrationReplyAckErrorFormat(c, "wrong type (expect=%d/%d,got=%d/%d)",
+                    OBJ_HASH, OBJ_ENCODING_HT, val->type, val->encoding);
+            return C_ERR;
+        }
+    } else {
+        val = createHashObject();
+        if (val->encoding != OBJ_ENCODING_HT) {
+            hashTypeConvert(val, OBJ_ENCODING_HT);
+        }
+        dbAdd(c->db, key, val);
+    }
+
+    if (size != 0) {
+        dict *ht = val->ptr;
+        dictExpand(ht, size);
+    }
+
+    robj **argv = &c->argv[5]; int argc = c->argc - 5;
+
+    for (int i = 0; i < argc; i += 2) {
+        hashTypeSet(val, argv[i]->ptr, argv[i+1]->ptr, HASH_SET_COPY);
+    }
+    return C_OK;
+}
+
+/* RESTORE-ASYNC dict $key $ttlms $maxsize [$elem1 ...] */
+static int
+restoreAsyncHandleOrReplyTypeDict(client *c, robj *key, long long size) {
+    robj *val = lookupKeyWrite(c->db, key);
+    if (val != NULL) {
+        if (val->type != OBJ_SET || val->encoding != OBJ_ENCODING_HT) {
+            asyncMigrationReplyAckErrorFormat(c, "wrong type (expect=%d/%d,got=%d/%d)",
+                    OBJ_SET, OBJ_ENCODING_HT, val->type, val->encoding);
+            return C_ERR;
+        }
+    } else {
+        val = createSetObject();
+        if (val->encoding != OBJ_ENCODING_HT) {
+            setTypeConvert(val, OBJ_ENCODING_HT);
+        }
+        dbAdd(c->db, key, val);
+    }
+
+    if (size != 0) {
+        dict *ht = val->ptr;
+        dictExpand(ht, size);
+    }
+
+    robj **argv = &c->argv[5]; int argc = c->argc - 5;
+
+    for (int i = 0; i < argc; i ++) {
+        setTypeAdd(val, argv[i]->ptr);
+    }
+    return C_OK;
+}
+
+/* RESTORE-ASYNC zset $key $ttlms $maxsize [$elem1 $score1 ...] */
+static int
+restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, long long size) {
+    robj **argv = &c->argv[5]; int argc = c->argc - 5;
+
+    double *scores = zmalloc(sizeof(double) * (argc / 2));
+    for (int i = 1, j = 0; i < argc; i += 2, j ++) {
+        uint64_t u8;
+        if (decodeUint64FromRawStringObject(argv[i], &u8) != C_OK) {
+            asyncMigrationReplyAckErrorFormat(c, "invalid value of score[%d] (%s)",
+                    j, argv[i]->ptr);
+            zfree(scores);
+            return C_ERR;
+        }
+        scores[j] = convertRawBitsToDouble(u8);
+    }
+
+    robj *val = lookupKeyWrite(c->db, key);
+    if (val != NULL) {
+        if (val->type != OBJ_ZSET || val->encoding != OBJ_ENCODING_SKIPLIST) {
+            asyncMigrationReplyAckErrorFormat(c, "wrong type (expect=%d/%d,got=%d/%d)",
+                    OBJ_ZSET, OBJ_ENCODING_SKIPLIST, val->type, val->encoding);
+            zfree(scores);
+            return C_ERR;
+        }
+    } else {
+        val = createZsetObject();
+        if (val->encoding != OBJ_ENCODING_SKIPLIST) {
+            zsetConvert(val, OBJ_ENCODING_SKIPLIST);
+        }
+        dbAdd(c->db, key, val);
+    }
+
+    if (size != 0) {
+        zset *zs = val->ptr;
+        dict *ht = zs->dict;
+        dictExpand(ht, size);
+    }
+
+    for (int i = 0, j = 0; i < argc; i += 2, j ++) {
+        int flags = ZADD_NONE;
+        zsetAdd(val, scores[j], argv[i]->ptr, &flags, NULL);
+    }
+    zfree(scores);
+    return C_OK;
+}
+
+/* *
+ * RESTORE-ASYNC select $db
+ *               delete $key
+ *               expire $key $ttlms
+ *               object $key $ttlms $payload
+ *               string $key $ttlms $payload
+ *               list   $key $ttlms $maxsize [$elem1 ...]
+ *               hash   $key $ttlms $maxsize [$hkey1 $hval1 ...]
+ *               dict   $key $ttlms $maxsize [$elem1 ...]
+ *               zset   $key $ttlms $maxsize [$elem1 $score1 ...]
+ * */
+void
+restoreAsyncCommand(client *c) {
+    if (asyncMigrationClientStatusOrBlock(c, 0) != 0) {
+        asyncMigrationReplyAckErrorFormat(c, "the specified DB is being migrated");
+        return;
+    }
+
+    const char *cmd = "(nil)";
+    if (c->argc <= 1) {
+        goto bad_arguments_number;
+    }
+    cmd = c->argv[1]->ptr;
+
+    /* RESTORE-ASYNC select $db */
+    if (!strcasecmp(cmd, "select")) {
+        if (c->argc != 3) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplySelectDb(c) == C_OK) {
+            goto success_common_reply;
+        }
+        return;
+    }
+
+    if (c->argc <= 2) {
+        goto bad_arguments_number;
+    }
+    robj *key = c->argv[2];
+
+    /* RESTORE-ASYNC delete $key */
+    if (!strcasecmp(cmd, "delete")) {
+        if (c->argc != 3) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyDeleteKey(c, key) == C_OK) {
+            goto success_common_reply;
+        }
+        return;
+    }
+
+    if (c->argc <= 3) {
+        goto bad_arguments_number;
+    }
+    long long ttlms;
+    if (getLongLongFromObject(c->argv[3], &ttlms) != C_OK || ttlms < 0) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid value of ttlms (%s)",
+                c->argv[3]->ptr);
+        return;
+    }
+
+    /* RESTORE-ASYNC expire $key $ttlms */
+    if (!strcasecmp(cmd, "expire")) {
+        if (c->argc != 4) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyExpireKey(c, key) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    /* RESTORE-ASYNC object $key $ttlms $payload */
+    if (!strcasecmp(cmd, "object")) {
+        if (c->argc != 5) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeObject(c, key) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    /* RESTORE-ASYNC string $key $ttlms $payload */
+    if (!strcasecmp(cmd, "string")) {
+        if (c->argc != 5) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeString(c, key) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    if (c->argc <= 4) {
+        goto bad_arguments_number;
+    }
+    long long maxsize;
+    if (getLongLongFromObject(c->argv[4], &maxsize) != C_OK || maxsize < 0) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid value of maxsize (%s)",
+                c->argv[4]->ptr);
+        return;
+    }
+
+    /* RESTORE-ASYNC list $key $ttlms $maxsize [$elem1 ...] */
+    if (!strcasecmp(cmd, "list")) {
+        if (c->argc <= 5) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeList(c, key) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    /* RESTORE-ASYNC hash $key $ttlms $maxsize [$hkey1 $hval1 ...] */
+    if (!strcasecmp(cmd, "hash")) {
+        if (c->argc <= 5 || (c->argc - 5) % 2 != 0) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeHash(c, key, maxsize) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    /* RESTORE-ASYNC dict $key $ttlms $maxsize [$elem1 ...] */
+    if (!strcasecmp(cmd, "dict")) {
+        if (c->argc <= 5) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeDict(c, key, maxsize) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    /* RESTORE-ASYNC zset $key $ttlms $maxsize [$elem1 $score1 ...] */
+    if (!strcasecmp(cmd, "zset")) {
+        if (c->argc <= 5 || (c->argc - 5) % 2 != 0) {
+            goto bad_arguments_number;
+        }
+        if (restoreAsyncHandleOrReplyTypeZSet(c, key, maxsize) == C_OK) {
+            goto success_common_ttlms;
+        }
+        return;
+    }
+
+    asyncMigrationReplyAckErrorFormat(c, "unknown command (cmd=%s,argc=%d)",
+            cmd, c->argc);
+    return;
+
+success_common_ttlms:
+    if (ttlms != 0) {
+        setExpire(c, c->db, key, mstime() + ttlms);
+    } else {
+        removeExpire(c->db, key);
+    }
+    signalModifiedKey(c->db, key);
+    server.dirty ++;
+
+success_common_reply:
+    asyncMigrationReplyAckString(c, "OK");
+    return;
+
+bad_arguments_number:
+    asyncMigrationReplyAckErrorFormat(c, "invalid arguments (cmd=%s,argc=%d)",
+            cmd, c->argc);
+    return;
+}
+
 /* ============================ TODO == TODO == TODO ======================================= */
 
 int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
@@ -1020,11 +1416,6 @@ int *restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *n
     (void)argc;
     (void)numkeys;
     return NULL;
-}
-
-void restoreAsyncCommand(client *c) {
-    /* TODO */
-    (void)c;
 }
 
 void restoreAsyncAckCommand(client *c) {
