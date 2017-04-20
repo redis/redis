@@ -109,7 +109,7 @@ createRawStringObjectFromUint64(uint64_t v) {
 }
 
 static int
-getUint64FromRawStringObject(robj *o, uint64_t *p) {
+decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
     if (sdsEncodedObject(o) && sdslen(o->ptr) == sizeof(uint64_t)) {
         *p = intrev64ifbe(*(uint64_t *)(o->ptr));
         return C_OK;
@@ -118,7 +118,7 @@ getUint64FromRawStringObject(robj *o, uint64_t *p) {
 }
 
 static long
-numberOfRestoreCommandsFromObject(robj *val, long long maxbulks) {
+estimateNumberOfRestoreCommandsObject(robj *val, long long maxbulks) {
     long long numbulks = 0;
     switch (val->type) {
     case OBJ_LIST:
@@ -143,12 +143,12 @@ numberOfRestoreCommandsFromObject(robj *val, long long maxbulks) {
         break;
     }
 
-    /* 1 x RESTORE-PAYLOAD */
+    /* 1x RESTORE-PAYLOAD */
     if (numbulks <= maxbulks) {
         return 1;
     }
 
-    /* n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL */
+    /* nx RESTORE-CHUNKED + 1x RESTORE-FILLTTL */
     return 1 + (numbulks + maxbulks - 1) / maxbulks;
 }
 
@@ -158,7 +158,7 @@ estimateNumberOfRestoreCommands(redisDb *db, robj *key, long long maxbulks) {
     if (val == NULL) {
         return 0;
     }
-    return 1 + numberOfRestoreCommandsFromObject(val, maxbulks);
+    return 1 + estimateNumberOfRestoreCommandsObject(val, maxbulks);
 }
 
 static asyncMigrationClient *getAsyncMigrationClient(int db);
@@ -201,15 +201,15 @@ singleObjectIteratorNextStagePrepare(client *c, singleObjectIterator *it, unsign
     }
 
     do {
-        /* RESTORE-ASYNC del $key */
+        /* RESTORE-ASYNC remove $key */
         addReplyMultiBulkLen(c, 3);
         addReplyBulkCString(c, "RESTORE-ASYNC");
-        addReplyBulkCString(c, "del");
+        addReplyBulkCString(c, "remove");
         addReplyBulk(c, key);
         sending_msgs ++;
     } while(0);
 
-    long n = numberOfRestoreCommandsFromObject(val, maxbulks);
+    long n = estimateNumberOfRestoreCommandsObject(val, maxbulks);
     if (n != 1) {
         it->stage = STAGE_CHUNKED;
     } else {
@@ -225,33 +225,34 @@ singleObjectIteratorNextStagePayload(client *c, singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_PAYLOAD);
     robj *key = it->key;
     robj *val = it->val;
-    long long ttl = 0;
+    long long ttlms = 0;
     if (it->expire != -1) {
-        ttl = it->expire - mstime();
-        if (ttl < 1) {
-            ttl = 1;
+        ttlms = it->expire - mstime();
+        if (ttlms < 1) {
+            ttlms = 1;
         }
     }
+
     if (val->type != OBJ_STRING) {
         rio payload;
         createDumpPayload(&payload, val);
         do {
-            /* RESTORE-ASYNC object $key $ttl $payload */
+            /* RESTORE-ASYNC object $key $ttlms $payload */
             addReplyMultiBulkLen(c, 5);
             addReplyBulkCString(c, "RESTORE-ASYNC");
             addReplyBulkCString(c, "object");
             addReplyBulk(c, key);
-            addReplyBulkLongLong(c, ttl);
+            addReplyBulkLongLong(c, ttlms);
             addReplyBulkSds(c, payload.io.buffer.ptr);
         } while (0);
     } else {
         do {
-            /* RESTORE-ASYNC string $key $ttl $payload */
+            /* RESTORE-ASYNC string $key $ttlms $payload */
             addReplyMultiBulkLen(c, 5);
             addReplyBulkCString(c, "RESTORE-ASYNC");
             addReplyBulkCString(c, "string");
             addReplyBulk(c, key);
-            addReplyBulkLongLong(c, ttl);
+            addReplyBulkLongLong(c, ttlms);
             addReplyBulk(c, val);
         } while (0);
     }
@@ -264,20 +265,21 @@ static int
 singleObjectIteratorNextStageFillTTL(client *c, singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_FILLTTL);
     robj *key = it->key;
-    long long ttl = 0;
+    long long ttlms = 0;
     if (it->expire != -1) {
-        ttl = it->expire - mstime();
-        if (ttl < 1) {
-            ttl = 1;
+        ttlms = it->expire - mstime();
+        if (ttlms < 1) {
+            ttlms = 1;
         }
     }
+
     do {
-        /* RESTORE-ASYNC expire $key $ttl */
+        /* RESTORE-ASYNC expire $key $ttlms */
         addReplyMultiBulkLen(c, 4);
         addReplyBulkCString(c, "RESTORE-ASYNC");
         addReplyBulkCString(c, "expire");
         addReplyBulk(c, key);
-        addReplyBulkLongLong(c, ttl);
+        addReplyBulkLongLong(c, ttlms);
     } while (0);
 
     it->stage = STAGE_DONE;
@@ -287,14 +289,112 @@ singleObjectIteratorNextStageFillTTL(client *c, singleObjectIterator *it) {
 extern zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 static int
+singleObjectIteratorNextStageChunkedTypeList(singleObjectIterator *it,
+        list *ll, robj *val, long long *psize, unsigned int maxbulks, unsigned int maxbytes) {
+    serverAssert(val->type == OBJ_LIST);
+    serverAssert(val->encoding == OBJ_ENCODING_QUICKLIST);
+
+    long long done = 0, len = 0;
+
+    listTypeIterator *li = listTypeInitIterator(val, it->lindex, LIST_TAIL);
+
+    do {
+        listTypeEntry entry;
+        if (listTypeNext(li, &entry)) {
+            quicklistEntry *qe = &(entry.entry);
+            robj *ele;
+            if (qe->value) {
+                ele = createStringObject((const char *)qe->value, qe->sz);
+            } else {
+                ele = createStringObjectFromLongLong(qe->longval);
+            }
+            len += sdslenOrElse(ele, 8);
+            listAddNodeTail(ll, ele);
+
+            it->lindex ++;
+        } else {
+            done = 1;
+        }
+    } while (!done
+            && listLength(ll) < maxbulks && len < maxbytes);
+
+    listTypeReleaseIterator(li);
+
+    *psize = listTypeLength(val);
+    return done != 0;
+}
+
+static int
+singleObjectIteratorNextStageChunkedTypeZSet(singleObjectIterator *it,
+        list *ll, robj *val, long long *psize, unsigned int maxbulks, unsigned int maxbytes) {
+    serverAssert(val->type == OBJ_ZSET);
+    serverAssert(val->encoding == OBJ_ENCODING_SKIPLIST);
+
+    long long done = 0, len = 0;
+
+    long long rank = (long long)zsetLength(val) - it->zindex;
+    zset *zs = val->ptr;
+    zskiplistNode *node = (rank >= 1) ? zslGetElementByRank(zs->zsl, rank) : NULL;
+
+    do {
+        if (node != NULL) {
+            robj *field = createStringObject((const char *)node->ele, sdslen(node->ele));
+            len += sdslenOrElse(field, 8);
+            listAddNodeTail(ll, field);
+
+            uint64_t u8 = convertDoubleToRawBits(node->score);
+            robj *score = createRawStringObjectFromUint64(u8);
+            len += sdslenOrElse(score, 8);
+            listAddNodeTail(ll, score);
+
+            node = node->backward;
+            it->zindex ++;
+        } else {
+            done = 1;
+        }
+    } while (!done
+            && listLength(ll) < maxbulks && len < maxbytes);
+
+    *psize = zsetLength(val);
+    return done != 0;
+}
+
+static int
+singleObjectIteratorNextStageChunkedTypeHashOrSet(singleObjectIterator *it,
+        list *ll, robj *val, long long *psize, unsigned int maxbulks, unsigned int maxbytes) {
+    serverAssert(val->type == OBJ_HASH || val->type == OBJ_SET);
+    serverAssert(val->encoding == OBJ_ENCODING_HT);
+
+    long long done = 0, len = 0;
+
+    int loop = maxbulks * 10;
+    if (loop < 100) {
+        loop = 100;
+    }
+    dict *ht = val->ptr;
+    void *pd[] = {ll, val, &len};
+
+    do {
+        it->cursor = dictScan(ht, it->cursor, singleObjectIteratorScanCallback, NULL, pd);
+        if (it->cursor == 0) {
+            done = 1;
+        }
+    } while (!done && (-- loop) >= 0
+            && listLength(ll) < maxbulks && len < maxbytes);
+
+    *psize = dictSize(ht);
+    return done != 0;
+}
+
+static int
 singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
         long long timeout, unsigned int maxbulks, unsigned int maxbytes) {
     serverAssert(it->stage == STAGE_CHUNKED);
     robj *key = it->key;
     robj *val = it->val;
-    long long ttl = timeout * 3;
-    if (ttl < 1000) {
-        ttl = 1000;
+    long long ttlms = timeout * 3;
+    if (ttlms < 1000) {
+        ttlms = 1000;
     }
 
     const char *type = NULL;
@@ -314,94 +414,45 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
     list *ll = listCreate();
     listSetFreeMethod(ll, decrRefCountVoid);
 
-    long long hint = 0, len = 0, more = 1;
+    long long done = 0, maxsize = 0;
 
-    if (val->type == OBJ_LIST) {
-        hint = listTypeLength(val);
-        listTypeIterator *li = listTypeInitIterator(val, it->lindex, LIST_TAIL);
-        do {
-            listTypeEntry entry;
-            if (listTypeNext(li, &entry)) {
-                quicklistEntry *qe = &(entry.entry);
-                robj *obj;
-                if (qe->value) {
-                    obj = createStringObject((const char *)qe->value, qe->sz);
-                } else {
-                    obj = createStringObjectFromLongLong(qe->longval);
-                }
-                len += sdslenOrElse(obj, 8);
-                listAddNodeTail(ll, obj);
-
-                it->lindex ++;
-            } else {
-                more = 0;
-            }
-        } while (more && listLength(ll) < maxbulks && len < maxbytes);
-        listTypeReleaseIterator(li);
-    }
-
-    if (val->type == OBJ_ZSET) {
-        hint = zsetLength(val);
-        zset *zs = val->ptr;
-        long long rank = (long long)zsetLength(val) - it->zindex;
-        zskiplistNode *node = (rank >= 1) ? zslGetElementByRank(zs->zsl, rank) : NULL;
-        do {
-            if (node != NULL) {
-                robj *field = createStringObject((const char *)node->ele, sdslen(node->ele));
-                len += sdslenOrElse(field, 8);
-                listAddNodeTail(ll, field);
-
-                uint64_t u8 = convertDoubleToRawBits(node->score);
-                robj *score = createRawStringObjectFromUint64(u8);
-                len += sdslenOrElse(score, 8);
-                listAddNodeTail(ll, score);
-
-                node = node->backward;
-                it->zindex ++;
-            } else {
-                more = 0;
-            }
-        } while (more && listLength(ll) < maxbulks && len < maxbytes);
-    }
-
-    if (val->type == OBJ_HASH || val->type == OBJ_SET) {
-        int loop = maxbulks * 10;
-        if (loop < 100) {
-            loop = 100;
-        }
-        dict *ht = val->ptr;
-        hint = dictSize(ht);
-        void *pd[] = {ll, val, &len};
-        do {
-            it->cursor = dictScan(ht, it->cursor, singleObjectIteratorScanCallback, NULL, pd);
-            if (it->cursor == 0) {
-                more = 0;
-            }
-        } while (more && listLength(ll) < maxbulks && len < maxbytes && (-- loop) >= 0);
+    switch (val->type) {
+    case OBJ_LIST:
+        done = singleObjectIteratorNextStageChunkedTypeList(it, ll, val,
+                &maxsize, maxbulks, maxbytes);
+        break;
+    case OBJ_ZSET:
+        done = singleObjectIteratorNextStageChunkedTypeZSet(it, ll, val,
+                &maxsize, maxbulks, maxbytes);
+        break;
+    case OBJ_HASH: case OBJ_SET:
+        done = singleObjectIteratorNextStageChunkedTypeHashOrSet(it, ll, val,
+                &maxsize, maxbulks, maxbytes);
+        break;
     }
 
     int sending_msgs = 0;
 
     if (listLength(ll) != 0) {
-        /* RESTORE-ASYNC list/hash/zset/dict $key $ttl $hint [$arg1 ...] */
+        /* RESTORE-ASYNC list/hash/zset/dict $key $ttlms $maxsize [$arg1 ...] */
         addReplyMultiBulkLen(c, 5 + listLength(ll));
         addReplyBulkCString(c, "RESTORE-ASYNC");
         addReplyBulkCString(c, type);
         addReplyBulk(c, key);
-        addReplyBulkLongLong(c, ttl);
-        addReplyBulkLongLong(c, hint);
+        addReplyBulkLongLong(c, ttlms);
+        addReplyBulkLongLong(c, maxsize);
 
         while (listLength(ll) != 0) {
             listNode *head = listFirst(ll);
-            robj *obj = listNodeValue(head);
-            addReplyBulk(c, obj);
+            robj *bulk = listNodeValue(head);
+            addReplyBulk(c, bulk);
             listDelNode(ll, head);
         }
         sending_msgs ++;
     }
     listRelease(ll);
 
-    if (!more) {
+    if (done) {
         it->stage = STAGE_FILLTTL;
     }
     return sending_msgs;
