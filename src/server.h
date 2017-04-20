@@ -738,7 +738,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
 
-    list *migration_fence;  /* fence queue that client is blocking in */
+    list *migration_waitq;  /* wait queue that client is blocking in */
 
     /* Response buffer */
     int bufpos;

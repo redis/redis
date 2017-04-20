@@ -530,7 +530,7 @@ notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
     while (listLength(ll) != 0) {
         listNode *head = listFirst(ll);
         client *c = listNodeValue(head);
-        serverAssert(c->migration_fence == ll);
+        serverAssert(c->migration_waitq == ll);
 
         if (errmsg != NULL) {
             addReplyError(c, errmsg);
@@ -539,21 +539,21 @@ notifyAsyncMigrationClient(asyncMigrationClient *ac, const char *errmsg) {
         }
         listDelNode(ll, head);
 
-        c->migration_fence = NULL;
+        c->migration_waitq = NULL;
         unblockClient(c);
     }
 }
 
 void
 unblockClientFromAsyncMigration(client *c) {
-    list *ll = c->migration_fence;
+    list *ll = c->migration_waitq;
     if (ll == NULL) {
         return;
     }
     listNode *node = listSearchKey(ll, c);
     serverAssert(node != NULL);
 
-    c->migration_fence = NULL;
+    c->migration_waitq = NULL;
     listDelNode(ll, node);
 }
 
@@ -688,11 +688,11 @@ testAsyncMigrationClientStatusOrBlock(client *c, robj *key, int wait) {
     if (!wait) {
         return 1;
     }
-    serverAssert(c->migration_fence == NULL);
+    serverAssert(c->migration_waitq == NULL);
 
     list *ll = ac->blocked_clients;
 
-    c->migration_fence = ll;
+    c->migration_waitq = ll;
     listAddNodeTail(ll, c);
 
     blockClient(c, BLOCKED_ASYNC_MIGRATION);
