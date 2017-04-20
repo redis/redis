@@ -1012,7 +1012,7 @@ restoreAsyncHandleOrReplySelectDb(client *c) {
 /* RESTORE-ASYNC delete $key */
 static int
 restoreAsyncHandleOrReplyDeleteKey(client *c, robj *key) {
-    if (dbDelete(c->db, key)) {
+    if (dbAsyncDelete(c->db, key)) {
         signalModifiedKey(c->db, key);
         server.dirty ++;
     }
