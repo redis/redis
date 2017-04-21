@@ -669,7 +669,7 @@ getAsyncMigrationClient(int db) {
 static void
 asyncMigrationClientInterrupt(asyncMigrationClient *ac, const char *errmsg) {
     batchedObjectIterator *it = ac->iterator;
-    long ret = (it != NULL) ? listLength(it->released_keys) : -1;
+    long ret = (it != NULL) ? (long)listLength(it->released_keys) : -1;
 
     list *ll = ac->bclients;
     while (listLength(ll) != 0) {
@@ -863,7 +863,7 @@ migrateAsyncDumpCommand(client *c) {
     if (getLongLongFromObject(c->argv[1], &timeout) != C_OK ||
             !(timeout >= 0 && timeout <= INT_MAX)) {
         addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                c->argv[1]->ptr);
+                (char *)c->argv[1]->ptr);
         return;
     }
     if (timeout == 0) {
@@ -874,7 +874,7 @@ migrateAsyncDumpCommand(client *c) {
     if (getLongLongFromObject(c->argv[2], &maxbulks) != C_OK ||
             !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                c->argv[2]->ptr);
+                (char *)c->argv[2]->ptr);
         return;
     }
     if (maxbulks == 0) {
@@ -965,7 +965,7 @@ migrateAsyncCommand(client *c) {
     if (getLongLongFromObject(c->argv[2], &port) != C_OK ||
             !(port >= 1 && port < 65536)) {
         addReplyErrorFormat(c, "invalid value of port (%s)",
-                c->argv[2]->ptr);
+                (char *)c->argv[2]->ptr);
         return;
     }
 
@@ -973,7 +973,7 @@ migrateAsyncCommand(client *c) {
     if (getLongLongFromObject(c->argv[3], &timeout) != C_OK ||
             !(timeout >= 0 && timeout <= INT_MAX)) {
         addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                c->argv[3]->ptr);
+                (char *)c->argv[3]->ptr);
         return;
     }
     if (timeout == 0) {
@@ -984,7 +984,7 @@ migrateAsyncCommand(client *c) {
     if (getLongLongFromObject(c->argv[4], &maxbulks) != C_OK ||
             !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                c->argv[4]->ptr);
+                (char *)c->argv[4]->ptr);
         return;
     }
     if (maxbulks == 0) {
@@ -998,7 +998,7 @@ migrateAsyncCommand(client *c) {
     if (getLongLongFromObject(c->argv[5], &maxbytes) != C_OK ||
             !(maxbytes >= 0 && maxbytes <= INT_MAX / 2)) {
         addReplyErrorFormat(c, "invalid value of maxbytes (%s)",
-                c->argv[5]->ptr);
+                (char *)c->argv[5]->ptr);
         return;
     }
     if (maxbytes == 0) {
@@ -1573,13 +1573,13 @@ restoreAsyncAckHandle(client *c) {
     long long errcode;
     if (getLongLongFromObject(c->argv[1], &errcode) != C_OK) {
         addReplyErrorFormat(c, "invalid value of errcode (%s)",
-                c->argv[1]->ptr);
+                (char *)c->argv[1]->ptr);
         return C_ERR;
     }
 
     if (errcode != 0) {
         serverLog(LL_WARNING, "async_migration: error[%d] (%s)",
-                (int)errcode, c->argv[2]->ptr);
+                (int)errcode, (char *)c->argv[2]->ptr);
         return C_ERR;
     }
 
