@@ -483,6 +483,42 @@ singleObjectIteratorNext(client *c, singleObjectIterator *it,
     }
 }
 
+static void
+singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
+    if (it == NULL) {
+        addReply(c, shared.nullmultibulk);
+        return;
+    }
+    void *ptr = addDeferredMultiBulkLength(c);
+    int total = 0;
+
+    total ++; addReplyBulkCString(c, "key");
+    addReplyBulk(c, it->key);
+
+    total ++; addReplyBulkCString(c, "object.type");
+    addReplyBulkLongLong(c, it->val == NULL ? -1 : it->val->type);
+
+    total ++; addReplyBulkCString(c, "object.encoding");
+    addReplyBulkLongLong(c, it->val == NULL ? -1 : it->val->encoding);
+
+    total ++; addReplyBulkCString(c, "stage");
+    addReplyBulkLongLong(c, it->stage);
+
+    total ++; addReplyBulkCString(c, "expire");
+    addReplyBulkLongLong(c, it->expire);
+
+    total ++; addReplyBulkCString(c, "cursor");
+    addReplyBulkLongLong(c, it->cursor);
+
+    total ++; addReplyBulkCString(c, "lindex");
+    addReplyBulkLongLong(c, it->lindex);
+
+    total ++; addReplyBulkCString(c, "zindex");
+    addReplyBulkLongLong(c, it->zindex);
+
+    setDeferredMultiBulkLength(c, ptr, total * 2);
+}
+
 /* ============================ Iterators: batchedObjectIterator =========================== */
 
 typedef struct {
@@ -564,6 +600,63 @@ batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it, robj *key) {
     listAddNodeTail(it->iterator_list, createSingleObjectIterator(key));
     it->estimated_msgs += estimateNumberOfRestoreCommands(db, key, it->maxbulks);
     return 1;
+}
+
+static void
+batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
+    if (it == NULL) {
+        addReply(c, shared.nullmultibulk);
+        return;
+    }
+    void *ptr = addDeferredMultiBulkLength(c);
+    int total = 0;
+
+    total ++; addReplyBulkCString(c, "keys");
+    addReplyMultiBulkLen(c, 2);
+    addReplyBulkLongLong(c, dictSize(it->keys));
+    do {
+        addReplyMultiBulkLen(c, dictSize(it->keys));
+        dictIterator *di = dictGetIterator(it->keys);
+        dictEntry *de;
+        while((de = dictNext(di)) != NULL) {
+            sds s = dictGetKey(de);
+            addReplyBulkCBuffer(c, s, sdslen(s));
+        }
+        dictReleaseIterator(di);
+    } while (0);
+
+    total ++; addReplyBulkCString(c, "timeout");
+    addReplyBulkLongLong(c, it->timeout);
+
+    total ++; addReplyBulkCString(c, "maxbulks");
+    addReplyBulkLongLong(c, it->maxbulks);
+
+    total ++; addReplyBulkCString(c, "maxbytes");
+    addReplyBulkLongLong(c, it->maxbytes);
+
+    total ++; addReplyBulkCString(c, "estimated_msgs");
+    addReplyBulkLongLong(c, it->estimated_msgs);
+
+    total ++; addReplyBulkCString(c, "delivered_msgs");
+    addReplyBulkLongLong(c, it->delivered_msgs);
+
+    total ++; addReplyBulkCString(c, "released_keys");
+    addReplyBulkLongLong(c, listLength(it->released_keys));
+
+    total ++; addReplyBulkCString(c, "iterator_list");
+    addReplyMultiBulkLen(c, 2);
+    addReplyBulkLongLong(c, listLength(it->iterator_list));
+    do {
+        list *ll = it->iterator_list;
+        if (listLength(ll) != 0) {
+            listNode *head = listFirst(ll);
+            singleObjectIteratorStatus(c, listNodeValue(head));
+        } else {
+            singleObjectIteratorStatus(c, NULL);
+        }
+    } while (0);
+
+    setDeferredMultiBulkLength(c, ptr, total * 2);
 }
 
 /* ============================ Clients for Asynchronous Migration ========================= */
@@ -962,6 +1055,49 @@ void
 migrateAsyncCancelCommand(client *c) {
     int retval = asyncMigartionClientCancelErrorFormat(c->db->id, "interrupted: canceled");
     addReplyLongLong(c, retval);
+}
+
+/* *
+ * MIGRATE-ASYNC-STATUS
+ * */
+void
+migrateAsyncStatusCommand(client *c) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    if (ac->c == NULL) {
+        addReply(c, shared.nullmultibulk);
+        return;
+    }
+    void *ptr = addDeferredMultiBulkLength(c);
+    int total = 0;
+
+    total ++; addReplyBulkCString(c, "host");
+    addReplyBulkCString(c, ac->host);
+
+    total ++; addReplyBulkCString(c, "port");
+    addReplyBulkLongLong(c, ac->port);
+
+    total ++; addReplyBulkCString(c, "init");
+    addReplyBulkLongLong(c, ac->init);
+
+    total ++; addReplyBulkCString(c, "timeout");
+    addReplyBulkLongLong(c, ac->timeout);
+
+    total ++; addReplyBulkCString(c, "lastuse");
+    addReplyBulkLongLong(c, ac->lastuse);
+
+    total ++; addReplyBulkCString(c, "since_lastuse");
+    addReplyBulkLongLong(c, mstime() - ac->lastuse);
+
+    total ++; addReplyBulkCString(c, "sending_msgs");
+    addReplyBulkLongLong(c, ac->sending_msgs);
+
+    total ++; addReplyBulkCString(c, "bclients");
+    addReplyBulkLongLong(c, listLength(ac->bclients));
+
+    total ++; addReplyBulkCString(c, "iterator");
+    batchedObjectIteratorStatus(c, ac->iterator);
+
+    setDeferredMultiBulkLength(c, ptr, total * 2);
 }
 
 /* ============================ Command: RESTORE-ASYNC-AUTH ================================ */
@@ -1509,11 +1645,4 @@ restoreAsyncAckCommand(client *c) {
     if (restoreAsyncAckHandle(c) != C_OK) {
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     }
-}
-
-/* ============================ TODO == TODO == TODO ======================================= */
-
-void migrateAsyncStatusCommand(client *c) {
-    /* TODO */
-    (void)c;
 }
