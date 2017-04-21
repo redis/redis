@@ -823,16 +823,17 @@ static int
 asyncMigrationNextInMicroseconds(asyncMigrationClient *ac, int atleast, long long usecs) {
     batchedObjectIterator *it = ac->iterator;
     long long deadline = ustime() + usecs;
-    int msgs = 0;
+    int n = 0;
     while (batchedObjectIteratorHasNext(it)) {
-        if ((unsigned long)it->maxbytes <= getClientOutputBufferMemoryUsage(ac->c)) {
+        long long usage = getClientOutputBufferMemoryUsage(ac->c);
+        if (ac->sending_msgs != 0 && it->maxbytes <= usage) {
             break;
         }
-        if ((msgs += batchedObjectIteratorNext(ac->c, it)) >= atleast && deadline <= ustime()) {
+        if ((n += batchedObjectIteratorNext(ac->c, it)) >= atleast && deadline <= ustime()) {
             break;
         }
     }
-    return msgs;
+    return n;
 }
 
 /* *
@@ -1383,6 +1384,93 @@ bad_arguments_number:
     return;
 }
 
+/* ============================ Command: RESTORE-ASYNC-ACK ================================= */
+
+static int
+restoreAsyncAckHandle(client *c) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    if (ac->c != c) {
+        addReplyErrorFormat(c, "invalid client, permission denied");
+        return C_ERR;
+    }
+
+    long long errcode;
+    if (getLongLongFromObject(c->argv[1], &errcode) != C_OK) {
+        addReplyErrorFormat(c, "invalid value of errcode (%s)",
+                c->argv[1]->ptr);
+        return C_ERR;
+    }
+
+    if (errcode != 0) {
+        serverLog(LL_WARNING, "async_migration: error[%d] (%s)",
+                (int)errcode, c->argv[2]->ptr);
+        return C_ERR;
+    }
+
+    batchedObjectIterator *it = ac->iterator;
+    if (it == NULL) {
+        serverLog(LL_WARNING, "async_migration: nil batched iterator");
+        addReplyError(c, "invalid iterator (nil)");
+        return C_ERR;
+    }
+    if (ac->sending_msgs == 0) {
+        serverLog(LL_WARNING, "async_migration: not sending messages");
+        addReplyError(c, "invalid iterator (sending_msgs=0)");
+        return C_ERR;
+    }
+    it->delivered_msgs ++;
+
+    ac->lastuse = mstime();
+    ac->sending_msgs -= 1;
+    ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 2, 10);
+
+    if (ac->sending_msgs != 0) {
+        return C_OK;
+    }
+    asyncMigrationClientInterrupt(ac, NULL);
+
+    if (listLength(it->released_keys) != 0) {
+        list *ll = it->released_keys;
+
+        for (int i = 0; i < c->argc; i ++) {
+            decrRefCount(c->argv[i]);
+        }
+        zfree(c->argv);
+
+        c->argc = 1 + listLength(ll);
+        c->argv = zmalloc(sizeof(robj *) * c->argc);
+
+        for (int i = 1; i < c->argc; i ++) {
+            listNode *head = listFirst(ll);
+            robj *key = listNodeValue(head);
+
+            if (dbAsyncDelete(c->db, key)) {
+                signalModifiedKey(c->db, key);
+                server.dirty ++;
+            }
+            c->argv[i] = key;
+            incrRefCount(key);
+
+            listDelNode(ll, head);
+        }
+        c->argv[0] = createStringObject("DEL", 3);
+    }
+
+    ac->iterator = NULL;
+    freeBatchedObjectIterator(it);
+    return C_OK;
+}
+
+/* *
+ * RESTORE-ASYNC-ACK $errno $message
+ * */
+void
+restoreAsyncAckCommand(client *c) {
+    if (restoreAsyncAckHandle(c) != C_OK) {
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    }
+}
+
 /* ============================ TODO == TODO == TODO ======================================= */
 
 int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
@@ -1408,7 +1496,3 @@ int *restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *n
     return NULL;
 }
 
-void restoreAsyncAckCommand(client *c) {
-    /* TODO */
-    (void)c;
-}
