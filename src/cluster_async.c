@@ -1018,11 +1018,11 @@ migrateAsyncCommand(client *c) {
     for (int i = 6; i < c->argc; i ++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
+    ac->iterator = it;
 
     ac->timeout = timeout;
     ac->lastuse = mstime();
     ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
-    ac->iterator = it;
 
     asyncMigrationClientStatusOrBlock(c, 1);
 
