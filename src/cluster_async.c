@@ -836,6 +836,26 @@ asyncMigrationNextInMicroseconds(asyncMigrationClient *ac, int atleast, long lon
     return n;
 }
 
+int *
+migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    (void)cmd;
+    (void)argv;
+
+    int num = 0, *pos = NULL;
+    if (argc <= 6) {
+        goto out;
+    }
+    num = argc - 6;
+    pos = zmalloc(sizeof(int) * num);
+    for (int i = 0; i < num; i ++) {
+        pos[i] = i + 6;
+    }
+
+out:
+    *numkeys = num;
+    return pos;
+}
+
 /* *
  * MIGRATE-ASYNC $host $port $timeout $maxbulks $maxbytes $key1 [$key2 ...]
  * */
@@ -1212,6 +1232,26 @@ restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, int argc, robj **argv, l
     return C_OK;
 }
 
+int *
+restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    (void)cmd;
+
+    int num = 0, *pos = NULL;
+    if (argc <= 2) {
+        goto out;
+    }
+    if (!strcasecmp(argv[1]->ptr, "select")) {
+        goto out;
+    }
+    num = 1;
+    pos = zmalloc(sizeof(int));
+    pos[0] = 2;
+
+out:
+    *numkeys = num;
+    return pos;
+}
+
 /* *
  * RESTORE-ASYNC select $db
  *               delete $key
@@ -1473,26 +1513,7 @@ restoreAsyncAckCommand(client *c) {
 
 /* ============================ TODO == TODO == TODO ======================================= */
 
-int *migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    /* TODO */
-    (void)cmd;
-    (void)argv;
-    (void)argc;
-    (void)numkeys;
-    return NULL;
-}
-
 void migrateAsyncStatusCommand(client *c) {
     /* TODO */
     (void)c;
 }
-
-int *restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    /* TODO */
-    (void)cmd;
-    (void)argv;
-    (void)argc;
-    (void)numkeys;
-    return NULL;
-}
-
