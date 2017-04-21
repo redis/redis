@@ -740,7 +740,7 @@ asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
     sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
     va_end(ap);
 
-    serverLog(LL_WARNING, "async_migration: cancel connection %s:%d (DB=%d) (%s)",
+    serverLog(LL_WARNING, "async_migration: release connection %s:%d (DB=%d) (%s)",
             ac->host, ac->port, db, errmsg);
 
     asyncMigrationClientInterrupt(ac, errmsg);
