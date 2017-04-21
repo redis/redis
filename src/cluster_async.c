@@ -1091,6 +1091,9 @@ migrateAsyncStatusCommand(client *c) {
     total ++; addReplyBulkCString(c, "sending_msgs");
     addReplyBulkLongLong(c, ac->sending_msgs);
 
+    total ++; addReplyBulkCString(c, "memory_usage");
+    addReplyBulkLongLong(c, getClientOutputBufferMemoryUsage(ac->c));
+
     total ++; addReplyBulkCString(c, "bclients");
     addReplyBulkLongLong(c, listLength(ac->bclients));
 
