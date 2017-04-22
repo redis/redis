@@ -1,51 +1,5 @@
 #include "test/jemalloc_test.h"
 
-static unsigned
-get_nsizes_impl(const char *cmd)
-{
-	unsigned ret;
-	size_t z;
-
-	z = sizeof(unsigned);
-	assert_d_eq(mallctl(cmd, (void *)&ret, &z, NULL, 0), 0,
-	    "Unexpected mallctl(\"%s\", ...) failure", cmd);
-
-	return (ret);
-}
-
-static unsigned
-get_nhuge(void)
-{
-
-	return (get_nsizes_impl("arenas.nhchunks"));
-}
-
-static size_t
-get_size_impl(const char *cmd, size_t ind)
-{
-	size_t ret;
-	size_t z;
-	size_t mib[4];
-	size_t miblen = 4;
-
-	z = sizeof(size_t);
-	assert_d_eq(mallctlnametomib(cmd, mib, &miblen),
-	    0, "Unexpected mallctlnametomib(\"%s\", ...) failure", cmd);
-	mib[2] = ind;
-	z = sizeof(size_t);
-	assert_d_eq(mallctlbymib(mib, miblen, (void *)&ret, &z, NULL, 0),
-	    0, "Unexpected mallctlbymib([\"%s\", %zu], ...) failure", cmd, ind);
-
-	return (ret);
-}
-
-static size_t
-get_huge_size(size_t ind)
-{
-
-	return (get_size_impl("arenas.hchunk.0.size", ind));
-}
-
 TEST_BEGIN(test_grow_and_shrink)
 {
 	void *p, *q;
@@ -184,22 +138,22 @@ TEST_END
 TEST_BEGIN(test_lg_align_and_zero)
 {
 	void *p, *q;
-	unsigned lg_align;
-	size_t sz;
+	size_t lg_align, sz;
 #define	MAX_LG_ALIGN 25
 #define	MAX_VALIDATE (ZU(1) << 22)
 
-	lg_align = 0;
+	lg_align = ZU(0);
 	p = mallocx(1, MALLOCX_LG_ALIGN(lg_align)|MALLOCX_ZERO);
 	assert_ptr_not_null(p, "Unexpected mallocx() error");
 
 	for (lg_align++; lg_align <= MAX_LG_ALIGN; lg_align++) {
 		q = rallocx(p, 1, MALLOCX_LG_ALIGN(lg_align)|MALLOCX_ZERO);
 		assert_ptr_not_null(q,
-		    "Unexpected rallocx() error for lg_align=%u", lg_align);
+		    "Unexpected rallocx() error for lg_align=%zu", lg_align);
 		assert_ptr_null(
 		    (void *)((uintptr_t)q & ((ZU(1) << lg_align)-1)),
-		    "%p inadequately aligned for lg_align=%u", q, lg_align);
+		    "%p inadequately aligned for lg_align=%zu",
+		    q, lg_align);
 		sz = sallocx(q, 0);
 		if ((sz << 1) <= MAX_VALIDATE) {
 			assert_false(validate_fill(q, 0, 0, sz),
@@ -219,33 +173,6 @@ TEST_BEGIN(test_lg_align_and_zero)
 }
 TEST_END
 
-TEST_BEGIN(test_overflow)
-{
-	size_t hugemax;
-	void *p;
-
-	hugemax = get_huge_size(get_nhuge()-1);
-
-	p = mallocx(1, 0);
-	assert_ptr_not_null(p, "Unexpected mallocx() failure");
-
-	assert_ptr_null(rallocx(p, hugemax+1, 0),
-	    "Expected OOM for rallocx(p, size=%#zx, 0)", hugemax+1);
-
-	assert_ptr_null(rallocx(p, ZU(PTRDIFF_MAX)+1, 0),
-	    "Expected OOM for rallocx(p, size=%#zx, 0)", ZU(PTRDIFF_MAX)+1);
-
-	assert_ptr_null(rallocx(p, SIZE_T_MAX, 0),
-	    "Expected OOM for rallocx(p, size=%#zx, 0)", SIZE_T_MAX);
-
-	assert_ptr_null(rallocx(p, 1, MALLOCX_ALIGN(ZU(PTRDIFF_MAX)+1)),
-	    "Expected OOM for rallocx(p, size=1, MALLOCX_ALIGN(%#zx))",
-	    ZU(PTRDIFF_MAX)+1);
-
-	dallocx(p, 0);
-}
-TEST_END
-
 int
 main(void)
 {
@@ -254,6 +181,5 @@ main(void)
 	    test_grow_and_shrink,
 	    test_zero,
 	    test_align,
-	    test_lg_align_and_zero,
-	    test_overflow));
+	    test_lg_align_and_zero));
 }
