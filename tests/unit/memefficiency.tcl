@@ -38,7 +38,7 @@ start_server {tags {"memefficiency"}} {
 
 start_server {tags {"defrag"}} {
     if {[string match {*jemalloc*} [s mem_allocator]]} {
-        test "Actove defrag" {
+        test "Active defrag" {
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-ignore-bytes 2mb
@@ -70,9 +70,10 @@ start_server {tags {"defrag"}} {
             # instead we currently look at RSS so we need to ask for purge
             r memory purge
 
-            # test the the fragmentation is lower and that the defragger stopped working
+            # Test the the fragmentation is lower and that the defragger
+            # stopped working
             set frag [s mem_fragmentation_ratio]
-            assert {$frag < 1.4}
+            assert {$frag < 1.55}
             set misses [s active_defrag_misses]
             after 500
             set misses2 [s active_defrag_misses]
