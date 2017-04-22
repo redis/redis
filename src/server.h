@@ -810,7 +810,10 @@ struct redisMemOverhead {
     size_t bytes_per_key;
     float dataset_perc;
     float peak_perc;
-    float fragmentation;
+    float rss_frag;
+    size_t rss_frag_bytes;
+    float allocator_frag;
+    size_t allocator_frag_bytes;
     size_t num_dbs;
     struct {
         size_t dbid;
@@ -838,6 +841,14 @@ typedef struct rdbSaveInfo {
 } rdbSaveInfo;
 
 #define RDB_SAVE_INFO_INIT {-1,0,"000000000000000000000000000000",-1}
+
+typedef struct malloc_stats {
+    size_t zmalloc_used;
+    size_t process_rss;
+    size_t allocator_allocated;
+    size_t allocator_active;
+    size_t allocator_resident;
+} malloc_stats;
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -939,7 +950,7 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
-    size_t resident_set_size;       /* RSS sampled in serverCron(). */
+    malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
