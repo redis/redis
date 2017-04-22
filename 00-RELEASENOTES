@@ -25,8 +25,6 @@ release.
 
 Major things:
 
-All the rest:
-
 * Finally the infamous leakage of keys with an expire, in slaves that are
   configured as writable, is fixed. (Salvatore Sanfilippo)
 * A serious MIGRATE issue forgetting to store the TTL of the key under
@@ -40,6 +38,20 @@ All the rest:
      better, listpacks: https://gist.github.com/antirez/66ffab20190ece8a7485bd9accfbc175 (Yuval Inbar, Salvatore Sanfilippo, Oran Agra).
   4. Refactoring and function to dump a ziplist for debugging purposes
      (Salvatore Sanfilippo).
+* New major feature: Memory de-fragmentation. This feature, contributed by
+  Oran Agra, allows Redis to perform "online defragmentation" of memory
+  if the Jemalloc allocator is used. There is some documentation in the
+  example `redis.conf` file. (Oran Agra)
+* Support for ARM. (Salvatore Sanfilippo)
+* Fix a very important "family of bugs" about PSYNC2, thanks to the help
+  of Kevin McGehee, Siran Yang and Oran Agra.
+* Hash function moved to SipHash 1-2 variant. (Salvatore Sanfilippo)
+* Redis Cluster failure detection improved in different ways, the most
+  important result is to exchange a lot less messages among nodes. (Salvatore
+  Sanfilippo)
+
+All the rest:
+
 * A bug in the modules API ziplist iterator was fixed. (Dvir Volk).
 * The HyperLogLog implementation final cardinality approximation function
   was improved to use the LogLog-Beta algorithm. (Harish Murthy and
@@ -51,17 +63,11 @@ All the rest:
   used, where elements at the edge may be miss-reported). (Salvatore
   Sanfilippo). ***IMPORTANT*** See the list of incompatibilities below
   since the GEO API has some potentially backward incompatible change.
-* New major feature: Memory de-fragmentation. This feature, contributed by
-  Oran Agra, allows Redis to perform "online defragmentation" of memory
-  if the Jemalloc allocator is used. There is some documentation in the
-  example `redis.conf` file. (Oran Agra)
 * ZADD crash on syntax error fixed. (Itamar Haber)
 * Fixed a division by zero but in MEMORY DOCTOR. (Jan-Erik Rediger)
 * More MIGRATE bugs fixed. (Salvatore Sanfilippo)
 * Different file descriptors potential lakes fixed. (multiple authors)
-* Support for ARM. (Salvatore Sanfilippo)
 * Support for Solaris improved. (Salvatore Sanfilippo)
-* Hash function moved to SipHash 1-2 variant. (Salvatore Sanfilippo)
 * Improve memory reclaiming in freeMemoryIfNeeded(). (Oran Agra and
   Salvatore Sanfilippo)
 * Fixes multiple bugs in the test suite. (Salvatore Sanfilippo)
@@ -69,11 +75,6 @@ All the rest:
 * A new data structure, the radix tree (rax.c) was introduced into Redis in
   order to fix a major Redis Cluster slowdown. (Salvatore Sanfilippo)
 * Fix `lua-time-limit` config ignored in `redis.conf`. (Salvatore Sanfilippo)
-* Redis Cluster failure detection improved in different ways, the most
-  important result is to exchange a lot less messages among nodes. (Salvatore
-  Sanfilippo)
-* Fix a very important "family of bugs" about PSYNC2, thanks to the help
-  of Kevin McGehee, Siran Yang and Oran Agra.
 * Jemalloc downgraded to an apparently safe version, given that recent
   releases apparently hang under certain conditions. See Redis issue #3799.
 
