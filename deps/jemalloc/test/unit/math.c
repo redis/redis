@@ -5,10 +5,6 @@
 
 #include <float.h>
 
-#ifdef __PGI
-#undef INFINITY
-#endif
-
 #ifndef INFINITY
 #define	INFINITY (DBL_MAX + DBL_MAX)
 #endif

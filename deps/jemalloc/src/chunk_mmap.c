@@ -16,22 +16,23 @@ chunk_alloc_mmap_slow(size_t size, size_t alignment, bool *zero, bool *commit)
 	do {
 		void *pages;
 		size_t leadsize;
-		pages = pages_map(NULL, alloc_size, commit);
+		pages = pages_map(NULL, alloc_size);
 		if (pages == NULL)
 			return (NULL);
 		leadsize = ALIGNMENT_CEILING((uintptr_t)pages, alignment) -
 		    (uintptr_t)pages;
-		ret = pages_trim(pages, alloc_size, leadsize, size, commit);
+		ret = pages_trim(pages, alloc_size, leadsize, size);
 	} while (ret == NULL);
 
 	assert(ret != NULL);
 	*zero = true;
+	if (!*commit)
+		*commit = pages_decommit(ret, size);
 	return (ret);
 }
 
 void *
-chunk_alloc_mmap(void *new_addr, size_t size, size_t alignment, bool *zero,
-    bool *commit)
+chunk_alloc_mmap(size_t size, size_t alignment, bool *zero, bool *commit)
 {
 	void *ret;
 	size_t offset;
@@ -52,10 +53,9 @@ chunk_alloc_mmap(void *new_addr, size_t size, size_t alignment, bool *zero,
 	assert(alignment != 0);
 	assert((alignment & chunksize_mask) == 0);
 
-	ret = pages_map(new_addr, size, commit);
-	if (ret == NULL || ret == new_addr)
-		return (ret);
-	assert(new_addr == NULL);
+	ret = pages_map(NULL, size);
+	if (ret == NULL)
+		return (NULL);
 	offset = ALIGNMENT_ADDR2OFFSET(ret, alignment);
 	if (offset != 0) {
 		pages_unmap(ret, size);
@@ -64,6 +64,8 @@ chunk_alloc_mmap(void *new_addr, size_t size, size_t alignment, bool *zero,
 
 	assert(ret != NULL);
 	*zero = true;
+	if (!*commit)
+		*commit = pages_decommit(ret, size);
 	return (ret);
 }
 

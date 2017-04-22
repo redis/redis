@@ -281,7 +281,7 @@ extern uint64_t	prof_interval;
 extern size_t	lg_prof_sample;
 
 void	prof_alloc_rollback(tsd_t *tsd, prof_tctx_t *tctx, bool updated);
-void	prof_malloc_sample_object(tsdn_t *tsdn, const void *ptr, size_t usize,
+void	prof_malloc_sample_object(const void *ptr, size_t usize,
     prof_tctx_t *tctx);
 void	prof_free_sampled_object(tsd_t *tsd, size_t usize, prof_tctx_t *tctx);
 void	bt_init(prof_bt_t *bt, void **vec);
@@ -293,33 +293,32 @@ size_t	prof_bt_count(void);
 const prof_cnt_t *prof_cnt_all(void);
 typedef int (prof_dump_open_t)(bool, const char *);
 extern prof_dump_open_t *prof_dump_open;
-typedef bool (prof_dump_header_t)(tsdn_t *, bool, const prof_cnt_t *);
+typedef bool (prof_dump_header_t)(bool, const prof_cnt_t *);
 extern prof_dump_header_t *prof_dump_header;
 #endif
-void	prof_idump(tsdn_t *tsdn);
-bool	prof_mdump(tsd_t *tsd, const char *filename);
-void	prof_gdump(tsdn_t *tsdn);
+void	prof_idump(void);
+bool	prof_mdump(const char *filename);
+void	prof_gdump(void);
 prof_tdata_t	*prof_tdata_init(tsd_t *tsd);
 prof_tdata_t	*prof_tdata_reinit(tsd_t *tsd, prof_tdata_t *tdata);
 void	prof_reset(tsd_t *tsd, size_t lg_sample);
 void	prof_tdata_cleanup(tsd_t *tsd);
-bool	prof_active_get(tsdn_t *tsdn);
-bool	prof_active_set(tsdn_t *tsdn, bool active);
-const char	*prof_thread_name_get(tsd_t *tsd);
+const char	*prof_thread_name_get(void);
+bool	prof_active_get(void);
+bool	prof_active_set(bool active);
 int	prof_thread_name_set(tsd_t *tsd, const char *thread_name);
-bool	prof_thread_active_get(tsd_t *tsd);
-bool	prof_thread_active_set(tsd_t *tsd, bool active);
-bool	prof_thread_active_init_get(tsdn_t *tsdn);
-bool	prof_thread_active_init_set(tsdn_t *tsdn, bool active_init);
-bool	prof_gdump_get(tsdn_t *tsdn);
-bool	prof_gdump_set(tsdn_t *tsdn, bool active);
+bool	prof_thread_active_get(void);
+bool	prof_thread_active_set(bool active);
+bool	prof_thread_active_init_get(void);
+bool	prof_thread_active_init_set(bool active_init);
+bool	prof_gdump_get(void);
+bool	prof_gdump_set(bool active);
 void	prof_boot0(void);
 void	prof_boot1(void);
-bool	prof_boot2(tsd_t *tsd);
-void	prof_prefork0(tsdn_t *tsdn);
-void	prof_prefork1(tsdn_t *tsdn);
-void	prof_postfork_parent(tsdn_t *tsdn);
-void	prof_postfork_child(tsdn_t *tsdn);
+bool	prof_boot2(void);
+void	prof_prefork(void);
+void	prof_postfork_parent(void);
+void	prof_postfork_child(void);
 void	prof_sample_threshold_update(prof_tdata_t *tdata);
 
 #endif /* JEMALLOC_H_EXTERNS */
@@ -330,17 +329,17 @@ void	prof_sample_threshold_update(prof_tdata_t *tdata);
 bool	prof_active_get_unlocked(void);
 bool	prof_gdump_get_unlocked(void);
 prof_tdata_t	*prof_tdata_get(tsd_t *tsd, bool create);
-prof_tctx_t	*prof_tctx_get(tsdn_t *tsdn, const void *ptr);
-void	prof_tctx_set(tsdn_t *tsdn, const void *ptr, size_t usize,
-    prof_tctx_t *tctx);
-void	prof_tctx_reset(tsdn_t *tsdn, const void *ptr, size_t usize,
-    const void *old_ptr, prof_tctx_t *tctx);
 bool	prof_sample_accum_update(tsd_t *tsd, size_t usize, bool commit,
     prof_tdata_t **tdata_out);
 prof_tctx_t	*prof_alloc_prep(tsd_t *tsd, size_t usize, bool prof_active,
     bool update);
-void	prof_malloc(tsdn_t *tsdn, const void *ptr, size_t usize,
+prof_tctx_t	*prof_tctx_get(const void *ptr);
+void	prof_tctx_set(const void *ptr, size_t usize, prof_tctx_t *tctx);
+void	prof_tctx_reset(const void *ptr, size_t usize, const void *old_ptr,
     prof_tctx_t *tctx);
+void	prof_malloc_sample_object(const void *ptr, size_t usize,
+    prof_tctx_t *tctx);
+void	prof_malloc(const void *ptr, size_t usize, prof_tctx_t *tctx);
 void	prof_realloc(tsd_t *tsd, const void *ptr, size_t usize,
     prof_tctx_t *tctx, bool prof_active, bool updated, const void *old_ptr,
     size_t old_usize, prof_tctx_t *old_tctx);
@@ -398,34 +397,34 @@ prof_tdata_get(tsd_t *tsd, bool create)
 }
 
 JEMALLOC_ALWAYS_INLINE prof_tctx_t *
-prof_tctx_get(tsdn_t *tsdn, const void *ptr)
+prof_tctx_get(const void *ptr)
 {
 
 	cassert(config_prof);
 	assert(ptr != NULL);
 
-	return (arena_prof_tctx_get(tsdn, ptr));
+	return (arena_prof_tctx_get(ptr));
 }
 
 JEMALLOC_ALWAYS_INLINE void
-prof_tctx_set(tsdn_t *tsdn, const void *ptr, size_t usize, prof_tctx_t *tctx)
+prof_tctx_set(const void *ptr, size_t usize, prof_tctx_t *tctx)
 {
 
 	cassert(config_prof);
 	assert(ptr != NULL);
 
-	arena_prof_tctx_set(tsdn, ptr, usize, tctx);
+	arena_prof_tctx_set(ptr, usize, tctx);
 }
 
 JEMALLOC_ALWAYS_INLINE void
-prof_tctx_reset(tsdn_t *tsdn, const void *ptr, size_t usize, const void *old_ptr,
+prof_tctx_reset(const void *ptr, size_t usize, const void *old_ptr,
     prof_tctx_t *old_tctx)
 {
 
 	cassert(config_prof);
 	assert(ptr != NULL);
 
-	arena_prof_tctx_reset(tsdn, ptr, usize, old_ptr, old_tctx);
+	arena_prof_tctx_reset(ptr, usize, old_ptr, old_tctx);
 }
 
 JEMALLOC_ALWAYS_INLINE bool
@@ -437,16 +436,16 @@ prof_sample_accum_update(tsd_t *tsd, size_t usize, bool update,
 	cassert(config_prof);
 
 	tdata = prof_tdata_get(tsd, true);
-	if (unlikely((uintptr_t)tdata <= (uintptr_t)PROF_TDATA_STATE_MAX))
+	if ((uintptr_t)tdata <= (uintptr_t)PROF_TDATA_STATE_MAX)
 		tdata = NULL;
 
 	if (tdata_out != NULL)
 		*tdata_out = tdata;
 
-	if (unlikely(tdata == NULL))
+	if (tdata == NULL)
 		return (true);
 
-	if (likely(tdata->bytes_until_sample >= usize)) {
+	if (tdata->bytes_until_sample >= usize) {
 		if (update)
 			tdata->bytes_until_sample -= usize;
 		return (true);
@@ -480,17 +479,17 @@ prof_alloc_prep(tsd_t *tsd, size_t usize, bool prof_active, bool update)
 }
 
 JEMALLOC_ALWAYS_INLINE void
-prof_malloc(tsdn_t *tsdn, const void *ptr, size_t usize, prof_tctx_t *tctx)
+prof_malloc(const void *ptr, size_t usize, prof_tctx_t *tctx)
 {
 
 	cassert(config_prof);
 	assert(ptr != NULL);
-	assert(usize == isalloc(tsdn, ptr, true));
+	assert(usize == isalloc(ptr, true));
 
 	if (unlikely((uintptr_t)tctx > (uintptr_t)1U))
-		prof_malloc_sample_object(tsdn, ptr, usize, tctx);
+		prof_malloc_sample_object(ptr, usize, tctx);
 	else
-		prof_tctx_set(tsdn, ptr, usize, (prof_tctx_t *)(uintptr_t)1U);
+		prof_tctx_set(ptr, usize, (prof_tctx_t *)(uintptr_t)1U);
 }
 
 JEMALLOC_ALWAYS_INLINE void
@@ -504,7 +503,7 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 	assert(ptr != NULL || (uintptr_t)tctx <= (uintptr_t)1U);
 
 	if (prof_active && !updated && ptr != NULL) {
-		assert(usize == isalloc(tsd_tsdn(tsd), ptr, true));
+		assert(usize == isalloc(ptr, true));
 		if (prof_sample_accum_update(tsd, usize, true, NULL)) {
 			/*
 			 * Don't sample.  The usize passed to prof_alloc_prep()
@@ -513,7 +512,6 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 			 * though its actual usize was insufficient to cross the
 			 * sample threshold.
 			 */
-			prof_alloc_rollback(tsd, tctx, true);
 			tctx = (prof_tctx_t *)(uintptr_t)1U;
 		}
 	}
@@ -522,9 +520,9 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 	old_sampled = ((uintptr_t)old_tctx > (uintptr_t)1U);
 
 	if (unlikely(sampled))
-		prof_malloc_sample_object(tsd_tsdn(tsd), ptr, usize, tctx);
+		prof_malloc_sample_object(ptr, usize, tctx);
 	else
-		prof_tctx_reset(tsd_tsdn(tsd), ptr, usize, old_ptr, old_tctx);
+		prof_tctx_reset(ptr, usize, old_ptr, old_tctx);
 
 	if (unlikely(old_sampled))
 		prof_free_sampled_object(tsd, old_usize, old_tctx);
@@ -533,10 +531,10 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 JEMALLOC_ALWAYS_INLINE void
 prof_free(tsd_t *tsd, const void *ptr, size_t usize)
 {
-	prof_tctx_t *tctx = prof_tctx_get(tsd_tsdn(tsd), ptr);
+	prof_tctx_t *tctx = prof_tctx_get(ptr);
 
 	cassert(config_prof);
-	assert(usize == isalloc(tsd_tsdn(tsd), ptr, true));
+	assert(usize == isalloc(ptr, true));
 
 	if (unlikely((uintptr_t)tctx > (uintptr_t)1U))
 		prof_free_sampled_object(tsd, usize, tctx);

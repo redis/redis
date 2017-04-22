@@ -11,6 +11,7 @@
 #ifdef _WIN32
 #  include "msvc_compat/strings.h"
 #endif
+#include <sys/time.h>
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -18,6 +19,39 @@
 #else
 #  include <pthread.h>
 #endif
+
+/******************************************************************************/
+/*
+ * Define always-enabled assertion macros, so that test assertions execute even
+ * if assertions are disabled in the library code.  These definitions must
+ * exist prior to including "jemalloc/internal/util.h".
+ */
+#define	assert(e) do {							\
+	if (!(e)) {							\
+		malloc_printf(						\
+		    "<jemalloc>: %s:%d: Failed assertion: \"%s\"\n",	\
+		    __FILE__, __LINE__, #e);				\
+		abort();						\
+	}								\
+} while (0)
+
+#define	not_reached() do {						\
+	malloc_printf(							\
+	    "<jemalloc>: %s:%d: Unreachable code reached\n",		\
+	    __FILE__, __LINE__);					\
+	abort();							\
+} while (0)
+
+#define	not_implemented() do {						\
+	malloc_printf("<jemalloc>: %s:%d: Not implemented\n",		\
+	    __FILE__, __LINE__);					\
+	abort();							\
+} while (0)
+
+#define	assert_not_implemented(e) do {					\
+	if (!(e))							\
+		not_implemented();					\
+} while (0)
 
 #include "test/jemalloc_test_defs.h"
 
@@ -53,14 +87,6 @@
 #  include "jemalloc/internal/jemalloc_internal_defs.h"
 #  include "jemalloc/internal/jemalloc_internal_macros.h"
 
-static const bool config_debug =
-#ifdef JEMALLOC_DEBUG
-    true
-#else
-    false
-#endif
-    ;
-
 #  define JEMALLOC_N(n) @private_namespace@##n
 #  include "jemalloc/internal/private_namespace.h"
 
@@ -68,7 +94,6 @@ static const bool config_debug =
 #  define JEMALLOC_H_STRUCTS
 #  define JEMALLOC_H_EXTERNS
 #  define JEMALLOC_H_INLINES
-#  include "jemalloc/internal/nstime.h"
 #  include "jemalloc/internal/util.h"
 #  include "jemalloc/internal/qr.h"
 #  include "jemalloc/internal/ql.h"
@@ -124,40 +149,3 @@ static const bool config_debug =
 #include "test/thd.h"
 #define	MEXP 19937
 #include "test/SFMT.h"
-
-/******************************************************************************/
-/*
- * Define always-enabled assertion macros, so that test assertions execute even
- * if assertions are disabled in the library code.
- */
-#undef assert
-#undef not_reached
-#undef not_implemented
-#undef assert_not_implemented
-
-#define	assert(e) do {							\
-	if (!(e)) {							\
-		malloc_printf(						\
-		    "<jemalloc>: %s:%d: Failed assertion: \"%s\"\n",	\
-		    __FILE__, __LINE__, #e);				\
-		abort();						\
-	}								\
-} while (0)
-
-#define	not_reached() do {						\
-	malloc_printf(							\
-	    "<jemalloc>: %s:%d: Unreachable code reached\n",		\
-	    __FILE__, __LINE__);					\
-	abort();							\
-} while (0)
-
-#define	not_implemented() do {						\
-	malloc_printf("<jemalloc>: %s:%d: Not implemented\n",		\
-	    __FILE__, __LINE__);					\
-	abort();							\
-} while (0)
-
-#define	assert_not_implemented(e) do {					\
-	if (!(e))							\
-		not_implemented();					\
-} while (0)
