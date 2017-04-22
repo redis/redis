@@ -11,6 +11,493 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0-RC3     Released Sat Apr 22 11:19:56 CEST 2017
+================================================================================
+
+Upgrade urgency HIGH: Many bugs fixed and many improvements operated, so who
+                      is using 4.0 RC2 should upgrade if possible, or at least
+                      should carefully read this release notes to understand if
+                      it may be affected by some bug.
+
+Redis 3.9.103 (4.0 RC3 for the friends) is finally out, and the list of commits
+is pretty long, so here is a synopsis of all the major changes operated in this
+release.
+
+Major things:
+
+All the rest:
+
+* Finally the infamous leakage of keys with an expire, in slaves that are
+  configured as writable, is fixed. (Salvatore Sanfilippo)
+* A serious MIGRATE issue forgetting to store the TTL of the key under
+  certain conditions is fixed. (reported by Jinbei Wang, fixed by Jan-Erik
+  Rediger).
+* An in-depth investigation of the ziplist implementation was performed.
+  The final result was:
+  1. An in depth auditing (Salvatore Sanfilippo and Oran Agra).
+  2. The discovery of a bug and its fix (Salvatore Sanfilippo).
+  3. The creation of a new specification to replace ziplists with something
+     better, listpacks: https://gist.github.com/antirez/66ffab20190ece8a7485bd9accfbc175 (Yuval Inbar, Salvatore Sanfilippo, Oran Agra).
+  4. Refactoring and function to dump a ziplist for debugging purposes
+     (Salvatore Sanfilippo).
+* A bug in the modules API ziplist iterator was fixed. (Dvir Volk).
+* The HyperLogLog implementation final cardinality approximation function
+  was improved to use the LogLog-Beta algorithm. (Harish Murthy and
+  Salvatore Sanfilippo).
+* Edge case copy-on-write disaster fix (Oran Agra).
+* Now the Redis ASCII art logo is shown only if logging to stdout and if the
+  stdout is a tty. (Salvatore Sanfilippo because of users request).
+* A new GEO bug fixed (and there is another pending when huge radiuses are
+  used, where elements at the edge may be miss-reported). (Salvatore
+  Sanfilippo). ***IMPORTANT*** See the list of incompatibilities below
+  since the GEO API has some potentially backward incompatible change.
+* New major feature: Memory de-fragmentation. This feature, contributed by
+  Oran Agra, allows Redis to perform "online defragmentation" of memory
+  if the Jemalloc allocator is used. There is some documentation in the
+  example `redis.conf` file. (Oran Agra)
+* ZADD crash on syntax error fixed. (Itamar Haber)
+* Fixed a division by zero but in MEMORY DOCTOR. (Jan-Erik Rediger)
+* More MIGRATE bugs fixed. (Salvatore Sanfilippo)
+* Different file descriptors potential lakes fixed. (multiple authors)
+* Support for ARM. (Salvatore Sanfilippo)
+* Support for Solaris improved. (Salvatore Sanfilippo)
+* Hash function moved to SipHash 1-2 variant. (Salvatore Sanfilippo)
+* Improve memory reclaiming in freeMemoryIfNeeded(). (Oran Agra and
+  Salvatore Sanfilippo)
+* Fixes multiple bugs in the test suite. (Salvatore Sanfilippo)
+* Fix asynchronous commands in modules API. (Dvir Volk and Salvatore Sanfilippo)
+* A new data structure, the radix tree (rax.c) was introduced into Redis in
+  order to fix a major Redis Cluster slowdown. (Salvatore Sanfilippo)
+* Fix `lua-time-limit` config ignored in `redis.conf`. (Salvatore Sanfilippo)
+* Redis Cluster failure detection improved in different ways, the most
+  important result is to exchange a lot less messages among nodes. (Salvatore
+  Sanfilippo)
+* Fix a very important "family of bugs" about PSYNC2, thanks to the help
+  of Kevin McGehee, Siran Yang and Oran Agra.
+* Jemalloc downgraded to an apparently safe version, given that recent
+  releases apparently hang under certain conditions. See Redis issue #3799.
+
+For details and full credits, see the list of commits here. However note that
+many information is inside the full commit message, while here only the first
+line is shown.
+
+antirez in commit 6bc6bd4c:
+ PSYNC2: discard pending transactions from cached master.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit a91cc5bc:
+ Fix PSYNC2 incomplete command bug as described in #3899.
+ 3 files changed, 47 insertions(+), 8 deletions(-)
+
+antirez in commit 278972ce:
+ Fix getKeysUsingCommandTable() in cluster mode.
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+张文康 in commit 20285017:
+ update block->free after some diff data are written to the child process
+ 1 file changed, 1 insertion(+)
+
+Jan-Erik Rediger in commit 05ac217f:
+ Reorder to make dict-benchmark compile on Linux
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 8d44c52a:
+ Fix #3848 by closing the descriptor on error.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 5c107c62:
+ Clarify why we save ziplist elements in revserse order.
+ 1 file changed, 13 insertions(+), 7 deletions(-)
+
+spinlock in commit 22996414:
+ rdb: saving skiplist in reversed order to accelerate the deserialisation process
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+antirez in commit d98ef35a:
+ Cluster: discard pong times in the future.
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+antirez in commit e47c8e3f:
+ Test: fix, hopefully, false PSYNC failure like in issue #2715.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1e659a04:
+ Cluster: always add PFAIL nodes at end of gossip section.
+ 2 files changed, 71 insertions(+), 23 deletions(-)
+
+antirez in commit 39d34487:
+ Cluster: fix gossip section ping/pong times encoding.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit 78148d0e:
+ Cluster: add clean-logs command to create-cluster script.
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+antirez in commit a5c1c77e:
+ Cluster: decrease ping/pong traffic by trusting other nodes reports.
+ 1 file changed, 13 insertions(+)
+
+antirez in commit 51901396:
+ Cluster: collect more specific bus messages stats.
+ 2 files changed, 82 insertions(+), 31 deletions(-)
+
+antirez in commit f7b91b6c:
+ Add a top comment in crucial functions inside networking.c.
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+antirez in commit 6e1489ae:
+ Set lua-time-limit default value at safe place.
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 5fd841c0:
+ Fix preprocessor if/else chain broken in order to fix #3927.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 185b361a:
+ Fix typo in feedReplicationBacklog() top comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+lorneli in commit b740fc1e:
+ Expire: Update comment of activeExpireCycle function
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 56cafcce:
+ Fix zmalloc_get_memory_size() ifdefs to actually use the else branch.
+ 1 file changed, 2 deletions(-)
+
+antirez in commit a5b66da8:
+ Make more obvious why there was issue #3843.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit f60d6f09:
+ Fix modules blocking commands awake delay.
+ 3 files changed, 42 insertions(+)
+
+antirez in commit c56668c8:
+ Rax library updated.
+ 3 files changed, 152 insertions(+), 265 deletions(-)
+
+antirez in commit c4716d33:
+ Cluster: hash slots tracking using a radix tree.
+ 9 files changed, 2115 insertions(+), 65 deletions(-)
+
+vienna in commit a9fefbce:
+ fix #3847: add close socket before return ANET_ERR.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Dvir Volk in commit 17250409:
+ fixed free of blocked client before refering to it
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 8aced9e9:
+ add LFU policies to the test suite, just for coverage
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 3aa656ab:
+ Use sha256 instead of sha1 to generate tarball hashes.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 42d6a6c3:
+ Makefile: fix building with Solaris C compiler, 64 bit.
+ 1 file changed, 7 insertions(+)
+
+Salvatore Sanfilippo in commit e082d056:
+ Use ARM unaligned accesses ifdefs for SPARC as well.
+ 3 files changed, 11 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 7269d547:
+ Fix BITPOS unaligned memory access.
+ 1 file changed, 14 insertions(+), 7 deletions(-)
+
+antirez in commit 15520588:
+ Solaris fixes about tail usage and atomic vars.
+ 4 files changed, 7 insertions(+), 7 deletions(-)
+
+antirez in commit 9faeed04:
+ Test: replication-psync, wait more to detect write load.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit b3440b35:
+ Test: fix conditional execution of HINCRBYFLOAT representation test.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 5a413303:
+ SipHash 2-4 -> SipHash 1-2.
+ 1 file changed, 15 insertions(+), 14 deletions(-)
+
+antirez in commit a8cbc3ec:
+ freeMemoryIfNeeded(): improve code and lazyfree handling.
+ 1 file changed, 42 insertions(+), 19 deletions(-)
+
+antirez in commit 857e6d56:
+ Use locale agnostic tolower() in dict.c hash function.
+ 3 files changed, 27 insertions(+), 17 deletions(-)
+
+antirez in commit 34387cea:
+ SipHash x86 optimizations.
+ 1 file changed, 23 insertions(+), 2 deletions(-)
+
+antirez in commit ba647598:
+ Use SipHash hash function to mitigate HashDos attempts.
+ 12 files changed, 361 insertions(+), 82 deletions(-)
+
+Salvatore Sanfilippo in commit 2ee19d98:
+ ARM: Avoid fast path for BITOP.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit eb62cfea:
+ ARM: Use libc malloc by default.
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+Salvatore Sanfilippo in commit 620e48b1:
+ ARM: Avoid memcpy() in MurmurHash64A() if we are using 64 bit ARM.
+ 3 files changed, 5 insertions(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit 980d8805:
+ ARM: Fix 64 bit unaligned access in MurmurHash64A().
+ 2 files changed, 10 insertions(+)
+
+John.Koepi in commit 522b10e4:
+ fix #2883, #2857 pipe fds leak when fork() failed on bg aof rw
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 03f55722:
+ Don't leak file descriptor on syncWithMaster().
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 8d55aeb5:
+ Fix MIGRATE closing of cached socket on error.
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+antirez in commit 7c22d768:
+ Fix ziplist fix...
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 8327b813:
+ Ziplist: insertion bug under particular conditions fixed.
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+antirez in commit 1688ccff:
+ ziplist: better comments, some refactoring.
+ 1 file changed, 250 insertions(+), 100 deletions(-)
+
+antirez in commit 36c1acc2:
+ Jemalloc updated to 4.4.0.
+ 150 files changed, 17242 insertions(+), 6359 deletions(-)
+
+Jan-Erik Rediger in commit 37b4c954:
+ Don't divide by zero
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+miter in commit aee1ddca:
+ Change switch statment to if statment
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+oranagra in commit af292b54:
+ fix rare assertion in DEBUG DIGEST
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit c3c2aa3b:
+ Verify pairs are provided after subcommands
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 7c2153da:
+ Add panic() into redisassert.h.
+ 1 file changed, 2 insertions(+)
+
+antirez in commit dc83ddf0:
+ serverPanic(): allow printf() alike formatting.
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+antirez in commit 3ef81eb3:
+ Ziplist: remove static from functions, they prevent good crash reports.
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+Jan-Erik Rediger in commit 96f75faa:
+ Initialize help only in repl mode
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit bcd51a6a:
+ Use const in modules types mem_usage method.
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 354ccf0c:
+ Add memory defragmenting capability in 4.0 release notes.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 57c81853:
+ Defrag: don't crash when a module value is encountered.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit e36d5222:
+ MEMORY USAGE: support for modules data types.
+ 3 files changed, 16 insertions(+), 5 deletions(-)
+
+antirez in commit 82ec0fe6:
+ Defrag: document the feature in redis.conf.
+ 1 file changed, 49 insertions(+), 6 deletions(-)
+
+antirez in commit 19bf0249:
+ Defrag: not enabled by default. Error on CONFIG SET if not available.
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+antirez in commit fa0d8b62:
+ Defrag: fix function name typo defarg -> defrag.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit ebb9a7e7:
+ Defrag: do not crash on empty quicklist.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit da84b9c4:
+ Defrag: fix comments & code to conform to the Redis code base.
+ 1 file changed, 84 insertions(+), 54 deletions(-)
+
+antirez in commit a18f3cf3:
+ Defrag: activate it only if running modified version of Jemalloc.
+ 4 files changed, 40 insertions(+), 26 deletions(-)
+
+oranagra in commit 1ad48837:
+ active defrag improvements
+ 4 files changed, 63 insertions(+), 44 deletions(-)
+
+oranagra in commit 67def261:
+ active memory defragmentation
+ 13 files changed, 755 insertions(+), 8 deletions(-)
+
+antirez in commit b4f3c5a4:
+ deps/hiredis updated to latest version.
+ 34 files changed, 2393 insertions(+), 817 deletions(-)
+
+antirez in commit 6549c6cf:
+ Fix test "server is up" detection after logging changes.
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+Alexander Zhukov in commit b87fd120:
+ Fix an article usage
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+whatacold in commit bd845493:
+ fix the wrong description of intsetGet().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 952e8706:
+ 4.0 release notes updated with API incompatibility notice about GEO.
+ 1 file changed, 12 insertions(+)
+
+antirez in commit f3add069:
+ Geo: fuzzy test inconsistency report fixed to show all points.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit 056c81e4:
+ Geo: fix GEOHASH return value for consistency.
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+antirez in commit d5036018:
+ Geo: fix edge case return values for uniformity.
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+Justin Carvalho in commit 47b46253:
+ Fix missing brackets around encoding variable in ZIP_DECODE_LENGTH macro
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a0e95118:
+ Remove first version of ASCII wave, later discarded.
+ 1 file changed, 2 deletions(-)
+
+antirez in commit 3334a409:
+ Only show Redis logo if logging to stdout / TTY.
+ 4 files changed, 44 insertions(+), 11 deletions(-)
+
+antirez in commit db53c230:
+ adjustOpenFilesLimit() comment made hopefully more clear.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit bc00ef45:
+ Hopefully improve code comments for issue #3616.
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+itamar in commit 075a3381:
+ Corrects a couple of omissions in the modules docs
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+andyli in commit 8d82b3b1:
+ Modify MIN->MAX
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+oranagra in commit 69282df8:
+ when a slave loads an RDB, stop an AOFRW fork before flusing db and parsing rdb file, to avoid a CoW disaster.
+ 1 file changed, 19 insertions(+), 13 deletions(-)
+
+hylepo in commit 869dda84:
+ Update redis-benchmark.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+oranagra in commit 7f870fad:
+ fix unsigned int overflow in adjustOpenFilesLimit
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 2e375d4f:
+ Switch PFCOUNT to LogLog-Beta algorithm.
+ 4 files changed, 16 insertions(+), 57 deletions(-)
+
+antirez in commit 735b928b:
+ Use llroundl() before converting loglog-beta output to integer.
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 6cae609e:
+ Fix HLL gnuplot graph generator script for new redis-rb versions.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Harish Murthy in commit 4d475e0f:
+ LogLog-Beta Algorithm support within HLL Config option to use LogLog-Beta Algorithm for Cardinality
+ 4 files changed, 57 insertions(+), 27 deletions(-)
+
+Dvir Volk in commit 90d918bd:
+ fixed stop condition in RM_ZsetRangeNext and RM_ZsetRangePrev
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 3b19580a:
+ ziplist.c explanation of format improved a bit.
+ 1 file changed, 18 insertions(+), 11 deletions(-)
+
+antirez in commit 457c6878:
+ DEBUG: new "ziplist" subcommand added. Dumps a ziplist on stdout.
+ 4 files changed, 35 insertions(+), 13 deletions(-)
+
+antirez in commit 17cda261:
+ MIGRATE: Remove upfront ttl initialization.
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+Jan-Erik Rediger in commit 9515648d:
+ Reset the ttl for additional keys
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 1eec780e:
+ Writable slaves expires: unit test.
+ 1 file changed, 12 insertions(+)
+
+antirez in commit 9a8bc6d2:
+ Writable slaves expires: fix leak in key tracking.
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+antirez in commit 746d70b0:
+ INFO: show num of slave-expires keys tracked.
+ 3 files changed, 11 insertions(+), 2 deletions(-)
+
+antirez in commit 1469c4ed:
+ Fix created->created typo in expire.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit c65dfb43:
+ Replication: fix the infamous key leakage of writable slaves + EXPIRE.
+ 8 files changed, 161 insertions(+), 11 deletions(-)
+
+Yossi Gottlieb in commit 80944aac:
+ Fix redis-cli rare crash.
+ 1 file changed, 4 insertions(+)
+
+================================================================================
 Redis 4.0.0-RC2     Released Tue Dec 06 09:25:35 CET 2016
 ================================================================================
 
