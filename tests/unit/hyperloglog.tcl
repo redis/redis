@@ -79,7 +79,7 @@ start_server {tags {"hll"}} {
         }
     }
 
-    test {Corrupted sparse HyperLogLogs are detected: Additionl at tail} {
+    test {Corrupted sparse HyperLogLogs are detected: Additional at tail} {
         r del hll
         r pfadd hll a b c
         r append hll "hello"
