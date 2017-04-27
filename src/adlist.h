@@ -72,6 +72,7 @@ typedef struct list {
 /* Prototypes */
 list *listCreate(void);
 void listRelease(list *list);
+void listEmpty(list *list);
 list *listAddNodeHead(list *list, void *value);
 list *listAddNodeTail(list *list, void *value);
 list *listInsertNode(list *list, listNode *old_node, void *value, int after);
