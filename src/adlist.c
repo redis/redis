@@ -52,10 +52,8 @@ list *listCreate(void)
     return list;
 }
 
-/* Free the whole list.
- *
- * This function can't fail. */
-void listRelease(list *list)
+/* Remove all the elements from the list without destroying the list itself. */
+void listEmpty(list *list)
 {
     unsigned long len;
     listNode *current, *next;
@@ -68,6 +66,16 @@ void listRelease(list *list)
         zfree(current);
         current = next;
     }
+    list->head = list->tail = NULL;
+    list->len = 0;
+}
+
+/* Free the whole list.
+ *
+ * This function can't fail. */
+void listRelease(list *list)
+{
+    listEmpty(list);
     zfree(list);
 }
 
