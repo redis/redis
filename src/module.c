@@ -2397,6 +2397,9 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
         } else if (*p == 'l') {
             long ll = va_arg(ap,long long);
             argv[argc++] = createStringObjectFromLongLong(ll);
+        } else if (*p == 'd') {
+            double d = va_arg(ap,double);
+            argv[argc++] = createStringObjectFromLongDouble(d, 0);
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -2433,6 +2436,19 @@ fmterr:
 /* Exported API to call any Redis command from modules.
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
+ * 
+ * The fmt string can contain any of the following format specifiers:
+ *   c -> Null terminated C string pointer.
+ *   b -> C buffer, two arguments needed: C string pointer and size_t length.
+ *   s -> RedisModuleString as received in argv or by other Redis module APIs 
+ *        returning a RedisModuleString object.
+ *   l -> Long long integer.
+ *   d -> Double. Note that converting the value to a string will use exp 
+          formatting to avoid precision loss. If a different representation is 
+          needed, the caller should format the number manually to a string.
+ *   v -> Array of RedisModuleString objects.
+ *   ! -> This modifier tells the function to replicate the command to slaves 
+ *        and AOF. It is ignored from the point of view of arguments parsing.
  *
  * EINVAL: command non existing, wrong arity, wrong format specifier.
  * EPERM:  operation in Cluster instance with key in non local slot. */
