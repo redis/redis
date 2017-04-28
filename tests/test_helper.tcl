@@ -42,6 +42,7 @@ set ::all_tests {
     integration/convert-zipmap-hash-on-load
     integration/logging
     integration/psync2
+    integration/psync2-reg
     unit/pubsub
     unit/slowlog
     unit/scripting
