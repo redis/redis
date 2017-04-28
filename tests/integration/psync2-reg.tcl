@@ -7,10 +7,10 @@
 start_server {tags {"psync2"}} {
 start_server {} {
 start_server {} {
-    set start_time [clock seconds]  ; # Test start time
-
     # Config
     set debug_msg 0                 ; # Enable additional debug messages
+
+    set no_exit 0                   ; # Do not exit at end of the test
 
     set duration 20                 ; # Total test seconds
 
@@ -22,17 +22,18 @@ start_server {} {
     }
 
     # Setup the replication and backlog parameters
-    $R(1) slaveof $R_host(0) $R_port(0)
-    $R(2) slaveof $R_host(0) $R_port(0)
-    $R(0) set foo bar
-    wait_for_condition 50 1000 {
-        [$R(1) dbsize] == 1 && [$R(2) dbsize] == 1
-    } else {
-        fail "Slaves not replicating from master"
+    test "PSYNC2 #3899 regression: setup" {
+        $R(1) slaveof $R_host(0) $R_port(0)
+        $R(2) slaveof $R_host(0) $R_port(0)
+        $R(0) set foo bar
+        wait_for_condition 50 1000 {
+            [$R(1) dbsize] == 1 && [$R(2) dbsize] == 1
+        } else {
+            fail "Slaves not replicating from master"
+        }
+        $R(0) config set repl-backlog-size 10mb
+        $R(1) config set repl-backlog-size 10mb
     }
-
-    $R(0) config set repl-backlog-size 10mb
-    $R(1) config set repl-backlog-size 10mb
 
     set cycle_start_time [clock milliseconds]
     set bench_pid [exec src/redis-benchmark -p $R_port(0) -n 10000000 -r 1000 incr __rand_int__ > /dev/null &]
@@ -40,22 +41,38 @@ start_server {} {
         set elapsed [expr {[clock milliseconds]-$cycle_start_time}]
         if {$elapsed > $duration*1000} break
         if {rand() < .05} {
-            test "Kill first slave link with the master" {
+            test "PSYNC2 #3899 regression: kill first slave" {
                 $R(1) client kill type master
             }
         }
         if {rand() < .05} {
-            test "Kill chained slave link with the master" {
+            test "PSYNC2 #3899 regression: kill chained slave" {
                 $R(2) client kill type master
             }
         }
         after 100
     }
+    exec kill -9 $bench_pid
 
-    wait_for_condition 50 1000 {
-        ([$R(0) debug digest] eq [$R(1) debug digest]) &&
-        ([$R(1) debug digest] eq [$R(2) debug digest])
-    } else {
-        fail "The three instances have different data sets"
+    if {$debug_msg} {
+        for {set j 0} {$j < 100} {incr j} {
+            if {
+                [$R(0) debug digest] == [$R(1) debug digest] &&
+                [$R(1) debug digest] == [$R(2) debug digest]
+            } break
+            puts [$R(0) debug digest]
+            puts [$R(1) debug digest]
+            puts [$R(2) debug digest]
+            after 1000
+        }
+    }
+
+    test "PSYNC2 #3899 regression: verify consistency" {
+        wait_for_condition 50 1000 {
+            ([$R(0) debug digest] eq [$R(1) debug digest]) &&
+            ([$R(1) debug digest] eq [$R(2) debug digest])
+        } else {
+            fail "The three instances have different data sets"
+        }
     }
 }}}
