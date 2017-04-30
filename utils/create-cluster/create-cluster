@@ -86,6 +86,12 @@ then
     exit 0
 fi
 
+if [ "$1" == "clean-logs" ]
+then
+    rm -rf *.log
+    exit 0
+fi
+
 echo "Usage: $0 [start|create|stop|watch|tail|clean]"
 echo "start       -- Launch Redis Cluster instances."
 echo "create      -- Create a cluster using redis-trib create."
@@ -93,3 +99,4 @@ echo "stop        -- Stop Redis Cluster instances."
 echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
 echo "tail <id>   -- Run tail -f of instance at base port + ID."
 echo "clean       -- Remove all instances data, logs, configs."
+echo "clean-logs  -- Remove just instances logs."
