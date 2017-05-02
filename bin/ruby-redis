@@ -1,0 +1,106 @@
+#!/usr/bin/env ruby
+
+# Copyright (c) 2011, David Turnbull <dturnbull at gmail dot com>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#   * Redistributions of source code must retain the above copyright notice,
+#     this list of conditions and the following disclaimer.
+#   * Redistributions in binary form must reproduce the above copyright
+#     notice, this list of conditions and the following disclaimer in the
+#     documentation and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+
+# Attempt support for Ruby older than 1.9
+unless Kernel.respond_to?(:require_relative)
+  module Kernel
+    def require_relative(path)
+      require File.join(File.dirname(caller[0]), path.to_str)
+    end
+  end
+end
+
+if File.exist? File.expand_path '../../lib/redis/server.rb', __FILE__
+  # Prefer local version (development or /usr/local deployments)
+  require_relative '../lib/redis/connection'
+  require_relative '../lib/redis/logger'
+else
+  # Use any from the include path, most likely a gem
+  require 'redis/connection'
+  require 'redis/logger'
+end
+
+if ARGV==['-v'] or ARGV==['--version']
+  print "Redis server version %s (Ruby)\n" % Redis::VERSION
+  exit 0
+end
+
+if ARGV==['--help'] or ARGV.size > 1
+  STDERR.print "Usage: ruby-redis [/path/to/redis.conf]\n"
+  STDERR.print "       ruby-redis - (read config from stdin)\n"
+  exit 1
+end
+
+lambda do # keep config out of top namespace
+
+  show_no_config_warning = (ARGV.size == 0)
+
+  config = Redis::Config.new(ARGV.empty? ? [] : ARGF)
+  
+  Dir.chdir config[:dir]
+  
+  Redis.logger config[:logfile] unless config[:logfile] == 'stdout'
+  
+  #TODO
+  # Set server verbosity to 'debug'
+  # it can be one of:
+  # debug (a lot of information, useful for development/testing)
+  # verbose (many rarely useful info, but not a mess like the debug level)
+  # notice (moderately verbose, what you want in production probably)
+  # warning (only very important / critical messages are logged)
+  # loglevel verbose
+
+  if show_no_config_warning
+    Redis.logger.warn "Warning: no config file specified, using the default config. In order to specify a config file use 'ruby-redis /path/to/redis.conf'"
+  end
+
+  EventMachine.epoll
+  EventMachine.run {
+    
+    (0...config[:databases]).each do |db_index|
+      Redis.databases[db_index] ||= Redis::Database.new
+    end
+
+    #TODO support changing host and EventMachine::start_unix_domain_server
+    EventMachine::start_server "127.0.0.1", config[:port], Redis::Connection, config
+  
+    if config[:daemonize]
+      raise 'todo'
+      # daemonize();
+      # FILE *fp = fopen(server.pidfile,"w");
+      # if (fp) { fprintf(fp,"%d\n",(int)getpid()); fclose(fp); }
+    end
+  
+    Redis.logger.notice "Server started, Ruby Redis version %s" % Redis::VERSION
+    Redis.logger.notice "The server is now ready to accept connections on port %d" % config[:port]
+
+    # The test suite blocks until it gets the pid from the log.
+    Redis.logger.flush
+  
+  }
+  
+end.call
