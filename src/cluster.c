@@ -1299,7 +1299,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
         return 0;
     }
 
-    /* Add the node with a random address (NULL as first argument to
+    /* Add the node with a random name (NULL as first argument to
      * createClusterNode()). Everything will be fixed during the
      * handshake. */
     n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
