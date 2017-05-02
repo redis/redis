@@ -358,7 +358,7 @@ void clusterSaveConfigOrDie(int do_fsync) {
     }
 }
 
-/* Lock the cluster config using flock(), and leaks the file descritor used to
+/* Lock the cluster config using fcntl(), and leaks the file descriptor used to
  * acquire the lock so that the file will be locked forever.
  *
  * This works because we always update nodes.conf with a new version
@@ -384,7 +384,13 @@ int clusterLockConfig(char *filename) {
         return C_ERR;
     }
 
-    if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
+    struct flock lock;
+    lock.l_start = 0;
+    lock.l_len = 0;
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_SET;
+
+    if (fcntl(fd, F_SETLK, &lock) == -1) {
         if (errno == EWOULDBLOCK) {
             serverLog(LL_WARNING,
                  "Sorry, the cluster configuration file %s is already used "
