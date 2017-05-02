@@ -134,13 +134,9 @@ int _dictInit(dict *d, dictType *type,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
-    int minimal;
-
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = d->ht[0].used;
-    if (minimal < DICT_HT_INITIAL_SIZE)
-        minimal = DICT_HT_INITIAL_SIZE;
-    return dictExpand(d, minimal);
+
+    return dictExpand(d, d->ht[0].used);
 }
 
 /* Expand or create the hash table */
@@ -167,12 +163,11 @@ int dictExpand(dict *d, unsigned long size)
      * we just set the first hash table so that it can accept keys. */
     if (d->ht[0].table == NULL) {
         d->ht[0] = n;
-        return DICT_OK;
+    } else {
+    /* Otherwise, prepare a second hash table for incremental rehashing */
+        d->ht[1] = n;
+        d->rehashidx = 0;
     }
-
-    /* Prepare a second hash table for incremental rehashing */
-    d->ht[1] = n;
-    d->rehashidx = 0;
     return DICT_OK;
 }
 
@@ -916,6 +911,8 @@ unsigned long dictScan(dict *d,
 /* Expand the hash table if needed */
 static int _dictExpandIfNeeded(dict *d)
 {
+    unsigned long ratio;
+
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
@@ -926,9 +923,8 @@ static int _dictExpandIfNeeded(dict *d)
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if (d->ht[0].used >= d->ht[0].size &&
-        (dict_can_resize ||
-         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
+    ratio = d->ht[0].used / d->ht[0].size;
+    if ((ratio >= 1 && dict_can_resize) || (ratio > dict_force_resize_ratio))
     {
         return dictExpand(d, d->ht[0].used*2);
     }
