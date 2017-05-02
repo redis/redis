@@ -51,11 +51,6 @@ singleObjectIteratorHasNext(singleObjectIterator *it) {
     return it->stage != STAGE_DONE;
 }
 
-static size_t
-sdslenOrElse(robj *o, size_t len) {
-    return sdsEncodedObject(o) ? sdslen(o->ptr) : len;
-}
-
 static void
 singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
     void **pd = (void **)data;
@@ -75,9 +70,9 @@ singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
     }
     for (int i = 0; i < 2; i ++) {
         if (s[i] != NULL) {
-            robj *obj = createStringObject((const char *)s[i], sdslen(s[i]));
-            *n += sdslenOrElse(obj, 8);
-            listAddNodeTail(l, obj);
+            sds dup = sdsdup(s[i]);
+            *n += sdslen(dup);
+            listAddNodeTail(l, dup);
         }
     }
 }
@@ -102,14 +97,14 @@ convertRawBitsToDouble(uint64_t value) {
     return fp.d;
 }
 
-static robj *
-createRawStringObjectFromUint64(uint64_t v) {
+static sds
+createSdsStringFromUint64(uint64_t v) {
     uint64_t p = intrev64ifbe(v);
-    return createRawStringObject((char *)&p, sizeof(p));
+    return sdsnewlen((const char *)&p, sizeof(p));
 }
 
 static int
-decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
+decodeUint64FromSdsStringObject(robj *o, uint64_t *p) {
     if (sdsEncodedObject(o) && sdslen(o->ptr) == sizeof(uint64_t)) {
         *p = intrev64ifbe(*(uint64_t *)(o->ptr));
         return C_OK;
@@ -302,13 +297,13 @@ singleObjectIteratorNextStageChunkedTypeList(singleObjectIterator *it,
         listTypeEntry entry;
         if (listTypeNext(li, &entry)) {
             quicklistEntry *qe = &(entry.entry);
-            robj *ele;
+            sds ele;
             if (qe->value) {
-                ele = createStringObject((const char *)qe->value, qe->sz);
+                ele = sdsnewlen((const char *)qe->value, qe->sz);
             } else {
-                ele = createStringObjectFromLongLong(qe->longval);
+                ele = sdsfromlonglong(qe->longval);
             }
-            nn += sdslenOrElse(ele, 8);
+            nn += sdslen(ele);
             listAddNodeTail(l, ele);
 
             it->lindex ++;
@@ -337,13 +332,13 @@ singleObjectIteratorNextStageChunkedTypeZSet(singleObjectIterator *it,
 
     do {
         if (node != NULL) {
-            robj *field = createStringObject((const char *)node->ele, sdslen(node->ele));
-            nn += sdslenOrElse(field, 8);
+            sds field = sdsdup(node->ele);
+            nn += sdslen(field);
             listAddNodeTail(l, field);
 
             uint64_t u8 = convertDoubleToRawBits(node->score);
-            robj *score = createRawStringObjectFromUint64(u8);
-            nn += sdslenOrElse(score, 8);
+            sds score = createSdsStringFromUint64(u8);
+            nn += sdslen(score);
             listAddNodeTail(l, score);
 
             node = node->backward;
@@ -409,7 +404,6 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
     }
 
     list *ll = listCreate();
-    listSetFreeMethod(ll, decrRefCountVoid);
 
     long long done = 0, maxsize = 0;
 
@@ -441,8 +435,8 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
 
         while (listLength(ll) != 0) {
             listNode *head = listFirst(ll);
-            robj *bulk = listNodeValue(head);
-            addReplyBulk(c, bulk);
+            sds s = listNodeValue(head);
+            addReplyBulkSds(c, s);
             listDelNode(ll, head);
         }
         msgs ++;
@@ -1332,7 +1326,7 @@ restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, int argc, robj **argv, l
     double *scores = zmalloc(sizeof(double) * (argc / 2));
     for (int i = 1, j = 0; i < argc; i += 2, j ++) {
         uint64_t u8;
-        if (decodeUint64FromRawStringObject(argv[i], &u8) != C_OK) {
+        if (decodeUint64FromSdsStringObject(argv[i], &u8) != C_OK) {
             asyncMigrationReplyAckErrorFormat(c, "invalid value of score[%d] (%s)",
                     j, argv[i]->ptr);
             zfree(scores);
