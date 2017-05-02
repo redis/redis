@@ -1621,6 +1621,7 @@ void clientCommand(client *c) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client = listNodeValue(ln);
+            if (!addr && type == -1 && id == 0) continue;
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
