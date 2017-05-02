@@ -3,12 +3,12 @@
 # Simple Redis init.d script conceived to work on Linux systems
 # as it does use of the /proc filesystem.
 
-REDISPORT=6379
+REDIS_PORT=6379
 EXEC=/usr/local/bin/redis-server
 CLIEXEC=/usr/local/bin/redis-cli
 
-PIDFILE=/var/run/redis_${REDISPORT}.pid
-CONF="/etc/redis/${REDISPORT}.conf"
+PIDFILE=/var/run/redis_${REDIS_PORT}.pid
+CONF="/etc/redis/${REDIS_PORT}.conf"
 
 case "$1" in
     start)
@@ -27,7 +27,7 @@ case "$1" in
         else
                 PID=$(cat $PIDFILE)
                 echo "Stopping ..."
-                $CLIEXEC -p $REDISPORT shutdown
+                $CLIEXEC -p $REDIS_PORT shutdown
                 while [ -x /proc/${PID} ]
                 do
                     echo "Waiting for Redis to shutdown ..."
