@@ -194,13 +194,14 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  *
  * All the new keys in the database should be craeted via this interface. */
 void setKey(redisDb *db, robj *key, robj *val) {
-    if (lookupKeyWrite(db,key) == NULL) {
-        dbAdd(db,key,val);
-    } else {
-        dbOverwrite(db,key,val);
-    }
+    expireIfNeeded(db,key);
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
+        val->lru = server.lruclock;
+    if (dictReplace(db->dict, key->ptr, val))
+    	key->ptr = sdsdup(key->ptr);
+    else
+    	removeExpire(db,key);
     incrRefCount(val);
-    removeExpire(db,key);
     signalModifiedKey(db,key);
 }
 
