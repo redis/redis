@@ -730,6 +730,15 @@ start_server {tags {"scripting repl"}} {
                 fail "Time key does not match between master and slave"
             }
         }
+
+        test {readonly EVAL is replicated to slaves} {
+            r eval {return 100} 0
+            wait_for_condition 50 100 {
+                [r -1 script exists 22cd37f569ce84333afb93ba232d04d5aa6bb87a] eq {1}
+            } else {
+                fail "Script never replicated to slave"
+            }
+        }
     }
 }
 
