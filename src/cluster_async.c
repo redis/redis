@@ -969,26 +969,6 @@ asyncMigrationNextInMicroseconds(asyncMigrationClient *ac, int atleast, long lon
     return n;
 }
 
-int *
-migrateAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    (void)cmd;
-    (void)argv;
-
-    int num = 0, *pos = NULL;
-    if (argc <= 6) {
-        goto out;
-    }
-    num = argc - 6;
-    pos = zmalloc(sizeof(int) * num);
-    for (int i = 0; i < num; i ++) {
-        pos[i] = i + 6;
-    }
-
-out:
-    *numkeys = num;
-    return pos;
-}
-
 /* *
  * MIGRATE-ASYNC $host $port $timeout $maxbulks $maxbytes $key1 [$key2 ...]
  * */
