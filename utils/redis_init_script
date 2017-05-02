@@ -37,6 +37,6 @@ case "$1" in
         fi
         ;;
     *)
-        echo "Please use start or stop as first argument"
+        echo "Please use start, stop, or status as first argument"
         ;;
 esac
