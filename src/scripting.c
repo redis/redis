@@ -828,7 +828,8 @@ void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
     luaLoadLib(lua, "bit", luaopen_bit);
 
-#if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
+#if 1 /* Stuff that we don't load currently, for sandboxing concerns. */
+    luaLoadLib(lua, LUA_IOLIBNAME, luaopen_io);
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
     luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
 #endif
