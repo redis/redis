@@ -1,8 +1,10 @@
 /* Background I/O service for Redis.
  *
  * This file implements operations that we need to perform in the background.
- * Currently there is only a single operation, that is a background close(2)
- * system call. This is needed as when the process is the last owner of a
+ * Currently there are only two operations, which are background close(2)
+ * and background fsync(2)/fdatasync(2).
+ *
+ * Background close(2) is needed as when the process is the last owner of a
  * reference to a file closing it means unlinking it, and the deletion of the
  * file is slow, blocking the server.
  *
