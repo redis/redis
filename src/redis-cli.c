@@ -1850,6 +1850,11 @@ static void pipeMode(void) {
                 }
             } while(reply);
         }
+        
+        if (errors > 0) {
+            fprintf(stderr, "Error processing protocol data. It is probably malformed.\n");
+            exit(1);
+        }
 
         /* Handle the writable state: we can send protocol to the server. */
         if (mask & AE_WRITABLE) {
