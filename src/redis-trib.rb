@@ -346,7 +346,9 @@ class RedisTrib
     # in the cluster. If there are multiple masters with the same smaller
     # number of replicas, one at random is returned.
     def get_master_with_least_replicas
-        masters = @nodes.select{|n| n.has_flag? "master"}
+        masters = @nodes.select{|n|
+            n.has_flag? "master" && !n.has_flag? "myself"
+        }
         sorted = masters.sort{|a,b|
             a.info[:replicas].length <=> b.info[:replicas].length
         }
