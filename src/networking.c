@@ -1041,7 +1041,7 @@ int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
     sds *argv, aux;
-    size_t querylen;
+    size_t querylen, offset;
 
     /* Search for end of line */
     newline = strchr(c->querybuf,'\n');
@@ -1055,9 +1055,12 @@ int processInlineBuffer(client *c) {
         return C_ERR;
     }
 
+    offset = 1;
     /* Handle the \r\n case. */
-    if (newline && newline != c->querybuf && *(newline-1) == '\r')
+    if (newline && newline != c->querybuf && *(newline-1) == '\r') {
         newline--;
+        offset++;
+    }
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
@@ -1077,7 +1080,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+offset,-1);
 
     /* Setup argv array on client structure */
     if (argc) {
