@@ -3760,4 +3760,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientPrivateData);
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
+    REGISTER_API(GetThreadSafeContext);
+    REGISTER_API(FreeThreadSafeContext);
+    REGISTER_API(ThreadSafeContextLock);
+    REGISTER_API(ThreadSafeContextUnlock);
 }
