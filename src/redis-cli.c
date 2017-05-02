@@ -1470,6 +1470,25 @@ static int evalMode(int argc, char **argv) {
  * Latency and latency history modes
  *--------------------------------------------------------------------------- */
 
+int comparator(const void *a, const void *b) {
+    return ((long long *)a - (long long *)b);
+}
+
+static void sortArray(long long samples[], size_t count) {
+    qsort(samples, count, sizeof(long long), &comparator);
+}
+
+static int calcPercentile(long long sortedsamples[], size_t count, int percentile) {
+    if (percentile > 100 || percentile < 0) {
+        return -1;
+    }
+
+    unsigned int index = ceil((percentile / 100.00) * count) - 1;
+    index = (index > count) ? 0 : index;
+
+    return sortedsamples[index];
+}
+
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
 static void latencyMode(void) {
@@ -1479,6 +1498,10 @@ static void latencyMode(void) {
         config.interval ? config.interval/1000 :
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
+    unsigned int numsamples = (1000/LATENCY_SAMPLE_RATE) * history_interval;
+    long long *samples = calloc(numsamples, sizeof(long long));
+    memset(samples, 0, sizeof(long long) * numsamples);
+
     long long history_start = mstime();
 
     if (!context) exit(1);
@@ -1491,6 +1514,8 @@ static void latencyMode(void) {
         }
         latency = mstime()-start;
         freeReplyObject(reply);
+        samples[count] = latency;
+
         count++;
         if (count == 1) {
             min = max = tot = latency;
@@ -1506,12 +1531,20 @@ static void latencyMode(void) {
         fflush(stdout);
         if (config.latency_history && mstime()-history_start > history_interval)
         {
+            sortArray(samples, count);
+            long long pct99 = calcPercentile(samples, count, 99);
+            long long pct50 = calcPercentile(samples, count, 50);
+            printf(" 50pct: %lld 99pct: %lld", pct50, pct99);
             printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
+
             history_start = mstime();
             min = max = tot = count = 0;
+            memset(samples, 0, sizeof(long long) * numsamples);
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
+
+    free(samples);
 }
 
 /*------------------------------------------------------------------------------
