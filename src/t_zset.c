@@ -1061,7 +1061,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsig
 }
 
 unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsigned long *deleted) {
-    unsigned char *eptr, *sptr;
+    unsigned char *eptr;
     unsigned long num = 0;
 
     if (deleted != NULL) *deleted = 0;
@@ -1071,7 +1071,7 @@ unsigned char *zzlDeleteRangeByLex(unsigned char *zl, zlexrangespec *range, unsi
 
     /* When the tail of the ziplist is deleted, eptr will point to the sentinel
      * byte and ziplistNext will return NULL. */
-    while ((sptr = ziplistNext(zl,eptr)) != NULL) {
+    while (ziplistNext(zl,eptr) != NULL) {
         if (zzlLexValueLteMax(eptr,range)) {
             /* Delete both the element and the score. */
             zl = ziplistDelete(zl,&eptr);
