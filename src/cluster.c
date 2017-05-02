@@ -2848,7 +2848,7 @@ void clusterHandleSlaveFailover(void) {
      * Retry is two times the Timeout.
      */
     auth_timeout = server.cluster_node_timeout*2;
-    if (auth_timeout < 2000) auth_timeout = 2000;
+    if (auth_timeout > 2000) auth_timeout = 2000;
     auth_retry_time = auth_timeout*2;
 
     /* Pre conditions to run the function, that must be met both in case
