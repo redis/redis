@@ -98,13 +98,13 @@ convertRawBitsToDouble(uint64_t value) {
 }
 
 static sds
-createSdsStringFromUint64(uint64_t v) {
+createRawStringFromUint64(uint64_t v) {
     uint64_t p = intrev64ifbe(v);
     return sdsnewlen((const char *)&p, sizeof(p));
 }
 
 static int
-decodeUint64FromSdsStringObject(robj *o, uint64_t *p) {
+decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
     if (sdsEncodedObject(o) && sdslen(o->ptr) == sizeof(uint64_t)) {
         *p = intrev64ifbe(*(uint64_t *)(o->ptr));
         return C_OK;
@@ -336,8 +336,8 @@ singleObjectIteratorNextStageChunkedTypeZSet(singleObjectIterator *it,
             nn += sdslen(field);
             listAddNodeTail(l, field);
 
-            uint64_t u8 = convertDoubleToRawBits(node->score);
-            sds score = createSdsStringFromUint64(u8);
+            uint64_t u64 = convertDoubleToRawBits(node->score);
+            sds score = createRawStringFromUint64(u64);
             nn += sdslen(score);
             listAddNodeTail(l, score);
 
@@ -1325,14 +1325,14 @@ static int
 restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, int argc, robj **argv, long long size) {
     double *scores = zmalloc(sizeof(double) * (argc / 2));
     for (int i = 1, j = 0; i < argc; i += 2, j ++) {
-        uint64_t u8;
-        if (decodeUint64FromSdsStringObject(argv[i], &u8) != C_OK) {
+        uint64_t u64;
+        if (decodeUint64FromRawStringObject(argv[i], &u64) != C_OK) {
             asyncMigrationReplyAckErrorFormat(c, "invalid value of score[%d] (%s)",
                     j, argv[i]->ptr);
             zfree(scores);
             return C_ERR;
         }
-        scores[j] = convertRawBitsToDouble(u8);
+        scores[j] = convertRawBitsToDouble(u64);
     }
 
     robj *val = lookupKeyWrite(c->db, key);
