@@ -214,6 +214,10 @@ int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ct
 void *REDISMODULE_API_FUNC(RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_AbortBlock)(RedisModuleBlockedClient *bc);
 long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
+RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc);
+void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
+void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
+void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
@@ -322,6 +326,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
     REDISMODULE_GET_API(Milliseconds);
+    REDISMODULE_GET_API(GetThreadSafeContext);
+    REDISMODULE_GET_API(FreeThreadSafeContext);
+    REDISMODULE_GET_API(ThreadSafeContextLock);
+    REDISMODULE_GET_API(ThreadSafeContextUnlock);
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
