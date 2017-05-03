@@ -185,10 +185,9 @@ singleObjectIteratorNextStagePrepare(client *c, singleObjectIterator *it, unsign
                 msgs ++;
             }
             do {
-                /* RESTORE-ASYNC select $db */
-                addReplyMultiBulkLen(c, 3);
-                addReplyBulkCString(c, "RESTORE-ASYNC");
-                addReplyBulkCString(c, "select");
+                /* RESTORE-ASYNC-SELECT $db */
+                addReplyMultiBulkLen(c, 2);
+                addReplyBulkCString(c, "RESTORE-ASYNC-SELECT");
                 addReplyBulkLongLong(c, c->db->id);
                 msgs ++;
             } while (0);
@@ -1195,20 +1194,23 @@ restoreAsyncAuthCommand(client *c) {
     }
 }
 
-/* ============================ Command: RESTORE-ASYNC ===================================== */
+/* ============================ Command: RESTORE-ASYNC-SELECT ============================== */
 
-/* RESTORE-ASYNC select $db */
-static int
-restoreAsyncHandleOrReplySelectDb(client *c) {
+/* *
+ * RESTORE-ASYNC-SELECT $db
+ * */
+void
+restoreAsyncSelectCommand(client *c) {
     long long db;
-    if (getLongLongFromObject(c->argv[2], &db) != C_OK ||
+    if (getLongLongFromObject(c->argv[1], &db) != C_OK ||
             !(db >= 0 && db <= INT_MAX) || selectDb(c, db) != C_OK) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid value of db (%s)",
-                c->argv[2]->ptr);
-        return C_ERR;
+        asyncMigrationReplyAckErrorFormat(c, "invalid DB index (%s)", c->argv[1]->ptr);
+    } else {
+        asyncMigrationReplyAckString(c, "OK");
     }
-    return C_OK;
 }
+
+/* ============================ Command: RESTORE-ASYNC ===================================== */
 
 /* RESTORE-ASYNC delete $key */
 static int
@@ -1412,29 +1414,8 @@ restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, int argc, robj **argv, l
     return C_OK;
 }
 
-int *
-restoreAsyncGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    (void)cmd;
-
-    int num = 0, *pos = NULL;
-    if (argc <= 2) {
-        goto out;
-    }
-    if (!strcasecmp(argv[1]->ptr, "select")) {
-        goto out;
-    }
-    num = 1;
-    pos = zmalloc(sizeof(int));
-    pos[0] = 2;
-
-out:
-    *numkeys = num;
-    return pos;
-}
-
 /* *
- * RESTORE-ASYNC select $db
- *               delete $key
+ * RESTORE-ASYNC delete $key
  *               expire $key $ttlms
  *               object $key $ttlms $payload
  *               string $key $ttlms $payload
@@ -1455,17 +1436,6 @@ restoreAsyncCommand(client *c) {
         goto bad_arguments_number;
     }
     cmd = c->argv[1]->ptr;
-
-    /* RESTORE-ASYNC select $db */
-    if (!strcasecmp(cmd, "select")) {
-        if (c->argc != 3) {
-            goto bad_arguments_number;
-        }
-        if (restoreAsyncHandleOrReplySelectDb(c) == C_OK) {
-            goto success_common_reply;
-        }
-        return;
-    }
 
     if (c->argc <= 2) {
         goto bad_arguments_number;

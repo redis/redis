@@ -315,8 +315,9 @@ struct redisCommand redisCommandTable[] = {
     {"migrate-async-fence",migrateAsyncFenceCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"migrate-async-cancel",migrateAsyncCancelCommand,1,"F",0,NULL,0,0,0,0,0},
     {"migrate-async-status",migrateAsyncStatusCommand,1,"F",0,NULL,0,0,0,0,0},
-    {"restore-async",restoreAsyncCommand,-2,"wm",0,restoreAsyncGetKeys,0,0,0,0,0},
-    {"restore-async-auth",restoreAsyncAuthCommand,2,"F",0,NULL,0,0,0,0,0},
+    {"restore-async",restoreAsyncCommand,-2,"wm",0,NULL,2,2,1,0,0},
+    {"restore-async-auth",restoreAsyncAuthCommand,2,"sltF",0,NULL,0,0,0,0,0},
+    {"restore-async-select",restoreAsyncSelectCommand,2,"lF",0,NULL,0,0,0,0,0},
     {"restore-async-ack",restoreAsyncAckCommand,3,"w",0,NULL,0,0,0,0,0},
 };
 
