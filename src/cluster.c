@@ -5334,8 +5334,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* MIGRATE always works in the context of the local node if the slot
      * is open (migrating or importing state). We need to be able to freely
      * move keys among instances in this case. */
-    if ((migrating_slot || importing_slot) && cmd->proc == migrateCommand)
+    if ((migrating_slot || importing_slot) &&
+            (cmd->proc == migrateCommand || cmd->proc == migrateAsyncCommand)) {
         return myself;
+    }
 
     /* If we don't have all the keys and we are migrating the slot, send
      * an ASK redirection. */
