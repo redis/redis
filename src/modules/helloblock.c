@@ -115,7 +115,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 void *HelloKeys_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = arg;
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-    long long cursor = 1;
+    long long cursor = 0;
     size_t replylen = 0;
 
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -125,19 +125,21 @@ void *HelloKeys_ThreadMain(void *arg) {
             "SCAN","l",(long long)cursor);
         RedisModule_ThreadSafeContextUnlock(ctx);
 
-        size_t items = RedisModule_CallReplyLength(reply);
-        size_t j;
-        for (j = 0; j < items; j++) {
+        RedisModuleCallReply *cr_cursor =
+            RedisModule_CallReplyArrayElement(reply,0);
+        RedisModuleCallReply *cr_keys =
+            RedisModule_CallReplyArrayElement(reply,1);
+
+        RedisModuleString *s = RedisModule_CreateStringFromCallReply(cr_cursor);
+        RedisModule_StringToLongLong(s,&cursor);
+        RedisModule_FreeString(ctx,s);
+
+        size_t items = RedisModule_CallReplyLength(cr_keys);
+        for (size_t j = 0; j < items; j++) {
             RedisModuleCallReply *ele =
-                RedisModule_CallReplyArrayElement(reply,j);
-            if (j == 0) {
-                RedisModuleString *s = RedisModule_CreateStringFromCallReply(ele);
-                RedisModule_StringToLongLong(s,&cursor);
-                RedisModule_FreeString(ctx,s);
-            } else {
-                RedisModule_ReplyWithCallReply(ctx,ele);
-                replylen++;
-            }
+                RedisModule_CallReplyArrayElement(cr_keys,j);
+            RedisModule_ReplyWithCallReply(ctx,ele);
+            replylen++;
         }
         RedisModule_FreeCallReply(reply);
     } while (cursor != 0);
