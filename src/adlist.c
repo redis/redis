@@ -354,6 +354,7 @@ void listJoin(list *l, list *o) {
         l->head = o->head;
 
     l->tail = o->tail;
+    l->len += o->len;
 
     /* Setup other as an empty list. */
     o->head = l->tail = NULL;
