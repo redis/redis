@@ -846,6 +846,53 @@ cleanupClientsForAsyncMigration() {
     }
 }
 
+int
+inConflictWithAsyncMigration(client *c, struct redisCommand *cmd, robj **argv, int argc) {
+    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    if (ac->c == NULL || ac->iterator == NULL) {
+        return 0;
+    }
+    batchedObjectIterator *it = ac->iterator;
+
+    multiState _ms, *ms = &_ms;
+    multiCmd mc;
+    if (cmd->proc != execCommand) {
+        mc.cmd = cmd;
+        mc.argv = argv;
+        mc.argc = argc;
+        ms->commands = &mc;
+        ms->count = 1;
+    } else if (c->flags & CLIENT_MULTI) {
+        ms = &c->mstate;
+    } else {
+        return 0;
+    }
+
+    for (int i = 0; i < ms->count; i ++) {
+        robj **margv;
+        int margc, numkeys;
+        struct redisCommand *mcmd = ms->commands[i].cmd;
+        if (mcmd->flags & CMD_READONLY) {
+            continue;
+        }
+        margv = ms->commands[i].argv;
+        margc = ms->commands[i].argc;
+
+        int migrating = 0;
+        int *keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
+        for (int j = 0; j < numkeys && !migrating; j ++) {
+            robj *key = margv[keyindex[j]];
+            migrating = batchedObjectIteratorContains(it, key);
+        }
+        getKeysFreeResult(keyindex);
+
+        if (migrating) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* ============================ Command: MIGRATE-ASNYC-DUMP ================================ */
 
 /* *

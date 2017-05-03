@@ -267,4 +267,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 
+/* ---------------------- API exported outside cluster_async.c -------------- */
+int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd, robj **argv, int argc);
+
 #endif /* __CLUSTER_H */
