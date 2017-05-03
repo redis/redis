@@ -433,6 +433,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
 }
 
 /* Helper function for when a command callback is called, in order to handle
@@ -967,8 +968,10 @@ int RM_WrongArity(RedisModuleCtx *ctx) {
  * context of a thread safe context that was not initialized with a blocked
  * client object. */
 client *moduleGetReplyClient(RedisModuleCtx *ctx) {
-    if (ctx->client) return ctx->client;
-    if (ctx->blocked_client) return ctx->blocked_client->reply_client;
+    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE) && ctx->client)
+        return ctx->client;
+    if (ctx->blocked_client)
+        return ctx->blocked_client->reply_client;
     return NULL;
 }
 
@@ -3351,20 +3354,6 @@ void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
  * Thread Safe Contexts
  * -------------------------------------------------------------------------- */
 
-/* Operations executed in thread safe contexts use a global lock in order to
- * be ran at a safe time. This function unlocks and re-acquire the locks:
- * hopefully with *any* sane implementation of pthreads, this will allow the
- * modules to make progresses.
- *
- * This function is called in beforeSleep(). */
-void moduleCooperativeMultiTaskingCycle(void) {
-    if (dictSize(modules) == 0) return; /* No modules, no async ops. */
-    pthread_mutex_unlock(&moduleGIL);
-    /* Here hopefully thread modules waiting to be executed at a safe time
-     * should be able to acquire the lock. */
-    pthread_mutex_lock(&moduleGIL);
-}
-
 /* Return a context which can be used inside threads to make Redis context
  * calls with certain modules APIs. If 'bc' is not NULL then the module will
  * be bound to a blocked client, and it will be possible to use the
@@ -3381,7 +3370,9 @@ void moduleCooperativeMultiTaskingCycle(void) {
  * This is not needed when using `RedisModule_Reply*` functions, assuming
  * that a blocked client was used when the context was created, otherwise
  * no RedisModule_Reply* call should be made at all.
- */
+ *
+ * TODO: thread safe contexts do not inherit the blocked client
+ * selected database. */
 RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
     RedisModuleCtx empty = REDISMODULE_CTX_INIT;
@@ -3391,6 +3382,11 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
         ctx->module = bc->module;
     }
     ctx->flags |= REDISMODULE_CTX_THREAD_SAFE;
+    /* Even when the context is associated with a blocked client, we can't
+     * access it safely from another thread, so we create a fake client here
+     * in order to keep things like the currently selected database and similar
+     * things. */
+    ctx->client = createClient(-1);
     return ctx;
 }
 
@@ -3405,12 +3401,20 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
  * a blocked client connected to the thread safe context. */
 void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
     DICT_NOTUSED(ctx);
-    pthread_mutex_lock(&moduleGIL);
+    moduleAcquireGIL();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     DICT_NOTUSED(ctx);
+    moduleReleaseGIL();
+}
+
+void moduleAcquireGIL(void) {
+    pthread_mutex_lock(&moduleGIL);
+}
+
+void moduleReleaseGIL(void) {
     pthread_mutex_unlock(&moduleGIL);
 }
 
@@ -3653,6 +3657,11 @@ void moduleCommand(client *c) {
     } else {
         addReply(c,shared.syntaxerr);
     }
+}
+
+/* Return the number of registered modules. */
+size_t moduleCount(void) {
+    return dictSize(modules);
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
