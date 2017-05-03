@@ -2448,7 +2448,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long ll = va_arg(ap,long long);
-            argv[argc++] = createStringObjectFromLongLong(ll);
+            argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
