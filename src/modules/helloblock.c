@@ -106,15 +106,44 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 }
 
 /* The thread entry point that actually executes the blocking part
- * of the command HELLO.KEYS. */
+ * of the command HELLO.KEYS.
+ *
+ * Note: this implementation is very simple on purpose, so no duplicated
+ * keys (returned by SCAN) are filtered. However adding such a functionality
+ * would be trivial just using any data structure implementing a dictionary
+ * in order to filter the duplicated items. */
 void *HelloKeys_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = arg;
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+    long long cursor = 1;
+    size_t replylen = 0;
 
-    RedisModule_ThreadSafeContextLock(ctx);
-    RedisModule_ReplyWithLongLong(ctx,1234);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+    do {
+        RedisModule_ThreadSafeContextLock(ctx);
+        RedisModuleCallReply *reply = RedisModule_Call(ctx,
+            "SCAN","l",(long long)cursor);
+        RedisModule_ThreadSafeContextUnlock(ctx);
 
+        size_t items = RedisModule_CallReplyLength(reply);
+        size_t j;
+        for (j = 0; j < items; j++) {
+            RedisModuleCallReply *ele =
+                RedisModule_CallReplyArrayElement(reply,j);
+            if (j == 0) {
+                RedisModuleString *s = RedisModule_CreateStringFromCallReply(ele);
+                RedisModule_StringToLongLong(s,&cursor);
+                RedisModule_FreeString(ctx,s);
+            } else {
+                RedisModule_ReplyWithCallReply(ctx,ele);
+                replylen++;
+            }
+        }
+        RedisModule_FreeCallReply(reply);
+    } while (cursor != 0);
+    RedisModule_ReplySetArrayLength(ctx,replylen);
+
+    RedisModule_FreeThreadSafeContext(ctx);
     RedisModule_UnblockClient(bc,NULL);
     return NULL;
 }
