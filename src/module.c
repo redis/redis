@@ -3307,7 +3307,19 @@ void moduleHandleBlockedClients(void) {
         }
         freeClient(bc->reply_client);
 
-        if (c != NULL) unblockClient(c);
+        if (c != NULL) {
+            unblockClient(c);
+            /* Put the client in the list of clients that need to write
+             * if there are pending replies here. This is needed since
+             * during a non blocking command the client may receive output. */
+            if (clientHasPendingReplies(c) &&
+                !(c->flags & CLIENT_PENDING_WRITE))
+            {
+                c->flags |= CLIENT_PENDING_WRITE;
+                listAddNodeHead(server.clients_pending_write,c);
+            }
+        }
+
         /* Free 'bc' only after unblocking the client, since it is
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
