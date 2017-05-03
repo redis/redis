@@ -345,8 +345,14 @@ void listRotate(list *list) {
 /* Add all the elements of the list 'o' at the end of the
  * list 'l'. The list 'other' remains empty but otherwise valid. */
 void listJoin(list *l, list *o) {
-    l->tail->next = o->head;
-    o->head->prev = l->tail;
+    if (o->head)
+        o->head->prev = l->tail;
+
+    if (l->tail)
+        l->tail->next = o->head;
+    else
+        l->head = o->head;
+
     l->tail = o->tail;
 
     /* Setup other as an empty list. */
