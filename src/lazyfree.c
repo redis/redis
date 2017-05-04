@@ -8,7 +8,9 @@ pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
-    return lazyfree_objects;
+    size_t aux;
+    atomicGet(lazyfree_objects,aux,lazyfree_objects_mutex);
+    return aux;
 }
 
 /* Return the amount of work needed in order to free an object.
