@@ -261,12 +261,27 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zrevrank zranktmp y]
             assert_equal 0 [r zrevrank zranktmp z]
             assert_equal "" [r zrevrank zranktmp foo]
+
+            # withscore
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 20} [r zrank zranktmp y withscore]
+            assert_equal {2 30} [r zrank zranktmp z withscore]
+            assert_equal {} [r zrank zranktmp foo withscore]
+            assert_equal {2 10} [r zrevrank zranktmp x withscore]
+            assert_equal {1 20} [r zrevrank zranktmp y withscore]
+            assert_equal {0 30} [r zrevrank zranktmp z withscore]
+            assert_equal {} [r zrevrank zranktmp foo withscore]
         }
 
         test "ZRANK - after deletion - $encoding" {
             r zrem zranktmp y
+
             assert_equal 0 [r zrank zranktmp x]
             assert_equal 1 [r zrank zranktmp z]
+
+            # withscore
+            assert_equal {0 10} [r zrank zranktmp x withscore]
+            assert_equal {1 30} [r zrank zranktmp z withscore]
         }
 
         test "ZINCRBY - can create a new sorted set - $encoding" {
@@ -1011,10 +1026,20 @@ start_server {tags {"zset"}} {
                 set card [r zcard myzset]
                 if {$card > 0} {
                     set index [randomInt $card]
-                    set ele [lindex [r zrange myzset $index $index] 0]
-                    set rank [r zrank myzset $ele]
+
+                    set ele_pair [r zrange myzset $index $index withscores]
+                    set ele [lindex $ele_pair 0]
+                    set ele_score [lindex $ele_pair 1]
+
+                    set rank_pair [r zrank myzset $ele withscore]
+                    set rank [lindex $rank_pair 0]
+                    set rank_score [lindex $rank_pair 1]
+
                     if {$rank != $index} {
                         set err "$ele RANK is wrong! ($rank != $index)"
+                        break
+                    } elseif {$rank_score != $ele_score} {
+                        set err "$ele SCORE is wrong! ($rank_score != $ele_score)"
                         break
                     }
                 }

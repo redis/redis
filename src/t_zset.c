@@ -1423,7 +1423,7 @@ int zsetDel(robj *zobj, sds ele) {
  * the one with the lowest score. Otherwise if 'reverse' is non-zero
  * the rank is computed considering as element with rank 0 the one with
  * the highest score. */
-long zsetRank(robj *zobj, sds ele, int reverse) {
+long zsetRank(robj *zobj, sds ele, int reverse, double *score) {
     unsigned long llen;
     unsigned long rank;
 
@@ -1447,6 +1447,7 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         }
 
         if (eptr != NULL) {
+            if (score != NULL) *score = zzlGetScore(sptr);
             if (reverse)
                 return llen-rank;
             else
@@ -1458,14 +1459,16 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         dictEntry *de;
-        double score;
+        double zslscore;
 
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
-            score = *(double*)dictGetVal(de);
-            rank = zslGetRank(zsl,score,ele);
+            zslscore = *(double*)dictGetVal(de);
+            rank = zslGetRank(zsl,zslscore,ele);
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
+
+            if (score != NULL) *score = zslscore;
             if (reverse)
                 return llen-rank;
             else
@@ -3038,16 +3041,32 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *ele = c->argv[2];
     robj *zobj;
     long rank;
+    int withscore = 0;
+    double score;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
+    if (c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"withscore")) {
+        withscore = 1;
+    }
+
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
-    rank = zsetRank(zobj,ele->ptr,reverse);
+    rank = zsetRank(zobj,ele->ptr,reverse,&score);
     if (rank >= 0) {
-        addReplyLongLong(c,rank);
+        if (withscore) {
+            addReplyMultiBulkLen(c, 2);
+            addReplyBulkLongLong(c, rank);
+            addReplyDouble(c, score);
+        } else {
+            addReplyLongLong(c,rank);
+        }
     } else {
-        addReply(c,shared.nullbulk);
+        if (withscore) {
+            addReplyMultiBulkLen(c, 0);
+        } else {
+            addReply(c,shared.nullbulk);
+        }
     }
 }
 
