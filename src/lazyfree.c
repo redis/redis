@@ -9,7 +9,7 @@ pthread_mutex_t lazyfree_objects_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
-    atomicGet(lazyfree_objects,aux,lazyfree_objects_mutex);
+    atomicGet(lazyfree_objects,aux);
     return aux;
 }
 
@@ -67,7 +67,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         /* If releasing the object is too much work, let's put it into the
          * lazy free list. */
         if (free_effort > LAZYFREE_THRESHOLD) {
-            atomicIncr(lazyfree_objects,1,lazyfree_objects_mutex);
+            atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);
         }
@@ -91,8 +91,7 @@ void emptyDbAsync(redisDb *db) {
     dict *oldht1 = db->dict, *oldht2 = db->expires;
     db->dict = dictCreate(&dbDictType,NULL);
     db->expires = dictCreate(&keyptrDictType,NULL);
-    atomicIncr(lazyfree_objects,dictSize(oldht1),
-        lazyfree_objects_mutex);
+    atomicIncr(lazyfree_objects,dictSize(oldht1));
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
 }
 
@@ -104,8 +103,7 @@ void slotToKeyFlushAsync(void) {
     server.cluster->slots_to_keys = raxNew();
     memset(server.cluster->slots_keys_count,0,
            sizeof(server.cluster->slots_keys_count));
-    atomicIncr(lazyfree_objects,old->numele,
-        lazyfree_objects_mutex);
+    atomicIncr(lazyfree_objects,old->numele);
     bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,NULL,old);
 }
 
@@ -113,7 +111,7 @@ void slotToKeyFlushAsync(void) {
  * updating the count of objects to release. */
 void lazyfreeFreeObjectFromBioThread(robj *o) {
     decrRefCount(o);
-    atomicDecr(lazyfree_objects,1,lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,1);
 }
 
 /* Release a database from the lazyfree thread. The 'db' pointer is the
@@ -125,7 +123,7 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
     size_t numkeys = dictSize(ht1);
     dictRelease(ht1);
     dictRelease(ht2);
-    atomicDecr(lazyfree_objects,numkeys,lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,numkeys);
 }
 
 /* Release the skiplist mapping Redis Cluster keys to slots in the
@@ -133,5 +131,5 @@ void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
 void lazyfreeFreeSlotsMapFromBioThread(rax *rt) {
     size_t len = rt->numele;
     raxFree(rt);
-    atomicDecr(lazyfree_objects,len,lazyfree_objects_mutex);
+    atomicDecr(lazyfree_objects,len);
 }
