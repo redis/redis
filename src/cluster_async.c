@@ -907,7 +907,10 @@ migrateAsyncDumpCommand(client *c) {
         return;
     }
     if (timeout == 0) {
-        timeout = 1000 * 10;
+        timeout = 5000;
+    }
+    if (timeout < 1000) {
+        timeout = 1000;
     }
 
     long long maxbulks;
@@ -919,6 +922,9 @@ migrateAsyncDumpCommand(client *c) {
     }
     if (maxbulks == 0) {
         maxbulks = 200;
+    }
+    if (maxbulks > 2000) {
+        maxbulks = 2000;
     }
 
     long long maxbytes = INT_MAX / 2;
@@ -997,7 +1003,10 @@ migrateAsyncCommand(client *c) {
         return;
     }
     if (timeout == 0) {
-        timeout = 1000 * 10;
+        timeout = 5000;
+    }
+    if (timeout < 1000) {
+        timeout = 1000;
     }
 
     long long maxbulks;
