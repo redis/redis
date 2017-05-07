@@ -20,7 +20,7 @@ start_server {tags {"migrate-async"} overrides {requirepass foobar}} {
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async-auth foobar]
     }
 
-    test {Once RESTORE-ASYNC-AUTH succeeded we can actually send commands to the server} {
+    test {RESTORE-ASYNC-AUTH succeeded then we can actually send commands to the server} {
         assert_equal OK [r set foo 100]
         assert_equal {101} [r incr foo]
     }
@@ -28,14 +28,14 @@ start_server {tags {"migrate-async"} overrides {requirepass foobar}} {
 
 start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC-SELECT can change database} {
-        assert_equal OK [r select 0]
-        assert_equal OK [r set foo 100]
+        r select 0
+        r set foo 100
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async-select 0]
         assert_equal {101} [r incr foo]
 
-        assert_equal OK [r select 1]
-        assert_equal OK [r set foo 200]
+        r select 1
+        r set foo 200
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async-select 1]
         assert_equal {201} [r incr foo]
@@ -48,7 +48,7 @@ start_server {tags {"migrate-async"}} {
     }
 
     test {RESTORE-ASYNC DELETE against a single item} {
-        assert_equal OK [r set foo "hello"]
+        r set foo hello
         assert_equal {hello} [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async delete foo]
@@ -56,5 +56,33 @@ start_server {tags {"migrate-async"}} {
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async delete foo]
         assert_equal {} [r get foo]
+    }
+}
+
+start_server {tags {"migrate-async"}} {
+    test {RESTORE-ASYNC STRING against a string item} {
+        r del foo
+        assert_equal {} [r get foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async string foo 0 hello]
+        assert_equal {hello} [r get foo]
+        assert_equal {-1} [r pttl foo]
+
+        r del foo
+        assert_equal {} [r get foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async string foo 5000 world]
+        assert_equal {world} [r get foo]
+        set ttl [r pttl foo]
+        assert {$ttl >= 3000 && $ttl <= 5000}
+
+        r del bar
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async string bar 0 10000]
+        assert_equal {10001} [r incr bar]
+    }
+
+    test {RESTORE-ASYNC STRING against a string item (already exists)} {
+        r set var exists
+        assert_match {RESTORE-ASYNC-ACK 1 *} [r restore-async string var 0 payload]
     }
 }
