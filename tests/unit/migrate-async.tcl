@@ -86,3 +86,54 @@ start_server {tags {"migrate-async"}} {
         assert_match {RESTORE-ASYNC-ACK 1 *} [r restore-async string var 0 payload]
     }
 }
+
+start_server {tags {"migrate-async"}} {
+    test {RESTORE-ASYNC LIST against a list item} {
+        r del foo
+        assert_equal {0} [r llen foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 0 0 a1 a2]
+        assert_equal {2} [r llen foo]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 0 0 b1 b2]
+        assert_equal {4} [r llen foo]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 0 0 c1 c2]
+        assert_equal {6} [r llen foo]
+        assert_equal {-1} [r pttl foo]
+        assert_encoding quicklist foo
+        assert_equal {a1} [r lindex foo 0]
+        assert_equal {a2} [r lindex foo 1]
+        assert_equal {b1} [r lindex foo 2]
+        assert_equal {b2} [r lindex foo 3]
+        assert_equal {c1} [r lindex foo 4]
+        assert_equal {c2} [r lindex foo 5]
+    }
+
+    test {RESTORE-ASYNC HASH against a hash item} {
+        r del foo
+        assert_equal {0} [r hlen foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async hash foo 0 0 k1 v1 k2 v2]
+        assert_equal {2} [r hlen foo]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async hash foo 0 0 k3 v3 k1 v4]
+        assert_equal {3} [r hlen foo]
+        assert_equal {-1} [r pttl foo]
+        assert_encoding hashtable foo
+        assert_equal {v4 v2 v3} [r hmget foo k1 k2 k3]
+    }
+
+    test {RESTORE-ASYNC DICT against a set item} {
+        r del foo
+        assert_equal {0} [r scard foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async dict foo 0 0 e1 e2 e3]
+        assert_equal {3} [r scard foo]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async dict foo 0 0 e1 e2 e4]
+        assert_equal {4} [r scard foo]
+        assert_equal {-1} [r pttl foo]
+        assert_encoding hashtable foo
+        assert_equal {1} [r sismember foo e1]
+        assert_equal {1} [r sismember foo e2]
+        assert_equal {1} [r sismember foo e3]
+        assert_equal {1} [r sismember foo e4]
+    }
+}
