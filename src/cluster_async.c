@@ -906,9 +906,6 @@ migrateAsyncDumpCommand(client *c) {
                 (char *)c->argv[1]->ptr);
         return;
     }
-    if (timeout == 0) {
-        timeout = 5000;
-    }
     if (timeout < 1000) {
         timeout = 1000;
     }
@@ -1001,9 +998,6 @@ migrateAsyncCommand(client *c) {
         addReplyErrorFormat(c, "invalid value of timeout (%s)",
                 (char *)c->argv[3]->ptr);
         return;
-    }
-    if (timeout == 0) {
-        timeout = 5000;
     }
     if (timeout < 1000) {
         timeout = 1000;
