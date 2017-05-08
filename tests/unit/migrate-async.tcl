@@ -88,6 +88,44 @@ start_server {tags {"migrate-async"}} {
 }
 
 start_server {tags {"migrate-async"}} {
+    test {RESTORE-ASYNC OBJECT against a string item} {
+        r set foo hello
+        set encoded [r dump foo]
+
+        r del foo
+        assert_equal {} [r get foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async object foo 5000 $encoded]
+        assert_equal {hello} [r get foo]
+        set ttl [r pttl foo]
+        assert {$ttl >= 3000 && $ttl <= 5000}
+    }
+
+    test {RESTORE-ASYNC EXPIRE against a string item} {
+        r set foo hello
+        set encoded [r dump foo]
+
+        r del foo
+        assert_equal {} [r get foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async object foo 5000 $encoded]
+        assert_equal {hello} [r get foo]
+        set ttl [r pttl foo]
+        assert {$ttl >= 3000 && $ttl <= 5000}
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async expire foo 8000]
+        assert_equal {hello} [r get foo]
+        set ttl [r pttl foo]
+        assert {$ttl >= 6000 && $ttl <= 8000}
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async expire foo 0]
+        assert_equal {hello} [r get foo]
+        set ttl [r pttl foo]
+        assert {$ttl == -1}
+    }
+}
+
+start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC LIST against a list item} {
         r del foo
         assert_equal {0} [r llen foo]
