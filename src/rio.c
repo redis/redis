@@ -182,12 +182,22 @@ static size_t rioFdRead(rio *r, void *buf, size_t len) {
     
     /* if we don't already have all the data in the sds, read more */
     while (len > sdslen(r->io.fd.buf) - r->io.fd.pos) {
-        size_t toread = len - (sdslen(r->io.fd.buf) - r->io.fd.pos);
-        /* read either what's missing, or REDIS_IOBUF_LEN, the bigger of the two */
+        size_t buffered = sdslen(r->io.fd.buf) - r->io.fd.pos;
+        size_t toread = len - buffered;
+        /* read either what's missing, or PROTO_IOBUF_LEN, the bigger of the two */
         if (toread < PROTO_IOBUF_LEN)
             toread = PROTO_IOBUF_LEN;
         if (toread > sdsavail(r->io.fd.buf))
             toread = sdsavail(r->io.fd.buf);
+        if (r->io.fd.read_limit != 0 &&
+            r->io.fd.read_so_far + buffered + toread > r->io.fd.read_limit) {
+            if (r->io.fd.read_limit >= r->io.fd.read_so_far - buffered)
+                toread = r->io.fd.read_limit - r->io.fd.read_so_far - buffered;
+            else {
+                errno = EOVERFLOW;
+                return 0;
+            }
+        }
         int retval = read(r->io.fd.fd, (char*)r->io.fd.buf + sdslen(r->io.fd.buf), toread);
         if (retval <= 0) {
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
@@ -197,14 +207,14 @@ static size_t rioFdRead(rio *r, void *buf, size_t len) {
     }
 
     memcpy(buf, (char*)r->io.fd.buf + r->io.fd.pos, len);
+    r->io.fd.read_so_far += len;
     r->io.fd.pos += len;
     return len;
 }
 
 /* Returns read/write position in file. */
 static off_t rioFdTell(rio *r) {
-    off_t pos = lseek(r->io.fd.fd, 0, SEEK_CUR);
-    return pos - sdslen(r->io.fd.buf) + r->io.fd.pos;
+    return r->io.fd.read_so_far;
 }
 
 /* Flushes any buffer to target device if applicable. Returns 1 on success
@@ -227,10 +237,14 @@ static const rio rioFdIO = {
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
-void rioInitWithFd(rio *r, int fd) {
+/* create an rio that implements a buffered read from an fd
+ * read_limit argument stops buffering when the reaching the limit */
+void rioInitWithFd(rio *r, int fd, size_t read_limit) {
     *r = rioFdIO;
     r->io.fd.fd = fd;
     r->io.fd.pos = 0;
+    r->io.fd.read_limit = read_limit;
+    r->io.fd.read_so_far = 0;
     r->io.fd.buf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
     sdsclear(r->io.fd.buf);
 }

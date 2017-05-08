@@ -1106,7 +1106,6 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
     ssize_t nread, readlen;
     off_t left;
-    sds initialCommandStream = NULL;
     UNUSED(el);
     UNUSED(privdata);
     UNUSED(mask);
@@ -1268,7 +1267,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
     if (server.repl_diskless_load) {
         rio rdb;
-        rioInitWithFd(&rdb,fd);
+        rioInitWithFd(&rdb,fd,server.repl_transfer_size);
         /* Put the socket in blocking mode to simplify RDB transfer.
          * We'll restore it when the RDB is received. */
         anetBlock(NULL,fd);
@@ -1297,7 +1296,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             }
         }
         /* get the unread command stream from the rio buffer */
-        rioFreeFd(&rdb, &initialCommandStream);
+        rioFreeFd(&rdb, NULL);
         /* Restore the socket as non-blocking. */
         anetNonBlock(NULL,fd);
         anetRecvTimeout(NULL,fd,0);
@@ -1331,18 +1330,6 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
      * or not, in order to behave correctly if they are promoted to
      * masters after a failover. */
     if (server.repl_backlog == NULL) createReplicationBacklog();
-
-    /* feed the initial command stream into the client input buffer */
-    if (initialCommandStream) {
-        int nread = sdslen(initialCommandStream);
-        server.current_client = server.master;
-        server.master->querybuf = sdscatsds(server.master->querybuf, initialCommandStream);
-        server.master->reploff += nread;
-        server.stat_net_input_bytes += nread;
-        processInputBuffer(server.master);
-        server.current_client = NULL;
-        sdsfree(initialCommandStream);
-    }
 
     serverLog(LL_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
     /* Restart the AOF subsystem now that we finished the sync. This

@@ -76,8 +76,10 @@ struct _rio {
         /* file descriptor */
         struct {
             int fd;       /* File descriptor. */
-            off_t pos;
-            sds buf;
+            off_t pos;    /* pos in buf that was returned */
+            sds buf;      /* buffered data */
+            size_t read_limit;  /* don't allow to buffer/read more than that */
+            size_t read_so_far; /* amount of data read from the rio (not buffered) */
         } fd;
         /* Multiple FDs target (used to write to N sockets). */
         struct {
@@ -132,7 +134,7 @@ static inline int rioFlush(rio *r) {
 
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
-void rioInitWithFd(rio *r, int fd);
+void rioInitWithFd(rio *r, int fd, size_t read_limit);
 void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 void rioFreeFdset(rio *r);
