@@ -137,3 +137,33 @@ start_server {tags {"migrate-async"}} {
         assert_equal {1} [r sismember foo e4]
     }
 }
+
+start_server {tags {"migrate-async"}} {
+    test {RESTORE-ASYNC ZSET against a zset item} {
+        r del foo
+        assert_equal {0} [r zcard foo]
+
+        # 1.0 -> 3ff0000000000000 -> \x00\x00\x00\x00\x00\x00\xf0\x3f LE
+        # 2.0 -> 4000000000000000 -> \x00\x00\x00\x00\x00\x00\x00\x40 LE
+        # 3.0 -> 4008000000000000 -> \x00\x00\x00\x00\x00\x00\x08\x40 LE
+        # 4.0 -> 4010000000000000 -> \x00\x00\x00\x00\x00\x00\x10\x40 LE
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async zset foo 0 0 e1 "\x00\x00\x00\x00\x00\x00\xf0\x3f" e2 "\x00\x00\x00\x00\x00\x00\x00\x40"]
+        assert_equal {2} [r zcard foo]
+        assert_equal {1} [r zscore foo e1]
+        assert_equal {2} [r zscore foo e2]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async zset foo 0 0 e1 "\x00\x00\x00\x00\x00\x00\x08\x40"]
+        assert_equal {2} [r zcard foo]
+        assert_equal {3} [r zscore foo e1]
+        assert_equal {2} [r zscore foo e2]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async zset foo 0 0 e2 "\x00\x00\x00\x00\x00\x00\x10\x40"]
+        assert_equal {2} [r zcard foo]
+        assert_equal {3} [r zscore foo e1]
+        assert_equal {4} [r zscore foo e2]
+
+        assert_equal {-1} [r pttl foo]
+        assert_encoding skiplist foo
+    }
+}
