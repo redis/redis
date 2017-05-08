@@ -57,9 +57,7 @@ start_server {tags {"migrate-async"}} {
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async delete foo]
         assert_equal {} [r get foo]
     }
-}
 
-start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC STRING against a string item} {
         r del foo
         assert_equal {} [r get foo]
@@ -81,13 +79,6 @@ start_server {tags {"migrate-async"}} {
         assert_equal {10001} [r incr bar]
     }
 
-    test {RESTORE-ASYNC STRING against a string item (already exists)} {
-        r set var exists
-        assert_match {RESTORE-ASYNC-ACK 1 *} [r restore-async string var 0 payload]
-    }
-}
-
-start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC OBJECT against a string item} {
         r set foo hello
         set encoded [r dump foo]
@@ -123,9 +114,7 @@ start_server {tags {"migrate-async"}} {
         set ttl [r pttl foo]
         assert {$ttl == -1}
     }
-}
 
-start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC LIST against a list item} {
         r del foo
         assert_equal {0} [r llen foo]
@@ -174,9 +163,7 @@ start_server {tags {"migrate-async"}} {
         assert_equal {1} [r sismember foo e3]
         assert_equal {1} [r sismember foo e4]
     }
-}
 
-start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC ZSET against a zset item} {
         r del foo
         assert_equal {0} [r zcard foo]
@@ -203,5 +190,30 @@ start_server {tags {"migrate-async"}} {
 
         assert_equal {-1} [r pttl foo]
         assert_encoding skiplist foo
+    }
+}
+
+start_server {tags {"migrate-async"}} {
+    test {MIGRATE-ASYNC is caching connections} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert_match {} [$first migrate-async-status]
+            $first migrate-async $second_host $second_port 0 0 0 foo bar
+            assert_match {host * port *} [$first migrate-async-status]
+
+            assert_match {1} [$first migrate-async-cancel]
+            assert_match {} [$first migrate-async-status]
+
+            assert_match {} [$first migrate-async-status]
+            $first migrate-async $second_host $second_port 0 0 0 foo bar
+            assert_match {host * port *} [$first migrate-async-status]
+
+            after 20000
+            assert_match {} [$first migrate-async-status]
+        }
     }
 }
