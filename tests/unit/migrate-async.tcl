@@ -252,13 +252,95 @@ start_server {tags {"migrate-async"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 $first rpush key "item $j"
             }
+            $first pexpire key 5000
 
             assert_equal {1} [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal {0} [$first exists key]
 
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+
             assert {[$second llen key] == 20000}
             for {set j 0} {$j < 20000} {incr j} {
                 assert_equal "item $j" [$second lpop key]
+            }
+        }
+    }
+
+    test {MIGRATE-ASYNC can correctly transfer large hash} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first del key
+            for {set j 0} {$j < 20000} {incr j} {
+                $first hset key "item $j" "$j"
+            }
+            $first pexpire key 5000
+
+            assert_equal {1} [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal {0} [$first exists key]
+
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+
+            assert {[$second hlen key] == 20000}
+            for {set j 0} {$j < 20000} {incr j} {
+                assert_equal "$j" [$second hget key "item $j"]
+            }
+        }
+    }
+
+    test {MIGRATE-ASYNC can correctly transfer large set} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first del key
+            for {set j 0} {$j < 20000} {incr j} {
+                $first sadd key "item $j"
+            }
+            $first pexpire key 5000
+
+            assert_equal {1} [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal {0} [$first exists key]
+
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+
+            assert {[$second scard key] == 20000}
+            for {set j 0} {$j < 20000} {incr j} {
+                assert_equal {1} [$second sismember key "item $j"]
+            }
+        }
+    }
+
+    test {MIGRATE-ASYNC can correctly transfer large zset} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first del key
+            for {set j 0} {$j < 20000} {incr j} {
+                $first zadd key $j "item $j"
+            }
+            $first pexpire key 5000
+
+            assert_equal {1} [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal {0} [$first exists key]
+
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+
+            assert {[$second zcard key] == 20000}
+            for {set j 0} {$j < 20000} {incr j} {
+                assert_equal "$j" [$second zscore key "item $j"]
             }
         }
     }
