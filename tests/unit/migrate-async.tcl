@@ -216,4 +216,50 @@ start_server {tags {"migrate-async"}} {
             assert_match {} [$first migrate-async-status]
         }
     }
+
+    test {MIGRATE-ASYNC is able to migrate a key between two instances} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert_equal {1} [$second incr key]
+
+            assert_equal {0} [$first exists key]
+            assert_equal {0} [$first migrate-async $second_host $second_port 0 0 0 key]
+
+            assert_equal {1} [$first incr key]
+            $first pexpire key 5000
+
+            assert_equal {1} [$first migrate-async $second_host $second_port 0 0 0 key]
+            assert_equal {2} [$second incr key]
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+
+            assert_equal {0} [$first exists key]
+        }
+    }
+
+    test {MIGRATE-ASYNC can correctly transfer large list} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first del key
+            for {set j 0} {$j < 20000} {incr j} {
+                $first rpush key "item $j"
+            }
+
+            assert_equal {1} [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal {0} [$first exists key]
+
+            assert {[$second llen key] == 20000}
+            for {set j 0} {$j < 20000} {incr j} {
+                assert_equal "item $j" [$second lpop key]
+            }
+        }
+    }
 }
