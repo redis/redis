@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "atomicvar.h"
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
@@ -88,7 +89,9 @@ client *createClient(int fd) {
     }
 
     selectDb(c,0);
-    c->id = server.next_client_id++;
+    uint64_t client_id;
+    atomicGetIncr(server.next_client_id,client_id,1);
+    c->id = client_id;
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;

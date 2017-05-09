@@ -3,18 +3,29 @@
  *
  * The exported interaface is composed of three macros:
  *
- * atomicIncr(var,count,mutex) -- Increment the atomic counter
- * atomicDecr(var,count,mutex) -- Decrement the atomic counter
- * atomicGet(var,dstvar,mutex) -- Fetch the atomic counter value
+ * atomicIncr(var,count) -- Increment the atomic counter
+ * atomicGetIncr(var,oldvalue_var,count) -- Get and increment the atomic counter
+ * atomicDecr(var,count) -- Decrement the atomic counter
+ * atomicGet(var,dstvar) -- Fetch the atomic counter value
+ * atomicSet(var,value)  -- Set the atomic counter value
+ *
+ * The variable 'var' should also have a declared mutex with the same
+ * name and the "_mutex" postfix, for instance:
+ *
+ *  long myvar;
+ *  pthread_mutex_t myvar_mutex;
+ *  atomicSet(myvar,12345);
  *
  * If atomic primitives are availble (tested in config.h) the mutex
  * is not used.
  *
- * Never use return value from the macros. To update and get use instead:
+ * Never use return value from the macros, instead use the AtomicGetIncr()
+ * if you need to get the current value and increment it atomically, like
+ * in the followign example:
  *
- *  atomicIncr(mycounter,...);
- *  atomicGet(mycounter,newvalue);
- *  doSomethingWith(newvalue);
+ *  long oldvalue;
+ *  atomicGetIncr(myvar,oldvalue,1);
+ *  doSomethingWith(oldvalue);
  *
  * ----------------------------------------------------------------------------
  *
@@ -55,18 +66,28 @@
 /* Implementation using __atomic macros. */
 
 #define atomicIncr(var,count) __atomic_add_fetch(&var,(count),__ATOMIC_RELAXED)
+#define atomicGetIncr(var,oldvalue_var,count) do { \
+    oldvalue_var = __atomic_fetch_add(&var,(count),__ATOMIC_RELAXED); \
+} while(0)
 #define atomicDecr(var,count) __atomic_sub_fetch(&var,(count),__ATOMIC_RELAXED)
 #define atomicGet(var,dstvar) do { \
     dstvar = __atomic_load_n(&var,__ATOMIC_RELAXED); \
 } while(0)
+#define atomicSet(var,value) __atomic_store_n(&var,value,__ATOMIC_RELAXED)
 
 #elif defined(HAVE_ATOMIC)
 /* Implementation using __sync macros. */
 
 #define atomicIncr(var,count) __sync_add_and_fetch(&var,(count))
+#define atomicGetIncr(var,oldvalue_var,count) do { \
+    oldvalue_var = __sync_fetch_and_add(&var,(count)); \
+} while(0)
 #define atomicDecr(var,count) __sync_sub_and_fetch(&var,(count))
 #define atomicGet(var,dstvar) do { \
     dstvar = __sync_sub_and_fetch(&var,0); \
+} while(0)
+#define atomicSet(var,value) do { \
+    while(!__sync_bool_compare_and_swap(&var,var,value)); \
 } while(0)
 
 #else
@@ -74,6 +95,13 @@
 
 #define atomicIncr(var,count) do { \
     pthread_mutex_lock(&var ## _mutex); \
+    var += (count); \
+    pthread_mutex_unlock(&var ## _mutex); \
+} while(0)
+
+#define atomicGetIncr(var,oldvalue_var,count) do { \
+    pthread_mutex_lock(&var ## _mutex); \
+    oldvalue_var = var; \
     var += (count); \
     pthread_mutex_unlock(&var ## _mutex); \
 } while(0)
@@ -87,6 +115,12 @@
 #define atomicGet(var,dstvar) do { \
     pthread_mutex_lock(&var ## _mutex); \
     dstvar = var; \
+    pthread_mutex_unlock(&var ## _mutex); \
+} while(0)
+
+#define atomicSet(var,value) do { \
+    pthread_mutex_lock(&var ## _mutex); \
+    var = value; \
     pthread_mutex_unlock(&var ## _mutex); \
 } while(0)
 #endif

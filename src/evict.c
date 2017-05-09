@@ -32,6 +32,7 @@
 
 #include "server.h"
 #include "bio.h"
+#include "atomicvar.h"
 
 /* ----------------------------------------------------------------------------
  * Data structures
@@ -70,6 +71,20 @@ unsigned long LFUDecrAndReturn(robj *o);
  * object->lru field of redisObject structures. */
 unsigned int getLRUClock(void) {
     return (mstime()/LRU_CLOCK_RESOLUTION) & LRU_CLOCK_MAX;
+}
+
+/* This function is used to obtain the current LRU clock.
+ * If the current resolution is lower than the frequency we refresh the
+ * LRU clock (as it should be in production servers) we return the
+ * precomputed value, otherwise we need to resort to a system call. */
+unsigned int LRU_CLOCK(void) {
+    unsigned int lruclock;
+    if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
+        atomicGet(server.lruclock,lruclock);
+    } else {
+        lruclock = getLRUClock();
+    }
+    return lruclock;
 }
 
 /* Given an object returns the min number of milliseconds the object was never
