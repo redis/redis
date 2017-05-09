@@ -1432,6 +1432,7 @@ void initServerConfig(void) {
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
     unsigned int lruclock = getLRUClock();
+    pthread_mutex_init(&server.lruclock_mutex,NULL);
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
 
