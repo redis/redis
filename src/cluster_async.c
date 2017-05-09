@@ -1076,7 +1076,10 @@ migrateAsyncFenceCommand(client *c) {
  * */
 void
 migrateAsyncCancelCommand(client *c) {
-    int retval = asyncMigartionClientCancelErrorFormat(c->db->id, "interrupted: canceled");
+    int retval = 0;
+    for (int db = 0; db < server.dbnum; db ++) {
+        retval += asyncMigartionClientCancelErrorFormat(db, "interrupted: canceled");
+    }
     addReplyLongLong(c, retval);
 }
 
