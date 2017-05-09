@@ -201,7 +201,9 @@ typedef struct RedisModuleBlockedClient {
 } RedisModuleBlockedClient;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_key_t moduleServerThreadKey;
 static list *moduleUnblockedClients;
+static list *moduleUnblockedClientsServerThread;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -3167,6 +3169,14 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     return bc;
 }
 
+void RM_UnblockClientInternal(RedisModuleBlockedClient *bc, list *queue, void *privdata) {
+    bc->privdata = privdata;
+    listAddNodeTail(queue,bc);
+    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
+        /* Ignore the error, this is best-effort. */
+    }
+}
+
 /* Unblock a client blocked by `RedisModule_BlockedClient`. This will trigger
  * the reply callbacks to be called in order to reply to the client.
  * The 'privdata' argument will be accessible by the reply callback, so
@@ -3179,13 +3189,13 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
  *
  * Note: this function can be called from threads spawned by the module. */
 int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    bc->privdata = privdata;
-    listAddNodeTail(moduleUnblockedClients,bc);
-    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
-        /* Ignore the error, this is best-effort. */
+    if (pthread_getspecific(moduleServerThreadKey) == NULL) {
+        pthread_mutex_lock(&moduleUnblockedClientsMutex);
+        RM_UnblockClientInternal(bc, moduleUnblockedClients, privdata);
+        pthread_mutex_unlock(&moduleUnblockedClientsMutex);
+    } else {
+        RM_UnblockClientInternal(bc, moduleUnblockedClientsServerThread, privdata);
     }
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
 
@@ -3196,29 +3206,16 @@ int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     return RM_UnblockClient(bc,NULL);
 }
 
-/* This function will check the moduleUnblockedClients queue in order to
- * call the reply callback and really unblock the client.
- *
- * Clients end into this list because of calls to RM_UnblockClient(),
- * however it is possible that while the module was doing work for the
- * blocked client, it was terminated by Redis (for timeout or other reasons).
- * When this happens the RedisModuleBlockedClient structure in the queue
- * will have the 'client' field set to NULL. */
-void moduleHandleBlockedClients(void) {
+void moduleHandleBlockedClientsInternal(list *queue, pthread_mutex_t *mutex) {
     listNode *ln;
     RedisModuleBlockedClient *bc;
 
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    /* Here we unblock all the pending clients blocked in modules operations
-     * so we can read every pending "awake byte" in the pipe. */
-    char buf[1];
-    while (read(server.module_blocked_pipe[0],buf,1) == 1);
-    while (listLength(moduleUnblockedClients)) {
-        ln = listFirst(moduleUnblockedClients);
+    while (listLength(queue)) {
+        ln = listFirst(queue);
         bc = ln->value;
         client *c = bc->client;
-        listDelNode(moduleUnblockedClients,ln);
-        pthread_mutex_unlock(&moduleUnblockedClientsMutex);
+        listDelNode(queue,ln);
+        if (mutex != NULL) pthread_mutex_unlock(mutex);
 
         /* Release the lock during the loop, as long as we don't
          * touch the shared list. */
@@ -3242,9 +3239,27 @@ void moduleHandleBlockedClients(void) {
         zfree(bc);
 
         /* Lock again before to iterate the loop. */
-        pthread_mutex_lock(&moduleUnblockedClientsMutex);
+        if (mutex != NULL) pthread_mutex_lock(mutex);
     }
+}
+
+/* This function will check the moduleUnblockedClients queue in order to
+ * call the reply callback and really unblock the client.
+ *
+ * Clients end into this list because of calls to RM_UnblockClient(),
+ * however it is possible that while the module was doing work for the
+ * blocked client, it was terminated by Redis (for timeout or other reasons).
+ * When this happens the RedisModuleBlockedClient structure in the queue
+ * will have the 'client' field set to NULL. */
+void moduleHandleBlockedClients(void) {
+    pthread_mutex_lock(&moduleUnblockedClientsMutex);
+    /* Here we unblock all the pending clients blocked in modules operations
+     * so we can read every pending "awake byte" in the pipe. */
+    char buf[1];
+    while (read(server.module_blocked_pipe[0],buf,1) == 1);
+    moduleHandleBlockedClientsInternal(moduleUnblockedClients, &moduleUnblockedClientsMutex);
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
+    moduleHandleBlockedClientsInternal(moduleUnblockedClientsServerThread, NULL);
 }
 
 /* Called when our client timed out. After this function unblockClient()
@@ -3314,7 +3329,15 @@ int moduleRegisterApi(const char *funcname, void *funcptr) {
 void moduleRegisterCoreAPI(void);
 
 void moduleInitModulesSystem(void) {
+    int rc;
     moduleUnblockedClients = listCreate();
+    moduleUnblockedClientsServerThread = listCreate();
+    if ((rc = pthread_key_create(&moduleServerThreadKey, NULL)) != 0) {
+        serverPanic("Failed to create thread key for module system. %s",
+            strerror(rc));
+    } else {
+        pthread_setspecific(moduleServerThreadKey, (const void *) 1);
+    }
 
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
