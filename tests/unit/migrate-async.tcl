@@ -345,3 +345,98 @@ start_server {tags {"migrate-async"}} {
         }
     }
 }
+
+start_server {tags {"migrate-async"}} {
+    test {MIGRATE-ASYNC timeout actually works} {
+        set first [srv 0 client]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first del key
+            $first set key "foobar"
+            $first pexpire key 8000
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 3
+
+            catch {$first migrate-async $second_host $second_port 1000 100000 100 key} err
+            assert_match {ERR*timeout*} $err
+
+            after 3000
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 0 [$first exists key]
+
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert_equal "foobar" [$second get key]
+        }
+    }
+
+    test {MIGRATE-ASYNC can migrate multiple keys at once} {
+        set first [srv 0 client]
+        $first set foo1 "foo1"
+        $first set foo2 "foo2"
+        $first set foo3 "foo3"
+        $first set bar1 "bar1"
+        $first set bar2 "bar2"
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert_equal 3 [$first migrate-async $second_host $second_port 0 100000 100 foo1 foo2 foo3]
+            assert_equal 0 [$first exists foo1]
+            assert_equal 0 [$first exists foo2]
+            assert_equal 0 [$first exists foo3]
+
+            assert_equal "foo1" [$second get foo1]
+            assert_equal "foo2" [$second get foo2]
+            assert_equal "foo3" [$second get foo3]
+
+            assert_equal 2 [$first migrate-async $second_host $second_port 0 100000 100 bar1 bar2 bar3]
+            assert_equal 0 [$first exists bar1]
+            assert_equal 0 [$first exists bar2]
+            assert_equal 0 [$first exists bar3]
+
+            assert_equal "bar1" [$second get bar1]
+            assert_equal "bar2" [$second get bar2]
+            assert_equal 0 [$second exists bar3]
+        }
+    }
+
+    test {MIGRATE-ASYNC can be canceled} {
+        set first [srv 0 client]
+        set first_host [srv 0 host]
+        set first_port [srv 0 port]
+        start_server {tags {"migrate-async"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert_equal OK [$first select 0]
+            $first del key
+            $first set key "foobar"
+            $first pexpire key 8000
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 3
+
+            exec sh -c "sleep 1; src/redis-cli -h $first_host -p $first_port migrate-async-cancel" 2>&1 >/dev/null &
+
+            catch {$first migrate-async $second_host $second_port 5000 100000 100 key} err
+            assert_match {ERR*canceled*} $err
+
+            after 3000
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 0 [$first exists key]
+
+            assert_equal OK [$second select 0]
+
+            set ttl [$second pttl key]
+            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert_equal "foobar" [$second get key]
+        }
+    }
+}
