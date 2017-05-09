@@ -24,9 +24,7 @@ start_server {tags {"migrate-async"} overrides {requirepass foobar}} {
         assert_equal OK [r set foo 100]
         assert_equal 101 [r incr foo]
     }
-}
 
-start_server {tags {"migrate-async"}} {
     test {RESTORE-ASYNC-SELECT can change database} {
         r select 0
         r set foo 100
@@ -49,7 +47,6 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC DELETE against a single item} {
         r set foo "hello"
-        assert_equal "hello" [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async delete foo]
         assert_equal {} [r get foo]
@@ -60,14 +57,12 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC STRING against a string item} {
         r del foo
-        assert_equal {} [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async string foo 0 hello]
         assert_equal "hello" [r get foo]
         assert_equal -1 [r pttl foo]
 
         r del foo
-        assert_equal {} [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async string foo 5000 world]
         assert_equal "world" [r get foo]
@@ -84,7 +79,6 @@ start_server {tags {"migrate-async"}} {
         set encoded [r dump foo]
 
         r del foo
-        assert_equal {} [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async object foo 5000 $encoded]
         assert_equal "hello" [r get foo]
@@ -97,7 +91,6 @@ start_server {tags {"migrate-async"}} {
         set encoded [r dump foo]
 
         r del foo
-        assert_equal {} [r get foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async object foo 5000 $encoded]
         assert_equal "hello" [r get foo]
@@ -117,7 +110,6 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC LIST against a list item} {
         r del foo
-        assert_equal 0 [r llen foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 0 0 a1 a2]
         assert_equal 2 [r llen foo]
@@ -137,7 +129,6 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC HASH against a hash item} {
         r del foo
-        assert_equal 0 [r hlen foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async hash foo 0 0 k1 v1 k2 v2]
         assert_equal 2 [r hlen foo]
@@ -150,7 +141,6 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC DICT against a set item} {
         r del foo
-        assert_equal 0 [r scard foo]
 
         assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async dict foo 0 0 e1 e2 e3]
         assert_equal 3 [r scard foo]
@@ -166,7 +156,6 @@ start_server {tags {"migrate-async"}} {
 
     test {RESTORE-ASYNC ZSET against a zset item} {
         r del foo
-        assert_equal 0 [r zcard foo]
 
         # 1.0 -> 3ff0000000000000 -> \x00\x00\x00\x00\x00\x00\xf0\x3f LE
         # 2.0 -> 4000000000000000 -> \x00\x00\x00\x00\x00\x00\x00\x40 LE
@@ -196,10 +185,13 @@ start_server {tags {"migrate-async"}} {
 start_server {tags {"migrate-async"}} {
     test {MIGRATE-ASYNC is caching connections} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
+
+            set ret [$first migrate-async-cancel]
+            assert {$ret >= 0 && $ret <= 1}
 
             assert_match {} [$first migrate-async-status]
             $first migrate-async $second_host $second_port 0 0 0 foo bar
@@ -219,7 +211,7 @@ start_server {tags {"migrate-async"}} {
 
     test {MIGRATE-ASYNC is able to migrate a key between two instances} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -243,7 +235,7 @@ start_server {tags {"migrate-async"}} {
 
     test {MIGRATE-ASYNC can correctly transfer large list} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -252,13 +244,13 @@ start_server {tags {"migrate-async"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 $first rpush key "item $j"
             }
-            $first pexpire key 5000
+            $first pexpire key 500000
 
             assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
-            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert {$ttl >= 400000 && $ttl <= 500000}
 
             assert {[$second llen key] == 20000}
             for {set j 0} {$j < 20000} {incr j} {
@@ -269,7 +261,7 @@ start_server {tags {"migrate-async"}} {
 
     test {MIGRATE-ASYNC can correctly transfer large hash} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -278,13 +270,13 @@ start_server {tags {"migrate-async"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 $first hset key "item $j" "$j"
             }
-            $first pexpire key 5000
+            $first pexpire key 500000
 
             assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
-            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert {$ttl >= 400000 && $ttl <= 500000}
 
             assert {[$second hlen key] == 20000}
             for {set j 0} {$j < 20000} {incr j} {
@@ -295,7 +287,7 @@ start_server {tags {"migrate-async"}} {
 
     test {MIGRATE-ASYNC can correctly transfer large set} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -304,13 +296,13 @@ start_server {tags {"migrate-async"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 $first sadd key "item $j"
             }
-            $first pexpire key 5000
+            $first pexpire key 500000
 
             assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
-            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert {$ttl >= 400000 && $ttl <= 500000}
 
             assert {[$second scard key] == 20000}
             for {set j 0} {$j < 20000} {incr j} {
@@ -321,7 +313,7 @@ start_server {tags {"migrate-async"}} {
 
     test {MIGRATE-ASYNC can correctly transfer large zset} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -330,13 +322,13 @@ start_server {tags {"migrate-async"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 $first zadd key $j "item $j"
             }
-            $first pexpire key 5000
+            $first pexpire key 500000
 
             assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
-            assert {$ttl >= 3000 && $ttl <= 5000}
+            assert {$ttl >= 400000 && $ttl <= 500000}
 
             assert {[$second zcard key] == 20000}
             for {set j 0} {$j < 20000} {incr j} {
@@ -344,12 +336,10 @@ start_server {tags {"migrate-async"}} {
             }
         }
     }
-}
 
-start_server {tags {"migrate-async"}} {
     test {MIGRATE-ASYNC timeout actually works} {
         set first [srv 0 client]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -381,7 +371,7 @@ start_server {tags {"migrate-async"}} {
         $first set foo3 "foo3"
         $first set bar1 "bar1"
         $first set bar2 "bar2"
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
@@ -410,12 +400,11 @@ start_server {tags {"migrate-async"}} {
         set first [srv 0 client]
         set first_host [srv 0 host]
         set first_port [srv 0 port]
-        start_server {tags {"migrate-async"}} {
+        start_server {tags {"migrate-async.repl"}} {
             set second [srv 0 client]
             set second_host [srv 0 host]
             set second_port [srv 0 port]
 
-            assert_equal OK [$first select 0]
             $first del key
             $first set key "foobar"
             $first pexpire key 8000
@@ -423,7 +412,7 @@ start_server {tags {"migrate-async"}} {
             set rd [redis_deferring_client]
             $rd debug sleep 3
 
-            exec sh -c "sleep 1; src/redis-cli -h $first_host -p $first_port migrate-async-cancel" 2>&1 >/dev/null &
+            exec sh -c "sleep 1; src/redis-cli -h $first_host -p $first_port migrate-async-cancel" >/dev/null 2>/dev/null &
 
             catch {$first migrate-async $second_host $second_port 5000 100000 100 key} err
             assert_match {ERR*canceled*} $err
@@ -431,8 +420,6 @@ start_server {tags {"migrate-async"}} {
             after 3000
             assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
             assert_equal 0 [$first exists key]
-
-            assert_equal OK [$second select 0]
 
             set ttl [$second pttl key]
             assert {$ttl >= 3000 && $ttl <= 5000}
