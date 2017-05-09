@@ -1412,6 +1412,7 @@ void initServerConfig(void) {
     server.lazyfree_lazy_expire = CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE;
     server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
+    server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
@@ -1781,6 +1782,12 @@ void initServer(void) {
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+    if (server.el == NULL) {
+        serverLog(LL_WARNING,
+            "Failed creating the event loop. Error message: '%s'",
+            strerror(errno));
+        exit(1);
+    }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
@@ -1869,6 +1876,16 @@ void initServer(void) {
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
+
+
+    /* Register a readable event for the pipe used to awake the event loop
+     * when a blocked client in a module needs attention. */
+    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
+        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+            serverPanic(
+                "Error registering the readable event for the module "
+                "blocked clients subsystem.");
+    }
 
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {

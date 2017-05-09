@@ -122,7 +122,7 @@ void freeReplicationBacklog(void) {
 /* Add data to the replication backlog.
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
- * the backlog without incrementing the buffer. */
+ * the backlog without incrementing the offset. */
 void feedReplicationBacklog(void *ptr, size_t len) {
     unsigned char *p = ptr;
 
@@ -1078,6 +1078,7 @@ void replicationCreateMasterClient(int fd, int dbid) {
     server.master->flags |= CLIENT_MASTER;
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
+    server.master->read_reploff = server.master->reploff;
     memcpy(server.master->replid, server.master_replid,
         sizeof(server.master_replid));
     /* If master offset is set to -1, this master is old and is not
@@ -2117,6 +2118,18 @@ void replicationCacheMaster(client *c) {
 
     /* Unlink the client from the server structures. */
     unlinkClient(c);
+
+    /* Reset the master client so that's ready to accept new commands:
+     * we want to discard te non processed query buffers and non processed
+     * offsets, including pending transactions, already populated arguments,
+     * pending outputs to the master. */
+    sdsclear(server.master->querybuf);
+    sdsclear(server.master->pending_querybuf);
+    server.master->read_reploff = server.master->reploff;
+    if (c->flags & CLIENT_MULTI) discardTransaction(c);
+    listEmpty(c->reply);
+    c->bufpos = 0;
+    resetClient(c);
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */
