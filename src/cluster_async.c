@@ -51,6 +51,11 @@ singleObjectIteratorHasNext(singleObjectIterator *it) {
     return it->stage != STAGE_DONE;
 }
 
+static size_t
+sdslenOrElse(robj *o, size_t len) {
+    return sdsEncodedObject(o) ? sdslen(o->ptr) : len;
+}
+
 static void
 singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
     void **pd = (void **)data;
@@ -70,9 +75,9 @@ singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
     }
     for (int i = 0; i < 2; i ++) {
         if (s[i] != NULL) {
-            sds dup = sdsdup(s[i]);
-            *n += sdslen(dup);
-            listAddNodeTail(l, dup);
+            robj *obj = createStringObject((const char *)s[i], sdslen(s[i]));
+            *n += sdslenOrElse(obj, 8);
+            listAddNodeTail(l, obj);
         }
     }
 }
@@ -97,10 +102,10 @@ convertRawBitsToDouble(uint64_t value) {
     return fp.d;
 }
 
-static sds
-createRawStringFromUint64(uint64_t v) {
+static robj *
+createRawStringObjectFromUint64(uint64_t v) {
     uint64_t p = intrev64ifbe(v);
-    return sdsnewlen((const char *)&p, sizeof(p));
+    return createRawStringObject((const char *)&p, sizeof(p));
 }
 
 static int
@@ -296,13 +301,13 @@ singleObjectIteratorNextStageChunkedTypeList(singleObjectIterator *it,
         listTypeEntry entry;
         if (listTypeNext(li, &entry)) {
             quicklistEntry *qe = &(entry.entry);
-            sds ele;
+            robj *ele;
             if (qe->value) {
-                ele = sdsnewlen((const char *)qe->value, qe->sz);
+                ele = createStringObject((const char *)qe->value, qe->sz);
             } else {
-                ele = sdsfromlonglong(qe->longval);
+                ele = createStringObjectFromLongLong(qe->longval);
             }
-            nn += sdslen(ele);
+            nn += sdslenOrElse(ele, 8);
             listAddNodeTail(l, ele);
 
             it->lindex ++;
@@ -331,13 +336,13 @@ singleObjectIteratorNextStageChunkedTypeZSet(singleObjectIterator *it,
 
     do {
         if (node != NULL) {
-            sds field = sdsdup(node->ele);
-            nn += sdslen(field);
+            robj *field = createStringObject((const char *)node->ele, sdslen(node->ele));
+            nn += sdslenOrElse(field, 8);
             listAddNodeTail(l, field);
 
             uint64_t u64 = convertDoubleToRawBits(node->score);
-            sds score = createRawStringFromUint64(u64);
-            nn += sdslen(score);
+            robj *score = createRawStringObjectFromUint64(u64);
+            nn += sdslenOrElse(score, 8);
             listAddNodeTail(l, score);
 
             node = node->backward;
@@ -403,6 +408,7 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
     }
 
     list *ll = listCreate();
+    listSetFreeMethod(ll, decrRefCountVoid);
 
     long long done = 0, maxsize = 0;
 
@@ -434,8 +440,8 @@ singleObjectIteratorNextStageChunked(client *c, singleObjectIterator *it,
 
         while (listLength(ll) != 0) {
             listNode *head = listFirst(ll);
-            sds s = listNodeValue(head);
-            addReplyBulkSds(c, s);
+            robj *bulk = listNodeValue(head);
+            addReplyBulk(c, bulk);
             listDelNode(ll, head);
         }
         msgs ++;
