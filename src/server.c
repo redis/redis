@@ -2827,6 +2827,7 @@ sds genRedisInfoString(char *section) {
             "os:%s %s %s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
+            "atomicvar_api:%s\r\n"
             "gcc_version:%d.%d.%d\r\n"
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
@@ -2845,6 +2846,7 @@ sds genRedisInfoString(char *section) {
             name.sysname, name.release, name.machine,
             server.arch_bits,
             aeGetApiName(),
+            REDIS_ATOMIC_API,
 #ifdef __GNUC__
             __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
