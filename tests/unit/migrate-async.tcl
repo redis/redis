@@ -427,3 +427,123 @@ start_server {tags {"migrate-async"}} {
         }
     }
 }
+
+start_server {tags {"migrate-async"}} {
+    test {MIGRATE-ASYNC makes sure the specific key is readonly while migrating} {
+        set first [srv 0 client]
+        set first_host [srv 0 host]
+        set first_port [srv 0 port]
+        start_server {tags {"migrate-async.repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first select 0
+            $first del foo bar
+            $first set foo "hello"
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 3
+
+            exec sh -c "src/redis-cli -h $first_host -p $first_port \
+                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+
+            after 1000
+            assert_equal 1 [$first incr bar]
+            assert_equal "hello" [$first get foo]
+
+            catch {$first set foo "world"} err
+            assert_match {TRYAGAIN*} $err
+
+            after 3000
+            assert_equal 2 [$first incr bar]
+            assert_equal {} [$first get foo]
+        }
+    }
+
+    test {MIGRATE-ASYNC against MULTI command} {
+        set first [srv 0 client]
+        set first_host [srv 0 host]
+        set first_port [srv 0 port]
+        start_server {tags {"migrate-async.repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first select 0
+            $first del foo
+            $first set foo "hello"
+            $first multi
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 3
+
+            exec sh -c "src/redis-cli -h $first_host -p $first_port \
+                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+
+            after 1000
+            catch {$first set foo "world"} err1
+            assert_match {TRYAGAIN*} $err1
+
+            after 3000
+            catch {$first exec} err2
+            assert_match {EXECABORT*} $err2
+        }
+    }
+
+    test {MIGRATE-ASYNC against EXEC command} {
+        set first [srv 0 client]
+        set first_host [srv 0 host]
+        set first_port [srv 0 port]
+        start_server {tags {"migrate-async.repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first select 0
+            $first del foo
+            $first set foo "hello"
+            $first multi
+            $first set foo "world"
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 3
+
+            exec sh -c "src/redis-cli -h $first_host -p $first_port \
+                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+
+            after 1000
+            catch {$first exec} err1
+            assert_match {TRYAGAIN*} $err1
+
+            after 3000
+            catch {$first exec} err2
+            assert_match {*EXEC*} $err2
+        }
+    }
+
+    test {MIGRATE-ASYNC works on watched key} {
+        set first [srv 0 client]
+        set first_host [srv 0 host]
+        set first_port [srv 0 port]
+        start_server {tags {"migrate-async.repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            $first select 0
+            $first del foo
+            $first set foo "hello"
+
+            $first watch foo
+            $first multi
+            $first set foo "world"
+
+            exec sh -c "src/redis-cli -h $first_host -p $first_port \
+                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+
+            after 1000
+            assert_equal {} [$first exec]
+        }
+    }
+}
