@@ -58,6 +58,9 @@
 #define REDISMODULE_HASH_CFIELDS    (1<<2)
 #define REDISMODULE_HASH_EXISTS     (1<<3)
 
+/* Client special IDs. */
+#define REDISMODULE_CLIENT_ID_AOF UINT64_MAX
+
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
 #define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)

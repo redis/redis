@@ -270,6 +270,9 @@ typedef long long mstime_t; /* millisecond time type. */
                                     buffer configuration. Just the first
                                     three: normal, slave, pubsub. */
 
+/* Client special IDs. */
+#define CLIENT_ID_AOF UINT64_MAX
+
 /* Slave replication state. Used in server.repl_state for slaves to remember
  * what to do next. */
 #define REPL_STATE_NONE 0 /* No active replication */

@@ -570,6 +570,7 @@ struct client *createFakeClient(void) {
 
     selectDb(c,0);
     c->fd = -1;
+    c->id = CLIENT_ID_AOF;
     c->name = NULL;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;

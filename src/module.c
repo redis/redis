@@ -1244,8 +1244,9 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
  * 2. The ID increases monotonically. Clients connecting to the server later
  *    are guaranteed to get IDs greater than any past ID previously seen.
  *
- * Valid IDs are from 1 to 2^64-1. If 0 is returned it means there is no way
- * to fetch the ID in the context the function was currently called. */
+ * Valid IDs are from 1 to 2^64-1 excluding the high special ids (CLIENT_ID_*).
+ * If 0 is returned it means there is no way to fetch the ID in the context the
+ * function was currently called. */
 unsigned long long RM_GetClientId(RedisModuleCtx *ctx) {
     if (ctx->client == NULL) return 0;
     return ctx->client->id;
