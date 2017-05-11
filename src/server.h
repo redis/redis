@@ -888,15 +888,15 @@ struct clusterState;
 #define CHILD_INFO_TYPE_AOF 1
 
 typedef struct {
-    client *c;
-    int init;
-    sds host;
+    client *c;                  /* Client for data migration. */
+    int init;                   /* If client has been authenticated. */
+    sds host;                   /* Target host & port. */
     int port;
-    long long timeout;
-    long long lastuse;
-    long sending_msgs;
-    list *bclients;
-    void *iterator;
+    long long timeout;          /* Client timeout in milliseconds. */
+    long long lastuse;          /* Timestamp of the last operation, used for timeout, in milliseconds. */
+    long sending_msgs;          /* Number of commands buffered in sending window. */
+    list *bclients;             /* Clients blocked by data migration */
+    void *iterator;             /* Pointer to the batchedObjectIterator that is being migrated. */
 } asyncMigrationClient;
 
 struct redisServer {
