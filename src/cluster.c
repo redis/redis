@@ -4111,6 +4111,72 @@ void clusterCommand(client *c) {
         clusterDelNodeSlots(myself);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
+    } else if((!strcasecmp(c->argv[1]->ptr,"addslotrange") || !strcasecmp(c->argv[1]->ptr,"delslotrange")) && c->argc == 4) {
+        /* CLUSTER ADDSLOTRANGE <from> <to>*/
+        /* CLUSTER DELSLOTRANGE <from> <to>*/
+        
+        int slot;
+        int del = !strcasecmp(c->argv[1]->ptr,"delslotrange");
+        long long slot_from, slot_to;
+        getLongLongFromObject(c->argv[2],&slot_from);
+        getLongLongFromObject(c->argv[3],&slot_to);
+        
+        if(slot_from > slot_to) {
+            addReplyErrorFormat(c,"Wrong range from > to");
+            return;
+        }
+        
+        if(slot_from < 0 || slot_to > REDIS_CLUSTER_SLOTS) {
+            addReplyErrorFormat(c,"Wrong range, range can be from 0 to %d", REDIS_CLUSTER_SLOTS - 1);
+            return;
+        }
+        unsigned char *slots = zmalloc(REDIS_CLUSTER_SLOTS);
+        printf("from %lld to %lld\n", slot_from, slot_to);
+        
+        memset(slots,0,REDIS_CLUSTER_SLOTS);
+        /* Check that all the slots are not already busy. */
+        for(long long j=slot_from;j<=slot_to;j++) {
+            robj *i = createStringObjectFromLongLong(j);
+            if ((slot = getSlotOrReply(c,i)) == -1) {
+                zfree(slots);
+                return;
+            }
+            if (del && server.cluster->slots[slot] == NULL) {
+                addReplyErrorFormat(c,"Slot %d is already unassigned", slot);
+                zfree(slots);
+                return;
+            } else if(!del && server.cluster->slots[slot]) {
+                addReplyErrorFormat(c,"Slot %d is already busy", slot);
+                zfree(slots);
+                return;
+            }
+            if (slots[slot]++ == 1) {
+                addReplyErrorFormat(c,"Slot %d specified multiple times",
+                    (int)slot);
+                zfree(slots);
+                return;
+            }
+            decrRefCount(i);
+        }
+        
+        for (int j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+            if (slots[j]) {
+                int retval;
+
+                /* If this slot was set as importing we can clear this
+                 * state as now we are the real owner of the slot. */
+                if (server.cluster->importing_slots_from[j])
+                    server.cluster->importing_slots_from[j] = NULL;
+
+                retval = del ? clusterDelSlot(j) :
+                               clusterAddSlot(myself,j);
+                redisAssertWithInfo(c,NULL,retval == REDIS_OK);
+            }
+        }
+        
+        zfree(slots);
+        clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
+        addReply(c,shared.ok);
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslots") ||
                !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3)
     {
