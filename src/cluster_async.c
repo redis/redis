@@ -841,9 +841,8 @@ cleanupClientsForAsyncMigration() {
             continue;
         }
         batchedObjectIterator *it = ac->iterator;
-        long long timeout = (it != NULL) ? ac->timeout : 1000 * 15;
         long long elapsed = mstime() - ac->lastuse;
-        if (elapsed <= timeout) {
+        if (elapsed <= ac->timeout) {
             continue;
         }
         asyncMigartionClientCancelErrorFormat(db, (it != NULL) ?
