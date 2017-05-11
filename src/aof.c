@@ -1396,6 +1396,8 @@ void aofRemoveTempFile(pid_t childpid) {
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
     unlink(tmpfile);
+    snprintf(tmpfile, 256, "temp-rewriteaof-%d.aof", (int) childpid);
+    unlink(tmpfile);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)
