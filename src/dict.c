@@ -938,14 +938,20 @@ static int _dictExpandIfNeeded(dict *d)
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size)
 {
-    unsigned long i = DICT_HT_INITIAL_SIZE;
+    if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_SIZE;
 
-    if (size >= LONG_MAX) return LONG_MAX;
-    while(1) {
-        if (i >= size)
-            return i;
-        i *= 2;
-    }
+    size--;
+    size |= size >> 1;
+    size |= size >> 2;
+    size |= size >> 4;
+    size |= size >> 8;
+    size |= size >> 16;
+#if __x86_64__ || __ppc64__ || _WIN64
+    size |= size >> 32;
+#endif
+    size++;
+    
+    return size;
 }
 
 /* Returns the index of a free slot that can be populated with
