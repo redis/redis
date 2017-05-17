@@ -11,6 +11,52 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.9     Released Mon May 17 17:35:38 CEST 2017
+================================================================================
+
+Upgrade urgency LOW: A few rarely harmful bugs were fixed.
+
+This release just fixes bugs that are unlikely to cause serious problems
+so there is no need to update ASAP. Please, see the list of commits
+for the details on the bugs fixed and credits:
+
+antirez in commit 3b46cf97:
+ redis-cli --bigkeys: show error when TYPE fails.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit f59b4b93:
+ Fix preprocessor if/else chain broken in order to fix #3927.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit dd80fedf:
+ Fix zmalloc_get_memory_size() ifdefs to actually use the else branch.
+ 1 file changed, 2 deletions(-)
+
+antirez in commit 697d3abe:
+ Set lua-time-limit default value at safe place.
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit c9c04b11:
+ Fix #3848 by closing the descriptor on error.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+张文康 in commit d3b49924:
+ update block->free after some diff data are written to the child process
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 6a33952b:
+ Test: fix, hopefully, false PSYNC failure like in issue #2715.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+John.Koepi in commit b83f9fea:
+ fix #2883, #2857 pipe fds leak when fork() failed on bg aof rw
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 10dbb5cd:
+ Don't leak file descriptor on syncWithMaster().
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+================================================================================
 Redis 3.2.8     Released Sun Feb 12 16:11:18 CET 2017
 ================================================================================
 
