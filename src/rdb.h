@@ -74,6 +74,7 @@
 #define RDB_TYPE_SET    2
 #define RDB_TYPE_ZSET   3
 #define RDB_TYPE_HASH   4
+#define RDB_TYPE_ISET   5
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Object types for encoded objects. */

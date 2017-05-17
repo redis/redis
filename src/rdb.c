@@ -552,6 +552,9 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_HASH);
         else
             serverPanic("Unknown hash encoding");
+    case OBJ_ISET:
+        if (o->encoding == OBJ_ENCODING_AVLTREE)
+            return rdbSaveType(rdb,RDB_TYPE_ISET);            
     default:
         serverPanic("Unknown object type");
     }
@@ -679,7 +682,28 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_ISET) {
+        /* Save an AVL tree */
+        avl * tree = o->ptr;
+        dictIterator *di = dictGetIterator(tree->dict);
+        dictEntry *de;
 
+        if ((n = rdbSaveLen(rdb,dictSize(tree->dict))) == -1) return -1;
+        nwritten += n;
+
+        while((de = dictNext(di)) != NULL) {
+            robj *eleobj = dictGetKey(de);
+            double *scores = dictGetVal(de);
+
+            if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveDoubleValue(rdb,scores[0])) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveDoubleValue(rdb,scores[1])) == -1) return -1;
+            nwritten += n;
+        }
+        dictReleaseIterator(di);
+                                                                                                                                                                            
     } else {
         serverPanic("Unknown object type");
     }
@@ -1135,7 +1159,44 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
-    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+        
+        
+    } else if (rdbtype == RDB_TYPE_ISET) {
+         /* Read list/set value */
+         
+         size_t isetlen;
+         avl * tree;
+         size_t maxelelen = 0;
+         
+         if ((isetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+         o = createIsetObject();
+         tree = o->ptr;
+         
+         /* Load every single element of the list/set */
+         while(isetlen--) {
+             robj *ele;
+             double score1;
+             double score2;
+             
+             avlNode *inode;
+             
+             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+             ele = tryObjectEncoding(ele);
+             if (rdbLoadDoubleValue(rdb,&score1) == -1) return NULL;
+             if (rdbLoadDoubleValue(rdb,&score2) == -1) return NULL;
+             
+             /* Don't care about integer-encoded strings. */
+             if (ele->encoding == RDB_LOAD_PLAIN &&
+                 sdslen(ele->ptr) > maxelelen)
+                 maxelelen = sdslen(ele->ptr);
+             
+             inode = avlInsert(tree, score1, score2, ele);
+             dictAdd(tree->dict,ele,&inode->scores);
+             incrRefCount(ele); /* Added to dictionary. */
+       }
+        
+    } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {                                                                                                                                                                                                                                                                                                                                                                                                                                  } else if (rdbtype == RDB_TYPE_LIST_QUICKLIST) {
+
         if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         o = createQuicklistObject();
         quicklistSetOptions(o->ptr, server.list_max_ziplist_size,

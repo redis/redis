@@ -195,6 +195,13 @@ robj *createZiplistObject(void) {
     return o;
 }
 
+robj *createIsetObject(void) {
+    avl *a = avlCreate();
+    robj *o = createObject(OBJ_ISET,a);
+    o->encoding = OBJ_ENCODING_AVLTREE;
+    return o;
+}
+
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
@@ -278,6 +285,10 @@ void freeZsetObject(robj *o) {
     }
 }
 
+void freeIsetObject(robj *o) {
+    avlFree(o->ptr);
+}
+
 void freeHashObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
@@ -305,6 +316,7 @@ void decrRefCount(robj *o) {
         case OBJ_SET: freeSetObject(o); break;
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
+        case OBJ_ISET: freeIsetObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
