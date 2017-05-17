@@ -44,12 +44,13 @@ pages_map(void *addr, size_t size)
 void
 pages_unmap(void *addr, size_t size)
 {
-
+	int test;
 #ifdef _WIN32
-	if (VirtualFree(addr, 0, MEM_RELEASE) == 0)
+	test = VirtualFree(addr, 0, MEM_RELEASE) == 0;
 #else
-	if (munmap(addr, size) == -1)
+	test = munmap(addr, size) == -1;
 #endif
+	if (test)
 	{
 		char buf[BUFERROR_BUF];
 
