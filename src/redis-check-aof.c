@@ -102,7 +102,7 @@ int readArgc(FILE *fp, long *target) {
     return readLong(fp,'*',target);
 }
 
-off_t process(FILE *fp) {
+off_t process(FILE *fp, int dump) {
     long argc;
     off_t pos = 0;
     int i, multi = 0;
@@ -127,7 +127,14 @@ off_t process(FILE *fp) {
                     }
                 }
             }
+            if (dump) {
+                if (i > 0) printf(" ");
+                printf("%s", str);
+            }
             free(str);
+        }
+        if (dump) {
+            printf("\n");
         }
 
         /* Stop if the loop did not finish */
@@ -149,19 +156,23 @@ off_t process(FILE *fp) {
 int main(int argc, char **argv) {
     char *filename;
     int fix = 0;
+    int dump = 0;
 
     if (argc < 2) {
-        printf("Usage: %s [--fix] <file.aof>\n", argv[0]);
+        printf("Usage: %s [--fix] [--dump] <file.aof>\n", argv[0]);
         exit(1);
     } else if (argc == 2) {
         filename = argv[1];
     } else if (argc == 3) {
-        if (strcmp(argv[1],"--fix") != 0) {
+        if (strcmp(argv[1], "--fix") == 0) {
+            fix = 1;
+        } else if (strcmp(argv[1], "--dump") == 0) {
+            dump = 1;
+        } else {
             printf("Invalid argument: %s\n", argv[1]);
             exit(1);
         }
         filename = argv[2];
-        fix = 1;
     } else {
         printf("Invalid arguments\n");
         exit(1);
@@ -185,10 +196,12 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    off_t pos = process(fp);
+    off_t pos = process(fp, dump);
     off_t diff = size-pos;
-    printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
-        (long long) size, (long long) pos, (long long) diff);
+
+    if (!dump)
+        printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
+               (long long) size, (long long) pos, (long long) diff);
     if (diff > 0) {
         if (fix) {
             char buf[2];
@@ -206,11 +219,13 @@ int main(int argc, char **argv) {
                 printf("Successfully truncated AOF\n");
             }
         } else {
-            printf("AOF is not valid\n");
+            if (!dump)
+                printf("AOF is not valid\n");
             exit(1);
         }
     } else {
-        printf("AOF is valid\n");
+      if (!dump)
+          printf("AOF is valid\n");
     }
 
     fclose(fp);
