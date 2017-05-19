@@ -211,3 +211,51 @@ start_server {tags {"aofrw"}} {
         }
     }
 }
+
+start_server {tags {"aofrw"}} {
+    # Enable the AOF
+    r config set appendonly yes
+    r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+    waitForBgrewriteaof r
+
+    proc get_pipes_count {pid} {
+        try {
+            set pipes [exec lsof -p $pid | grep -s FIFO | wc -l]
+            return $pipes
+        } trap CHILDSTATUS {results options} {
+            return 0
+        }
+    }
+
+    test {AOF rewrite must not leak on failed fork()} {
+        set pid [srv 0 pid]
+        set pipes [get_pipes_count $pid]
+        if {$::verbose} {
+            puts "Checking pipes on normal bgrewriteaof ($pipes)..."
+        }
+        assert_equal 0 $pipes
+
+        # set nproc limit 0
+        exec prlimit --nproc=0 --pid=$pid
+
+        # exec bgrewriteaof
+        if {![catch {r bgrewriteaof}]} {
+            fail "bgrewriteaof must fail in nproc=0 condition"
+        }
+
+        # check bgrewriteaof failed as intended
+        wait_for_condition 50 100 {
+            [string match {*Can't*rewrite*append*fork*} [exec tail -n5 < [srv 0 stdout]]]
+        } else {
+            puts [exec tail -n5 < [srv 0 stdout]]]
+            fail "bgrewriteaof must fail in nproc=0 condition"
+        }
+
+        # check pipes not leaked
+        set pipes [get_pipes_count $pid]
+        if {$::verbose} {
+            puts "Checking pipes on failed bgrewriteaof ($pipes)..."
+        }
+        assert_equal 0 $pipes
+    }
+}
