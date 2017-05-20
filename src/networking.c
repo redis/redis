@@ -67,6 +67,14 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+void freeClientDisconnectionCB(void *toFree) {
+    disconnectionCallbackWrapper *wrp = (disconnectionCallbackWrapper*)toFree;
+    if (wrp != NULL) {
+        wrp->cb(wrp->clientId);
+        zfree(wrp);
+    }
+}
+
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -132,7 +140,10 @@ client *createClient(int fd) {
     c->watched_keys = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
+    c->modules_visited = dictCreate(&setDictType,NULL);
+    c->client_disconnected = listCreate();
     c->peerid = NULL;
+    listSetFreeMethod(c->client_disconnected, freeClientDisconnectionCB);
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) listAddNodeTail(server.clients,c);
@@ -817,6 +828,12 @@ void freeClient(client *c) {
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
+
+    /* Frees modules dict */
+    dictRelease(c->modules_visited);
+
+    /* Call all disconnection hooks and free list */
+    listRelease(c->client_disconnected);
 
     /* Free data structures. */
     listRelease(c->reply);

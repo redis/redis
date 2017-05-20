@@ -3836,4 +3836,14 @@ int main(int argc, char **argv) {
     return 0;
 }
 
+void hookToDisconnection(client *c, void (*cb)(uint64_t)) {
+    disconnectionCallbackWrapper *wrp = zmalloc(sizeof(disconnectionCallbackWrapper));
+    wrp->clientId = c->id;
+    wrp->cb = cb;
+
+    if (listAddNodeTail(c->client_disconnected, wrp) == NULL) {
+        zfree(wrp);
+    }
+}
+
 /* The End */
