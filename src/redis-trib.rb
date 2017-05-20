@@ -1327,6 +1327,7 @@ class RedisTrib
                 master = get_node_by_name(opt['master-id'])
                 if !master
                     xputs "[ERR] No such master ID #{opt['master-id']}"
+                    exit 1
                 end
             else
                 master = get_master_with_least_replicas
@@ -1456,6 +1457,7 @@ class RedisTrib
         source = Redis.new(:host =>src_host, :port =>src_port)
         if source.info['cluster_enabled'].to_i == 1
             xputs "[ERR] The source node should not be a cluster node."
+            exit 1
         end
         xputs "*** Importing #{source.dbsize} keys from DB 0"
 
