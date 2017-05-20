@@ -84,7 +84,7 @@ start_server {tags {"zset"}} {
             set err
         } {ERR*}
 
-        test "ZADD NX with non exisitng key" {
+        test "ZADD NX with non existing key" {
             r del ztmp
             r zadd ztmp nx 10 x 20 y 30 z
             assert {[r zcard ztmp] == 3}

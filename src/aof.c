@@ -624,7 +624,7 @@ int loadAppendOnlyFile(char *filename) {
         exit(1);
     }
 
-    /* Handle a zero-length AOF file as a special case. An emtpy AOF file
+    /* Handle a zero-length AOF file as a special case. An empty AOF file
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
@@ -1544,7 +1544,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
         serverLog(LL_WARNING,

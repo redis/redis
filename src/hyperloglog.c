@@ -665,7 +665,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     end = p + sdslen(o->ptr) - HLL_HDR_SIZE;
 
     first = 0;
-    prev = NULL; /* Points to previos opcode at the end of the loop. */
+    prev = NULL; /* Points to previous opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
@@ -756,7 +756,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      * and is either currently represented by a VAL opcode with len > 1,
      * by a ZERO opcode with len > 1, or by an XZERO opcode.
      *
-     * In those cases the original opcode must be split into muliple
+     * In those cases the original opcode must be split into multiple
      * opcodes. The worst case is an XZERO split in the middle resuling into
      * XZERO - VAL - XZERO, so the resulting sequence max length is
      * 5 bytes.
@@ -879,7 +879,7 @@ promote: /* Promote to dense representation. */
      *
      * Note that this in turn means that PFADD will make sure the command
      * is propagated to slaves / AOF, so if there is a sparse -> dense
-     * convertion, it will be performed in all the slaves as well. */
+     * conversion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
     serverAssert(dense_retval == 1);
     return dense_retval;

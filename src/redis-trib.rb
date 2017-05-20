@@ -454,7 +454,7 @@ class RedisTrib
 
         # Handle case "1": keys in no node.
         if none.length > 0
-            xputs "The folowing uncovered slots have no keys across the cluster:"
+            xputs "The following uncovered slots have no keys across the cluster:"
             xputs none.keys.join(",")
             yes_or_die "Fix these slots by covering with a random node?"
             none.each{|slot,nodes|
@@ -466,7 +466,7 @@ class RedisTrib
 
         # Handle case "2": keys only in one node.
         if single.length > 0
-            xputs "The folowing uncovered slots have keys in just one node:"
+            xputs "The following uncovered slots have keys in just one node:"
             puts single.keys.join(",")
             yes_or_die "Fix these slots by covering with those nodes?"
             single.each{|slot,nodes|
@@ -477,7 +477,7 @@ class RedisTrib
 
         # Handle case "3": keys in multiple nodes.
         if multi.length > 0
-            xputs "The folowing uncovered slots have keys in multiple nodes:"
+            xputs "The following uncovered slots have keys in multiple nodes:"
             xputs multi.keys.join(",")
             yes_or_die "Fix these slots by moving keys into a single node?"
             multi.each{|slot,nodes|
@@ -1102,7 +1102,7 @@ class RedisTrib
             if numslots > 0
                 puts "Moving #{numslots} slots from #{src} to #{dst}"
 
-                # Actaully move the slots.
+                # Actually move the slots.
                 reshard_table = compute_reshard_table([src],numslots)
                 if reshard_table.length != numslots
                     xputs "*** Assertio failed: Reshard table != number of slots"
@@ -1622,7 +1622,7 @@ private
     ]
 end
 
-# Turn a key name into the corrisponding Redis Cluster slot.
+# Turn a key name into the corresponding Redis Cluster slot.
 def key_to_slot(key)
     # Only hash what is inside {...} if there is such a pattern in the key.
     # Note that the specification requires the content that is between

@@ -1627,7 +1627,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
@@ -1664,7 +1664,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
      * in error state.
      *
      * If the process returned an error, consider the list of slaves that
-     * can continue to be emtpy, so that it's just a special case of the
+     * can continue to be empty, so that it's just a special case of the
      * normal code path. */
     ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
     ok_slaves[0] = 0;

@@ -269,7 +269,7 @@
  * Note that this is not how the data is actually encoded, is just what we
  * get filled by a function in order to operate more easily. */
 typedef struct zlentry {
-    unsigned int prevrawlensize; /* Bytes used to encode the previos entry len*/
+    unsigned int prevrawlensize; /* Bytes used to encode the previous entry len*/
     unsigned int prevrawlen;     /* Previous entry len. */
     unsigned int lensize;        /* Bytes used to encode this entry type/len.
                                     For example strings have a 1, 2 or 5 bytes
@@ -431,7 +431,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
 /* Return the length of the previous element, and the number of bytes that
  * are used in order to encode the previous element length.
  * 'ptr' must point to the prevlen prefix of an entry (that encodes the
- * length of the previos entry in order to navigate the elements backward).
+ * length of the previous entry in order to navigate the elements backward).
  * The length of the previous entry is stored in 'prevlen', the number of
  * bytes needed to encode the previous entry length are stored in
  * 'prevlensize'. */
