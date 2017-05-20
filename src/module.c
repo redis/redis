@@ -47,6 +47,7 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    void (*disconnectionCallback)(uint64_t); /* Module client disconnection callback */
 };
 typedef struct RedisModule RedisModule;
 
@@ -462,6 +463,16 @@ void RedisModuleCommandDispatcher(client *c) {
     RedisModuleCommandProxy *cp = (void*)(unsigned long)c->cmd->getkeys_proc;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
+    /*
+    If module name isn't present in client's modules dictionary,
+    we can assume that it's the first time the client has called a command from this module
+    so we add the module's disconnection callback to the client's disconnection hook.
+    */
+    if (cp->module->disconnectionCallback != NULL &&
+        dictAdd(c->modules_visited, cp->module->name, NULL) != DICT_ERR) {
+            hookToDisconnection(c, cp->module->disconnectionCallback);
+    }
+
     ctx.module = cp->module;
     ctx.client = c;
     cp->func(&ctx,(void**)c->argv,c->argc);
@@ -645,6 +656,23 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     return REDISMODULE_OK;
 }
 
+/* Registers a callback for clients disconnections
+ * Only clients that have called one of the module's command at least once are hooked
+*/
+int RM_HookToDisconnection(RedisModuleCtx *ctx, void (*cb)(uint64_t)) {
+    if (ctx->module == NULL) {
+        return REDISMODULE_ERR;
+    }
+
+    // Not allowing callback overriding
+    if (ctx->module->disconnectionCallback != NULL) {
+        return REDISMODULE_ERR;
+    }
+
+    ctx->module->disconnectionCallback = cb;
+    return REDISMODULE_OK;
+}
+
 /* Called by RM_Init() to setup the `ctx->module` structure.
  *
  * This is an internal function, Redis modules developers don't need
@@ -655,6 +683,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     if (ctx->module != NULL) return;
     module = zmalloc(sizeof(*module));
     module->name = sdsnew((char*)name);
+    module->disconnectionCallback = NULL;
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
@@ -3686,6 +3715,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Free);
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
+    REGISTER_API(HookToDisconnection);
     REGISTER_API(SetModuleAttribs);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
