@@ -343,7 +343,8 @@ static client createClient(char *cmd, size_t len, client from) {
     c->prefix_pending = 0;
     if (config.auth) {
         char *buf = NULL;
-        int len = redisFormatCommand(&buf, "AUTH %s", config.auth);
+        const char *argv[] = {"AUTH", config.auth};
+        int len = redisFormatCommandArgv(&cmd,2,argv,NULL);
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
         c->prefix_pending++;
@@ -725,62 +726,72 @@ int main(int argc, const char **argv) {
             benchmark("PING_INLINE","PING\r\n",6);
 
         if (test_is_selected("ping_mbulk") || test_is_selected("ping")) {
-            len = redisFormatCommand(&cmd,"PING");
+            const char *argv[] = {"PING"};
+            len = redisFormatCommandArgv(&cmd,1,argv,NULL);
             benchmark("PING_BULK",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:__rand_int__ %s",data);
+            const char *argv[] = {"SET", "key:__rand_int__", data};
+            len = redisFormatCommandArgv(&cmd,3,argv,NULL);
             benchmark("SET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("get")) {
-            len = redisFormatCommand(&cmd,"GET key:__rand_int__");
+            const char *argv[] = {"GET", "key:__rand_int__"};
+            len = redisFormatCommandArgv(&cmd,2,argv,NULL);
             benchmark("GET",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("incr")) {
-            len = redisFormatCommand(&cmd,"INCR counter:__rand_int__");
+            const char *argv[] = {"INCR", "counter:__rand_int__"};
+            len = redisFormatCommandArgv(&cmd,2,argv,NULL);
             benchmark("INCR",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            const char *argv[] = {"LPUSH", "mylist", data};
+            len = redisFormatCommandArgv(&cmd,3,argv,NULL);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist %s",data);
+            const char *argv[] = {"RPUSH", "mylist", data};
+            len = redisFormatCommandArgv(&cmd,3,argv,NULL);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lpop")) {
-            len = redisFormatCommand(&cmd,"LPOP mylist");
+            const char *argv[] = {"LPOP", "mylist"};
+            len = redisFormatCommandArgv(&cmd,2,argv,NULL);
             benchmark("LPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpop")) {
-            len = redisFormatCommand(&cmd,"RPOP mylist");
+            const char *argv[] = {"RPOP", "mylist"};
+            len = redisFormatCommandArgv(&cmd,2,argv,NULL);
             benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("sadd")) {
-            len = redisFormatCommand(&cmd,
-                "SADD myset element:__rand_int__");
+            const char *argv[] = {"SADD", "myset",
+                "element:__rand_int__"};
+            len = redisFormatCommandArgv(&cmd,3,argv,NULL);
             benchmark("SADD",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("spop")) {
-            len = redisFormatCommand(&cmd,"SPOP myset");
+            const char *argv[] = {"SPOP", "myset"};
+            len = redisFormatCommandArgv(&cmd,2,argv,NULL);
             benchmark("SPOP",cmd,len);
             free(cmd);
         }
@@ -791,31 +802,36 @@ int main(int argc, const char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            const char *argv[] = {"LPUSH", "mylist", data};
+            len = redisFormatCommandArgv(&cmd,3,argv,NULL);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_100")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 99");
+            const char *argv[] = {"LRANGE", "mylist", "0", "99"};
+            len = redisFormatCommandArgv(&cmd,4,argv,NULL);
             benchmark("LRANGE_100 (first 100 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_300")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 299");
+            const char *argv[] = {"LRANGE", "mylist", "0", "299"};
+            len = redisFormatCommandArgv(&cmd,4,argv,NULL);
             benchmark("LRANGE_300 (first 300 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_500")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 449");
+            const char *argv[] = {"LRANGE", "mylist", "0", "449"};
+            len = redisFormatCommandArgv(&cmd,4,argv,NULL);
             benchmark("LRANGE_500 (first 450 elements)",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("lrange") || test_is_selected("lrange_600")) {
-            len = redisFormatCommand(&cmd,"LRANGE mylist 0 599");
+            const char *argv[] = {"LRANGE", "mylist", "0", "599"};
+            len = redisFormatCommandArgv(&cmd,4,argv,NULL);
             benchmark("LRANGE_600 (first 600 elements)",cmd,len);
             free(cmd);
         }
