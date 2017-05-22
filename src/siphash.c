@@ -22,7 +22,7 @@
    1. We use SipHash 1-2. This is not believed to be as strong as the
       suggested 2-4 variant, but AFAIK there are not trivial attacks
       against this reduced-rounds version, and it runs at the same speed
-      as Murmurhash2 that we used previously, why the 2-4 variant slowed
+      as Murmurhash2 that we used previously, while the 2-4 variant slowed
       down Redis by a 4% figure more or less.
    2. Hard-code rounds in the hope the compiler can optimize it more
       in this raw from. Anyway we always want the standard 2-4 variant.
