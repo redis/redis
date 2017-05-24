@@ -1,0 +1,111 @@
+#!/bin/bash -x
+
+# This test is designed for run-and-walk-away
+# automated testing.  It provides no pretty
+# diagnostic output.
+
+set -e
+
+here=`dirname $0`
+RUNPATH="/tmp/redis-test-cluster/"
+REDIS="$here/../../src/redis-server"
+TRIB="$here/../../src/redis-trib.rb"
+
+# Homebrew doesn't link coreutils properly.  Try to manually discover them.
+POTENTIAL_UTILS=$(eval echo /usr/local/Cellar/coreutils/*/libexec/gnubin/|tail -1)
+PATH=$POTENTIAL_UTILS:$PATH
+
+LOCAL_IP=127.0.0.1
+case $OSTYPE in
+    solaris*) NET_IP=`/sbin/ifconfig net0 |grep inet |tal -1| awk '{printf $2}'` ;;
+    darwin*) NET_IP=`/sbin/ifconfig |grep inet |tail -1| awk '{printf $2}'` ;;
+    linux*) NET_IP=`/sbin/ifconfig |grep "inet addr" |grep -v 127.0.0.1 | tail -1 |awk '{printf $2}' |awk -F: '{printf $2}'` ;;
+esac
+
+TIMEOUT=`which timeout` 
+if [[ $? == 0 ]]; then
+    TIMEOUT="$TIMEOUT 30"
+else
+    TIMEOUT=""
+fi
+
+spawnClusterInstances() {
+    IP=$1
+    RANGE=$2
+    for port in $(eval echo $RANGE); do
+        PLACE="$RUNPATH"/$port
+        mkdir -p "$PLACE"
+        rm -f $PLACE/*.conf $PLACE/*.rdb
+        $REDIS --dir "$PLACE" --bind $IP --cluster-enabled yes --port $port &
+    done
+}
+
+stopClusterInstances() {
+    RANGE=$*
+    for port in $(eval echo $RANGE); do
+        PLACE="$RUNPATH/$port"
+        echo "Cleaning up instance $port at $PLACE"
+        # Redis refuses to write pidfiles if we aren't daemonized
+        REDIS_PID=`ps auxww|grep redis-server|grep :$port|awk '{print $2}'`
+        if [[ ! -z $REDIS_PID ]]; then
+            kill -9 $REDIS_PID
+        fi
+        rm -f $PLACE/{*.conf,*.rdb}
+    done
+}
+
+createClusterWithInstancesAndReplicas() {
+    LOCAL_COUNT=$1
+    NET_COUNT=$2
+    REPLICAS=$3
+
+    LOCAL_LOW=7001
+    LOCAL_HIGH=$(($LOCAL_LOW+$LOCAL_COUNT-1))
+
+    NET_LOW=8001
+    NET_HIGH=$(($NET_LOW+$NET_COUNT-1))
+
+    LOCAL_PORT_RANGE={$LOCAL_LOW..$LOCAL_HIGH}
+    NET_PORT_RANGE={$NET_LOW..$NET_HIGH}
+
+#    LOCAL_PORTS=$(eval seq $LOCAL_LOW $LOCAL_HIGH)
+#    NET_PORTS=$(eval seq $NET_LOW $NET_HIGH)
+
+    # Stop before run in case the previous run aborted early
+    # and left lingering redis-server cluster process around
+    stopClusterInstances $LOCAL_PORT_RANGE $NET_PORT_RANGE
+
+    spawnClusterInstances $LOCAL_IP $LOCAL_PORT_RANGE
+    spawnClusterInstances $NET_IP $NET_PORT_RANGE
+
+    echo yes |$TIMEOUT "$TRIB" create --replicas $REPLICAS $(eval echo $LOCAL_IP:$LOCAL_PORT_RANGE $NET_IP:$NET_PORT_RANGE)
+
+    stopClusterInstances $LOCAL_PORT_RANGE $NET_PORT_RANGE
+}
+
+echo "Testing 0 replicas (all masters)"
+for replicaCount in 0; do
+    for localIPCount in {3..5}; do
+        for netIPCount in {1..3}; do
+             createClusterWithInstancesAndReplicas $localIPCount $netIPCount $replicaCount
+        done
+    done
+done
+
+echo "Testing 1 replicas"
+for replicaCount in 1; do
+    for localIPCount in {3..6}; do
+        for netIPCount in {3..6}; do
+             createClusterWithInstancesAndReplicas $localIPCount $netIPCount $replicaCount
+        done
+    done
+done
+
+echo "Testing 2 to 5 replicas"
+for replicaCount in {2..5}; do
+    for localIPCount in {9..15}; do
+        for netIPCount in {9..15}; do
+             createClusterWithInstancesAndReplicas $localIPCount $netIPCount $replicaCount
+        done
+    done
+done
