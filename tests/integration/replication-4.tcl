@@ -25,7 +25,7 @@ start_server {tags {"repl"}} {
             s 0 role
         } {slave}
 
-        test {Test replication with parallel clients writing in differnet DBs} {
+        test {Test replication with parallel clients writing in different DBs} {
             after 5000
             stop_bg_complex_data $load_handle0
             stop_bg_complex_data $load_handle1
