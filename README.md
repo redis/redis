@@ -3,12 +3,12 @@ This README is just a fast *quick start* document. You can find more detailed do
 What is Redis?
 --------------
 
-Redis is often referred as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
+Redis is often referred as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So, different processes can query and modify the same data structures in a shared way.
 
 Data structures implemented into Redis have a few special properties:
 
 * Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that is also non-volatile.
-* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using an high level programming language.
+* Implementation of data structures stress on memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modeled using a high-level programming language.
 * Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, cluster, high availability.
 
 Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations to work with complex data types like Lists, Sets, ordered data structures, and so forth.
@@ -58,7 +58,7 @@ command in order to really clean everything and rebuild from scratch:
 
 This will clean: jemalloc, lua, hiredis, linenoise.
 
-Also if you force certain build options like 32bit target, no C compiler
+Also, if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
 those options are cached indefinitely until you issue a `make distclean`
 command.
@@ -98,7 +98,7 @@ Verbose build
 -------------
 
 Redis will build with a user friendly colorized output by default.
-If you want to see a more verbose output use the following:
+If you want to see a more verbose output, use the following:
 
     % make V=1
 
@@ -199,7 +199,7 @@ most important functions and structures inside the Redis server and so forth.
 We keep all the discussion at a high level without digging into the details
 since this document would be huge otherwise and our code base changes
 continuously, but a general idea should be a good starting point to
-understand more. Moreover most of the code is heavily commented and easy
+understand more. Moreover, most of the code is heavily commented and easy
 to follow.
 
 Source code layout
@@ -216,7 +216,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. An exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. An exception to this rule is `deps/geohash-int` which is the low-level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separate entity directly inside the Redis repository.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -226,8 +226,8 @@ of complexity incrementally.
 
 Note: lately Redis was refactored quite a bit. Function names and file
 names have been changed, so you may find that this documentation reflects the
-`unstable` branch more closely. For instance in Redis 3.0 the `server.c`
-and `server.h` files were named to `redis.c` and `redis.h`. However the overall
+`unstable` branch more closely. For instance, in Redis 3.0 the `server.c`
+and `server.h` files were named to `redis.c` and `redis.h`. However, the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
@@ -235,7 +235,7 @@ server.h
 ---
 
 The simplest way to understand how a program works is to understand the
-data structures it uses. So we'll start from the main header file of
+data structures it uses. So, we'll start from the main header file of
 Redis, which is `server.h`.
 
 All the server configuration and in general all the shared state is
@@ -285,11 +285,11 @@ structure, which defines a *Redis object*:
         void *ptr;
     } robj;
 
-Basically this structure can represent all the basic Redis data types like
+Basically, this structure can represent all the basic Redis data types like
 strings, lists, sets, sorted sets and so forth. The interesting thing is that
 it has a `type` field, so that it is possible to know what type a given
 object has, and a `refcount`, so that the same object can be referenced
-in multiple places without allocating it multiple times. Finally the `ptr`
+in multiple places without allocating it multiple times. Finally, the `ptr`
 field points to the actual representation of the object, which might vary
 even for the same type, depending on the `encoding` used.
 
@@ -390,7 +390,7 @@ replication.c
 
 This is one of the most complex files inside Redis, it is recommended to
 approach it only after getting a bit familiar with the rest of the code base.
-In this file there is the implementation of both the master and slave role
+In this file, there is the implementation of both the master and slave role
 of Redis.
 
 One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing slave instances connected
@@ -405,11 +405,11 @@ Other C files
 ---
 
 * `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
-* `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
+* `ae.c` implements the Redis event loop, it's a self-contained library which is simple to read and understand.
 * `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `scripting.c` implements Lua scripting. It is completely self contained from the rest of the Redis implementation and is simple enough to understand if you are familar with the Lua API.
+* `scripting.c` implements Lua scripting. It is completely self-contained from the rest of the Redis implementation and is simple enough to understand if you are familar with the Lua API.
 * `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
 
 [3]: http://redis.io/topics/cluster-spec
