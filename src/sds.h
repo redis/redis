@@ -33,13 +33,24 @@
 #ifndef __SDS_H
 #define __SDS_H
 
+/*
+ * 最大预分配长度1M
+ */
 #define SDS_MAX_PREALLOC (1024*1024)
 
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
 
+/*
+ * 类型别名，用于指向 sdshdr 的 buf 属性
+ */
 typedef char *sds;
+
+/*
+ * __attribute__ ((packed)) 的作用就是告诉编译器取消结构在编译过程中的优化对齐,
+ * 按照实际占用字节数进行对齐，是GCC特有的语法。
+ */
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
  * However is here to document the layout of type 5 SDS strings. */
@@ -79,10 +90,19 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_TYPE_64 4
 #define SDS_TYPE_MASK 7
 #define SDS_TYPE_BITS 3
+/*
+ * 宏定义，因为s指向buf，所以s-size就是结构体开始地址（不应该是s-size+1？）
+ */
 #define SDS_HDR_VAR(T,s) struct sdshdr##T *sh = (void*)((s)-(sizeof(struct sdshdr##T)));
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+/*
+ * s 指向的是结构体中的buf字符串
+ * s[-1]是 flags
+ * 然后与mask进行与运算
+ * 为什么不直接比较flags，而多一个&运算？
+ */
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -100,6 +120,11 @@ static inline size_t sdslen(const sds s) {
     return 0;
 }
 
+/*
+ * 返回空闲的字符串内存空间
+ * 用两个变量相减的方式
+ * 相比c语言中的strlen方式，时间复杂度由o(n)提升到了o(1)
+ */
 static inline size_t sdsavail(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
