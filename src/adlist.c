@@ -247,6 +247,7 @@ listNode *listNext(listIter *iter)
  * the original node is used as value of the copied node.
  *
  * The original list both on success or error is never modified. */
+
 list *listDup(list *orig)
 {
     list *copy;
@@ -287,12 +288,13 @@ list *listDup(list *orig)
  * On success the first matching node pointer is returned
  * (search starts from head). If no matching node exists
  * NULL is returned. */
+ //根据值查找链表是否包含此元素
 listNode *listSearchKey(list *list, void *key)
 {
     listIter iter;
     listNode *node;
 
-    listRewind(list, &iter);
+    listRewind(list, &iter);//把指针指向链表头部
     while((node = listNext(&iter)) != NULL) {
         if (list->match) {
             if (list->match(node->value, key)) {
@@ -312,14 +314,15 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative integers are used in order to count
  * from the tail, -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
+ //根据index值查找对应的节点元素值
 listNode *listIndex(list *list, long index) {
     listNode *n;
 
-    if (index < 0) {
+    if (index < 0) { // 索引位置值为负数，从链表尾部向前遍历
         index = (-index)-1;
         n = list->tail;
         while(index-- && n) n = n->prev;
-    } else {
+    } else { // 索引位置值为正数，从链表头部向后遍历
         n = list->head;
         while(index-- && n) n = n->next;
     }
@@ -327,17 +330,18 @@ listNode *listIndex(list *list, long index) {
 }
 
 /* Rotate the list removing the tail node and inserting it to the head. */
+//链表旋转 断开尾节点，插入链表的头部
 void listRotate(list *list) {
     listNode *tail = list->tail;
 
     if (listLength(list) <= 1) return;
 
-    /* Detach current tail */
+    /* Detach current tail */ //拆开当前尾节点（与链断开）
     list->tail = tail->prev;
     list->tail->next = NULL;
-    /* Move it as head */
-    list->head->prev = tail;
-    tail->prev = NULL;
+    /* Move it as head */ //改变head和tail 的指针指向，完成tail节点插入头部
+    list->head->prev = tail;// 头指针前向节点指向tail
+    tail->prev = NULL;//tail 前向节点为空，说明它是头结点了
     tail->next = list->head;
     list->head = tail;
 }
