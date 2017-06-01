@@ -16,7 +16,8 @@ case "$1" in
         else
             PID=$(cat $PIDFILE)
             echo "Stopping ..."
-            $CLIEXEC -p $REDISPORT shutdown
+            AUTH=$(sed -n '/^requirepass /{s/[^ ]*/-a/;p;q;}' $CONF)
+            $CLIEXEC -p $REDISPORT $AUTH shutdown
             while [ -x /proc/${PID} ]
             do
                 echo "Waiting for Redis to shutdown ..."
