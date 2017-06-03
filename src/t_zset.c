@@ -122,7 +122,7 @@ void zslFree(zskiplist *zsl) {
 int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF) && level < ZSKIPLIST_MAXLEVEL)
-        level += 1;
+        level++;
     return level;
 }
 
