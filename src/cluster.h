@@ -232,7 +232,7 @@ union clusterMsgData {
 typedef struct {
     char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
-    uint16_t ver;       /* Protocol version, currently set to 0. */
+    uint16_t ver;       /* Protocol version, currently set to 1. */
     uint16_t port;      /* TCP base port number. */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
