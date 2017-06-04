@@ -73,6 +73,7 @@ class ClusterNode
         @info[:replicate] = false
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
+        
     end
 
     def friends
@@ -1269,7 +1270,7 @@ class RedisTrib
         if masters < 3
             puts "*** ERROR: Invalid configuration for cluster creation."
             puts "*** Redis Cluster requires at least 3 master nodes."
-            puts "*** This is not possible with #{@nodes.length} nodes and #{@replicas} replicas per node."
+            puts "*** This is not possible with total #{@nodes.length} nodes and #{@replicas} replicas per master node."
             puts "*** At least #{3*(@replicas+1)} nodes are required."
             exit 1
         end
