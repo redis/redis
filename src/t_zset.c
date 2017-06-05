@@ -1247,7 +1247,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * none could be set if we re-added an element using the same score it used
  * to have, or in the case a zero increment is used).
  *
- * The function returns 0 on erorr, currently only when the increment
+ * The function returns 0 on error, currently only when the increment
  * produces a NAN condition, or when the 'score' value is NAN since the
  * start.
  *
