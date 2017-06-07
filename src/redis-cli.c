@@ -673,8 +673,8 @@ static sds cliFormatReplyRaw(redisReply *r) {
         /* Nothing... */
         break;
     case REDIS_REPLY_ERROR:
+        out = sdscat(out, "(error) ");
         out = sdscatlen(out,r->str,r->len);
-        out = sdscatlen(out,"\n",1);
         break;
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_STRING:
@@ -721,7 +721,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
     sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
-        out = sdscat(out,"ERROR,");
+        out = sdscat(out,"(error) ");
         out = sdscatrepr(out,r->str,strlen(r->str));
     break;
     case REDIS_REPLY_STATUS:
