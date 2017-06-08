@@ -110,7 +110,7 @@ foreach diskless {no yes} {
     test_psync {no reconnection, just sync} 6 1000000 3600 0 {
     } $diskless 0
 
-    test_psync {ok psync} 6 1000000 3600 0 {
+    test_psync {ok psync} 6 100000000 3600 0 {
         assert {[s -1 sync_partial_ok] > 0}
     } $diskless 1
 
