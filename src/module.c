@@ -3520,6 +3520,8 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
+void (*onunload)();
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
@@ -3539,6 +3541,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
             "symbol. Module not loaded.",path);
         return C_ERR;
     }
+    onunload = (void (*)())(unsigned long) dlsym(handle,"RedisModule_OnUnload");
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) moduleFreeModuleStructure(ctx.module);
         dlclose(handle);
@@ -3572,6 +3575,10 @@ int moduleUnload(sds name) {
     if (listLength(module->types)) {
         errno = EBUSY;
         return REDISMODULE_ERR;
+    }
+
+    if (onunload != NULL) {
+        onunload();
     }
 
     /* Unregister all the commands registered by this module. */
