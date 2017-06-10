@@ -302,7 +302,7 @@ citing the command name in the error message.
 
 Example:
 
- if (argc != 3) return `RedisModule_WrongArity(ctx)`;
+ `if (argc != 3) return RedisModule_WrongArity(ctx);`
 
 ## `RM_ReplyWithLongLong`
 
@@ -321,11 +321,11 @@ Note that 'err' must contain all the error, including
 the initial error code. The function only provides the initial "-", so
 the usage is, for example:
 
- `RM_ReplyWithError(ctx`,"ERR Wrong Type");
+ `RM_ReplyWithError(ctx,"ERR Wrong Type");`
 
 and not just:
 
- `RM_ReplyWithError(ctx`,"Wrong Type");
+ `RM_ReplyWithError(ctx,"Wrong Type");`
 
 The function always returns `REDISMODULE_OK`.
 
