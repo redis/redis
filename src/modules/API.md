@@ -22,21 +22,21 @@ You should avoid using calloc() directly.
 
     void* RM_Realloc(void *ptr, size_t bytes);
 
-Use like realloc() for memory obtained with `RedisModule_Alloc()`.
+Use like realloc() for memory obtained with RedisModule_Alloc().
 
 ## `RM_Free`
 
     void RM_Free(void *ptr);
 
-Use like free() for memory obtained by `RedisModule_Alloc()` and
-`RedisModule_Realloc()`. However you should never try to free with
-`RedisModule_Free()` memory allocated with malloc() inside your module.
+Use like free() for memory obtained by RedisModule_Alloc() and
+RedisModule_Realloc(). However you should never try to free with
+RedisModule_Free() memory allocated with malloc() inside your module.
 
 ## `RM_Strdup`
 
     char *RM_Strdup(const char *str);
 
-Like strdup() but returns memory allocated with `RedisModule_Alloc()`.
+Like strdup() but returns memory allocated with RedisModule_Alloc().
 
 ## `RM_PoolAlloc`
 
@@ -81,12 +81,12 @@ and not to get executed. Otherwise zero is returned.
 When a module command is called in order to obtain the position of
 keys, since it was flagged as "getkeys-api" during the registration,
 the command implementation checks for this special call using the
-`RedisModule_IsKeysPositionRequest()` API and uses this function in
+RedisModule_IsKeysPositionRequest() API and uses this function in
 order to report keys, like in the following example:
 
- if (`RedisModule_IsKeysPositionRequest(ctx))` {
-     `RedisModule_KeyAtPos(ctx`,1);
-     `RedisModule_KeyAtPos(ctx`,2);
+ if (RedisModule_IsKeysPositionRequest(ctx)) {
+`     RedisModule_KeyAtPos(ctx,1);`
+`     RedisModule_KeyAtPos(ctx,2);`
  }
 
  Note: in the example below the get keys API would not be needed since
@@ -104,7 +104,7 @@ name is already busy or a set of invalid flags were passed, otherwise
 `REDISMODULE_OK` is returned and the new command is registered.
 
 This function must be called during the initialization of the module
-inside the `RedisModule_OnLoad()` function. Calling this function outside
+inside the RedisModule_OnLoad() function. Calling this function outside
 of the initialization function is not defined.
 
 The command function type is the following:
@@ -179,7 +179,7 @@ that wants to use automatic memory.
     RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t len);
 
 Create a new module string object. The returned string must be freed
-with `RedisModule_FreeString()`, unless automatic memory is enabled.
+with RedisModule_FreeString(), unless automatic memory is enabled.
 
 The string is created by copying the `len` bytes starting
 at `ptr`. No reference is retained to the passed buffer.
@@ -189,7 +189,7 @@ at `ptr`. No reference is retained to the passed buffer.
     RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, ...);
 
 Create a new module string object from a printf format and arguments.
-The returned string must be freed with `RedisModule_FreeString()`, unless
+The returned string must be freed with RedisModule_FreeString(), unless
 automatic memory is enabled.
 
 The string is created using the sds formatter function sdscatvprintf().
@@ -198,20 +198,20 @@ The string is created using the sds formatter function sdscatvprintf().
 
     RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll);
 
-Like `RedisModule_CreatString()`, but creates a string starting from a long long
+Like RedisModule_CreatString(), but creates a string starting from a long long
 integer instead of taking a buffer and its length.
 
-The returned string must be released with `RedisModule_FreeString()` or by
+The returned string must be released with RedisModule_FreeString() or by
 enabling automatic memory management.
 
 ## `RM_CreateStringFromString`
 
     RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str);
 
-Like `RedisModule_CreatString()`, but creates a string starting from another
+Like RedisModule_CreatString(), but creates a string starting from another
 RedisModuleString.
 
-The returned string must be released with `RedisModule_FreeString()` or by
+The returned string must be released with RedisModule_FreeString() or by
 enabling automatic memory management.
 
 ## `RM_FreeString`
@@ -230,10 +230,10 @@ from the pool of string to release at the end.
     void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str);
 
 Every call to this function, will make the string 'str' requiring
-an additional call to `RedisModule_FreeString()` in order to really
+an additional call to RedisModule_FreeString() in order to really
 free the string. Note that the automatic freeing of the string obtained
 enabling modules automatic memory management counts for one
-`RedisModule_FreeString()` call (it is just executed automatically).
+RedisModule_FreeString() call (it is just executed automatically).
 
 Normally you want to call this function when, at the same time
 the following conditions are true:
@@ -302,7 +302,7 @@ citing the command name in the error message.
 
 Example:
 
- `if (argc != 3) return RedisModule_WrongArity(ctx);`
+` if (argc != 3) return RedisModule_WrongArity(ctx);`
 
 ## `RM_ReplyWithLongLong`
 
@@ -321,11 +321,11 @@ Note that 'err' must contain all the error, including
 the initial error code. The function only provides the initial "-", so
 the usage is, for example:
 
- `RM_ReplyWithError(ctx,"ERR Wrong Type");`
+ `RM_ReplyWithError(ctx`,"ERR Wrong Type");
 
 and not just:
 
- `RM_ReplyWithError(ctx,"Wrong Type");`
+ `RM_ReplyWithError(ctx`,"Wrong Type");
 
 The function always returns `REDISMODULE_OK`.
 
@@ -350,7 +350,7 @@ of the array.
 When producing arrays with a number of element that is not known beforehand
 the function can be called with the special count
 `REDISMODULE_POSTPONED_ARRAY_LEN`, and the actual number of elements can be
-later set with `RedisModule_ReplySetArrayLength()` (which will set the
+later set with RedisModule_ReplySetArrayLength() (which will set the
 latest "open" count if there are multiple ones).
 
 The function always returns `REDISMODULE_OK`.
@@ -359,7 +359,7 @@ The function always returns `REDISMODULE_OK`.
 
     void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len);
 
-When `RedisModule_ReplyWithArray()` is used with the argument
+When RedisModule_ReplyWithArray() is used with the argument
 `REDISMODULE_POSTPONED_ARRAY_LEN`, because we don't know beforehand the number
 of items we are going to output as elements of the array, this function
 will take care to set the array length.
@@ -371,14 +371,14 @@ that was created in a postponed way.
 For example in order to output an array like [1,[10,20,30]] we
 could write:
 
- `RedisModule_ReplyWithArray(ctx`,`REDISMODULE_POSTPONED_ARRAY_LEN`);
- `RedisModule_ReplyWithLongLong(ctx`,1);
- `RedisModule_ReplyWithArray(ctx`,`REDISMODULE_POSTPONED_ARRAY_LEN`);
- `RedisModule_ReplyWithLongLong(ctx`,10);
- `RedisModule_ReplyWithLongLong(ctx`,20);
- `RedisModule_ReplyWithLongLong(ctx`,30);
- `RedisModule_ReplySetArrayLength(ctx`,3); // Set len of 10,20,30 array.
- `RedisModule_ReplySetArrayLength(ctx`,2); // Set len of top array
+` RedisModule_ReplyWithArray(ctx,`REDISMODULE_POSTPONED_ARRAY_LEN`);`
+` RedisModule_ReplyWithLongLong(ctx,1);`
+` RedisModule_ReplyWithArray(ctx,`REDISMODULE_POSTPONED_ARRAY_LEN`);`
+` RedisModule_ReplyWithLongLong(ctx,10);`
+` RedisModule_ReplyWithLongLong(ctx,20);`
+` RedisModule_ReplyWithLongLong(ctx,30);`
+` RedisModule_ReplySetArrayLength(ctx,3);` // Set len of 10,20,30 array.
+` RedisModule_ReplySetArrayLength(ctx,2);` // Set len of top array
 
 Note that in the above example there is no reason to postpone the array
 length, since we produce a fixed number of elements, but in the practice
@@ -414,8 +414,8 @@ The function always returns `REDISMODULE_OK`.
 
     int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply);
 
-Reply exactly what a Redis command returned us with `RedisModule_Call()`.
-This function is useful when we use `RedisModule_Call()` in order to
+Reply exactly what a Redis command returned us with RedisModule_Call().
+This function is useful when we use RedisModule_Call() in order to
 execute some command, as we want to reply to the client exactly the
 same reply we obtained by the command.
 
@@ -428,7 +428,7 @@ The function always returns `REDISMODULE_OK`.
 Send a string reply obtained converting the double 'd' into a bulk string.
 This function is basically equivalent to converting a double into
 a string into a C buffer, and then calling the function
-`RedisModule_ReplyWithStringBuffer()` with the buffer and length.
+RedisModule_ReplyWithStringBuffer() with the buffer and length.
 
 The function always returns `REDISMODULE_OK`.
 
@@ -441,17 +441,17 @@ of execution of the calling command implementation.
 
 The replicated commands are always wrapped into the MULTI/EXEC that
 contains all the commands replicated in a given module command
-execution. However the commands replicated with `RedisModule_Call()`
-are the first items, the ones replicated with `RedisModule_Replicate()`
+execution. However the commands replicated with RedisModule_Call()
+are the first items, the ones replicated with RedisModule_Replicate()
 will all follow before the EXEC.
 
 Modules should try to use one interface or the other.
 
-This command follows exactly the same interface of `RedisModule_Call()`,
+This command follows exactly the same interface of RedisModule_Call(),
 so a set of format specifiers must be passed, followed by arguments
 matching the provided format specifiers.
 
-Please refer to `RedisModule_Call()` for more information.
+Please refer to RedisModule_Call() for more information.
 
 The command returns `REDISMODULE_ERR` if the format specifiers are invalid
 or the command name does not belong to a known command.
@@ -506,7 +506,7 @@ the Redis command implemented by the module calling this function
 returns.
 
 If the module command wishes to change something in a different DB and
-returns back to the original one, it should call `RedisModule_GetSelectedDb()`
+returns back to the original one, it should call RedisModule_GetSelectedDb()
 before in order to restore the old DB number before returning.
 
 ## `RM_OpenKey`
@@ -525,7 +525,7 @@ is still returned, since it is possible to perform operations on
 a yet not existing key (that will be created, for example, after
 a list push operation). If the mode is just READ instead, and the
 key does not exist, NULL is returned. However it is still safe to
-call `RedisModule_CloseKey()` and `RedisModule_KeyType()` on a NULL
+call RedisModule_CloseKey() and RedisModule_KeyType() on a NULL
 value.
 
 ## `RM_CloseKey`
@@ -796,7 +796,7 @@ inclusive.
 
     int RM_ZsetLastInScoreRange(RedisModuleKey *key, double min, double max, int minex, int maxex);
 
-Exactly like `RedisModule_ZsetFirstInScoreRange()` but the last element of
+Exactly like RedisModule_ZsetFirstInScoreRange() but the last element of
 the range is selected for the start of the iteration instead.
 
 ## `RM_ZsetFirstInLexRange`
@@ -820,7 +820,7 @@ ASAP after the iterator is setup.
 
     int RM_ZsetLastInLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleString *max);
 
-Exactly like `RedisModule_ZsetFirstInLexRange()` but the last element of
+Exactly like RedisModule_ZsetFirstInLexRange() but the last element of
 the range is selected for the start of the iteration instead.
 
 ## `RM_ZsetRangeCurrentElement`
@@ -861,12 +861,12 @@ CFIELD option is set, see later).
 
 Example to set the hash argv[1] to the value argv[2]:
 
- `RedisModule_HashSet(key`,`REDISMODULE_HASH_NONE`,argv[1],argv[2],NULL);
+` RedisModule_HashSet(key,`REDISMODULE_HASH_NONE`,argv[1],argv[2],NULL);`
 
 The function can also be used in order to delete fields (if they exist)
 by setting them to the specified value of `REDISMODULE_HASH_DELETE`:
 
- `RedisModule_HashSet(key`,`REDISMODULE_HASH_NONE`,argv[1],
+ RedisModule_HashSet(key,`REDISMODULE_HASH_NONE`,argv[1],
                      `REDISMODULE_HASH_DELETE`,NULL);
 
 The behavior of the command changes with the specified flags, that can be
@@ -888,7 +888,7 @@ When using `REDISMODULE_HASH_CFIELDS`, field names are reported using
 normal C strings, so for example to delete the field "foo" the following
 code can be used:
 
- `RedisModule_HashSet(key`,`REDISMODULE_HASH_CFIELDS`,"foo",
+ RedisModule_HashSet(key,`REDISMODULE_HASH_CFIELDS`,"foo",
                      `REDISMODULE_HASH_DELETE`,NULL);
 
 Return value:
@@ -915,10 +915,10 @@ argument to signal the end of the arguments in the variadic function.
 This is an example usage:
 
      RedisModuleString *first, *second;
-     `RedisModule_HashGet(mykey`,`REDISMODULE_HASH_NONE`,argv[1],&first,
+     RedisModule_HashGet(mykey,`REDISMODULE_HASH_NONE`,argv[1],&first,
                      argv[2],&second,NULL);
 
-As with `RedisModule_HashSet()` the behavior of the command can be specified
+As with RedisModule_HashSet() the behavior of the command can be specified
 passing flags different than `REDISMODULE_HASH_NONE`:
 
 `REDISMODULE_HASH_CFIELD`: field names as null terminated C strings.
@@ -931,12 +931,12 @@ as the second element of each pair.
 Example of `REDISMODULE_HASH_CFIELD`:
 
      RedisModuleString *username, *hashedpass;
-     `RedisModule_HashGet(mykey`,"username",&username,"hp",&hashedpass, NULL);
+`     RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass, NULL);`
 
 Example of `REDISMODULE_HASH_EXISTS`:
 
      int exists;
-     `RedisModule_HashGet(mykey`,argv[1],&exists,NULL);
+`     RedisModule_HashGet(mykey,argv[1],&exists,NULL);`
 
 The function returns `REDISMODULE_OK` on success and `REDISMODULE_ERR` if
 the key is not an hash value.
@@ -944,7 +944,7 @@ the key is not an hash value.
 Memory management:
 
 The returned RedisModuleString objects should be released with
-`RedisModule_FreeString()`, or by enabling automatic memory management.
+RedisModule_FreeString(), or by enabling automatic memory management.
 
 ## `RM_FreeCallReply_Rec`
 
@@ -1062,7 +1062,6 @@ documentation, especially the TYPES.md file.
 * **rdb_save**: A callback function pointer that saves data to RDB files.
 * **aof_rewrite**: A callback function pointer that rewrites data as commands.
 * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
-* **mem_usage**: A callback function pointer that is used for `MEMORY`.
 * **free**: A callback function pointer that can free a type value.
 
 The **digest* and **mem_usage** methods should currently be omitted since
@@ -1081,7 +1080,7 @@ Example code fragment:
 
      static RedisModuleType *BalancedTreeType;
 
-     int `RedisModule_OnLoad(RedisModuleCtx` *ctx) {
+     int RedisModule_OnLoad(RedisModuleCtx *ctx) {
          // some code here ...
          BalancedTreeType = `RM_CreateDataType(`...);
      }
@@ -1099,7 +1098,7 @@ writing or there is an active iterator, `REDISMODULE_ERR` is returned.
 
     moduleType *RM_ModuleTypeGetType(RedisModuleKey *key);
 
-Assuming `RedisModule_KeyType()` returned `REDISMODULE_KEYTYPE_MODULE` on
+Assuming RedisModule_KeyType() returned `REDISMODULE_KEYTYPE_MODULE` on
 the key, returns the moduel type pointer of the value stored at key.
 
 If the key is NULL, is not associated with a module type, or is empty,
@@ -1109,9 +1108,9 @@ then NULL is returned instead.
 
     void *RM_ModuleTypeGetValue(RedisModuleKey *key);
 
-Assuming `RedisModule_KeyType()` returned `REDISMODULE_KEYTYPE_MODULE` on
+Assuming RedisModule_KeyType() returned `REDISMODULE_KEYTYPE_MODULE` on
 the key, returns the module type low-level value stored at key, as
-it was set by the user via `RedisModule_ModuleTypeSet()`.
+it was set by the user via RedisModule_ModuleTypeSet().
 
 If the key is NULL, is not associated with a module type, or is empty,
 then NULL is returned instead.
@@ -1136,13 +1135,13 @@ new data types.
 
     void RM_SaveSigned(RedisModuleIO *io, int64_t value);
 
-Like `RedisModule_SaveUnsigned()` but for signed 64 bit values.
+Like RedisModule_SaveUnsigned() but for signed 64 bit values.
 
 ## `RM_LoadSigned`
 
     int64_t RM_LoadSigned(RedisModuleIO *io);
 
-Like `RedisModule_LoadUnsigned()` but for signed 64 bit values.
+Like RedisModule_LoadUnsigned() but for signed 64 bit values.
 
 ## `RM_SaveString`
 
@@ -1151,7 +1150,7 @@ Like `RedisModule_LoadUnsigned()` but for signed 64 bit values.
 In the context of the rdb_save method of a module type, saves a
 string into the RDB file taking as input a RedisModuleString.
 
-The string can be later loaded with `RedisModule_LoadString()` or
+The string can be later loaded with RedisModule_LoadString() or
 other Load family functions expecting a serialized string inside
 the RDB file.
 
@@ -1159,7 +1158,7 @@ the RDB file.
 
     void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len);
 
-Like `RedisModule_SaveString()` but takes a raw C pointer and length
+Like RedisModule_SaveString() but takes a raw C pointer and length
 as input.
 
 ## `RM_LoadString`
@@ -1167,22 +1166,22 @@ as input.
     RedisModuleString *RM_LoadString(RedisModuleIO *io);
 
 In the context of the rdb_load method of a module data type, loads a string
-from the RDB file, that was previously saved with `RedisModule_SaveString()`
+from the RDB file, that was previously saved with RedisModule_SaveString()
 functions family.
 
 The returned string is a newly allocated RedisModuleString object, and
-the user should at some point free it with a call to `RedisModule_FreeString()`.
+the user should at some point free it with a call to RedisModule_FreeString().
 
 If the data structure does not store strings as RedisModuleString objects,
-the similar function `RedisModule_LoadStringBuffer()` could be used instead.
+the similar function RedisModule_LoadStringBuffer() could be used instead.
 
 ## `RM_LoadStringBuffer`
 
     char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr);
 
-Like `RedisModule_LoadString()` but returns an heap allocated string that
-was allocated with `RedisModule_Alloc()`, and can be resized or freed with
-`RedisModule_Realloc()` or `RedisModule_Free()`.
+Like RedisModule_LoadString() but returns an heap allocated string that
+was allocated with RedisModule_Alloc(), and can be resized or freed with
+RedisModule_Realloc() or RedisModule_Free().
 
 The size of the string is stored at '*lenptr' if not NULL.
 The returned string is not automatically NULL termianted, it is loaded
@@ -1194,14 +1193,14 @@ exactly as it was stored inisde the RDB file.
 
 In the context of the rdb_save method of a module data type, saves a double
 value to the RDB file. The double can be a valid number, a NaN or infinity.
-It is possible to load back the value with `RedisModule_LoadDouble()`.
+It is possible to load back the value with RedisModule_LoadDouble().
 
 ## `RM_LoadDouble`
 
     double RM_LoadDouble(RedisModuleIO *io);
 
 In the context of the rdb_save method of a module data type, loads back the
-double value saved by `RedisModule_SaveDouble()`.
+double value saved by RedisModule_SaveDouble().
 
 ## `RM_SaveFloat`
 
@@ -1209,14 +1208,14 @@ double value saved by `RedisModule_SaveDouble()`.
 
 In the context of the rdb_save method of a module data type, saves a float 
 value to the RDB file. The float can be a valid number, a NaN or infinity.
-It is possible to load back the value with `RedisModule_LoadFloat()`.
+It is possible to load back the value with RedisModule_LoadFloat().
 
 ## `RM_LoadFloat`
 
     float RM_LoadFloat(RedisModuleIO *io);
 
 In the context of the rdb_save method of a module data type, loads back the
-float value saved by `RedisModule_SaveFloat()`.
+float value saved by RedisModule_SaveFloat().
 
 ## `RM_EmitAOF`
 
@@ -1224,7 +1223,7 @@ float value saved by `RedisModule_SaveFloat()`.
 
 Emits a command into the AOF during the AOF rewriting process. This function
 is only called in the context of the aof_rewrite method of data types exported
-by a module. The command works exactly like `RedisModule_Call()` in the way
+by a module. The command works exactly like RedisModule_Call() in the way
 the parameters are passed, but it does not return anything as the error
 handling is performed by Redis itself.
 
@@ -1272,23 +1271,23 @@ critical reason.
 
 Block a client in the context of a blocking command, returning an handle
 which will be used, later, in order to block the client with a call to
-`RedisModule_UnblockClient()`. The arguments specify callback functions
+RedisModule_UnblockClient(). The arguments specify callback functions
 and a timeout after which the client is unblocked.
 
 The callbacks are called in the following contexts:
 
-reply_callback:  called after a successful `RedisModule_UnblockClient()` call
+reply_callback:  called after a successful RedisModule_UnblockClient() call
                  in order to reply to the client and unblock it.
 reply_timeout:   called when the timeout is reached in order to send an
                  error to the client.
 free_privdata:   called in order to free the privata data that is passed
-                 by `RedisModule_UnblockClient()` call.
+                 by RedisModule_UnblockClient() call.
 
 ## `RM_UnblockClient`
 
     int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata);
 
-Unblock a client blocked by ``RedisModule_BlockedClient``. This will trigger
+Unblock a client blocked by `RedisModule_BlockedClient`. This will trigger
 the reply callbacks to be called in order to reply to the client.
 The 'privdata' argument will be accessible by the reply callback, so
 the caller of this function can pass any value that is needed in order to
@@ -1325,5 +1324,49 @@ reply for a blocked client that timed out.
 
     void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx);
 
-Get the privata data set by `RedisModule_UnblockClient()`
+Get the privata data set by RedisModule_UnblockClient()
+
+## `RM_GetThreadSafeContext`
+
+    RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc);
+
+Return a context which can be used inside threads to make Redis context
+calls with certain modules APIs. If 'bc' is not NULL then the module will
+be bound to a blocked client, and it will be possible to use the
+`RedisModule_Reply*` family of functions to accumulate a reply for when the
+client will be unblocked. Otherwise the thread safe context will be
+detached by a specific client.
+
+To call non-reply APIs, the thread safe context must be prepared with:
+
+` RedisModule_ThreadSafeCallStart(ctx);`
+ ... make your call here ...
+` RedisModule_ThreadSafeCallStop(ctx);`
+
+This is not needed when using `RedisModule_Reply*` functions, assuming
+that a blocked client was used when the context was created, otherwise
+no RedisModule_Reply* call should be made at all.
+
+TODO: thread safe contexts do not inherit the blocked client
+selected database.
+
+## `RM_FreeThreadSafeContext`
+
+    void RM_FreeThreadSafeContext(RedisModuleCtx *ctx);
+
+Release a thread safe context.
+
+## `RM_ThreadSafeContextLock`
+
+    void RM_ThreadSafeContextLock(RedisModuleCtx *ctx);
+
+Acquire the server lock before executing a thread safe API call.
+This is not needed for `RedisModule_Reply*` calls when there is
+a blocked client connected to the thread safe context.
+
+## `RM_ThreadSafeContextUnlock`
+
+    void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx);
+
+Release the server lock after a thread safe API call was executed.
 
