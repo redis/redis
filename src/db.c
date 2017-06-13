@@ -90,7 +90,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
     if (expireIfNeeded(db,key) == 1) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's save
+         * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
         if (server.masterhost == NULL) return NULL;
 
@@ -1033,18 +1033,15 @@ void pttlCommand(client *c) {
 }
 
 void persistCommand(client *c) {
-    dictEntry *de;
-
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
-    if (de == NULL) {
-        addReply(c,shared.czero);
-    } else {
+    if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
             addReply(c,shared.czero);
         }
+    } else {
+        addReply(c,shared.czero);
     }
 }
 
