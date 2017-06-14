@@ -31,7 +31,16 @@
 #define __PMEM_H
 
 #ifdef USE_NVML
+typedef struct key_val_pair_PM {
+    PMEMoid key_oid;
+    PMEMoid val_oid;
+    POBJ_LIST_ENTRY(struct key_val_pair_PM) pmem_list;
+} key_val_pair_PM;
+
 int pmemReconstruct(void);
+void pmemKVpairSet(void *key, void *val);
+PMEMoid pmemAddToPmemList(void *key, void *val);
+void pmemRemoveFromPmemList(PMEMoid kv_PM_oid);
 #endif
 
 #endif

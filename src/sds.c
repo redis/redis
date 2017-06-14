@@ -162,6 +162,7 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
+    hdrlen += sizeof(PMEMoid);
     oid = pmemobj_tx_zalloc((hdrlen+initlen+1),PM_TYPE_SDS);
     sh = pmemobj_direct(oid);
 
@@ -209,6 +210,13 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
     s[initlen] = '\0';
     return s;
 }
+
+PMEMoid *sdsPMEMoidBackReference(sds s)
+{
+    void *p;
+    p = (u_char *)s - sdsHdrSize(s[-1]) - sizeof(PMEMoid);
+    return (PMEMoid *)p;
+}
 #endif
 
 /* Create an empty (zero length) sds string. Even in this case the string
@@ -230,8 +238,11 @@ sds sdsdup(const sds s) {
 
 #ifdef USE_NVML
 /* Duplicate an sds string. */
-sds sdsdupPM(const sds s) {
-    return sdsnewlenPM(s, sdslen(s));
+sds sdsdupPM(const sds s, void **oid_reference) {
+    sds new_sds;
+    new_sds = sdsnewlenPM(s, sdslen(s));
+    *oid_reference = (void *)sdsPMEMoidBackReference(new_sds);
+    return new_sds;
 }
 #endif
 
@@ -247,7 +258,7 @@ void sdsfreePM(sds s) {
     PMEMoid oid;
     if (s == NULL) return;
     if (server.persistent) {
-        oid.off = (uint64_t)((char*)s-sdsHdrSize(s[-1])) - (uint64_t)server.pm_pool;
+        oid.off = (uint64_t)((char*)s-sdsHdrSize(s[-1])) - sizeof(PMEMoid) - (uint64_t)server.pm_pool;
         oid.pool_uuid_lo = server.pool_uuid_lo;
         pmemobj_tx_free(oid);
     } else {

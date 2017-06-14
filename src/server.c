@@ -490,10 +490,14 @@ void dictSdsDestructor(void *privdata, void *val)
 #ifdef USE_NVML
 void dictSdsDestructorPM(void *privdata, void *val)
 {
+    PMEMoid *kv_PM_oid;
+
     DICT_NOTUSED(privdata);
     /* TODO: TX_BEGIN() */
     pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
+    kv_PM_oid = sdsPMEMoidBackReference(val);
     sdsfreePM(val);
+    pmemRemoveFromPmemList(*kv_PM_oid);
     pmemobj_tx_commit();
     pmemobj_tx_end();
 }
@@ -1964,10 +1968,7 @@ void initServer(void) {
             server.db[j].dict = dictCreate(&dbDictTypePM,NULL);
             
             pm_type_root_type_id = TOID_TYPE_NUM(struct redis_pmem_root);
-            pm_type_dictentry_type_id = TOID_TYPE_NUM(struct dictEntryPM);
-            pm_type_object_type_id = TOID_TYPE_NUM(struct redisObjectPM);
-            pm_type_sds_type_id = TOID_TYPE_NUM(struct sdsPM);
-            pm_type_emb_sds_type_id = TOID_TYPE_NUM(struct sdsPM);
+            pm_type_key_val_pair_PM = TOID_TYPE_NUM(struct key_val_pair_PM);
         } else
 #endif
             server.db[j].dict = dictCreate(&dbDictType,NULL);

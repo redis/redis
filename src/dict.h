@@ -55,20 +55,6 @@ typedef struct dictEntry {
     struct dictEntry *next;
 } dictEntry;
 
-typedef struct dictEntryPM {
-    void *key;
-    union {
-        void *val;
-        uint64_t u64;
-        int64_t s64;
-        double d;
-    } v;
-    struct dictEntry *next;
-    PMEMoid key_oid;
-    PMEMoid val_oid;
-    POBJ_LIST_ENTRY(struct dictEntryPM) pmem_list;
-} dictEntryPM;
-
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
@@ -195,7 +181,7 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 /* PMEM-specific API */
 int dictAddPM(dict *d, void *key, void *val);
 dictEntry *dictAddRawPM(dict *d, void *key);
-dictEntry *dictAddReconstructedPM(dict *d, dictEntry *entry);
+dictEntry *dictAddReconstructedPM(dict *d, void *key, void *val);
 int dictReplacePM(dict *d, void *key, void *val);
 #endif
 

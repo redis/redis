@@ -49,37 +49,34 @@
 #include <signal.h>
 
 #ifdef USE_NVML
-#include "pmem.h"
+#include <stdbool.h>
 #include <sys/queue.h>
 #include "libpmemobj.h"
-
-uint64_t pm_type_root_type_id;
-uint64_t pm_type_dictentry_type_id;
-uint64_t pm_type_object_type_id;
-uint64_t pm_type_sds_type_id;
-uint64_t pm_type_emb_sds_type_id;
-
-/* Type Dictionary Entry */
-#define PM_TYPE_ENTRY pm_type_dictentry_type_id
-/* Type Redis Object */
-#define PM_TYPE_OBJECT pm_type_object_type_id
-/* Type SDS Object */
-#define PM_TYPE_SDS pm_type_sds_type_id
-/* Type Embedded SDS Object */
-#define PM_TYPE_EMB_SDS pm_type_emb_sds_type_id
 
 #define PM_LAYOUT_NAME "store_db"
 
 POBJ_LAYOUT_BEGIN(store_db);
 POBJ_LAYOUT_TOID(store_db, struct redis_pmem_root);
-POBJ_LAYOUT_TOID(store_db, struct dictEntryPM);
-POBJ_LAYOUT_TOID(store_db, struct redisObjectPM);
-POBJ_LAYOUT_TOID(store_db, struct sdsPM);
+POBJ_LAYOUT_TOID(store_db, struct key_val_pair_PM);
 POBJ_LAYOUT_END(store_db);
+
+#include "pmem.h"
+
+uint64_t pm_type_root_type_id;
+uint64_t pm_type_key_val_pair_PM;
+uint64_t pm_type_sds_type_id;
+uint64_t pm_type_emb_sds_type_id;
+
+/* Type key_val_pair_PM Object */
+#define PM_TYPE_KEY_VAL_PAIR_PM pm_type_key_val_pair_PM
+/* Type SDS Object */
+#define PM_TYPE_SDS pm_type_sds_type_id
+/* Type Embedded SDS Object */
+#define PM_TYPE_EMB_SDS pm_type_emb_sds_type_id
 
 struct redis_pmem_root {
 	uint64_t num_dict_entries;
-	POBJ_LIST_HEAD(dictEntries, struct dictEntryPM) head;
+	POBJ_LIST_HEAD(dictEntries, struct key_val_pair_PM) head;
 };
 
 #endif
@@ -509,15 +506,6 @@ typedef struct redisObject {
     int refcount;
     void *ptr;
 } robj;
-
-typedef struct redisObjectPM {
-    unsigned type:4;
-    unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* lru time (relative to server.lruclock) */
-    int refcount;
-    void *ptr;
-    PMEMoid ptr_oid;
-} robjPM;
 
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the

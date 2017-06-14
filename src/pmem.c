@@ -39,47 +39,90 @@ pmemReconstruct(void)
 {
     uint64_t i = 0;
     TOID(struct redis_pmem_root) root;
-    TOID(struct dictEntryPM) entryPM_oid;
+    TOID(struct key_val_pair_PM) kv_PM_oid;
+    struct key_val_pair_PM *kv_PM;
     dict *d;
-    dictEntryPM *entryPM;
-    /* void *key; */
-    /* void *val; */
+    void *key;
+    void *val;
     void *pmem_base_addr;
-    robjPM *objectPM;
 
     root = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
     pmem_base_addr = (void *)server.pm_pool->addr;
-    serverLog(LL_NOTICE,"pmemReconstruct: %ld entries, base_addr 0x%lx", D_RO(root)->num_dict_entries, (uint64_t)pmem_base_addr);
     d = server.db[0].dict;
     dictExpand(d, D_RO(root)->num_dict_entries);
-    POBJ_LIST_FOREACH(entryPM_oid, &D_RO(root)->head, pmem_list) {
+    POBJ_LIST_FOREACH(kv_PM_oid, &D_RO(root)->head, pmem_list) {
         i++;
 	/* entryPM = pmemobj_direct(entryPM_oid.oid); */
-	entryPM = (dictEntryPM *)(entryPM_oid.oid.off + (uint64_t)pmem_base_addr);
-	entryPM->key = (void *)(entryPM->key_oid.off + (uint64_t)pmem_base_addr);
-	entryPM->v.val = (void *)(entryPM->val_oid.off + (uint64_t)pmem_base_addr);
-        objectPM = entryPM->v.val;
-        /* serverLog(LL_NOTICE,"pmemReconstruct: dictEntry %ld, off 0x%ld @ 0x%lx, key 0x%lx, val object 0x%lx", i, entryPM_oid.oid.off, (uint64_t)entryPM, (uint64_t)entryPM->key, (uint64_t)entryPM->v.val); */
-        if (objectPM->type == OBJ_STRING) {
-            /* serverLog(LL_NOTICE,"pmemReconstruct: redis object type %d encoding %d", objectPM->type, objectPM->encoding); */
-            if (objectPM->encoding == OBJ_ENCODING_RAW || objectPM->encoding == OBJ_ENCODING_EMBSTR) {
-                if (objectPM->encoding == OBJ_ENCODING_RAW) {
-                    objectPM->ptr = (void *)(objectPM->ptr_oid.off + (uint64_t)pmem_base_addr);
-                } else if (objectPM->encoding == OBJ_ENCODING_EMBSTR) {
-                    struct sdshdr8 *sh;
-                    sh = (void *)(objectPM+1);
-                    objectPM->ptr = sh+1;
-                }
-                (void)dictAddReconstructedPM(d, (dictEntry *)entryPM);
-                /* serverLog(LL_NOTICE,"pmemReconstruct: redis object ptr 0x%lx", (uint64_t)objectPM->ptr); */
-            } else {
-                serverLog(LL_WARNING,"pmemReconstruct: unexpected redis object encoding %d", objectPM->encoding);
-            }
-        } else {
-            serverLog(LL_WARNING,"pmemReconstruct: unexpected redis object type %d", objectPM->type);
-        }
+	kv_PM = (key_val_pair_PM *)(kv_PM_oid.oid.off + (uint64_t)pmem_base_addr);
+	key = (void *)(kv_PM->key_oid.off + (uint64_t)pmem_base_addr);
+	val = (void *)(kv_PM->val_oid.off + (uint64_t)pmem_base_addr);
+
+        (void)dictAddReconstructedPM(d, key, val);
     }
     return C_OK;
 }
 
+void pmemKVpairSet(void *key, void *val)
+{
+    PMEMoid *kv_PM_oid;
+    PMEMoid val_oid;
+    struct key_val_pair_PM *kv_PM_p;
+
+    kv_PM_oid = sdsPMEMoidBackReference((sds)key);
+    kv_PM_p = (struct key_val_pair_PM *)pmemobj_direct(*kv_PM_oid);
+
+    val_oid.pool_uuid_lo = server.pool_uuid_lo;
+    val_oid.off = (uint64_t)val - (uint64_t)server.pm_pool->addr;
+
+    kv_PM_p->val_oid = val_oid;
+    return;
+}
+
+PMEMoid
+pmemAddToPmemList(void *key, void *val)
+{
+    PMEMoid key_oid;
+    PMEMoid val_oid;
+    PMEMoid kv_PM;
+    struct key_val_pair_PM *kv_PM_p;
+    TOID(struct redis_pmem_root) rootoid;
+    TOID(struct key_val_pair_PM) typed_kv_PM;
+    struct redis_pmem_root *root;
+
+    key_oid.pool_uuid_lo = server.pool_uuid_lo;
+    key_oid.off = (uint64_t)key - (uint64_t)server.pm_pool->addr;
+
+    val_oid.pool_uuid_lo = server.pool_uuid_lo;
+    val_oid.off = (uint64_t)val - (uint64_t)server.pm_pool->addr;
+
+    kv_PM = pmemobj_tx_zalloc(sizeof(struct key_val_pair_PM), pm_type_key_val_pair_PM);
+    kv_PM_p = (struct key_val_pair_PM *)pmemobj_direct(kv_PM);
+    kv_PM_p->key_oid = key_oid;
+    kv_PM_p->val_oid = val_oid;
+    typed_kv_PM.oid = kv_PM;
+
+    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    root = pmemobj_direct(rootoid.oid);
+    POBJ_LIST_INSERT_TAIL(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    root->num_dict_entries++;
+
+    return kv_PM;
+}
+
+void
+pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
+{
+    TOID(struct key_val_pair_PM) typed_kv_PM;
+    TOID(struct redis_pmem_root) rootoid;
+    struct redis_pmem_root *root;
+
+    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    root = pmemobj_direct(rootoid.oid);
+
+    typed_kv_PM.oid = kv_PM_oid;
+
+    POBJ_LIST_REMOVE_FREE(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    root->num_dict_entries--;
+    return;
+}
 #endif
