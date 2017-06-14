@@ -155,7 +155,7 @@ void computeDatasetDigest(unsigned char *final) {
             if (o->type == OBJ_STRING) {
                 mixObjectDigest(digest,o);
             } else if (o->type == OBJ_LIST) {
-                listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+                listTypeIterator *li = listTypeInitIterator(o,0,REDIS_LIST_TAIL);
                 listTypeEntry entry;
                 while(listTypeNext(li,&entry)) {
                     robj *eleobj = listTypeGet(&entry);

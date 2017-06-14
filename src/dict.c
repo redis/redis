@@ -43,13 +43,15 @@
 #include <sys/time.h>
 #include <ctype.h>
 
+#ifdef USE_NVML
+#include "obj.h"
+#include "libpmemobj.h"
+#include "server.h"
+#endif
+
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
-
-#ifdef USE_NVML
-#include "server.h"
-#endif
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -337,9 +339,13 @@ int dictAdd(dict *d, void *key, void *val)
 int dictAddPM(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRawPM(d,key);
+    dictEntryPM *entryPM;
 
     if (!entry) return DICT_ERR;
     dictSetVal(d, entry, val);
+    entryPM = (dictEntryPM *)entry;
+    entryPM->val_oid.pool_uuid_lo = server.pool_uuid_lo;
+    entryPM->val_oid.off = (uint64_t)val - (uint64_t)(server.pm_pool->addr);
     return DICT_OK;
 }
 #endif
@@ -378,6 +384,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
+
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -407,8 +414,12 @@ dictEntry *dictAddRawPM(dict *d, void *key)
 {
     int index;
     dictEntry *entry;
+    dictEntryPM *entryPM;
     dictht *ht;
     PMEMoid oid;
+    TOID(struct redis_pmem_root) rootoid;
+    struct redis_pmem_root *root;
+    TOID(struct dictEntryPM) typed_dict_entry;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
@@ -423,8 +434,15 @@ dictEntry *dictAddRawPM(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
 
-    oid = pmemobj_tx_zalloc(sizeof(*entry),PM_TYPE_ENTRY);
+    oid = pmemobj_tx_zalloc(sizeof(*entryPM),PM_TYPE_ENTRY);
     entry = pmemobj_direct(oid);
+    entryPM = (dictEntryPM *)entry;
+    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    root = pmemobj_direct(rootoid.oid);
+    typed_dict_entry.oid = oid;
+    POBJ_LIST_INSERT_TAIL(server.pm_pool, &root->head, typed_dict_entry, pmem_list);
+
+    root->num_dict_entries++;
 
     entry->next = ht->table[index];
     ht->table[index] = entry;
@@ -432,6 +450,33 @@ dictEntry *dictAddRawPM(dict *d, void *key)
 
     /* Set the hash entry fields. */
     dictSetKey(d, entry, key);
+    entryPM->key_oid.pool_uuid_lo = server.pool_uuid_lo;
+    entryPM->key_oid.off = (uint64_t)key - (uint64_t)(server.pm_pool->addr);
+    return entry;
+}
+
+dictEntry *dictAddReconstructedPM(dict *d, dictEntry *entry)
+{
+    int index;
+    dictht *ht;
+
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of the new element, or -1 if
+     * the element already exists. */
+    if ((index = _dictKeyIndex(d, entry->key)) == -1)
+        return NULL;
+
+    /* Allocate the memory and store the new entry.
+     * Insert the element in top, with the assumption that in a database
+     * system it is more likely that recently added entries are accessed
+     * more frequently. */
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+
     return entry;
 }
 #endif
