@@ -1515,7 +1515,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * Key API for List type
  * -------------------------------------------------------------------------- */
 
-/* Push an element into a list, on head or tail depending on 'where' argumnet.
+/* Push an element into a list, on head or tail depending on 'where' argument.
  * If the key pointer is about an empty key opened for writing, the key
  * is created. On error (key opened for read-only operations or of the wrong
  * type) REDISMODULE_ERR is returned, otherwise REDISMODULE_OK is returned. */
@@ -2130,12 +2130,12 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * Example of REDISMODULE_HASH_CFIELD:
  *
  *      RedisModuleString *username, *hashedpass;
- *      RedisModule_HashGet(mykey,"username",&username,"hp",&hashedpass, NULL);
+ *      RedisModule_HashGet(mykey,REDISMODULE_HASH_CFIELD,"username",&username,"hp",&hashedpass,NULL);
  *
  * Example of REDISMODULE_HASH_EXISTS:
  *
  *      int exists;
- *      RedisModule_HashGet(mykey,argv[1],&exists,NULL);
+ *      RedisModule_HashGet(mykey,REDISMODULE_HASH_EXISTS|REDISMODULE_HASH_CFIELD,argv[1],&exists,NULL);
  *
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
  * the key is not an hash value.
