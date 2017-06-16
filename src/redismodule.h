@@ -17,6 +17,7 @@
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
 #define REDISMODULE_WRITE (1<<1)
+#define REDISMODULE_CREATE (1<<2)
 
 #define REDISMODULE_LIST_HEAD 0
 #define REDISMODULE_LIST_TAIL 1
