@@ -779,6 +779,13 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("hset")) {
+            len = redisFormatCommand(&cmd,
+                "HSET myset:__rand_int__ element:__rand_int__ %s",data);
+            benchmark("HSET",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("spop")) {
             len = redisFormatCommand(&cmd,"SPOP myset");
             benchmark("SPOP",cmd,len);
