@@ -1291,6 +1291,9 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWrite(ctx->client->db,keyname);
+        if (!(mode & REDISMODULE_CREATE) && value == NULL) {
+            return NULL;
+        }
     } else {
         value = lookupKeyRead(ctx->client->db,keyname);
         if (value == NULL) {
