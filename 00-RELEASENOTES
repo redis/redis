@@ -3291,6 +3291,11 @@ Redis 3.2 is mostly a strict subset of 4.0, you should not have any problem
 upgrading your application from 3.2 to 4.0. However this is a list of small
 non-backward compatible changes introduced in the 4.0 release:
 
+* The Redis Cluster bus protocol of 4.0 is no longer compatible with Redis 3.2.
+  This was needed in order to provide Docker / NAT compatibility to Redis
+  Cluster. SO in order to upgrade a Redis Cluster to 4.0, a mass restart of
+  all the instances is needed.
+
 * Writable slaves do not propagate writes to their sub-slaves, so writes to
   writable slaves remain just local.
 
@@ -3309,6 +3314,9 @@ non-backward compatible changes introduced in the 4.0 release:
   as it should. In general this change should not break compatibility with
   the past since in the past two different forms were provided by the server
   and the new behavior is one of the two.
+
+* The SLOWLOG command entires contain additional two fields: the client address
+  and name. This is documented in the SLOWLOG command online documentation.
 
 --------------------------------------------------------------------------------
 
