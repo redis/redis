@@ -380,11 +380,10 @@ int freeMemoryIfNeeded(void) {
     long long delta;
     int slaves = listLength(server.slaves);
 
-    /* We cannot free memory while clients are paused as this will require
-     * evictions which modify the dataset and will break the guarantee that
-     * data will be static while clients are paused. */
-    if (clientsArePaused())
-        goto cant_free;
+    /* When clients are paused the dataset should be static not just from the
+     * POV of clients not being able to write, but also from the POV of
+     * expires and evictions of keys not being performed. */
+    if (clientsArePaused()) return C_OK;
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
