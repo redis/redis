@@ -38,6 +38,11 @@ endif
 endif
 endif
 
+# To get ARM stack traces if Redis crashes we need a special C flag.
+ifneq (,$(findstring armv,$(uname_M)))
+        CFLAGS+=-funwind-tables
+endif
+
 # Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
 	MALLOC=tcmalloc
