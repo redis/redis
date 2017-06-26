@@ -39,6 +39,95 @@
 
 #include <stdint.h>
 
+#if defined(__ARM_NEON) && defined(__ARM_FEATURE_CRYPTO)
+#define HAVE_CLMUL   1
+
+#include <arm_neon.h>
+
+#define __shift_p128_left(data, imm)    vreinterpretq_u64_u8(vextq_u8(vdupq_n_u8(0), vreinterpretq_u8_u64((data)), (imm)))
+#define __shift_p128_right(data, imm)   vreinterpretq_u64_u8(vextq_u8(vreinterpretq_u8_u64((data)), vdupq_n_u8(0), (imm)))
+
+static inline uint64x2_t fold_128b(uint64x2_t to, const uint64x2_t from, const uint64x2_t constant)
+{
+    uint64x2_t tmp_h = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 1), (poly64_t)vgetq_lane_u64(constant, 1));
+    uint64x2_t tmp_l = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 0), (poly64_t)vgetq_lane_u64(constant, 0));
+    return veorq_u64(tmp_l, veorq_u64(to, tmp_h));
+}
+
+static inline uint64x2_t crc64_fold_(uint64x2_t from, const uint64x2_t constant)
+{
+    uint64x2_t tmp = __shift_p128_right(from, 8);
+    from = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 0), (poly64_t)vgetq_lane_u64(constant, 0));
+    return veorq_u64(from, tmp);
+}
+
+static inline uint64_t crc64_barrett_reduction(uint64x2_t data, const uint64x2_t p_q)
+{
+    uint64x2_t tmp1 = data;
+    uint64x2_t tmp2 = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(data, 0), (poly64_t)vgetq_lane_u64(p_q, 0));
+    data = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(tmp2, 0), (poly64_t)vgetq_lane_u64(p_q, 1));
+    tmp2 = __shift_p128_left(tmp2, 8);
+    data = veorq_u64(data, tmp1);
+    data = veorq_u64(data, tmp2);
+
+    return vgetq_lane_u64(data, 1);
+}
+
+/*
+ * crc64_clmul assumes:
+ * 1. input buffer s is 16-byte aligned
+ * 2. buffer length is 64*N bytes
+ *
+ */
+static uint64_t crc64_clmul(uint64_t crc, const unsigned char *s, uint64_t l)
+{
+    /* pre-computed constants */
+    const uint64x2_t foldConstants_p4 = {0xaf86efb16d9ab4fbULL, 0xf49784a634f014e4ULL};
+    const uint64x2_t foldConstants_p1 = {0xd9d7be7d505da32cULL, 0x381d0015c96f4444ULL};
+    const uint64x2_t foldConstants_p0 = {0x381d0015c96f4444ULL, 0x0ULL};
+    const uint64x2_t foldConstants_br = {0x3e6cfa329aef9f77ULL, 0x2b5926535897936bULL};
+
+    uint64x2_t *p_data = (uint64x2_t *)s;
+    uint64_t remain_len = l;
+
+    uint64x2_t x0, x1, x2, x3;
+    uint64x2_t y0, y1, y2, y3;
+
+    /* expand crc to 128bit */
+    y0 = vcombine_u64((uint64x1_t)crc, (uint64x1_t)0ULL);
+    /* load first 64B */
+    x0 = *p_data++; x1 = *p_data++; x2 = *p_data++; x3 = *p_data++;
+    remain_len -= 64;
+
+    x0 = x0 ^ y0; /* x0 ^ crc */
+
+    /* 1024bit --> 512bit loop */
+    while(remain_len >= 64) {
+        y0 = *p_data++; y1 = *p_data++;
+        y2 = *p_data++; y3 = *p_data++;
+
+        x0 = fold_128b(y0, x0, foldConstants_p4);
+        x1 = fold_128b(y1, x1, foldConstants_p4);
+        x2 = fold_128b(y2, x2, foldConstants_p4);
+        x3 = fold_128b(y3, x3, foldConstants_p4);
+
+        remain_len -= 64;
+    }
+
+    /* folding 512bit --> 128bit */
+    x1 = fold_128b(x1, x0, foldConstants_p1);
+    x2 = fold_128b(x2, x1, foldConstants_p1);
+    x0 = fold_128b(x3, x2, foldConstants_p1);
+
+    x0 = crc64_fold_(x0, foldConstants_p0);
+
+    /* calc crc using barrett reduction method */
+    crc = crc64_barrett_reduction(x0, foldConstants_br);
+
+    return crc;
+}
+#endif
+
 static const uint64_t crc64_tab[256] = {
     UINT64_C(0x0000000000000000), UINT64_C(0x7ad870c830358979),
     UINT64_C(0xf5b0e190606b12f2), UINT64_C(0x8f689158505e9b8b),
@@ -171,9 +260,30 @@ static const uint64_t crc64_tab[256] = {
 };
 
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
-    uint64_t j;
+    uint64_t j = 0;
 
-    for (j = 0; j < l; j++) {
+#if HAVE_CLMUL
+    uint64_t remain = l;
+    /* make sure 16-byte aligned for CLMUL routine */
+    if ((uintptr_t)s & 15) {
+        uint64_t n = (l > (-(uintptr_t)s & 15))? -(uintptr_t)s & 15 : l;
+        for (; j<n; j++) {
+            uint8_t byte = s[j];
+            crc = crc64_tab[(uint8_t)crc ^ byte] ^ (crc >> 8);
+        }
+        remain -= n;
+    }
+    if (remain >= 1*1024) {
+        /*
+         * Use CLMUL to compute CRC for a "large" block
+         * this block is 64*N bytes
+         */
+        crc = crc64_clmul(crc, s+j, remain&(~63ULL));
+        j += remain & (~63ULL);
+        remain &= 63ULL;
+    }
+#endif
+    for (; j < l; j++) {
         uint8_t byte = s[j];
         crc = crc64_tab[(uint8_t)crc ^ byte] ^ (crc >> 8);
     }
