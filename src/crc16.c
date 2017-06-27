@@ -3,6 +3,7 @@
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
  * Copyright 2010-2012 Salvatore Sanfilippo (adapted to Redis coding style)
+ * Copyright 2017 ARM Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -79,10 +80,146 @@ static const uint16_t crc16tab[256]= {
     0x6e17,0x7e36,0x4e55,0x5e74,0x2e93,0x3eb2,0x0ed1,0x1ef0
 };
 
+#if defined(__ARM_NEON) && defined(__ARM_FEATURE_CRYPTO)
+#define HAVE_CLMUL   1
+
+#include <arm_neon.h>
+
+#define __shift_p128_left(data, imm)    vreinterpretq_u64_u8(vextq_u8(vdupq_n_u8(0), vreinterpretq_u8_u64((data)), (imm)))
+#define __shift_p128_right(data, imm)   vreinterpretq_u64_u8(vextq_u8(vreinterpretq_u8_u64((data)), vdupq_n_u8(0), (imm)))
+
+static inline uint64x2_t endian_swap(uint64x2_t val)
+{
+    return (uint64x2_t)__builtin_shuffle((uint8x16_t)val, (uint8x16_t){ 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0});
+}
+
+static inline uint64x2_t fold_128b(uint64x2_t to, const uint64x2_t from, const uint64x2_t constant)
+{
+    uint64x2_t tmp_h = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 1), (poly64_t)vgetq_lane_u64(constant, 1));
+    uint64x2_t tmp_l = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 0), (poly64_t)vgetq_lane_u64(constant, 0));
+    return veorq_u64(tmp_l, veorq_u64(to, tmp_h));
+}
+
+static inline uint64x2_t crc16_fold(uint64x2_t from, const uint64x2_t constant)
+{
+    uint64x2_t tmp = from;
+
+    from = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 1), (poly64_t)vgetq_lane_u64(constant, 1));
+
+    /* get from:low_64b + 32b '0' appended (96b total) */
+    tmp = __shift_p128_right(__shift_p128_left(tmp, 8), 4);
+    from = veorq_u64(from, tmp);
+
+    /* 96bit --> 64bit */
+    tmp = from;
+    from = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(from, 1), (poly64_t)vgetq_lane_u64(constant, 0));
+    return veorq_u64(from, tmp);
+}
+
+static inline uint64_t crc16_barrett_reduction(uint64x2_t data, const uint64x2_t p_q)
+{
+    uint64x2_t tmp = vcombine_u64((uint64x1_t)vgetq_lane_u64(data, 0), (uint64x1_t)0ULL);
+
+    /* T1 = floor(R(x)/x^32) * [1/P(x)]; */
+    tmp = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(__shift_p128_right(tmp, 4), 0), (poly64_t)vgetq_lane_u64(p_q, 0));
+    /* T2 = floor(T1/x^32) * P(x) */
+    tmp = (uint64x2_t)vmull_p64((poly64_t)vgetq_lane_u64(__shift_p128_right(tmp, 4), 0), (poly64_t)vgetq_lane_u64(p_q, 1));
+    /* R-int(R/P)*P */
+    data = veorq_u64(tmp, data);
+
+    return vgetq_lane_u64(data, 0);
+}
+
+/*
+ * crc16_clmul assumes:
+ * 1. input buffer s is 16-byte aligned
+ * 2. buffer length is 64*N bytes
+ *
+ */
+static uint64_t crc16_clmul(uint64_t crc, const unsigned char *s, uint64_t l)
+{
+    /* pre-computed constants */
+    const uint64x2_t foldConstants_p4 = {0x0000000059b00000ULL, 0x0000000060190000ULL};
+    const uint64x2_t foldConstants_p1 = {0x0000000045630000ULL, 0x00000000d5f60000ULL};
+    const uint64x2_t foldConstants_p0 = {0x00000000aa510000ULL, 0x00000000eb230000ULL};
+    const uint64x2_t foldConstants_br = {0x0000000111303471ULL, 0x0000000110210000ULL};
+
+    crc <<= 48;
+    uint64x2_t *p_data = (uint64x2_t *)s;
+    uint64_t remain_len = l;
+
+    uint64x2_t x0, x1, x2, x3;
+    uint64x2_t y0, y1, y2, y3;
+
+    /* expand crc to 128bit */
+    y0 = vcombine_u64((uint64x1_t)0ULL, (uint64x1_t)crc);
+    /* load first 64B */
+    x0 = *p_data++; x0 = endian_swap(x0);
+    x1 = *p_data++; x1 = endian_swap(x1);
+    x2 = *p_data++; x2 = endian_swap(x2);
+    x3 = *p_data++; x3 = endian_swap(x3);
+
+    remain_len -= 64;
+
+    x0 = x0 ^ y0; /* x0 ^ crc */
+
+    /* 1024bit --> 512bit loop */
+    while(remain_len >= 64) {
+        y0 = *p_data++; y0 = endian_swap(y0);
+        y1 = *p_data++; y1 = endian_swap(y1);
+        y2 = *p_data++; y2 = endian_swap(y2);
+        y3 = *p_data++; y3 = endian_swap(y3);
+
+        x0 = fold_128b(y0, x0, foldConstants_p4);
+        x1 = fold_128b(y1, x1, foldConstants_p4);
+        x2 = fold_128b(y2, x2, foldConstants_p4);
+        x3 = fold_128b(y3, x3, foldConstants_p4);
+
+        remain_len -= 64;
+    }
+
+    /* folding 512bit --> 128bit */
+    x1 = fold_128b(x1, x0, foldConstants_p1);
+    x2 = fold_128b(x2, x1, foldConstants_p1);
+    x0 = fold_128b(x3, x2, foldConstants_p1);
+
+    x0 = crc16_fold(x0, foldConstants_p0);
+
+    /* calc crc using barrett reduction method */
+    crc = crc16_barrett_reduction(x0, foldConstants_br);
+    crc >>= 16;
+
+    return crc;
+}
+#endif
+
 uint16_t crc16(const char *buf, int len) {
-    int counter;
+    int counter = 0;
     uint16_t crc = 0;
-    for (counter = 0; counter < len; counter++)
+
+#if HAVE_CLMUL
+    uint64_t remain = len;
+    uint64_t l = len;
+    /* make sure 16-byte aligned for CLMUL routine */
+    if ((uintptr_t)buf & 15) {
+        int64_t n = (l > (-(uintptr_t)buf & 15))? -(uintptr_t)buf & 15 : l;
+        for (; counter<n; counter++) {
+            crc = (crc<<8) ^ crc16tab[((crc>>8) ^ *buf++)&0x00FF];
+        }
+        remain -= n;
+    }
+    if (remain >= 1*1024) {
+        /*
+         * Use CLMUL to compute CRC for a "large" block
+         * this block is 64*N bytes
+         */
+        crc = crc16_clmul(crc, (unsigned char *)(buf+counter), remain&(~63ULL));
+        counter += remain & (~63ULL);
+        buf += counter;
+    }
+#endif
+
+    for (; counter < len; counter++)
             crc = (crc<<8) ^ crc16tab[((crc>>8) ^ *buf++)&0x00FF];
     return crc;
 }
