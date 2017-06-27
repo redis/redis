@@ -530,14 +530,19 @@ typedef struct RedisModuleIO {
     rio *rio;           /* Rio stream. */
     moduleType *type;   /* Module type doing the operation. */
     int error;          /* True if error condition happened. */
+    int ver;            /* Module serialization version: 1 (old),
+                         * 2 (current version with opcodes annotation). */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
 } RedisModuleIO;
 
+/* Macro to initialize an IO context. Note that the 'ver' field is populated
+ * inside rdb.c according to the version of the value to load. */
 #define moduleInitIOContext(iovar,mtype,rioptr) do { \
     iovar.rio = rioptr; \
     iovar.type = mtype; \
     iovar.bytes = 0; \
     iovar.error = 0; \
+    iovar.ver = 0; \
     iovar.ctx = NULL; \
 } while(0);
 
