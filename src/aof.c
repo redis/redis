@@ -1225,7 +1225,11 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fclose(fp) == EOF) {
+        serverLog(LL_WARNING,"Error closing append only file: %s", strerror(errno));
+        unlink(tmpfile);
+        return C_ERR;
+    }
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
