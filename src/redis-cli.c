@@ -92,6 +92,7 @@ static struct config {
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
+    int latency_samples;
     int lru_test_mode;
     long long lru_test_sample_size;
     int cluster_mode;
@@ -1011,6 +1012,10 @@ static int parseOptions(int argc, char **argv) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
+	    if (i < (argc-1)) {
+	      config.latency_samples = strtoll(argv[i+1],NULL,10);
+	      if (config.latency_samples > 0) i++;
+	    }
         } else if (!strcmp(argv[i],"--latency-dist")) {
             config.latency_dist_mode = 1;
         } else if (!strcmp(argv[i],"--mono")) {
@@ -1122,7 +1127,8 @@ static void usage(void) {
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
-"  --latency          Enter a special mode continuously sampling latency.\n"
+"  --latency [num]    Enter a special mode continuously sampling latency (specify num\n"
+"                     if you want to specify limited amount of samples).\n"	    
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
@@ -1503,8 +1509,11 @@ static void latencyMode(void) {
             tot += latency;
             avg = (double) tot/count;
         }
-        printf("\x1b[0G\x1b[2Kmin: %lld, max: %lld, avg: %.2f (%lld samples)",
-            min, max, avg, count);
+	if (config.latency_samples == 0) 
+	{
+	  printf("\x1b[0G\x1b[2Kmin: %lld, max: %lld, avg: %.2f (%lld samples)",
+		 min, max, avg, count);
+	}
         fflush(stdout);
         if (config.latency_history && mstime()-history_start > history_interval)
         {
@@ -1513,7 +1522,14 @@ static void latencyMode(void) {
             min = max = tot = count = 0;
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
+	if (config.latency_samples > 0 && count == config.latency_samples)
+	{
+	  printf("min: %lld, max: %lld, avg: %.2f (%lld samples)\n",
+		 min, max, avg, count);
+	  break;
+	}
     }
+
 }
 
 /*------------------------------------------------------------------------------
@@ -2622,6 +2638,7 @@ int main(int argc, char **argv) {
     if (config.latency_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         latencyMode();
+	exit(0);
     }
 
     /* Latency distribution mode */
