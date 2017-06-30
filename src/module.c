@@ -3520,7 +3520,7 @@ void moduleInitModulesSystem(void) {
  * because the server must be fully initialized before loading modules.
  *
  * The function aborts the server on errors, since to start with missing
- * modules is not considered sane: clients may rely on the existance of
+ * modules is not considered sane: clients may rely on the existence of
  * given commands, loading AOF also may need some modules to exist, and
  * if this instance is a slave, it must understand commands from master. */
 void moduleLoadFromQueue(void) {
