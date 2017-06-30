@@ -1225,7 +1225,7 @@ int rewriteAppendOnlyFile(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fclose(fp) == EOF) goto werr_no_fclose;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1238,8 +1238,9 @@ int rewriteAppendOnlyFile(char *filename) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
     fclose(fp);
+werr_no_fclose:
+    serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
     unlink(tmpfile);
     return C_ERR;
 }
