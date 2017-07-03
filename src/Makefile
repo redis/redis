@@ -39,7 +39,7 @@ endif
 endif
 
 # To get ARM stack traces if Redis crashes we need a special C flag.
-ifneq (,$(findstring armv,$(uname_M)))
+ifneq (,$(filter aarch64 armv,$(uname_M)))
         CFLAGS+=-funwind-tables
 endif
 
