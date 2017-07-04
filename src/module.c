@@ -3331,6 +3331,7 @@ void moduleHandleBlockedClients(void) {
                                  bc->reply_client->bufpos);
             if (listLength(bc->reply_client->reply))
                 listJoin(c->reply,bc->reply_client->reply);
+            c->reply_bytes += bc->reply_client->reply_bytes;
         }
         freeClient(bc->reply_client);
 
