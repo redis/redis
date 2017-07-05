@@ -1555,7 +1555,11 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) close(j);
+    for (j = 3; j < (int)server.maxclients + 1024; j++) {
+        /* Test the descriptor validity before closing it, otherwise
+         * Valgrind issues a warning on close(). */
+        if (fcntl(j,F_GETFD) != -1) close(j);
+    }
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
