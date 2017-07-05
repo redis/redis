@@ -1163,7 +1163,12 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
+    /* If we already emitted MULTI return ASAP. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
+    /* If this is a thread safe context, we do not want to wrap commands
+     * executed into MUTLI/EXEC, they are executed as single commands
+     * from an external client in essence. */
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) return;
     execCommandPropagateMulti(ctx->client);
     ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
