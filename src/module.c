@@ -3059,6 +3059,66 @@ loaderr:
 }
 
 /* --------------------------------------------------------------------------
+ * Key digest API (DEBUG DIGEST interface for modules types)
+ * -------------------------------------------------------------------------- */
+
+/* Add a new element to the digest. This function can be called multiple times
+ * one element after the other, for all the elements that constitute a given
+ * data structure. The function call must be followed by the call to
+ * `RedisModule_DigestEndSequence` eventually, when all the elements that are
+ * always in a given order are added. See the Redis Modules data types
+ * documentation for more info. However this is a quick example that uses Redis
+ * data types as an example.
+ *
+ * To add a sequence of unordered elements (for example in the case of a Redis
+ * Set), the pattern to use is:
+ *
+ * foreach element {
+ *     AddElement(element);
+ *     EndSequence();
+ * }
+ *
+ * Because Sets are not ordered, so every element added has a position that
+ * does not depend from the other. However if instead our elements are
+ * ordered in pairs, like field-value pairs of an Hash, then one should
+ * use:
+ *
+ * foreach key,value {
+ *     AddElement(key);
+ *     AddElement(value);
+ *     EndSquence();
+ * }
+ *
+ * Because the key and value will be always in the above order, while instead
+ * the single key-value pairs, can appear in any position into a Redis hash.
+ *
+ * A list of ordered elements would be implemented with:
+ *
+ * foreach element {
+ *     AddElement(element);
+ * }
+ * EndSequence();
+ *
+ */
+void RM_DigestAddStringBuffer(RedisModuleDigest *md, unsigned char *ele, size_t len) {
+    mixDigest(md->o,ele,len);
+}
+
+/* Like `RedisModule_DigestAddStringBuffer()` but takes a long long as input
+ * that gets converted into a string before adding it to the digest. */
+void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
+    char buf[LONG_STR_SIZE];
+    size_t len = ll2string(buf,sizeof(buf),ll);
+    mixDigest(md->o,buf,len);
+}
+
+/* See the doucmnetation for `RedisModule_DigestAddElement()`. */
+void RM_DigestEndSequence(RedisModuleDigest *md) {
+    xorDigest(md->x,md->o,sizeof(md->o));
+    memset(md->o,0,sizeof(md->o));
+}
+
+/* --------------------------------------------------------------------------
  * AOF API for modules data types
  * -------------------------------------------------------------------------- */
 
@@ -3819,4 +3879,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
     REGISTER_API(ThreadSafeContextUnlock);
+    REGISTER_API(DigestAddStringBuffer);
+    REGISTER_API(DigestAddLongLong);
+    REGISTER_API(DigestEndSequence);
 }

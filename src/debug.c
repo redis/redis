@@ -239,6 +239,15 @@ void computeDatasetDigest(unsigned char *final) {
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
+            } else if (o->type == OBJ_MODULE) {
+                RedisModuleDigest md;
+                moduleValue *mv = o->ptr;
+                moduleType *mt = mv->type;
+                moduleInitDigestContext(md);
+                if (mt->digest) {
+                    mt->digest(&md,mv->value);
+                    xorDigest(digest,md.x,sizeof(md.x));
+                }
             } else {
                 serverPanic("Unknown object type");
             }

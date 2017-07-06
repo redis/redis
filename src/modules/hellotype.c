@@ -238,6 +238,16 @@ void HelloTypeFree(void *value) {
     HelloTypeReleaseObject(value);
 }
 
+void HelloTypeDigest(RedisModuleDigest *md, void *value) {
+    struct HelloTypeObject *hto = value;
+    struct HelloTypeNode *node = hto->head;
+    while(node) {
+        RedisModule_DigestAddLongLong(md,node->value);
+        node = node->next;
+    }
+    RedisModule_DigestEndSequence(md);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -253,7 +263,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .rdb_save = HelloTypeRdbSave,
         .aof_rewrite = HelloTypeAofRewrite,
         .mem_usage = HelloTypeMemUsage,
-        .free = HelloTypeFree
+        .free = HelloTypeFree,
+        .digest = HelloTypeDigest
     };
 
     HelloType = RedisModule_CreateDataType(ctx,"hellotype",0,&tm);
