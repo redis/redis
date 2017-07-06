@@ -112,8 +112,8 @@ static int decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
 // Estimate the number of RESTORE-ASYNC commands will be generated for the
 // specified object with the given maxbulks.
 static long estimateNumberOfRestoreCommandsObject(robj *obj,
-                                                  long long maxbulks) {
-    long long numbulks = 0;
+                                                  unsigned long maxbulks) {
+    unsigned long numbulks = 0;
     switch (obj->type) {
     case OBJ_LIST:
         if (obj->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -158,7 +158,7 @@ static long estimateNumberOfRestoreCommandsObject(robj *obj,
 // Unlike estimateNumberOfRestoreCommandsObject(), this function also counts
 // the precursor RESTORE-ASYNC DELETE command.
 static long estimateNumberOfRestoreCommands(redisDb *db, robj *key,
-                                            long long maxbulks) {
+                                            unsigned long maxbulks) {
     robj *obj = lookupKeyWrite(db, key);
     if (obj == NULL) {
         return 0;
@@ -172,16 +172,37 @@ static long estimateNumberOfRestoreCommands(redisDb *db, robj *key,
 
 static asyncMigrationClient *getAsyncMigrationClient(int db);
 
+// State Machine:
+//                    (1)
+//          +--------------------------------------+
+//          |                                      |
+//          |         (2)                          V
+//      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
+//          |                                      A
+//          |         (3)                          |
+//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//                           A       |
+//                           |       V
+//                           +-------+
+//
+// (1) If the specified key doesn't exist. Usually cased by time expiration.
+// (2) If the object is small enough or has a complex encoding type.
+// (3) Normal case.
 static int singleObjectIteratorNextStagePrepare(client *c,
                                                 singleObjectIterator *it,
                                                 unsigned int maxbulks) {
     serverAssert(it->stage == STAGE_PREPARE);
+
     robj *key = it->key;
     robj *obj = lookupKeyWrite(c->db, key);
+
+    // If the specified key doesn't exist.
     if (obj == NULL) {
         it->stage = STAGE_DONE;
         return 0;
     }
+
+    // Keep the refcount of the object and record its expire time.
     it->obj = obj;
     incrRefCount(it->obj);
     it->expire = getExpire(c->db, key);
@@ -189,6 +210,10 @@ static int singleObjectIteratorNextStagePrepare(client *c,
     int msgs = 0;
 
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+
+    // If current client belongs to asyncMigrationClient, then:
+    //      1. Send RESTORE-ASYNC-AUTH   to verify password.
+    //      2. Send RESTORE-ASYNC-SELECT to change database.
     if (ac->c == c) {
         if (ac->init == 0) {
             ac->init = 1;
@@ -209,6 +234,8 @@ static int singleObjectIteratorNextStagePrepare(client *c,
         }
     }
 
+    // Send the RESTORE-ASYNC DELETE to the target instance to remove the
+    // conflicting key before the migration starts.
     do {
         /* RESTORE-ASYNC delete $key */
         addReplyMultiBulkLen(c, 3);
@@ -229,6 +256,20 @@ static int singleObjectIteratorNextStagePrepare(client *c,
 
 extern void createDumpPayload(rio *payload, robj *o);
 
+// State Machine:
+//
+//          +--------------------------------------+
+//          |                                      |
+//          |                            (4)       V
+//      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
+//          |                                      A
+//          |                                      |
+//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//                           A       |
+//                           |       V
+//                           +-------+
+//
+// (4) Serialize the specified key/value pair, and then move to STAGE_DONE.
 static int singleObjectIteratorNextStagePayload(client *c,
                                                 singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_PAYLOAD);
@@ -242,6 +283,10 @@ static int singleObjectIteratorNextStagePayload(client *c,
         }
     }
 
+    // case obj->type != string:
+    //      Serialize the object with DUMP format.
+    // case obj->type == string:
+    //      Using string format directly for improved performance.
     if (obj->type != OBJ_STRING) {
         rio payload;
         createDumpPayload(&payload, obj);
