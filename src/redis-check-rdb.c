@@ -199,7 +199,7 @@ int redis_check_rdb(char *rdbfilename) {
         return 1;
     }
 
-    startLoading(fp);
+    startLoadingFile(fp);
     while(1) {
         robj *key, *val;
         expiretime = -1;
@@ -268,6 +268,7 @@ int redis_check_rdb(char *rdbfilename) {
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
+                stopLoading();
                 return 1;
             }
             rdbstate.key_type = type;
@@ -311,6 +312,7 @@ int redis_check_rdb(char *rdbfilename) {
     }
 
     fclose(fp);
+    stopLoading();
     return 0;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
@@ -319,6 +321,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     } else {
         rdbCheckError("Unexpected EOF reading RDB file");
     }
+    stopLoading();
     return 1;
 }
 
