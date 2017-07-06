@@ -368,7 +368,7 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     return done != 0;
 }
 
-static int singleObjectIteratorNextStageChunkedTypeHashOrDict(
+static int singleObjectIteratorNextStageChunkedTypeHashOrSet(
     singleObjectIterator *it, list *l, robj *o, long long *psize,
     unsigned int maxbulks, unsigned int maxbytes) {
     serverAssert(o->type == OBJ_HASH || o->type == OBJ_SET);
@@ -418,7 +418,7 @@ static int singleObjectIteratorNextStageChunked(client *c,
         type = "hash";
         break;
     case OBJ_SET:
-        type = "dict";
+        type = "set";
         break;
     case OBJ_ZSET:
         type = "zset";
@@ -443,7 +443,7 @@ static int singleObjectIteratorNextStageChunked(client *c,
         break;
     case OBJ_HASH:
     case OBJ_SET:
-        done = singleObjectIteratorNextStageChunkedTypeHashOrDict(
+        done = singleObjectIteratorNextStageChunkedTypeHashOrSet(
             it, ll, obj, &maxsize, maxbulks, maxbytes);
         break;
     }
@@ -451,7 +451,7 @@ static int singleObjectIteratorNextStageChunked(client *c,
     int msgs = 0;
 
     if (listLength(ll) != 0) {
-        /* RESTORE-ASYNC list/hash/zset/dict $key $ttlms $maxsize [$arg1 ...] */
+        /* RESTORE-ASYNC list/hash/zset/set $key $ttlms $maxsize [$arg1 ...] */
         addReplyMultiBulkLen(c, 5 + listLength(ll));
         addReplyBulkCString(c, "RESTORE-ASYNC");
         addReplyBulkCString(c, type);
@@ -1375,9 +1375,9 @@ static int restoreAsyncHandleOrReplyTypeHash(client *c, robj *key, int argc,
     return C_OK;
 }
 
-/* RESTORE-ASYNC dict $key $ttlms $maxsize [$elem1 ...] */
-static int restoreAsyncHandleOrReplyTypeDict(client *c, robj *key, int argc,
-                                             robj **argv, long long size) {
+/* RESTORE-ASYNC set $key $ttlms $maxsize [$elem1 ...] */
+static int restoreAsyncHandleOrReplyTypeSet(client *c, robj *key, int argc,
+                                            robj **argv, long long size) {
     robj *val = lookupKeyWrite(c->db, key);
     if (val != NULL) {
         if (val->type != OBJ_SET || val->encoding != OBJ_ENCODING_HT) {
@@ -1568,12 +1568,12 @@ void restoreAsyncCommand(client *c) {
         return;
     }
 
-    /* RESTORE-ASYNC dict $key $ttlms $maxsize [$elem1 ...] */
-    if (!strcasecmp(cmd, "dict")) {
+    /* RESTORE-ASYNC set $key $ttlms $maxsize [$elem1 ...] */
+    if (!strcasecmp(cmd, "set")) {
         if (argc <= 0) {
             goto bad_arguments_number;
         }
-        if (restoreAsyncHandleOrReplyTypeDict(c, key, argc, argv, maxsize) ==
+        if (restoreAsyncHandleOrReplyTypeSet(c, key, argc, argv, maxsize) ==
             C_OK) {
             goto success_common_ttlms;
         }

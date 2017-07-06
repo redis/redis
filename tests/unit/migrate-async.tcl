@@ -139,12 +139,12 @@ start_server {tags {"migrate-async"} overrides {requirepass foobar}} {
         assert_equal "v4 v2 v3" [r hmget foo k1 k2 k3]
     }
 
-    test {RESTORE-ASYNC DICT against a set item} {
+    test {RESTORE-ASYNC SET against a set item} {
         r del foo
 
-        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async dict foo 0 0 e1 e2 e3]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async set foo 0 0 e1 e2 e3]
         assert_equal 3 [r scard foo]
-        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async dict foo 0 0 e1 e2 e4]
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async set foo 0 0 e1 e2 e4]
         assert_equal 4 [r scard foo]
         assert_equal -1 [r pttl foo]
         assert_encoding hashtable foo
