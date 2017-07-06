@@ -9,21 +9,22 @@
 #define STAGE_DONE 4
 
 typedef struct {
-    int stage;
-    robj *key;
-    robj *val;
-    long long expire;
-    unsigned long cursor;
-    unsigned long lindex;
-    unsigned long zindex;
+    int stage;  // Current stage of state machine.
+    robj *key;  // The key/value pair that will be serialized.
+    robj *obj;
+    long long expire;      // The expire time in ms, or -1 if no expire time.
+    unsigned long cursor;  // Used to serialize Hash/Set objects.
+    unsigned long lindex;  // Used to serialize List objects.
+    unsigned long zindex;  // Used to serialize ZSet objects.
 } singleObjectIterator;
 
+// Create a L1-iterator to hold the key and increase its refcount.
 static singleObjectIterator *createSingleObjectIterator(robj *key) {
     singleObjectIterator *it = zmalloc(sizeof(singleObjectIterator));
     it->stage = STAGE_PREPARE;
     it->key = key;
     incrRefCount(it->key);
-    it->val = NULL;
+    it->obj = NULL;
     it->expire = 0;
     it->cursor = 0;
     it->lindex = 0;
@@ -31,9 +32,10 @@ static singleObjectIterator *createSingleObjectIterator(robj *key) {
     return it;
 }
 
+// Destroy a L1-iterator and release its key/value's refcount.
 static void freeSingleObjectIterator(singleObjectIterator *it) {
-    if (it->val != NULL) {
-        decrRefCount(it->val);
+    if (it->obj != NULL) {
+        decrRefCount(it->obj);
     }
     decrRefCount(it->key);
     zfree(it);
@@ -107,38 +109,47 @@ static int decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
     return C_ERR;
 }
 
-static long estimateNumberOfRestoreCommandsObject(robj *val,
+// Estimate the number of RESTORE-ASYNC commands will be generated for the
+// specified object with the given maxbulks.
+static long estimateNumberOfRestoreCommandsObject(robj *obj,
                                                   long long maxbulks) {
     long long numbulks = 0;
-    switch (val->type) {
+    switch (obj->type) {
     case OBJ_LIST:
-        if (val->encoding == OBJ_ENCODING_QUICKLIST) {
-            numbulks = listTypeLength(val);
+        if (obj->encoding == OBJ_ENCODING_QUICKLIST) {
+            numbulks = listTypeLength(obj);
         }
         break;
     case OBJ_HASH:
-        if (val->encoding == OBJ_ENCODING_HT) {
-            numbulks = hashTypeLength(val) * 2;
+        if (obj->encoding == OBJ_ENCODING_HT) {
+            numbulks = hashTypeLength(obj) * 2;
         }
         break;
     case OBJ_SET:
-        if (val->encoding == OBJ_ENCODING_HT) {
-            numbulks = setTypeSize(val);
+        if (obj->encoding == OBJ_ENCODING_HT) {
+            numbulks = setTypeSize(obj);
         }
         break;
     case OBJ_ZSET:
-        if (val->encoding == OBJ_ENCODING_SKIPLIST) {
-            numbulks = zsetLength(val) * 2;
+        if (obj->encoding == OBJ_ENCODING_SKIPLIST) {
+            numbulks = zsetLength(obj) * 2;
         }
         break;
     }
 
-    /* 1x RESTORE-PAYLOAD */
+    // case numbulks == 0:
+    //      The object's encoding type is too complex.
+    //      For example, a zip-compressed list or set.
+    // case numbulks <= maxbulks:
+    //      The specified input object is too small.
+    //
+    // 1 x RESTORE-PAYLOAD command will be generated for these cases.
     if (numbulks <= maxbulks) {
         return 1;
     }
 
-    /* nx RESTORE-CHUNKED + 1x RESTORE-FILLTTL */
+    // Object is big enough, and its migration process will be split into
+    // m x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL commands.
     return 1 + (numbulks + maxbulks - 1) / maxbulks;
 }
 
@@ -158,13 +169,13 @@ static int singleObjectIteratorNextStagePrepare(client *c,
                                                 unsigned int maxbulks) {
     serverAssert(it->stage == STAGE_PREPARE);
     robj *key = it->key;
-    robj *val = lookupKeyWrite(c->db, key);
-    if (val == NULL) {
+    robj *obj = lookupKeyWrite(c->db, key);
+    if (obj == NULL) {
         it->stage = STAGE_DONE;
         return 0;
     }
-    it->val = val;
-    incrRefCount(it->val);
+    it->obj = obj;
+    incrRefCount(it->obj);
     it->expire = getExpire(c->db, key);
 
     int msgs = 0;
@@ -199,7 +210,7 @@ static int singleObjectIteratorNextStagePrepare(client *c,
         msgs++;
     } while (0);
 
-    long n = estimateNumberOfRestoreCommandsObject(val, maxbulks);
+    long n = estimateNumberOfRestoreCommandsObject(obj, maxbulks);
     if (n != 1) {
         it->stage = STAGE_CHUNKED;
     } else {
@@ -214,7 +225,7 @@ static int singleObjectIteratorNextStagePayload(client *c,
                                                 singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_PAYLOAD);
     robj *key = it->key;
-    robj *val = it->val;
+    robj *obj = it->obj;
     long long ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
@@ -223,9 +234,9 @@ static int singleObjectIteratorNextStagePayload(client *c,
         }
     }
 
-    if (val->type != OBJ_STRING) {
+    if (obj->type != OBJ_STRING) {
         rio payload;
-        createDumpPayload(&payload, val);
+        createDumpPayload(&payload, obj);
         do {
             /* RESTORE-ASYNC object $key $ttlms $payload */
             addReplyMultiBulkLen(c, 5);
@@ -243,7 +254,7 @@ static int singleObjectIteratorNextStagePayload(client *c,
             addReplyBulkCString(c, "string");
             addReplyBulk(c, key);
             addReplyBulkLongLong(c, ttlms);
-            addReplyBulk(c, val);
+            addReplyBulk(c, obj);
         } while (0);
     }
 
@@ -384,14 +395,14 @@ static int singleObjectIteratorNextStageChunked(client *c,
                                                 unsigned int maxbytes) {
     serverAssert(it->stage == STAGE_CHUNKED);
     robj *key = it->key;
-    robj *val = it->val;
+    robj *obj = it->obj;
     long long ttlms = timeout * 3;
     if (ttlms < 1000) {
         ttlms = 1000;
     }
 
     const char *type = NULL;
-    switch (val->type) {
+    switch (obj->type) {
     case OBJ_LIST:
         type = "list";
         break;
@@ -405,7 +416,7 @@ static int singleObjectIteratorNextStageChunked(client *c,
         type = "zset";
         break;
     default:
-        serverPanic("unknown object type = %d", val->type);
+        serverPanic("unknown object type = %d", obj->type);
     }
 
     list *ll = listCreate();
@@ -413,19 +424,19 @@ static int singleObjectIteratorNextStageChunked(client *c,
 
     long long done = 0, maxsize = 0;
 
-    switch (val->type) {
+    switch (obj->type) {
     case OBJ_LIST:
         done = singleObjectIteratorNextStageChunkedTypeList(
-            it, ll, val, &maxsize, maxbulks, maxbytes);
+            it, ll, obj, &maxsize, maxbulks, maxbytes);
         break;
     case OBJ_ZSET:
         done = singleObjectIteratorNextStageChunkedTypeZSet(
-            it, ll, val, &maxsize, maxbulks, maxbytes);
+            it, ll, obj, &maxsize, maxbulks, maxbytes);
         break;
     case OBJ_HASH:
     case OBJ_SET:
         done = singleObjectIteratorNextStageChunkedTypeHashOrDict(
-            it, ll, val, &maxsize, maxbulks, maxbytes);
+            it, ll, obj, &maxsize, maxbulks, maxbytes);
         break;
     }
 
@@ -499,11 +510,11 @@ static void singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
 
     total++;
     addReplyBulkCString(c, "object.type");
-    addReplyBulkLongLong(c, it->val == NULL ? -1 : it->val->type);
+    addReplyBulkLongLong(c, it->obj == NULL ? -1 : it->obj->type);
 
     total++;
     addReplyBulkCString(c, "object.encoding");
-    addReplyBulkLongLong(c, it->val == NULL ? -1 : it->val->encoding);
+    addReplyBulkLongLong(c, it->obj == NULL ? -1 : it->obj->encoding);
 
     total++;
     addReplyBulkCString(c, "stage");
@@ -572,7 +583,7 @@ static int batchedObjectIteratorHasNext(batchedObjectIterator *it) {
         if (singleObjectIteratorHasNext(sp)) {
             return 1;
         }
-        if (sp->val != NULL) {
+        if (sp->obj != NULL) {
             incrRefCount(sp->key);
             listAddNodeTail(it->released_keys, sp->key);
         }
