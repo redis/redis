@@ -9,13 +9,13 @@
 #define STAGE_DONE 4
 
 typedef struct {
-    int stage;  // Current stage of state machine.
+    int stage;  // The current state of the state machine.
     robj *key;  // The key/value pair that will be serialized.
     robj *obj;
     long long expire;      // The expire time in ms, or -1 if no expire time.
-    unsigned long cursor;  // Used to serialize Hash/Set objects.
-    unsigned long lindex;  // Used to serialize List objects.
-    unsigned long zindex;  // Used to serialize ZSet objects.
+    unsigned long cursor;  // Used to serialize Hash/Set object.
+    unsigned long lindex;  // Used to serialize List object.
+    unsigned long zindex;  // Used to serialize ZSet object.
 } singleObjectIterator;
 
 // Create a L1-iterator to hold the key and increase its refcount.
@@ -139,7 +139,7 @@ static long estimateNumberOfRestoreCommandsObject(robj *obj,
 
     // case numbulks == 0:
     //      The object's encoding type is too complex.
-    //      For example, a zip-compressed list or set.
+    //      For example, a zip-compressed set or list.
     // case numbulks <= maxbulks:
     //      The specified input object is too small.
     //
@@ -148,18 +148,26 @@ static long estimateNumberOfRestoreCommandsObject(robj *obj,
         return 1;
     }
 
-    // Object is big enough, and its migration process will be split into
-    // m x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL commands.
+    // Object is big enough, and its serialization process will be split into
+    // n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL commands.
     return 1 + (numbulks + maxbulks - 1) / maxbulks;
 }
 
+// Estimate the number of RESTORE-ASYNC commands will be generated for the
+// specified key in the given database, or return 0 if the key doesn't exist.
+// Unlike estimateNumberOfRestoreCommandsObject(), this function also counts
+// the precursor RESTORE-ASYNC DELETE command.
 static long estimateNumberOfRestoreCommands(redisDb *db, robj *key,
                                             long long maxbulks) {
-    robj *val = lookupKeyWrite(db, key);
-    if (val == NULL) {
+    robj *obj = lookupKeyWrite(db, key);
+    if (obj == NULL) {
         return 0;
     }
-    return 1 + estimateNumberOfRestoreCommandsObject(val, maxbulks);
+    // For tiny or zip-compressed objects:
+    //  = 1 x RESTORE-PREPARE + 1 x RESTORE-PAYLOAD
+    // Otherwise, for normal cases:
+    //  = 1 x RESTORE-PAYLOAD + n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL
+    return 1 + estimateNumberOfRestoreCommandsObject(obj, maxbulks);
 }
 
 static asyncMigrationClient *getAsyncMigrationClient(int db);
