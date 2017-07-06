@@ -1415,6 +1415,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
+        if (io.ctx) {
+            moduleFreeContext(io.ctx);
+            zfree(io.ctx);
+        }
 
         /* Module v2 serialization has an EOF mark at the end. */
         if (io.ver == 2) {
