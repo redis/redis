@@ -277,6 +277,15 @@ static int singleObjectIteratorNextStageChunkedTypeList(
     }
     (*pmsgs)++;
 
+    long seek;
+    if (it->lindex <= llen / 2) {
+        // Seek from the head.
+        seek = (long)it->lindex;
+    } else {
+        // Seek from the tail.
+        seek = (long)it->lindex - llen;
+    }
+
     /* RESTORE-ASYNC list $key $ttlms $maxsize [$arg1 ...] */
     addReplyMultiBulkLen(c, 5 + step);
     addReplyBulkCString(c, "RESTORE-ASYNC");
@@ -285,7 +294,7 @@ static int singleObjectIteratorNextStageChunkedTypeList(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? llen : 0);
 
-    listTypeIterator *li = listTypeInitIterator(obj, it->lindex, LIST_TAIL);
+    listTypeIterator *li = listTypeInitIterator(obj, seek, LIST_TAIL);
     for (size_t i = 0; i < step; i++) {
         listTypeEntry entry;
         listTypeNext(li, &entry);
@@ -1009,8 +1018,9 @@ void cleanupClientsForAsyncMigration() {
             continue;
         }
         asyncMigartionClientCancelErrorFormat(
-            db, (it != NULL) ? "interrupted: migration timeout"
-                             : "interrupted: idle timeout");
+            db,
+            (it != NULL) ? "interrupted: migration timeout"
+                         : "interrupted: idle timeout");
     }
 }
 
