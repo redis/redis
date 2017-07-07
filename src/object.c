@@ -692,28 +692,35 @@ char *strEncoding(int encoding) {
 
 /* =========================== Memory introspection ========================== */
 
+static size_t sizeOfStringObject(robj *o) {
+    size_t strSize = 0;
+    if (o->encoding == OBJ_ENCODING_INT) {
+        strSize = sizeof(long long);
+    } else if (o->encoding == OBJ_ENCODING_RAW) {
+        strSize = sdsAllocSize(o->ptr)+sizeof(*o);
+    } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
+        strSize = sdslen(o->ptr)+2+sizeof(*o);
+    } else {
+        serverPanic("Unknown string encoding");
+    }
+
+    return strSize;
+}
+
 /* Returns the size in bytes consumed by the key's value in RAM.
  * Note that the returned value is just an approximation, especially in the
  * case of aggregated data types where only "sample_size" elements
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t objectComputeSize(robj *o, size_t sample_size) {
-    sds ele, ele2;
+    robj *ele, *ele2;
     dict *d;
     dictIterator *di;
     struct dictEntry *de;
     size_t asize = 0, elesize = 0, samples = 0;
 
     if (o->type == OBJ_STRING) {
-        if(o->encoding == OBJ_ENCODING_INT) {
-            asize = sizeof(*o);
-        } else if(o->encoding == OBJ_ENCODING_RAW) {
-            asize = sdsAllocSize(o->ptr)+sizeof(*o);
-        } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
-            asize = sdslen(o->ptr)+2+sizeof(*o);
-        } else {
-            serverPanic("Unknown string encoding");
-        }
+        sizeOfStringObject(o);
     } else if (o->type == OBJ_LIST) {
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
             quicklist *ql = o->ptr;
@@ -723,7 +730,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*listTypeLength(o);
+            asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
@@ -736,7 +743,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
-                elesize += sizeof(struct dictEntry) + sdsAllocSize(ele);
+                elesize += sizeOfStringObject(ele);
                 samples++;
             }
             dictReleaseIterator(di);
@@ -757,7 +764,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsAllocSize(znode->ele);
-                elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
+                elesize += zmalloc_size(znode);
                 samples++;
                 znode = znode->level[0].forward;
             }
@@ -775,7 +782,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
-                elesize += sdsAllocSize(ele) + sdsAllocSize(ele2);
+                elesize += sizeOfStringObject(ele) + sizeOfStringObject(ele2);
                 elesize += sizeof(struct dictEntry);
                 samples++;
             }
