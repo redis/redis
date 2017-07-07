@@ -1705,7 +1705,9 @@ int listenToPort(int port, int *fds, int *count) {
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
-            } else if (errno == EAFNOSUPPORT) {
+            } else if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
+                       errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+                       errno == EAFNOSUPPORT) {
                 unsupported++;
                 serverLog(LL_WARNING,"Not listening to IPv6: unsupproted");
             }
@@ -1717,7 +1719,9 @@ int listenToPort(int port, int *fds, int *count) {
                 if (fds[*count] != ANET_ERR) {
                     anetNonBlock(NULL,fds[*count]);
                     (*count)++;
-                } else if (errno == EAFNOSUPPORT) {
+                } else if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
+                           errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+                           errno == EAFNOSUPPORT) {
                     unsupported++;
                     serverLog(LL_WARNING,"Not listening to IPv4: unsupproted");
                 }
