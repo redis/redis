@@ -216,6 +216,7 @@ static int singleObjectIteratorNextStagePayload(client *c,
 
     robj *key = it->key;
     robj *obj = it->obj;
+
     long long ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
@@ -538,6 +539,8 @@ static int singleObjectIteratorNextStageChunked(client *c,
 
     robj *key = it->key;
     robj *obj = it->obj;
+
+    // Set a temporary ttl for the specified key/value pair.
     long long ttlms = timeout * 3;
     if (ttlms < 1000) {
         ttlms = 1000;
@@ -564,16 +567,32 @@ static int singleObjectIteratorNextStageChunked(client *c,
     default:
         serverPanic("unknown object type = %d", obj->type);
     }
+
     if (done) {
         it->stage = STAGE_FILLTTL;
     }
     return msgs;
 }
 
+// State Machine:
+//
+//          +--------------------------------------+
+//          |                                      |
+//          |                                      V
+//      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
+//          |                                      A
+//          |                                      | (6)
+//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//                           A       |
+//                           |       V
+//                           +-------+
+//
+// (6) Correct the ttl or remove the temporary ttl and then move to STAGE_DONE.
 static int singleObjectIteratorNextStageFillTTL(client *c,
                                                 singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_FILLTTL);
     robj *key = it->key;
+
     long long ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
@@ -613,6 +632,7 @@ static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
     }
 }
 
+// Dump the metrics of the given L1-Iterator.
 static void singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
     if (it == NULL) {
         addReply(c, shared.nullmultibulk);
