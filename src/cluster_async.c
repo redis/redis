@@ -622,6 +622,22 @@ static int singleObjectIteratorNextStageFillTTL(client *c,
     return 1;
 }
 
+// State Machine:
+//
+//          +--------------------------------------+
+//          |                                      |
+//          |                                      V
+//      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
+//          |                                      A
+//          |                                      |
+//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//                           A       |
+//                           |       V
+//                           +-------+
+//
+// The entry point of the state machine.
+// This function returns the number of RESTORE-ASYNC commands that is generated
+// and will be serialized into client's sending buffer.
 static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
                                     long long timeout, unsigned long maxbulks) {
     switch (it->stage) {
@@ -1018,9 +1034,8 @@ void cleanupClientsForAsyncMigration() {
             continue;
         }
         asyncMigartionClientCancelErrorFormat(
-            db,
-            (it != NULL) ? "interrupted: migration timeout"
-                         : "interrupted: idle timeout");
+            db, (it != NULL) ? "interrupted: migration timeout"
+                             : "interrupted: idle timeout");
     }
 }
 
