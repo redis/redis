@@ -190,7 +190,7 @@ static asyncMigrationClient *getAsyncMigrationClient(int db);
 // (3) Normal case.
 static int singleObjectIteratorNextStagePrepare(client *c,
                                                 singleObjectIterator *it,
-                                                unsigned int maxbulks) {
+                                                unsigned long maxbulks) {
     serverAssert(it->stage == STAGE_PREPARE);
 
     robj *key = it->key;
@@ -273,8 +273,10 @@ extern void createDumpPayload(rio *payload, robj *o);
 static int singleObjectIteratorNextStagePayload(client *c,
                                                 singleObjectIterator *it) {
     serverAssert(it->stage == STAGE_PAYLOAD);
+
     robj *key = it->key;
     robj *obj = it->obj;
+
     long long ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
@@ -310,31 +312,6 @@ static int singleObjectIteratorNextStagePayload(client *c,
             addReplyBulk(c, obj);
         } while (0);
     }
-
-    it->stage = STAGE_DONE;
-    return 1;
-}
-
-static int singleObjectIteratorNextStageFillTTL(client *c,
-                                                singleObjectIterator *it) {
-    serverAssert(it->stage == STAGE_FILLTTL);
-    robj *key = it->key;
-    long long ttlms = 0;
-    if (it->expire != -1) {
-        ttlms = it->expire - mstime();
-        if (ttlms < 1) {
-            ttlms = 1;
-        }
-    }
-
-    do {
-        /* RESTORE-ASYNC expire $key $ttlms */
-        addReplyMultiBulkLen(c, 4);
-        addReplyBulkCString(c, "RESTORE-ASYNC");
-        addReplyBulkCString(c, "expire");
-        addReplyBulk(c, key);
-        addReplyBulkLongLong(c, ttlms);
-    } while (0);
 
     it->stage = STAGE_DONE;
     return 1;
@@ -441,12 +418,27 @@ static int singleObjectIteratorNextStageChunkedTypeHashOrSet(
     return done != 0;
 }
 
+// State Machine:
+//
+//          +--------------------------------------+
+//          |                                      |
+//          |                                      V
+//      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
+//          |                                      A
+//          |                            (5)       |
+//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//                           A       |
+//                           |  (5)  V
+//                           +-------+
+//
+// (5) Serialize the specified key/value pair, and then move to STAGE_FILLTTL.
 static int singleObjectIteratorNextStageChunked(client *c,
                                                 singleObjectIterator *it,
                                                 long long timeout,
                                                 unsigned int maxbulks,
                                                 unsigned int maxbytes) {
     serverAssert(it->stage == STAGE_CHUNKED);
+
     robj *key = it->key;
     robj *obj = it->obj;
     long long ttlms = timeout * 3;
@@ -518,6 +510,31 @@ static int singleObjectIteratorNextStageChunked(client *c,
         it->stage = STAGE_FILLTTL;
     }
     return msgs;
+}
+
+static int singleObjectIteratorNextStageFillTTL(client *c,
+                                                singleObjectIterator *it) {
+    serverAssert(it->stage == STAGE_FILLTTL);
+    robj *key = it->key;
+    long long ttlms = 0;
+    if (it->expire != -1) {
+        ttlms = it->expire - mstime();
+        if (ttlms < 1) {
+            ttlms = 1;
+        }
+    }
+
+    do {
+        /* RESTORE-ASYNC expire $key $ttlms */
+        addReplyMultiBulkLen(c, 4);
+        addReplyBulkCString(c, "RESTORE-ASYNC");
+        addReplyBulkCString(c, "expire");
+        addReplyBulk(c, key);
+        addReplyBulkLongLong(c, ttlms);
+    } while (0);
+
+    it->stage = STAGE_DONE;
+    return 1;
 }
 
 static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
