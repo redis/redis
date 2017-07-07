@@ -338,21 +338,21 @@ static uint64_t doubleToLong(double value) {
         uint64_t u;
     } fp;
     fp.d = value;
-    return fp.u;
+    return intrev64ifbe(fp.u);
 }
 
-static double convertRawBitsToDouble(uint64_t value) {
+static double longToDouble(uint64_t value) {
     union {
         double d;
         uint64_t u;
     } fp;
-    fp.u = value;
+    fp.u = intrev64ifbe(value);
     return fp.d;
 }
 
-static int decodeUint64FromRawStringObject(robj *o, uint64_t *p) {
+static int longToDoubleFromObject(robj *o, double *p) {
     if (sdsEncodedObject(o) && sdslen(o->ptr) == sizeof(uint64_t)) {
-        *p = intrev64ifbe(*(uint64_t *)(o->ptr));
+        *p = longToDouble(*(uint64_t *)(o->ptr));
         return C_OK;
     }
     return C_ERR;
@@ -401,9 +401,8 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     for (size_t i = 0; i < v->len; i++) {
         zskiplistNode *node = v->buff[i];
         addReplyBulkCBuffer(c, node->ele, sdslen(node->ele));
-        uint64_t bits = doubleToLong(node->score);
-        uint64_t le64 = intrev64ifbe(bits);
-        addReplyBulkCBuffer(c, &le64, sizeof(le64));
+        uint64_t u64 = doubleToLong(node->score);
+        addReplyBulkCBuffer(c, &u64, sizeof(u64));
     }
 
 exit:
@@ -1537,14 +1536,14 @@ static int restoreAsyncHandleOrReplyTypeZSet(client *c, robj *key, int argc,
                                              robj **argv, long long size) {
     double *scores = zmalloc(sizeof(double) * (argc / 2));
     for (int i = 1, j = 0; i < argc; i += 2, j++) {
-        uint64_t u64;
-        if (decodeUint64FromRawStringObject(argv[i], &u64) != C_OK) {
+        double v;
+        if (longToDoubleFromObject(argv[i], &v) != C_OK) {
             asyncMigrationReplyAckErrorFormat(
                 c, "invalid value of score[%d] (%s)", j, argv[i]->ptr);
             zfree(scores);
             return C_ERR;
         }
-        scores[j] = convertRawBitsToDouble(u64);
+        scores[j] = v;
     }
 
     robj *val = lookupKeyWrite(c->db, key);
