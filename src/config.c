@@ -728,15 +728,15 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"async-migration-sendbuf-limit") && argc == 2) {
             long long size = memtoll(argv[1], NULL);
-            if (size <= 0) {
-                err = "async-migration-sendbuf-limit must be 1 or greater";
+            if (size <= 0 || size > CONFIG_ASYNC_MIGRATION_SENDBUF_LIMIT_MAX) {
+                err = "Invalid async-migration-sendbuf-limit";
                 goto loaderr;
             }
             server.async_migration_sendbuf_limit = size;
         } else if (!strcasecmp(argv[0],"async-migration-message-limit") && argc == 2) {
             long long size = memtoll(argv[1], NULL);
-            if (size <= 0) {
-                err = "async-migration-message-limit must be 1 or greater";
+            if (size <= 0 || size > CONFIG_ASYNC_MIGRATION_MESSAGE_LIMIT_MAX) {
+                err = "Invalid async-migration-message-limit";
                 goto loaderr;
             }
             server.async_migration_message_limit = size;
@@ -1160,9 +1160,11 @@ void configSetCommand(client *c) {
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
     } config_set_numerical_field(
-      "async-migration-sendbuf-limit",server.async_migration_sendbuf_limit,0,LLONG_MAX) {
+      "async-migration-sendbuf-limit",server.async_migration_sendbuf_limit,
+      1,CONFIG_ASYNC_MIGRATION_SENDBUF_LIMIT_MAX) {
     } config_set_numerical_field(
-      "async-migration-message-limit",server.async_migration_message_limit,0,LLONG_MAX) {
+      "async-migration-message-limit",server.async_migration_message_limit,
+      1,CONFIG_ASYNC_MIGRATION_MESSAGE_LIMIT_MAX) {
 
     /* Everyhing else is an error... */
     } config_set_else {
@@ -1295,6 +1297,10 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
+    config_get_numerical_field("async-migration-sendbuf-limit",server.async_migration_sendbuf_limit);
+    config_get_numerical_field("async-migration-message-limit",server.async_migration_message_limit);
+
+
 
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
