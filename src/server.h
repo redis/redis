@@ -162,6 +162,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MIN 25 /* 25% CPU min (at lower threshold) */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
 
+#define CONFIG_DEFAULT_ASYNC_MIGRATION_SENDBUF_LIMIT (1024*1024*8)
+#define CONFIG_DEFAULT_ASYNC_MIGRATION_MESSAGE_LIMIT 200
+
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
@@ -1191,6 +1194,10 @@ struct redisServer {
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
+
+    size_t async_migration_sendbuf_limit; /* Limit client sending buffer for asyncMigrationClient. */
+    size_t async_migration_message_limit; /* Limit message size of every single RESTORE-ASYNC command. */
+
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     client *lua_client;   /* The "fake client" to query Redis from Lua */

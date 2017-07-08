@@ -726,6 +726,20 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"async-migration-sendbuf-limit") && argc == 2) {
+            long long size = memtoll(argv[1], NULL);
+            if (size <= 0) {
+                err = "async-migration-sendbuf-limit must be 1 or greater";
+                goto loaderr;
+            }
+            server.async_migration_sendbuf_limit = size;
+        } else if (!strcasecmp(argv[0],"async-migration-message-limit") && argc == 2) {
+            long long size = memtoll(argv[1], NULL);
+            if (size <= 0) {
+                err = "async-migration-message-limit must be 1 or greater";
+                goto loaderr;
+            }
+            server.async_migration_message_limit = size;
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -1145,6 +1159,10 @@ void configSetCommand(client *c) {
       "maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum) {
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
+    } config_set_numerical_field(
+      "async-migration-sendbuf-limit",server.async_migration_sendbuf_limit,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "async-migration-message-limit",server.async_migration_message_limit,0,LLONG_MAX) {
 
     /* Everyhing else is an error... */
     } config_set_else {
@@ -2039,6 +2057,8 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-expire",server.lazyfree_lazy_expire,CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE);
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"slave-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
+    rewriteConfigNumericalOption(state,"async-migration-sendbuf-limit",server.async_migration_sendbuf_limit,CONFIG_DEFAULT_ASYNC_MIGRATION_SENDBUF_LIMIT);
+    rewriteConfigNumericalOption(state,"async-migration-message-limit",server.async_migration_message_limit,CONFIG_DEFAULT_ASYNC_MIGRATION_MESSAGE_LIMIT);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
