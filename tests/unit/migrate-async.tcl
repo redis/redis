@@ -194,14 +194,14 @@ start_server {tags {"migrate-async"}} {
             assert {$ret >= 0 && $ret <= 1}
 
             assert_match {} [$first migrate-async-status]
-            $first migrate-async $second_host $second_port 0 0 0 foo bar
+            $first migrate-async $second_host $second_port 0 foo bar
             assert_match {host * port *} [$first migrate-async-status]
 
             assert_match 1 [$first migrate-async-cancel]
             assert_match {} [$first migrate-async-status]
 
             assert_match {} [$first migrate-async-status]
-            $first migrate-async $second_host $second_port 0 0 0 foo bar
+            $first migrate-async $second_host $second_port 0 foo bar
             assert_match {host * port *} [$first migrate-async-status]
 
             after 20000
@@ -219,12 +219,12 @@ start_server {tags {"migrate-async"}} {
             assert_equal 1 [$second incr key]
 
             assert_equal 0 [$first exists key]
-            assert_equal 0 [$first migrate-async $second_host $second_port 0 0 0 key]
+            assert_equal 0 [$first migrate-async $second_host $second_port 0 key]
 
             assert_equal 1 [$first incr key]
             $first pexpire key 5000
 
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 0 0 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 2 [$second incr key]
             set ttl [$second pttl key]
             assert {$ttl >= 3000 && $ttl <= 5000}
@@ -246,7 +246,7 @@ start_server {tags {"migrate-async"}} {
             }
             $first pexpire key 500000
 
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -272,7 +272,7 @@ start_server {tags {"migrate-async"}} {
             }
             $first pexpire key 500000
 
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -298,7 +298,7 @@ start_server {tags {"migrate-async"}} {
             }
             $first pexpire key 500000
 
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -324,7 +324,7 @@ start_server {tags {"migrate-async"}} {
             }
             $first pexpire key 500000
 
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -351,11 +351,11 @@ start_server {tags {"migrate-async"}} {
             set rd [redis_deferring_client]
             $rd debug sleep 3
 
-            catch {$first migrate-async $second_host $second_port 1000 100000 100 key} err
+            catch {$first migrate-async $second_host $second_port 1000 key} err
             assert_match {ERR*timeout*} $err
 
             after 3000
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -376,7 +376,7 @@ start_server {tags {"migrate-async"}} {
             set second_host [srv 0 host]
             set second_port [srv 0 port]
 
-            assert_equal 3 [$first migrate-async $second_host $second_port 0 100000 100 foo1 foo2 foo3]
+            assert_equal 3 [$first migrate-async $second_host $second_port 0 foo1 foo2 foo3]
             assert_equal 0 [$first exists foo1]
             assert_equal 0 [$first exists foo2]
             assert_equal 0 [$first exists foo3]
@@ -385,7 +385,7 @@ start_server {tags {"migrate-async"}} {
             assert_equal "foo2" [$second get foo2]
             assert_equal "foo3" [$second get foo3]
 
-            assert_equal 2 [$first migrate-async $second_host $second_port 0 100000 100 bar1 bar2 bar3]
+            assert_equal 2 [$first migrate-async $second_host $second_port 0 bar1 bar2 bar3]
             assert_equal 0 [$first exists bar1]
             assert_equal 0 [$first exists bar2]
             assert_equal 0 [$first exists bar3]
@@ -414,11 +414,11 @@ start_server {tags {"migrate-async"}} {
 
             exec sh -c "sleep 1; src/redis-cli -h $first_host -p $first_port migrate-async-cancel" >/dev/null 2>/dev/null &
 
-            catch {$first migrate-async $second_host $second_port 5000 100000 100 key} err
+            catch {$first migrate-async $second_host $second_port 5000 key} err
             assert_match {ERR*canceled*} $err
 
             after 3000
-            assert_equal 1 [$first migrate-async $second_host $second_port 0 100000 100 key]
+            assert_equal 1 [$first migrate-async $second_host $second_port 0 key]
             assert_equal 0 [$first exists key]
 
             set ttl [$second pttl key]
@@ -446,7 +446,7 @@ start_server {tags {"migrate-async"}} {
             $rd debug sleep 3
 
             exec sh -c "src/redis-cli -h $first_host -p $first_port \
-                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+                migrate-async $second_host $second_port 10000 foo" >/dev/null 2>/dev/null &
 
             after 1000
             assert_equal 1 [$first incr bar]
@@ -479,7 +479,7 @@ start_server {tags {"migrate-async"}} {
             $rd debug sleep 3
 
             exec sh -c "src/redis-cli -h $first_host -p $first_port \
-                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+                migrate-async $second_host $second_port 10000 foo" >/dev/null 2>/dev/null &
 
             after 1000
             catch {$first set foo "world"} err1
@@ -510,7 +510,7 @@ start_server {tags {"migrate-async"}} {
             $rd debug sleep 3
 
             exec sh -c "src/redis-cli -h $first_host -p $first_port \
-                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+                migrate-async $second_host $second_port 10000 foo" >/dev/null 2>/dev/null &
 
             after 1000
             catch {$first exec} err1
@@ -540,7 +540,7 @@ start_server {tags {"migrate-async"}} {
             $first set foo "world"
 
             exec sh -c "src/redis-cli -h $first_host -p $first_port \
-                migrate-async $second_host $second_port 10000 0 0 foo" >/dev/null 2>/dev/null &
+                migrate-async $second_host $second_port 10000 foo" >/dev/null 2>/dev/null &
 
             after 1000
             assert_equal {} [$first exec]
