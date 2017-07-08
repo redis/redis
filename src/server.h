@@ -741,7 +741,7 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
 
-    list *migration_waitq;  /* wait queue that client is blocking in */
+    list *migration_wait;   /* wait queue that client is blocking in */
 
     /* Response buffer */
     int bufpos;
@@ -892,14 +892,14 @@ struct clusterState;
 
 typedef struct {
     client *c;                  /* Client for data migration. */
-    int init;                   /* If client has been authenticated. */
+    int auth;                   /* If client has been authenticated. */
     sds host;                   /* Target host & port. */
     int port;
-    long long timeout;          /* Client timeout in milliseconds. */
-    long long lastuse;          /* Timestamp of the last operation, used for timeout, in milliseconds. */
-    long sending_msgs;          /* Number of commands buffered in sending window. */
-    list *bclients;             /* Clients blocked by data migration */
-    void *iterator;             /* Pointer to the batchedObjectIterator that is being migrated. */
+    mstime_t timeout;           /* Client timeout in milliseconds. */
+    mstime_t lastuse;           /* Timestamp of the last operation, used for timeout, in milliseconds. */
+    long long pending_msgs;     /* Number of commands that is marked sent but not delivered. */
+    void *batched_iterator;     /* Pointer to the batchedObjectIterator that is being migrated. */
+    list *blocked_clients;      /* Clients blocked by data migration */
 } asyncMigrationClient;
 
 struct redisServer {
