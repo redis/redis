@@ -8,17 +8,18 @@
 #define STAGE_FILLTTL 3
 #define STAGE_DONE 4
 
+// The definition of L1-Iterator.
 typedef struct {
     int stage;  // The current state of the state machine.
     robj *key;  // The key/value pair that will be serialized.
     robj *obj;
-    long long expire;      // The expire time in ms, or -1 if no expire time.
+    mstime_t expire;       // The expire time in ms, or -1 if no expire time.
     unsigned long cursor;  // Used to serialize Hash/Set object.
     unsigned long lindex;  // Used to serialize List object.
     unsigned long zindex;  // Used to serialize ZSet object.
 } singleObjectIterator;
 
-// Create a L1-iterator to hold the key and increase its refcount.
+// Create a L1-Iterator to hold the key and increase its refcount.
 static singleObjectIterator *createSingleObjectIterator(robj *key) {
     singleObjectIterator *it = zmalloc(sizeof(singleObjectIterator));
     it->stage = STAGE_PREPARE;
@@ -32,7 +33,7 @@ static singleObjectIterator *createSingleObjectIterator(robj *key) {
     return it;
 }
 
-// Destroy a L1-iterator and release its key/value's refcount.
+// Release a L1-Iterator and release its key/value's refcount.
 static void freeSingleObjectIterator(singleObjectIterator *it) {
     if (it->obj != NULL) {
         decrRefCount(it->obj);
@@ -51,9 +52,9 @@ static int singleObjectIteratorHasNext(singleObjectIterator *it) {
 
 // Estimate the number of RESTORE-ASYNC commands will be generated for the
 // specified object with the given maxbulks.
-static long estimateNumberOfRestoreCommandsObject(robj *obj,
-                                                  unsigned long maxbulks) {
-    unsigned long numbulks = 0;
+static size_t estimateNumberOfRestoreCommandsObject(robj *obj,
+                                                    size_t maxbulks) {
+    size_t numbulks = 0;
     switch (obj->type) {
     case OBJ_LIST:
         if (obj->encoding == OBJ_ENCODING_QUICKLIST) {
@@ -97,8 +98,8 @@ static long estimateNumberOfRestoreCommandsObject(robj *obj,
 // specified key in the given database, or return 0 if the key doesn't exist.
 // Unlike estimateNumberOfRestoreCommandsObject(), this function also counts
 // the precursor RESTORE-ASYNC DELETE command.
-static long estimateNumberOfRestoreCommands(redisDb *db, robj *key,
-                                            unsigned long maxbulks) {
+static size_t estimateNumberOfRestoreCommands(redisDb *db, robj *key,
+                                              size_t maxbulks) {
     robj *obj = lookupKeyWrite(db, key);
     if (obj == NULL) {
         return 0;
@@ -130,7 +131,7 @@ static asyncMigrationClient *getAsyncMigrationClient(int db);
 // (3) Normal case.
 static int singleObjectIteratorNextStagePrepare(client *c,
                                                 singleObjectIterator *it,
-                                                unsigned long maxbulks) {
+                                                size_t maxbulks) {
     serverAssert(it->stage == STAGE_PREPARE);
 
     robj *key = it->key;
@@ -155,8 +156,8 @@ static int singleObjectIteratorNextStagePrepare(client *c,
     //      1. Send RESTORE-ASYNC-AUTH   to verify password.
     //      2. Send RESTORE-ASYNC-SELECT to change database.
     if (ac->c == c) {
-        if (ac->init == 0) {
-            ac->init = 1;
+        if (ac->auth == 0) {
+            ac->auth = 1;
             if (server.requirepass != NULL) {
                 /* RESTORE-ASYNC-AUTH $passwd */
                 addReplyMultiBulkLen(c, 2);
@@ -185,7 +186,7 @@ static int singleObjectIteratorNextStagePrepare(client *c,
         msgs++;
     } while (0);
 
-    long n = estimateNumberOfRestoreCommandsObject(obj, maxbulks);
+    size_t n = estimateNumberOfRestoreCommandsObject(obj, maxbulks);
     if (n != 1) {
         it->stage = STAGE_CHUNKED;
     } else {
@@ -217,7 +218,7 @@ static int singleObjectIteratorNextStagePayload(client *c,
     robj *key = it->key;
     robj *obj = it->obj;
 
-    long long ttlms = 0;
+    mstime_t ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
         if (ttlms < 1) {
@@ -258,8 +259,8 @@ static int singleObjectIteratorNextStagePayload(client *c,
 }
 
 static int singleObjectIteratorNextStageChunkedTypeList(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, long long ttlms,
-    unsigned long maxbulks, int *pmsgs) {
+    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
+    size_t maxbulks, int *pmsgs) {
     serverAssert(obj->type == OBJ_LIST);
     serverAssert(obj->encoding == OBJ_ENCODING_QUICKLIST);
 
@@ -370,8 +371,8 @@ static int longToDoubleFromObject(robj *o, double *p) {
 extern zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 static int singleObjectIteratorNextStageChunkedTypeZSet(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, long long ttlms,
-    unsigned long maxbulks, int *pmsgs) {
+    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
+    size_t maxbulks, int *pmsgs) {
     serverAssert(obj->type == OBJ_ZSET);
     serverAssert(obj->encoding == OBJ_ENCODING_SKIPLIST);
 
@@ -384,7 +385,7 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     zskiplist *zsl = ((zset *)obj->ptr)->zsl;
     zskiplistNode *node = (rank >= 1) ? zslGetElementByRank(zsl, rank) : NULL;
 
-    unsigned long maxlen = maxbulks / 2;
+    size_t maxlen = maxbulks / 2;
     do {
         if (node != NULL) {
             vectorAppend(v, node);
@@ -426,8 +427,8 @@ static void singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
 }
 
 static int singleObjectIteratorNextStageChunkedTypeHash(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, long long ttlms,
-    unsigned long maxbulks, int *pmsgs) {
+    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
+    size_t maxbulks, int *pmsgs) {
     serverAssert(obj->type == OBJ_HASH);
     serverAssert(obj->encoding == OBJ_ENCODING_HT);
 
@@ -442,7 +443,7 @@ static int singleObjectIteratorNextStageChunkedTypeHash(
     void *pd[] = {v};
 
     // Call dictScan on hash table and keep all scanned entries.
-    unsigned long maxlen = maxbulks / 2;
+    size_t maxlen = maxbulks / 2;
     do {
         it->cursor = dictScan(obj->ptr, it->cursor,
                               singleObjectIteratorScanCallback, NULL, pd);
@@ -477,8 +478,8 @@ exit:
 }
 
 static int singleObjectIteratorNextStageChunkedTypeSet(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, long long ttlms,
-    unsigned long maxbulks, int *pmsgs) {
+    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
+    size_t maxbulks, int *pmsgs) {
     serverAssert(obj->type == OBJ_SET);
     serverAssert(obj->encoding == OBJ_ENCODING_HT);
 
@@ -493,7 +494,7 @@ static int singleObjectIteratorNextStageChunkedTypeSet(
     void *pd[] = {v};
 
     // Call dictScan on hash table and keep all scanned entries.
-    unsigned long maxlen = maxbulks;
+    size_t maxlen = maxbulks;
     do {
         it->cursor = dictScan(obj->ptr, it->cursor,
                               singleObjectIteratorScanCallback, NULL, pd);
@@ -541,15 +542,15 @@ exit:
 // (5) Serialize the specified key/value pair, and then move to STAGE_FILLTTL.
 static int singleObjectIteratorNextStageChunked(client *c,
                                                 singleObjectIterator *it,
-                                                long long timeout,
-                                                unsigned long maxbulks) {
+                                                mstime_t timeout,
+                                                size_t maxbulks) {
     serverAssert(it->stage == STAGE_CHUNKED);
 
     robj *key = it->key;
     robj *obj = it->obj;
 
     // Set a temporary ttl for the specified key/value pair.
-    long long ttlms = timeout * 3;
+    mstime_t ttlms = timeout * 3;
     if (ttlms < 1000) {
         ttlms = 1000;
     }
@@ -601,7 +602,7 @@ static int singleObjectIteratorNextStageFillTTL(client *c,
     serverAssert(it->stage == STAGE_FILLTTL);
     robj *key = it->key;
 
-    long long ttlms = 0;
+    mstime_t ttlms = 0;
     if (it->expire != -1) {
         ttlms = it->expire - mstime();
         if (ttlms < 1) {
@@ -639,7 +640,7 @@ static int singleObjectIteratorNextStageFillTTL(client *c,
 // This function returns the number of RESTORE-ASYNC commands that is generated
 // and will be serialized into client's sending buffer.
 static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
-                                    long long timeout, unsigned long maxbulks) {
+                                    mstime_t timeout, size_t maxbulks) {
     switch (it->stage) {
     case STAGE_PREPARE:
         return singleObjectIteratorNextStagePrepare(c, it, maxbulks);
@@ -702,37 +703,38 @@ static void singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
 
 /* ==================== Iterators: batchedObjectIterator ==================== */
 
+// The definition of L0-Iterator.
 typedef struct {
-    long long timeout;
-    long long maxbulks;
-    long long maxbytes;
-    dict *keys;
-    list *iterator_list;
-    list *released_keys;
-    long delivered_msgs;
-    long estimated_msgs;
+    mstime_t timeout;     // Timeout for RTT.
+    dict *keys;           // The keys that will be migrated. (for Debug)
+    list *iterator_list;  // The L1-Iterators that will be dispatched.
+    list *finished_keys;  // The keys that have been migrated and will be
+                          // removed atomically once the entire batch finished.
+    size_t maxbulks;
+    size_t delivered_msgs;
+    size_t estimated_msgs;
 } batchedObjectIterator;
 
-static batchedObjectIterator *createBatchedObjectIterator(
-    long long timeout, unsigned int maxbulks, unsigned int maxbytes) {
+// Create a L0-Iterator.
+static batchedObjectIterator *createBatchedObjectIterator(mstime_t timeout) {
     batchedObjectIterator *it = zmalloc(sizeof(batchedObjectIterator));
     it->timeout = timeout;
-    it->maxbulks = maxbulks;
-    it->maxbytes = maxbytes;
     it->keys = dictCreate(&setDictType, NULL);
     it->iterator_list = listCreate();
     listSetFreeMethod(it->iterator_list, freeSingleObjectIteratorVoid);
-    it->released_keys = listCreate();
-    listSetFreeMethod(it->released_keys, decrRefCountVoid);
+    it->finished_keys = listCreate();
+    listSetFreeMethod(it->finished_keys, decrRefCountVoid);
+    it->maxbulks = server.async_migration_message_limit;
     it->delivered_msgs = 0;
     it->estimated_msgs = 0;
     return it;
 }
 
+// Release a L0-Iterator and release all related resouces respectively.
 static void freeBatchedObjectIterator(batchedObjectIterator *it) {
     dictRelease(it->keys);
     listRelease(it->iterator_list);
-    listRelease(it->released_keys);
+    listRelease(it->finished_keys);
     zfree(it);
 }
 
@@ -746,7 +748,7 @@ static int batchedObjectIteratorHasNext(batchedObjectIterator *it) {
         }
         if (sp->obj != NULL) {
             incrRefCount(sp->key);
-            listAddNodeTail(it->released_keys, sp->key);
+            listAddNodeTail(it->finished_keys, sp->key);
         }
         listDelNode(ll, head);
     }
@@ -767,6 +769,7 @@ static int batchedObjectIteratorContains(batchedObjectIterator *it, robj *key) {
     return dictFind(it->keys, key->ptr) != NULL;
 }
 
+// Add the specified key to current batch if it doesn't exsit yet.
 static int batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it,
                                        robj *key) {
     if (batchedObjectIteratorContains(it, key)) {
@@ -780,6 +783,7 @@ static int batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it,
     return 1;
 }
 
+// Dump the metrics of the given L0-Iterator.
 static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
     if (it == NULL) {
         addReply(c, shared.nullmultibulk);
@@ -812,10 +816,6 @@ static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
     addReplyBulkLongLong(c, it->maxbulks);
 
     total++;
-    addReplyBulkCString(c, "maxbytes");
-    addReplyBulkLongLong(c, it->maxbytes);
-
-    total++;
     addReplyBulkCString(c, "estimated_msgs");
     addReplyBulkLongLong(c, it->estimated_msgs);
 
@@ -824,8 +824,8 @@ static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
     addReplyBulkLongLong(c, it->delivered_msgs);
 
     total++;
-    addReplyBulkCString(c, "released_keys");
-    addReplyBulkLongLong(c, listLength(it->released_keys));
+    addReplyBulkCString(c, "finished_keys");
+    addReplyBulkLongLong(c, listLength(it->finished_keys));
 
     total++;
     addReplyBulkCString(c, "iterator_list");
@@ -852,14 +852,14 @@ static asyncMigrationClient *getAsyncMigrationClient(int db) {
 
 static void asyncMigrationClientInterrupt(asyncMigrationClient *ac,
                                           const char *errmsg) {
-    batchedObjectIterator *it = ac->iterator;
-    long ret = (it != NULL) ? (long)listLength(it->released_keys) : -1;
+    batchedObjectIterator *it = ac->batched_iterator;
+    long ret = (it != NULL) ? (long)listLength(it->finished_keys) : -1;
 
-    list *ll = ac->bclients;
+    list *ll = ac->blocked_clients;
     while (listLength(ll) != 0) {
         listNode *head = listFirst(ll);
         client *c = listNodeValue(head);
-        serverAssert(c->migration_waitq == ll);
+        serverAssert(c->migration_wait == ll);
 
         if (errmsg != NULL) {
             addReplyError(c, errmsg);
@@ -867,7 +867,7 @@ static void asyncMigrationClientInterrupt(asyncMigrationClient *ac,
             addReplyLongLong(c, ret);
         }
 
-        c->migration_waitq = NULL;
+        c->migration_wait = NULL;
         listDelNode(ll, head);
 
         unblockClient(c);
@@ -875,12 +875,12 @@ static void asyncMigrationClientInterrupt(asyncMigrationClient *ac,
 }
 
 void unblockClientFromAsyncMigration(client *c) {
-    list *ll = c->migration_waitq;
+    list *ll = c->migration_wait;
     if (ll != NULL) {
         listNode *node = listSearchKey(ll, c);
         serverAssert(node != NULL);
 
-        c->migration_waitq = NULL;
+        c->migration_wait = NULL;
         listDelNode(ll, node);
     }
 }
@@ -889,14 +889,16 @@ void releaseClientFromAsyncMigration(client *c) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
     serverAssert(ac->c == c);
 
-    batchedObjectIterator *it = ac->iterator;
+    batchedObjectIterator *it = ac->batched_iterator;
 
     serverLog(LL_WARNING,
               "async_migration: release connection %s:%d (DB=%d): "
-              "sending_msgs = %ld, bclients = %ld, iterator = %ld, "
+              "pending_msgs = %lld, "
+              "blocked_clients = %ld, "
+              "batched_iterator= %ld, "
               "timeout = %lld(ms), elapsed = %lld(ms)",
-              ac->host, ac->port, c->db->id, ac->sending_msgs,
-              (long)listLength(ac->bclients),
+              ac->host, ac->port, c->db->id, ac->pending_msgs,
+              (long)listLength(ac->blocked_clients),
               (it != NULL) ? (long)listLength(it->iterator_list) : -1,
               ac->timeout, mstime() - ac->lastuse);
 
@@ -906,7 +908,7 @@ void releaseClientFromAsyncMigration(client *c) {
     if (it != NULL) {
         freeBatchedObjectIterator(it);
     }
-    listRelease(ac->bclients);
+    listRelease(ac->blocked_clients);
 
     c->flags &= ~CLIENT_ASYNC_MIGRATION;
 
@@ -932,7 +934,7 @@ static int asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
 
     sdsfree(errmsg);
 
-    serverAssert(ac->c == NULL && ac->iterator == NULL);
+    serverAssert(ac->c == NULL && ac->batched_iterator == NULL);
     return 1;
 }
 
@@ -989,14 +991,14 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     c->authenticated = 1;
 
     ac->c = c;
-    ac->init = 0;
+    ac->auth = 0;
     ac->host = sdsdup(host);
     ac->port = port;
     ac->timeout = timeout;
     ac->lastuse = mstime();
-    ac->sending_msgs = 0;
-    ac->bclients = listCreate();
-    ac->iterator = NULL;
+    ac->pending_msgs = 0;
+    ac->blocked_clients = listCreate();
+    ac->batched_iterator = NULL;
 
     serverLog(LL_WARNING, "async_migration: connect to %s:%d (DB=%d) OK", host,
               port, db);
@@ -1005,17 +1007,17 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
 
 static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
-    if (ac->c == NULL || ac->iterator == NULL) {
+    if (ac->c == NULL || ac->batched_iterator == NULL) {
         return 0;
     }
     if (!block) {
         return 1;
     }
-    serverAssert(c->migration_waitq == NULL);
+    serverAssert(c->migration_wait == NULL);
 
-    list *ll = ac->bclients;
+    list *ll = ac->blocked_clients;
 
-    c->migration_waitq = ll;
+    c->migration_wait = ll;
     listAddNodeTail(ll, c);
 
     blockClient(c, BLOCKED_ASYNC_MIGRATION);
@@ -1028,7 +1030,7 @@ void cleanupClientsForAsyncMigration() {
         if (ac->c == NULL) {
             continue;
         }
-        batchedObjectIterator *it = ac->iterator;
+        batchedObjectIterator *it = ac->batched_iterator;
         long long elapsed = mstime() - ac->lastuse;
         if (elapsed <= ac->timeout) {
             continue;
@@ -1042,10 +1044,10 @@ void cleanupClientsForAsyncMigration() {
 int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
                                  robj **argv, int argc) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
-    if (ac->c == NULL || ac->iterator == NULL) {
+    if (ac->c == NULL || ac->batched_iterator == NULL) {
         return 0;
     }
-    batchedObjectIterator *it = ac->iterator;
+    batchedObjectIterator *it = ac->batched_iterator;
 
     multiState _ms, *ms = &_ms;
     multiCmd mc;
@@ -1117,10 +1119,7 @@ void migrateAsyncDumpCommand(client *c) {
         maxbulks = 2000;
     }
 
-    long long maxbytes = INT_MAX / 2;
-
-    batchedObjectIterator *it =
-        createBatchedObjectIterator(timeout, maxbulks, maxbytes);
+    batchedObjectIterator *it = createBatchedObjectIterator(timeout);
     for (int i = 3; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
@@ -1151,12 +1150,13 @@ static unsigned int asyncMigrationClientBufferLimit(unsigned int maxbytes) {
 
 static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
                                             int atleast, long long usecs) {
-    batchedObjectIterator *it = ac->iterator;
+    batchedObjectIterator *it = ac->batched_iterator;
     long long deadline = ustime() + usecs;
+    size_t limit = server.async_migration_sendbuf_limit;
     int n = 0;
     while (batchedObjectIteratorHasNext(it)) {
-        long long usage = getClientOutputBufferMemoryUsage(ac->c);
-        if (ac->sending_msgs != 0 && it->maxbytes <= usage) {
+        size_t usage = getClientOutputBufferMemoryUsage(ac->c);
+        if (ac->pending_msgs != 0 && limit <= usage) {
             break;
         }
         if ((n += batchedObjectIteratorNext(ac->c, it)) >= atleast &&
@@ -1229,28 +1229,28 @@ void migrateAsyncCommand(client *c) {
         addReplyErrorFormat(c, "connect to %s:%d failed", host, (int)port);
         return;
     }
-    serverAssert(ac->sending_msgs == 0);
-    serverAssert(listLength(ac->bclients) == 0 && ac->iterator == NULL);
+    serverAssert(ac->pending_msgs == 0);
+    serverAssert(listLength(ac->blocked_clients) == 0 &&
+                 ac->batched_iterator == NULL);
 
-    batchedObjectIterator *it =
-        createBatchedObjectIterator(timeout, maxbulks, maxbytes);
+    batchedObjectIterator *it = createBatchedObjectIterator(timeout);
     for (int i = 6; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
-    ac->iterator = it;
+    ac->batched_iterator = it;
 
     ac->timeout = timeout;
     ac->lastuse = mstime();
-    ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
+    ac->pending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
 
     asyncMigrationClientStatusOrBlock(c, 1);
 
-    if (ac->sending_msgs != 0) {
+    if (ac->pending_msgs != 0) {
         return;
     }
     asyncMigrationClientInterrupt(ac, NULL);
 
-    ac->iterator = NULL;
+    ac->batched_iterator = NULL;
     freeBatchedObjectIterator(it);
 }
 
@@ -1299,8 +1299,8 @@ void migrateAsyncStatusCommand(client *c) {
     addReplyBulkLongLong(c, ac->port);
 
     total++;
-    addReplyBulkCString(c, "init");
-    addReplyBulkLongLong(c, ac->init);
+    addReplyBulkCString(c, "auth");
+    addReplyBulkLongLong(c, ac->auth);
 
     total++;
     addReplyBulkCString(c, "timeout");
@@ -1315,20 +1315,20 @@ void migrateAsyncStatusCommand(client *c) {
     addReplyBulkLongLong(c, mstime() - ac->lastuse);
 
     total++;
-    addReplyBulkCString(c, "sending_msgs");
-    addReplyBulkLongLong(c, ac->sending_msgs);
+    addReplyBulkCString(c, "pending_msgs");
+    addReplyBulkLongLong(c, ac->pending_msgs);
 
     total++;
     addReplyBulkCString(c, "memory_usage");
     addReplyBulkLongLong(c, getClientOutputBufferMemoryUsage(ac->c));
 
     total++;
-    addReplyBulkCString(c, "bclients");
-    addReplyBulkLongLong(c, listLength(ac->bclients));
+    addReplyBulkCString(c, "blocked_clients");
+    addReplyBulkLongLong(c, listLength(ac->blocked_clients));
 
     total++;
-    addReplyBulkCString(c, "iterator");
-    batchedObjectIteratorStatus(c, ac->iterator);
+    addReplyBulkCString(c, "batched_iterator");
+    batchedObjectIteratorStatus(c, ac->batched_iterator);
 
     setDeferredMultiBulkLength(c, ptr, total * 2);
 }
@@ -1788,30 +1788,30 @@ static int restoreAsyncAckHandle(client *c) {
         return C_ERR;
     }
 
-    batchedObjectIterator *it = ac->iterator;
+    batchedObjectIterator *it = ac->batched_iterator;
     if (it == NULL) {
         serverLog(LL_WARNING, "async_migration: nil batched iterator");
         addReplyError(c, "invalid iterator (nil)");
         return C_ERR;
     }
-    if (ac->sending_msgs == 0) {
+    if (ac->pending_msgs == 0) {
         serverLog(LL_WARNING, "async_migration: not sending messages");
-        addReplyError(c, "invalid iterator (sending_msgs=0)");
+        addReplyError(c, "invalid iterator (pending_msgs=0)");
         return C_ERR;
     }
     it->delivered_msgs++;
 
     ac->lastuse = mstime();
-    ac->sending_msgs -= 1;
-    ac->sending_msgs += asyncMigrationNextInMicroseconds(ac, 2, 10);
+    ac->pending_msgs -= 1;
+    ac->pending_msgs += asyncMigrationNextInMicroseconds(ac, 2, 10);
 
-    if (ac->sending_msgs != 0) {
+    if (ac->pending_msgs != 0) {
         return C_OK;
     }
     asyncMigrationClientInterrupt(ac, NULL);
 
-    if (listLength(it->released_keys) != 0) {
-        list *ll = it->released_keys;
+    if (listLength(it->finished_keys) != 0) {
+        list *ll = it->finished_keys;
 
         for (int i = 0; i < c->argc; i++) {
             decrRefCount(c->argv[i]);
@@ -1837,7 +1837,7 @@ static int restoreAsyncAckHandle(client *c) {
         c->argv[0] = createStringObject("DEL", 3);
     }
 
-    ac->iterator = NULL;
+    ac->batched_iterator = NULL;
     freeBatchedObjectIterator(it);
     return C_OK;
 }
