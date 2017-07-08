@@ -1156,20 +1156,23 @@ void migrateAsyncDumpCommand(client *c) {
 static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
                                             int atleast, long long usecs) {
     batchedObjectIterator *it = ac->batched_iterator;
-    long long deadline = ustime() + usecs;
-    size_t limit = server.async_migration_sendbuf_limit;
-    int n = 0;
+    long long start = ustime();
+    int msgs = 0;
     while (batchedObjectIteratorHasNext(it)) {
-        size_t usage = getClientOutputBufferMemoryUsage(ac->c);
-        if (ac->pending_msgs != 0 && limit <= usage) {
-            break;
+        if (ac->pending_msgs + msgs != 0) {
+            size_t usage = getClientOutputBufferMemoryUsage(ac->c);
+            size_t limit = server.async_migration_sendbuf_limit;
+            if (limit <= usage) {
+                break;
+            }
         }
-        if ((n += batchedObjectIteratorNext(ac->c, it)) >= atleast &&
-            deadline <= ustime()) {
-            break;
+        if ((msgs += batchedObjectIteratorNext(ac->c, it)) >= atleast) {
+            if (usecs <= ustime() - start) {
+                break;
+            }
         }
     }
-    return n;
+    return msgs;
 }
 
 // MIGRATE-ASYNC $host $port $timeout $key1 [$key2 ...]
@@ -1218,13 +1221,19 @@ void migrateAsyncCommand(client *c) {
 
     ac->timeout = timeout;
     ac->lastuse = mstime();
+
+    // Generate at least 4 messages with at most 500us.
     ac->pending_msgs += asyncMigrationNextInMicroseconds(ac, 4, 500);
 
+    // Block current client until all migration finished.
     asyncMigrationClientStatusOrBlock(c, 1);
 
     if (ac->pending_msgs != 0) {
         return;
     }
+
+    // Nothing happens - no key will be migrated.
+    // Wake up current client and mark finished (release iterator).
     asyncMigrationClientInterrupt(ac, NULL);
 
     ac->batched_iterator = NULL;
