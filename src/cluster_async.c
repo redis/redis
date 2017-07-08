@@ -1123,9 +1123,7 @@ int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
 
 /* ==================== Command: MIGRATE-ASNYC-DUMP ========================= */
 
-/* *
- * MIGRATE-ASYNC-DUMP $timeout $maxbulks $key1 [$key2 ...]
- * */
+// MIGRATE-ASYNC-DUMP $timeout $key1 [$key2 ...]
 void migrateAsyncDumpCommand(client *c) {
     long long timeout;
     if (getLongLongFromObject(c->argv[1], &timeout) != C_OK ||
@@ -1138,22 +1136,8 @@ void migrateAsyncDumpCommand(client *c) {
         timeout = 1000;
     }
 
-    long long maxbulks;
-    if (getLongLongFromObject(c->argv[2], &maxbulks) != C_OK ||
-        !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
-        addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                            (char *)c->argv[2]->ptr);
-        return;
-    }
-    if (maxbulks == 0) {
-        maxbulks = 200;
-    }
-    if (maxbulks > 2000) {
-        maxbulks = 2000;
-    }
-
     batchedObjectIterator *it = createBatchedObjectIterator(timeout);
-    for (int i = 3; i < c->argc; i++) {
+    for (int i = 2; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
 
@@ -1168,18 +1152,6 @@ void migrateAsyncDumpCommand(client *c) {
 }
 
 /* ==================== Command: MIGRATE-ASNYC ============================== */
-
-static unsigned int asyncMigrationClientBufferLimit(unsigned int maxbytes) {
-    clientBufferLimitsConfig *p =
-        &server.client_obuf_limits[CLIENT_TYPE_NORMAL];
-    if (p->soft_limit_bytes != 0 && p->soft_limit_bytes < maxbytes) {
-        maxbytes = p->soft_limit_bytes;
-    }
-    if (p->hard_limit_bytes != 0 && p->hard_limit_bytes < maxbytes) {
-        maxbytes = p->hard_limit_bytes;
-    }
-    return maxbytes;
-}
 
 static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
                                             int atleast, long long usecs) {
@@ -1200,9 +1172,7 @@ static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
     return n;
 }
 
-/* *
- * MIGRATE-ASYNC $host $port $timeout $maxbulks $maxbytes $key1 [$key2 ...]
- * */
+// MIGRATE-ASYNC $host $port $timeout $key1 [$key2 ...]
 void migrateAsyncCommand(client *c) {
     if (asyncMigrationClientStatusOrBlock(c, 0)) {
         addReplyError(c, "the specified DB is being migrated");
@@ -1230,32 +1200,6 @@ void migrateAsyncCommand(client *c) {
         timeout = 1000;
     }
 
-    long long maxbulks;
-    if (getLongLongFromObject(c->argv[4], &maxbulks) != C_OK ||
-        !(maxbulks >= 0 && maxbulks <= INT_MAX / 2)) {
-        addReplyErrorFormat(c, "invalid value of maxbulks (%s)",
-                            (char *)c->argv[4]->ptr);
-        return;
-    }
-    if (maxbulks == 0) {
-        maxbulks = 200;
-    }
-    if (maxbulks > 2000) {
-        maxbulks = 2000;
-    }
-
-    long long maxbytes;
-    if (getLongLongFromObject(c->argv[5], &maxbytes) != C_OK ||
-        !(maxbytes >= 0 && maxbytes <= INT_MAX / 2)) {
-        addReplyErrorFormat(c, "invalid value of maxbytes (%s)",
-                            (char *)c->argv[5]->ptr);
-        return;
-    }
-    if (maxbytes == 0) {
-        maxbytes = 1024 * 1024;
-    }
-    maxbytes = asyncMigrationClientBufferLimit(maxbytes);
-
     asyncMigrationClient *ac =
         asyncMigrationClientInit(c->db->id, host, port, timeout);
     if (ac == NULL) {
@@ -1267,7 +1211,7 @@ void migrateAsyncCommand(client *c) {
                  ac->batched_iterator == NULL);
 
     batchedObjectIterator *it = createBatchedObjectIterator(timeout);
-    for (int i = 6; i < c->argc; i++) {
+    for (int i = 4; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
     ac->batched_iterator = it;

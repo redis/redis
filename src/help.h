@@ -1018,7 +1018,7 @@ struct commandHelp {
     0,
     "4.2.0"},
     { "MIGRATE-ASYNC-DUMP",
-    "timeout maxbulks key [key...]",
+    "timeout key [key...]",
     "Eimulate a MIGRATE-ASYNC command on the specified keys and return the generated migration instructions.",
     0,
     "4.2.0"},
