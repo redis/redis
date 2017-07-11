@@ -4380,6 +4380,11 @@ void clusterCommand(client *c) {
             return;
         }
 
+        /* Avoid allocating more than needed in case of large COUNT argument
+         * and smaller actual number of keys. */
+        unsigned int keys_in_slot = countKeysInSlot(slot);
+        if (maxkeys > keys_in_slot) maxkeys = keys_in_slot;
+
         keys = zmalloc(sizeof(robj*)*maxkeys);
         numkeys = getKeysInSlot(slot, keys, maxkeys);
         addReplyMultiBulkLen(c,numkeys);
