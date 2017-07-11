@@ -3304,6 +3304,11 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
 void unblockClientFromModule(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
     bc->client = NULL;
+    /* Reset the client for a new query since, for blocking commands implemented
+     * into modules, we do not it immediately after the command returns (and
+     * the client blocks) in order to be still able to access the argument
+     * vector from callbacks. */
+    resetClient(c);
 }
 
 /* Block a client in the context of a blocking command, returning an handle
