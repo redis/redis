@@ -66,6 +66,11 @@ simple module that implements a command that outputs a random number.
         return REDISMODULE_OK;
     }
 
+    int RedisModule_Unload(RedisModuleCtx *ctx) {
+        RedisModule_Log(ctx, "notice", "unloading module helloword");
+        return REDISMODULE_OK;
+    }
+
     int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         if (RedisModule_Init(ctx,"helloworld",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
@@ -82,7 +87,10 @@ HELLOWORLD.RAND. This function is specific of that module. However the
 other function called `RedisModule_OnLoad()` must be present in each
 Redis module. It is the entry point for the module to be initialized,
 register its commands, and potentially other private data structures
-it uses.
+it uses. When there is an optional function called `RedisModule_Unload`
+present in Redis module, it will be called before it's actually unloaded.
+Returning value other than `REDISMODULE_OK` can prevent module from being
+unloaded.
 
 Note that it is a good idea for modules to call commands with the
 name of the module followed by a dot, and finally the command name,
