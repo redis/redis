@@ -720,7 +720,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
     size_t asize = 0, elesize = 0, samples = 0;
 
     if (o->type == OBJ_STRING) {
-        sizeOfStringObject(o);
+        asize = sizeOfStringObject(o);
     } else if (o->type == OBJ_LIST) {
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
             quicklist *ql = o->ptr;
