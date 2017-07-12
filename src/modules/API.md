@@ -573,7 +573,7 @@ If no TTL is associated with the key or if the key is empty,
     int RM_SetExpire(RedisModuleKey *key, mstime_t expire);
 
 Set a new expire for the key. If the special expire
-`REDISMODULE_NO_EXPIRE` is set, the expire is cancelled if there was
+`REDISMODULE_NO_EXPIRE` is set, the expire is canceled if there was
 one (the same as the PERSIST command).
 
 Note that the expire must be provided as a positive integer representing

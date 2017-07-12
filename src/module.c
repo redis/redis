@@ -1386,7 +1386,7 @@ mstime_t RM_GetExpire(RedisModuleKey *key) {
 }
 
 /* Set a new expire for the key. If the special expire
- * REDISMODULE_NO_EXPIRE is set, the expire is cancelled if there was
+ * REDISMODULE_NO_EXPIRE is set, the expire is canceled if there was
  * one (the same as the PERSIST command).
  *
  * Note that the expire must be provided as a positive integer representing
@@ -3617,7 +3617,7 @@ void moduleInitModulesSystem(void) {
  * because the server must be fully initialized before loading modules.
  *
  * The function aborts the server on errors, since to start with missing
- * modules is not considered sane: clients may rely on the existance of
+ * modules is not considered sane: clients may rely on the existence of
  * given commands, loading AOF also may need some modules to exist, and
  * if this instance is a slave, it must understand commands from master. */
 void moduleLoadFromQueue(void) {

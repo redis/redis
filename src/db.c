@@ -46,7 +46,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
     if (de) {
         robj *val = dictGetVal(de);
 
-        /* Update the access time for the ageing algorithm.
+        /* Update the access time for the aging algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 &&
@@ -106,7 +106,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
          * to clients accessign expired values in a read-only fashion, that
-         * will say the key as non exisitng.
+         * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
         if (server.current_client &&
@@ -296,7 +296,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * If callback is given the function is called from time to time to
  * signal that work is in progress.
  *
- * The dbnum can be -1 if all teh DBs should be flushed, or the specified
+ * The dbnum can be -1 if all the DBs should be flushed, or the specified
  * DB number if we want to flush only a single Redis database number.
  *
  * Flags are be EMPTYDB_NO_FLAGS if no special flags are specified or

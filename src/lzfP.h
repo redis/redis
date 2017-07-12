@@ -56,7 +56,7 @@
 #endif
 
 /*
- * Sacrifice very little compression quality in favour of compression speed.
+ * Sacrifice very little compression quality in favor of compression speed.
  * This gives almost the same compression as the default code, and is
  * (very roughly) 15% faster. This is the preferred mode of operation.
  */
@@ -65,7 +65,7 @@
 #endif
 
 /*
- * Sacrifice some more compression quality in favour of compression speed.
+ * Sacrifice some more compression quality in favor of compression speed.
  * (roughly 1-2% worse compression for large blocks and
  * 9-10% for small, redundant, blocks and >>20% better speed in both cases)
  * In short: when in need for speed, enable this for binary data,

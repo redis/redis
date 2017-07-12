@@ -1,4 +1,4 @@
-/* redisassert.h -- Drop in replacemnet assert.h that prints the stack trace
+/* redisassert.h -- Drop in replacements assert.h that prints the stack trace
  *                  in the Redis logs.
  *
  * This file should be included instead of "assert.h" inside libraries used by

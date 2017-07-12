@@ -151,7 +151,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
  * Check latency.h definition of struct latenctStat for more info.
  * If the specified event has no elements the structure is populate with
@@ -416,7 +416,7 @@ sds createLatencyReport(void) {
             report = sdscat(report,"- The system is slow to execute Redis code paths not containing system calls. This usually means the system does not provide Redis CPU time to run for long periods. You should try to:\n"
             "  1) Lower the system load.\n"
             "  2) Use a computer / VM just for Redis if you are running other softawre in the same system.\n"
-            "  3) Check if you have a \"noisy neighbour\" problem.\n"
+            "  3) Check if you have a \"noisy neighbor\" problem.\n"
             "  4) Check with 'redis-cli --intrinsic-latency 100' what is the intrinsic latency in your system.\n"
             "  5) Check if the problem is allocator-related by recompiling Redis with MALLOC=libc, if you are using Jemalloc. However this may create fragmentation problems.\n");
         }

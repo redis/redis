@@ -145,7 +145,7 @@ double extractUnitOrReply(client *c, robj *unit) {
 /* Input Argument Helper.
  * Extract the dinstance from the specified two arguments starting at 'argv'
  * that shouldbe in the form: <number> <unit> and return the dinstance in the
- * specified unit on success. *conversino is populated with the coefficient
+ * specified unit on success. *conversions is populated with the coefficient
  * to use in order to convert meters to the unit.
  *
  * On error a value less than zero is returned. */

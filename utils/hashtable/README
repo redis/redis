@@ -5,7 +5,7 @@ rehashing.c
 
 Visually show buckets in the two hash tables between rehashings. Also stress
 test getRandomKeys() implementation, that may actually disappear from
-Redis soon, however visualizaiton some code is reusable in new bugs
+Redis soon, however visualization some code is reusable in new bugs
 investigation.
 
 Compile with:

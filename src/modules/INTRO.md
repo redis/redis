@@ -535,7 +535,7 @@ both modes. Currently a key opened for writing can also be accessed for reading
 but this is to be considered an implementation detail. The right mode should
 be used in sane modules.
 
-You can open non exisitng keys for writing, since the keys will be created
+You can open non existing keys for writing, since the keys will be created
 when an attempt to write to the key is performed. However when opening keys
 just for reading, `RedisModule_OpenKey` will return NULL if the key does not
 exist.
@@ -664,7 +664,7 @@ is used. Example:
     RedisModule_StringTruncate(mykey,1024);
 
 The function truncates, or enlarges the string as needed, padding it with
-zero bytes if the previos length is smaller than the new length we request.
+zero bytes if the previous length is smaller than the new length we request.
 If the string does not exist since `key` is associated to an open empty key,
 a string value is created and associated to the key.
 

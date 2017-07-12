@@ -448,7 +448,7 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     /* If the node we stopped at is a compressed node, we need to
      * split it before to continue.
      *
-     * Splitting a compressed node have a few possibile cases.
+     * Splitting a compressed node have a few possible cases.
      * Imagine that the node 'h' we are currently at is a compressed
      * node contaning the string "ANNIBALE" (it means that it represents
      * nodes A -> N -> N -> I -> B -> A -> L -> E with the only child
@@ -730,7 +730,7 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
         cp = raxNodeLastChildPtr(trimmed);
         memcpy(cp,&postfix,sizeof(postfix));
 
-        /* Finish! We don't need to contine with the insertion
+        /* Finish! We don't need to continue with the insertion
          * algorithm for ALGO 2. The key is already inserted. */
         rax->numele++;
         rax_free(h);

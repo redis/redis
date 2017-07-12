@@ -558,7 +558,7 @@ void activeDefragCycle(void) {
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
             /* Once in 16 scan iterations, or 1000 pointer reallocations
              * (if we have a lot of pointers in one hash bucket), check if we
-             * reached the tiem limit. */
+             * reached the time limit. */
             if (cursor && (++iterations > 16 || server.stat_active_defrag_hits - defragged > 1000)) {
                 if ((ustime() - start) > timelimit) {
                     return;
