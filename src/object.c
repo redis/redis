@@ -695,7 +695,7 @@ char *strEncoding(int encoding) {
 static size_t sizeOfStringObject(robj *o) {
     size_t strSize = 0;
     if (o->encoding == OBJ_ENCODING_INT) {
-        strSize = sizeof(long long);
+        strSize = sizeof(*o)+sizeof(long long);
     } else if (o->encoding == OBJ_ENCODING_RAW) {
         strSize = sdsAllocSize(o->ptr)+sizeof(*o);
     } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
@@ -713,7 +713,7 @@ static size_t sizeOfStringObject(robj *o) {
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t objectComputeSize(robj *o, size_t sample_size) {
-    robj *ele, *ele2;
+    sds ele, ele2;
     dict *d;
     dictIterator *di;
     struct dictEntry *de;
@@ -743,7 +743,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
-                elesize += sizeOfStringObject(ele);
+                elesize += sdsAllocSize(ele);
                 samples++;
             }
             dictReleaseIterator(di);
@@ -782,8 +782,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
-                elesize += sizeOfStringObject(ele) + sizeOfStringObject(ele2);
-                elesize += sizeof(struct dictEntry);
+                elesize += sdsAllocSize(ele) + sdsAllocSize(ele2);
                 samples++;
             }
             dictReleaseIterator(di);
