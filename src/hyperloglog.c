@@ -1121,6 +1121,7 @@ int isHLLObjectOrReply(client *c, robj *o) {
     if (checkType(c,o,OBJ_STRING))
         return C_ERR; /* Error already sent. */
 
+    if (!sdsEncodedObject(o)) goto invalid;
     if (stringObjectLen(o) < sizeof(*hdr)) goto invalid;
     hdr = o->ptr;
 

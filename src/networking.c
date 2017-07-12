@@ -1332,10 +1332,17 @@ void processInputBuffer(client *c) {
                     /* Update the applied replication offset of our master. */
                     c->reploff = c->read_reploff - sdslen(c->querybuf);
                 }
-                resetClient(c);
+
+                /* Don't reset the client structure for clients blocked in a
+                 * module blocking command, so that the reply callback will
+                 * still be able to access the client argv and argc field.
+                 * The client will be reset in unblockClientFromModule(). */
+                if (!(c->flags & CLIENT_BLOCKED) || c->btype != BLOCKED_MODULE)
+                    resetClient(c);
             }
-            /* freeMemoryIfNeeded may flush slave output buffers. This may result
-             * into a slave, that may be the active client, to be freed. */
+            /* freeMemoryIfNeeded may flush slave output buffers. This may
+             * result into a slave, that may be the active client, to be
+             * freed. */
             if (server.current_client == NULL) break;
         }
     }
