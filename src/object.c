@@ -695,7 +695,7 @@ char *strEncoding(int encoding) {
 static size_t sizeOfStringObject(robj *o) {
     size_t strSize = 0;
     if (o->encoding == OBJ_ENCODING_INT) {
-        strSize = sizeof(*o)+sizeof(long long);
+        strSize = sizeof(*o);
     } else if (o->encoding == OBJ_ENCODING_RAW) {
         strSize = sdsAllocSize(o->ptr)+sizeof(*o);
     } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
