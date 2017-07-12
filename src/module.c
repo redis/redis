@@ -47,6 +47,7 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    int (*unload)(void *) /* Module unload entry */;
 };
 typedef struct RedisModule RedisModule;
 
@@ -658,6 +659,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->unload = NULL;
     ctx->module = module;
 }
 
@@ -3674,6 +3676,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     /* Redis module loaded! Register it. */
     dictAdd(modules,ctx.module->name,ctx.module);
     ctx.module->handle = handle;
+    ctx.module->unload = (int (*)(void *))(unsigned long) dlsym(handle,"RedisModule_Unload");
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);
     return C_OK;
@@ -3686,6 +3689,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * ENONET: No such module having the specified name.
  * EBUSY: The module exports a new data type and can only be reloaded. */
 int moduleUnload(sds name) {
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
     struct RedisModule *module = dictFetchValue(modules,name);
 
     if (module == NULL) {
@@ -3696,6 +3700,15 @@ int moduleUnload(sds name) {
     if (listLength(module->types)) {
         errno = EBUSY;
         return REDISMODULE_ERR;
+    }
+
+    if (module->unload != NULL) {
+      ctx.module = module;
+      ctx.client = NULL;
+      if (module->unload(&ctx) != REDISMODULE_OK) {
+        errno = EBUSY;
+        return REDISMODULE_ERR;
+      }
     }
 
     /* Unregister all the commands registered by this module. */
