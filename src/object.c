@@ -738,7 +738,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 +(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
-                elesize += sdsAllocSize(ele);
+                elesize += sizeof(struct dictEntry)+sdsAllocSize(ele);
                 samples++;
             }
             dictReleaseIterator(di);
@@ -761,7 +761,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 +(sizeof(struct dictEntry*)*dictSlots(d));
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsAllocSize(znode->ele);
-                elesize += zmalloc_size(znode);
+                elesize += sizeof(struct dictEntry)+zmalloc_size(znode);
                 samples++;
                 znode = znode->level[0].forward;
             }
@@ -782,6 +782,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
                 elesize += sdsAllocSize(ele) + sdsAllocSize(ele2);
+                elesize += sizeof(struct dictEntry);
                 samples++;
             }
             dictReleaseIterator(di);
