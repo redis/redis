@@ -733,9 +733,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            int dicthtNum = dictIsRehashing(d) + 1;
-            asize = sizeof(*o)+sizeof(dict)+dicthtNum*sizeof(dictht)
-                +(sizeof(struct dictEntry*)*dictSlots(d));
+            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 elesize += sizeof(struct dictEntry)+sdsAllocSize(ele);
@@ -756,8 +754,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
             zskiplistNode *znode = zsl->header->level[0].forward;
-            int dicthtNum = dictIsRehashing(d) + 1;
-            asize = sizeof(*o)+sizeof(zset)+dicthtNum*sizeof(dictht)
+            asize = sizeof(*o)+sizeof(zset)+sizeof(*d)+sizeof(*zsl)
                 +(sizeof(struct dictEntry*)*dictSlots(d));
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsAllocSize(znode->ele);
@@ -775,9 +772,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            int dicthtNum = dictIsRehashing(d) + 1;
-            asize = sizeof(*o)+sizeof(dict)+dicthtNum*sizeof(dictht)
-                +(sizeof(struct dictEntry*)*dictSlots(d));
+            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
