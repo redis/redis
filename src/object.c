@@ -692,21 +692,6 @@ char *strEncoding(int encoding) {
 
 /* =========================== Memory introspection ========================== */
 
-static size_t sizeOfStringObject(robj *o) {
-    size_t strSize = 0;
-    if (o->encoding == OBJ_ENCODING_INT) {
-        strSize = sizeof(*o);
-    } else if (o->encoding == OBJ_ENCODING_RAW) {
-        strSize = sdsAllocSize(o->ptr)+sizeof(*o);
-    } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
-        strSize = sdslen(o->ptr)+2+sizeof(*o);
-    } else {
-        serverPanic("Unknown string encoding");
-    }
-
-    return strSize;
-}
-
 /* Returns the size in bytes consumed by the key's value in RAM.
  * Note that the returned value is just an approximation, especially in the
  * case of aggregated data types where only "sample_size" elements
@@ -720,7 +705,15 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
     size_t asize = 0, elesize = 0, samples = 0;
 
     if (o->type == OBJ_STRING) {
-        asize = sizeOfStringObject(o);
+        if (o->encoding == OBJ_ENCODING_INT) {
+            asize = sizeof(*o);
+        } else if (o->encoding == OBJ_ENCODING_RAW) {
+            asize = sdsAllocSize(o->ptr)+sizeof(*o);
+        } else if (o->encoding == OBJ_ENCODING_EMBSTR) {
+            asize = sdslen(o->ptr)+2+sizeof(*o);
+        } else {
+            serverPanic("Unknown string encoding");
+        }
     } else if (o->type == OBJ_LIST) {
         if (o->encoding == OBJ_ENCODING_QUICKLIST) {
             quicklist *ql = o->ptr;
@@ -740,7 +733,9 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            int dicthtNum = dictIsRehashing(d) + 1;
+            asize = sizeof(*o)+sizeof(dict)+dicthtNum*sizeof(dictht)
+                +(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 elesize += sdsAllocSize(ele);
@@ -761,7 +756,9 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
             zskiplistNode *znode = zsl->header->level[0].forward;
-            asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
+            int dicthtNum = dictIsRehashing(d) + 1;
+            asize = sizeof(*o)+sizeof(zset)+dicthtNum*sizeof(dictht)
+                +(sizeof(struct dictEntry*)*dictSlots(d));
             while(znode != NULL && samples < sample_size) {
                 elesize += sdsAllocSize(znode->ele);
                 elesize += zmalloc_size(znode);
@@ -778,7 +775,9 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            int dicthtNum = dictIsRehashing(d) + 1;
+            asize = sizeof(*o)+sizeof(dict)+dicthtNum*sizeof(dictht)
+                +(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
