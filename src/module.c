@@ -206,6 +206,7 @@ typedef struct RedisModuleBlockedClient {
                            RedisModule_UnblockClient() API. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
+    int dbid;           /* Database number selected by the original client. */
 } RedisModuleBlockedClient;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -3339,6 +3340,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->privdata = NULL;
     bc->reply_client = createClient(-1);
     bc->reply_client->flags |= CLIENT_MODULE;
+    bc->dbid = c->db->id;
     c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
     blockClient(c,BLOCKED_MODULE);
@@ -3524,6 +3526,7 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * in order to keep things like the currently selected database and similar
      * things. */
     ctx->client = createClient(-1);
+    if (bc) selectDb(ctx->client,bc->dbid);
     return ctx;
 }
 
