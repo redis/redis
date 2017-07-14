@@ -207,20 +207,24 @@ int REDISMODULE_API_FUNC(RedisModule_StringAppendBuffer)(RedisModuleCtx *ctx, Re
 void REDISMODULE_API_FUNC(RedisModule_RetainString)(RedisModuleCtx *ctx, RedisModuleString *str);
 int REDISMODULE_API_FUNC(RedisModule_StringCompare)(RedisModuleString *a, RedisModuleString *b);
 RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetContextFromIO)(RedisModuleIO *io);
+long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
+void REDISMODULE_API_FUNC(RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len);
+void REDISMODULE_API_FUNC(RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele);
+void REDISMODULE_API_FUNC(RedisModule_DigestEndSequence)(RedisModuleDigest *md);
+
+/* Experimental APIs */
+#ifdef REDISMODULE_EXPERIMENTAL_API
 RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms);
 int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
 int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx);
 void *REDISMODULE_API_FUNC(RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_AbortBlock)(RedisModuleBlockedClient *bc);
-long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
 RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc);
 void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
-void REDISMODULE_API_FUNC(RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len);
-void REDISMODULE_API_FUNC(RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele);
-void REDISMODULE_API_FUNC(RedisModule_DigestEndSequence)(RedisModuleDigest *md);
+#endif
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) __attribute__((unused));
@@ -322,20 +326,23 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RetainString);
     REDISMODULE_GET_API(StringCompare);
     REDISMODULE_GET_API(GetContextFromIO);
+    REDISMODULE_GET_API(Milliseconds);
+    REDISMODULE_GET_API(DigestAddStringBuffer);
+    REDISMODULE_GET_API(DigestAddLongLong);
+    REDISMODULE_GET_API(DigestEndSequence);
+
+#ifdef REDISMODULE_EXPERIMENTAL_API
+    REDISMODULE_GET_API(GetThreadSafeContext);
+    REDISMODULE_GET_API(FreeThreadSafeContext);
+    REDISMODULE_GET_API(ThreadSafeContextLock);
+    REDISMODULE_GET_API(ThreadSafeContextUnlock);
     REDISMODULE_GET_API(BlockClient);
     REDISMODULE_GET_API(UnblockClient);
     REDISMODULE_GET_API(IsBlockedReplyRequest);
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
-    REDISMODULE_GET_API(Milliseconds);
-    REDISMODULE_GET_API(GetThreadSafeContext);
-    REDISMODULE_GET_API(FreeThreadSafeContext);
-    REDISMODULE_GET_API(ThreadSafeContextLock);
-    REDISMODULE_GET_API(ThreadSafeContextUnlock);
-    REDISMODULE_GET_API(DigestAddStringBuffer);
-    REDISMODULE_GET_API(DigestAddLongLong);
-    REDISMODULE_GET_API(DigestEndSequence);
+#endif
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);
     return REDISMODULE_OK;
