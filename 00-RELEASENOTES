@@ -11,6 +11,347 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.0     Released Fri Jul 14 13:04:44 CEST 2017
+================================================================================
+
+Upgrade urgency CRITICAL: 4.0.0 GA fixes many important bugs.
+
+Dear Redis users,
+
+this is the first stable version of Redis 4.0. There are a number
+of bug fixes and improvements compared to the previous RC, mainly:
+
+* Different replication fixes to PSYNC2, the new 4.0 replication engine.
+* Modules thread safe contexts were introduced. They are an experimental API right now, but the API is considered to be stable and usable when needed.
+* SLOWLOG now logs the offending client name and address. Note that this is a backward compatibility breakage in case old code assumes that the slowlog entry is composed of exactly three entries.
+* The modules native data types RDB format changed.
+* The AOF check utility is now able to deal with RDB preambles.
+* GEORADIUS_RO and GEORADIUSBYMEMBER_RO variants, not supporting the STORE option, were added in order to allow read-only scaling of such queries.
+* HSET is now variadic, and HMSET is considered deprecated (but will be supported for years to come). Please use HSET in new code.
+* GEORADIUS huge radius (>= ~6000 km) corner cases fixed, certain elements near the edges were not returned.
+* DEBUG DIGEST modules API added.
+* HyperLogLog commands no longer crash on certain input (non HLL) strings.
+* Fixed SLAVEOF inside MULTI/EXEC blocks.
+* Many other minor bug fixes and improvements.
+
+Note that 4.0 is probably one of the most extreme releases of Redis ever
+made in terms of changes inside the internals: all the aggregated data types
+no longer use Redis Objects structures but directly SDS objects, certain
+deletion operations are now threaded, the replication engine was modified
+in many ways. So please handle this release with care. A few patch-level 
+releases will follow in the next weeks and months fixing the important issues
+discovered by the users.
+
+You can read the new set of features below in this file, there are a lot
+of improvements that can make a real difference in real world use cases.
+Also note that Redis 4.0 is, as usually, almost a perfect superset of Redis
+3.2, so it is very rare that compatibility with the past is broken in terms
+of exported commands.
+
+IMPORTANT: Redis Cluster users, please note that, as specified in the list
+of incompatibilities, Redis 4.0 cluster bus protocol is not compatible with
+Redis 3.2, so in order to upgrade, a mass reboot of the instances is needed
+and rolling upgrades are not possible. This change was needed in order to
+add compatibility for Containers/NAT, where the bus port at a fixed offset
+was not an acceptable design, so we had to change many things, resulting
+in the incompatible protocol.
+
+Have fun with Redis 4.0!
+Salvatore
+
+antirez in commit c29852ff:
+ Modules: fix thread safe context DB selection.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit b73f186a:
+ Modules documentation removed from source.
+ 4 files changed, 2830 deletions(-)
+
+antirez in commit 09d93ec9:
+ Markdown generation of Redis Modules API reference improved.
+ 2 files changed, 83 insertions(+), 74 deletions(-)
+
+antirez in commit 87aabb1a:
+ Fix replication of SLAVEOF inside transaction.
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+antirez in commit 44f89d1d:
+ CLUSTER GETKEYSINSLOT: avoid overallocating.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit 0df24b68:
+ Fix isHLLObjectOrReply() to handle integer encoded strings.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 884ceb69:
+ Clients blocked in modules: free argv/argc later.
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+antirez in commit ccbdd762:
+ Event loop: call after sleep() only from top level.
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+antirez in commit 10925e46:
+ redis-check-aof: tell users there is a --fix option.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit 99bb1c74:
+ Modules: Fix io->bytes calculation in RDB save
+ 1 file changed, 55 insertions(+), 30 deletions(-)
+
+antirez in commit cfdcd440:
+ AOF check utility: ability to check files with RDB preamble.
+ 6 files changed, 61 insertions(+), 35 deletions(-)
+
+sunweinan in commit 1cefb1c5:
+ minor fix in listJoin().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit db791a1e:
+ Free IO context if any in RDB loading code.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 419dacfe:
+ Modules: DEBUG DIGEST interface.
+ 5 files changed, 108 insertions(+), 1 deletion(-)
+
+spinlock in commit 5d03b831:
+ update Makefile for test-sds
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+spinlock in commit ed437b82:
+ Optimize addReplyBulkSds for better performance
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+antirez in commit 4ebfe265:
+ Avoid closing invalid FDs to make Valgrind happier.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit b6cab88c:
+ Modules: no MULTI/EXEC for commands replicated from async contexts.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit 5c5e8a50:
+ Add symmetrical assertion to track c->reply_buffer infinite growth.
+ 1 file changed, 4 insertions(+)
+
+Dvir Volk in commit c63a97f8:
+ fixed #4100
+ 1 file changed, 1 insertion(+)
+
+antirez in commit eeb90571:
+ Fix GEORADIUS edge case with huge radius.
+ 2 files changed, 39 insertions(+), 20 deletions(-)
+
+antirez in commit 670456a7:
+ redis-cli --latency: ability to run non interactively.
+ 1 file changed, 39 insertions(+), 3 deletions(-)
+
+antirez in commit 64db8044:
+ HMSET and MSET implementations unified. HSET now variadic.
+ 2 files changed, 18 insertions(+), 22 deletions(-)
+
+antirez in commit e43c890e:
+ Aesthetic changes to #4068 PR to conform to Redis coding standard.
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+itamar in commit 3f3dc3b8:
+ Sets up fake client to select current db in RM_Call()
+ 1 file changed, 1 insertion(+)
+
+antirez in commit ba773724:
+ Fix abort typo in Lua debugger help screen.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit bdd6de96:
+ Added GEORADIUS(BYMEMBER)_RO variants for read-only operations.
+ 3 files changed, 32 insertions(+), 11 deletions(-)
+
+Suraj Narkhede in commit de391ff1:
+ Fix brpop command table entry and redirect blocked clients.
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit 5af0fc0c:
+ RDB modules values serialization format version 2.
+ 4 files changed, 127 insertions(+), 28 deletions(-)
+
+antirez in commit 6516958e:
+ ARM: Fix stack trace generation on crash.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit 3669f96e:
+ Issue #4027: unify comment and modify return value in freeMemoryIfNeeded().
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+Suraj Narkhede in commit 896c4690:
+ Fix following issues in blocking commands: 1. brpop last key index, thus checking all keys for slots. 2. Memory leak in clusterRedirectBlockedClientIfNeeded. 3. Remove while loop in clusterRedirectBlockedClientIfNeeded.
+ 1 file changed, 1 insertion(+)
+
+Zachary Marquez in commit deeb795a:
+ Prevent expirations and evictions while paused
+ 2 files changed, 10 insertions(+)
+
+antirez in commit a6615423:
+ Upgrade 4.0 changelog with more backward incompatibilities.
+ 1 file changed, 8 insertions(+)
+
+xuzhou in commit 0b367871:
+ Optimize set command with ex/px when updating aof.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 2ae733d9:
+ redis-benchmark: add -t hset target.
+ 1 file changed, 7 insertions(+)
+
+xuzhou in commit 63e1c9f2:
+ Fix set with ex/px option when propagated to aof
+ 4 files changed, 36 insertions(+), 1 deletion(-)
+
+minghang.zmh in commit 0231156f:
+ fix server.stat_net_output_bytes calc bug
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+xuchengxuan in commit e99954e4:
+ Fixed comments of slowlog duration
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+cbgbt in commit d048f972:
+ cli: Only print elapsed time on OUTPUT_STANDARD
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Aric Huang in commit b5f22939:
+ (fix) Update create-cluster README
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 0b7ba621:
+ SLOWLOG: log offending client address and name.
+ 4 files changed, 27 insertions(+), 7 deletions(-)
+
+Antonio Mallia in commit 1fbc90fe:
+ Removed duplicate 'sys/socket.h'  include
+ 1 file changed, 1 deletion(-)
+
+Antonio Mallia in commit c7a6b711:
+ Fixed comment in clusterMsg version field
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Qu Chen in commit 73d358f7:
+ Implement getKeys procedure for georadius and georadiusbymember commands.
+ 3 files changed, 41 insertions(+), 2 deletions(-)
+
+antirez in commit c782d189:
+ Fix PERSIST expired key resuscitation issue #4048.
+ 2 files changed, 4 insertions(+), 7 deletions(-)
+
+antirez in commit cb548bf3:
+ More informative -MISCONF error message.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 8cd6a2bd:
+ Collect fork() timing info only if fork succeeded.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit a3941aa5:
+ redis-cli --bigkeys: show error when TYPE fails.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit 6b21cebd:
+ Modules TSC: use atomic var for server.unixtime.
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+antirez in commit 54bd224f:
+ atomicvar.h: show used API in INFO. Add macro to force __sync builtin.
+ 2 files changed, 13 insertions(+), 6 deletions(-)
+
+antirez in commit a864d25c:
+ zmalloc.c: remove thread safe mode, it's the default way.
+ 3 files changed, 3 insertions(+), 23 deletions(-)
+
+antirez in commit b338f2b9:
+ Modules TSC: Add mutex for server.lruclock.
+ 2 files changed, 2 insertions(+)
+
+antirez in commit 7e9c658d:
+ Modules TSC: Improve inter-thread synchronization.
+ 5 files changed, 75 insertions(+), 20 deletions(-)
+
+antirez in commit e69af32f:
+ Simplify atomicvar.h usage by having the mutex name implicit.
+ 3 files changed, 25 insertions(+), 27 deletions(-)
+
+antirez in commit 26e57f17:
+ Lazyfree: fix lazyfreeGetPendingObjectsCount() race reading counter.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 2acf003c:
+ Modules TSC: HELLO.KEYS reply format fixed.
+ 1 file changed, 15 insertions(+), 13 deletions(-)
+
+antirez in commit 12fd298f:
+ Modules TSC: put the client in the pending write list.
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+antirez in commit 5b1afa4a:
+ adlist: fix final list count in listJoin().
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 717b2eea:
+ adlist: fix listJoin() to handle empty lists.
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit a839036a:
+ Modules: remove unused var in example module.
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+antirez in commit eda5ee5e:
+ Modules TSC: HELLO.KEYS example draft finished.
+ 1 file changed, 35 insertions(+), 6 deletions(-)
+
+antirez in commit fb8734fe:
+ Module: fix RedisModule_Call() "l" specifier to create a raw string.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit c4b88495:
+ Modules TSC: Release the GIL for all the time we are blocked.
+ 6 files changed, 100 insertions(+), 22 deletions(-)
+
+antirez in commit fcd9a07d:
+ Modules TSC: Export symbols of the new API.
+ 2 files changed, 12 insertions(+)
+
+antirez in commit 8affa3e7:
+ Modules TSC: Handling of RM_Reply* functions.
+ 3 files changed, 82 insertions(+), 14 deletions(-)
+
+antirez in commit 31b1f3c1:
+ Modules TSC: Basic TS context creeation and handling.
+ 1 file changed, 60 insertions(+), 1 deletion(-)
+
+antirez in commit 74f3a843:
+ Modules TSC: GIL and cooperative multi tasking setup.
+ 3 files changed, 31 insertions(+), 1 deletion(-)
+
+antirez in commit 5021fda2:
+ Regression test for #3899 fixed.
+ 1 file changed, 36 insertions(+), 19 deletions(-)
+
+antirez in commit 166bdbda:
+ Regression test for PSYNC2 issue #3899 added.
+ 2 files changed, 62 insertions(+)
+
+antirez in commit b506eb74:
+ Check event loop creation return value. Fix #3951.
+ 1 file changed, 6 insertions(+)
+
+antirez in commit 80690562:
+ PSYNC2: fix master cleanup when caching it.
+ 3 files changed, 20 insertions(+), 7 deletions(-)
+
+antirez in commit 8c4b0f41:
+ Defrag: test currently disabled, too many false positives.
+ 1 file changed, 40 insertions(+), 38 deletions(-)
+
+================================================================================
 Redis 4.0-RC3     Released Sat Apr 22 11:19:56 CEST 2017
 ================================================================================
 
