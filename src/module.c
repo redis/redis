@@ -2698,17 +2698,20 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
             mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
-            if (mt->id >> 10 == id >> 10) break;
+            if (mt->id >> 10 == id >> 10) {
+                /* Add to cache if possible. */
+                if (mt && j < MODULE_LOOKUP_CACHE_SIZE) {
+                    cache[j].id = id;
+                    cache[j].mt = mt;
+                }
+                dictReleaseIterator(di);
+                return mt;
+            }
         }
     }
     dictReleaseIterator(di);
 
-    /* Add to cache if possible. */
-    if (mt && j < MODULE_LOOKUP_CACHE_SIZE) {
-        cache[j].id = id;
-        cache[j].mt = mt;
-    }
-    return mt;
+    return NULL;
 }
 
 /* Turn an (unresolved) module ID into a type name, to show the user an
