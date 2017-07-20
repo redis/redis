@@ -2680,7 +2680,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
 
     /* Search in cache to start. */
     int j;
-    for (j = 0; j < MODULE_LOOKUP_CACHE_SIZE; j++)
+    for (j = 0; j < MODULE_LOOKUP_CACHE_SIZE && cache[j].mt != NULL; j++)
         if (cache[j].id == id) return cache[j].mt;
 
     /* Slow module by module lookup. */
@@ -2688,17 +2688,20 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL && mt == NULL) {
         struct RedisModule *module = dictGetVal(de);
         listIter li;
         listNode *ln;
 
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
-            mt = ln->value;
+            moduleType *this_mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
-            if (mt->id >> 10 == id >> 10) break;
+            if (this_mt->id >> 10 == id >> 10) {
+                mt = this_mt;
+                break;
+            }
         }
     }
     dictReleaseIterator(di);
