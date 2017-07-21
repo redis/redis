@@ -321,6 +321,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     } else {
         rdbCheckError("Unexpected EOF reading RDB file");
     }
+    fclose(fp);
     return 1;
 }
 

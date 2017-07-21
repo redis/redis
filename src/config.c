@@ -1494,11 +1494,11 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
  * If the old file does not exist at all, an empty state is returned. */
 struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
+    if (fp == NULL && errno != ENOENT) return NULL;
+
     struct rewriteConfigState *state = zmalloc(sizeof(*state));
     char buf[CONFIG_MAX_LINE+1];
     int linenum = -1;
-
-    if (fp == NULL && errno != ENOENT) return NULL;
 
     state->option_to_line = dictCreate(&optionToLineDictType,NULL);
     state->rewritten = dictCreate(&optionSetDictType,NULL);
