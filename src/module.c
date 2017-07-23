@@ -3315,7 +3315,7 @@ void unblockClientFromModule(client *c) {
 }
 
 /* Block a client in the context of a blocking command, returning an handle
- * which will be used, later, in order to block the client with a call to
+ * which will be used, later, in order to unblock the client with a call to
  * RedisModule_UnblockClient(). The arguments specify callback functions
  * and a timeout after which the client is unblocked.
  *
