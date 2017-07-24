@@ -345,6 +345,7 @@ void decrRefCountVoid(void *o) {
  *    decrRefCount(obj);
  */
 robj *resetRefCount(robj *obj) {
+    if (obj->refcount == OBJ_SHARED_REFCOUNT) return obj;
     obj->refcount = 0;
     return obj;
 }
@@ -1163,7 +1164,9 @@ void memoryCommand(client *c) {
         /* Nothing to do for other allocators. */
 #endif
     } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        addReplyMultiBulkLen(c,4);
+        addReplyMultiBulkLen(c,5);
+        addReplyBulkCString(c,
+"MEMORY DOCTOR                        - memory problems diagnosis");
         addReplyBulkCString(c,
 "MEMORY USAGE <key> [SAMPLES <count>] - Estimate memory usage of key");
         addReplyBulkCString(c,
