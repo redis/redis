@@ -11,6 +11,88 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.1     Released Mon Jul 24 15:51:31 CEST 2017
+================================================================================
+
+Upgrade urgency MODERATE: A few serious but non critical bugs in the modules
+                          subsystem. A rare Redis Cluster crash fixed.
+                          Many other minor fixes.
+
+Hi everybody. This is the first patch level release of Redis 4.0, fixing the
+obvious last minute issues discovered just after the 4.0.0 GA release, plus
+a few other things that were no-brainers. The highlights here in terms
+of bug fixing are:
+
+1. Loading two or more modules exporting native data types resulted into the
+   inability to reload the RDB file.
+2. Crash in modules when calling from Lua scripts module commands that would
+   block.
+3. A Redis Cluster crash due to mis-handling of the "migrate-to" internal
+   flag.
+4. Other smaller fixes not worth of a release per se, but nice to add here.
+
+If you upgraded to 4.0 to use modules, definitely a required upgrade.
+If you are using Redis Cluster, also a good idea to upgrade.
+Otherwise... You can definitely wait for the next one :-)
+
+Cheers,
+Salvatore
+
+Here is the commits in detail:
+
+Jan-Erik Rediger in commit a8c2ef76:
+ Check that the whole first argument is a number
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+WuYunlong in commit bfe5008b:
+ fix rewrite config: auto-aof-rewrite-min-size
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Chris Lamb in commit a6abc216:
+ Correct proceding -> proceeding typo.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Byron Grobe in commit 1d901b02:
+ Fixed issue #1996 (Missing '-' in help message for redis-benchmark)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Jan-Erik Rediger in commit 19e5e5ea:
+ Don't use extended Regexp Syntax
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+Leon Chen in commit 62474219:
+ fix return wrong value of clusterDelNodeSlots
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+Leon Chen in commit dc782ceb:
+ fix mismatch argument
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+liangsijian in commit 07631ff1:
+ Fix lua ldb command log
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 41e3617d:
+ Modules: don't crash when Lua calls a module blocking command.
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+antirez in commit 10370b20:
+ Fix typo in unblockClientFromModule() top comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit b6c55a89:
+ Make representClusterNodeFlags() more robust.
+ 1 file changed, 18 insertions(+), 17 deletions(-)
+
+antirez in commit 9a4f3d72:
+ Fix two bugs in moduleTypeLookupModuleByID().
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+antirez in commit 7302e186:
+ Allow certain modules APIs only defining REDISMODULE_EXPERIMENTAL_API.
+ 2 files changed, 20 insertions(+), 12 deletions(-)
+
+================================================================================
 Redis 4.0.0     Released Fri Jul 14 13:04:44 CEST 2017
 ================================================================================
 
