@@ -710,7 +710,7 @@ int isColorTerm(void) {
     return t != NULL && strstr(t,"xterm") != NULL;
 }
 
-/* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
+/* Helper  function for sdsCatColorizedLdbReply() appending colorize strings
  * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
