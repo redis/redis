@@ -1,5 +1,6 @@
-/*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+/* Rax -- A radix tree implementation.
+ *
+ * Copyright (c) 2017, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,23 +28,17 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define SLOWLOG_ENTRY_MAX_ARGC 32
-#define SLOWLOG_ENTRY_MAX_STRING 128
+/* Allocator selection.
+ *
+ * This file is used in order to change the Rax allocator at compile time.
+ * Just define the following defines to what you want to use. Also add
+ * the include of your alternate allocator if needed (not needed in order
+ * to use the default libc allocator). */
 
-/* This structure defines an entry inside the slow log list */
-typedef struct slowlogEntry {
-    robj **argv;
-    int argc;
-    long long id;       /* Unique entry identifier. */
-    long long duration; /* Time spent by the query, in microseconds. */
-    time_t time;        /* Unix time at which the query was executed. */
-    sds cname;          /* Client name. */
-    sds peerid;         /* Client network address. */
-} slowlogEntry;
-
-/* Exported API */
-void slowlogInit(void);
-void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
-
-/* Exported commands */
-void slowlogCommand(client *c);
+#ifndef RAX_ALLOC_H
+#define RAX_ALLOC_H
+#include "zmalloc.h"
+#define rax_malloc zmalloc
+#define rax_realloc zrealloc
+#define rax_free zfree
+#endif

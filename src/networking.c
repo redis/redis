@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include "atomicvar.h"
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
@@ -88,11 +89,14 @@ client *createClient(int fd) {
     }
 
     selectDb(c,0);
-    c->id = server.next_client_id++;
+    uint64_t client_id;
+    atomicGetIncr(server.next_client_id,client_id,1);
+    c->id = client_id;
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;
     c->querybuf = sdsempty();
+    c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -107,6 +111,7 @@ client *createClient(int fd) {
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
+    c->read_reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
     c->slave_listening_port = 0;
@@ -556,8 +561,7 @@ void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
 
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
-    addReplySds(c,sdscatfmt(sdsempty(),"$%u\r\n",
-        (unsigned long)sdslen(s)));
+    addReplyLongLongWithPrefix(c,sdslen(s),'$');
     addReplySds(c,s);
     addReply(c,shared.crlf);
 }
@@ -796,6 +800,7 @@ void freeClient(client *c) {
 
     /* Free the query buffer */
     sdsfree(c->querybuf);
+    sdsfree(c->pending_querybuf);
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
@@ -921,6 +926,10 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
                 c->reply_bytes -= objlen;
+                /* If there are no longer objects in the list, we expect
+                 * the count of reply bytes to be exactly zero. */
+                if (listLength(c->reply) == 0)
+                    serverAssert(c->reply_bytes == 0);
             }
         }
         /* Note that we avoid to send more than NET_MAX_WRITES_PER_EVENT
@@ -931,11 +940,11 @@ int writeToClient(int fd, client *c, int handler_installed) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
-        server.stat_net_output_bytes += totwritten;
         if (totwritten > NET_MAX_WRITES_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
     }
+    server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
             nwritten = 0;
@@ -1027,6 +1036,13 @@ void resetClient(client *c) {
     }
 }
 
+/* Like processMultibulkBuffer(), but for the inline protocol instead of RESP,
+ * this function consumes the client query buffer and creates a command ready
+ * to be executed inside the client structure. Returns C_OK if the command
+ * is ready to be executed, or C_ERR if there is still protocol to read to
+ * have a well formed command. The function also returns C_ERR when there is
+ * a protocol error: in such a case the client structure is setup to reply
+ * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
     int argc, j;
@@ -1119,6 +1135,17 @@ static void setProtocolError(const char *errstr, client *c, int pos) {
     sdsrange(c->querybuf,pos,-1);
 }
 
+/* Process the query buffer for client 'c', setting up the client argument
+ * vector for command execution. Returns C_OK if after running the function
+ * the client has a well-formed ready to be processed command, otherwise
+ * C_ERR if there is still to read more buffer to get the full command.
+ * The function also returns C_ERR when there is a protocol error: in such a
+ * case the client structure is setup to reply with the error and close
+ * the connection.
+ *
+ * This function is called if processInputBuffer() detects that the next
+ * command is in RESP format, so the first byte in the command is found
+ * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int processMultibulkBuffer(client *c) {
     char *newline = NULL;
     int pos = 0, ok;
@@ -1253,10 +1280,14 @@ int processMultibulkBuffer(client *c) {
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return C_OK;
 
-    /* Still not read to process the command */
+    /* Still not ready to process the command */
     return C_ERR;
 }
 
+/* This function is called every time, in the client structure 'c', there is
+ * more query buffer to process, because we read more data from the socket
+ * or because a client was blocked and later reactivated, so there could be
+ * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
     server.current_client = c;
     /* Keep processing while there is something in the input buffer */
@@ -1296,10 +1327,22 @@ void processInputBuffer(client *c) {
             resetClient(c);
         } else {
             /* Only reset the client when the command was executed. */
-            if (processCommand(c) == C_OK)
-                resetClient(c);
-            /* freeMemoryIfNeeded may flush slave output buffers. This may result
-             * into a slave, that may be the active client, to be freed. */
+            if (processCommand(c) == C_OK) {
+                if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
+                    /* Update the applied replication offset of our master. */
+                    c->reploff = c->read_reploff - sdslen(c->querybuf);
+                }
+
+                /* Don't reset the client structure for clients blocked in a
+                 * module blocking command, so that the reply callback will
+                 * still be able to access the client argv and argc field.
+                 * The client will be reset in unblockClientFromModule(). */
+                if (!(c->flags & CLIENT_BLOCKED) || c->btype != BLOCKED_MODULE)
+                    resetClient(c);
+            }
+            /* freeMemoryIfNeeded may flush slave output buffers. This may
+             * result into a slave, that may be the active client, to be
+             * freed. */
             if (server.current_client == NULL) break;
         }
     }
@@ -1344,15 +1387,17 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClient(c);
         return;
+    } else if (c->flags & CLIENT_MASTER) {
+        /* Append the query buffer to the pending (not applied) buffer
+         * of the master. We'll use this buffer later in order to have a
+         * copy of the string applied by the last command executed. */
+        c->pending_querybuf = sdscatlen(c->pending_querybuf,
+                                        c->querybuf+qblen,nread);
     }
 
     sdsIncrLen(c->querybuf,nread);
     c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) {
-        c->reploff += nread;
-        replicationFeedSlavesFromMasterStream(server.slaves,
-                c->querybuf+qblen,nread);
-    }
+    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     server.stat_net_input_bytes += nread;
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
@@ -1364,7 +1409,25 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
-    processInputBuffer(c);
+
+    /* Time to process the buffer. If the client is a master we need to
+     * compute the difference between the applied offset before and after
+     * processing the buffer, to understand how much of the replication stream
+     * was actually applied to the master state: this quantity, and its
+     * corresponding part of the replication stream, will be propagated to
+     * the sub-slaves and to the replication backlog. */
+    if (!(c->flags & CLIENT_MASTER)) {
+        processInputBuffer(c);
+    } else {
+        size_t prev_offset = c->reploff;
+        processInputBuffer(c);
+        size_t applied = c->reploff - prev_offset;
+        if (applied) {
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->pending_querybuf, applied);
+            sdsrange(c->pending_querybuf,applied,-1);
+        }
+    }
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,

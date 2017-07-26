@@ -241,7 +241,6 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
-    RedisModuleCallReply *reply;
     RedisModule_AutoMemory(ctx);
 
     /* This will be replicated *after* the two INCR statements, since
@@ -258,8 +257,8 @@ int HelloRepl1_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     /* Using the "!" modifier we replicate the command if it
      * modified the dataset in some way. */
-    reply = RedisModule_Call(ctx,"INCR","c!","foo");
-    reply = RedisModule_Call(ctx,"INCR","c!","bar");
+    RedisModule_Call(ctx,"INCR","c!","foo");
+    RedisModule_Call(ctx,"INCR","c!","bar");
 
     RedisModule_ReplyWithLongLong(ctx,0);
 

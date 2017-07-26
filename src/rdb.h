@@ -78,6 +78,8 @@
 #define RDB_TYPE_HASH   4
 #define RDB_TYPE_ZSET_2 5 /* ZSET version 2 with doubles stored in binary. */
 #define RDB_TYPE_MODULE 6
+#define RDB_TYPE_MODULE_2 7 /* Module value with annotations for parsing without
+                               the generating module being loaded. */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Object types for encoded objects. */
@@ -90,7 +92,7 @@
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType() BELOW */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) ((t >= 0 && t <= 6) || (t >= 9 && t <= 14))
+#define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 14))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_AUX        250
@@ -99,6 +101,14 @@
 #define RDB_OPCODE_EXPIRETIME 253
 #define RDB_OPCODE_SELECTDB   254
 #define RDB_OPCODE_EOF        255
+
+/* Module serialized values sub opcodes */
+#define RDB_MODULE_OPCODE_EOF   0   /* End of module value. */
+#define RDB_MODULE_OPCODE_SINT  1   /* Signed integer. */
+#define RDB_MODULE_OPCODE_UINT  2   /* Unsigned integer. */
+#define RDB_MODULE_OPCODE_FLOAT 3   /* Float. */
+#define RDB_MODULE_OPCODE_DOUBLE 4  /* Double. */
+#define RDB_MODULE_OPCODE_STRING 5  /* String. */
 
 /* rdbLoad...() functions flags. */
 #define RDB_LOAD_NONE   0
