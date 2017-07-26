@@ -1574,7 +1574,7 @@ struct distsamples {
  * samples greater than the previous one, and is also the stop sentinel.
  *
  * "tot' is the total number of samples in the different buckets, so it
- * is the SUM(samples[i].conut) for i to 0 up to the max sample.
+ * is the SUM(samples[i].count) for i to 0 up to the max sample.
  *
  * As a side effect the function sets all the buckets count to 0. */
 void showLatencyDistSamples(struct distsamples *samples, long long tot) {
