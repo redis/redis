@@ -1561,6 +1561,9 @@ void clientCommand(client *c) {
         sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getid") && c->argc == 2) {
+        /* CLIENT GETID */
+        addReplyLongLong(c,c->id);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
         /* CLIENT REPLY ON|OFF|SKIP */
         if (!strcasecmp(c->argv[2]->ptr,"on")) {
@@ -1702,7 +1705,7 @@ void clientCommand(client *c) {
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
+        addReplyError(c, "Syntax error, try CLIENT (LIST | GETID | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
     }
 }
 
