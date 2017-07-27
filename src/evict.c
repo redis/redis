@@ -558,9 +558,8 @@ cant_free:
      * last thing we can try: check if the lazyfree thread has jobs in queue
      * and wait... */
     while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
-        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree) {
+        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
             return C_OK;
-        }
         usleep(1000);
     }
     return C_ERR;
