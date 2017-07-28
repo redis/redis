@@ -11,6 +11,141 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.10     Released Fri Jul 28 17:49:07 CEST 2017
+================================================================================
+
+Upgrade urgency MODERATE: This release contains a number of fixes that are not
+                          critical in the general case, but quite important
+                          in certain use cases. Upgrading is suggested but not
+                          mandatory.
+
+Dear Redis users,
+
+while 4.0.1 is already out, this is a maintenance release of Redis 3.2.
+It fixes several bugs, the most interesting ones are the following:
+
+1. INFO server.stat_net_output_bytes field was computed in a wrong way, now
+   the output is correct.
+2. SET with EX/PX options are now propagated correctly in the AOF, using
+   the absolute times.
+3. CLIENT PAUSE was fixed to prevent eviction of keys, so that master and
+   slave continue to be consistent for the time the pause is active.
+4. GEORADIUS(BYMEMBER)_RO variants for read-only operations added.
+5. HyperLogLog sanity detection fixed in an edge case.
+6. Redis Cluster crash due to mis-handling of hidden node flags fixed.
+
+If you think you may be affected by the above problems, upgrading is a
+good idea.
+
+Have a nice day,
+Salvatore
+
+Full history of commits in this release:
+
+Jan-Erik Rediger in commit bf508753:
+ Check that the whole first argument is a number
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+WuYunlong in commit 8774228c:
+ fix rewrite config: auto-aof-rewrite-min-size
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Byron Grobe in commit ab900303:
+ Fixed issue #1996 (Missing '-' in help message for redis-benchmark)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Jan-Erik Rediger in commit 7fcca9ba:
+ Don't use extended Regexp Syntax
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+Leon Chen in commit 41963fe6:
+ fix return wrong value of clusterDelNodeSlots
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+Leon Chen in commit 97d50344:
+ fix mismatch argument
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+liangsijian in commit e3984980:
+ Fix lua ldb command log
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 84a4f202:
+ Make representClusterNodeFlags() more robust.
+ 1 file changed, 17 insertions(+), 16 deletions(-)
+
+antirez in commit 5aa25250:
+ Fix isHLLObjectOrReply() to handle integer encoded strings.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 7018d27d:
+ Fix abort typo in Lua debugger help screen.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit d557144e:
+ Added GEORADIUS(BYMEMBER)_RO variants for read-only operations.
+ 3 files changed, 32 insertions(+), 11 deletions(-)
+
+Suraj Narkhede in commit a309388d:
+ Fix following issues in blocking commands: 1. brpop last key index, thus checking all keys for slots. 2. Memory leak in clusterRedirectBlockedClientIfNeeded. 3. Remove while loop in clusterRedirectBlockedClientIfNeeded.
+ 1 file changed, 1 insertion(+)
+
+Suraj Narkhede in commit 55442262:
+ Fix brpop command table entry and redirect blocked clients.
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit e3641c8d:
+ Fix PERSIST expired key resuscitation issue #4048.
+ 1 file changed, 4 insertions(+), 7 deletions(-)
+
+Antonio Mallia in commit 9ce105ad:
+ Removed duplicate 'sys/socket.h'  include
+ 1 file changed, 1 deletion(-)
+
+Zachary Marquez in commit e084a394:
+ Prevent expirations and evictions while paused
+ 1 file changed, 10 insertions(+)
+
+antirez in commit 61c78a52:
+ Collect fork() timing info only if fork succeeded.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit d067e334:
+ Aesthetic changes to #4068 PR to conform to Redis coding standard.
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+xuzhou in commit 2b0f03e4:
+ Optimize set command with ex/px when updating aof.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit ad949f23:
+ redis-benchmark: add -t hset target.
+ 1 file changed, 7 insertions(+)
+
+xuzhou in commit 351663bd:
+ Fix set with ex/px option when propagated to aof
+ 4 files changed, 36 insertions(+), 1 deletion(-)
+
+minghang.zmh in commit d70ac1d1:
+ fix server.stat_net_output_bytes calc bug
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+xuchengxuan in commit 8da9a167:
+ Fixed comments of slowlog duration
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+cbgbt in commit 13546adc:
+ cli: Only print elapsed time on OUTPUT_STANDARD
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Aric Huang in commit 373facf8:
+ (fix) Update create-cluster README
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+Salvatore Sanfilippo in commit 29e3ff9b:
+ Merge pull request #3926 from QuChen88/3.2
+
+================================================================================
 Redis 3.2.9     Released Mon May 17 17:35:38 CEST 2017
 ================================================================================
 
