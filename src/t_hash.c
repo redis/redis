@@ -288,7 +288,6 @@ int hashTypeDelete(robj *o, sds field) {
             fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
-                zl = ziplistDelete(zl,&fptr);
                 o->ptr = zl;
                 deleted = 1;
             }
