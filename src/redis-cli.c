@@ -1806,8 +1806,8 @@ static void getRDB(void) {
         payload -= nread;
     }
     close(s); /* Close the file descriptor ASAP as fsync() may take time. */
-    close(fd);
     fsync(fd);
+    close(fd);
     fprintf(stderr,"Transfer finished with success.\n");
     exit(0);
 }
