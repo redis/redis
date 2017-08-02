@@ -3269,8 +3269,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  * a few lines of text.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
-    //if (!ctx->module) return;   /* Can only log if module is initialized */
-
+    
     va_list ap;
     va_start(ap, fmt);
     RM_LogRaw(ctx->module,levelstr,fmt,ap);
