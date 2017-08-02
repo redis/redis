@@ -176,6 +176,12 @@ int HelloKeys_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
+void logFromDetachedContext() {
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_Log(ctx, "notice", "Logging from a detached context");
+    RedisModule_FreeThreadSafeContext(ctx);
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -191,6 +197,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"hello.keys",
         HelloKeys_RedisCommand,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
+    
+    logFromDetachedContext();
+    
     return REDISMODULE_OK;
 }

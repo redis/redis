@@ -3220,6 +3220,11 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
  * Logging
  * -------------------------------------------------------------------------- */
 
+/* Replacement for module names when logging from thread safe contexts that 
+ * were intialized without a blocking context. In this case the module will 
+ * be empty and thus we need a default name */
+#define REDISMODULE_DETACHED_LOG_NAME "detached module thread"
+
 /* This is the low level function implementing both:
  *
  *      RM_Log()
@@ -3230,6 +3235,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
     char msg[LOG_MAX_LEN];
     size_t name_len;
     int level;
+    const char *module_name;
 
     if (!strcasecmp(levelstr,"debug")) level = LL_DEBUG;
     else if (!strcasecmp(levelstr,"verbose")) level = LL_VERBOSE;
@@ -3237,7 +3243,13 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
     else if (!strcasecmp(levelstr,"warning")) level = LL_WARNING;
     else level = LL_VERBOSE; /* Default. */
 
-    name_len = snprintf(msg, sizeof(msg),"<%s> ", module->name);
+    /* Allow detached thread-safe contexts to log by providing a default name 
+     * instead of the module name */
+    module_name = REDISMODULE_DETACHED_LOG_NAME;
+    if (module) {
+        module_name = module->name;
+    }
+    name_len = snprintf(msg, sizeof(msg),"<%s> ", module_name);
     vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
     serverLogRaw(level,msg);
 }
@@ -3257,7 +3269,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  * a few lines of text.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
-    if (!ctx->module) return;   /* Can only log if module is initialized */
+    //if (!ctx->module) return;   /* Can only log if module is initialized */
 
     va_list ap;
     va_start(ap, fmt);
