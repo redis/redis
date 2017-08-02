@@ -3719,6 +3719,12 @@ non-backward compatible changes introduced in the 4.0 release:
   Cluster. SO in order to upgrade a Redis Cluster to 4.0, a mass restart of
   all the instances is needed.
 
+* Redis Cluster CLUSTER NODES output is now slightly different. Nodes
+  addresses are now in the form host:port@bus-port instead of host:port.
+  Clients should use CLUSTER SLOTS in order to fetch the cluster configuration
+  however if they are still using CLUSTER NODES, they should be modified in
+  order to ignore the @bus-port part.
+
 * Writable slaves do not propagate writes to their sub-slaves, so writes to
   writable slaves remain just local.
 
