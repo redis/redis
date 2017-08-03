@@ -1334,6 +1334,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
         {
+            va_end(ap);
             sdsfree(cmd);
             return sdscatprintf(sdsempty(),"-Writing to master: %s",
                     strerror(errno));
