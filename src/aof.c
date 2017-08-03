@@ -40,7 +40,7 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 
-void aofUpdateCurrentSize(void);
+void aofUpdateCurrentSize(int fd);
 void aofClosePipes(void);
 
 /* ----------------------------------------------------------------------------
@@ -755,11 +755,11 @@ int loadAppendOnlyFile(char *filename) {
     if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
+    aofUpdateCurrentSize(fileno(fp));
     fclose(fp);
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
     stopLoading();
-    aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     return C_OK;
 
@@ -1418,12 +1418,12 @@ void aofRemoveTempFile(pid_t childpid) {
  * to check the size of the file. This is useful after a rewrite or after
  * a restart, normally the size is updated just adding the write length
  * to the current length, that is much faster. */
-void aofUpdateCurrentSize(void) {
+void aofUpdateCurrentSize(int fd) {
     struct redis_stat sb;
     mstime_t latency;
 
     latencyStartMonitor(latency);
-    if (redis_fstat(server.aof_fd,&sb) == -1) {
+    if (redis_fstat(fd,&sb) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
             strerror(errno));
     } else {
@@ -1537,7 +1537,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
                 aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            aofUpdateCurrentSize();
+            aofUpdateCurrentSize(newfd);
             server.aof_rewrite_base_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
