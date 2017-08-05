@@ -722,6 +722,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    listNode *active_node;  /* Cached listNode of current client in server.clients list */
 
     /* Response buffer */
     int bufpos;
