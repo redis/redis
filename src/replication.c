@@ -309,13 +309,16 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
+    // get client name if it exists, or just an empty string otherwise.
+    char * client_name = (c->name ? (char*) c->name->ptr : "");
     cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
+    // prefearably use client name 16 bytes length or shorter so the indentation will stay the same
     if (c->flags & CLIENT_LUA) {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);
+        cmdrepr = sdscatprintf(cmdrepr,"[%d lua client: %-16s] ",dictid, client_name);
     } else if (c->flags & CLIENT_UNIX_SOCKET) {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
+        cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s client: %-16s] ",dictid,server.unixsocket, client_name);
     } else {
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s client: %-16s] ",dictid,getClientPeerId(c), client_name);
     }
 
     for (j = 0; j < argc; j++) {
