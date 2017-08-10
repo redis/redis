@@ -135,7 +135,9 @@ client *createClient(int fd) {
     c->peerid = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) {
+    	c->list_node = listAddAndReturnNode(server.clients,c);
+    }
     initClientMultiState(c);
     return c;
 }
@@ -743,7 +745,7 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients,c);
+        ln = c->list_node;
         serverAssert(ln != NULL);
         listDelNode(server.clients,ln);
 
