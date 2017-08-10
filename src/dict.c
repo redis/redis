@@ -64,10 +64,10 @@ static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- private prototypes ---------------------------- */
 
-static int _dictExpandIfNeeded(dict *ht);
+static int _dictExpandIfNeeded(dict *d);
 static unsigned long _dictNextPower(unsigned long size);
-static int _dictKeyIndex(dict *ht, const void *key, unsigned int hash, dictEntry **existing);
-static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static int _dictKeyIndex(dict *d, const void *key, unsigned int hash, dictEntry **existing);
+static int _dictInit(dict *d, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -400,8 +400,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
  * element was not found. */
-int dictDelete(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,0) ? DICT_OK : DICT_ERR;
+int dictDelete(dict *d, const void *key) {
+    return dictGenericDelete(d,key,0) ? DICT_OK : DICT_ERR;
 }
 
 /* Remove an element from the table, but without actually releasing
