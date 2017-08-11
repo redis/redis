@@ -92,7 +92,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  *
  * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
  * executed, where the time limit is a percentage of the REDIS_HZ period
- * as specified by the REDIS_EXPIRELOOKUPS_TIME_PERC define. */
+ * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define. */
 
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
@@ -104,6 +104,11 @@ void activeExpireCycle(int type) {
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = ustime(), timelimit;
+
+    /* When clients are paused the dataset should be static not just from the
+     * POV of clients not being able to write, but also from the POV of
+     * expires and evictions of keys not being performed. */
+    if (clientsArePaused()) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exited
@@ -477,18 +482,15 @@ void pttlCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    dictEntry *de;
-
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
-    if (de == NULL) {
-        addReply(c,shared.czero);
-    } else {
+    if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
             addReply(c,shared.czero);
         }
+    } else {
+        addReply(c,shared.czero);
     }
 }
 

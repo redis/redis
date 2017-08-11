@@ -126,7 +126,7 @@ void computeDatasetDigest(unsigned char *final) {
         redisDb *db = server.db+j;
 
         if (dictSize(db->dict) == 0) continue;
-        di = dictGetIterator(db->dict);
+        di = dictGetSafeIterator(db->dict);
 
         /* hash the DB id, so the same dataset moved in a different
          * DB will lead to a different digest */
@@ -239,6 +239,15 @@ void computeDatasetDigest(unsigned char *final) {
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
+            } else if (o->type == OBJ_MODULE) {
+                RedisModuleDigest md;
+                moduleValue *mv = o->ptr;
+                moduleType *mt = mv->type;
+                moduleInitDigestContext(md);
+                if (mt->digest) {
+                    mt->digest(&md,mv->value);
+                    xorDigest(digest,md.x,sizeof(md.x));
+                }
             } else {
                 serverPanic("Unknown object type");
             }
@@ -266,6 +275,8 @@ void debugCommand(client *c) {
         blen++; addReplyStatus(c,
         "segfault -- Crash the server with sigsegv.");
         blen++; addReplyStatus(c,
+        "panic -- Crash the server simulating a panic.");
+        blen++; addReplyStatus(c,
         "restart  -- Graceful restart: save config, db, restart.");
         blen++; addReplyStatus(c,
         "crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.");
@@ -282,7 +293,7 @@ void debugCommand(client *c) {
         blen++; addReplyStatus(c,
         "ziplist <key> -- Show low level info about the ziplist encoding.");
         blen++; addReplyStatus(c,
-        "populate <count> [prefix] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.");
+        "populate <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.");
         blen++; addReplyStatus(c,
         "digest   -- Outputs an hex signature representing the current DB content.");
         blen++; addReplyStatus(c,
@@ -300,6 +311,8 @@ void debugCommand(client *c) {
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
+    } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
+        serverPanic("DEBUG PANIC called at Unix time %ld", time(NULL));
     } else if (!strcasecmp(c->argv[1]->ptr,"restart") ||
                !strcasecmp(c->argv[1]->ptr,"crash-and-recover"))
     {
@@ -433,7 +446,7 @@ void debugCommand(client *c) {
             addReplyStatus(c,"Ziplist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
-               (c->argc == 3 || c->argc == 4)) {
+               c->argc >= 3 && c->argc <= 5) {
         long keys, j;
         robj *key, *val;
         char buf[128];
@@ -442,15 +455,25 @@ void debugCommand(client *c) {
             return;
         dictExpand(c->db->dict,keys);
         for (j = 0; j < keys; j++) {
+            long valsize = 0;
             snprintf(buf,sizeof(buf),"%s:%lu",
                 (c->argc == 3) ? "key" : (char*)c->argv[3]->ptr, j);
             key = createStringObject(buf,strlen(buf));
+            if (c->argc == 5)
+                if (getLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK)
+                    return;
             if (lookupKeyWrite(c->db,key) != NULL) {
                 decrRefCount(key);
                 continue;
             }
             snprintf(buf,sizeof(buf),"value:%lu",j);
-            val = createStringObject(buf,strlen(buf));
+            if (valsize==0)
+                val = createStringObject(buf,strlen(buf));
+            else {
+                int buflen = strlen(buf);
+                val = createStringObject(NULL,valsize);
+                memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
+            }
             dbAdd(c->db,key,val);
             signalModifiedKey(c->db,key);
             decrRefCount(key);
@@ -605,11 +628,17 @@ void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, con
     _serverAssert(estr,file,line);
 }
 
-void _serverPanic(const char *msg, const char *file, int line) {
+void _serverPanic(const char *file, int line, const char *msg, ...) {
+    va_list ap;
+    va_start(ap,msg);
+    char fmtmsg[256];
+    vsnprintf(fmtmsg,sizeof(fmtmsg),msg,ap);
+    va_end(ap);
+
     bugReportStart();
     serverLog(LL_WARNING,"------------------------------------------------");
     serverLog(LL_WARNING,"!!! Software Failure. Press left mouse button to continue");
-    serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
+    serverLog(LL_WARNING,"Guru Meditation: %s #%s:%d",fmtmsg,file,line);
 #ifdef HAVE_BACKTRACE
     serverLog(LL_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
 #endif
@@ -1009,8 +1038,6 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     /* Log INFO and CLIENT LIST */
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ INFO OUTPUT ------\n");
     infostring = genRedisInfoString("all");
-    infostring = sdscatprintf(infostring, "hash_init_value: %u\n",
-        dictGetHashFunctionSeed());
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
     clients = getAllClientsInfoString();

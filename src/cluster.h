@@ -73,6 +73,29 @@ typedef struct clusterLink {
 #define CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
 #define CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
+/* clusterState todo_before_sleep flags. */
+#define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
+#define CLUSTER_TODO_UPDATE_STATE (1<<1)
+#define CLUSTER_TODO_SAVE_CONFIG (1<<2)
+#define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
+
+/* Message types.
+ *
+ * Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the exact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
+#define CLUSTERMSG_TYPE_COUNT 9         /* Total number of message types. */
+
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
@@ -116,7 +139,8 @@ typedef struct clusterState {
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
     clusterNode *importing_slots_from[CLUSTER_SLOTS];
     clusterNode *slots[CLUSTER_SLOTS];
-    zskiplist *slots_to_keys;
+    uint64_t slots_keys_count[CLUSTER_SLOTS];
+    rax *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
@@ -138,31 +162,14 @@ typedef struct clusterState {
     /* The followign fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
-    long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
-    long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
+    /* Messages received and sent by type. */
+    long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
+    long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
+    long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
+                                       excluding nodes without address. */
 } clusterState;
 
-/* clusterState todo_before_sleep flags. */
-#define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
-#define CLUSTER_TODO_UPDATE_STATE (1<<1)
-#define CLUSTER_TODO_SAVE_CONFIG (1<<2)
-#define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
-
 /* Redis cluster messages header */
-
-/* Note that the PING, PONG and MEET messages are actually the same exact
- * kind of packet. PONG is the reply to ping, in the exact format as a PING,
- * while MEET is a special PING that forces the receiver to add the sender
- * as a node (if it is not already in the list). */
-#define CLUSTERMSG_TYPE_PING 0          /* Ping */
-#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
-#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
-#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
-#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
-#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
-#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -225,7 +232,7 @@ union clusterMsgData {
 typedef struct {
     char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
-    uint16_t ver;       /* Protocol version, currently set to 0. */
+    uint16_t ver;       /* Protocol version, currently set to 1. */
     uint16_t port;      /* TCP base port number. */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */

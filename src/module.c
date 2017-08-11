@@ -95,17 +95,22 @@ typedef struct RedisModulePoolAllocBlock {
  *
  * Note that not all the context structure is always filled with actual values
  * but only the fields needed in a given context. */
+
+struct RedisModuleBlockedClient;
+
 struct RedisModuleCtx {
     void *getapifuncptr;            /* NOTE: Must be the first field. */
     struct RedisModule *module;     /* Module reference. */
     client *client;                 /* Client calling a command. */
+    struct RedisModuleBlockedClient *blocked_client; /* Blocked client for
+                                                        thread safe context. */
     struct AutoMemEntry *amqueue;   /* Auto memory queue of objects to free. */
     int amqueue_len;                /* Number of slots in amqueue. */
     int amqueue_used;               /* Number of used slots in amqueue. */
     int flags;                      /* REDISMODULE_CTX_... flags. */
     void **postponed_arrays;        /* To set with RM_ReplySetArrayLength(). */
     int postponed_arrays_count;     /* Number of entries in postponed_arrays. */
-    void *blocked_privdata;         /* Privdata set when unblocking a clinet. */
+    void *blocked_privdata;         /* Privdata set when unblocking a client. */
 
     /* Used if there is the REDISMODULE_CTX_KEYS_POS_REQUEST flag set. */
     int *keys_pos;
@@ -115,12 +120,13 @@ struct RedisModuleCtx {
 };
 typedef struct RedisModuleCtx RedisModuleCtx;
 
-#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, 0, NULL}
+#define REDISMODULE_CTX_INIT {(void*)(unsigned long)&RM_GetApi, NULL, NULL, NULL, NULL, 0, 0, 0, NULL, 0, NULL, NULL, 0, NULL}
 #define REDISMODULE_CTX_MULTI_EMITTED (1<<0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<1)
 #define REDISMODULE_CTX_KEYS_POS_REQUEST (1<<2)
 #define REDISMODULE_CTX_BLOCKED_REPLY (1<<3)
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<4)
+#define REDISMODULE_CTX_THREAD_SAFE (1<<5)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -198,10 +204,17 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
+    client *reply_client;           /* Fake client used to accumulate replies
+                                       in thread safe contexts. */
+    int dbid;           /* Database number selected by the original client. */
 } RedisModuleBlockedClient;
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
+
+/* We need a mutex that is unlocked / relocked in beforeSleep() in order to
+ * allow thread safe contexts to execute commands at a safe moment. */
+static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -421,6 +434,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
             "calls.",
             ctx->module->name);
     }
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) freeClient(ctx->client);
 }
 
 /* Helper function for when a command callback is called, in order to handle
@@ -492,10 +506,10 @@ int RM_IsKeysPositionRequest(RedisModuleCtx *ctx) {
  * RedisModule_IsKeysPositionRequest() API and uses this function in
  * order to report keys, like in the following example:
  *
- *  if (RedisModule_IsKeysPositionRequest(ctx)) {
- *      RedisModule_KeyAtPos(ctx,1);
- *      RedisModule_KeyAtPos(ctx,2);
- *  }
+ *     if (RedisModule_IsKeysPositionRequest(ctx)) {
+ *         RedisModule_KeyAtPos(ctx,1);
+ *         RedisModule_KeyAtPos(ctx,2);
+ *     }
  *
  *  Note: in the example below the get keys API would not be needed since
  *  keys are at fixed positions. This interface is only used for commands
@@ -923,8 +937,8 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  * Most functions always return REDISMODULE_OK so you can use it with
  * 'return' in order to return from the command implementation with:
  *
- * if (... some condition ...)
- *     return RM_ReplyWithLongLong(ctx,mycount);
+ *     if (... some condition ...)
+ *         return RM_ReplyWithLongLong(ctx,mycount);
  * -------------------------------------------------------------------------- */
 
 /* Send an error about the number of arguments given to the command,
@@ -932,7 +946,7 @@ int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const cha
  *
  * Example:
  *
- *  if (argc != 3) return RedisModule_WrongArity(ctx);
+ *     if (argc != 3) return RedisModule_WrongArity(ctx);
  */
 int RM_WrongArity(RedisModuleCtx *ctx) {
     addReplyErrorFormat(ctx->client,
@@ -941,10 +955,33 @@ int RM_WrongArity(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
+/* Return the client object the `RM_Reply*` functions should target.
+ * Normally this is just `ctx->client`, that is the client that called
+ * the module command, however in the case of thread safe contexts there
+ * is no directly associated client (since it would not be safe to access
+ * the client from a thread), so instead the blocked client object referenced
+ * in the thread safe context, has a fake client that we just use to accumulate
+ * the replies. Later, when the client is unblocked, the accumulated replies
+ * are appended to the actual client.
+ *
+ * The function returns the client pointer depending on the context, or
+ * NULL if there is no potential client. This happens when we are in the
+ * context of a thread safe context that was not initialized with a blocked
+ * client object. */
+client *moduleGetReplyClient(RedisModuleCtx *ctx) {
+    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE) && ctx->client)
+        return ctx->client;
+    if (ctx->blocked_client)
+        return ctx->blocked_client->reply_client;
+    return NULL;
+}
+
 /* Send an integer reply to the client, with the specified long long value.
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
-    addReplyLongLong(ctx->client,ll);
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyLongLong(c,ll);
     return REDISMODULE_OK;
 }
 
@@ -952,10 +989,12 @@ int RM_ReplyWithLongLong(RedisModuleCtx *ctx, long long ll) {
  * ReplyWithSimpleString() and ReplyWithError().
  * The function always returns REDISMODULE_OK. */
 int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
     sds strmsg = sdsnewlen(prefix,1);
     strmsg = sdscat(strmsg,msg);
     strmsg = sdscatlen(strmsg,"\r\n",2);
-    addReplySds(ctx->client,strmsg);
+    addReplySds(c,strmsg);
     return REDISMODULE_OK;
 }
 
@@ -965,11 +1004,11 @@ int replyWithStatus(RedisModuleCtx *ctx, const char *msg, char *prefix) {
  * the initial error code. The function only provides the initial "-", so
  * the usage is, for example:
  *
- *  RM_ReplyWithError(ctx,"ERR Wrong Type");
+ *     RedisModule_ReplyWithError(ctx,"ERR Wrong Type");
  *
  * and not just:
  *
- *  RM_ReplyWithError(ctx,"Wrong Type");
+ *     RedisModule_ReplyWithError(ctx,"Wrong Type");
  *
  * The function always returns REDISMODULE_OK.
  */
@@ -998,14 +1037,16 @@ int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
     if (len == REDISMODULE_POSTPONED_ARRAY_LEN) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
-            addDeferredMultiBulkLength(ctx->client);
+            addDeferredMultiBulkLength(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyMultiBulkLen(ctx->client,len);
+        addReplyMultiBulkLen(c,len);
     }
     return REDISMODULE_OK;
 }
@@ -1022,14 +1063,14 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
  * For example in order to output an array like [1,[10,20,30]] we
  * could write:
  *
- *  RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
- *  RedisModule_ReplyWithLongLong(ctx,1);
- *  RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
- *  RedisModule_ReplyWithLongLong(ctx,10);
- *  RedisModule_ReplyWithLongLong(ctx,20);
- *  RedisModule_ReplyWithLongLong(ctx,30);
- *  RedisModule_ReplySetArrayLength(ctx,3); // Set len of 10,20,30 array.
- *  RedisModule_ReplySetArrayLength(ctx,2); // Set len of top array
+ *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+ *      RedisModule_ReplyWithLongLong(ctx,1);
+ *      RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_ARRAY_LEN);
+ *      RedisModule_ReplyWithLongLong(ctx,10);
+ *      RedisModule_ReplyWithLongLong(ctx,20);
+ *      RedisModule_ReplyWithLongLong(ctx,30);
+ *      RedisModule_ReplySetArrayLength(ctx,3); // Set len of 10,20,30 array.
+ *      RedisModule_ReplySetArrayLength(ctx,2); // Set len of top array
  *
  * Note that in the above example there is no reason to postpone the array
  * length, since we produce a fixed number of elements, but in the practice
@@ -1037,6 +1078,8 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
  * that is not easy to calculate in advance the number of elements.
  */
 void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return;
     if (ctx->postponed_arrays_count == 0) {
         serverLog(LL_WARNING,
             "API misuse detected in module %s: "
@@ -1046,7 +1089,7 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
             return;
     }
     ctx->postponed_arrays_count--;
-    setDeferredMultiBulkLength(ctx->client,
+    setDeferredMultiBulkLength(c,
             ctx->postponed_arrays[ctx->postponed_arrays_count],
             len);
     if (ctx->postponed_arrays_count == 0) {
@@ -1059,7 +1102,9 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithStringBuffer(RedisModuleCtx *ctx, const char *buf, size_t len) {
-    addReplyBulkCBuffer(ctx->client,(char*)buf,len);
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBulkCBuffer(c,(char*)buf,len);
     return REDISMODULE_OK;
 }
 
@@ -1067,7 +1112,9 @@ int RM_ReplyWithStringBuffer(RedisModuleCtx *ctx, const char *buf, size_t len) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    addReplyBulk(ctx->client,str);
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyBulk(c,str);
     return REDISMODULE_OK;
 }
 
@@ -1076,7 +1123,9 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
-    addReply(ctx->client,shared.nullbulk);
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReply(c,shared.nullbulk);
     return REDISMODULE_OK;
 }
 
@@ -1087,8 +1136,10 @@ int RM_ReplyWithNull(RedisModuleCtx *ctx) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
     sds proto = sdsnewlen(reply->proto, reply->protolen);
-    addReplySds(ctx->client,proto);
+    addReplySds(c,proto);
     return REDISMODULE_OK;
 }
 
@@ -1099,7 +1150,9 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
-    addReplyDouble(ctx->client,d);
+    client *c = moduleGetReplyClient(ctx);
+    if (c == NULL) return REDISMODULE_OK;
+    addReplyDouble(c,d);
     return REDISMODULE_OK;
 }
 
@@ -1111,7 +1164,12 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
+    /* If we already emitted MULTI return ASAP. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
+    /* If this is a thread safe context, we do not want to wrap commands
+     * executed into MUTLI/EXEC, they are executed as single commands
+     * from an external client in essence. */
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) return;
     execCommandPropagateMulti(ctx->client);
     ctx->flags |= REDISMODULE_CTX_MULTI_EMITTED;
 }
@@ -1371,8 +1429,8 @@ int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
  *
  * The 'mode' is composed by bitwise OR-ing the following flags:
  *
- * REDISMODULE_READ -- Read access
- * REDISMODULE_WRITE -- Write access
+ *     REDISMODULE_READ -- Read access
+ *     REDISMODULE_WRITE -- Write access
  *
  * If the DMA is not requested for writing, the pointer returned should
  * only be accessed in a read-only fashion.
@@ -1530,14 +1588,14 @@ int RM_ZsetAddFlagsFromCoreFlags(int flags) {
  *
  * The input flags are:
  *
- * REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
- * REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
+ *     REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
+ *     REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
  *
  * The output flags are:
  *
- * REDISMODULE_ZADD_ADDED: The new element was added to the sorted set.
- * REDISMODULE_ZADD_UPDATED: The score of the element was updated.
- * REDISMODULE_ZADD_NOP: No operation was performed because XX or NX flags.
+ *     REDISMODULE_ZADD_ADDED: The new element was added to the sorted set.
+ *     REDISMODULE_ZADD_UPDATED: The score of the element was updated.
+ *     REDISMODULE_ZADD_NOP: No operation was performed because XX or NX flags.
  *
  * On success the function returns REDISMODULE_OK. On the following errors
  * REDISMODULE_ERR is returned:
@@ -1953,25 +2011,25 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  *
  * Example to set the hash argv[1] to the value argv[2]:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],argv[2],NULL);
+ *      RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],argv[2],NULL);
  *
  * The function can also be used in order to delete fields (if they exist)
  * by setting them to the specified value of REDISMODULE_HASH_DELETE:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],
- *                      REDISMODULE_HASH_DELETE,NULL);
+ *      RedisModule_HashSet(key,REDISMODULE_HASH_NONE,argv[1],
+ *                          REDISMODULE_HASH_DELETE,NULL);
  *
  * The behavior of the command changes with the specified flags, that can be
  * set to REDISMODULE_HASH_NONE if no special behavior is needed.
  *
- * REDISMODULE_HASH_NX: The operation is performed only if the field was not
- *                     already existing in the hash.
- * REDISMODULE_HASH_XX: The operation is performed only if the field was
- *                     already existing, so that a new value could be
- *                     associated to an existing filed, but no new fields
- *                     are created.
- * REDISMODULE_HASH_CFIELDS: The field names passed are null terminated C
- *                          strings instead of RedisModuleString objects.
+ *     REDISMODULE_HASH_NX: The operation is performed only if the field was not
+ *                          already existing in the hash.
+ *     REDISMODULE_HASH_XX: The operation is performed only if the field was
+ *                          already existing, so that a new value could be
+ *                          associated to an existing filed, but no new fields
+ *                          are created.
+ *     REDISMODULE_HASH_CFIELDS: The field names passed are null terminated C
+ *                               strings instead of RedisModuleString objects.
  *
  * Unless NX is specified, the command overwrites the old field value with
  * the new one.
@@ -1980,8 +2038,8 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
  * normal C strings, so for example to delete the field "foo" the following
  * code can be used:
  *
- *  RedisModule_HashSet(key,REDISMODULE_HASH_CFIELDS,"foo",
- *                      REDISMODULE_HASH_DELETE,NULL);
+ *      RedisModule_HashSet(key,REDISMODULE_HASH_CFIELDS,"foo",
+ *                          REDISMODULE_HASH_DELETE,NULL);
  *
  * Return value:
  *
@@ -2360,7 +2418,7 @@ RedisModuleString *RM_CreateStringFromCallReply(RedisModuleCallReply *reply) {
  * The integer pointed by 'flags' is populated with flags according
  * to special modifiers in "fmt". For now only one exists:
  *
- * "!" -> REDISMODULE_ARGV_REPLICATE
+ *     "!" -> REDISMODULE_ARGV_REPLICATE
  *
  * On error (format specifier error) NULL is returned and nothing is
  * allocated. On success the argument vector is returned. */
@@ -2396,7 +2454,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(buf,len);
         } else if (*p == 'l') {
             long ll = va_arg(ap,long long);
-            argv[argc++] = createStringObjectFromLongLong(ll);
+            argv[argc++] = createObject(OBJ_STRING,sdsfromlonglong(ll));
         } else if (*p == 'v') {
              /* A vector of strings */
              robj **v = va_arg(ap, void*);
@@ -2460,6 +2518,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
 
     /* Setup our fake client for command execution. */
     c->flags |= CLIENT_MODULE;
+    c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
     c->cmd = c->lastcmd = cmd;
@@ -2549,7 +2608,7 @@ const char *RM_CallReplyProto(RedisModuleCallReply *reply, size_t *len) {
  *
  * The resulting 64 bit integer is composed as follows:
  *
- * (high order bits) 6|6|6|6|6|6|6|6|6|10 (low order bits)
+ *     (high order bits) 6|6|6|6|6|6|6|6|6|10 (low order bits)
  *
  * The first 6 bits value is the first character, name[0], while the last
  * 6 bits value, immediately before the 10 bits integer, is name[8].
@@ -2621,7 +2680,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
 
     /* Search in cache to start. */
     int j;
-    for (j = 0; j < MODULE_LOOKUP_CACHE_SIZE; j++)
+    for (j = 0; j < MODULE_LOOKUP_CACHE_SIZE && cache[j].mt != NULL; j++)
         if (cache[j].id == id) return cache[j].mt;
 
     /* Slow module by module lookup. */
@@ -2629,17 +2688,20 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(di)) != NULL && mt == NULL) {
         struct RedisModule *module = dictGetVal(de);
         listIter li;
         listNode *ln;
 
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
-            mt = ln->value;
+            moduleType *this_mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
-            if (mt->id >> 10 == id >> 10) break;
+            if (this_mt->id >> 10 == id >> 10) {
+                mt = this_mt;
+                break;
+            }
         }
     }
     dictReleaseIterator(di);
@@ -2653,11 +2715,13 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
 }
 
 /* Turn an (unresolved) module ID into a type name, to show the user an
- * error when RDB files contain module data we can't load. */
+ * error when RDB files contain module data we can't load.
+ * The buffer pointed by 'name' must be 10 bytes at least. The function will
+ * fill it with a null terminated module name. */
 void moduleTypeNameByID(char *name, uint64_t moduleid) {
     const char *cset = ModuleTypeNameCharSet;
 
-    name[0] = '\0';
+    name[9] = '\0';
     char *p = name+8;
     moduleid >>= 10;
     for (int j = 0; j < 9; j++) {
@@ -2743,8 +2807,8 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeLoadFunc rdb_load;
         moduleTypeSaveFunc rdb_save;
         moduleTypeRewriteFunc aof_rewrite;
-        moduleTypeDigestFunc digest;
         moduleTypeMemUsageFunc mem_usage;
+        moduleTypeDigestFunc digest;
         moduleTypeFreeFunc free;
     } *tms = (struct typemethods*) typemethods_ptr;
 
@@ -2825,25 +2889,36 @@ void moduleRDBLoadError(RedisModuleIO *io) {
  * data types. */
 void RM_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
     if (io->error) return;
-    int retval = rdbSaveLen(io->rio, value);
-    if (retval == -1) {
-        io->error = 1;
-    } else {
-        io->bytes += retval;
-    }
+    /* Save opcode. */
+    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_UINT);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    /* Save value. */
+    retval = rdbSaveLen(io->rio, value);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    return;
+
+saveerr:
+    io->error = 1;
 }
 
 /* Load an unsigned 64 bit value from the RDB file. This function should only
  * be called in the context of the rdb_load method of modules implementing
  * new data types. */
 uint64_t RM_LoadUnsigned(RedisModuleIO *io) {
+    if (io->ver == 2) {
+        uint64_t opcode = rdbLoadLen(io->rio,NULL);
+        if (opcode != RDB_MODULE_OPCODE_UINT) goto loaderr;
+    }
     uint64_t value;
     int retval = rdbLoadLenByRef(io->rio, NULL, &value);
-    if (retval == -1) {
-        moduleRDBLoadError(io);
-        return 0; /* Never reached. */
-    }
+    if (retval == -1) goto loaderr;
     return value;
+
+loaderr:
+    moduleRDBLoadError(io);
+    return 0; /* Never reached. */
 }
 
 /* Like RedisModule_SaveUnsigned() but for signed 64 bit values. */
@@ -2868,35 +2943,52 @@ int64_t RM_LoadSigned(RedisModuleIO *io) {
  * the RDB file. */
 void RM_SaveString(RedisModuleIO *io, RedisModuleString *s) {
     if (io->error) return;
-    int retval = rdbSaveStringObject(io->rio,s);
-    if (retval == -1) {
-        io->error = 1;
-    } else {
-        io->bytes += retval;
-    }
+    /* Save opcode. */
+    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    /* Save value. */
+    retval = rdbSaveStringObject(io->rio, s);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    return;
+
+saveerr:
+    io->error = 1;
 }
 
 /* Like RedisModule_SaveString() but takes a raw C pointer and length
  * as input. */
 void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len) {
     if (io->error) return;
-    int retval = rdbSaveRawString(io->rio,(unsigned char*)str,len);
-    if (retval == -1) {
-        io->error = 1;
-    } else {
-        io->bytes += retval;
-    }
+    /* Save opcode. */
+    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    /* Save value. */
+    retval = rdbSaveRawString(io->rio, (unsigned char*)str,len);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    return;
+
+saveerr:
+    io->error = 1;
 }
 
 /* Implements RM_LoadString() and RM_LoadStringBuffer() */
 void *moduleLoadString(RedisModuleIO *io, int plain, size_t *lenptr) {
+    if (io->ver == 2) {
+        uint64_t opcode = rdbLoadLen(io->rio,NULL);
+        if (opcode != RDB_MODULE_OPCODE_STRING) goto loaderr;
+    }
     void *s = rdbGenericLoadStringObject(io->rio,
               plain ? RDB_LOAD_PLAIN : RDB_LOAD_NONE, lenptr);
-    if (s == NULL) {
-        moduleRDBLoadError(io);
-        return NULL; /* Never reached. */
-    }
+    if (s == NULL) goto loaderr;
     return s;
+
+loaderr:
+    moduleRDBLoadError(io);
+    return NULL; /* Never reached. */
 }
 
 /* In the context of the rdb_load method of a module data type, loads a string
@@ -2928,49 +3020,131 @@ char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
  * It is possible to load back the value with RedisModule_LoadDouble(). */
 void RM_SaveDouble(RedisModuleIO *io, double value) {
     if (io->error) return;
-    int retval = rdbSaveBinaryDoubleValue(io->rio, value);
-    if (retval == -1) {
-        io->error = 1;
-    } else {
-        io->bytes += retval;
-    }
+    /* Save opcode. */
+    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_DOUBLE);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    /* Save value. */
+    retval = rdbSaveBinaryDoubleValue(io->rio, value);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    return;
+
+saveerr:
+    io->error = 1;
 }
 
 /* In the context of the rdb_save method of a module data type, loads back the
  * double value saved by RedisModule_SaveDouble(). */
 double RM_LoadDouble(RedisModuleIO *io) {
+    if (io->ver == 2) {
+        uint64_t opcode = rdbLoadLen(io->rio,NULL);
+        if (opcode != RDB_MODULE_OPCODE_DOUBLE) goto loaderr;
+    }
     double value;
     int retval = rdbLoadBinaryDoubleValue(io->rio, &value);
-    if (retval == -1) {
-        moduleRDBLoadError(io);
-        return 0; /* Never reached. */
-    }
+    if (retval == -1) goto loaderr;
     return value;
+
+loaderr:
+    moduleRDBLoadError(io);
+    return 0; /* Never reached. */
 }
 
-/* In the context of the rdb_save method of a module data type, saves a float 
+/* In the context of the rdb_save method of a module data type, saves a float
  * value to the RDB file. The float can be a valid number, a NaN or infinity.
  * It is possible to load back the value with RedisModule_LoadFloat(). */
 void RM_SaveFloat(RedisModuleIO *io, float value) {
     if (io->error) return;
-    int retval = rdbSaveBinaryFloatValue(io->rio, value);
-    if (retval == -1) {
-        io->error = 1;
-    } else {
-        io->bytes += retval;
-    }
+    /* Save opcode. */
+    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_FLOAT);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    /* Save value. */
+    retval = rdbSaveBinaryFloatValue(io->rio, value);
+    if (retval == -1) goto saveerr;
+    io->bytes += retval;
+    return;
+
+saveerr:
+    io->error = 1;
 }
 
 /* In the context of the rdb_save method of a module data type, loads back the
  * float value saved by RedisModule_SaveFloat(). */
 float RM_LoadFloat(RedisModuleIO *io) {
+    if (io->ver == 2) {
+        uint64_t opcode = rdbLoadLen(io->rio,NULL);
+        if (opcode != RDB_MODULE_OPCODE_FLOAT) goto loaderr;
+    }
     float value;
     int retval = rdbLoadBinaryFloatValue(io->rio, &value);
-    if (retval == -1) {
-        moduleRDBLoadError(io);
-        return 0; /* Never reached. */
-    }
+    if (retval == -1) goto loaderr;
     return value;
+
+loaderr:
+    moduleRDBLoadError(io);
+    return 0; /* Never reached. */
+}
+
+/* --------------------------------------------------------------------------
+ * Key digest API (DEBUG DIGEST interface for modules types)
+ * -------------------------------------------------------------------------- */
+
+/* Add a new element to the digest. This function can be called multiple times
+ * one element after the other, for all the elements that constitute a given
+ * data structure. The function call must be followed by the call to
+ * `RedisModule_DigestEndSequence` eventually, when all the elements that are
+ * always in a given order are added. See the Redis Modules data types
+ * documentation for more info. However this is a quick example that uses Redis
+ * data types as an example.
+ *
+ * To add a sequence of unordered elements (for example in the case of a Redis
+ * Set), the pattern to use is:
+ *
+ *     foreach element {
+ *         AddElement(element);
+ *         EndSequence();
+ *     }
+ *
+ * Because Sets are not ordered, so every element added has a position that
+ * does not depend from the other. However if instead our elements are
+ * ordered in pairs, like field-value pairs of an Hash, then one should
+ * use:
+ *
+ *     foreach key,value {
+ *         AddElement(key);
+ *         AddElement(value);
+ *         EndSquence();
+ *     }
+ *
+ * Because the key and value will be always in the above order, while instead
+ * the single key-value pairs, can appear in any position into a Redis hash.
+ *
+ * A list of ordered elements would be implemented with:
+ *
+ *     foreach element {
+ *         AddElement(element);
+ *     }
+ *     EndSequence();
+ *
+ */
+void RM_DigestAddStringBuffer(RedisModuleDigest *md, unsigned char *ele, size_t len) {
+    mixDigest(md->o,ele,len);
+}
+
+/* Like `RedisModule_DigestAddStringBuffer()` but takes a long long as input
+ * that gets converted into a string before adding it to the digest. */
+void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
+    char buf[LONG_STR_SIZE];
+    size_t len = ll2string(buf,sizeof(buf),ll);
+    mixDigest(md->o,buf,len);
+}
+
+/* See the doucmnetation for `RedisModule_DigestAddElement()`. */
+void RM_DigestEndSequence(RedisModuleDigest *md) {
+    xorDigest(md->x,md->o,sizeof(md->o));
+    memset(md->o,0,sizeof(md->o));
 }
 
 /* --------------------------------------------------------------------------
@@ -3048,8 +3222,8 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
 
 /* This is the low level function implementing both:
  *
- *  RM_Log()
- *  RM_LogIOError()
+ *      RM_Log()
+ *      RM_LogIOError()
  *
  */
 void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
@@ -3068,8 +3242,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
     serverLogRaw(level,msg);
 }
 
-/*
- * Produces a log message to the standard Redis log, the format accepts
+/* Produces a log message to the standard Redis log, the format accepts
  * printf-alike specifiers, while level is a string describing the log
  * level to use when emitting the log, and must be one of the following:
  *
@@ -3108,6 +3281,17 @@ void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...
  * Blocking clients from modules
  * -------------------------------------------------------------------------- */
 
+/* Readable handler for the awake pipe. We do nothing here, the awake bytes
+ * will be actually read in a more appropriate place in the
+ * moduleHandleBlockedClients() function that is where clients are actually
+ * served. */
+void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
+    UNUSED(privdata);
+}
+
 /* This is called from blocked.c in order to unblock a client: may be called
  * for multiple reasons while the client is in the middle of being blocked
  * because the client is terminated, but is also called for cleanup when a
@@ -3123,36 +3307,56 @@ void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...
 void unblockClientFromModule(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
     bc->client = NULL;
+    /* Reset the client for a new query since, for blocking commands implemented
+     * into modules, we do not it immediately after the command returns (and
+     * the client blocks) in order to be still able to access the argument
+     * vector from callbacks. */
+    resetClient(c);
 }
 
 /* Block a client in the context of a blocking command, returning an handle
- * which will be used, later, in order to block the client with a call to
+ * which will be used, later, in order to unblock the client with a call to
  * RedisModule_UnblockClient(). The arguments specify callback functions
  * and a timeout after which the client is unblocked.
  *
  * The callbacks are called in the following contexts:
  *
- * reply_callback:  called after a successful RedisModule_UnblockClient() call
- *                  in order to reply to the client and unblock it.
- * reply_timeout:   called when the timeout is reached in order to send an
- *                  error to the client.
- * free_privdata:   called in order to free the privata data that is passed
- *                  by RedisModule_UnblockClient() call.
+ *     reply_callback:  called after a successful RedisModule_UnblockClient()
+ *                      call in order to reply to the client and unblock it.
+ *
+ *     reply_timeout:   called when the timeout is reached in order to send an
+ *                      error to the client.
+ *
+ *     free_privdata:   called in order to free the privata data that is passed
+ *                      by RedisModule_UnblockClient() call.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
     client *c = ctx->client;
+    int islua = c->flags & CLIENT_LUA;
+
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
 
-    bc->client = c;
+    /* We need to handle the invalid operation of calling modules blocking
+     * commands from Lua. We actually create an already aborted (client set to
+     * NULL) blocked client handle, and actually reply to Lua with an error. */
+    bc->client = islua ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
     bc->timeout_callback = timeout_callback;
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
+    bc->reply_client = createClient(-1);
+    bc->reply_client->flags |= CLIENT_MODULE;
+    bc->dbid = c->db->id;
     c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
-    blockClient(c,BLOCKED_MODULE);
+    if (islua) {
+        c->bpop.module_blocked_handle = NULL;
+        addReplyError(c,"Blocking module command called from Lua script");
+    } else {
+        blockClient(c,BLOCKED_MODULE);
+    }
     return bc;
 }
 
@@ -3171,6 +3375,9 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     bc->privdata = privdata;
     listAddNodeTail(moduleUnblockedClients,bc);
+    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
+        /* Ignore the error, this is best-effort. */
+    }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
@@ -3195,6 +3402,10 @@ void moduleHandleBlockedClients(void) {
     RedisModuleBlockedClient *bc;
 
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
+    /* Here we unblock all the pending clients blocked in modules operations
+     * so we can read every pending "awake byte" in the pipe. */
+    char buf[1];
+    while (read(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
@@ -3205,7 +3416,9 @@ void moduleHandleBlockedClients(void) {
         /* Release the lock during the loop, as long as we don't
          * touch the shared list. */
 
-        if (c != NULL && bc->reply_callback != NULL) {
+        /* Call the reply callback if the client is valid and we have
+         * any callback. */
+        if (c && bc->reply_callback) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.flags |= REDISMODULE_CTX_BLOCKED_REPLY;
             ctx.blocked_privdata = bc->privdata;
@@ -3215,10 +3428,42 @@ void moduleHandleBlockedClients(void) {
             moduleHandlePropagationAfterCommandCallback(&ctx);
             moduleFreeContext(&ctx);
         }
+
+        /* Free privdata if any. */
         if (bc->privdata && bc->free_privdata)
             bc->free_privdata(bc->privdata);
+
+        /* It is possible that this blocked client object accumulated
+         * replies to send to the client in a thread safe context.
+         * We need to glue such replies to the client output buffer and
+         * free the temporary client we just used for the replies. */
+        if (c) {
+            if (bc->reply_client->bufpos)
+                addReplyString(c,bc->reply_client->buf,
+                                 bc->reply_client->bufpos);
+            if (listLength(bc->reply_client->reply))
+                listJoin(c->reply,bc->reply_client->reply);
+            c->reply_bytes += bc->reply_client->reply_bytes;
+        }
+        freeClient(bc->reply_client);
+
+        if (c != NULL) {
+            unblockClient(c);
+            /* Put the client in the list of clients that need to write
+             * if there are pending replies here. This is needed since
+             * during a non blocking command the client may receive output. */
+            if (clientHasPendingReplies(c) &&
+                !(c->flags & CLIENT_PENDING_WRITE))
+            {
+                c->flags |= CLIENT_PENDING_WRITE;
+                listAddNodeHead(server.clients_pending_write,c);
+            }
+        }
+
+        /* Free 'bc' only after unblocking the client, since it is
+         * referenced in the client blocking context, and must be valid
+         * when calling unblockClient(). */
         zfree(bc);
-        if (c != NULL) unblockClient(c);
 
         /* Lock again before to iterate the loop. */
         pthread_mutex_lock(&moduleUnblockedClientsMutex);
@@ -3258,13 +3503,82 @@ void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
 }
 
 /* --------------------------------------------------------------------------
+ * Thread Safe Contexts
+ * -------------------------------------------------------------------------- */
+
+/* Return a context which can be used inside threads to make Redis context
+ * calls with certain modules APIs. If 'bc' is not NULL then the module will
+ * be bound to a blocked client, and it will be possible to use the
+ * `RedisModule_Reply*` family of functions to accumulate a reply for when the
+ * client will be unblocked. Otherwise the thread safe context will be
+ * detached by a specific client.
+ *
+ * To call non-reply APIs, the thread safe context must be prepared with:
+ *
+ *     RedisModule_ThreadSafeCallStart(ctx);
+ *     ... make your call here ...
+ *     RedisModule_ThreadSafeCallStop(ctx);
+ *
+ * This is not needed when using `RedisModule_Reply*` functions, assuming
+ * that a blocked client was used when the context was created, otherwise
+ * no RedisModule_Reply* call should be made at all.
+ *
+ * TODO: thread safe contexts do not inherit the blocked client
+ * selected database. */
+RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
+    RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
+    RedisModuleCtx empty = REDISMODULE_CTX_INIT;
+    memcpy(ctx,&empty,sizeof(empty));
+    if (bc) {
+        ctx->blocked_client = bc;
+        ctx->module = bc->module;
+    }
+    ctx->flags |= REDISMODULE_CTX_THREAD_SAFE;
+    /* Even when the context is associated with a blocked client, we can't
+     * access it safely from another thread, so we create a fake client here
+     * in order to keep things like the currently selected database and similar
+     * things. */
+    ctx->client = createClient(-1);
+    if (bc) selectDb(ctx->client,bc->dbid);
+    return ctx;
+}
+
+/* Release a thread safe context. */
+void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
+    moduleFreeContext(ctx);
+    zfree(ctx);
+}
+
+/* Acquire the server lock before executing a thread safe API call.
+ * This is not needed for `RedisModule_Reply*` calls when there is
+ * a blocked client connected to the thread safe context. */
+void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
+    DICT_NOTUSED(ctx);
+    moduleAcquireGIL();
+}
+
+/* Release the server lock after a thread safe API call was executed. */
+void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
+    DICT_NOTUSED(ctx);
+    moduleReleaseGIL();
+}
+
+void moduleAcquireGIL(void) {
+    pthread_mutex_lock(&moduleGIL);
+}
+
+void moduleReleaseGIL(void) {
+    pthread_mutex_unlock(&moduleGIL);
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
 /* server.moduleapi dictionary type. Only uses plain C strings since
  * this gets queries from modules. */
 
-unsigned int dictCStringKeyHash(const void *key) {
+uint64_t dictCStringKeyHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
@@ -3298,6 +3612,20 @@ void moduleInitModulesSystem(void) {
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
     moduleRegisterCoreAPI();
+    if (pipe(server.module_blocked_pipe) == -1) {
+        serverLog(LL_WARNING,
+            "Can't create the pipe for module blocking commands: %s",
+            strerror(errno));
+        exit(1);
+    }
+    /* Make the pipe non blocking. This is just a best effort aware mechanism
+     * and we do not want to block not in the read nor in the write half. */
+    anetNonBlock(NULL,server.module_blocked_pipe[0]);
+    anetNonBlock(NULL,server.module_blocked_pipe[1]);
+
+    /* Our thread-safe contexts GIL must start with already locked:
+     * it is just unlocked when it's safe. */
+    pthread_mutex_lock(&moduleGIL);
 }
 
 /* Load all the modules in the server.loadmodule_queue list, which is
@@ -3372,8 +3700,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * C_OK is returned, otherwise C_ERR is returned and errno is set
  * to the following values depending on the type of error:
  *
- * ENONET: No such module having the specified name.
- * EBUSY: The module exports a new data type and can only be reloaded. */
+ * * ENONET: No such module having the specified name.
+ * * EBUSY: The module exports a new data type and can only be reloaded. */
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
 
@@ -3484,6 +3812,11 @@ void moduleCommand(client *c) {
     }
 }
 
+/* Return the number of registered modules. */
+size_t moduleCount(void) {
+    return dictSize(modules);
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -3589,4 +3922,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientPrivateData);
     REGISTER_API(AbortBlock);
     REGISTER_API(Milliseconds);
+    REGISTER_API(GetThreadSafeContext);
+    REGISTER_API(FreeThreadSafeContext);
+    REGISTER_API(ThreadSafeContextLock);
+    REGISTER_API(ThreadSafeContextUnlock);
+    REGISTER_API(DigestAddStringBuffer);
+    REGISTER_API(DigestAddLongLong);
+    REGISTER_API(DigestEndSequence);
 }

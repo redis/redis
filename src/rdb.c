@@ -61,7 +61,7 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
     if (!rdbCheckMode) {
         serverLog(LL_WARNING, "%s", msg);
         char *argv[2] = {"",server.rdb_filename};
-        redis_check_rdb_main(2,argv);
+        redis_check_rdb_main(2,argv,NULL);
     } else {
         rdbCheckError("%s",msg);
     }
@@ -623,7 +623,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             serverPanic("Unknown hash encoding");
     case OBJ_MODULE:
-        return rdbSaveType(rdb,RDB_TYPE_MODULE);
+        return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
         serverPanic("Unknown object type");
     }
@@ -704,23 +704,30 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
-            dictEntry *de;
+            zskiplist *zsl = zs->zsl;
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,zsl->length)) == -1) return -1;
             nwritten += n;
 
-            while((de = dictNext(di)) != NULL) {
-                sds ele = dictGetKey(de);
-                double *score = dictGetVal(de);
-
-                if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
-                    == -1) return -1;
+            /* We save the skiplist elements from the greatest to the smallest
+             * (that's trivial since the elements are already ordered in the
+             * skiplist): this improves the load process, since the next loaded
+             * element will always be the smaller, so adding to the skiplist
+             * will always immediately stop at the head, making the insertion
+             * O(1) instead of O(log(N)). */
+            zskiplistNode *zn = zsl->tail;
+            while (zn != NULL) {
+                if ((n = rdbSaveRawString(rdb,
+                    (unsigned char*)zn->ele,sdslen(zn->ele))) == -1)
+                {
+                    return -1;
+                }
                 nwritten += n;
-                if ((n = rdbSaveBinaryDoubleValue(rdb,*score)) == -1) return -1;
+                if ((n = rdbSaveBinaryDoubleValue(rdb,zn->score)) == -1)
+                    return -1;
                 nwritten += n;
+                zn = zn->backward;
             }
-            dictReleaseIterator(di);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -768,8 +775,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         if (retval == -1) return -1;
         io.bytes += retval;
 
-        /* Then write the module-specific representation. */
+        /* Then write the module-specific representation + EOF marker. */
         mt->rdb_save(&io,mv->value);
+        retval = rdbSaveLen(rdb,RDB_MODULE_OPCODE_EOF);
+        if (retval == -1) return -1;
+        io.bytes += retval;
+
         if (io.ctx) {
             moduleFreeContext(io.ctx);
             zfree(io.ctx);
@@ -1095,6 +1106,45 @@ void rdbRemoveTempFile(pid_t childpid) {
     unlink(tmpfile);
 }
 
+/* This function is called by rdbLoadObject() when the code is in RDB-check
+ * mode and we find a module value of type 2 that can be parsed without
+ * the need of the actual module. The value is parsed for errors, finally
+ * a dummy redis object is returned just to conform to the API. */
+robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
+    uint64_t opcode;
+    while((opcode = rdbLoadLen(rdb,NULL)) != RDB_MODULE_OPCODE_EOF) {
+        if (opcode == RDB_MODULE_OPCODE_SINT ||
+            opcode == RDB_MODULE_OPCODE_UINT)
+        {
+            uint64_t len;
+            if (rdbLoadLenByRef(rdb,NULL,&len) == -1) {
+                rdbExitReportCorruptRDB(
+                    "Error reading integer from module %s value", modulename);
+            }
+        } else if (opcode == RDB_MODULE_OPCODE_STRING) {
+            robj *o = rdbGenericLoadStringObject(rdb,RDB_LOAD_NONE,NULL);
+            if (o == NULL) {
+                rdbExitReportCorruptRDB(
+                    "Error reading string from module %s value", modulename);
+            }
+            decrRefCount(o);
+        } else if (opcode == RDB_MODULE_OPCODE_FLOAT) {
+            float val;
+            if (rdbLoadBinaryFloatValue(rdb,&val) == -1) {
+                rdbExitReportCorruptRDB(
+                    "Error reading float from module %s value", modulename);
+            }
+        } else if (opcode == RDB_MODULE_OPCODE_DOUBLE) {
+            double val;
+            if (rdbLoadBinaryDoubleValue(rdb,&val) == -1) {
+                rdbExitReportCorruptRDB(
+                    "Error reading double from module %s value", modulename);
+            }
+        }
+    }
+    return createStringObject("module-dummy-value",18);
+}
+
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
 robj *rdbLoadObject(int rdbtype, rio *rdb) {
@@ -1346,10 +1396,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
-    } else if (rdbtype == RDB_TYPE_MODULE) {
+    } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
         char name[10];
+
+        if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2)
+            return rdbLoadCheckModuleValue(rdb,name);
 
         if (mt == NULL) {
             moduleTypeNameByID(name,moduleid);
@@ -1358,9 +1411,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
         RedisModuleIO io;
         moduleInitIOContext(io,mt,rdb);
+        io.ver = (rdbtype == RDB_TYPE_MODULE) ? 1 : 2;
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
+        if (io.ctx) {
+            moduleFreeContext(io.ctx);
+            zfree(io.ctx);
+        }
+
+        /* Module v2 serialization has an EOF mark at the end. */
+        if (io.ver == 2) {
+            uint64_t eof = rdbLoadLen(rdb,NULL);
+            if (eof != RDB_MODULE_OPCODE_EOF) {
+                serverLog(LL_WARNING,"The RDB file contains module data for the module '%s' that is not terminated by the proper module value EOF marker", name);
+                exit(1);
+            }
+        }
+
         if (ptr == NULL) {
             moduleTypeNameByID(name,moduleid);
             serverLog(LL_WARNING,"The RDB file contains module data for the module type '%s', that the responsible module is not able to load. Check for modules log above for additional clues.", name);
@@ -1863,9 +1931,6 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
         /* Parent */
-        server.stat_fork_time = ustime()-start;
-        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
-        latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             serverLog(LL_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
@@ -1889,6 +1954,10 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             close(pipefds[1]);
             closeChildInfoPipe();
         } else {
+            server.stat_fork_time = ustime()-start;
+            server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+            latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
+
             serverLog(LL_NOTICE,"Background RDB transfer started by pid %d",
                 childpid);
             server.rdb_save_time_start = time(NULL);

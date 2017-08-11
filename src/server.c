@@ -32,6 +32,7 @@
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
+#include "atomicvar.h"
 
 #include <time.h>
 #include <signal.h>
@@ -68,7 +69,8 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /*================================= Globals ================================= */
 
 /* Global vars */
-struct redisServer server; /* server global state */
+struct redisServer server; /* Server global state */
+volatile unsigned long lru_clock; /* Server global current LRU time. */
 
 /* Our command table.
  *
@@ -142,7 +144,7 @@ struct redisCommand redisCommandTable[] = {
     {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
     {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
     {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
-    {"mget",mgetCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"mget",mgetCommand,-2,"rF",0,NULL,1,-1,1,0,0},
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"rpushx",rpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0},
@@ -150,7 +152,7 @@ struct redisCommand redisCommandTable[] = {
     {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0},
     {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"brpop",brpopCommand,-3,"ws",0,NULL,1,1,1,0,0},
+    {"brpop",brpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
     {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0},
     {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
     {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0},
@@ -196,11 +198,11 @@ struct redisCommand redisCommandTable[] = {
     {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"hset",hsetCommand,4,"wmF",0,NULL,1,1,1,0,0},
+    {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
-    {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},
+    {"hmset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
+    {"hmget",hmgetCommand,-3,"rF",0,NULL,1,1,1,0,0},
     {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
@@ -288,8 +290,10 @@ struct redisCommand redisCommandTable[] = {
     {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0},
     {"command",commandCommand,0,"lt",0,NULL,0,0,0,0,0},
     {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
-    {"georadius",georadiusCommand,-6,"w",0,NULL,1,1,1,0,0},
-    {"georadiusbymember",georadiusByMemberCommand,-5,"w",0,NULL,1,1,1,0,0},
+    {"georadius",georadiusCommand,-6,"w",0,georadiusGetKeys,1,1,1,0,0},
+    {"georadius_ro",georadiusroCommand,-6,"r",0,georadiusGetKeys,1,1,1,0,0},
+    {"georadiusbymember",georadiusbymemberCommand,-5,"w",0,georadiusGetKeys,1,1,1,0,0},
+    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,"r",0,georadiusGetKeys,1,1,1,0,0},
     {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0},
@@ -482,16 +486,16 @@ int dictObjKeyCompare(void *privdata, const void *key1,
     return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
 }
 
-unsigned int dictObjHash(const void *key) {
+uint64_t dictObjHash(const void *key) {
     const robj *o = key;
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
 }
 
-unsigned int dictSdsHash(const void *key) {
+uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-unsigned int dictSdsCaseHash(const void *key) {
+uint64_t dictSdsCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
@@ -513,7 +517,7 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
     return cmp;
 }
 
-unsigned int dictEncObjHash(const void *key) {
+uint64_t dictEncObjHash(const void *key) {
     robj *o = (robj*) key;
 
     if (sdsEncodedObject(o)) {
@@ -526,7 +530,7 @@ unsigned int dictEncObjHash(const void *key) {
             len = ll2string(buf,32,(long)o->ptr);
             return dictGenHashFunction((unsigned char*)buf, len);
         } else {
-            unsigned int hash;
+            uint64_t hash;
 
             o = getDecodedObject(o);
             hash = dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
@@ -876,6 +880,10 @@ void databasesCron(void) {
         expireSlaveKeys();
     }
 
+    /* Defrag keys gradually. */
+    if (server.active_defrag_enabled)
+        activeDefragCycle();
+
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -917,7 +925,8 @@ void databasesCron(void) {
  * every object access, and accuracy is not needed. To access a global var is
  * a lot faster than calling time(NULL) */
 void updateCachedTime(void) {
-    server.unixtime = time(NULL);
+    time_t unixtime = time(NULL);
+    atomicSet(server.unixtime,unixtime);
     server.mstime = mstime();
 }
 
@@ -972,7 +981,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    server.lruclock = getLRUClock();
+    unsigned long lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
 
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
@@ -1212,6 +1222,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWrites();
+
+    /* Before we are going to sleep, let the threads access the dataset by
+     * releasing the GIL. Redis main thread will not touch anything at this
+     * time. */
+    if (moduleCount()) moduleReleaseGIL();
+}
+
+/* This function is called immadiately after the event loop multiplexing
+ * API returned, and the control is going to soon return to Redis by invoking
+ * the different events callbacks. */
+void afterSleep(struct aeEventLoop *eventLoop) {
+    UNUSED(eventLoop);
+    if (moduleCount()) moduleAcquireGIL();
 }
 
 /* =========================== Server initialization ======================== */
@@ -1251,7 +1274,7 @@ void createSharedObjects(void) {
     shared.masterdownerr = createObject(OBJ_STRING,sdsnew(
         "-MASTERDOWN Link with MASTER is down and slave-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(OBJ_STRING,sdsnew(
-        "-MISCONF Redis is configured to save RDB snapshots, but is currently not able to persist on disk. Commands that may modify the data set are disabled. Please check Redis logs for details about the error.\r\n"));
+        "-MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on disk. Commands that may modify the data set are disabled, because this instance is configured to report errors during writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). Please check the Redis logs for details about the RDB error.\r\n"));
     shared.roslaveerr = createObject(OBJ_STRING,sdsnew(
         "-READONLY You can't write against a read only slave.\r\n"));
     shared.noautherr = createObject(OBJ_STRING,sdsnew(
@@ -1311,6 +1334,10 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
+    pthread_mutex_init(&server.next_client_id_mutex,NULL);
+    pthread_mutex_init(&server.lruclock_mutex,NULL);
+    pthread_mutex_init(&server.unixtime_mutex,NULL);
+
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
@@ -1332,6 +1359,12 @@ void initServerConfig(void) {
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
     server.tcpkeepalive = CONFIG_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
+    server.active_defrag_enabled = CONFIG_DEFAULT_ACTIVE_DEFRAG;
+    server.active_defrag_ignore_bytes = CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES;
+    server.active_defrag_threshold_lower = CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER;
+    server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
+    server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
+    server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
@@ -1368,6 +1401,7 @@ void initServerConfig(void) {
     server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
     server.activerehashing = CONFIG_DEFAULT_ACTIVE_REHASHING;
+    server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
@@ -1401,8 +1435,10 @@ void initServerConfig(void) {
     server.lazyfree_lazy_expire = CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE;
     server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
+    server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
-    server.lruclock = getLRUClock();
+    unsigned int lruclock = getLRUClock();
+    atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -1466,6 +1502,8 @@ void initServerConfig(void) {
     server.rpopCommand = lookupCommandByCString("rpop");
     server.sremCommand = lookupCommandByCString("srem");
     server.execCommand = lookupCommandByCString("exec");
+    server.expireCommand = lookupCommandByCString("expire");
+    server.pexpireCommand = lookupCommandByCString("pexpire");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
@@ -1517,7 +1555,11 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) close(j);
+    for (j = 3; j < (int)server.maxclients + 1024; j++) {
+        /* Test the descriptor validity before closing it, otherwise
+         * Valgrind issues a warning on close(). */
+        if (fcntl(j,F_GETFD) != -1) close(j);
+    }
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
@@ -1718,6 +1760,10 @@ void resetServerStats(void) {
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
+    server.stat_active_defrag_hits = 0;
+    server.stat_active_defrag_misses = 0;
+    server.stat_active_defrag_key_hits = 0;
+    server.stat_active_defrag_key_misses = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_rejected_conn = 0;
@@ -1766,6 +1812,12 @@ void initServer(void) {
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
+    if (server.el == NULL) {
+        serverLog(LL_WARNING,
+            "Failed creating the event loop. Error message: '%s'",
+            strerror(errno));
+        exit(1);
+    }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
@@ -1855,6 +1907,16 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
+
+    /* Register a readable event for the pipe used to awake the event loop
+     * when a blocked client in a module needs attention. */
+    if (aeCreateFileEvent(server.el, server.module_blocked_pipe[0], AE_READABLE,
+        moduleBlockedClientPipeReadable,NULL) == AE_ERR) {
+            serverPanic(
+                "Error registering the readable event for the module "
+                "blocked clients subsystem.");
+    }
+
     /* Open the AOF file if needed. */
     if (server.aof_state == AOF_ON) {
         server.aof_fd = open(server.aof_filename,
@@ -1925,15 +1987,18 @@ void populateCommandTable(void) {
 }
 
 void resetCommandTableStats(void) {
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-    int j;
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
 
-    for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = redisCommandTable+j;
-
+    di = dictGetSafeIterator(server.commands);
+    while((de = dictNext(di)) != NULL) {
+        c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
     }
+    dictReleaseIterator(di);
+
 }
 
 /* ========================== Redis OP Array API ============================ */
@@ -2160,7 +2225,7 @@ void call(client *c, int flags) {
         char *latency_event = (c->cmd->flags & CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+        slowlogPushEntryIfNeeded(c,c->argv,c->argc,duration);
     }
     if (flags & CMD_CALL_STATS) {
         c->lastcmd->microseconds += duration;
@@ -2732,7 +2797,7 @@ void bytesToHuman(char *s, unsigned long long n) {
 sds genRedisInfoString(char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
-    int j, numcommands;
+    int j;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
     int allsections = 0, defsections = 0;
@@ -2764,6 +2829,8 @@ sds genRedisInfoString(char *section) {
             call_uname = 0;
         }
 
+        unsigned int lruclock;
+        atomicGet(server.lruclock,lruclock);
         info = sdscatprintf(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
@@ -2774,6 +2841,7 @@ sds genRedisInfoString(char *section) {
             "os:%s %s %s\r\n"
             "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
+            "atomicvar_api:%s\r\n"
             "gcc_version:%d.%d.%d\r\n"
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
@@ -2792,6 +2860,7 @@ sds genRedisInfoString(char *section) {
             name.sysname, name.release, name.machine,
             server.arch_bits,
             aeGetApiName(),
+            REDIS_ATOMIC_API,
 #ifdef __GNUC__
             __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
@@ -2803,7 +2872,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
-            (unsigned long) server.lruclock,
+            (unsigned long) lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
     }
@@ -2873,6 +2942,7 @@ sds genRedisInfoString(char *section) {
             "maxmemory_policy:%s\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n"
+            "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
             zmalloc_used,
             hmem,
@@ -2894,6 +2964,7 @@ sds genRedisInfoString(char *section) {
             evict_policy,
             mh->fragmentation,
             ZMALLOC_LIB,
+            server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
         );
         freeMemoryOverheadData(mh);
@@ -3013,7 +3084,11 @@ sds genRedisInfoString(char *section) {
             "pubsub_patterns:%lu\r\n"
             "latest_fork_usec:%lld\r\n"
             "migrate_cached_sockets:%ld\r\n"
-            "slave_expires_tracked_keys:%zu\r\n",
+            "slave_expires_tracked_keys:%zu\r\n"
+            "active_defrag_hits:%lld\r\n"
+            "active_defrag_misses:%lld\r\n"
+            "active_defrag_key_hits:%lld\r\n"
+            "active_defrag_key_misses:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -3033,7 +3108,11 @@ sds genRedisInfoString(char *section) {
             listLength(server.pubsub_patterns),
             server.stat_fork_time,
             dictSize(server.migrate_cached_sockets),
-            getSlaveKeyWithExpireCount());
+            getSlaveKeyWithExpireCount(),
+            server.stat_active_defrag_hits,
+            server.stat_active_defrag_misses,
+            server.stat_active_defrag_key_hits,
+            server.stat_active_defrag_key_misses);
     }
 
     /* Replication */
@@ -3179,20 +3258,24 @@ sds genRedisInfoString(char *section) {
         (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);
     }
 
-    /* cmdtime */
+    /* Command statistics */
     if (allsections || !strcasecmp(section,"commandstats")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
-        numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-        for (j = 0; j < numcommands; j++) {
-            struct redisCommand *c = redisCommandTable+j;
 
+        struct redisCommand *c;
+        dictEntry *de;
+        dictIterator *di;
+        di = dictGetSafeIterator(server.commands);
+        while((de = dictNext(di)) != NULL) {
+            c = (struct redisCommand *) dictGetVal(de);
             if (!c->calls) continue;
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
                 c->name, c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
         }
+        dictReleaseIterator(di);
     }
 
     /* Cluster */
@@ -3610,11 +3693,12 @@ int main(int argc, char **argv) {
     spt_init(argc, argv);
 #endif
     setlocale(LC_COLLATE,"");
-    zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
-    dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
+    char hashseed[16];
+    getRandomHexChars(hashseed,sizeof(hashseed));
+    dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
     moduleInitModulesSystem();
@@ -3634,11 +3718,13 @@ int main(int argc, char **argv) {
         initSentinel();
     }
 
-    /* Check if we need to start in redis-check-rdb mode. We just execute
+    /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
     if (strstr(argv[0],"redis-check-rdb") != NULL)
-        redis_check_rdb_main(argc,argv);
+        redis_check_rdb_main(argc,argv,NULL);
+    else if (strstr(argv[0],"redis-check-aof") != NULL)
+        redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {
         j = 1; /* First option to parse in argv[] */
@@ -3761,6 +3847,7 @@ int main(int argc, char **argv) {
     }
 
     aeSetBeforeSleepProc(server.el,beforeSleep);
+    aeSetAfterSleepProc(server.el,afterSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

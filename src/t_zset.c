@@ -1521,7 +1521,7 @@ void zaddGenericCommand(client *c, int flags) {
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
     elements = c->argc-scoreidx;
-    if (elements % 2) {
+    if (elements % 2 || !elements) {
         addReply(c,shared.syntaxerr);
         return;
     }
@@ -2110,7 +2110,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-unsigned int dictSdsHash(const void *key);
+uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 dictType setAccumulatorDictType = {

@@ -41,7 +41,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
-unsigned int dictStringHash(const void *key) {
+uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 

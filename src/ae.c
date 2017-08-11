@@ -75,6 +75,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
+    eventLoop->aftersleep = NULL;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -343,6 +344,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_FILE_EVENTS set, file events are processed.
  * if flags has AE_TIME_EVENTS set, time events are processed.
  * if flags has AE_DONT_WAIT set the function returns ASAP until all
+ * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
  * the events that's possible to process without to wait are processed.
  *
  * The function returns the number of events processed. */
@@ -397,7 +399,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
+        /* Call the multiplexing API, will return only on timeout or when
+         * some event fires. */
         numevents = aeApiPoll(eventLoop, tvp);
+
+        /* After sleep callback. */
+        if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
+            eventLoop->aftersleep(eventLoop);
+
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
@@ -452,7 +461,7 @@ void aeMain(aeEventLoop *eventLoop) {
     while (!eventLoop->stop) {
         if (eventLoop->beforesleep != NULL)
             eventLoop->beforesleep(eventLoop);
-        aeProcessEvents(eventLoop, AE_ALL_EVENTS);
+        aeProcessEvents(eventLoop, AE_ALL_EVENTS|AE_CALL_AFTER_SLEEP);
     }
 }
 
@@ -462,4 +471,8 @@ char *aeGetApiName(void) {
 
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep) {
     eventLoop->beforesleep = beforesleep;
+}
+
+void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
+    eventLoop->aftersleep = aftersleep;
 }
