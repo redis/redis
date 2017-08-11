@@ -133,9 +133,10 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) c->client_list_node = listAddNodeTailReturnNode(server.clients,c);
     initClientMultiState(c);
     return c;
 }
@@ -743,9 +744,10 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
+        if (c->client_list_node) {
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
