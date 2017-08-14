@@ -109,6 +109,9 @@ To run Redis with the default configuration just type:
 
     % cd src
     % ./redis-server
+If you are using docker execute the following command:
+    
+    % $ docker run --name some-redis -d redis
 
 If you want to provide your redis.conf, you have to run it using an additional
 parameter (the path of the configuration file):
@@ -146,6 +149,11 @@ then in another terminal try the following:
     redis>
 
 You can find the list of all the available commands at http://redis.io/commands.
+You can run redis with docker execute the following command.
+
+`$ docker run -it --link some-redis:redis --rm redis redis-cli -h redis -p 6379
+`
+
 
 Installing Redis
 -----------------
