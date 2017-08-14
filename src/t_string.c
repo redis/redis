@@ -66,6 +66,7 @@ static int checkStringLength(client *c, long long size) {
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    int key_exsits;
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != C_OK)
@@ -77,8 +78,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    key_exsits = dbExists(c->db, key);
+    if ((flags & OBJ_SET_NX && key_exsits) ||
+        (flags & OBJ_SET_XX && !key_exsits))
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
