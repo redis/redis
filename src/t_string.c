@@ -301,7 +301,7 @@ void mgetCommand(client *c) {
 }
 
 void msetGenericCommand(client *c, int nx) {
-    int j, busykeys = 0;
+    int j;
 
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
@@ -312,12 +312,9 @@ void msetGenericCommand(client *c, int nx) {
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
-                busykeys++;
-            }
-        }
-        if (busykeys) {
-            addReply(c, shared.czero);
-            return;
+                addReply( c, shared.czero );
+                return;
+			}
         }
     }
 
