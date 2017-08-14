@@ -415,7 +415,7 @@ sds createLatencyReport(void) {
         if (advise_scheduler) {
             report = sdscat(report,"- The system is slow to execute Redis code paths not containing system calls. This usually means the system does not provide Redis CPU time to run for long periods. You should try to:\n"
             "  1) Lower the system load.\n"
-            "  2) Use a computer / VM just for Redis if you are running other softawre in the same system.\n"
+            "  2) Use a computer / VM just for Redis if you are running other software in the same system.\n"
             "  3) Check if you have a \"noisy neighbour\" problem.\n"
             "  4) Check with 'redis-cli --intrinsic-latency 100' what is the intrinsic latency in your system.\n"
             "  5) Check if the problem is allocator-related by recompiling Redis with MALLOC=libc, if you are using Jemalloc. However this may create fragmentation problems.\n");
