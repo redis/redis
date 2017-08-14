@@ -763,6 +763,36 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
     }
 }
 
+struct genericHgetallContext {
+    int flags;
+    int count;
+    client *c;
+};
+
+static void genericHgetallHashTable(void *privdata, const dictEntry **entries, const int size) {
+    struct genericHgetallContext *ctx = privdata;
+    int idx, flags = ctx->flags;
+    client *c = ctx->c;
+    sds value;
+    for (idx = 0; idx < size; ++idx) {
+        const dictEntry *de = entries[idx];
+        if (flags & OBJ_HASH_KEY) {
+            value = dictGetKey(de);
+            addReplyBulkCBuffer(c, value, sdslen(value));
+        }
+        if (flags & OBJ_HASH_VALUE) {
+            value = dictGetVal(de);
+            addReplyBulkCBuffer(c, value, sdslen(value));
+        }
+    }
+    if (flags & OBJ_HASH_KEY) {
+        ctx->count += size;
+    }
+    if (flags & OBJ_HASH_VALUE) {
+        ctx->count += size;
+    }
+}
+
 void genericHgetallCommand(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
@@ -778,19 +808,27 @@ void genericHgetallCommand(client *c, int flags) {
     length = hashTypeLength(o) * multiplier;
     addReplyMultiBulkLen(c, length);
 
-    hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != C_ERR) {
-        if (flags & OBJ_HASH_KEY) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
-            count++;
+    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+        hi = hashTypeInitIterator(o);
+        while (hashTypeNext(hi) != C_ERR) {
+            if (flags & OBJ_HASH_KEY) {
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+                count++;
+            }
+            if (flags & OBJ_HASH_VALUE) {
+                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+                count++;
+            }
         }
-        if (flags & OBJ_HASH_VALUE) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
-            count++;
-        }
-    }
 
-    hashTypeReleaseIterator(hi);
+        hashTypeReleaseIterator(hi);
+    } else if (o->encoding == OBJ_ENCODING_HT) {
+        struct genericHgetallContext ctx = {flags, 0, c};
+        dictEach(o->ptr,genericHgetallHashTable,&ctx);
+        count = ctx.count;
+    } else {
+        serverPanic("Unknown hash encoding");
+    }
     serverAssert(count == length);
 }
 
