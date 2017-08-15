@@ -33,6 +33,8 @@
 #ifndef __AE_H__
 #define __AE_H__
 
+#include <time.h>
+
 #define AE_OK 0
 #define AE_ERR -1
 
@@ -44,8 +46,10 @@
 #define AE_TIME_EVENTS 2
 #define AE_ALL_EVENTS (AE_FILE_EVENTS|AE_TIME_EVENTS)
 #define AE_DONT_WAIT 4
+#define AE_CALL_AFTER_SLEEP 8
 
 #define AE_NOMORE -1
+#define AE_DELETED_EVENT_ID -1
 
 /* Macros */
 #define AE_NOTUSED(V) ((void) V)
@@ -95,6 +99,7 @@ typedef struct aeEventLoop {
     int stop;
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
+    aeBeforeSleepProc *aftersleep;
 } aeEventLoop;
 
 /* Prototypes */
@@ -114,6 +119,7 @@ int aeWait(int fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
+void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
 

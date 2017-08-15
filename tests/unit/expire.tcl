@@ -198,4 +198,25 @@ start_server {tags {"expire"}} {
         r set foo b
         lsort [r keys *]
     } {a e foo s t}
+
+    test {EXPIRE with empty string as TTL should report an error} {
+        r set foo bar
+        catch {r expire foo ""} e
+        set e
+    } {*not an integer*}
+
+    test {SET - use EX/PX option, TTL should not be reseted after loadaof} {
+        r config set appendonly yes
+        r set foo bar EX 100
+        after 2000
+        r debug loadaof
+        set ttl [r ttl foo]
+        assert {$ttl <= 98 && $ttl > 90}
+
+        r set foo bar PX 100000
+        after 2000
+        r debug loadaof
+        set ttl [r ttl foo]
+        assert {$ttl <= 98 && $ttl > 90}
+    }
 }

@@ -1,5 +1,6 @@
 #ifndef __HIREDIS_LIBUV_H__
 #define __HIREDIS_LIBUV_H__
+#include <stdlib.h>
 #include <uv.h>
 #include "../hiredis.h"
 #include "../async.h"
@@ -11,7 +12,6 @@ typedef struct redisLibuvEvents {
   int                events;
 } redisLibuvEvents;
 
-int redisLibuvAttach(redisAsyncContext*, uv_loop_t*);
 
 static void redisLibuvPoll(uv_poll_t* handle, int status, int events) {
   redisLibuvEvents* p = (redisLibuvEvents*)handle->data;
@@ -20,10 +20,10 @@ static void redisLibuvPoll(uv_poll_t* handle, int status, int events) {
     return;
   }
 
-  if (events & UV_READABLE) {
+  if (p->context != NULL && (events & UV_READABLE)) {
     redisAsyncHandleRead(p->context);
   }
-  if (events & UV_WRITABLE) {
+  if (p->context != NULL && (events & UV_WRITABLE)) {
     redisAsyncHandleWrite(p->context);
   }
 }
@@ -83,6 +83,7 @@ static void on_close(uv_handle_t* handle) {
 static void redisLibuvCleanup(void *privdata) {
   redisLibuvEvents* p = (redisLibuvEvents*)privdata;
 
+  p->context = NULL; // indicate that context might no longer exist
   uv_close((uv_handle_t*)&p->handle, on_close);
 }
 

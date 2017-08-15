@@ -30,6 +30,18 @@ start_server {tags {"repl"}} {
             }
             assert_equal [r debug digest] [r -1 debug digest]
         }
+
+        test {Slave is able to evict keys created in writable slaves} {
+            r -1 select 5
+            assert {[r -1 dbsize] == 0}
+            r -1 config set slave-read-only no
+            r -1 set key1 1 ex 5
+            r -1 set key2 2 ex 5
+            r -1 set key3 3 ex 5
+            assert {[r -1 dbsize] == 3}
+            after 6000
+            r -1 dbsize
+        } {0}
     }
 }
 

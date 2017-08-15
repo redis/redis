@@ -39,13 +39,13 @@
  */
 
 
-#include "redis.h"
+#include "server.h"
 #include "slowlog.h"
 
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
-slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
+slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration) {
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
@@ -57,12 +57,12 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
          * at SLOWLOG_ENTRY_MAX_ARGC, but use the last argument to specify
          * how many remaining arguments there were in the original command. */
         if (slargc != argc && j == slargc-1) {
-            se->argv[j] = createObject(REDIS_STRING,
+            se->argv[j] = createObject(OBJ_STRING,
                 sdscatprintf(sdsempty(),"... (%d more arguments)",
                 argc-slargc+1));
         } else {
             /* Trim too long strings as well... */
-            if (argv[j]->type == REDIS_STRING &&
+            if (argv[j]->type == OBJ_STRING &&
                 sdsEncodedObject(argv[j]) &&
                 sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)
             {
@@ -71,7 +71,7 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
                 s = sdscatprintf(s,"... (%lu more bytes)",
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
-                se->argv[j] = createObject(REDIS_STRING,s);
+                se->argv[j] = createObject(OBJ_STRING,s);
             } else {
                 se->argv[j] = argv[j];
                 incrRefCount(argv[j]);
@@ -81,6 +81,8 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
     se->time = time(NULL);
     se->duration = duration;
     se->id = server.slowlog_entry_id++;
+    se->peerid = sdsnew(getClientPeerId(c));
+    se->cname = c->name ? sdsnew(c->name->ptr) : sdsempty();
     return se;
 }
 
@@ -95,6 +97,8 @@ void slowlogFreeEntry(void *septr) {
     for (j = 0; j < se->argc; j++)
         decrRefCount(se->argv[j]);
     zfree(se->argv);
+    sdsfree(se->peerid);
+    sdsfree(se->cname);
     zfree(se);
 }
 
@@ -109,10 +113,11 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
+void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
     if (duration >= server.slowlog_log_slower_than)
-        listAddNodeHead(server.slowlog,slowlogCreateEntry(argv,argc,duration));
+        listAddNodeHead(server.slowlog,
+                        slowlogCreateEntry(c,argv,argc,duration));
 
     /* Remove old entries if needed. */
     while (listLength(server.slowlog) > server.slowlog_max_len)
@@ -127,7 +132,7 @@ void slowlogReset(void) {
 
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
-void slowlogCommand(redisClient *c) {
+void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
         slowlogReset();
         addReply(c,shared.ok);
@@ -143,7 +148,7 @@ void slowlogCommand(redisClient *c) {
         slowlogEntry *se;
 
         if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != REDIS_OK)
+            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
             return;
 
         listRewind(server.slowlog,&li);
@@ -152,13 +157,15 @@ void slowlogCommand(redisClient *c) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,4);
+            addReplyMultiBulkLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
             addReplyMultiBulkLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
+            addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
+            addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
         setDeferredMultiBulkLength(c,totentries,sent);

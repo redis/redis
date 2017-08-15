@@ -149,7 +149,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned int quicklistCount(quicklist *ql) { return ql->count; }
+unsigned int quicklistCount(const quicklist *ql) { return ql->count; }
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -671,6 +671,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
         /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);
         entry.node->zl = ziplistInsert(entry.node->zl, entry.zi, data, sz);
+        quicklistNodeUpdateSz(entry.node);
         quicklistCompress(quicklist, entry.node);
         return 1;
     } else {
@@ -1191,12 +1192,12 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)node->zl;
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            quicklistLZF *lzf = (quicklistLZF *)current->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }

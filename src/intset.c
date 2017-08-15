@@ -261,7 +261,7 @@ int64_t intsetRandom(intset *is) {
     return _intsetGet(is,rand()%intrev32ifbe(is->length));
 }
 
-/* Sets the value to the value at the given position. When this position is
+/* Get the value at the given position. When this position is
  * out of range the function returns 0, when in range it returns 1. */
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
     if (pos < intrev32ifbe(is->length)) {
@@ -272,7 +272,7 @@ uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
 }
 
 /* Return intset length */
-uint32_t intsetLen(intset *is) {
+uint32_t intsetLen(const intset *is) {
     return intrev32ifbe(is->length);
 }
 
