@@ -1111,7 +1111,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     /* Static vars used to hold the EOF mark, and the last bytes received
-     * form the server: when they match, we reached the end of the transfer. */
+     * from the server: when they match, we reached the end of the transfer. */
     static char eofmark[CONFIG_RUN_ID_SIZE];
     static char lastbytes[CONFIG_RUN_ID_SIZE];
     static int usemark = 0;
