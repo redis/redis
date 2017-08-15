@@ -4875,7 +4875,6 @@ void migrateCommand(client *c) {
     char *password;
     long timeout;
     long dbid;
-    long long ttl;
     robj **ov = NULL; /* Objects to migrate. */
     robj **kv = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
@@ -4891,13 +4890,12 @@ void migrateCommand(client *c) {
     /* Initialization */
     copy = 0;
     replace = 0;
-    ttl = 0;
     auth = 0;
     password = NULL;
 
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
-        if (!strcasecmp(c->argv[j]->ptr,"copy")) {                                                                                
+        if (!strcasecmp(c->argv[j]->ptr,"copy")) {
             copy = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
