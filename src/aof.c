@@ -1411,7 +1411,9 @@ void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
+    int fd = open(tmpfile,O_RDONLY|O_NONBLOCK);
     unlink(tmpfile);
+    if (fd != -1) bioCreateBackgroundJob(BIO_CLOSE_FILE,(void*)(long)fd,NULL,NULL);
 }
 
 /* Update the server.aof_current_size field explicitly using stat(2)
