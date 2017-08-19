@@ -5032,6 +5032,7 @@ try_again:
         }
     }
 
+    int auth_error = 0;
     char buf0[1024]; /* Auth reply. */
     char buf1[1024]; /* Select reply. */
     char buf2[1024]; /* Restore reply. */
@@ -5039,6 +5040,10 @@ try_again:
     /* Read the AUTH reply if needed. */
     if (auth && syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
         goto socket_err;
+    if (auth && buf0[0] != '+') {
+        auth_error = 1;
+        goto socket_err;
+    }
 
     /* Read the SELECT reply if needed. */
     if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
@@ -5160,10 +5165,14 @@ socket_err:
 
     /* Cleanup we want to do if no retry is attempted. */
     zfree(ov); zfree(kv);
-    addReplySds(c,
-        sdscatprintf(sdsempty(),
-            "-IOERR error or timeout %s to target instance\r\n",
-            write_error ? "writing" : "reading"));
+    if (auth_error)
+        addReply(c, shared.noautherr);
+    else
+        addReplySds(c,
+            sdscatprintf(sdsempty(),
+                "-IOERR error or timeout %s to target instance\r\n",
+                write_error ? "writing" : "reading"));
+
     return;
 }
 
