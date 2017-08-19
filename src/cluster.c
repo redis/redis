@@ -5038,11 +5038,13 @@ try_again:
     char buf2[1024]; /* Restore reply. */
 
     /* Read the AUTH reply if needed. */
-    if (auth && syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
-        goto socket_err;
-    if (auth && buf0[0] != '+') {
-        auth_error = 1;
-        goto socket_err;
+    if (auth) {
+        if (syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
+            goto socket_err;
+        if (buf0[0] != '+') {
+            auth_error = 1;
+            goto socket_err;
+        }
     }
 
     /* Read the SELECT reply if needed. */
