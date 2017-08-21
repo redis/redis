@@ -70,6 +70,12 @@
 
 #define REDISMODULE_NOT_USED(V) ((void) V)
 
+/* Logging level strings */
+#define REDISMODULE_LOGLEVEL_DEBUG "debug"
+#define REDISMODULE_LOGLEVEL_VERBOSE "verbose"
+#define REDISMODULE_LOGLEVEL_NOTICE "notice"
+#define REDISMODULE_LOGLEVEL_WARNING "warning"
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
