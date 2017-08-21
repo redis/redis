@@ -1221,6 +1221,8 @@ void configGetCommand(client *c) {
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
+    config_get_numerical_field("lfu-log-factor",server.lfu_log_factor);
+    config_get_numerical_field("lfu-decay-time",server.lfu_decay_time);
     config_get_numerical_field("timeout",server.maxidletime);
     config_get_numerical_field("active-defrag-threshold-lower",server.active_defrag_threshold_lower);
     config_get_numerical_field("active-defrag-threshold-upper",server.active_defrag_threshold_upper);
