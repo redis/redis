@@ -198,6 +198,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         rdbCheckError("Can't handle RDB format version %d",rdbver);
+        fclose(fp);
         return 1;
     }
 
