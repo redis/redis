@@ -63,6 +63,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_XX (1<<1)     /* Set if key exists. */
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
+#define OBJ_SET_NE (1<<4)     /* Set if values not equal. */
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -82,6 +83,13 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
+    }
+    if (flags & OBJ_SET_NE) {
+        robj *curr = lookupKeyWrite(c->db,key);
+        if (curr != NULL && curr->type == OBJ_STRING && equalStringObjects(val, curr)) {
+            addReply(c, abort_reply ? abort_reply : shared.nullbulk);
+            return;
+        }
     }
     setKey(c->db,key,val);
     server.dirty++;
@@ -129,6 +137,10 @@ void setCommand(client *c) {
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
+        } else if ((a[0] == 'n' || a[0] == 'N') &&
+                   (a[1] == 'e' || a[1] == 'E') && a[2] == '\0')
+        {
+            flags |= OBJ_SET_NE;
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -142,6 +154,11 @@ void setCommand(client *c) {
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+}
+
+void setneCommand(client *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    setGenericCommand(c,OBJ_SET_NE,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
 void setexCommand(client *c) {

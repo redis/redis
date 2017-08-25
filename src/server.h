@@ -1820,6 +1820,7 @@ void echoCommand(client *c);
 void commandCommand(client *c);
 void setCommand(client *c);
 void setnxCommand(client *c);
+void setneCommand(client *c);
 void setexCommand(client *c);
 void psetexCommand(client *c);
 void getCommand(client *c);
