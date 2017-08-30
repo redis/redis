@@ -155,6 +155,7 @@ int raxPrev(raxIterator *it);
 int raxRandomWalk(raxIterator *it, size_t steps);
 int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key_len);
 void raxStop(raxIterator *it);
+int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 
 #endif
