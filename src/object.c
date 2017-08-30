@@ -232,6 +232,13 @@ robj *createZsetZiplistObject(void) {
     return o;
 }
 
+robj *createStreamObject(void) {
+    stream *s = streamNew();
+    robj *o = createObject(OBJ_STREAM,s);
+    o->encoding = OBJ_ENCODING_STREAM;
+    return o;
+}
+
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
