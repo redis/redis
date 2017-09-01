@@ -266,6 +266,26 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
+static ssize_t writeAll(int fd, const void *buf, size_t size) {
+    const char *ptr = buf;
+    while (size > 0) {
+        ssize_t rc = write(fd, ptr, size);
+
+        if (rc < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (ptr == buf) {
+                return -1;
+            }
+            break;
+        }
+        ptr += rc;
+        size -= rc;
+    }
+    return ptr - (const char *)buf;
+}
+
 /* Write the append only file buffer on disk.
  *
  * Since we are required to write the AOF before replying to the client,
@@ -323,7 +343,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
+    nwritten = writeAll(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
