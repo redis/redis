@@ -157,5 +157,6 @@ int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key
 void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
+uint64_t raxSize(rax *rax);
 
 #endif
