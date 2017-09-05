@@ -2,6 +2,7 @@
 #define STREAM_H
 
 #include "rax.h"
+#include "listpack.h"
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past

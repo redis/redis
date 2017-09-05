@@ -32,7 +32,6 @@
  */
 
 #include "server.h"
-#include "listpack.h"
 #include "endianconv.h"
 #include "stream.h"
 
@@ -169,7 +168,6 @@ void streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id)
     s->length++;
     s->last_id = id;
     if (added_id) *added_id = id;
-    raxShow(s->rax);
 }
 
 /* Send the specified range to the client 'c'. The range the client will
