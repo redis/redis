@@ -1655,6 +1655,11 @@ int raxEOF(raxIterator *it) {
     return it->flags & RAX_ITER_EOF;
 }
 
+/* Return the number of elements inside the radix tree. */
+uint64_t raxSize(rax *rax) {
+    return rax->numele;
+}
+
 /* ----------------------------- Introspection ------------------------------ */
 
 /* This function is mostly used for debugging and learning purposes.
