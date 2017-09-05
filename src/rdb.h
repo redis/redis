@@ -69,8 +69,9 @@
 #define RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
-/* Dup object types to RDB object types. Only reason is readability (are we
- * dealing with RDB types or with in-memory object types?). */
+/* Map object types to RDB object types. Macros starting with OBJ_ are for
+ * memory storage and may change. Instead RDB types must be fixed because
+ * we store them on disk. */
 #define RDB_TYPE_STRING 0
 #define RDB_TYPE_LIST   1
 #define RDB_TYPE_SET    2

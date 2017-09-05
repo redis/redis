@@ -149,7 +149,13 @@ void streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id)
         memcpy(rax_key,ri.key,sizeof(rax_key));
     }
 
-    /* Populate the listpack with the new entry. */
+    /* Populate the listpack with the new entry. We use the following
+     * encoding:
+     *
+     * +--------+----------+-------+-------+-/-+-------+-------+
+     * |entry-id|num-fields|field-1|value-1|...|field-N|value-N|
+     * +--------+----------+-------+-------+-/-+-------+-------+
+     */
     lp = lpAppend(lp,(unsigned char*)entry_id,sizeof(entry_id));
     lp = lpAppendInteger(lp,numfields);
     for (int i = 0; i < numfields; i++) {
