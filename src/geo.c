@@ -712,28 +712,7 @@ void geohashCommand(client *c) {
         if (!zobj || zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
             addReply(c,shared.nullbulk);
         } else {
-            /* The internal format we use for geocoding is a bit different
-             * than the standard, since we use as initial latitude range
-             * -85,85, while the normal geohashing algorithm uses -90,90.
-             * So we have to decode our position and re-encode using the
-             * standard ranges in order to output a valid geohash string. */
-
-            /* Decode... */
-            double xy[2];
-            if (!decodeGeohash(score,xy)) {
-                addReply(c,shared.nullbulk);
-                continue;
-            }
-
-            /* Re-encode */
-            GeoHashRange r[2];
-            GeoHashBits hash;
-            r[0].min = -180;
-            r[0].max = 180;
-            r[1].min = -90;
-            r[1].max = 90;
-            geohashEncode(&r[0],&r[1],xy[0],xy[1],26,&hash);
-
+            GeoHashBits hash = { .bits = (uint64_t)score, .step = GEO_STEP_MAX };
             char buf[12];
             int i;
             for (i = 0; i < 11; i++) {
