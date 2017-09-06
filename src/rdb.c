@@ -786,6 +786,11 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         }
         raxStop(&ri);
 
+        /* Save the number of elements inside the stream. We cannot obtain
+         * this easily later, since our macro nodes should be checked for
+         * number of items: not a great CPU / space tradeoff. */
+        if ((n = rdbSaveLen(rdb,s->length)) == -1) return -1;
+        nwritten += n;
         /* Save the last entry ID. */
         if ((n = rdbSaveLen(rdb,s->last_id.ms)) == -1) return -1;
         nwritten += n;
@@ -1467,7 +1472,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (!retval)
                 rdbExitReportCorruptRDB("Listpack re-added with existing key");
         }
-
+        /* Load total number of items inside the stream. */
+        s->length = rdbLoadLen(rdb,NULL);
         /* Load the last entry ID. */
         s->last_id.ms = rdbLoadLen(rdb,NULL);
         s->last_id.seq = rdbLoadLen(rdb,NULL);
