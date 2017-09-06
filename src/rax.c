@@ -1093,26 +1093,34 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 
 /* This is the core of raxFree(): performs a depth-first scan of the
  * tree and releases all the nodes found. */
-void raxRecursiveFree(rax *rax, raxNode *n) {
+void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     debugnode("free traversing",n);
     int numchildren = n->iscompr ? 1 : n->size;
     raxNode **cp = raxNodeLastChildPtr(n);
     while(numchildren--) {
         raxNode *child;
         memcpy(&child,cp,sizeof(child));
-        raxRecursiveFree(rax,child);
+        raxRecursiveFree(rax,child,free_callback);
         cp--;
     }
     debugnode("free depth-first",n);
+    if (free_callback && n->iskey && !n->isnull)
+        free_callback(raxGetData(n));
     rax_free(n);
     rax->numnodes--;
 }
 
-/* Free a whole radix tree. */
-void raxFree(rax *rax) {
-    raxRecursiveFree(rax,rax->head);
+/* Free a whole radix tree, calling the specified callback in order to
+ * free the auxiliary data. */
+void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
+    raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
     rax_free(rax);
+}
+
+/* Free a whole radix tree. */
+void raxFree(rax *rax) {
+    raxFreeWithCallback(rax,NULL);
 }
 
 /* ------------------------------- Iterator --------------------------------- */
