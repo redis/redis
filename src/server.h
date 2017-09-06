@@ -1419,6 +1419,7 @@ void signalListAsReady(redisDb *db, robj *key);
 
 /* Stream data type. */
 stream *streamNew(void);
+void freeStream(stream *s);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);

@@ -51,6 +51,11 @@ stream *streamNew(void) {
     return s;
 }
 
+/* Free a stream, including the listpacks stored inside the radix tree. */
+void freeStream(stream *s) {
+    raxFreeWithCallback(s->rax,(void(*)(void*))lpFree);
+}
+
 /* Generate the next stream item ID given the previous one. If the current
  * milliseconds Unix time is greater than the previous one, just use this
  * as time part and start with sequence part of zero. Otherwise we use the
