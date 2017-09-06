@@ -169,9 +169,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
-    if (val->type == OBJ_LIST) signalListAsReady(db, key);
+    if (val->type == OBJ_LIST || val->type == OBJ_STREAM)
+        signalKeyAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
- }
+}
 
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
@@ -951,8 +952,8 @@ void scanDatabaseForReadyLists(redisDb *db) {
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && value->type == OBJ_LIST)
-            signalListAsReady(db, key);
+        if (value && (value->type == OBJ_LIST || value->type == OBJ_STREAM))
+            signalKeyAsReady(db, key);
     }
     dictReleaseIterator(di);
 }
