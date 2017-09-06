@@ -2001,6 +2001,7 @@ void moduleCommand(client *c);
 void securityWarningCommand(client *c);
 void xaddCommand(client *c);
 void xrangeCommand(client *c);
+void xlenCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
