@@ -384,6 +384,10 @@ void unblockClientWaitingData(client *c) {
         decrRefCount(c->bpop.target);
         c->bpop.target = NULL;
     }
+    if (c->bpop.xread_group) {
+        decrRefCount(c->bpop.xread_group);
+        c->bpop.xread_group = NULL;
+    }
 }
 
 /* If the specified key has clients blocked waiting for list pushes, this

@@ -392,3 +392,11 @@ void xlenCommand(client *c) {
     stream *s = o->ptr;
     addReplyLongLong(c,s->length);
 }
+
+/* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
+ *       [RETRY <milliseconds> <ttl>] STREAMS key_1 ID_1 key_2 ID_2 ...
+ *       key_N ID_N */
+void xreadCommand(client *c) {
+}
+
+
