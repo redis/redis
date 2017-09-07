@@ -648,6 +648,11 @@ typedef struct blockingState {
     robj *target;           /* The key that should receive the element,
                              * for BRPOPLPUSH. */
 
+    /* BLOCK_STREAM */
+    size_t xread_count;     /* XREAD COUNT option. */
+    robj *xread_group;      /* XREAD group name. */
+    mstime_t xread_retry_time, xread_retry_ttl;
+
     /* BLOCKED_WAIT */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     long long reploffset;   /* Replication offset to reach. */
