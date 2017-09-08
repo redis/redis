@@ -412,9 +412,8 @@ void xreadCommand(client *c) {
         char *o = c->argv[i]->ptr;
         if (!strcasecmp(o,"BLOCK") && moreargs) {
             i++;
-            if (getLongLongFromObjectOrReply(c,c->argv[i],&timeout,NULL)
-                != C_OK) return;
-            if (timeout < 0) timeout = 0;
+            if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
+                UNIT_MILLISECONDS) != C_OK) return;
         } else if (!strcasecmp(o,"COUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK)
