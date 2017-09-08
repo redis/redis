@@ -1767,6 +1767,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
+int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
 /* Cluster */
 void clusterInit(void);
@@ -2011,6 +2012,7 @@ void securityWarningCommand(client *c);
 void xaddCommand(client *c);
 void xrangeCommand(client *c);
 void xlenCommand(client *c);
+void xreadCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
