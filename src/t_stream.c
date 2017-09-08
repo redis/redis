@@ -398,7 +398,7 @@ void xlenCommand(client *c) {
  *       [RETRY <milliseconds> <ttl>] STREAMS key_1 key_2 ... key_N
  *       ID_1 ID_2 ... ID_N */
 void xreadCommand(client *c) {
-    long long timeout = 0;
+    long long timeout = -1; /* -1 means, no BLOCK argument given. */
     long long count = 0;
     int streams_count = 0;
     int streams_arg = 0;
@@ -499,7 +499,7 @@ void xreadCommand(client *c) {
     }
 
     /* Block if needed. */
-    if (timeout) {
+    if (timeout != -1) {
         /* If we are inside a MULTI/EXEC and the list is empty the only thing
          * we can do is treating it as a timeout (even with timeout 0). */
         if (c->flags & CLIENT_MULTI) {
