@@ -1363,6 +1363,34 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     return keys;
 }
 
+/* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
+ *       [RETRY <milliseconds> <ttl>] STREAMS key_1 ID_1 key_2 ID_2 ...
+ *       key_N ID_N */
+int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, *keys;
+    UNUSED(cmd);
+
+    /* We need to seek the last argument that contains "STREAMS", because other
+     * arguments before may contain it (for example the group name). */
+    int streams_pos = -1;
+    for (i = 1; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        if (!strcasecmp(arg, "streams")) streams_pos = i;
+    }
+
+    /* Syntax error. */
+    if (streams_pos == -1) {
+        *numkeys = 0;
+        return NULL;
+    }
+
+    num = argc - streams_pos - 1;
+    keys = zmalloc(sizeof(int) * num);
+    for (i = streams_pos+1; i < argc; i++) keys[i-streams_pos-1] = i;
+    *numkeys = num;
+    return keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster and in other conditions when we need to
