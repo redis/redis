@@ -1425,6 +1425,7 @@ void popGenericCommand(client *c, int where);
 /* Stream data type. */
 stream *streamNew(void);
 void freeStream(stream *s);
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(client *c);
