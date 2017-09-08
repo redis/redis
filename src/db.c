@@ -1364,8 +1364,8 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
- *       [RETRY <milliseconds> <ttl>] STREAMS key_1 ID_1 key_2 ID_2 ...
- *       key_N ID_N */
+ *       [RETRY <milliseconds> <ttl>] STREAMS key_1 key_2 ... key_N
+ *       ID_1 ID_2 ... ID_N */
 int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     UNUSED(cmd);
@@ -1377,14 +1377,16 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
         char *arg = argv[i]->ptr;
         if (!strcasecmp(arg, "streams")) streams_pos = i;
     }
+    if (streams_pos != -1) num = argc - streams_pos - 1;
 
     /* Syntax error. */
-    if (streams_pos == -1) {
+    if (streams_pos == -1 || num % 2 != 0) {
         *numkeys = 0;
         return NULL;
     }
+    num /= 2; /* We have half the keys as there are arguments because
+                 there are also the IDs, one per key. */
 
-    num = argc - streams_pos - 1;
     keys = zmalloc(sizeof(int) * num);
     for (i = streams_pos+1; i < argc; i++) keys[i-streams_pos-1] = i;
     *numkeys = num;
