@@ -354,6 +354,8 @@ void xaddCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"xadd",c->argv[1],c->db->id);
     server.dirty++;
+    if (server.blocked_clients_by_type[BLOCKED_STREAM])
+        signalKeyAsReady(c->db, c->argv[1]);
 }
 
 /* XRANGE key start end [COUNT <n>] */

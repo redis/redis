@@ -102,7 +102,8 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void blockClient(client *c, int btype) {
     c->flags |= CLIENT_BLOCKED;
     c->btype = btype;
-    server.bpop_blocked_clients++;
+    server.blocked_clients++;
+    server.blocked_clients_by_type[btype]++;
 }
 
 /* This function is called in the beforeSleep() function of the event loop
@@ -145,9 +146,10 @@ void unblockClient(client *c) {
     }
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
+    server.blocked_clients--;
+    server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
-    server.bpop_blocked_clients--;
     /* The client may already be into the unblocked list because of a previous
      * blocking operation, don't add back it into the list multiple times. */
     if (!(c->flags & CLIENT_UNBLOCKED)) {
