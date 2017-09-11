@@ -311,9 +311,12 @@ void handleClientsBlockedOnKeys(void) {
                             (s->last_id.ms == gt->ms &&
                              s->last_id.seq > gt->seq))
                         {
-                            unblockClient(receiver);
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
+                            /* Note that after we unblock the client, 'gt'
+                             * is no longer valid, so we must do it after
+                             * we copied the ID into the 'start' variable. */
+                            unblockClient(receiver);
 
                             /* Emit the two elements sub-array consisting of
                              * the name of the stream and the data we
