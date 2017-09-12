@@ -53,20 +53,20 @@
  * <prevlen> <encoding>
  *
  * The length of the previous entry, <prevlen>, is encoded in the following way:
- * If this length is smaller than 255 bytes, it will only consume a single
+ * If this length is smaller than 254 bytes, it will only consume a single
  * byte representing the length as an unsinged 8 bit integer. When the length
- * is greater than or equal to 255, it will consume 5 bytes. The first byte is
- * set to 255 (FF) to indicate a larger value is following. The remaining 4
+ * is greater than or equal to 254, it will consume 5 bytes. The first byte is
+ * set to 254 (FE) to indicate a larger value is following. The remaining 4
  * bytes take the length of the previous entry as value.
  *
  * So practically an entry is encoded in the following way:
  *
- * <prevlen from 0 to 254> <encoding> <entry>
+ * <prevlen from 0 to 253> <encoding> <entry>
  *
- * Or alternatively if the previous entry length is greater than 254 bytes
+ * Or alternatively if the previous entry length is greater than 253 bytes
  * the following encoding is used:
  *
- * 0xFF <4 bytes unsigned little endian prevlen> <encoding> <entry>
+ * 0xFE <4 bytes unsigned little endian prevlen> <encoding> <entry>
  *
  * The encoding field of the entry depends on the content of the
  * entry. When the entry is a string, the first 2 bits of the encoding first
@@ -191,10 +191,10 @@
 #include "redisassert.h"
 
 #define ZIP_END 255         /* Special "end of ziplist" entry. */
-#define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
-                               the "prevlen" field prefixing each entry, to be
-                               represented with just a single byte. Otherwise
-                               it is represented as FF AA BB CC DD, where
+#define ZIP_BIG_PREVLEN 254 /* ZIP_BIG_PREVLEN - 1 is the max number of bytes of
+                               the previous entry, for the "prevlen" field prefixing
+                               each entry, to be represented with just a single byte.
+                               Otherwise it is represented as FE AA BB CC DD, where
                                AA BB CC DD are a 4 bytes unsigned integer
                                representing the previous entry len. */
 
