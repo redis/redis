@@ -414,6 +414,16 @@ void xaddCommand(client *c) {
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
+
+    /* Let's rewrite the ID argument with the one actually generated for
+     * AOF/replication propagation. */
+    robj *idarg = createObject(OBJ_STRING,
+                  sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq));
+    rewriteClientCommandArgument(c,i,idarg);
+    decrRefCount(idarg);
+
+    /* We need to signal to blocked clients that there is new data on this
+     * stream. */
     if (server.blocked_clients_by_type[BLOCKED_STREAM])
         signalKeyAsReady(c->db, c->argv[1]);
 }
