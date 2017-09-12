@@ -524,9 +524,9 @@ void xreadCommand(client *c) {
         /* Specifying "$" as last-known-id means that the client wants to be
          * served with just the messages that will arrive into the stream
          * starting from now. */
+        int id_idx = i - streams_arg - streams_count;
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
             robj *o = lookupKeyRead(c->db,c->argv[i-streams_count]);
-            int id_idx = i - streams_arg - streams_count;
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
@@ -536,7 +536,8 @@ void xreadCommand(client *c) {
             }
             continue;
         }
-        if (streamParseIDOrReply(c,c->argv[i],ids+i,0) != C_OK) goto cleanup;
+        if (streamParseIDOrReply(c,c->argv[i],ids+id_idx,0) != C_OK)
+            goto cleanup;
     }
 
     /* Try to serve the client synchronously. */
