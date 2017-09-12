@@ -3736,6 +3736,18 @@ int moduleUnload(sds name) {
     dictReleaseIterator(di);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
+    int (*unload)();
+    unload = (int (*)()) (unsigned long) dlsym(module->handle, "RedisModule_UnLoad");
+    if (unload == NULL) {
+        serverLog(LL_WARNING,
+                  "Module %s does not export RedisModule_UnLoad() "
+                          "symbol. Module not unloaded.", module->name);
+    } else {
+        if (unload() == REDISMODULE_ERR) {
+            serverLog(LL_WARNING,
+                      "Module %s destroy failed. Module not unloaded", module->name);
+        }
+    }
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
