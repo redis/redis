@@ -19,4 +19,35 @@ typedef struct stream {
     streamID last_id;       /* Zero if there are yet no items. */
 } stream;
 
+/* We define an iterator to iterate stream items in an abstract way, without
+ * caring about the radix tree + listpack representation. Technically speaking
+ * the iterator is only used inside streamReplyWithRange(), so could just
+ * be implemented inside the function, but practically there is the AOF
+ * rewriting code that also needs to iterate the stream to emit the XADD
+ * commands. */
+typedef struct streamIterator {
+    uint64_t start_key[2];  /* Start key as 128 bit big endian. */
+    uint64_t end_key[2];    /* End key as 128 bit big endian. */
+    raxIterator ri;         /* Rax iterator. */
+    unsigned char *lp;      /* Current listpack. */
+    unsigned char *lp_ele;  /* Current listpack cursor. */
+    /* Buffers used to hold the string of lpGet() when the element is
+     * integer encoded, so that there is no string representation of the
+     * element inside the listpack itself. */
+    unsigned char field_buf[LP_INTBUF_SIZE];
+    unsigned char value_buf[LP_INTBUF_SIZE];
+} streamIterator;
+
+/* Prototypes of exported APIs. */
+
+struct client;
+
+stream *streamNew(void);
+void freeStream(stream *s);
+size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count);
+void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end);
+int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
+void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
+void streamIteratorStop(streamIterator *si);
+
 #endif
