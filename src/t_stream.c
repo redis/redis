@@ -218,19 +218,23 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end) {
     /* Intialize the iterator and translates the iteration start/stop
      * elements into a 128 big big-endian number. */
-    streamEncodeID(si->start_key,start);
+    if (start) {
+        streamEncodeID(si->start_key,start);
+    } else {
+        si->start_key[0] = 0;
+        si->start_key[0] = 0;
+    }
+
     if (end) {
         streamEncodeID(si->end_key,end);
     } else {
-        /* We assume that UINT64_MAX is the same in little and big
-         * endian, that is, all bits set. */
         si->end_key[0] = UINT64_MAX;
         si->end_key[0] = UINT64_MAX;
     }
-    raxStart(&si->ri,s->rax);
 
     /* Seek the correct node in the radix tree. */
-    if (start->ms || start->seq) {
+    raxStart(&si->ri,s->rax);
+    if (start && (start->ms || start->seq)) {
         raxSeek(&si->ri,"<=",(unsigned char*)si->start_key,
                 sizeof(si->start_key));
         if (raxEOF(&si->ri))
