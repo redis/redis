@@ -2536,8 +2536,9 @@ int prepareForShutdown(int flags) {
                 "There is a child rewriting the AOF. Killing it!");
             kill(server.aof_child_pid,SIGUSR1);
         }
-        /* Append only file: fsync() the AOF and exit */
+        /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
+        flushAppendOnlyFile(1);
         aof_fsync(server.aof_fd);
     }
 
