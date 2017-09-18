@@ -1,6 +1,6 @@
 # return value is like strcmp() and similar.
 proc streamCompareID {a b} {
-    if {$a == $b} {return 0}
+    if {$a eq $b} {return 0}
     lassign [split $a .] a_ms a_seq
     lassign [split $b .] b_ms b_seq
     if {$a_ms > $b_ms} {return 1}
@@ -18,6 +18,36 @@ proc streamNextID {id} {
     incr seq
     join [list $ms $seq] .
 }
+
+# Generate a random stream entry ID with the ms part between min and max
+# and a low sequence number (0 - 999 range), in order to stress test
+# XRANGE against a Tcl implementation implementing the same concept
+# with Tcl-only code in a linear array.
+proc streamRandomID {min_id max_id} {
+    lassign [split $min_id .] min_ms min_seq
+    lassign [split $max_id .] max_ms max_seq
+    set delta [expr {$max_ms-$min_ms+1}]
+    set ms [expr {$min_ms+[randomInt $delta]}]
+    set seq [randomInt 1000]
+    return $ms.$seq
+}
+
+# Tcl-side implementation of XRANGE to perform fuzz testing in the Redis
+# XRANGE implementation.
+proc streamSimulateXRANGE {items start end} {
+    set res {}
+    foreach i $items  {
+        set this_id [lindex $i 0]
+        if {[streamCompareID $this_id $start] >= 0} {
+            if {[streamCompareID $this_id $end] <= 0} {
+                lappend res $i
+            }
+        }
+    }
+    return $res
+}
+
+set content {} ;# Will be populated with Tcl side copy of the stream content.
 
 start_server {
     tags {"stream"}
@@ -81,5 +111,26 @@ start_server {
             set last_id [streamNextID [lindex $elements end 0]]
         }
         assert {$j == 10000}
+    }
+
+    test {XRANGE fuzzing} {
+        # puts $items
+        set low_id [lindex $items 0 0]
+        set high_id [lindex $items end 0]
+        for {set j 0} {$j < 100} {incr j} {
+            set start [streamRandomID $low_id $high_id]
+            set end [streamRandomID $low_id $high_id]
+            set range [r xrange mystream $start $end]
+            set tcl_range [streamSimulateXRANGE $items $start $end]
+            if {$range ne $tcl_range} {
+                puts "*** WARNING *** - XRANGE fuzzing mismatch: $start - $end"
+                puts "---"
+                puts "XRANGE: '$range'"
+                puts "---"
+                puts "TCL: '$tcl_range'"
+                puts "---"
+                fail "XRANGE fuzzing failed, check logs for details"
+            }
+        }
     }
 }
