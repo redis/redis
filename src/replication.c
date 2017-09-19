@@ -289,6 +289,10 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         printf("\n");
     }
 
+    if (server.repl_backlog == NULL) {
+        createReplicationBacklog();
+    }
+
     if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
