@@ -113,6 +113,96 @@ start_server {
         assert {$j == 10000}
     }
 
+    test {XREAD with non empty stream} {
+        set res [r XREAD COUNT 1 STREAMS mystream 0.0]
+        assert {[lindex $res 0 1 0 1] eq {item 0}}
+    }
+
+    test {Non blocking XREAD with empty streams} {
+        set res [r XREAD STREAMS s1 s2 0.0 0.0]
+        assert {$res eq {}}
+    }
+
+    test {XREAD with non empty second stream} {
+        set res [r XREAD COUNT 1 STREAMS nostream mystream 0.0 0.0]
+        assert {[lindex $res 0 0] eq {mystream}}
+        assert {[lindex $res 0 1 0 1] eq {item 0}}
+    }
+
+    test {Blocking XREAD waiting new data} {
+        r XADD s2 * old abcd1234
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ $ $
+        r XADD s2 * new abcd1234
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+    }
+
+    test {Blocking XREAD waiting old data} {
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ 0.0 $
+        r XADD s2 * foo abcd1234
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 1 0 1] eq {old abcd1234}}
+    }
+
+    test "XREAD: XADD + DEL should not awake client" {
+        set rd [redis_deferring_client]
+        r del s1
+        $rd XREAD BLOCK 20000 STREAMS s1 $
+        r multi
+        r XADD s1 * old abcd1234
+        r DEL s1
+        r exec
+        r XADD s1 * new abcd1234
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s1}}
+        assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+    }
+
+    test "XREAD: XADD + DEL + LPUSH should not awake client" {
+        set rd [redis_deferring_client]
+        r del s1
+        $rd XREAD BLOCK 20000 STREAMS s1 $
+        r multi
+        r XADD s1 * old abcd1234
+        r DEL s1
+        r LPUSH s1 foo bar
+        r exec
+        r DEL s1
+        r XADD s1 * new abcd1234
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s1}}
+        assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+    }
+
+    test {XREAD with same stream name multiple times should work} {
+        r XADD s2 * old abcd1234
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
+        r XADD s2 * new abcd1234
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 1 0 1] eq {new abcd1234}}
+    }
+
+    test {XREAD + multiple XADD inside transaction} {
+        r XADD s2 * old abcd1234
+        set rd [redis_deferring_client]
+        $rd XREAD BLOCK 20000 STREAMS s2 s2 s2 $ $ $
+        r MULTI
+        r XADD s2 * field one
+        r XADD s2 * field two
+        r XADD s2 * field three
+        r EXEC
+        set res [$rd read]
+        assert {[lindex $res 0 0] eq {s2}}
+        assert {[lindex $res 0 1 0 1] eq {field one}}
+        assert {[lindex $res 0 1 1 1] eq {field two}}
+    }
+
     test {XRANGE fuzzing} {
         # puts $items
         set low_id [lindex $items 0 0]
