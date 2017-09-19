@@ -172,7 +172,7 @@ start_server {} {
             fail "Slave not reconnecting"
         }
         set new_sync_count [status $R($master_id) sync_full]
-        assert {$sync_count == $new_sync_count}
+        assert {$sync_count != $new_sync_count}
     }
 
     if {$no_exit} {
