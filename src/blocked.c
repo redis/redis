@@ -387,7 +387,10 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
         }
 
         /* If the key already exists in the dictionary ignore it. */
-        if (dictAdd(c->bpop.keys,keys[j],key_data) != DICT_OK) continue;
+        if (dictAdd(c->bpop.keys,keys[j],key_data) != DICT_OK) {
+            zfree(key_data);
+            continue;
+        }
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
