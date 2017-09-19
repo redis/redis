@@ -1582,7 +1582,10 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                     (char*)auxkey->ptr,
                     (char*)auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"repl-stream-db")) {
-                if (rsi) rsi->repl_stream_db = atoi(auxval->ptr);
+                if (rsi) {
+                    rsi->repl_stream_db = atoi(auxval->ptr);
+                    rsi->repl_stream_db_is_set = 1;
+                }
             } else if (!strcasecmp(auxkey->ptr,"repl-id")) {
                 if (rsi && sdslen(auxval->ptr) == CONFIG_RUN_ID_SIZE) {
                     memcpy(rsi->repl_id,auxval->ptr,CONFIG_RUN_ID_SIZE+1);

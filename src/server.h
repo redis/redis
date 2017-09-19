@@ -845,6 +845,7 @@ struct redisMemOverhead {
 typedef struct rdbSaveInfo {
     /* Used saving and loading. */
     int repl_stream_db;  /* DB to select in server.master client. */
+    int repl_stream_db_is_set;  /* True if repl_stream_db field is set. */
 
     /* Used only loading. */
     int repl_id_is_set;  /* True if repl_id field is set. */
@@ -852,7 +853,7 @@ typedef struct rdbSaveInfo {
     long long repl_offset;                  /* Replication offset. */
 } rdbSaveInfo;
 
-#define RDB_SAVE_INFO_INIT {-1,0,"000000000000000000000000000000",-1}
+#define RDB_SAVE_INFO_INIT {-1,0,0,"000000000000000000000000000000",-1}
 
 /*-----------------------------------------------------------------------------
  * Global server state
