@@ -858,16 +858,14 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
 
     /* Handle saving options that generate aux fields. */
     if (rsi) {
-        if (rsi->repl_stream_db &&
-            rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
-            == -1)
-        {
-            return -1;
-        }
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
+            == -1) return -1;
+        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
+            == -1) return -1;
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
+            == -1) return -1;
     }
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
-    if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset) == -1) return -1;
     return 1;
 }
 
@@ -2015,5 +2013,25 @@ void bgsaveCommand(client *c) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);
+    }
+}
+
+/* Populate the rdbSaveInfo structure used to persist the replication
+ * information inside the RDB file. Currently the structure explicitly
+ * contains just the currently selected DB from the master stream, however
+ * if the rdbSave*() family functions receive a NULL rsi structure also
+ * the Replication ID/offset is not saved. The function popultes 'rsi'
+ * that is normally stack-allocated in the caller, returns the populated
+ * pointer if the instance has a valid master client, otherwise NULL
+ * is returned, and the RDB savign wil not persist any replication related
+ * information. */
+rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
+    rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
+    *rsi = rsi_init;
+    if (server.master) {
+        rsi->repl_stream_db = server.master->db->id;
+        return rsi;
+    } else {
+        return NULL;
     }
 }
