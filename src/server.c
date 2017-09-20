@@ -1092,7 +1092,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
-                rdbSaveBackground(server.rdb_filename,NULL);
+                rdbSaveInfo rsi, *rsiptr;
+                rsiptr = rdbPopulateSaveInfo(&rsi);
+                rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
          }
@@ -1164,7 +1166,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         (server.unixtime-server.lastbgsave_try > CONFIG_BGSAVE_RETRY_DELAY ||
          server.lastbgsave_status == C_OK))
     {
-        if (rdbSaveBackground(server.rdb_filename,NULL) == C_OK)
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -2546,7 +2550,9 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.rdb_filename,NULL) != C_OK) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -3526,13 +3532,20 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if (rsi.repl_id_is_set && rsi.repl_offset != -1) {
+            if (server.masterhost &&
+                rsi.repl_id_is_set &&
+                rsi.repl_offset != -1 &&
+                /* Note that older implementations may save a repl_stream_db
+                 * of -1 inside the RDB file. */
+                rsi.repl_stream_db != -1)
+            {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
                  * information, in order to allow partial resynchronizations
                  * with masters. */
-                if (server.masterhost) replicationCacheMasterUsingMyself();
+                replicationCacheMasterUsingMyself();
+                selectDb(server.cached_master,rsi.repl_stream_db);
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));

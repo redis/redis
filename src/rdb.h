@@ -147,5 +147,6 @@ int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
 int rdbSaveBinaryFloatValue(rio *rdb, float val);
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
 int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi);
+rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif
