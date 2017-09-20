@@ -579,6 +579,7 @@ int startBgsaveForReplication(int mincapa) {
         else
             retval = rdbSaveBackground(server.rdb_filename,rsiptr);
     } else {
+        serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
     }
 
