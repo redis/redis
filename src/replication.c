@@ -571,10 +571,16 @@ int startBgsaveForReplication(int mincapa) {
 
     rdbSaveInfo rsi, *rsiptr;
     rsiptr = rdbPopulateSaveInfo(&rsi);
-    if (socket_target)
-        retval = rdbSaveToSlavesSockets(rsiptr);
-    else
-        retval = rdbSaveBackground(server.rdb_filename,rsiptr);
+    /* Only do rdbSave* when rsiptr is not NULL,
+     * otherwise slave will miss repl-stream-db. */
+    if (rsiptr) {
+        if (socket_target)
+            retval = rdbSaveToSlavesSockets(rsiptr);
+        else
+            retval = rdbSaveBackground(server.rdb_filename,rsiptr);
+    } else {
+        retval = C_ERR;
+    }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
      * resynchorinization from the list of salves, inform them with
