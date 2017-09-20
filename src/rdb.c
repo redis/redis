@@ -2019,14 +2019,7 @@ void bgsaveCommand(client *c) {
 }
 
 /* Populate the rdbSaveInfo structure used to persist the replication
- * information inside the RDB file.
- * For master, if server.repl_backlog is not NULL, fill rdbSaveInfo with
- * server.slaveseldb, otherwise just use init -1.
- * Don't worry, master will send SELECT command to replication stream,
- * because if server.repl_backlog is NULL, that will trigger full synchronization,
- * function replicationSetupSlaveForFullResync() sets server.slaveseldb be -1,
- * then replicationFeedSlaves() will send SELECT command when server.slaveseldb is -1.
- * For slave, currently the structure explicitly
+ * information inside the RDB file. Currently the structure explicitly
  * contains just the currently selected DB from the master stream, however
  * if the rdbSave*() family functions receive a NULL rsi structure also
  * the Replication ID/offset is not saved. The function popultes 'rsi'
@@ -2037,15 +2030,24 @@ void bgsaveCommand(client *c) {
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
     *rsi = rsi_init;
+
+    /* If the instance is a master, we can populate the replication info
+     * in all the cases, even if sometimes in incomplete (but safe) form. */
     if (!server.masterhost) {
         if (server.repl_backlog) rsi->repl_stream_db = server.slaveseldb;
+        /* Note that if repl_backlog is NULL, it means that histories
+         * following from this point will trigger a full synchronization
+         * generating a SELECT statement, so we can leave the currently
+         * selected DB set to -1. This allows a restarted master to reload
+         * its replication ID/offset when there are no connected slaves. */
         return rsi;
     }
+
+    /* If the instance is a slave we need a connected master in order to
+     * fetch the currently selected DB. */
     if (server.master) {
         rsi->repl_stream_db = server.master->db->id;
         return rsi;
-    } else {
-        serverLog(LL_WARNING,"As a slave there is no valid master, can not persist replication information");
-        return NULL;
     }
+    return NULL;
 }
