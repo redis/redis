@@ -72,9 +72,12 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
-            } else {
+            } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
-                incrRefCount(argv[j]);
+            } else {
+                /* Duplicate a string object,
+                 * avoid memory leak for lazyfree. */
+                se->argv[j] = dupStringObject(argv[j]);
             }
         }
     }
