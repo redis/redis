@@ -11,6 +11,21 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.11     Released Thu Sep 21 15:47:53 CEST 2017
+================================================================================
+
+Upgrade urgency HIGH: Potentially critical bugs fixed.
+
+AOF flush on SHUTDOWN did not cared to really write the AOF buffers
+(not in the kernel but in the Redis process memory) to disk before exiting.
+Calling SHUTDOWN during traffic resulted into not every operation to be
+persisted on disk.
+
+Oran Agra (and also Buğra Gedik) in commit 8651e5d5:
+ Flush append only buffers before existing.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+================================================================================
 Redis 3.2.10     Released Fri Jul 28 17:49:07 CEST 2017
 ================================================================================
 
