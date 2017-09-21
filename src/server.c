@@ -2832,6 +2832,7 @@ sds genRedisInfoString(char *section) {
         info = sdscatprintf(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
+        	"xredis_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
             "redis_git_dirty:%d\r\n"
             "redis_build_id:%llx\r\n"
@@ -2851,6 +2852,7 @@ sds genRedisInfoString(char *section) {
             "executable:%s\r\n"
             "config_file:%s\r\n",
             REDIS_VERSION,
+			XREDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
             (unsigned long long) redisBuildId(),
