@@ -1,3 +1,9 @@
+Debug
+*.tar.gz
+.cproject
+.project
+.settings
+
 .*.swp
 *.o
 *.log
