@@ -73,6 +73,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
+
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
@@ -2018,5 +2019,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len);
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
+
+#include "ctrip.h"
 
 #endif
