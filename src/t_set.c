@@ -920,10 +920,6 @@ void sinterstoreCommand(client *c) {
     sinterGenericCommand(c,c->argv+2,c->argc-2,c->argv[1]);
 }
 
-#define SET_OP_UNION 0
-#define SET_OP_DIFF 1
-#define SET_OP_INTER 2
-
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
