@@ -90,7 +90,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
 
     if (expireIfNeeded(db,key) == 1) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's save
+         * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
         if (server.masterhost == NULL) return NULL;
 
@@ -1033,18 +1033,15 @@ void pttlCommand(client *c) {
 }
 
 void persistCommand(client *c) {
-    dictEntry *de;
-
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
-    if (de == NULL) {
-        addReply(c,shared.czero);
-    } else {
+    if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
             addReply(c,shared.czero);
         }
+    } else {
+        addReply(c,shared.czero);
     }
 }
 
@@ -1231,6 +1228,44 @@ int *migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkey
     keys = zmalloc(sizeof(int)*num);
     for (i = 0; i < num; i++) keys[i] = first+i;
     *numkeys = num;
+    return keys;
+}
+
+/* Helper function to extract keys from following commands:
+ * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
+ *                             [COUNT count] [STORE key] [STOREDIST key]
+ * GEORADIUSBYMEMBER key member radius unit ... options ... */
+int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, *keys;
+    UNUSED(cmd);
+
+    /* Check for the presence of the stored key in the command */
+    int stored_key = -1;
+    for (i = 5; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        /* For the case when user specifies both "store" and "storedist" options, the
+         * second key specified would override the first key. This behavior is kept 
+         * the same as in georadiusCommand method.
+         */
+        if ((!strcasecmp(arg, "store") || !strcasecmp(arg, "storedist")) && ((i+1) < argc)) {
+            stored_key = i+1;
+            i++;
+        }
+    }
+    num = 1 + (stored_key == -1 ? 0 : 1);
+
+    /* Keys in the command come from two places:
+     * argv[1] = key,
+     * argv[5...n] = stored key if present
+     */
+    keys = zmalloc(sizeof(int) * num);
+
+    /* Add all key positions to keys[] */
+    keys[0] = 1;
+    if(num > 1) {
+         keys[1] = stored_key;
+    }
+    *numkeys = num; 
     return keys;
 }
 

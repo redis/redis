@@ -443,6 +443,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             if (j == 10) {
                 cmdlog = sdscatprintf(cmdlog," ... (%d more)",
                     c->argc-j-1);
+                break;
             } else {
                 cmdlog = sdscatlen(cmdlog," ",1);
                 cmdlog = sdscatsds(cmdlog,c->argv[j]->ptr);
@@ -2271,7 +2272,7 @@ ldbLog(sdsnew("[e]eval <code>       Execute some Lua code (in a different callfr
 ldbLog(sdsnew("[r]edis <cmd>        Execute a Redis command."));
 ldbLog(sdsnew("[m]axlen [len]       Trim logged Redis replies and Lua var dumps to len."));
 ldbLog(sdsnew("                     Specifying zero as <len> means unlimited."));
-ldbLog(sdsnew("[a]abort             Stop the execution of the script. In sync"));
+ldbLog(sdsnew("[a]bort              Stop the execution of the script. In sync"));
 ldbLog(sdsnew("                     mode dataset changes will be retained."));
 ldbLog(sdsnew(""));
 ldbLog(sdsnew("Debugger functions you can call from Lua scripts:"));

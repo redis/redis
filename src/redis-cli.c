@@ -1330,9 +1330,10 @@ static void repl(void) {
                 } else {
                     long long start_time = mstime(), elapsed;
                     int repeat, skipargs = 0;
+                    char *endptr;
 
-                    repeat = atoi(argv[0]);
-                    if (argc > 1 && repeat) {
+                    repeat = strtol(argv[0], &endptr, 10);
+                    if (argc > 1 && *endptr == '\0' && repeat) {
                         skipargs = 1;
                     } else {
                         repeat = 1;
@@ -1351,7 +1352,9 @@ static void repl(void) {
                     }
 
                     elapsed = mstime()-start_time;
-                    if (elapsed >= 500) {
+                    if (elapsed >= 500 &&
+                        config.output == OUTPUT_STANDARD)
+                    {
                         printf("(%.2fs)\n",(double)elapsed/1000);
                     }
                 }

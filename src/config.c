@@ -911,8 +911,6 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
     } config_set_numerical_field(
-      "auto-aof-rewrite-min-size",server.aof_rewrite_min_size,0,LLONG_MAX) {
-    } config_set_numerical_field(
       "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
       "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LLONG_MAX) {
@@ -986,6 +984,8 @@ void configSetCommand(client *c) {
         }
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
+    } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
+        server.aof_rewrite_min_size = ll;
 
     /* Enumeration fields.
      * config_set_enum_field(name,var,enum_var) */
