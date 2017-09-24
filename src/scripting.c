@@ -532,11 +532,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* If we are using single commands replication, we need to wrap what
      * we propagate into a MULTI/EXEC block, so that it will be atomic like
-     * a Lua script in the context of AOF and slaves. */
+     * a Lua script in the context of AOF and slaves,
+     * except the server.lua_caller is already in a MULTI context. */
     if (server.lua_replicate_commands &&
         !server.lua_multi_emitted &&
         server.lua_write_dirty &&
-        server.lua_repl != PROPAGATE_NONE)
+        server.lua_repl != PROPAGATE_NONE &&
+        !(server.lua_caller->flags & CLIENT_MULTI))
     {
         execCommandPropagateMulti(server.lua_caller);
         server.lua_multi_emitted = 1;
