@@ -33,6 +33,14 @@
 #include <signal.h>
 #include <ctype.h>
 
+#ifdef USE_NVML
+#include "obj.h"
+#include "libpmemobj.h"
+#endif
+
+
+extern struct redisServer server; /* server global state */
+
 void slotToKeyAdd(robj *key);
 void slotToKeyDel(robj *key);
 void slotToKeyFlush(void);
@@ -168,8 +176,14 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * Add the key to the DB using libpmemobj transactions.
  */
 void dbAddPM(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdupPM(key->ptr);
+    PMEMoid kv_PM;
+    PMEMoid *kv_pm_reference;
+
+    sds copy = sdsdupPM(key->ptr, (void **) &kv_pm_reference);
     int retval = dictAddPM(db->dict, copy, val);
+
+    kv_PM = pmemAddToPmemList((void *)copy, (void *)(val->ptr));
+    *kv_pm_reference = kv_PM;
 
     serverAssertWithInfo(NULL,key,retval == C_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);

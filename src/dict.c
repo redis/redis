@@ -43,13 +43,16 @@
 #include <sys/time.h>
 #include <ctype.h>
 
+#ifdef USE_NVML
+#include "obj.h"
+#include "libpmemobj.h"
+#include "server.h"
+#include "pmem.h"
+#endif
+
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
-
-#ifdef USE_NVML
-#include "server.h"
-#endif
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -210,6 +213,7 @@ int dictExpand(dict *d, unsigned long size)
     dictht n; /* the new hash table */
     unsigned long realsize = _dictNextPower(size);
 
+
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
@@ -340,6 +344,7 @@ int dictAddPM(dict *d, void *key, void *val)
 
     if (!entry) return DICT_ERR;
     dictSetVal(d, entry, val);
+
     return DICT_OK;
 }
 #endif
@@ -378,6 +383,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
+
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -408,7 +414,6 @@ dictEntry *dictAddRawPM(dict *d, void *key)
     int index;
     dictEntry *entry;
     dictht *ht;
-    PMEMoid oid;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
@@ -423,8 +428,7 @@ dictEntry *dictAddRawPM(dict *d, void *key)
      * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
 
-    oid = pmemobj_tx_zalloc(sizeof(*entry),PM_TYPE_ENTRY);
-    entry = pmemobj_direct(oid);
+    entry = zmalloc(sizeof(*entry));
 
     entry->next = ht->table[index];
     ht->table[index] = entry;
@@ -432,6 +436,38 @@ dictEntry *dictAddRawPM(dict *d, void *key)
 
     /* Set the hash entry fields. */
     dictSetKey(d, entry, key);
+    return entry;
+}
+
+dictEntry *dictAddReconstructedPM(dict *d, void *key, void *val)
+{
+    int index;
+    dictEntry *entry;
+    robj *val_robj;
+    dictht *ht;
+
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of the new element, or -1 if
+     * the element already exists. */
+    if ((index = _dictKeyIndex(d, (const void *)key)) == -1)
+        return NULL;
+
+    /* Allocate the memory and store the new entry.
+     * Insert the element in top, with the assumption that in a database
+     * system it is more likely that recently added entries are accessed
+     * more frequently. */
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+    entry = zmalloc(sizeof(*entry));
+    val_robj = createObjectPM(OBJ_STRING, val);
+
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+
+    dictSetKey(d, entry, key);
+    dictSetVal(d, entry, val_robj);
+
     return entry;
 }
 #endif
@@ -483,6 +519,7 @@ int dictReplacePM(dict *d, void *key, void *val)
      * reverse. */
     auxentry = *entry;
     dictSetVal(d, entry, val);
+    pmemKVpairSet(entry->key, ((robj *)val)->ptr);
     dictFreeVal(d, &auxentry);
     return 0;
 }
@@ -506,9 +543,6 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
     unsigned int h, idx;
     dictEntry *he, *prevHe;
     int table;
-#ifdef USE_NVML
-    PMEMoid oid;
-#endif
 
     if (d->ht[0].size == 0) return DICT_ERR; /* d->ht[0].table is NULL */
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -529,17 +563,7 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }
-#ifdef USE_NVML
-                if (server.persistent) {
-                    oid.off = (uint64_t)he - (uint64_t)server.pm_pool;
-                    oid.pool_uuid_lo = server.pool_uuid_lo;
-                    pmemobj_tx_free(oid);
-                } else {
-                    zfree(he);
-                }
-#else
                 zfree(he);
-#endif
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -562,9 +586,6 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
-#ifdef USE_NVML
-    PMEMoid oid;
-#endif
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
@@ -577,17 +598,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
             nextHe = he->next;
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-#ifdef USE_NVML
-            if (server.persistent) {
-                oid.off = (uint64_t)he - (uint64_t)server.pm_pool;
-                oid.pool_uuid_lo = server.pool_uuid_lo;
-                pmemobj_tx_free(oid);
-            } else {
-                zfree(he);
-            }
-#else
             zfree(he);
-#endif
             ht->used--;
             he = nextHe;
         }

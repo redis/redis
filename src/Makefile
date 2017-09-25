@@ -110,7 +110,7 @@ endif
 
 ifeq ($(USE_NVML),yes)
 	DEPENDENCY_TARGETS+= nvml
-	FINAL_CFLAGS+= -I../deps/nvml/src/include -DUSE_NVML
+	FINAL_CFLAGS+= -I../deps/nvml/src/include -I../deps/nvml/src/libpmemobj -I../deps/nvml/src/common -DUSE_NVML
 ifeq ($(NVML_DEBUG),yes)
 	FINAL_LIBS+= ../deps/nvml/src/debug/libpmemobj.so ../deps/nvml/src/debug/libpmem.so
 else
@@ -147,6 +147,10 @@ REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-bench
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
 REDIS_CHECK_AOF_OBJ=redis-check-aof.o
+
+ifeq ($(USE_NVML),yes)
+	REDIS_SERVER_OBJ+= pmem.o
+endif
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""

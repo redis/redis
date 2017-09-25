@@ -490,10 +490,14 @@ void dictSdsDestructor(void *privdata, void *val)
 #ifdef USE_NVML
 void dictSdsDestructorPM(void *privdata, void *val)
 {
+    PMEMoid *kv_PM_oid;
+
     DICT_NOTUSED(privdata);
     /* TODO: TX_BEGIN() */
     pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
+    kv_PM_oid = sdsPMEMoidBackReference(val);
     sdsfreePM(val);
+    pmemRemoveFromPmemList(*kv_PM_oid);
     pmemobj_tx_commit();
     pmemobj_tx_end();
 }
@@ -1519,6 +1523,7 @@ void initServerConfig(void) {
 #ifdef USE_NVML
     server.pm_file_path = NULL;
     server.pm_file_size = CONFIG_DEFAULT_PM_FILE_SIZE;
+    server.pm_reconstruct_required = false;
 #endif
     server.supervised = 0;
     server.supervised_mode = SUPERVISED_NONE;
@@ -1959,9 +1964,12 @@ void initServer(void) {
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
 #ifdef USE_NVML
-        if (server.persistent)
+        if (server.persistent) {
             server.db[j].dict = dictCreate(&dbDictTypePM,NULL);
-        else
+            
+            pm_type_root_type_id = TOID_TYPE_NUM(struct redis_pmem_root);
+            pm_type_key_val_pair_PM = TOID_TYPE_NUM(struct key_val_pair_PM);
+        } else
 #endif
             server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -3989,6 +3997,9 @@ int redisIsSupervised(int mode) {
 #ifdef USE_NVML
 void initPersistentMemory(void) {
     PMEMoid oid;
+    TOID(struct redis_pmem_root) rootoid;
+    struct redis_pmem_root *root;
+    
 
     long long start = ustime();
     char pmfile_hmem[64];
@@ -4002,12 +4013,17 @@ void initPersistentMemory(void) {
     if (server.pm_pool == NULL) {
         /* Open the existing PMEM pool file. */
         server.pm_pool = pmemobj_open(server.pm_file_path, PM_LAYOUT_NAME);
+	server.pm_reconstruct_required = true;
 
         if (server.pm_pool == NULL) {
-            serverLog(LL_WARNING,"Cannot int persistent memory poolset file "
+            serverLog(LL_WARNING,"Cannot init persistent memory poolset file "
                 "%s size %s", server.pm_file_path, pmfile_hmem);
             exit(1);
         }
+    } else {
+        rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+        root = pmemobj_direct(rootoid.oid);
+        root->num_dict_entries = 0;
     }
 
     /* Get pool UUID from root object's OID. */
@@ -4179,6 +4195,17 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         loadDataFromDisk();
+#ifdef USE_NVML
+        if (server.pm_reconstruct_required) {
+            long long start = ustime();
+            if (pmemReconstruct() == C_OK) {
+                serverLog(LL_NOTICE,"DB loaded from PMEM: %.3f seconds",(float)(ustime()-start)/1000000);
+            } else if (errno != ENOENT) {
+                serverLog(LL_WARNING,"Fatal error loading the DB from PMEM: %s. Exiting.",strerror(errno));
+                exit(1);
+            }
+	}
+#endif
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,

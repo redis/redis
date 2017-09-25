@@ -39,6 +39,10 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#ifdef USE_NVML
+#include "libpmemobj.h"
+#endif
+
 typedef char *sds;
 
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
@@ -228,8 +232,9 @@ sds sdscpy(sds s, const char *t);
 
 #ifdef USE_NVML
 sds sdsnewlenPM(const void *init, size_t initlen);
-sds sdsdupPM(const sds s);
+sds sdsdupPM(const sds s, void **oid_reference);
 void sdsfreePM(sds s);
+PMEMoid *sdsPMEMoidBackReference(sds s);
 #endif
 
 sds sdscatvprintf(sds s, const char *fmt, va_list ap);

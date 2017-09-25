@@ -355,7 +355,7 @@ void sortCommand(client *c) {
             listTypeEntry entry;
             li = listTypeInitIterator(sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
-                    desc ? LIST_HEAD : LIST_TAIL);
+                    desc ? REDIS_LIST_HEAD : REDIS_LIST_TAIL);
 
             while(j < vectorlen && listTypeNext(li,&entry)) {
                 vector[j].obj = listTypeGet(&entry);
@@ -369,7 +369,7 @@ void sortCommand(client *c) {
             start = 0;
         }
     } else if (sortval->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+        listTypeIterator *li = listTypeInitIterator(sortval,0,REDIS_LIST_TAIL);
         listTypeEntry entry;
         while(listTypeNext(li,&entry)) {
             vector[j].obj = listTypeGet(&entry);
@@ -539,7 +539,7 @@ void sortCommand(client *c) {
             listIter li;
 
             if (!getop) {
-                listTypePush(sobj,vector[j].obj,LIST_TAIL);
+                listTypePush(sobj,vector[j].obj,REDIS_LIST_TAIL);
             } else {
                 listRewind(operations,&li);
                 while((ln = listNext(&li))) {
@@ -553,7 +553,7 @@ void sortCommand(client *c) {
                         /* listTypePush does an incrRefCount, so we should take care
                          * care of the incremented refcount caused by either
                          * lookupKeyByPattern or createStringObject("",0) */
-                        listTypePush(sobj,val,LIST_TAIL);
+                        listTypePush(sobj,val,REDIS_LIST_TAIL);
                         decrRefCount(val);
                     } else {
                         /* Always fails */

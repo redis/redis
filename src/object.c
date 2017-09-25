@@ -31,6 +31,7 @@
 #include "server.h"
 #include <math.h>
 #include <ctype.h>
+#include "obj.h"
 #include "libpmemobj.h"
 #include "libpmem.h"
 
@@ -52,11 +53,7 @@ robj *createObject(int type, void *ptr) {
 
 #ifdef USE_NVML
 robj *createObjectPM(int type, void *ptr) {
-    PMEMoid oid;
-    robj *o;
-
-    oid = pmemobj_tx_zalloc(sizeof(*o),PM_TYPE_OBJECT);
-    o = pmemobj_direct(oid);
+    robj *o = zmalloc(sizeof(*o));
 
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
@@ -65,7 +62,7 @@ robj *createObjectPM(int type, void *ptr) {
 
     /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = LRU_CLOCK();
-    return o;
+    return (robj *)o;
 }
 #endif
 
@@ -115,12 +112,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * allocated in the same chunk as the object itself.
  * Allocation takes place in PM */
 robj *createEmbeddedStringObjectPM(const char *ptr, size_t len) {
-    robj *o;
-    PMEMoid oid;
-
-    oid = pmemobj_tx_alloc((sizeof(robj)+sizeof(struct sdshdr8)+len+1),
-        PM_TYPE_EMB_SDS);
-    o = pmemobj_direct(oid);
+    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;
@@ -138,7 +130,7 @@ robj *createEmbeddedStringObjectPM(const char *ptr, size_t len) {
     } else {
         memset(sh->buf,0,len+1);
     }
-    return o;
+    return (robj *)o;
 }
 #endif
 
@@ -255,9 +247,9 @@ robj *dupStringObjectPM(robj *o) {
 
     switch(o->encoding) {
     case OBJ_ENCODING_RAW:
-        return createRawStringObjectPM(o->ptr,sdslen(o->ptr));
     case OBJ_ENCODING_EMBSTR:
-        return createEmbeddedStringObjectPM(o->ptr,sdslen(o->ptr));
+        return createRawStringObjectPM(o->ptr,sdslen(o->ptr));
+        /* return createEmbeddedStringObjectPM(o->ptr,sdslen(o->ptr)); */
     case OBJ_ENCODING_INT:
         d = createObjectPM(OBJ_STRING, NULL);
         d->encoding = OBJ_ENCODING_INT;
@@ -412,8 +404,6 @@ void decrRefCount(robj *o) {
 
 #ifdef USE_NVML
 void decrRefCountPM(robj *o) {
-    PMEMoid oid;
-
     if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
@@ -424,13 +414,7 @@ void decrRefCountPM(robj *o) {
         case OBJ_HASH: freeHashObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        if (server.persistent) {
-            oid.off = (uint64_t)o - (uint64_t)server.pm_pool;
-            oid.pool_uuid_lo = server.pool_uuid_lo;
-            pmemobj_tx_free(oid);
-        } else {
-            zfree(o);
-        }
+        zfree(o);
     } else {
         o->refcount--;
     }

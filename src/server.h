@@ -48,6 +48,39 @@
 #include <lua.h>
 #include <signal.h>
 
+#ifdef USE_NVML
+#include <stdbool.h>
+#include <sys/queue.h>
+#include "libpmemobj.h"
+
+#define PM_LAYOUT_NAME "store_db"
+
+POBJ_LAYOUT_BEGIN(store_db);
+POBJ_LAYOUT_TOID(store_db, struct redis_pmem_root);
+POBJ_LAYOUT_TOID(store_db, struct key_val_pair_PM);
+POBJ_LAYOUT_END(store_db);
+
+#include "pmem.h"
+
+uint64_t pm_type_root_type_id;
+uint64_t pm_type_key_val_pair_PM;
+uint64_t pm_type_sds_type_id;
+uint64_t pm_type_emb_sds_type_id;
+
+/* Type key_val_pair_PM Object */
+#define PM_TYPE_KEY_VAL_PAIR_PM pm_type_key_val_pair_PM
+/* Type SDS Object */
+#define PM_TYPE_SDS pm_type_sds_type_id
+/* Type Embedded SDS Object */
+#define PM_TYPE_EMB_SDS pm_type_emb_sds_type_id
+
+struct redis_pmem_root {
+	uint64_t num_dict_entries;
+	POBJ_LIST_HEAD(dictEntries, struct key_val_pair_PM) head;
+};
+
+#endif
+
 typedef long long mstime_t; /* millisecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
@@ -70,22 +103,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "endianconv.h"
 #include "crc64.h"
 
-#ifdef USE_NVML
-
-#include "libpmemobj.h"
-
-/* Type Dictionary Entry */
-#define PM_TYPE_ENTRY 0
-/* Type Redis Object */
-#define PM_TYPE_OBJECT 1
-/* Type SDS Object */
-#define PM_TYPE_SDS 2
-/* Type Embedded SDS Object */
-#define PM_TYPE_EMB_SDS 3
-
-#define PM_LAYOUT_NAME "store_db"
-
-#endif
 
 /* Error codes */
 #define C_OK                    0
@@ -353,8 +370,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
 
 /* List related stuff */
-#define LIST_HEAD 0
-#define LIST_TAIL 1
+#define REDIS_LIST_HEAD 0
+#define REDIS_LIST_TAIL 1
 
 /* Sort operations */
 #define SORT_OP_GET 0
@@ -821,6 +838,7 @@ struct redisServer {
     char* pm_file_path;             /* Path to persistent memory file */
     size_t pm_file_size;            /* If PM file does not exist, create new one with given size */
     bool persistent;                /* Persistence enabled/disabled */
+    bool pm_reconstruct_required; /* reconstruct database form PMEM */
     PMEMobjpool *pm_pool;           /* PMEM pool handle */
     uint64_t pool_uuid_lo;          /* PMEM pool UUID */
 #endif
