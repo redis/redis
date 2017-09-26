@@ -11,5 +11,6 @@
 #define XREDIS_VERSION "1.0.0"
 
 void xslaveofCommand(client *c);
+void refullsyncCommand(client *c);
 
 #endif /* SRC_CTRIP_H_ */

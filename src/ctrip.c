@@ -1,5 +1,17 @@
 #include "server.h"
 
+void refullsyncCommand(client *c) {
+
+    sds client = catClientInfoString(sdsempty(),c);
+    serverLog(LL_NOTICE,"refullsync called (user request from '%s')", client);
+    sdsfree(client);
+
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+
+    addReply(c,shared.ok);
+}
+
 void xslaveofCommand(client *c) {
     /* SLAVEOF is not allowed in cluster mode as replication is automatically
      * configured using the current address of the master node. */

@@ -496,7 +496,7 @@ int masterTryPartialResynchronization(client *c) {
             "Unable to partial resync with slave %s for lack of backlog (Slave request was: %lld).", replicationGetSlaveName(c), psync_offset);
         if (psync_offset > server.master_repl_offset) {
             serverLog(LL_WARNING,
-                "Warning: slave %s tried to PSYNC with an offset that is greater than the master replication offset.", replicationGetSlaveName(c));
+                "Warning: slave %s tried to PSYNC with an offset that is greater than the master replication offset(%lld).", replicationGetSlaveName(c), server.master_repl_offset);
         }
         goto need_full_resync;
     }
