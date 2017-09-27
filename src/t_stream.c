@@ -177,7 +177,29 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
     uint64_t rax_key[2];    /* Key in the radix tree containing the listpack.*/
     streamID master_id;     /* ID of the master entry in the listpack. */
 
-    /* Create a new listpack and radix tree node if needed. */
+    /* Create a new listpack and radix tree node if needed. Note that when
+     * a new listpack is created, we populate it with a "master entry". This
+     * is just an ID and a set of fields that is taken as refernce in order
+     * to compress the stream entries that we'll add inside the listpack.
+     *
+     * Note that while we use the first added entry ID and fields to create
+     * the master entry, the first added entry is NOT represented in the master
+     * entry, which is a stand alone object. But of course, the first entry
+     * will compress well because it's used as reference.
+     *
+     * The master entry is composed of just: an ID and a set of fields, like:
+     *
+     * +------------+------------+---------+---------+--/--+---------+
+     * | 128 bit ID | num-fields | field_1 | field_2 | ... | field_N |
+     * +------------+------------+---------+---------+--/--+---------+
+     *
+     * The real entries will be encoded with an ID that is just the
+     * millisecond and sequence difference compared to the master entry
+     * (delta encoding), and if the fields of the entry are the same as
+     * the master enty fields, the entry flags will specify this fact
+     * and the entry fields and number of fields will be omitted (see later
+     * in the code of this function). */
+
     int flags = STREAM_ITEM_FLAG_NONE;
     if (lp == NULL || lp_bytes > STREAM_BYTES_PER_LISTPACK) {
         master_id = id;
@@ -221,6 +243,8 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
                     memcmp(e,field,e_len) != 0) break;
                 lp_ele = lpNext(lp,lp_ele);
             }
+            /* All fields are the same! We can compress the field names
+             * setting a single bit in the flags. */
             if (i == master_fields_count) flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
         }
     }
