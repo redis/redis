@@ -131,7 +131,7 @@ static inline void raxStackFree(raxStack *ts) {
 }
 
 /* ----------------------------------------------------------------------------
- * Radis tree implementation
+ * Radix tree implementation
  * --------------------------------------------------------------------------*/
 
 /* Allocate a new non compressed node with the specified number of children.
@@ -873,7 +873,8 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
     memmove(((char*)cp)-1,cp,(parent->size-taillen-1)*sizeof(raxNode**));
 
     /* Move the remaining "tail" pointer at the right position as well. */
-    memmove(((char*)c)-1,c+1,taillen*sizeof(raxNode**)+parent->iskey*sizeof(void*));
+    size_t valuelen = (parent->iskey && !parent->isnull) ? sizeof(void*) : 0;
+    memmove(((char*)c)-1,c+1,taillen*sizeof(raxNode**)+valuelen);
 
     /* 4. Update size. */
     parent->size--;
@@ -1092,26 +1093,34 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 
 /* This is the core of raxFree(): performs a depth-first scan of the
  * tree and releases all the nodes found. */
-void raxRecursiveFree(rax *rax, raxNode *n) {
+void raxRecursiveFree(rax *rax, raxNode *n, void (*free_callback)(void*)) {
     debugnode("free traversing",n);
     int numchildren = n->iscompr ? 1 : n->size;
     raxNode **cp = raxNodeLastChildPtr(n);
     while(numchildren--) {
         raxNode *child;
         memcpy(&child,cp,sizeof(child));
-        raxRecursiveFree(rax,child);
+        raxRecursiveFree(rax,child,free_callback);
         cp--;
     }
     debugnode("free depth-first",n);
+    if (free_callback && n->iskey && !n->isnull)
+        free_callback(raxGetData(n));
     rax_free(n);
     rax->numnodes--;
 }
 
-/* Free a whole radix tree. */
-void raxFree(rax *rax) {
-    raxRecursiveFree(rax,rax->head);
+/* Free a whole radix tree, calling the specified callback in order to
+ * free the auxiliary data. */
+void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
+    raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
     rax_free(rax);
+}
+
+/* Free a whole radix tree. */
+void raxFree(rax *rax) {
+    raxFreeWithCallback(rax,NULL);
 }
 
 /* ------------------------------- Iterator --------------------------------- */
@@ -1175,7 +1184,7 @@ void raxIteratorDelChars(raxIterator *it, size_t count) {
  * The function returns 1 on success or 0 on out of memory. */
 int raxIteratorNextStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
-        return 0;
+        return 1;
     } else if (it->flags & RAX_ITER_JUST_SEEKED) {
         it->flags &= ~RAX_ITER_JUST_SEEKED;
         return 1;
@@ -1186,10 +1195,6 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
     size_t orig_key_len = it->key_len;
     size_t orig_stack_items = it->stack.items;
     raxNode *orig_node = it->node;
-
-    /* Clear the EOF flag: it will be set again if the EOF condition
-     * is still valid. */
-    it->flags &= ~RAX_ITER_EOF;
 
     while(1) {
         int children = it->node->iscompr ? 1 : it->node->size;
@@ -1291,7 +1296,7 @@ int raxSeekGreatest(raxIterator *it) {
  * effect to the one of raxIteratorPrevSte(). */
 int raxIteratorPrevStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
-        return 0;
+        return 1;
     } else if (it->flags & RAX_ITER_JUST_SEEKED) {
         it->flags &= ~RAX_ITER_JUST_SEEKED;
         return 1;
@@ -1412,6 +1417,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
         it->node = it->rt->head;
         if (!raxSeekGreatest(it)) return 0;
         assert(it->node->iskey);
+        it->data = raxGetData(it->node);
         return 1;
     }
 
@@ -1430,6 +1436,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
         /* We found our node, since the key matches and we have an
          * "equal" condition. */
         if (!raxIteratorAddChars(it,ele,len)) return 0; /* OOM. */
+        it->data = raxGetData(it->node);
     } else if (lt || gt) {
         /* Exact key not found or eq flag not set. We have to set as current
          * key the one represented by the node we stopped at, and perform
@@ -1502,6 +1509,7 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                  * the previous sub-tree. */
                 if (nodechar < keychar) {
                     if (!raxSeekGreatest(it)) return 0;
+                    it->data = raxGetData(it->node);
                 } else {
                     if (!raxIteratorAddChars(it,it->node->data,it->node->size))
                         return 0;
@@ -1645,6 +1653,19 @@ int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key
 void raxStop(raxIterator *it) {
     if (it->key != it->key_static_string) rax_free(it->key);
     raxStackFree(&it->stack);
+}
+
+/* Return if the iterator is in an EOF state. This happens when raxSeek()
+ * failed to seek an appropriate element, so that raxNext() or raxPrev()
+ * will return zero, or when an EOF condition was reached while iterating
+ * with raxNext() and raxPrev(). */
+int raxEOF(raxIterator *it) {
+    return it->flags & RAX_ITER_EOF;
+}
+
+/* Return the number of elements inside the radix tree. */
+uint64_t raxSize(rax *rax) {
+    return rax->numele;
 }
 
 /* ----------------------------- Introspection ------------------------------ */

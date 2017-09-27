@@ -31,6 +31,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "stream.h"
 
 #include <math.h>
 #include <sys/types.h>
@@ -622,6 +623,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_HASH);
         else
             serverPanic("Unknown hash encoding");
+    case OBJ_STREAM:
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -761,7 +764,37 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_STREAM) {
+        /* Store how many listpacks we have inside the radix tree. */
+        stream *s = o->ptr;
+        rax *rax = s->rax;
+        if ((n = rdbSaveLen(rdb,raxSize(rax))) == -1) return -1;
+        nwritten += n;
 
+        /* Serialize all the listpacks inside the radix tree as they are,
+         * when loading back, we'll use the first entry of each listpack
+         * to insert it back into the radix tree. */
+        raxIterator ri;
+        raxStart(&ri,rax);
+        raxSeek(&ri,"^",NULL,0);
+        while (raxNext(&ri)) {
+            unsigned char *lp = ri.data;
+            size_t lp_bytes = lpBytes(lp);
+            if ((n = rdbSaveRawString(rdb,lp,lp_bytes)) == -1) return -1;
+            nwritten += n;
+        }
+        raxStop(&ri);
+
+        /* Save the number of elements inside the stream. We cannot obtain
+         * this easily later, since our macro nodes should be checked for
+         * number of items: not a great CPU / space tradeoff. */
+        if ((n = rdbSaveLen(rdb,s->length)) == -1) return -1;
+        nwritten += n;
+        /* Save the last entry ID. */
+        if ((n = rdbSaveLen(rdb,s->last_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -1394,6 +1427,41 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
+        o = createStreamObject();
+        stream *s = o->ptr;
+        uint64_t listpacks = rdbLoadLen(rdb,NULL);
+
+        while(listpacks--) {
+            unsigned char *lp =
+                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+            if (lp == NULL) return NULL;
+            unsigned char *first = lpFirst(lp);
+            if (first == NULL) {
+                /* Serialized listpacks should never be free, since on
+                 * deletion we should remove the radix tree key if the
+                 * resulting listpack is emtpy. */
+                rdbExitReportCorruptRDB("Empty listpack inside stream");
+            }
+
+            /* Get the ID of the first entry: we'll use it as key to add the
+             * listpack into the radix tree. */
+            int64_t e_len;
+            unsigned char buf[LP_INTBUF_SIZE];
+            unsigned char *e = lpGet(first,&e_len,buf);
+            if (e_len != sizeof(streamID)) {
+                rdbExitReportCorruptRDB("Listpack first entry is not the "
+                                        "size of a stream ID");
+            }
+            int retval = raxInsert(s->rax,e,sizeof(streamID),lp,NULL);
+            if (!retval)
+                rdbExitReportCorruptRDB("Listpack re-added with existing key");
+        }
+        /* Load total number of items inside the stream. */
+        s->length = rdbLoadLen(rdb,NULL);
+        /* Load the last entry ID. */
+        s->last_id.ms = rdbLoadLen(rdb,NULL);
+        s->last_id.seq = rdbLoadLen(rdb,NULL);
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);

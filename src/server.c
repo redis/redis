@@ -302,6 +302,10 @@ struct redisCommand redisCommandTable[] = {
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
+    {"xadd",xaddCommand,-5,"wmF",0,NULL,1,1,1,0,0},
+    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"xread",xreadCommand,-3,"rs",0,xreadGetKeys,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
@@ -547,8 +551,19 @@ dictType objectKeyPointerValueDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
+};
+
+/* Like objectKeyPointerValueDictType(), but values can be destroyed, if
+ * not NULL, calling zfree(). */
+dictType objectKeyHeapPointerValueDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictObjectDestructor,      /* key destructor */
+    dictVanillaFree            /* val destructor */
 };
 
 /* Set dictionary type. Keys are SDS strings, values are ot used. */
@@ -1408,7 +1423,9 @@ void initServerConfig(void) {
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
-    server.bpop_blocked_clients = 0;
+    server.blocked_clients = 0;
+    memset(server.blocked_clients_by_type,0,
+           sizeof(server.blocked_clients_by_type));
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
@@ -2486,7 +2503,7 @@ int processCommand(client *c) {
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
-            handleClientsBlockedOnLists();
+            handleClientsBlockedOnKeys();
     }
     return C_OK;
 }
@@ -2895,7 +2912,7 @@ sds genRedisInfoString(char *section) {
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
             lol, bib,
-            server.bpop_blocked_clients);
+            server.blocked_clients);
     }
 
     /* Memory */

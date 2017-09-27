@@ -232,6 +232,13 @@ robj *createZsetZiplistObject(void) {
     return o;
 }
 
+robj *createStreamObject(void) {
+    stream *s = streamNew();
+    robj *o = createObject(OBJ_STREAM,s);
+    o->encoding = OBJ_ENCODING_STREAM;
+    return o;
+}
+
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
@@ -303,6 +310,10 @@ void freeModuleObject(robj *o) {
     zfree(mv);
 }
 
+void freeStreamObject(robj *o) {
+    freeStream(o->ptr);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
@@ -316,6 +327,7 @@ void decrRefCount(robj *o) {
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
         case OBJ_MODULE: freeModuleObject(o); break;
+        case OBJ_STREAM: freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
