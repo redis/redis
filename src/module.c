@@ -1290,7 +1290,7 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *  * REDISMODULE_CTX_FLAGS_EVICT:  Maxmemory is set and has an eviction
  *    policy that may delete keys
  */
-int RM_GetCtxFlags(RedisModuleCtx *ctx) {
+int RM_GetContextFlags(RedisModuleCtx *ctx) {
     
     int flags = 0;
     /* Client specific flags */
@@ -3959,7 +3959,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(GetClientId);
-    REGISTER_API(GetCtxFlags);
+    REGISTER_API(GetContextFlags);
     REGISTER_API(PoolAlloc);
     REGISTER_API(CreateDataType);
     REGISTER_API(ModuleTypeSetValue);
