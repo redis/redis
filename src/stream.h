@@ -26,6 +26,11 @@ typedef struct stream {
  * rewriting code that also needs to iterate the stream to emit the XADD
  * commands. */
 typedef struct streamIterator {
+    streamID master_id;     /* ID of the master entry at listpack head. */
+    uint64_t master_fields_count;       /* Master entries # of fields. */
+    unsigned char *master_fields_start; /* Master entries start in listapck. */
+    unsigned char *master_fields_ptr;   /* Master field to emit next. */
+    int entry_flags;                    /* Flags of entry we are emitting. */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
     raxIterator ri;         /* Rax iterator. */
