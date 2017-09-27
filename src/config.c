@@ -1004,6 +1004,11 @@ void configSetCommand(client *c) {
     } config_set_bool_field(
       "slave-read-only",server.repl_slave_ro) {
     } config_set_bool_field(
+      "slave-repl-all",server.repl_slave_repl_all) {
+        sds client = catClientInfoString(sdsempty(),c);
+        serverLog(LL_NOTICE,"config set slave-repl-all called %s (user request from '%s')", yn ? "yes":"no", client);
+        sdsfree(client);
+    } config_set_bool_field(
       "activerehashing",server.activerehashing) {
     } config_set_bool_field(
       "activedefrag",server.active_defrag_enabled) {
@@ -1285,6 +1290,8 @@ void configGetCommand(client *c) {
             server.repl_serve_stale_data);
     config_get_bool_field("slave-read-only",
             server.repl_slave_ro);
+    config_get_bool_field("slave-repl-all",
+            server.repl_slave_repl_all);
     config_get_bool_field("stop-writes-on-bgsave-error",
             server.stop_writes_on_bgsave_err);
     config_get_bool_field("daemonize", server.daemonize);

@@ -181,7 +181,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
      * propagate *identical* replication stream. In this way this slave can
      * advertise the same replication ID as the master (since it shares the
      * master replication history and has the same backlog and offsets). */
-    if (server.masterhost != NULL) return;
+    if (server.masterhost != NULL && !server.repl_slave_repl_all) return;
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
@@ -1964,6 +1964,7 @@ void replicationUnsetMaster(void) {
      * with PSYNC version 2, there is no need for full resync after a
      * master switch. */
     server.slaveseldb = -1;
+    server.repl_slave_repl_all = CONFIG_DEFAULT_SLAVE_REPLICATE_ALL;
 }
 
 /* This function is called when the slave lose the connection with the

@@ -9,6 +9,7 @@
 #define SRC_CTRIP_H_
 
 #define XREDIS_VERSION "1.0.0"
+#define CONFIG_DEFAULT_SLAVE_REPLICATE_ALL 0
 
 void xslaveofCommand(client *c);
 void refullsyncCommand(client *c);

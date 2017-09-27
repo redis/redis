@@ -1423,8 +1423,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         processInputBuffer(c);
         size_t applied = c->reploff - prev_offset;
         if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
+        	if(!server.repl_slave_repl_all){
+        		replicationFeedSlavesFromMasterStream(server.slaves,
                     c->pending_querybuf, applied);
+        	}
             sdsrange(c->pending_querybuf,applied,-1);
         }
     }
