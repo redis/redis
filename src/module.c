@@ -3401,14 +3401,16 @@ void unblockClientFromModule(client *c) {
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
     client *c = ctx->client;
     int islua = c->flags & CLIENT_LUA;
+    int ismulti = c->flags & CLIENT_MULTI;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
 
     /* We need to handle the invalid operation of calling modules blocking
-     * commands from Lua. We actually create an already aborted (client set to
-     * NULL) blocked client handle, and actually reply to Lua with an error. */
-    bc->client = islua ? NULL : c;
+     * commands from Lua or MULTI. We actually create an already aborted 
+     * (client set to NULL) blocked client handle, and actually reply with 
+     * an error. */
+    bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
     bc->timeout_callback = timeout_callback;
@@ -3419,9 +3421,10 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->dbid = c->db->id;
     c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
-    if (islua) {
+    if (islua || ismulti) {
         c->bpop.module_blocked_handle = NULL;
-        addReplyError(c,"Blocking module command called from Lua script");
+        addReplyError(c, islua ? "Blocking module command called from Lua script" :
+                                 "Blocking module command called from transaction");
     } else {
         blockClient(c,BLOCKED_MODULE);
     }
