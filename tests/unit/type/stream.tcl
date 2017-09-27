@@ -83,13 +83,19 @@ start_server {
         r DEL mystream
         r multi
         for {set j 0} {$j < 10000} {incr j} {
-            r XADD mystream * item $j
+            # From time to time insert a field with a different set
+            # of fields in order to stress the stream compression code.
+            if {rand() < 0.9} {
+                r XADD mystream * item $j
+            } else {
+                r XADD mystream * item $j otherfield foo
+            }
         }
         r exec
 
         set items [r XRANGE mystream - +]
         for {set j 0} {$j < 10000} {incr j} {
-            assert {[lindex $items $j 1] eq [list item $j]}
+            assert {[lrange [lindex $items $j 1] 0 1] eq [list item $j]}
         }
         assert {[r xlen mystream] == $j}
     }
@@ -105,7 +111,7 @@ start_server {
             set elements [r xrange mystream $last_id + COUNT 100]
             if {[llength $elements] == 0} break
             foreach e $elements {
-                assert {[lindex $e 1] eq [list item $j]}
+                assert {[lrange [lindex $e 1] 0 1] eq [list item $j]}
                 incr j;
             }
             set last_id [streamNextID [lindex $elements end 0]]
@@ -115,7 +121,7 @@ start_server {
 
     test {XREAD with non empty stream} {
         set res [r XREAD COUNT 1 STREAMS mystream 0.0]
-        assert {[lindex $res 0 1 0 1] eq {item 0}}
+        assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
 
     test {Non blocking XREAD with empty streams} {
@@ -204,7 +210,6 @@ start_server {
     }
 
     test {XRANGE fuzzing} {
-        # puts $items
         set low_id [lindex $items 0 0]
         set high_id [lindex $items end 0]
         for {set j 0} {$j < 100} {incr j} {
