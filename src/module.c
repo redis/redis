@@ -3407,8 +3407,8 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
 
     /* We need to handle the invalid operation of calling modules blocking
-     * commands from Lua or MULTI. We actually create an already aborted 
-     * (client set to NULL) blocked client handle, and actually reply with 
+     * commands from Lua or MULTI. We actually create an already aborted
+     * (client set to NULL) blocked client handle, and actually reply with
      * an error. */
     bc->client = (islua || ismulti) ? NULL : c;
     bc->module = ctx->module;
@@ -3423,8 +3423,9 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
 
     if (islua || ismulti) {
         c->bpop.module_blocked_handle = NULL;
-        addReplyError(c, islua ? "Blocking module command called from Lua script" :
-                                 "Blocking module command called from transaction");
+        addReplyError(c, islua ?
+            "Blocking module command called from Lua script" :
+            "Blocking module command called from transaction");
     } else {
         blockClient(c,BLOCKED_MODULE);
     }
