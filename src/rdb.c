@@ -781,6 +781,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         while (raxNext(&ri)) {
             unsigned char *lp = ri.data;
             size_t lp_bytes = lpBytes(lp);
+            if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
+            nwritten += n;
             if ((n = rdbSaveRawString(rdb,lp,lp_bytes)) == -1) return -1;
             nwritten += n;
         }
@@ -1448,27 +1450,31 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         uint64_t listpacks = rdbLoadLen(rdb,NULL);
 
         while(listpacks--) {
+            /* Get the master ID, the one we'll use as key of the radix tree
+             * node: the entries inside the listpack itself are delta-encoded
+             * relatively to this ID. */
+            sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (sdslen(nodekey) != sizeof(streamID)) {
+                rdbExitReportCorruptRDB("Stream node key entry is not the "
+                                        "size of a stream ID");
+            }
+
+            /* Load the listpack. */
             unsigned char *lp =
                 rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
             if (lp == NULL) return NULL;
             unsigned char *first = lpFirst(lp);
             if (first == NULL) {
-                /* Serialized listpacks should never be free, since on
+                /* Serialized listpacks should never be empty, since on
                  * deletion we should remove the radix tree key if the
                  * resulting listpack is emtpy. */
                 rdbExitReportCorruptRDB("Empty listpack inside stream");
             }
 
-            /* Get the ID of the first entry: we'll use it as key to add the
-             * listpack into the radix tree. */
-            int64_t e_len;
-            unsigned char buf[LP_INTBUF_SIZE];
-            unsigned char *e = lpGet(first,&e_len,buf);
-            if (e_len != sizeof(streamID)) {
-                rdbExitReportCorruptRDB("Listpack first entry is not the "
-                                        "size of a stream ID");
-            }
-            int retval = raxInsert(s->rax,e,sizeof(streamID),lp,NULL);
+            /* Insert the key in the radix tree. */
+            int retval = raxInsert(s->rax,
+                (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
+            sdsfree(nodekey);
             if (!retval)
                 rdbExitReportCorruptRDB("Listpack re-added with existing key");
         }
