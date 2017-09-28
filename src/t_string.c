@@ -76,6 +76,13 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
+    
+    robj *obj = lookupKeyWrite(c->db,c->argv[1]);
+
+    if (obj && obj->type != OBJ_STRING) {
+        addReply(c,shared.wrongtypeerr);
+        return;
+    }
 
     if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
