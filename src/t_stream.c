@@ -31,7 +31,7 @@
 #include "endianconv.h"
 #include "stream.h"
 
-#define STREAM_BYTES_PER_LISTPACK 4096
+#define STREAM_BYTES_PER_LISTPACK 2048
 
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
