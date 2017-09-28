@@ -615,7 +615,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     sds cmdname = sdsnew(name);
 
     /* Check if the command name is busy. */
-    if (lookupCommand((char*)name) != NULL) {
+    if (lookupCommand(cmdname) != NULL) {
         sdsfree(cmdname);
         return REDISMODULE_ERR;
     }
@@ -3661,6 +3661,28 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
+void moduleUnregisterCommands(struct RedisModule *module) {
+    /* Unregister all the commands registered by this module. */
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->proc == RedisModuleCommandDispatcher) {
+            RedisModuleCommandProxy *cp =
+                (void*)(unsigned long)cmd->getkeys_proc;
+            sds cmdname = cp->rediscmd->name;
+            if (cp->module == module) {
+                dictDelete(server.commands,cmdname);
+                dictDelete(server.orig_commands,cmdname);
+                sdsfree(cmdname);
+                zfree(cp->rediscmd);
+                zfree(cp);
+            }
+        }
+    }
+    dictReleaseIterator(di);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
@@ -3681,7 +3703,10 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         return C_ERR;
     }
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
-        if (ctx.module) moduleFreeModuleStructure(ctx.module);
+        if (ctx.module) {
+            moduleUnregisterCommands(ctx.module);
+            moduleFreeModuleStructure(ctx.module);
+        }
         dlclose(handle);
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
@@ -3715,25 +3740,7 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     }
 
-    /* Unregister all the commands registered by this module. */
-    dictIterator *di = dictGetSafeIterator(server.commands);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->proc == RedisModuleCommandDispatcher) {
-            RedisModuleCommandProxy *cp =
-                (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = cp->rediscmd->name;
-            if (cp->module == module) {
-                dictDelete(server.commands,cmdname);
-                dictDelete(server.orig_commands,cmdname);
-                sdsfree(cmdname);
-                zfree(cp->rediscmd);
-                zfree(cp);
-            }
-        }
-    }
-    dictReleaseIterator(di);
+    moduleUnregisterCommands(module);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
 
