@@ -648,7 +648,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
  *
  * This is an internal function, Redis modules developers don't need
  * to use it. */
-void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver){
+void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     RedisModule *module;
 
     if (ctx->module != NULL) return;
@@ -658,6 +658,19 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->apiver = apiver;
     module->types = listCreate();
     ctx->module = module;
+}
+
+/* Return non-zero if the module name is busy.
+ * Otherwise zero is returned. */
+int RM_IsModuleNameBusy(const char *name) {
+    sds modulename = sdsnew(name);
+
+    /* Check if the module name is busy. */
+    if (dictFind(modules,modulename) != NULL) {
+        sdsfree(modulename);
+        return 1;
+    }
+    return 0;
 }
 
 /* Return the current UNIX time in milliseconds. */
@@ -3910,6 +3923,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
     REGISTER_API(SetModuleAttribs);
+    REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
     REGISTER_API(ReplyWithError);
