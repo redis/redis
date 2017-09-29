@@ -79,6 +79,23 @@ start_server {
         assert {[streamCompareID $id2 $id3] == -1}
     }
 
+    test {XADD with MAXLEN option} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN 5 * xitem $j
+            } else {
+                r XADD mystream MAXLEN 5 * yitem $j
+            }
+        }
+        set res [r xrange mystream - +]
+        set expected 995
+        foreach r $res {
+            assert {[lindex $r 1 1] == $expected}
+            incr expected
+        }
+    }
+
     test {XADD mass insertion and XLEN} {
         r DEL mystream
         r multi
