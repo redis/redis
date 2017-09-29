@@ -352,8 +352,8 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
         serverAssert(to_delete < entries);
         lp = lpReplaceInteger(lp,&p,entries-to_delete);
         p = lpNext(lp,p); /* Seek deleted field. */
-        int64_t deleted = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,deleted+to_delete);
+        int64_t marked_deleted = lpGetInteger(p);
+        lp = lpReplaceInteger(lp,&p,marked_deleted+to_delete);
         p = lpNext(lp,p); /* Seek num-of-fields in the master entry. */
 
         /* Skip all the master fields. */
@@ -394,8 +394,8 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
         /* Here we should perform garbage collection in case at this point
          * there are too many entries deleted inside the listpack. */
         entries -= to_delete;
-        deleted += to_delete;
-        if (entries + deleted > 10 && deleted > entries/2) {
+        marked_deleted += to_delete;
+        if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
             /* TODO: perform a garbage collection. */
         }
 
