@@ -334,6 +334,7 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
         /* Check if we can remove the whole node, and still have at
          * least maxlen elements. */
         if (s->length - entries >= maxlen) {
+            lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
             s->length -= entries;
