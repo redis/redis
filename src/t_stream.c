@@ -383,7 +383,7 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
             if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
                 to_skip = master_fields_count;
             } else {
-                to_skip = lpGetInteger(p); p = lpNext(lp,p);
+                to_skip = lpGetInteger(p);
                 to_skip = 1+(to_skip*2);
             }
 
