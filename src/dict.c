@@ -1083,7 +1083,7 @@ size_t _dictGetStatsHt(char *buf, size_t bufsize, dictht *ht, int tableid) {
             i, clvector[i], ((float)clvector[i]/ht->size)*100);
     }
 
-    /* Unlike snprintf(), teturn the number of characters actually written. */
+    /* Unlike snprintf(), return the number of characters actually written. */
     if (bufsize) buf[bufsize-1] = '\0';
     return strlen(buf);
 }
