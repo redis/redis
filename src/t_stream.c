@@ -660,12 +660,12 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
     }
 
     /* Parse <ms>.<seq> form. */
-    char *dot = strchr(buf,'-');
-    if (dot) *dot = '\0';
+    char *hyphen = strchr(buf,'-');
+    if (hyphen) *hyphen = '\0';
     uint64_t ms, seq;
     if (string2ull(buf,&ms) == 0) goto invalid;
-    if (dot && string2ull(dot+1,&seq) == 0) goto invalid;
-    if (!dot) seq = missing_seq;
+    if (hyphen && string2ull(hyphen+1,&seq) == 0) goto invalid;
+    if (!hyphen) seq = missing_seq;
     id->ms = ms;
     id->seq = seq;
     return C_OK;
