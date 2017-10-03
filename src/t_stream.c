@@ -574,7 +574,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Emit a two elements array for each item. The first is
          * the ID, the second is an array of field-value pairs. */
-        sds replyid = sdscatfmt(sdsempty(),"+%U.%U\r\n",id.ms,id.seq);
+        sds replyid = sdscatfmt(sdsempty(),"+%U-%U\r\n",id.ms,id.seq);
         addReplyMultiBulkLen(c,2);
         addReplySds(c,replyid);
         addReplyMultiBulkLen(c,numfields*2);
@@ -660,7 +660,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
     }
 
     /* Parse <ms>.<seq> form. */
-    char *dot = strchr(buf,'.');
+    char *dot = strchr(buf,'-');
     if (dot) *dot = '\0';
     uint64_t ms, seq;
     if (string2ull(buf,&ms) == 0) goto invalid;
@@ -740,7 +740,7 @@ void xaddCommand(client *c) {
                         "target stream top item");
         return;
     }
-    sds reply = sdscatfmt(sdsempty(),"+%U.%U\r\n",id.ms,id.seq);
+    sds reply = sdscatfmt(sdsempty(),"+%U-%U\r\n",id.ms,id.seq);
     addReplySds(c,reply);
 
     signalModifiedKey(c->db,c->argv[1]);
@@ -764,7 +764,7 @@ void xaddCommand(client *c) {
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     robj *idarg = createObject(OBJ_STRING,
-                  sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq));
+                  sdscatfmt(sdsempty(),"%U-%U",id.ms,id.seq));
     rewriteClientCommandArgument(c,i,idarg);
     decrRefCount(idarg);
 
