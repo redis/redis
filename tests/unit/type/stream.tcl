@@ -1,8 +1,8 @@
 # return value is like strcmp() and similar.
 proc streamCompareID {a b} {
     if {$a eq $b} {return 0}
-    lassign [split $a .] a_ms a_seq
-    lassign [split $b .] b_ms b_seq
+    lassign [split $a -] a_ms a_seq
+    lassign [split $b -] b_ms b_seq
     if {$a_ms > $b_ms} {return 1}
     if {$a_ms < $b_ms} {return -1}
     # Same ms case, compare seq.
@@ -14,9 +14,9 @@ proc streamCompareID {a b} {
 # Note that this function does not care to handle 'seq' overflow
 # since it's a 64 bit value.
 proc streamNextID {id} {
-    lassign [split $id .] ms seq
+    lassign [split $id -] ms seq
     incr seq
-    join [list $ms $seq] .
+    join [list $ms $seq] -
 }
 
 # Generate a random stream entry ID with the ms part between min and max
@@ -24,12 +24,12 @@ proc streamNextID {id} {
 # XRANGE against a Tcl implementation implementing the same concept
 # with Tcl-only code in a linear array.
 proc streamRandomID {min_id max_id} {
-    lassign [split $min_id .] min_ms min_seq
-    lassign [split $max_id .] max_ms max_seq
+    lassign [split $min_id -] min_ms min_seq
+    lassign [split $max_id -] max_ms max_seq
     set delta [expr {$max_ms-$min_ms+1}]
     set ms [expr {$min_ms+[randomInt $delta]}]
     set seq [randomInt 1000]
-    return $ms.$seq
+    return $ms-$seq
 }
 
 # Tcl-side implementation of XRANGE to perform fuzz testing in the Redis
