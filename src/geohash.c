@@ -127,8 +127,10 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
 
     /* Return an error when trying to index outside the supported
      * constraints. */
-    if (longitude > 180 || longitude < -180 ||
-        latitude > 85.05112878 || latitude < -85.05112878) return 0;
+    if (latitude < lat_range->min || latitude > lat_range->max ||
+        longitude < long_range->min || longitude > long_range->max) {
+        return 0;
+    }
 
     hash->bits = 0;
     hash->step = step;
