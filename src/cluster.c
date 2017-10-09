@@ -243,6 +243,9 @@ int clusterLoadConfig(char *filename) {
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j]+1);
+                if (slot < 0 || slot >= CLUSTER_SLOTS) {
+                    serverPanic("Bad slot number in cluster config file");
+                }
                 p += 3;
                 cn = clusterLookupNode(p);
                 if (!cn) {
