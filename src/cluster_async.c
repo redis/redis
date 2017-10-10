@@ -5,7 +5,7 @@
 #define STAGE_PREPARE 0
 #define STAGE_PAYLOAD 1
 #define STAGE_CHUNKED 2
-#define STAGE_FILLTTL 3
+#define STAGE_PEXPIRE 3
 #define STAGE_DONE 4
 
 // The definition of L1-Iterator.
@@ -90,7 +90,7 @@ static size_t estimateNumberOfRestoreCommandsObject(robj *obj,
     }
 
     // Object is big enough, and its serialization process will be split into
-    // n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL commands.
+    // n x RESTORE-CHUNKED + 1 x RESTORE-PEXPIRE commands.
     return 1 + (numbulks + maxbulks - 1) / maxbulks;
 }
 
@@ -107,7 +107,7 @@ static size_t estimateNumberOfRestoreCommands(redisDb *db, robj *key,
     // For tiny or zip-compressed objects:
     //  = 1 x RESTORE-PREPARE + 1 x RESTORE-PAYLOAD
     // Otherwise, for normal cases:
-    //  = 1 x RESTORE-PAYLOAD + n x RESTORE-CHUNKED + 1 x RESTORE-FILLTTL
+    //  = 1 x RESTORE-PAYLOAD + n x RESTORE-CHUNKED + 1 x RESTORE-PEXPIRE
     return 1 + estimateNumberOfRestoreCommandsObject(obj, maxbulks);
 }
 
@@ -121,7 +121,7 @@ static asyncMigrationClient *getAsyncMigrationClient(int db);
 //      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
 //          |                                      A
 //          |         (3)                          |
-//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//          +------------> STAGE_CHUNKED ---> STAGE_PEXPIRE
 //                           A       |
 //                           |       V
 //                           +-------+
@@ -205,7 +205,7 @@ extern void createDumpPayload(rio *payload, robj *o);
 //      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
 //          |                                      A
 //          |                                      |
-//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//          +------------> STAGE_CHUNKED ---> STAGE_PEXPIRE
 //                           A       |
 //                           |       V
 //                           +-------+
@@ -534,12 +534,12 @@ exit:
 //      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
 //          |                                      A
 //          |                            (5)       |
-//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//          +------------> STAGE_CHUNKED ---> STAGE_PEXPIRE
 //                           A       |
 //                           |  (5)  V
 //                           +-------+
 //
-// (5) Serialize the specified key/value pair, and then move to STAGE_FILLTTL.
+// (5) Serialize the specified key/value pair, and then move to STAGE_PEXPIRE.
 static int singleObjectIteratorNextStageChunked(client *c,
                                                 singleObjectIterator *it,
                                                 mstime_t timeout,
@@ -578,7 +578,7 @@ static int singleObjectIteratorNextStageChunked(client *c,
     }
 
     if (done) {
-        it->stage = STAGE_FILLTTL;
+        it->stage = STAGE_PEXPIRE;
     }
     return msgs;
 }
@@ -591,15 +591,15 @@ static int singleObjectIteratorNextStageChunked(client *c,
 //      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
 //          |                                      A
 //          |                                      | (6)
-//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//          +------------> STAGE_CHUNKED ---> STAGE_PEXPIRE
 //                           A       |
 //                           |       V
 //                           +-------+
 //
 // (6) Correct the ttl or remove the temporary ttl and then move to STAGE_DONE.
-static int singleObjectIteratorNextStageFillTTL(client *c,
+static int singleObjectIteratorNextStagePExpire(client *c,
                                                 singleObjectIterator *it) {
-    serverAssert(it->stage == STAGE_FILLTTL);
+    serverAssert(it->stage == STAGE_PEXPIRE);
     robj *key = it->key;
 
     mstime_t ttlms = 0;
@@ -631,7 +631,7 @@ static int singleObjectIteratorNextStageFillTTL(client *c,
 //      STAGE_PREPARE ---> STAGE_PAYLOAD ---> STAGE_DONE
 //          |                                      A
 //          |                                      |
-//          +------------> STAGE_CHUNKED ---> STAGE_FILLTTL
+//          +------------> STAGE_CHUNKED ---> STAGE_PEXPIRE
 //                           A       |
 //                           |       V
 //                           +-------+
@@ -648,8 +648,8 @@ static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
         return singleObjectIteratorNextStagePayload(c, it);
     case STAGE_CHUNKED:
         return singleObjectIteratorNextStageChunked(c, it, timeout, maxbulks);
-    case STAGE_FILLTTL:
-        return singleObjectIteratorNextStageFillTTL(c, it);
+    case STAGE_PEXPIRE:
+        return singleObjectIteratorNextStagePExpire(c, it);
     case STAGE_DONE:
         return 0;
     default:
