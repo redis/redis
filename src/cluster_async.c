@@ -1033,7 +1033,7 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     return ac;
 }
 
-// Check if current database is beging migrated.
+// Check if current database is being migrated.
 static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
     if (ac->c == NULL || ac->batched_iterator == NULL) {
