@@ -135,11 +135,6 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
     hash->bits = 0;
     hash->step = step;
 
-    if (latitude < lat_range->min || latitude > lat_range->max ||
-        longitude < long_range->min || longitude > long_range->max) {
-        return 0;
-    }
-
     double lat_offset =
         (latitude - lat_range->min) / (lat_range->max - lat_range->min);
     double long_offset =
