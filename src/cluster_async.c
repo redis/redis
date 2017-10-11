@@ -1054,6 +1054,22 @@ static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     return 1;
 }
 
+static void cleanupImportingKeys(redisDb *db) {
+    if (dictSize(db->importing_keys) != 0) {
+        dictIterator *di = dictGetSafeIterator(db->importing_keys);
+        dictEntry *de;
+        mstime_t now = mstime();
+        while ((de = dictNext(di)) != NULL) {
+            mstime_t expire = dictGetSignedIntegerVal(de);
+            if (expire > now) {
+                continue;
+            }
+            dictDelete(db->importing_keys, dictGetKey(de));
+        }
+        dictReleaseIterator(di);
+    }
+}
+
 // NOTE: Ensure it's only called by serveCron() in server.c.
 // Check for timeouts.
 void cleanupClientsForAsyncMigration() {
@@ -1070,6 +1086,9 @@ void cleanupClientsForAsyncMigration() {
         asyncMigartionClientCancelErrorFormat(
             db, (it != NULL) ? "interrupted: migration timeout"
                              : "interrupted: idle timeout");
+    }
+    for (int db = 0; db < server.dbnum; db++) {
+        cleanupImportingKeys(&server.db[db]);
     }
 }
 
@@ -1180,6 +1199,11 @@ void migrateAsyncCommand(client *c) {
     // Check if there's a migrate/migrate conflict.
     if (asyncMigrationClientStatusOrBlock(c, 0)) {
         addReplyError(c, "the specified DB is being migrated");
+        return;
+    }
+    // Check if there's a migrate/restore conflict.
+    if (dictSize(c->db->importing_keys) != 0) {
+        addReplyError(c, "the specified DB is being imported");
         return;
     }
 
@@ -1595,6 +1619,24 @@ static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
     }
     zfree(scores);
     return C_OK;
+}
+
+static void updateImportingKeys(client *c, robj *key, mstime_t expire) {
+    dictEntry *de = dictFind(c->db->importing_keys, key);
+    if (de != NULL) {
+        mstime_t last = dictGetSignedIntegerVal(de);
+        if (last >= expire) {
+            return;
+        }
+    } else {
+        incrRefCount(key);
+        de = dictAddRaw(c->db->importing_keys, key, NULL);
+    }
+    dictSetSignedIntegerVal(de, expire);
+}
+
+static void deleteImportingKeys(client *c, robj *key) {
+    dictDelete(c->db->importing_keys, key);
 }
 
 // RESTORE-ASYNC delete $key
