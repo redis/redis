@@ -1142,10 +1142,13 @@ int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
 
         int migrating = 0, importing = 0;
         int *keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
-        for (int j = 0; j < numkeys && !migrating; j++) {
+        for (int j = 0; j < numkeys; j++) {
             robj *key = margv[keyindex[j]];
             if (it != NULL && batchedObjectIteratorContains(it, key)) {
                 migrating = 1;
+            }
+            if (mcmd->proc == restoreAsyncCommand) {
+                continue;
             }
             if (lookupImportingKeys(c->db, key, now) != 0) {
                 importing = 1;
@@ -1646,12 +1649,7 @@ static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
 
 static void updateImportingKeys(redisDb *db, robj *key, mstime_t expire) {
     dictEntry *de = dictFind(db->importing_keys, key);
-    if (de != NULL) {
-        mstime_t last = dictGetSignedIntegerVal(de);
-        if (last >= expire) {
-            return;
-        }
-    } else {
+    if (de == NULL) {
         incrRefCount(key);
         de = dictAddRaw(db->importing_keys, key, NULL);
     }
