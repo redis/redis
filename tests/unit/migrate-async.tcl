@@ -547,3 +547,23 @@ start_server {tags {"migrate-async"}} {
         }
     }
 }
+
+start_server {tags {"migrate-async"}} {
+    test {RESTORE-ASYNC can update the importing_keys} {
+        r del foo
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 5000 0 a1 a2]
+        catch {r llen foo} err1
+        assert_match {TRYAGAIN*} $err1
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async expire foo 5000]
+        assert_equal 2 [r llen foo]
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async list foo 5000 0 a1 a2]
+        catch {r llen foo} err2
+        assert_match {TRYAGAIN*} $err2
+
+        assert_match {RESTORE-ASYNC-ACK 0 *} [r restore-async delete foo]
+        assert_equal 0 [r llen foo]
+    }
+}
