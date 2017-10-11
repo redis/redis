@@ -1054,14 +1054,13 @@ static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     return 1;
 }
 
-static void cleanupImportingKeys(redisDb *db) {
+static void cleanupImportingKeys(redisDb *db, mstime_t now) {
     if (dictSize(db->importing_keys) != 0) {
         dictIterator *di = dictGetSafeIterator(db->importing_keys);
         dictEntry *de;
-        mstime_t now = mstime();
         while ((de = dictNext(di)) != NULL) {
             mstime_t expire = dictGetSignedIntegerVal(de);
-            if (expire > now) {
+            if (now != 0 && now < expire) {
                 continue;
             }
             dictDelete(db->importing_keys, dictGetKey(de));
@@ -1088,7 +1087,7 @@ void cleanupClientsForAsyncMigration() {
                              : "interrupted: idle timeout");
     }
     for (int db = 0; db < server.dbnum; db++) {
-        cleanupImportingKeys(&server.db[db]);
+        cleanupImportingKeys(&server.db[db], mstime());
     }
 }
 
@@ -1666,6 +1665,8 @@ void restoreAsyncCommand(client *c) {
     }
     robj *key = c->argv[2];
 
+    long long ttlms = 0, importing_partial = 0;
+
     // RESTORE-ASYNC delete $key
     if (!strcasecmp(cmd, "delete")) {
         if (c->argc != 3) {
@@ -1680,7 +1681,6 @@ void restoreAsyncCommand(client *c) {
     if (c->argc <= 3) {
         goto bad_arguments_number;
     }
-    long long ttlms;
     if (getLongLongFromObject(c->argv[3], &ttlms) != C_OK || ttlms < 0) {
         asyncMigrationReplyAckErrorFormat(c, "invalid value of ttlms (%s)",
                                           c->argv[3]->ptr);
@@ -1731,6 +1731,9 @@ void restoreAsyncCommand(client *c) {
     }
     int argc = c->argc - 5;
     robj **argv = &c->argv[5];
+
+    // Make sure the db->importing_keys can be updated with the temporary ttlms.
+    importing_partial = 1;
 
     // RESTORE-ASYNC list $key $ttlms $maxsize [$elem1 ...]
     if (!strcasecmp(cmd, "list")) {
@@ -1790,6 +1793,11 @@ success_common_ttlms:
     server.dirty++;
 
 success_common_reply:
+    if (ttlms != 0 && importing_partial) {
+        updateImportingKeys(c, key, mstime() + ttlms);
+    } else {
+        deleteImportingKeys(c, key);
+    }
     asyncMigrationReplyAckString(c, "OK");
     return;
 
