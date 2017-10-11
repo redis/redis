@@ -524,6 +524,16 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int check_keys =
         !server.loading &&
         !(server.lua_caller->flags & CLIENT_MASTER);
+
+    /* Check if there's a read/migrate or write/migrate conflict. */
+    if (check_keys) {
+        if (inConflictWithAsyncMigration(c, c->cmd, c->argv, c->argc)) {
+            luaPushError(lua,
+                "Lua script attempted to access a key that is being migrated (async)");
+            goto cleanup;
+        }
+    }
+
     if (check_keys && server.cluster_enabled) {
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
@@ -534,15 +544,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             luaPushError(lua,
                 "Lua script attempted to access a non local key in a "
                 "cluster node");
-            goto cleanup;
-        }
-    }
-
-    /* If there's a write/migrate conflict. */
-    if (check_keys) {
-        if (inConflictWithAsyncMigration(c, c->cmd, c->argv, c->argc)) {
-            luaPushError(lua,
-                "Lua script attempted to access a key that is being migrated (async)");
             goto cleanup;
         }
     }

@@ -2412,6 +2412,20 @@ int processCommand(client *c) {
           server.lua_caller->flags & CLIENT_MASTER) &&
         !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
           c->cmd->proc != execCommand);
+
+    /* Check if there's a read/migrate or write/migrate conflict. */
+    if (check_keys) {
+        if (inConflictWithAsyncMigration(c, c->cmd, c->argv, c->argc)) {
+            if (c->cmd->proc == execCommand) {
+                discardTransaction(c);
+            } else {
+                flagTransaction(c);
+            }
+            addReplySds(c,sdsnew("-TRYAGAIN The specific keys are being migrated (async)\r\n"));
+            return C_OK;
+        }
+    }
+
     if (check_keys && server.cluster_enabled) {
         int hashslot;
         int error_code;
@@ -2424,19 +2438,6 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,hashslot,error_code);
-            return C_OK;
-        }
-    }
-
-    /* If there's a write/migrate conflict. */
-    if (check_keys) {
-        if (inConflictWithAsyncMigration(c, c->cmd, c->argv, c->argc)) {
-            if (c->cmd->proc == execCommand) {
-                discardTransaction(c);
-            } else {
-                flagTransaction(c);
-            }
-            addReplySds(c,sdsnew("-TRYAGAIN The specific keys are being migrated (async)\r\n"));
             return C_OK;
         }
     }

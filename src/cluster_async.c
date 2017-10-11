@@ -1036,7 +1036,7 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
 // Check if current database is being migrated.
 static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
-    if (ac->c == NULL || ac->batched_iterator == NULL) {
+    if (ac->batched_iterator == NULL) {
         return 0;
     }
     if (!block) {
@@ -1069,6 +1069,22 @@ static void cleanupImportingKeys(redisDb *db, mstime_t now) {
     }
 }
 
+static int hasImportingKeys(redisDb *db) {
+    return dictSize(db->importing_keys) != 0;
+}
+
+static mstime_t lookupImportingKeys(redisDb *db, robj *key, mstime_t now) {
+    dictEntry *de = dictFind(db->importing_keys, key);
+    if (de != NULL) {
+        mstime_t expire = dictGetSignedIntegerVal(de);
+        if (now != 0 && now < expire) {
+            return expire;
+        }
+        dictDelete(db->importing_keys, key);
+    }
+    return 0;
+}
+
 // NOTE: Ensure it's only called by serveCron() in server.c.
 // Check for timeouts.
 void cleanupClientsForAsyncMigration() {
@@ -1091,11 +1107,11 @@ void cleanupClientsForAsyncMigration() {
     }
 }
 
-// Check if there's a write/migrate conflict.
+// Check if there's a read/migrate or write/migrate conflict.
 int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
                                  robj **argv, int argc) {
     asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
-    if (ac->c == NULL || ac->batched_iterator == NULL) {
+    if (ac->batched_iterator == NULL && !hasImportingKeys(c->db)) {
         return 0;
     }
     batchedObjectIterator *it = ac->batched_iterator;
@@ -1114,25 +1130,33 @@ int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
         return 0;
     }
 
+    mstime_t now = mstime();
+
     for (int i = 0; i < ms->count; i++) {
         robj **margv;
         int margc, numkeys;
         struct redisCommand *mcmd = ms->commands[i].cmd;
-        if (mcmd->flags & CMD_READONLY) {
-            continue;
-        }
+
         margv = ms->commands[i].argv;
         margc = ms->commands[i].argc;
 
-        int migrating = 0;
+        int migrating = 0, importing = 0;
         int *keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
         for (int j = 0; j < numkeys && !migrating; j++) {
             robj *key = margv[keyindex[j]];
-            migrating = batchedObjectIteratorContains(it, key);
+            if (it != NULL && batchedObjectIteratorContains(it, key)) {
+                migrating = 1;
+            }
+            if (lookupImportingKeys(c->db, key, now) != 0) {
+                importing = 1;
+            }
         }
         getKeysFreeResult(keyindex);
 
-        if (migrating) {
+        if (importing) {
+            return 1;
+        }
+        if (migrating && !(mcmd->flags & CMD_READONLY)) {
             return 1;
         }
     }
@@ -1201,7 +1225,7 @@ void migrateAsyncCommand(client *c) {
         return;
     }
     // Check if there's a migrate/restore conflict.
-    if (dictSize(c->db->importing_keys) != 0) {
+    if (hasImportingKeys(c->db)) {
         addReplyError(c, "the specified DB is being imported");
         return;
     }
@@ -1620,8 +1644,8 @@ static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
     return C_OK;
 }
 
-static void updateImportingKeys(client *c, robj *key, mstime_t expire) {
-    dictEntry *de = dictFind(c->db->importing_keys, key);
+static void updateImportingKeys(redisDb *db, robj *key, mstime_t expire) {
+    dictEntry *de = dictFind(db->importing_keys, key);
     if (de != NULL) {
         mstime_t last = dictGetSignedIntegerVal(de);
         if (last >= expire) {
@@ -1629,13 +1653,13 @@ static void updateImportingKeys(client *c, robj *key, mstime_t expire) {
         }
     } else {
         incrRefCount(key);
-        de = dictAddRaw(c->db->importing_keys, key, NULL);
+        de = dictAddRaw(db->importing_keys, key, NULL);
     }
     dictSetSignedIntegerVal(de, expire);
 }
 
-static void deleteImportingKeys(client *c, robj *key) {
-    dictDelete(c->db->importing_keys, key);
+static void deleteImportingKeys(redisDb *db, robj *key) {
+    dictDelete(db->importing_keys, key);
 }
 
 // RESTORE-ASYNC delete $key
@@ -1794,9 +1818,9 @@ success_common_ttlms:
 
 success_common_reply:
     if (ttlms != 0 && importing_partial) {
-        updateImportingKeys(c, key, mstime() + ttlms);
+        updateImportingKeys(c->db, key, mstime() + ttlms);
     } else {
-        deleteImportingKeys(c, key);
+        deleteImportingKeys(c->db, key);
     }
     asyncMigrationReplyAckString(c, "OK");
     return;
