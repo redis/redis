@@ -330,13 +330,13 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
             server.lfu_log_factor = atoi(argv[1]);
-            if (server.maxmemory_samples < 0) {
+            if (server.lfu_log_factor < 0) {
                 err = "lfu-log-factor must be 0 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
             server.lfu_decay_time = atoi(argv[1]);
-            if (server.maxmemory_samples < 1) {
+            if (server.lfu_decay_time < 0) {
                 err = "lfu-decay-time must be 0 or greater";
                 goto loaderr;
             }
@@ -1221,6 +1221,8 @@ void configGetCommand(client *c) {
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
+    config_get_numerical_field("lfu-log-factor",server.lfu_log_factor);
+    config_get_numerical_field("lfu-decay-time",server.lfu_decay_time);
     config_get_numerical_field("timeout",server.maxidletime);
     config_get_numerical_field("active-defrag-threshold-lower",server.active_defrag_threshold_lower);
     config_get_numerical_field("active-defrag-threshold-upper",server.active_defrag_threshold_upper);
@@ -1992,6 +1994,8 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
+    rewriteConfigNumericalOption(state,"lfu-log-factor",server.lfu_log_factor,CONFIG_DEFAULT_LFU_LOG_FACTOR);
+    rewriteConfigNumericalOption(state,"lfu-decay-time",server.lfu_decay_time,CONFIG_DEFAULT_LFU_DECAY_TIME);
     rewriteConfigNumericalOption(state,"active-defrag-threshold-lower",server.active_defrag_threshold_lower,CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER);
     rewriteConfigNumericalOption(state,"active-defrag-threshold-upper",server.active_defrag_threshold_upper,CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER);
     rewriteConfigBytesOption(state,"active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES);
