@@ -193,12 +193,12 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         rdbCheckError("Wrong signature trying to load DB from file");
-        return 1;
+        goto err;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         rdbCheckError("Can't handle RDB format version %d",rdbver);
-        return 1;
+        goto err;
     }
 
     startLoading(fp);
@@ -270,7 +270,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
-                return 1;
+                goto err;
             }
             rdbstate.key_type = type;
         }
@@ -307,6 +307,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             rdbCheckInfo("RDB file was saved with checksum disabled: no check performed.");
         } else if (cksum != expected) {
             rdbCheckError("RDB CRC error");
+            goto err;
         } else {
             rdbCheckInfo("Checksum OK");
         }
@@ -321,6 +322,8 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     } else {
         rdbCheckError("Unexpected EOF reading RDB file");
     }
+err:
+    if (closefile) fclose(fp);
     return 1;
 }
 
