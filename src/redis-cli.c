@@ -2097,7 +2097,7 @@ static void getKeySizes(redisReply *keys, int *types,
 
     /* Retreive sizes */
     for(i=0;i<keys->elements;i++) {
-        /* Skip keys that dissapeared between SCAN and TYPE */
+        /* Skip keys that disappeared between SCAN and TYPE */
         if(types[i] == TYPE_NONE) {
             sizes[i] = 0;
             continue;
