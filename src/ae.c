@@ -144,12 +144,12 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
-    fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
+    fe->mask |= mask;
     return AE_OK;
 }
 
