@@ -49,8 +49,6 @@
 #include <lua.h>
 #include <signal.h>
 
-typedef long long mstime_t; /* millisecond time type. */
-
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
@@ -1321,8 +1319,6 @@ void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 
 /* Utils */
-long long ustime(void);
-long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);

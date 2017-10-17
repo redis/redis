@@ -33,6 +33,10 @@
 #include <stdint.h>
 #include "sds.h"
 
+typedef long long mstime_t; /* millisecond time type. */
+
+long long ustime(void);
+long long mstime(void);
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
 int stringmatch(const char *p, const char *s, int nocase);
 long long memtoll(const char *p, int *err);

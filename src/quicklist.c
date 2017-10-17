@@ -1461,20 +1461,6 @@ static void ql_info(quicklist *ql) {
 #endif
 }
 
-/* Return the UNIX time in microseconds */
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec) * 1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
-
-/* Return the UNIX time in milliseconds */
-static long long mstime(void) { return ustime() / 1000; }
-
 /* Iterate over an entire quicklist.
  * Print the list if 'print' == 1.
  *
