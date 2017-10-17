@@ -692,6 +692,51 @@ int pathIsBaseName(char *path) {
 #ifdef REDIS_TEST
 #include <assert.h>
 
+static void test_stringmatch_helper(const char *pattern, const char *string,
+        int expected)
+{
+    int result = 0;
+    long long start, end;
+
+
+    printf("testing %s %smatches %s ... ", string, expected == 0 ? "does not " : "", pattern);
+
+    start = ustime();
+    result = stringmatch(pattern, string, 0);
+    end = ustime();
+
+    printf("%s %lldus\n", (result == expected) ? "pass" : "fail", end - start);
+
+    assert(result == expected);
+}
+
+static void test_stringmatch(void) {
+    test_stringmatch_helper("a", "b", 0);
+    test_stringmatch_helper("a", "a", 1);
+    test_stringmatch_helper("ab", "ab", 1);
+    test_stringmatch_helper("ab", "cd", 0);
+
+    test_stringmatch_helper("*.b", "a.b", 1);
+    test_stringmatch_helper("*.b", "a.c", 0);
+    test_stringmatch_helper("*.b", "ab", 0);
+    test_stringmatch_helper("*.b", "ab.b", 1);
+
+    test_stringmatch_helper("a.*", "a.", 1);
+    test_stringmatch_helper("a.*", "a.b", 1);
+    test_stringmatch_helper("a.*", "a", 0);
+
+    test_stringmatch_helper("a.*.c", "a.b.d", 0);
+    test_stringmatch_helper("a.*.c", "a.b.d", 0);
+    test_stringmatch_helper("a.*.c", "a.b.c", 1);
+    test_stringmatch_helper("a.*.c", "a.a.c", 1);
+    test_stringmatch_helper("a.*.c", "a.bc.c", 1);
+
+    test_stringmatch_helper("a.*.c.*.e", "a.b.c.d.e", 1);
+    test_stringmatch_helper("a.*.c.*.e", "a.b.c.d.d", 0);
+    test_stringmatch_helper("a.*.c.*.e", "aa.bb.cc.dd.ee", 0);
+    test_stringmatch_helper("a.*.c.*.e", "a.bb.c.dd.e", 1);
+}
+
 static void test_string2ll(void) {
     char buf[32];
     long long v;
@@ -842,9 +887,11 @@ int utilTest(int argc, char **argv) {
     UNUSED(argc);
     UNUSED(argv);
 
+    test_stringmatch();
     test_string2ll();
     test_string2l();
     test_ll2string();
+
     return 0;
 }
 #endif
