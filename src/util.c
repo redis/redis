@@ -735,6 +735,8 @@ static void test_stringmatch(void) {
     test_stringmatch_helper("a.*.c.*.e", "a.b.c.d.d", 0);
     test_stringmatch_helper("a.*.c.*.e", "aa.bb.cc.dd.ee", 0);
     test_stringmatch_helper("a.*.c.*.e", "a.bb.c.dd.e", 1);
+    test_stringmatch_helper("a*c*e", "a.b.c.d.e", 1);
+    test_stringmatch_helper("a***e", "abcde", 1);
 }
 
 static void test_string2ll(void) {
