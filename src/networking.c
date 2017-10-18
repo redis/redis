@@ -747,8 +747,6 @@ void unlinkClient(client *c) {
             listDelNode(server.clients,c->client_list_node);
             c->client_list_node = NULL;
         }
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
