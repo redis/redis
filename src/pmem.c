@@ -31,8 +31,8 @@
 #include "server.h"
 #include "obj.h"
 #include "libpmemobj.h"
-#include "list.h"
 #include "util.h"
+#include "redis_pm_list.h"
 
 int
 pmemReconstruct(void)
@@ -50,7 +50,7 @@ pmemReconstruct(void)
     pmem_base_addr = (void *)server.pm_pool->addr;
     d = server.db[0].dict;
     dictExpand(d, D_RO(root)->num_dict_entries);
-    POBJ_LIST_FOREACH(kv_PM_oid, &D_RO(root)->head, pmem_list) {
+    for (kv_PM_oid = D_RO(root)->pe_first; TOID_IS_NULL(kv_PM_oid) == 0; kv_PM_oid = D_RO(kv_PM_oid)->pmem_list_next){
         i++;
 	/* entryPM = pmemobj_direct(entryPM_oid.oid); */
 	kv_PM = (key_val_pair_PM *)(kv_PM_oid.oid.off + (uint64_t)pmem_base_addr);
@@ -89,6 +89,8 @@ pmemAddToPmemList(void *key, void *val)
     TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
+    printf("%s\n%s\n",key,val+1);
+
     key_oid.pool_uuid_lo = server.pool_uuid_lo;
     key_oid.off = (uint64_t)key - (uint64_t)server.pm_pool->addr;
 
@@ -102,8 +104,11 @@ pmemAddToPmemList(void *key, void *val)
     typed_kv_PM.oid = kv_PM;
 
     rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    /*TODO save rootid instead of resolving*/
     root = pmemobj_direct(rootoid.oid);
-    POBJ_LIST_INSERT_TAIL(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    kv_PM_p->pmem_list_next = root->pe_first;
+    root->pe_first = typed_kv_PM;
+
     root->num_dict_entries++;
 
     return kv_PM;
@@ -121,7 +126,8 @@ pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
 
     typed_kv_PM.oid = kv_PM_oid;
 
-    POBJ_LIST_REMOVE_FREE(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    /*TODO*/
+    /*POBJ_LIST_REMOVE_FREE(server.pm_pool, &root->head, typed_kv_PM, pmem_list);*/
     root->num_dict_entries--;
     return;
 }
