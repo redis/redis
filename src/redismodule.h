@@ -79,8 +79,17 @@
 /* The instance has Maxmemory set */
 #define REDISMODULE_CTX_FLAGS_MAXMEMORY 0x0100
 /* Maxmemory is set and has an eviction policy that may delete keys */
-#define REDISMODULE_CTX_FLAGS_EVICT 0x0200 
+#define REDISMODULE_CTX_FLAGS_EVICT 0x0200
 
+#ifdef REDISMODULE_EXPERIMENTAL_API
+/* File Events */
+#define REDISMODULE_FILE_NONE       0
+#define REDISMODULE_FILE_READABLE   1
+#define REDISMODULE_FILE_WRITABLE   2
+
+/* Time Events */
+#define REDISMODULE_TIME_NOMORE (-1)
+#endif
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
@@ -118,6 +127,13 @@ typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString
 typedef size_t (*RedisModuleTypeMemUsageFunc)(const void *value);
 typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
 typedef void (*RedisModuleTypeFreeFunc)(void *value);
+
+
+#ifdef REDISMODULE_EXPERIMENTAL_API
+typedef void (*RedisModuleFinalizer)(RedisModuleCtx *context, void *clientData);
+typedef void (*RedisModuleFileProc)(RedisModuleCtx *context, int fd, void *clientData, int mask);
+typedef int (*RedisModuleTimeProc)(RedisModuleCtx *context, long long id, void *clientData);
+#endif
 
 #define REDISMODULE_TYPE_METHOD_VERSION 1
 typedef struct RedisModuleTypeMethods {
@@ -249,6 +265,30 @@ RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModu
 void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
+
+int REDISMODULE_API_FUNC(RedisModule_CreateFileEvent)(RedisModuleCtx *ctx, int fd, int mask, RedisModuleFileProc proc, void *clientData);
+void REDISMODULE_API_FUNC(RedisModule_DeleteFileEvent)(RedisModuleCtx *ctx, int fd, int mask);
+int REDISMODULE_API_FUNC(RedisModule_CreateTimeEvent)(RedisModuleCtx *ctx, long long milliseconds, RedisModuleTimeProc proc, void *clientData, RedisModuleFinalizer finalizer, long long *id);
+void REDISMODULE_API_FUNC(RedisModule_DeleteTimeEvent)(RedisModuleCtx *ctx, long long id);
+int REDISMODULE_API_FUNC(RedisModule_TcpNonBlockConnect)(RedisModuleCtx *ctx, const char *addr, int port, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_UnixNonBlockConnect)(RedisModuleCtx *ctx, const char *path, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_TcpServer)(RedisModuleCtx *ctx, int port, const char *bindaddr, int backlog, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_Tcp6Server)(RedisModuleCtx *ctx, int port, const char *bindaddr, int backlog, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_UnixServer)(RedisModuleCtx *ctx, const char *path, mode_t perm, int backlog, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_TcpAccept)(RedisModuleCtx *ctx, int serversock, char *ip, size_t ip_len, int *port, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_UnixAccept)(RedisModuleCtx *ctx, int serversock, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_EnableNonBlock)(RedisModuleCtx *ctx, int fd);
+int REDISMODULE_API_FUNC(RedisModule_DisableNonBlock)(RedisModuleCtx *ctx, int fd);
+int REDISMODULE_API_FUNC(RedisModule_EnableTcpNoDelay)(RedisModuleCtx *ctx, int fd);
+int REDISMODULE_API_FUNC(RedisModule_DisableTcpNoDelay)(RedisModuleCtx *ctx, int fd);
+int REDISMODULE_API_FUNC(RedisModule_TcpKeepAlive)(RedisModuleCtx *ctx, int fd, int interval);
+int REDISMODULE_API_FUNC(RedisModule_PeerName)(RedisModuleCtx *ctx, int fd, char *ip, size_t ip_len, int *port);
+int REDISMODULE_API_FUNC(RedisModule_SockName)(RedisModuleCtx *ctx, int fd, char *ip, size_t ip_len, int *port);
+int REDISMODULE_API_FUNC(RedisModule_CreateClient)(RedisModuleCtx *ctx, int *fd);
+int REDISMODULE_API_FUNC(RedisModule_FreeClient)(RedisModuleCtx *ctx, int client);
+void REDISMODULE_API_FUNC(RedisModule_Attach)(RedisModuleCtx *ctx, const char *key, size_t key_len, void *attachment, RedisModuleFinalizer free);
+void *REDISMODULE_API_FUNC(RedisModule_GetAttachment)(RedisModuleCtx *ctx, const char *key, size_t key_len);
+int REDISMODULE_API_FUNC(RedisModule_Detach)(RedisModuleCtx *ctx, const char *key, size_t key_len);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -368,6 +408,30 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
+
+    REDISMODULE_GET_API(CreateFileEvent);
+    REDISMODULE_GET_API(DeleteFileEvent);
+    REDISMODULE_GET_API(CreateTimeEvent);
+    REDISMODULE_GET_API(DeleteTimeEvent);
+    REDISMODULE_GET_API(TcpNonBlockConnect);
+    REDISMODULE_GET_API(UnixNonBlockConnect);
+    REDISMODULE_GET_API(TcpServer);
+    REDISMODULE_GET_API(Tcp6Server);
+    REDISMODULE_GET_API(UnixServer);
+    REDISMODULE_GET_API(TcpAccept);
+    REDISMODULE_GET_API(UnixAccept);
+    REDISMODULE_GET_API(EnableNonBlock);
+    REDISMODULE_GET_API(DisableNonBlock);
+    REDISMODULE_GET_API(EnableTcpNoDelay);
+    REDISMODULE_GET_API(DisableTcpNoDelay);
+    REDISMODULE_GET_API(TcpKeepAlive);
+    REDISMODULE_GET_API(PeerName);
+    REDISMODULE_GET_API(SockName);
+    REDISMODULE_GET_API(CreateClient);
+    REDISMODULE_GET_API(FreeClient);
+    REDISMODULE_GET_API(Attach);
+    REDISMODULE_GET_API(GetAttachment);
+    REDISMODULE_GET_API(Detach);
 #endif
 
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

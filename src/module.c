@@ -39,14 +39,23 @@
  * structures that are never exposed to Redis Modules, if not as void
  * pointers that have an API the module can call with them)
  * -------------------------------------------------------------------------- */
+/* attachment related to a specific module */
+struct RedisModuleAttachment {
+    void *data;
+    void (*destructor)(void *ctx, void *data);
+};
+typedef struct RedisModuleAttachment RedisModuleAttachment;
 
 /* This structure represents a module inside the system. */
 struct RedisModule {
-    void *handle;   /* Module dlopen() handle. */
-    char *name;     /* Module name. */
-    int ver;        /* Module version. We use just progressive integers. */
-    int apiver;     /* Module API version as requested during initialization.*/
-    list *types;    /* Module data types. */
+    void *handle;                             /* Module dlopen() handle. */
+    char *name;                               /* Module name. */
+    int ver;                                  /* Module version. We use just progressive integers. */
+    int apiver;                               /* Module API version as requested during initialization.*/
+    list *types;                              /* Module data types. */
+    client *client;                           /* Module default client when one is required under context where no real one exists */
+    dict *attachments;                        /* Module attachments */
+    RedisModuleAttachment default_attachment; /* default attachment that can be accessed faster */
 };
 typedef struct RedisModule RedisModule;
 
@@ -659,6 +668,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->attachments = NULL;
+    memset(&module->default_attachment,0,sizeof(module->default_attachment));
     ctx->module = module;
 }
 
@@ -3294,20 +3305,29 @@ RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
  *      RM_LogIOError()
  *
  */
-void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
+void RM_LogRawWithLevel(RedisModule *module, int level, const char *fmt, va_list ap) {
     char msg[LOG_MAX_LEN];
     size_t name_len;
-    int level;
 
+    name_len = snprintf(msg,sizeof(msg),"<%s> ",module->name);
+    vsnprintf(msg+name_len,sizeof(msg)-name_len,fmt,ap);
+    serverLogRaw(level,msg);
+}
+
+/* This is the low level function implementing both:
+ *
+ *  RM_Log()
+ *  RM_LogIOError()
+ *
+ */
+void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_list ap) {
+    int level;
     if (!strcasecmp(levelstr,"debug")) level = LL_DEBUG;
     else if (!strcasecmp(levelstr,"verbose")) level = LL_VERBOSE;
     else if (!strcasecmp(levelstr,"notice")) level = LL_NOTICE;
     else if (!strcasecmp(levelstr,"warning")) level = LL_WARNING;
     else level = LL_VERBOSE; /* Default. */
-
-    name_len = snprintf(msg, sizeof(msg),"<%s> ", module->name);
-    vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap);
-    serverLogRaw(level,msg);
+    RM_LogRawWithLevel(module,level,fmt,ap);
 }
 
 /* Produces a log message to the standard Redis log, the format accepts
@@ -3330,6 +3350,15 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     RM_LogRaw(ctx->module,levelstr,fmt,ap);
+    va_end(ap);
+}
+
+void RM_LogWithLevel(RedisModuleCtx *ctx, int level, const char *fmt, ...) {
+    if (!ctx->module) return;   /* Can only log if module is initialized */
+
+    va_list ap;
+    va_start(ap,fmt);
+    RM_LogRawWithLevel(ctx->module,level,fmt,ap);
     va_end(ap);
 }
 
@@ -3728,8 +3757,12 @@ void moduleLoadFromQueue(void) {
 }
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
+    if (module->attachments != NULL) {
+        dictRelease(module->attachments);
+    }
     listRelease(module->types);
     sdsfree(module->name);
+    freeClient(module->client);
     zfree(module);
 }
 
@@ -3763,6 +3796,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     /* Redis module loaded! Register it. */
     dictAdd(modules,ctx.module->name,ctx.module);
     ctx.module->handle = handle;
+    ctx.module->client = createClient(-1);
     serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     moduleFreeContext(&ctx);
     return C_OK;
@@ -3808,6 +3842,15 @@ int moduleUnload(sds name) {
     dictReleaseIterator(di);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
+    if (module->attachments != NULL) {
+        dictEmpty(module->attachments,NULL);
+    }
+    if (module->default_attachment.destructor != NULL) {
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = module;
+        module->default_attachment.destructor(&ctx,module->default_attachment.data);
+        moduleFreeContext(&ctx);
+    }
 
     /* Unload the dynamic library. */
     if (dlclose(module->handle) == -1) {
@@ -3887,6 +3930,433 @@ void moduleCommand(client *c) {
 /* Return the number of registered modules. */
 size_t moduleCount(void) {
     return dictSize(modules);
+}
+
+typedef void (*RedisModuleEventFinalizerProc)(RedisModuleCtx *context, void *clientData);
+typedef void (*RedisModuleFileProc)(RedisModuleCtx *context, int fd, void *clientData, int mask);
+
+typedef struct RedisModuleFileEventData {
+    RedisModule *module;
+    int mask;
+    RedisModuleFileProc rproc;
+    RedisModuleFileProc wproc;
+    void *clientData;
+} RedisModuleFileEventData;
+
+void moduleFileProc(struct aeEventLoop *eventLoop, int fd, void *clientData, int mask)
+{
+    int rfired = 0;
+    RedisModuleFileEventData *event = clientData;
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    REDISMODULE_NOT_USED(eventLoop);
+    ctx.module = event->module;
+    /* use module's client when no real one exist within this context */
+    ctx.client = ctx.module->client;
+    if (event->mask & mask & AE_READABLE) {
+        rfired = 1;
+        event->rproc(&ctx,fd,event->clientData,mask);
+    }
+    if (event->mask & mask & AE_WRITABLE) {
+        if (!rfired || event->wproc != event->rproc)
+            event->wproc(&ctx,fd,event->clientData,mask);
+    }
+    moduleFreeContext(&ctx);
+}
+
+/* Create a file event watch for given event type, REDISMODULE_FILE_READABLE/REDISMODULE_FILE_WRITABLE
+ * are supported at this time. Event callback will be dispatched when the file descriptor is readable 
+ * or writable if corresponding event type is watched. */
+int RM_CreateFileEvent(RedisModuleCtx *ctx, int fd, int mask, RedisModuleFileProc proc, void *clientData) {
+    RedisModuleFileEventData *event;
+    REDISMODULE_NOT_USED(ctx);
+    if (aeGetFileEvents(server.el,fd) == 0) {
+        if ((event = zcalloc(sizeof(RedisModuleFileEventData))) == NULL) {
+            return REDISMODULE_ERR;
+        }
+    } else {
+        event = server.el->events[fd].clientData;
+    }
+    event->module = ctx->module;
+    if (mask & AE_READABLE) event->rproc = proc;
+    if (mask & AE_WRITABLE) event->wproc = proc;
+    event->clientData = clientData;
+    if (aeCreateFileEvent(server.el,fd,mask,moduleFileProc,event) != AE_OK) {
+        if (event != server.el->events[fd].clientData) {
+            zfree(event);
+        }
+        return REDISMODULE_ERR;
+    }
+    event->mask |= mask;
+    return REDISMODULE_OK;
+}
+
+/* Delete a previously watched file event handler */
+void RM_DeleteFileEvent(RedisModuleCtx *ctx, int fd, int mask) {
+    RedisModuleFileEventData *event;
+    REDISMODULE_NOT_USED(ctx);
+    if ((aeGetFileEvents(server.el,fd) & mask) == 0) {
+        return;
+    }
+    aeDeleteFileEvent(server.el,fd,mask);
+    event = server.el->events[fd].clientData;
+    event->mask = aeGetFileEvents(server.el,fd);
+    if (event->mask == 0) {
+        zfree(server.el->events[fd].clientData);
+    }
+}
+
+typedef int (*RedisModuleTimeProc)(RedisModuleCtx *context, long long id, void *clientData);
+
+typedef struct RedisModuleTimeEventData {
+    RedisModule *module;
+    RedisModuleTimeProc proc;
+    RedisModuleEventFinalizerProc finalizer;
+    void *clientData;
+} RedisModuleTimeEventData;
+
+int moduleTimeProc(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    RedisModuleTimeEventData *event = clientData;
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    int rc;
+    REDISMODULE_NOT_USED(eventLoop);
+    ctx.module = event->module;
+    /* use module's client when no real one exist within this context */
+    ctx.client = ctx.module->client;
+    rc = event->proc(&ctx,id,event->clientData);
+    moduleFreeContext(&ctx);
+    return rc;
+}
+
+void moduleEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientData) {
+    RedisModuleTimeEventData *event = clientData;
+    REDISMODULE_NOT_USED(eventLoop);
+    if (event->finalizer != NULL) {
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = event->module;
+        ctx.client = ctx.module->client;
+        event->finalizer(&ctx,event->clientData);
+        moduleFreeContext(&ctx);
+    }
+    zfree(event);
+}
+
+/* Add a file event watch for given event type, REDISMODULE_FILE_READABLE/REDISMODULE_FILE_WRITABLE
+ * are supported at this time. REDISMODULE_FILE_READABLE event is fired when the file descriptor is
+ * ready for read without blocking */
+int RM_CreateTimeEvent(RedisModuleCtx *ctx, long long milliseconds, RedisModuleTimeProc proc, void *clientData, RedisModuleEventFinalizerProc finalizer, long long *id) {
+    RedisModuleTimeEventData *event = zcalloc(sizeof(RedisModuleTimeEventData));
+    if (event == NULL) {
+        return REDISMODULE_ERR;
+    }
+    event->module = ctx->module;
+    event->proc = proc;
+    event->finalizer = finalizer;
+    event->clientData = clientData;
+    if ((*id = aeCreateTimeEvent(server.el,milliseconds,moduleTimeProc,event,moduleEventFinalizerProc)) == AE_ERR) {
+        zfree(event);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Delete an existing timer with id */
+void RM_DeleteTimeEvent(RedisModuleCtx *ctx, long long id) {
+    REDISMODULE_NOT_USED(ctx);
+    aeDeleteTimeEvent(server.el,id);
+}
+
+/* Connect to a server using TCP in nonblocking way, return file descriptor of the new connection */
+int RM_TcpNonBlockConnect(RedisModuleCtx *ctx, const char *addr, int port, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetTcpNonBlockConnect(err,(char *)addr,port)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Connect to a server using unix domain socket in nonblocking way, return file descriptor of the new connection */
+int RM_UnixNonBlockConnect(RedisModuleCtx *ctx, const char *path, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetUnixNonBlockConnect(err,(char *)path)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Create an IPV4 TCP server socket and bind to the specified port and optional bind
+ * address with given backlog. Return file descriptor of the server socket */
+int RM_TcpServer(RedisModuleCtx *ctx, int port, const char *bindaddr, int backlog, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetTcpServer(err,port,(char *)bindaddr,backlog)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Create an IPV6 TCP server socket and bind to the specified port and optional bind
+ * address with given backlog. Return file descriptor of the server socket */
+int RM_Tcp6Server(RedisModuleCtx *ctx, int port, const char *bindaddr, int backlog, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetTcp6Server(err,port,(char *)bindaddr,backlog)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Create an unix domain socket server socket and bind to the specified path
+ * with given permission and backlog. Return file descriptor of the server socket */
+int RM_UnixServer(RedisModuleCtx *ctx, const char *path, mode_t perm, int backlog, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetUnixServer(err,(char *)path,perm,backlog)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Accept a connection on TCP server socket, return connected client's ip address
+ * and port number if ip argument and port argument are not NULL respectively */
+int RM_TcpAccept(RedisModuleCtx *ctx, int serversock, char *ip, size_t ip_len, int *port, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetTcpAccept(err,serversock,ip,ip_len,port)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Accept a new connection on unix domain server socket, */
+int RM_UnixAccept(RedisModuleCtx *ctx, int serversock, int *fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if ((*fd = anetUnixAccept(err,serversock)) == ANET_ERR) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Set a file descriptor to nonblocking mode */
+int RM_EnableNonBlock(RedisModuleCtx *ctx, int fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetNonBlock(err,fd) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Set a file descriptor to blocking mode */
+int RM_DisableNonBlock(RedisModuleCtx *ctx, int fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetBlock(err,fd) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Disable nagle's algorithm on given tcp socket */
+int RM_EnableTcpNoDelay(RedisModuleCtx *ctx, int fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetEnableTcpNoDelay(err,fd) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Enable nagle's algorithm on given tcp socket */
+int RM_DisableTcpNoDelay(RedisModuleCtx *ctx, int fd) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetDisableTcpNoDelay(err,fd) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Enable tcp keepalive and update keepalive interval on given tcp socket */
+int RM_TcpKeepAlive(RedisModuleCtx *ctx, int fd, int interval) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetKeepAlive(err,fd,interval) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Get peer name of a socket */
+int RM_PeerName(RedisModuleCtx *ctx, int fd, char *ip, size_t ip_len, int *port) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetPeerToString(fd,ip,ip_len,port) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s",err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Get sock name of a socket */
+int RM_SockName(RedisModuleCtx *ctx, int fd, char *ip, size_t ip_len, int *port) {
+    char err[ANET_ERR_LEN];
+    REDISMODULE_NOT_USED(ctx);
+    if (anetSockName(fd,ip,ip_len,port) != ANET_OK) {
+        RM_LogWithLevel(ctx,LL_WARNING,"%s", err);
+        return REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_OK;
+    }
+}
+
+/* Create an authenticated and connected client directly to current redis server */
+int RM_CreateClient(RedisModuleCtx *ctx, int *fd) {
+    int pair[2];
+    client *c;
+    REDISMODULE_NOT_USED(ctx);
+    if (socketpair(AF_UNIX,SOCK_STREAM,0,pair) < 0) {
+        RM_LogWithLevel(ctx,LL_WARNING,"Could not open socket pair to create pipe between redis server and module: %s",strerror(errno));
+        return REDISMODULE_ERR;
+    }
+    if ((c = createClient(pair[0])) != NULL) {
+        c->authenticated = 1;
+        *fd = pair[1];
+        return REDISMODULE_OK;
+    } else {
+        close(pair[1]);
+        return REDISMODULE_ERR;
+    }
+}
+
+/* Free the directly connected client created from RedisModule_CreateClient */
+int RM_FreeClient(RedisModuleCtx *ctx, int client) {
+    REDISMODULE_NOT_USED(ctx);
+    close(client);
+    return REDISMODULE_OK;
+}
+
+static void dictModuleAttachmentDestructor(void *privdata, void *val) {
+    RedisModuleAttachment *attachment = val;
+    REDISMODULE_NOT_USED(privdata);
+    if (attachment->destructor) {
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = privdata;
+        attachment->destructor(&ctx,attachment->data);
+        moduleFreeContext(&ctx);
+    }
+    zfree(attachment);
+}
+
+static dictType moduleAttachmentDictType = {
+    dictSdsHash,                    /* hash function */
+    NULL,                           /* key dup */
+    NULL,                           /* val dup */
+    dictSdsKeyCompare,              /* key compare */
+    dictSdsDestructor,              /* key destructor */
+    dictModuleAttachmentDestructor, /* val destructor */
+};
+
+int RM_Detach(RedisModuleCtx *ctx, const char *key, size_t key_len);
+
+/* Attach an user data for current module under a specific key. use the same key
+ * with RedisModule_GetAttachment can access previously attached user data.
+ * When key is NULL and key_len is 0, the user data is treated specially,
+ * aka default user data, which can be accessed in a faster way then normal
+ * user data without dict lookup. When destructor is not null, it will be
+ * called with RedisModuleCtx and the user data arguments before the attachment
+ * is going to be removed. Typically when an user data is replaced by another
+ * one with the same key or it's detached by callingRedisModule_Detach, or
+ * when the module is unloaded if it is still alive */
+void RM_Attach(RedisModuleCtx *ctx, const char *key, size_t key_len, void *attachment, void (*destructor)(void *, void *)) {
+  if (key == NULL && key_len == 0) {
+      RM_Detach(ctx,NULL,0);
+      ctx->module->default_attachment.data = attachment;
+      ctx->module->default_attachment.destructor = destructor;
+  } else {
+      RedisModule *module = ctx->module;
+      RedisModuleAttachment *value = zmalloc(sizeof(RedisModuleAttachment));
+      value->data = attachment;
+      value->destructor = destructor;
+      if (module->attachments == NULL) {
+          module->attachments = dictCreate(&moduleAttachmentDictType,module);
+      }
+      dictReplace(module->attachments,sdsnewlen(key,key_len),value);
+  }
+}
+
+/* Get previously attached user data with given key, if key is NULL and key_len is 0,
+ * it returns the default user data without dict lookup */
+void *RM_GetAttachment(RedisModuleCtx *ctx, const char *key, size_t key_len) {
+  if (key == NULL && key_len == 0) {
+      return ctx->module->default_attachment.data;
+  } else if (ctx->module->attachments != NULL) {
+      sds k = sdsnewlen(key,key_len);
+      RedisModuleAttachment *value = dictFetchValue(ctx->module->attachments,k);
+      sdsfree(k);
+      if (value != NULL) {
+          return value->data;
+      } else {
+          return NULL;
+      }
+  } else {
+      return NULL;
+  }
+}
+
+/* Detach a previously attached user data for current module, if key is NULL
+ * and key_len is 0, it tries to detach a special default user data which is
+ * faster to access. If a destructor is set with the user data, it will be
+ * called with RedisModuleCtx and user data as arguments to allow module
+ * writer to perform certain cleanup logic on the user data. */
+int RM_Detach(RedisModuleCtx *ctx, const char *key, size_t key_len) {
+    if (key == NULL && key_len == 0) {
+        RedisModuleAttachment *attachment = &ctx->module->default_attachment;
+        if (attachment->data != NULL) {
+            if (attachment->destructor) {
+                attachment->destructor(ctx,attachment->data);
+            }
+            memset(attachment,0,sizeof(*attachment));
+            return REDISMODULE_OK;
+        } else {
+            return REDISMODULE_ERR;
+        }
+    } else if (ctx->module->attachments != NULL) {
+        sds k = sdsnewlen(key,key_len);
+        int rc = dictDelete(ctx->module->attachments,k);
+        sdsfree(k);
+        return rc == DICT_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+    } else {
+        return REDISMODULE_ERR;
+    }
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
@@ -4002,4 +4472,27 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
+    REGISTER_API(CreateFileEvent);
+    REGISTER_API(DeleteFileEvent);
+    REGISTER_API(CreateTimeEvent);
+    REGISTER_API(DeleteTimeEvent);
+    REGISTER_API(TcpNonBlockConnect);
+    REGISTER_API(UnixNonBlockConnect);
+    REGISTER_API(TcpServer);
+    REGISTER_API(Tcp6Server);
+    REGISTER_API(UnixServer);
+    REGISTER_API(TcpAccept);
+    REGISTER_API(UnixAccept);
+    REGISTER_API(EnableNonBlock);
+    REGISTER_API(DisableNonBlock);
+    REGISTER_API(EnableTcpNoDelay);
+    REGISTER_API(DisableTcpNoDelay);
+    REGISTER_API(TcpKeepAlive);
+    REGISTER_API(PeerName);
+    REGISTER_API(SockName);
+    REGISTER_API(CreateClient);
+    REGISTER_API(FreeClient);
+    REGISTER_API(Attach);
+    REGISTER_API(GetAttachment);
+    REGISTER_API(Detach);
 }
