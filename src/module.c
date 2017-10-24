@@ -3209,7 +3209,7 @@ void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
     mixDigest(md->o,buf,len);
 }
 
-/* See the doucmnetation for `RedisModule_DigestAddElement()`. */
+/* See the documentation for `RedisModule_DigestAddElement()`. */
 void RM_DigestEndSequence(RedisModuleDigest *md) {
     xorDigest(md->x,md->o,sizeof(md->o));
     memset(md->o,0,sizeof(md->o));
@@ -3395,7 +3395,7 @@ void unblockClientFromModule(client *c) {
  *     reply_timeout:   called when the timeout is reached in order to send an
  *                      error to the client.
  *
- *     free_privdata:   called in order to free the privata data that is passed
+ *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
@@ -3569,7 +3569,7 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
     return (ctx->flags & REDISMODULE_CTX_BLOCKED_TIMEOUT) != 0;
 }
 
-/* Get the privata data set by RedisModule_UnblockClient() */
+/* Get the private data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
 }

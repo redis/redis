@@ -66,7 +66,7 @@ struct ldbState {
     list *children; /* All forked debugging sessions pids. */
     int bp[LDB_BREAKPOINTS_MAX]; /* An array of breakpoints line numbers. */
     int bpcount; /* Number of valid entries inside bp. */
-    int step;   /* Stop at next line ragardless of breakpoints. */
+    int step;   /* Stop at next line regardless of breakpoints. */
     int luabp;  /* Stop at next line because redis.breakpoint() was called. */
     sds *src;   /* Lua script source code split by line. */
     int lines;  /* Number of lines in 'src'. */

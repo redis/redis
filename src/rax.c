@@ -974,9 +974,9 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
      * We try to navigate upward till there are other nodes that can be
      * compressed, when we reach the upper node which is not a key and has
      * a single child, we scan the chain of children to collect the
-     * compressable part of the tree, and replace the current node with the
+     * compressible part of the tree, and replace the current node with the
      * new one, fixing the child pointer to reference the first non
-     * compressable node.
+     * compressible node.
      *
      * Example of case "1". A tree stores the keys "FOO" = 1 and
      * "FOOBAR" = 2:
@@ -1369,7 +1369,7 @@ int raxIteratorPrevStep(raxIterator *it, int noup) {
 int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
     int eq = 0, lt = 0, gt = 0, first = 0, last = 0;
 
-    it->stack.items = 0; /* Just resetting. Intialized by raxStart(). */
+    it->stack.items = 0; /* Just resetting. Initialized by raxStart(). */
     it->flags |= RAX_ITER_JUST_SEEKED;
     it->flags &= ~RAX_ITER_EOF;
     it->key_len = 0;

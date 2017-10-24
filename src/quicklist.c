@@ -190,7 +190,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
     if (((lzf->sz = lzf_compress(node->zl, node->sz, lzf->compressed,
                                  node->sz)) == 0) ||
         lzf->sz + MIN_COMPRESS_IMPROVE >= node->sz) {
-        /* lzf_compress aborts/rejects compression if value not compressable. */
+        /* lzf_compress aborts/rejects compression if value not compressible. */
         zfree(lzf);
         return 0;
     }
@@ -238,7 +238,7 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
         }                                                                      \
     } while (0)
 
-/* Force node to not be immediately re-compresable */
+/* Force node to not be immediately re-compressible */
 #define quicklistDecompressNodeForUse(_node)                                   \
     do {                                                                       \
         if ((_node) && (_node)->encoding == QUICKLIST_NODE_ENCODING_LZF) {     \
@@ -1636,7 +1636,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to tail of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushTail(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1644,7 +1644,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to head of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }

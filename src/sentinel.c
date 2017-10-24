@@ -494,7 +494,7 @@ void sentinelIsRunning(void) {
         if (sentinel.myid[j] != 0) break;
 
     if (j == CONFIG_RUN_ID_SIZE) {
-        /* Pick ID and presist the config. */
+        /* Pick ID and persist the config. */
         getRandomHexChars(sentinel.myid,CONFIG_RUN_ID_SIZE);
         sentinelFlushConfig();
     }
@@ -3307,7 +3307,7 @@ void sentinelSetCommand(client *c) {
         long long ll;
 
         if (!strcasecmp(option,"down-after-milliseconds")) {
-            /* down-after-millisecodns <milliseconds> */
+            /* down-after-milliseconds <milliseconds> */
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->down_after_period = ll;
@@ -3413,8 +3413,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
     if (ri->link->cc &&
         (mstime() - ri->link->cc_conn_time) >
         SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
-        ri->link->act_ping_time != 0 && /* Ther is a pending ping... */
-        /* The pending ping is delayed, and we did not received
+        ri->link->act_ping_time != 0 && /* There is a pending ping... */
+        /* The pending ping is delayed, and we did not receive
          * error replies as well. */
         (mstime() - ri->link->act_ping_time) > (ri->down_after_period/2) &&
         (mstime() - ri->link->last_pong_time) > (ri->down_after_period/2))

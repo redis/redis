@@ -1146,7 +1146,7 @@ void configSetCommand(client *c) {
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
 
-    /* Everyhing else is an error... */
+    /* Everything else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);

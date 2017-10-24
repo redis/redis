@@ -665,7 +665,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     end = p + sdslen(o->ptr) - HLL_HDR_SIZE;
 
     first = 0;
-    prev = NULL; /* Points to previos opcode at the end of the loop. */
+    prev = NULL; /* Points to previous opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {

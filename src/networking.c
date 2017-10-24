@@ -248,7 +248,7 @@ void _addReplyObjectToList(client *c, robj *o) {
 }
 
 /* This method takes responsibility over the sds. When it is no longer
- * needed it will be free'd, otherwise it ends up in a robj. */
+ * needed it will be freed, otherwise it ends up in a robj. */
 void _addReplySdsToList(client *c, sds s) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
         sdsfree(s);
@@ -346,14 +346,14 @@ void addReply(client *c, robj *obj) {
 
 void addReplySds(client *c, sds s) {
     if (prepareClientToWrite(c) != C_OK) {
-        /* The caller expects the sds to be free'd. */
+        /* The caller expects the sds to be freed */
         sdsfree(s);
         return;
     }
     if (_addReplyToBuffer(c,s,sdslen(s)) == C_OK) {
         sdsfree(s);
     } else {
-        /* This method free's the sds when it is no longer needed. */
+        /* This method frees the sds when it is no longer needed. */
         _addReplySdsToList(c,s);
     }
 }

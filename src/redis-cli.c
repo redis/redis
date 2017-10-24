@@ -1450,7 +1450,7 @@ static int evalMode(int argc, char **argv) {
         argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
         /* Call it */
-        int eval_ldb = config.eval_ldb; /* Save it, may be reverteed. */
+        int eval_ldb = config.eval_ldb; /* Save it, may be reverted. */
         retval = issueCommand(argc+3-got_comma, argv2);
         if (eval_ldb) {
             if (!config.eval_ldb) {
@@ -2095,15 +2095,15 @@ static void getKeySizes(redisReply *keys, int *types,
             keys->element[i]->str);
     }
 
-    /* Retreive sizes */
+    /* Retrieve sizes */
     for(i=0;i<keys->elements;i++) {
-        /* Skip keys that dissapeared between SCAN and TYPE */
+        /* Skip keys that disappeared between SCAN and TYPE */
         if(types[i] == TYPE_NONE) {
             sizes[i] = 0;
             continue;
         }
 
-        /* Retreive size */
+        /* Retrieve size */
         if(redisGetReply(context, (void**)&reply)!=REDIS_OK) {
             fprintf(stderr, "Error getting size for key '%s' (%d: %s)\n",
                 keys->element[i]->str, context->err, context->errstr);
@@ -2173,7 +2173,7 @@ static void findBigKeys(void) {
             arrsize = keys->elements;
         }
 
-        /* Retreive types and then sizes */
+        /* Retrieve types and then sizes */
         getKeyTypes(keys, types);
         getKeySizes(keys, types, sizes);
 
@@ -2364,7 +2364,7 @@ static void statMode(void) {
         sprintf(buf,"%ld",aux);
         printf("%-8s",buf);
 
-        /* Requets */
+        /* Requests */
         aux = getLongInfoField(reply->str,"total_commands_processed");
         sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
         printf("%-19s",buf);

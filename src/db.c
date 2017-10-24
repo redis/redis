@@ -106,7 +106,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * safety measure, the command invoked is a read-only command, we can
          * safely return NULL here, and provide a more consistent behavior
          * to clients accessign expired values in a read-only fashion, that
-         * will say the key as non exisitng.
+         * will say the key as non existing.
          *
          * Notably this covers GETs when slaves are used to scale reads. */
         if (server.current_client &&
@@ -721,7 +721,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
         /* Filter element if it is an expired key. */
         if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
 
-        /* Remove the element and its associted value if needed. */
+        /* Remove the element and its associated value if needed. */
         if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
