@@ -1981,9 +1981,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             flushAppendOnlyFile(0);
     }
 
-    /* Close clients that need to be closed asynchronous */
-    freeClientsInAsyncFreeQueue();
-
     /* Clear the paused clients flag if needed. */
     clientsArePaused(); /* Don't check return value, just use the side effect.*/
 
@@ -2075,7 +2072,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
-    handleClientsWithPendingWrites();
+    /* XXX: Put a condition based on number of waiting clients: if we
+     * have less than a given number of clients, use non threaded code. */
+    handleClientsWithPendingWritesUsingThreads();
+
+    /* Close clients that need to be closed asynchronous */
+    freeClientsInAsyncFreeQueue();
 
     /* Before we are going to sleep, let the threads access the dataset by
      * releasing the GIL. Redis main thread will not touch anything at this
@@ -2861,6 +2863,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    initThreadedIO();
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
