@@ -35,6 +35,7 @@ typedef struct key_val_pair_PM {
     PMEMoid key_oid;
     PMEMoid val_oid;
     TOID(struct key_val_pair_PM) pmem_list_next;
+    TOID(struct key_val_pair_PM) pmem_list_prev;
 } key_val_pair_PM;
 
 int pmemReconstruct(void);
