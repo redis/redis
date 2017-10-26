@@ -32,7 +32,6 @@
 #include "obj.h"
 #include "libpmemobj.h"
 #include "util.h"
-#include "redis_pm_list.h"
 
 int
 pmemReconstruct(void)
