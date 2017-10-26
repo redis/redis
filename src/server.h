@@ -77,7 +77,6 @@ uint64_t pm_type_emb_sds_type_id;
 struct redis_pmem_root {
 	uint64_t num_dict_entries;
 	TOID(struct key_val_pair_PM) pe_first;
-	PMEMmutex lock;
 };
 
 #endif

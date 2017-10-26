@@ -86,8 +86,6 @@ pmemAddToPmemList(void *key, void *val)
     TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
-    printf("%s\n%s\n",key,val+1);
-
     key_oid.pool_uuid_lo = server.pool_uuid_lo;
     key_oid.off = (uint64_t)key - (uint64_t)server.pm_pool->addr;
 
