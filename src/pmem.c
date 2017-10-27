@@ -44,7 +44,7 @@ pmemReconstruct(void)
     void *val;
     void *pmem_base_addr;
 
-    root = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    root = server.pm_rootoid;
     pmem_base_addr = (void *)server.pm_pool->addr;
     d = server.db[0].dict;
     dictExpand(d, D_RO(root)->num_dict_entries);
@@ -81,7 +81,6 @@ pmemAddToPmemList(void *key, void *val)
     PMEMoid val_oid;
     PMEMoid kv_PM;
     struct key_val_pair_PM *kv_PM_p;
-    TOID(struct redis_pmem_root) rootoid;
     TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
@@ -97,9 +96,7 @@ pmemAddToPmemList(void *key, void *val)
     kv_PM_p->val_oid = val_oid;
     typed_kv_PM.oid = kv_PM;
 
-    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-    /*TODO store rootid instead of resolving*/
-    root = pmemobj_direct(rootoid.oid);
+    root = pmemobj_direct(server.pm_rootoid.oid);
     kv_PM_p->pmem_list_next = root->pe_first;
     if(!TOID_IS_NULL(root->pe_first)) {
     	D_RW(root->pe_first)->pmem_list_prev = typed_kv_PM;
@@ -115,11 +112,9 @@ void
 pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
 {
     TOID(struct key_val_pair_PM) typed_kv_PM;
-    TOID(struct redis_pmem_root) rootoid;
     struct redis_pmem_root *root;
 
-    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-    root = pmemobj_direct(rootoid.oid);
+    root = pmemobj_direct(server.pm_rootoid.oid);
 
     typed_kv_PM.oid = kv_PM_oid;
 

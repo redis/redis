@@ -840,6 +840,7 @@ struct redisServer {
     bool persistent;                /* Persistence enabled/disabled */
     bool pm_reconstruct_required; /* reconstruct database form PMEM */
     PMEMobjpool *pm_pool;           /* PMEM pool handle */
+    TOID(struct redis_pmem_root) pm_rootoid; /*PMEM root object OID*/
     uint64_t pool_uuid_lo;          /* PMEM pool UUID */
 #endif
     /* AOF persistence */

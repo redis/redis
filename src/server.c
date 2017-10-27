@@ -3997,7 +3997,6 @@ int redisIsSupervised(int mode) {
 #ifdef USE_NVML
 void initPersistentMemory(void) {
     PMEMoid oid;
-    TOID(struct redis_pmem_root) rootoid;
     struct redis_pmem_root *root;
     
 
@@ -4021,8 +4020,8 @@ void initPersistentMemory(void) {
             exit(1);
         }
     } else {
-        rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-        root = pmemobj_direct(rootoid.oid);
+        server.pm_rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+        root = pmemobj_direct(server.pm_rootoid.oid);
         root->num_dict_entries = 0;
     }
 
