@@ -696,6 +696,10 @@ start_server {tags {"zset"}} {
         }
     }
 
+    test "ZSET commands don't accept the empty strings as valid score" {
+        assert_error "*not*float*" {r zadd myzset "" abc}
+    }
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
