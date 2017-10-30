@@ -558,11 +558,11 @@ int getDoubleFromObject(const robj *o, double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (isspace(((const char*)o->ptr)[0]) ||
+            if (sdslen(o->ptr) == 0 ||
+                isspace(((const char*)o->ptr)[0]) ||
                 eptr[0] != '\0' ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
-                errno == EINVAL ||
                 isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
@@ -600,8 +600,12 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtold(o->ptr, &eptr);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE || isnan(value))
+            if (sdslen(o->ptr) == 0 ||
+                isspace(((const char*)o->ptr)[0]) ||
+                eptr[0] != '\0' ||
+                (errno == ERANGE &&
+                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
