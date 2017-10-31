@@ -476,6 +476,8 @@ void dictObjectDestructorPM(void *privdata, void *val)
 
     TX_BEGIN(server.pm_pool) {
         decrRefCountPM(val);
+    } TX_ONABORT {
+        serverLog(LL_WARNING,"ERROR: decrementing the PM ref count failed (%s)", __func__);
     } TX_END
 }
 #endif
@@ -498,6 +500,8 @@ void dictSdsDestructorPM(void *privdata, void *val)
         kv_PM_oid = sdsPMEMoidBackReference(val);
         sdsfreePM(val);
         pmemRemoveFromPmemList(*kv_PM_oid);
+    } TX_ONABORT {
+        serverLog(LL_WARNING,"ERROR: removing an element from PM failed (%s)", __func__);
     } TX_END
 }
 #endif

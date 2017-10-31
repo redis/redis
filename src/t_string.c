@@ -88,13 +88,22 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 #ifdef USE_NVML
     if (server.persistent) {
+        int error = 0;
+
         /* Copy value from RAM to PM - create RedisObject and sds(value) */
         TX_BEGIN(server.pm_pool) {
             newVal = dupStringObjectPM(val);
             /* Set key in PM - create DictEntry and sds(key) linked to RedisObject with value
              * Don't increment value "ref counter" as in normal process. */
             setKeyPM(c->db,key,newVal);
+        } TX_ONABORT {
+            error = 1;
         } TX_END
+
+        if (error) {
+            addReplyError(c, "setting key in PM failed!");
+            return;
+        }
     } else {
         setKey(c->db,key,val);
     }
