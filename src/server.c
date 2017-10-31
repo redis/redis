@@ -471,12 +471,12 @@ void dictObjectDestructorPM(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
-    if (val == NULL) return; /* Lazy freeing will set value to NULL. */
-    /* TODO: TX_BEGIN() */
-    pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
-    decrRefCountPM(val);
-    pmemobj_tx_commit();
-    pmemobj_tx_end();
+    if (val == NULL)
+        return; /* Lazy freeing will set value to NULL. */
+
+    TX_BEGIN(server.pm_pool) {
+        decrRefCountPM(val);
+    } TX_END
 }
 #endif
 
@@ -493,13 +493,12 @@ void dictSdsDestructorPM(void *privdata, void *val)
     PMEMoid *kv_PM_oid;
 
     DICT_NOTUSED(privdata);
-    /* TODO: TX_BEGIN() */
-    pmemobj_tx_begin(server.pm_pool, NULL, TX_LOCK_NONE);
-    kv_PM_oid = sdsPMEMoidBackReference(val);
-    sdsfreePM(val);
-    pmemRemoveFromPmemList(*kv_PM_oid);
-    pmemobj_tx_commit();
-    pmemobj_tx_end();
+
+    TX_BEGIN(server.pm_pool) {
+        kv_PM_oid = sdsPMEMoidBackReference(val);
+        sdsfreePM(val);
+        pmemRemoveFromPmemList(*kv_PM_oid);
+    } TX_END
 }
 #endif
 
