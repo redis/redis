@@ -233,6 +233,7 @@ int clusterLoadConfig(char *filename) {
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j]+1);
+                if (slot < 0 || slot >= CLUSTER_SLOTS) goto fmterr;
                 p += 3;
                 cn = clusterLookupNode(p);
                 if (!cn) {
@@ -252,6 +253,8 @@ int clusterLoadConfig(char *filename) {
             } else {
                 start = stop = atoi(argv[j]);
             }
+            if (start < 0 || start >= CLUSTER_SLOTS) goto fmterr;
+            if (stop < 0 || stop >= CLUSTER_SLOTS) goto fmterr;
             while(start <= stop) clusterAddSlot(n, start++);
         }
 
