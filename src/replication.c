@@ -2613,6 +2613,18 @@ void replicationCron(void) {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
 
         if (idle > server.repl_backlog_time_limit) {
+            /* When we free the backlog, we always use a new
+             * replication ID and clear the ID2. Since without
+             * backlog we can not increment master_repl_offset
+             * even do write commands, that may lead to inconsistency
+             * when we try to connect a "slave-before" master
+             * (if this master is our slave before, our replid
+             * equals the master's replid2). As the master have our
+             * history, so we can match the master's replid2 and
+             * second_replid_offset, that make partial sync work,
+             * but the data is inconsistent. */
+            changeReplicationId();
+            clearReplicationId2();
             freeReplicationBacklog();
             serverLog(LL_NOTICE,
                 "Replication backlog freed after %d seconds "
