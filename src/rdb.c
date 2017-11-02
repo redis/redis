@@ -2035,14 +2035,25 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
     *rsi = rsi_init;
 
     /* If the instance is a master, we can populate the replication info
-     * in all the cases, even if sometimes in incomplete (but safe) form. */
-    if (!server.masterhost) {
-        if (server.repl_backlog) rsi->repl_stream_db = server.slaveseldb;
-        /* Note that if repl_backlog is NULL, it means that histories
-         * following from this point will trigger a full synchronization
-         * generating a SELECT statement, so we can leave the currently
-         * selected DB set to -1. This allows a restarted master to reload
-         * its replication ID/offset when there are no connected slaves. */
+     * only when repl_backlog is not NULL. If the repl_backlog is NULL,
+     * it means that the instance isn't in any replication chains. In this
+     * scenario the replication info is useless, because when a slave
+     * connect to us, the NULL repl_backlog will trigger a full synchronization,
+     * at the same time we will use a new replid and clear replid2.
+     * And remember that after free backlog if we reach repl_backlog_time_limit,
+     * we will use a new replid and clear replid2 too. So there is only one
+     * scenario which can make repl_stream_db be -1, that is the instance is
+     * a master, and it have repl_backlog, but server.slaveseldb is -1. */
+    if (!server.masterhost && server.repl_backlog) {
+        rsi->repl_stream_db = server.slaveseldb;
+        /* Note that server.slaveseldb may be -1, it means that this master
+         * didn't apply any write commands after a full synchronization,
+         * so we can leave the currently selected DB set to -1, because the
+         * next write command must generate a SELECT statement. This allows
+         * a restarted slave to reload replication ID/offset even the repl_stream_db
+         * is -1, but we should not do that, because older implementations
+         * may save a repl_stream_db as -1 in a wrong way. Maybe we can fix
+         * it in the next release version. */
         return rsi;
     }
 
