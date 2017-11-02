@@ -3540,7 +3540,8 @@ void loadDataFromDisk(void) {
                 rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
-                 * of -1 inside the RDB file. */
+                 * of -1 inside the RDB file in a wrong way, see more information
+                 * in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
