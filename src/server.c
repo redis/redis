@@ -3673,7 +3673,6 @@ int redisIsSupervised(int mode) {
 
 
 int main(int argc, char **argv) {
-    struct timeval tv;
     int j;
 
 #ifdef REDIS_TEST
@@ -3709,7 +3708,6 @@ int main(int argc, char **argv) {
     setlocale(LC_COLLATE,"");
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
-    gettimeofday(&tv,NULL);
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
