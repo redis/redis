@@ -82,6 +82,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_MIN_HZ            1
 #define CONFIG_MAX_HZ            500
 #define CONFIG_DEFAULT_SERVER_PORT        6379    /* TCP port */
+#define CONFIG_DEFAULT_CLUSTER_PORT       16379    /* TCP port for cluster bus */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511     /* TCP listen backlog */
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0       /* default client timeout: infinite */
 #define CONFIG_DEFAULT_DBNUM     16
@@ -901,6 +902,7 @@ struct redisServer {
                                    to be processed. */
     /* Networking */
     int port;                   /* TCP listening port */
+    int cport;                  /* TCP listening port for cluster control */
     int tcp_backlog;            /* TCP listen() backlog */
     char *bindaddr[CONFIG_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */

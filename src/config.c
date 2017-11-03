@@ -221,6 +221,11 @@ void loadServerConfigFromString(char *config) {
             if (server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-bus-port") && argc == 2) {
+            server.cport = atoi(argv[1]);
+            if (server.cport < 0 || server.cport > 65535) {
+                err = "Invalid cluster port"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"tcp-backlog") && argc == 2) {
             server.tcp_backlog = atoi(argv[1]);
             if (server.tcp_backlog < 0) {
@@ -1255,6 +1260,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("slowlog-max-len",
             server.slowlog_max_len);
     config_get_numerical_field("port",server.port);
+    config_get_numerical_field("cluster-bus-port",server.cport);
     config_get_numerical_field("cluster-announce-port",server.cluster_announce_port);
     config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
     config_get_numerical_field("tcp-backlog",server.tcp_backlog);
@@ -1950,6 +1956,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"daemonize",server.daemonize,0);
     rewriteConfigStringOption(state,"pidfile",server.pidfile,CONFIG_DEFAULT_PID_FILE);
     rewriteConfigNumericalOption(state,"port",server.port,CONFIG_DEFAULT_SERVER_PORT);
+    rewriteConfigNumericalOption(state,"cluster-bus-port",server.port,CONFIG_DEFAULT_CLUSTER_PORT);
     rewriteConfigNumericalOption(state,"cluster-announce-port",server.cluster_announce_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_PORT);
     rewriteConfigNumericalOption(state,"cluster-announce-bus-port",server.cluster_announce_bus_port,CONFIG_DEFAULT_CLUSTER_ANNOUNCE_BUS_PORT);
     rewriteConfigNumericalOption(state,"tcp-backlog",server.tcp_backlog,CONFIG_DEFAULT_TCP_BACKLOG);
