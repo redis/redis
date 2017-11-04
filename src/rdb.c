@@ -2055,10 +2055,24 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
         return rsi;
     }
 
-    /* If the instance is a slave we need a connected master in order to
-     * fetch the currently selected DB. */
+    /* If the instance is a slave we need a connected master
+     * in order to fetch the currently selected DB. */
     if (server.master) {
         rsi->repl_stream_db = server.master->db->id;
+        return rsi;
+    }
+    /* It is useful to persist cached_master's db id inside RDB file.
+     * When a slave lost master's connection, server.master will be
+     * cached as server.cached_master, after that a slave can not
+     * increment the master_repl_offset because slave only apply data
+     * from connected master, so the cached_master can hold right
+     * replication info. But please note that this action is safe
+     * only after we fix the free backlog problem, because when a master
+     * turn to be a slave, it will use itself as the server.cached_master,
+     * that is dangerous if we didn't use a new replication ID after
+     * free backlog. */
+    if (server.cached_master) {
+        rsi->repl_stream_db = server.cached_master->db->id;
         return rsi;
     }
     return NULL;
