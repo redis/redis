@@ -149,7 +149,7 @@ start_server {
     test {XREAD with non empty second stream} {
         set res [r XREAD COUNT 1 STREAMS nostream mystream 0.0 0.0]
         assert {[lindex $res 0 0] eq {mystream}}
-        assert {[lindex $res 0 1 0 1] eq {item 0}}
+        assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
 
     test {Blocking XREAD waiting new data} {
