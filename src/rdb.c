@@ -656,7 +656,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
-            do {
+            while(node) {
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
@@ -666,7 +666,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                     if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
-            } while ((node = node->next));
+                node = node->next;
+            }
         } else {
             serverPanic("Unknown list encoding");
         }
