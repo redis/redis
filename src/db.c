@@ -798,6 +798,7 @@ void typeCommand(client *c) {
         case OBJ_SET: type = "set"; break;
         case OBJ_ZSET: type = "zset"; break;
         case OBJ_HASH: type = "hash"; break;
+        case OBJ_STREAM: type = "stream"; break;
         case OBJ_MODULE: {
             moduleValue *mv = o->ptr;
             type = mv->type->name;
