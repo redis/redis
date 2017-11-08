@@ -1074,7 +1074,7 @@ void memoryCommand(client *c) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         size_t usage = objectComputeSize(o,samples);
-        usage += sdsAllocSize(c->argv[1]->ptr);
+        usage += sdsAllocSize(c->argv[2]->ptr);
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
