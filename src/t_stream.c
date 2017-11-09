@@ -785,7 +785,7 @@ void xrangeCommand(client *c) {
     if (streamParseIDOrReply(c,c->argv[3],&endid,UINT64_MAX) == C_ERR) return;
 
     /* Parse the COUNT option if any. */
-    if (c->argc > 4) {
+    if (c->argc > 5) {
         if (strcasecmp(c->argv[4]->ptr,"COUNT") == 0) {
             if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL) != C_OK)
                 return;
