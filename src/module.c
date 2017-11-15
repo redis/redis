@@ -1273,6 +1273,8 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  * 
  *  * REDISMODULE_CTX_FLAGS_MULTI: The command is running inside a transaction
  * 
+ *  * REDISMODULE_CTX_FLAGS_AOFLOADING: The command is running by an AOF load
+ * 
  *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
  * 
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
@@ -1313,8 +1315,15 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     }
 
     /* Persistence flags */
-    if (server.aof_state != AOF_OFF)
+    if (server.aof_state != AOF_OFF) {
         flags |= REDISMODULE_CTX_FLAGS_AOF;
+
+        /* AOF is enabled and we are in LOADING state. 
+         * This means the current client is actually Redis loading the AOF */
+        if (server.loading) {
+            flags |= REDISMODULE_CTX_FLAGS_AOF_LOADING;
+        }
+    }
     if (server.saveparamslen > 0)
         flags |= REDISMODULE_CTX_FLAGS_RDB;
 

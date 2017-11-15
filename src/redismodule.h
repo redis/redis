@@ -73,13 +73,15 @@
 /* The instance is running in cluster mode */
 #define REDISMODULE_CTX_FLAGS_CLUSTER 0x0020
 /* The instance has AOF enabled */
-#define REDISMODULE_CTX_FLAGS_AOF 0x0040 //
+#define REDISMODULE_CTX_FLAGS_AOF 0x0040
 /* The instance has RDB enabled */
-#define REDISMODULE_CTX_FLAGS_RDB 0x0080 //
+#define REDISMODULE_CTX_FLAGS_RDB 0x0080
 /* The instance has Maxmemory set */
 #define REDISMODULE_CTX_FLAGS_MAXMEMORY 0x0100
 /* Maxmemory is set and has an eviction policy that may delete keys */
 #define REDISMODULE_CTX_FLAGS_EVICT 0x0200 
+/* The command is running from the context of a loading AOF file */
+#define REDISMODULE_CTX_FLAGS_AOF_LOADING 0x0400
 
 
 /* A special pointer that we can use between the core and the module to signal
