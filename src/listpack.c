@@ -283,7 +283,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
     } else {
         if (size < 64) *enclen = 1+size;
         else if (size < 4096) *enclen = 2+size;
-        else *enclen = 4+size;
+        else *enclen = 5+size;
         return LP_ENCODING_STRING;
     }
 }
@@ -363,7 +363,7 @@ void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
         buf[2] = (len >> 8) & 0xff;
         buf[3] = (len >> 16) & 0xff;
         buf[4] = (len >> 24) & 0xff;
-        memcpy(buf+4,s,len);
+        memcpy(buf+5,s,len);
     }
 }
 
