@@ -597,11 +597,18 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 }
             }
 
-            /* If we do not emit, we have to discard. */
-            int to_discard = (flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
-                                *numfields : *numfields*2;
-            for (int64_t i = 0; i < to_discard; i++)
-                si->lp_ele = lpNext(si->lp,si->lp_ele);
+            /* If we do not emit, we have to discard if we are going
+             * forward, or seek the previous entry if we are going
+             * backward. */
+            if (!si->rev) {
+                int to_discard = (flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
+                                    *numfields : *numfields*2;
+                for (int64_t i = 0; i < to_discard; i++)
+                    si->lp_ele = lpNext(si->lp,si->lp_ele);
+            } else {
+                int prev_times = 4; /* flag + id ms/seq diff + numfields. */
+                while(prev_times--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
+            }
         }
 
         /* End of listpack reached. Try the next/prev radix tree node. */
