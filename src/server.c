@@ -907,7 +907,7 @@ void databasesCron(void) {
 
         /* Rehash */
         if (server.activerehashing) {
-            for (j = 0; j < dbs_per_call; j++) {
+            for (j = 0; j < server.dbnum; j++) {
                 int work_done = incrementallyRehash(rehash_db % server.dbnum);
                 rehash_db++;
                 if (work_done) {
