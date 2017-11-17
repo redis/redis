@@ -540,7 +540,11 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                  * entry is composed of, and jump backward N times to seek
                  * its start. */
                 int lp_count = lpGetInteger(si->lp_ele);
-                if (lp_count == 0) break; /* We reached the master entry. */
+                if (lp_count == 0) { /* We reached the master entry. */
+                    si->lp = NULL;
+                    si->lp_ele = NULL;
+                    break;
+                }
                 while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             }
 
