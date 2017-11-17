@@ -1035,7 +1035,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
  * The function returns 0 on error, 1 on success. */
 int rewriteStreamObject(rio *r, robj *key, robj *o) {
     streamIterator si;
-    streamIteratorStart(&si,o->ptr,NULL,NULL);
+    streamIteratorStart(&si,o->ptr,NULL,NULL,0);
     streamID id;
     int64_t numfields;
 

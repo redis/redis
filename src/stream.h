@@ -28,9 +28,10 @@ typedef struct stream {
 typedef struct streamIterator {
     streamID master_id;     /* ID of the master entry at listpack head. */
     uint64_t master_fields_count;       /* Master entries # of fields. */
-    unsigned char *master_fields_start; /* Master entries start in listapck. */
+    unsigned char *master_fields_start; /* Master entries start in listpack. */
     unsigned char *master_fields_ptr;   /* Master field to emit next. */
     int entry_flags;                    /* Flags of entry we are emitting. */
+    int rev;                /* True if iterating end to start (reverse). */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
     raxIterator ri;         /* Rax iterator. */
@@ -49,8 +50,8 @@ struct client;
 
 stream *streamNew(void);
 void freeStream(stream *s);
-size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count);
-void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end);
+size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev);
+void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
 void streamIteratorStop(streamIterator *si);

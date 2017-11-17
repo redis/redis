@@ -326,7 +326,7 @@ void handleClientsBlockedOnKeys(void) {
                             addReplyMultiBulkLen(receiver,2);
                             addReplyBulk(receiver,rl->key);
                             streamReplyWithRange(receiver,s,&start,NULL,
-                                                 receiver->bpop.xread_count);
+                                                 receiver->bpop.xread_count,0);
                         }
                     }
                 }
