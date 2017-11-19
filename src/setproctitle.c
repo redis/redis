@@ -39,7 +39,11 @@
 #include <errno.h>	/* errno program_invocation_name program_invocation_short_name */
 
 #if !defined(HAVE_SETPROCTITLE)
-#define HAVE_SETPROCTITLE (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
+#if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
+#define HAVE_SETPROCTITLE 1
+#else
+#define HAVE_SETPROCTITLE 0
+#endif
 #endif
 
 
