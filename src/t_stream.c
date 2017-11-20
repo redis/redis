@@ -856,16 +856,17 @@ void xaddCommand(client *c) {
         signalKeyAsReady(c->db, c->argv[1]);
 }
 
-/* XRANGE key start end [COUNT <n>] [REV] */
-void xrangeCommand(client *c) {
+/* XRANGE/XREVRANGE actual implementation. */
+void xrangeGenericCommand(client *c, int rev) {
     robj *o;
     stream *s;
     streamID startid, endid;
     long long count = 0;
-    int rev = 0;
+    robj *startarg = rev ? c->argv[3] : c->argv[2];
+    robj *endarg = rev ? c->argv[2] : c->argv[3];
 
-    if (streamParseIDOrReply(c,c->argv[2],&startid,0) == C_ERR) return;
-    if (streamParseIDOrReply(c,c->argv[3],&endid,UINT64_MAX) == C_ERR) return;
+    if (streamParseIDOrReply(c,startarg,&startid,0) == C_ERR) return;
+    if (streamParseIDOrReply(c,endarg,&endid,UINT64_MAX) == C_ERR) return;
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {
@@ -876,8 +877,6 @@ void xrangeCommand(client *c) {
                     != C_OK) return;
                 if (count < 0) count = 0;
                 j++; /* Consume additional arg. */
-            } else if (strcasecmp(c->argv[j]->ptr,"REV") == 0) {
-                rev = 1;
             } else {
                 addReply(c,shared.syntaxerr);
                 return;
@@ -890,6 +889,16 @@ void xrangeCommand(client *c) {
         || checkType(c,o,OBJ_STREAM)) return;
     s = o->ptr;
     streamReplyWithRange(c,s,&startid,&endid,count,rev);
+}
+
+/* XRANGE key start end [COUNT <n>] */
+void xrangeCommand(client *c) {
+    xrangeGenericCommand(c,0);
+}
+
+/* XREVRANGE key end start [COUNT <n>] */
+void xrevrangeCommand(client *c) {
+    xrangeGenericCommand(c,1);
 }
 
 /* XLEN */
