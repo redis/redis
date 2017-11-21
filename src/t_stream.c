@@ -308,8 +308,12 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
     }
     /* Compute and store the lp-count field. */
     int lp_count = numfields;
-    if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) lp_count *= 2;
-    lp_count += 3; /* Add the 3 fixed fileds flags + ms-diff + seq-diff. */
+    lp_count += 3; /* Add the 3 fixed fields flags + ms-diff + seq-diff. */
+    if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) {
+        /* If the item is not compressed, it also has the fields other than
+         * the values, and an additional num-fileds field. */
+        lp_count += numfields+1;
+    }
     lp = lpAppendInteger(lp,lp_count);
 
     /* Insert back into the tree in order to update the listpack pointer. */
