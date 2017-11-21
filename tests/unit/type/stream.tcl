@@ -121,6 +121,10 @@ start_server {
         assert {[llength [r xrange mystream - + COUNT 10]] == 10}
     }
 
+    test {XREVRANGE COUNT works as expected} {
+        assert {[llength [r xrevrange mystream + - COUNT 10]] == 10}
+    }
+
     test {XRANGE can be used to iterate the whole stream} {
         set last_id "-"
         set j 0
@@ -134,6 +138,10 @@ start_server {
             set last_id [streamNextID [lindex $elements end 0]]
         }
         assert {$j == 10000}
+    }
+
+    test {XREVRANGE returns the reverse of XRANGE} {
+        assert {[r xrange mystream - +] == [lreverse [r xrevrange mystream + -]]}
     }
 
     test {XREAD with non empty stream} {
