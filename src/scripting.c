@@ -536,6 +536,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (server.lua_replicate_commands &&
         !server.lua_multi_emitted &&
         server.lua_write_dirty &&
+        !(c->flags & CLIENT_MULTI) &&
         server.lua_repl != PROPAGATE_NONE)
     {
         execCommandPropagateMulti(server.lua_caller);
