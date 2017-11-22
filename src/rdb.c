@@ -2046,15 +2046,12 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
      * scenario which can make repl_stream_db be -1, that is the instance is
      * a master, and it have repl_backlog, but server.slaveseldb is -1. */
     if (!server.masterhost && server.repl_backlog) {
-        rsi->repl_stream_db = server.slaveseldb;
-        /* Note that server.slaveseldb may be -1, it means that this master
-         * didn't apply any write commands after a full synchronization,
-         * so we can leave the currently selected DB set to -1, because the
-         * next write command must generate a SELECT statement. This allows
-         * a restarted slave to reload replication ID/offset even the repl_stream_db
-         * is -1, but we should not do that, because older implementations
-         * may save a repl_stream_db as -1 in a wrong way. Maybe we can fix
-         * it in the next release version. */
+        rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
+        /* Note that when server.slaveseldb is -1, it means that this master
+         * didn't apply any write commands after a full synchronization.
+         * So we can let repl_stream_db be 0, this allows a restarted slave
+         * to reload replication ID/offset, it's safe because the next write
+         * command must generate a SELECT statement. */
         return rsi;
     }
 
