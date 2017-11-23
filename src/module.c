@@ -442,9 +442,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
 void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
     client *c = ctx->client;
 
-    /* We don't want any automatic propagation here since in modules we handle
-     * replication / AOF propagation in explicit ways. */
-    preventCommandPropagation(c);
+    if (c->flags & CLIENT_LUA) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrappered around MULTI/EXEC. */
@@ -1164,8 +1162,9 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
-    /* Skip this if client explicitly wrap the command with MULTI */
-    if (ctx->client->flags & CLIENT_MULTI) return;
+    /* Skip this if client explicitly wrap the command with MULTI, or if
+     * the module command was called by a script. */
+    if (ctx->client->flags & (CLIENT_MULTI|CLIENT_LUA)) return;
     /* If we already emitted MULTI return ASAP. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -1218,6 +1217,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
     zfree(argv);
+    server.dirty++;
     return REDISMODULE_OK;
 }
 
@@ -1236,6 +1236,7 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
     alsoPropagate(ctx->client->cmd,ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
         PROPAGATE_AOF|PROPAGATE_REPL);
+    server.dirty++;
     return REDISMODULE_OK;
 }
 
