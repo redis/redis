@@ -31,13 +31,11 @@
 #include "server.h"
 #include "obj.h"
 #include "libpmemobj.h"
-#include "list.h"
 #include "util.h"
 
 int
 pmemReconstruct(void)
 {
-    uint64_t i = 0;
     TOID(struct redis_pmem_root) root;
     TOID(struct key_val_pair_PM) kv_PM_oid;
     struct key_val_pair_PM *kv_PM;
@@ -46,16 +44,14 @@ pmemReconstruct(void)
     void *val;
     void *pmem_base_addr;
 
-    root = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+    root = server.pm_rootoid;
     pmem_base_addr = (void *)server.pm_pool->addr;
     d = server.db[0].dict;
     dictExpand(d, D_RO(root)->num_dict_entries);
-    POBJ_LIST_FOREACH(kv_PM_oid, &D_RO(root)->head, pmem_list) {
-        i++;
-	/* entryPM = pmemobj_direct(entryPM_oid.oid); */
-	kv_PM = (key_val_pair_PM *)(kv_PM_oid.oid.off + (uint64_t)pmem_base_addr);
-	key = (void *)(kv_PM->key_oid.off + (uint64_t)pmem_base_addr);
-	val = (void *)(kv_PM->val_oid.off + (uint64_t)pmem_base_addr);
+    for (kv_PM_oid = D_RO(root)->pe_first; TOID_IS_NULL(kv_PM_oid) == 0; kv_PM_oid = D_RO(kv_PM_oid)->pmem_list_next){
+		kv_PM = (key_val_pair_PM *)(kv_PM_oid.oid.off + (uint64_t)pmem_base_addr);
+		key = (void *)(kv_PM->key_oid.off + (uint64_t)pmem_base_addr);
+		val = (void *)(kv_PM->val_oid.off + (uint64_t)pmem_base_addr);
 
         (void)dictAddReconstructedPM(d, key, val);
     }
@@ -85,7 +81,6 @@ pmemAddToPmemList(void *key, void *val)
     PMEMoid val_oid;
     PMEMoid kv_PM;
     struct key_val_pair_PM *kv_PM_p;
-    TOID(struct redis_pmem_root) rootoid;
     TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
@@ -101,9 +96,13 @@ pmemAddToPmemList(void *key, void *val)
     kv_PM_p->val_oid = val_oid;
     typed_kv_PM.oid = kv_PM;
 
-    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-    root = pmemobj_direct(rootoid.oid);
-    POBJ_LIST_INSERT_TAIL(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    root = pmemobj_direct(server.pm_rootoid.oid);
+    kv_PM_p->pmem_list_next = root->pe_first;
+    if(!TOID_IS_NULL(root->pe_first)) {
+    	D_RW(root->pe_first)->pmem_list_prev = typed_kv_PM;
+    }
+    root->pe_first = typed_kv_PM;
+
     root->num_dict_entries++;
 
     return kv_PM;
@@ -113,15 +112,32 @@ void
 pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
 {
     TOID(struct key_val_pair_PM) typed_kv_PM;
-    TOID(struct redis_pmem_root) rootoid;
     struct redis_pmem_root *root;
 
-    rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-    root = pmemobj_direct(rootoid.oid);
+    root = pmemobj_direct(server.pm_rootoid.oid);
 
     typed_kv_PM.oid = kv_PM_oid;
 
-    POBJ_LIST_REMOVE_FREE(server.pm_pool, &root->head, typed_kv_PM, pmem_list);
+    if(TOID_EQUALS(root->pe_first, typed_kv_PM)) {
+    	TOID(struct key_val_pair_PM) typed_kv_PM_next = D_RO(typed_kv_PM)->pmem_list_next;
+    	if(!TOID_IS_NULL(typed_kv_PM_next)){
+    		D_RW(typed_kv_PM_next)->pmem_list_prev.oid = OID_NULL;
+    	}
+    	TX_FREE(root->pe_first);
+    	root->pe_first = typed_kv_PM_next;
+    }
+    else {
+    	TOID(struct key_val_pair_PM) typed_kv_PM_prev = D_RO(typed_kv_PM)->pmem_list_prev;
+    	TOID(struct key_val_pair_PM) typed_kv_PM_next = D_RO(typed_kv_PM)->pmem_list_next;
+    	if(!TOID_IS_NULL(typed_kv_PM_prev)){
+    		D_RW(typed_kv_PM_prev)->pmem_list_next = typed_kv_PM_next;
+    	}
+    	if(!TOID_IS_NULL(typed_kv_PM_next)){
+    		D_RW(typed_kv_PM_next)->pmem_list_prev = typed_kv_PM_prev;
+    	}
+    	TX_FREE(typed_kv_PM);
+    }
+
     root->num_dict_entries--;
     return;
 }

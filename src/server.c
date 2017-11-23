@@ -3997,7 +3997,6 @@ int redisIsSupervised(int mode) {
 #ifdef USE_NVML
 void initPersistentMemory(void) {
     PMEMoid oid;
-    TOID(struct redis_pmem_root) rootoid;
     struct redis_pmem_root *root;
     
 
@@ -4013,6 +4012,7 @@ void initPersistentMemory(void) {
     if (server.pm_pool == NULL) {
         /* Open the existing PMEM pool file. */
         server.pm_pool = pmemobj_open(server.pm_file_path, PM_LAYOUT_NAME);
+        server.pm_rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
 	server.pm_reconstruct_required = true;
 
         if (server.pm_pool == NULL) {
@@ -4021,8 +4021,8 @@ void initPersistentMemory(void) {
             exit(1);
         }
     } else {
-        rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
-        root = pmemobj_direct(rootoid.oid);
+        server.pm_rootoid = POBJ_ROOT(server.pm_pool, struct redis_pmem_root);
+        root = pmemobj_direct(server.pm_rootoid.oid);
         root->num_dict_entries = 0;
     }
 
