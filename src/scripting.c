@@ -358,6 +358,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
     static int inuse = 0;   /* Recursive calls detection. */
 
+    /* Reflect MULTI state */
+    if (server.lua_multi_emitted || (server.lua_caller->flags & CLIENT_MULTI)) {
+        c->flags |= CLIENT_MULTI;
+    } else {
+        c->flags &= ~CLIENT_MULTI;
+    }
+
     /* By using Lua debug hooks it is possible to trigger a recursive call
      * to luaRedisGenericCommand(), which normally should never happen.
      * To make this function reentrant is futile and makes it slower, but
@@ -535,6 +542,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * a Lua script in the context of AOF and slaves. */
     if (server.lua_replicate_commands &&
         !server.lua_multi_emitted &&
+        !(server.lua_caller->flags & CLIENT_MULTI) &&
         server.lua_write_dirty &&
         server.lua_repl != PROPAGATE_NONE)
     {
