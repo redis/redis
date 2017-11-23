@@ -560,7 +560,7 @@ int getDoubleFromObject(const robj *o, double *target) {
             value = strtod(o->ptr, &eptr);
             if (sdslen(o->ptr) == 0 ||
                 isspace(((const char*)o->ptr)[0]) ||
-                eptr[0] != '\0' ||
+                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
                 isnan(value))
@@ -602,7 +602,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
             value = strtold(o->ptr, &eptr);
             if (sdslen(o->ptr) == 0 ||
                 isspace(((const char*)o->ptr)[0]) ||
-                eptr[0] != '\0' ||
+                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
                 isnan(value))
