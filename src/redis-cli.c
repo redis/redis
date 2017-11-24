@@ -893,7 +893,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
-    while(repeat--) {
+    while((repeat > 0) ? repeat-- : repeat) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -1109,7 +1109,7 @@ static void usage(void) {
 "  -p <port>          Server port (default: 6379).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
-"  -r <repeat>        Execute specified command N times.\n"
+"  -r <repeat>        Execute specified command N times (-1 to repeat forever).\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
 "  -n <db>            Database number.\n"
