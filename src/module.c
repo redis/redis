@@ -613,7 +613,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     sds cmdname = sdsnew(name);
 
     /* Check if the command name is busy. */
-    if (lookupCommand((char*)name) != NULL) {
+    if (lookupCommand(cmdname) != NULL) {
         sdsfree(cmdname);
         return REDISMODULE_ERR;
     }
@@ -648,7 +648,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
  *
  * This is an internal function, Redis modules developers don't need
  * to use it. */
-void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver){
+void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     RedisModule *module;
 
     if (ctx->module != NULL) return;
@@ -658,6 +658,19 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->apiver = apiver;
     module->types = listCreate();
     ctx->module = module;
+}
+
+/* Return non-zero if the module name is busy.
+ * Otherwise zero is returned. */
+int RM_IsModuleNameBusy(const char *name) {
+    sds modulename = sdsnew(name);
+
+    /* Check if the module name is busy. */
+    if (dictFind(modules,modulename) != NULL) {
+        sdsfree(modulename);
+        return 1;
+    }
+    return 0;
 }
 
 /* Return the current UNIX time in milliseconds. */
@@ -3736,6 +3749,28 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
+void moduleUnregisterCommands(struct RedisModule *module) {
+    /* Unregister all the commands registered by this module. */
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->proc == RedisModuleCommandDispatcher) {
+            RedisModuleCommandProxy *cp =
+                (void*)(unsigned long)cmd->getkeys_proc;
+            sds cmdname = cp->rediscmd->name;
+            if (cp->module == module) {
+                dictDelete(server.commands,cmdname);
+                dictDelete(server.orig_commands,cmdname);
+                sdsfree(cmdname);
+                zfree(cp->rediscmd);
+                zfree(cp);
+            }
+        }
+    }
+    dictReleaseIterator(di);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
@@ -3756,7 +3791,10 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         return C_ERR;
     }
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
-        if (ctx.module) moduleFreeModuleStructure(ctx.module);
+        if (ctx.module) {
+            moduleUnregisterCommands(ctx.module);
+            moduleFreeModuleStructure(ctx.module);
+        }
         dlclose(handle);
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
@@ -3790,25 +3828,7 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     }
 
-    /* Unregister all the commands registered by this module. */
-    dictIterator *di = dictGetSafeIterator(server.commands);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->proc == RedisModuleCommandDispatcher) {
-            RedisModuleCommandProxy *cp =
-                (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = cp->rediscmd->name;
-            if (cp->module == module) {
-                dictDelete(server.commands,cmdname);
-                dictDelete(server.orig_commands,cmdname);
-                sdsfree(cmdname);
-                zfree(cp->rediscmd);
-                zfree(cp);
-            }
-        }
-    }
-    dictReleaseIterator(di);
+    moduleUnregisterCommands(module);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
 
@@ -3903,6 +3923,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
     REGISTER_API(SetModuleAttribs);
+    REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
     REGISTER_API(ReplyWithError);
