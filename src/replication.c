@@ -2614,15 +2614,20 @@ void replicationCron(void) {
 
         if (idle > server.repl_backlog_time_limit) {
             /* When we free the backlog, we always use a new
-             * replication ID and clear the ID2. Since without
-             * backlog we can not increment master_repl_offset
-             * even do write commands, that may lead to inconsistency
-             * when we try to connect a "slave-before" master
-             * (if this master is our slave before, our replid
-             * equals the master's replid2). As the master have our
-             * history, so we can match the master's replid2 and
-             * second_replid_offset, that make partial sync work,
-             * but the data is inconsistent. */
+             * replication ID and clear the ID2. This is needed
+             * because when there is no backlog, the master_repl_offset
+             * is not updated, but we would still retain our replication
+             * ID, leading to the following problem:
+             *
+             * 1. We are a master instance.
+             * 2. Our slave is promoted to master. It's repl-id-2 will
+             *    be the same as our repl-id.
+             * 3. We, yet as master, receive some updates, that will not
+             *    increment the master_repl_offset.
+             * 4. Later we are turned into a slave, connecto to the new
+             *    master that will accept our PSYNC request by second
+             *    replication ID, but there will be data inconsistency
+             *    because we received writes. */
             changeReplicationId();
             clearReplicationId2();
             freeReplicationBacklog();

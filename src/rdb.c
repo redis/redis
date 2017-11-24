@@ -2039,19 +2039,16 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
      * only when repl_backlog is not NULL. If the repl_backlog is NULL,
      * it means that the instance isn't in any replication chains. In this
      * scenario the replication info is useless, because when a slave
-     * connect to us, the NULL repl_backlog will trigger a full synchronization,
-     * at the same time we will use a new replid and clear replid2.
-     * And remember that after free backlog if we reach repl_backlog_time_limit,
-     * we will use a new replid and clear replid2 too. So there is only one
-     * scenario which can make repl_stream_db be -1, that is the instance is
-     * a master, and it have repl_backlog, but server.slaveseldb is -1. */
+     * connects to us, the NULL repl_backlog will trigger a full
+     * synchronization, at the same time we will use a new replid and clear
+     * replid2. */
     if (!server.masterhost && server.repl_backlog) {
-        rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
         /* Note that when server.slaveseldb is -1, it means that this master
          * didn't apply any write commands after a full synchronization.
          * So we can let repl_stream_db be 0, this allows a restarted slave
          * to reload replication ID/offset, it's safe because the next write
          * command must generate a SELECT statement. */
+        rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
         return rsi;
     }
 
@@ -2061,16 +2058,12 @@ rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
         rsi->repl_stream_db = server.master->db->id;
         return rsi;
     }
-    /* It is useful to persist cached_master's db id inside RDB file.
-     * When a slave lost master's connection, server.master will be
-     * cached as server.cached_master, after that a slave can not
-     * increment the master_repl_offset because slave only apply data
-     * from connected master, so the cached_master can hold right
-     * replication info. But please note that this action is safe
-     * only after we fix the free backlog problem, because when a master
-     * turn to be a slave, it will use itself as the server.cached_master,
-     * that is dangerous if we didn't use a new replication ID after
-     * free backlog. */
+
+    /* If we have a cached master we can use it in order to populate the
+     * replication selected DB info inside the RDB file: the slave can
+     * increment the master_repl_offset only from data arriving from the
+     * master, so if we are disconnected the offset in the cached master
+     * is valid. */
     if (server.cached_master) {
         rsi->repl_stream_db = server.cached_master->db->id;
         return rsi;
