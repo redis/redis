@@ -1012,11 +1012,25 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
- * Usage: OBJECT <refcount|encoding|idletime> <key> */
+ * Usage: OBJECT <refcount|encoding|idletime|freq> <key> */
 void objectCommand(client *c) {
     robj *o;
 
-    if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
+    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+        void *blenp = addDeferredMultiBulkLength(c);
+        int blen = 0;
+        blen++; addReplyStatus(c,
+        "OBJECT <subcommand> key. Subcommands:");
+        blen++; addReplyStatus(c,
+        "refcount -- Return the number of references of the value associated with the specified key.");
+        blen++; addReplyStatus(c,
+        "encoding -- Return the kind of internal representation used in order to store the value associated with a key.");
+        blen++; addReplyStatus(c,
+        "idletime -- Return the number of seconds since the object stored at the specified key is idle.");
+        blen++; addReplyStatus(c,
+        "freq -- Return the inverse logarithmic access frequency counter of the object stored at the specified key.");
+        setDeferredMultiBulkLength(c,blenp,blen);
+    } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
@@ -1041,7 +1055,8 @@ void objectCommand(client *c) {
         }
         addReplyLongLong(c,o->lru&255);
     } else {
-        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|freq)");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help",
+            (char *)c->argv[1]->ptr);
     }
 }
 
