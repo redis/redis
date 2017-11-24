@@ -103,7 +103,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
-    long long start = ustime(), timelimit;
+    long long start = ustime(), timelimit, elapsed;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -140,7 +140,7 @@ void activeExpireCycle(int type) {
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
         timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
 
-    for (j = 0; j < dbs_per_call; j++) {
+    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         int expired;
         redisDb *db = server.db+(current_db % server.dbnum);
 
@@ -155,6 +155,7 @@ void activeExpireCycle(int type) {
             unsigned long num, slots;
             long long now, ttl_sum;
             int ttl_samples;
+            iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = dictSize(db->expires)) == 0) {
@@ -207,18 +208,20 @@ void activeExpireCycle(int type) {
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
-            iteration++;
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                long long elapsed = ustime()-start;
-
-                latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
-                if (elapsed > timelimit) timelimit_exit = 1;
+                elapsed = ustime()-start;
+                if (elapsed > timelimit) {
+                    timelimit_exit = 1;
+                    break;
+                }
             }
-            if (timelimit_exit) return;
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
     }
+
+    elapsed = ustime()-start;
+    latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
 }
 
 /*-----------------------------------------------------------------------------
