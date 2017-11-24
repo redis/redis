@@ -664,13 +664,9 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
  * Otherwise zero is returned. */
 int RM_IsModuleNameBusy(const char *name) {
     sds modulename = sdsnew(name);
-
-    /* Check if the module name is busy. */
-    if (dictFind(modules,modulename) != NULL) {
-        sdsfree(modulename);
-        return 1;
-    }
-    return 0;
+    dictEntry *de = dictFind(modules,modulename);
+    sdsfree(modulename);
+    return de != NULL;
 }
 
 /* Return the current UNIX time in milliseconds. */
