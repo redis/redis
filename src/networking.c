@@ -1603,6 +1603,10 @@ int processCommandAndResetClient(client *c) {
  * or because a client was blocked and later reactivated, so there could be
  * pending query buffer, already representing a full command, to process. */
 void processInputBuffer(client *c) {
+    mstime_t latency;
+    latencyStartMonitor(latency);
+    int processed = 0;
+
     /* Keep processing while there is something in the input buffer */
     while(c->qb_pos < sdslen(c->querybuf)) {
         /* Return if clients are paused. */
@@ -1668,12 +1672,14 @@ void processInputBuffer(client *c) {
                 break;
             }
 
+            processed++;
+
             /* We are finally ready to execute the command. */
             if (processCommandAndResetClient(c) == C_ERR) {
                 /* If the client is no longer valid, we avoid exiting this
                  * loop and trimming the client buffer later. So we return
                  * ASAP in that case. */
-                return;
+                goto end;
             }
         }
     }
@@ -1683,6 +1689,10 @@ void processInputBuffer(client *c) {
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
     }
+
+end:
+    latencyEndMonitor(latency);
+    if (processed > 1) latencyAddSampleIfNeeded("pipeline",latency);
 }
 
 /* This is a wrapper for processInputBuffer that also cares about handling

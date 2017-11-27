@@ -120,6 +120,7 @@ void execCommand(client *c) {
     struct redisCommand *orig_cmd;
     int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
     int was_master = server.masterhost == NULL;
+    mstime_t latency;
 
     if (!(c->flags & CLIENT_MULTI)) {
         addReplyError(c,"EXEC without MULTI");
@@ -160,6 +161,8 @@ void execCommand(client *c) {
     orig_argc = c->argc;
     orig_cmd = c->cmd;
     addReplyArrayLen(c,c->mstate.count);
+
+    latencyStartMonitor(latency);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
@@ -186,6 +189,9 @@ void execCommand(client *c) {
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);
+
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("transaction",latency);
 
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */
