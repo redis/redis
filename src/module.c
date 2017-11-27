@@ -3696,9 +3696,25 @@ void moduleReleaseGIL(void) {
 /* Subscribe to keyspace notifications. This is a low-level version of the 
  * keyspace-notifications API. A module cand register callbacks to be notified
  * when keyspce events occur. 
+ * 
  * Notification events are filtered by their type (string events, set events,
  * etc), and the subsriber callback receives only events that match a specific
  * mask of event types. 
+ * 
+ * When subscribing to notifications with RedisModule_SubscribeToKeyspaceEvents 
+ * the module must provide an event type-mask, denoting the events the subscriber
+ * is interested in. This can be an ORed mask of any of the following flags:
+ * 
+ *  - REDISMODULE_NOTIFY_GENERIC: Generic commands like DEL, EXPIRE, RENAME
+ *  - REDISMODULE_NOTIFY_STRING: String events
+ *  - REDISMODULE_NOTIFY_LIST: List events
+ *  - REDISMODULE_NOTIFY_SET: Set events
+ *  - REDISMODULE_NOTIFY_HASH: Hash events
+ *  - REDISMODULE_NOTIFY_ZSET: Sorted Set events
+ *  - REDISMODULE_NOTIFY_EXPIRED: Expiration events
+ *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
+ *  - REDISMODULE_NOTIFY_ALL: All events
+ * 
  * We do not distinguish between key events and keyspace events, and it is up
  * to the module to filter the actions taken based on the key. 
  * 
@@ -3712,7 +3728,7 @@ void moduleReleaseGIL(void) {
  * time. The event string is the actual command being executed, and key is the
  * relevant Redis key. 
  * 
- * A notification callback gets executed with a redis context that can not be
+ * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
  * occured as its selected db number.
  * 
