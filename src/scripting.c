@@ -1430,7 +1430,17 @@ void evalShaCommand(client *c) {
 }
 
 void scriptCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+            "debug (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
+            "exists sha1 [sha1 ...] -- Return information about the existence of the scripts in the script cache.",
+            "flush -- Flush the Lua scripts cache.",
+            "kill -- Kill the currently executing Lua script.",
+            "load script -- Load a script into the scripts cache, without executing it.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
@@ -1489,9 +1499,12 @@ void scriptCommand(client *c) {
             c->flags |= CLIENT_LUA_DEBUG_SYNC;
         } else {
             addReplyError(c,"Use SCRIPT DEBUG yes/sync/no");
+            return;
         }
     } else {
-        addReplyError(c, "Unknown SCRIPT subcommand or wrong # of args.");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SCRIPT help",
+            (char*)c->argv[1]->ptr);
+        return;
     }
 }
 

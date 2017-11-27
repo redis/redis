@@ -325,8 +325,16 @@ void publishCommand(client *c) {
 
 /* PUBSUB command for Pub/Sub introspection. */
 void pubsubCommand(client *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"channels") &&
-        (c->argc == 2 || c->argc ==3))
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+            "channels [<pattern>] -- Return the currently active channels matching a pattern (default: all).",
+            "numpat -- Return number of subscriptions to patterns.",
+            "numsub [channel-1 .. channel-N] -- Returns the number of subscribers for the specified channels (excluding patterns, default: none).",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"channels") &&
+        (c->argc == 2 || c->argc == 3))
     {
         /* PUBSUB CHANNELS [<pattern>] */
         sds pat = (c->argc == 2) ? NULL : c->argv[2]->ptr;
@@ -364,8 +372,8 @@ void pubsubCommand(client *c) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
     } else {
-        addReplyErrorFormat(c,
-            "Unknown PUBSUB subcommand or wrong number of arguments for '%s'",
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try PUBSUB help",
             (char*)c->argv[1]->ptr);
+        return;
     }
 }

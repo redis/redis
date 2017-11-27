@@ -584,6 +584,30 @@ void addReplyBulkLongLong(client *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
+/* Add an array of strings as a bulk reply with a heading.
+ * This function is typically invoked by from commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    sds cmd = sdsnew((char*) c->argv[0]->ptr);
+    void *blenp = addDeferredMultiBulkLength(c);
+    int blen = 0;
+    int hlen = 0;
+
+    sdstoupper(cmd);
+    addReplyStatusFormat(c,
+        "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
+    blen++;
+    sdsfree(cmd);
+    
+    while (help[hlen]) {
+        addReplyStatus(c,help[hlen++]);
+        blen++;
+    }
+
+    setDeferredMultiBulkLength(c,blenp,blen);
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */
