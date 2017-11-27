@@ -335,19 +335,9 @@ uint8_t LFULogIncr(uint8_t counter) {
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
-    long halve_times = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
-    if (halve_times > 0 && counter) {
-        if (halve_times == 1) {
-            if (counter > LFU_INIT_VAL*2) {
-                counter /= 2;
-                if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
-            } else {
-                counter--;
-            }
-        } else {
-            counter = counter >> halve_times;
-        }
-    }
+    unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
+    if (num_periods)
+        counter = (num_periods > counter) ? 0 : counter - num_periods;
     return counter;
 }
 
