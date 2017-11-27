@@ -5760,6 +5760,7 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
+    moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
     if (!bc->blocked_on_keys) {
         updateStatsOnUnblock(c, bc->background_duration, 0);
