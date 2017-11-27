@@ -1026,9 +1026,9 @@ void objectCommand(client *c) {
         blen++; addReplyStatus(c,
         "encoding -- Return the kind of internal representation used in order to store the value associated with a key.");
         blen++; addReplyStatus(c,
-        "idletime -- Return the number of seconds since the object stored at the specified key is idle.");
+        "idletime -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.");
         blen++; addReplyStatus(c,
-        "freq -- Return the inverse logarithmic access frequency counter of the object stored at the specified key.");
+        "freq -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.");
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
