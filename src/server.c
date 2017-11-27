@@ -2820,7 +2820,7 @@ sds genRedisInfoString(char *section) {
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
-    getClientsMaxBuffers(&lol,&bib);
+    getNormalClientsMaxBuffers(&lol,&bib);
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {

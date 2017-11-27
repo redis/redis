@@ -1361,7 +1361,7 @@ void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void *dupClientReplyValue(void *o);
-void getClientsMaxBuffers(unsigned long *longest_output_list,
+void getNormalClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
 char *getClientPeerId(client *client);
 sds catClientInfoString(sds s, client *client);
