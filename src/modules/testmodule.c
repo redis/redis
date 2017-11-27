@@ -155,7 +155,8 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
-  // Increment a counter on the notifications
+  // Increment a counter on the notifications:
+  // for each key notified we increment a counter
   RedisModule_Log(ctx, "notice", "Got event type %d, event %s, key %s\n", type, event, RedisModule_StringPtrLen(key, NULL));
 
   RedisModule_Call(ctx, "HINCRBY", "csc", "notifications", key, "1");
@@ -218,13 +219,18 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       FAIL("Got reply '%.*s'. expected '1'", sz, rep);
     }
   }
+  // for l we expect nothing since we didn't subscribe to list events
   r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "l");
   if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_NULL) {
     FAIL("Wrong reply for l");
   }
 
+    RedisModule_Call(ctx, "FLUSHDB", "");
+
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 err:
+  RedisModule_Call(ctx, "FLUSHDB", "");
+
   return RedisModule_ReplyWithSimpleString(ctx, "ERR");
 }
 
