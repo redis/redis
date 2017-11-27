@@ -1430,7 +1430,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
-void getClientsMaxBuffers(unsigned long *longest_output_list,
+void getNormalClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer) {
     client *c;
     listNode *ln;
@@ -1440,6 +1440,8 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         c = listNodeValue(ln);
+        if (c->flags & CLIENT_SLAVE)
+            continue;
 
         if (listLength(c->reply) > lol) lol = listLength(c->reply);
         if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
