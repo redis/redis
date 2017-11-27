@@ -20,6 +20,10 @@ each source file that you contribute.
 
       http://stackoverflow.com/questions/tagged/redis
 
+  Issues and pull requests for documentation belong on the redis-doc repo:
+
+      https://github.com/antirez/redis-doc
+
 # How to provide a patch for a new feature
 
 1. If it is a major feature or a semantical change, please post it as a new submission in r/redis on Reddit at http://reddit.com/r/redis. Try to be passionate about why the feature is needed, make users upvote your proposal to gain traction and so forth. Read feedbacks about the community. But in this first step **please don't write code yet**.
