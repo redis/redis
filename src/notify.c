@@ -85,6 +85,8 @@ sds keyspaceEventsFlagsToString(int flags) {
     return res;
 }
 
+
+
 /* The API provided to the rest of the Redis core is a simple function:
  *
  * notifyKeyspaceEvent(char *event, robj *key, int dbid);
@@ -98,6 +100,13 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
+    /* If any modules are interested in events, notify the module system now. 
+     * This bypasses the notifications configuration, but the module engine
+     * will only call event subscribers if the event type matches the types
+     * they are interested in. */
+    if (server.notify_keyspace_events & NOTIFY_MODULE) 
+        moduleNotifyKeyspaceEvent(type, event, key, dbid);
+    
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
 

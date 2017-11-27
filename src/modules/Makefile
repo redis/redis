@@ -33,6 +33,13 @@ helloblock.xo: ../redismodule.h
 helloblock.so: helloblock.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lpthread -lc
 
+
+hellonotify.xo: ../redismodule.h
+
+hellonotify.so: hellonotify.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lpthread -lc
+
+
 testmodule.xo: ../redismodule.h
 
 testmodule.so: testmodule.xo
