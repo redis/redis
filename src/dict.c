@@ -68,6 +68,7 @@ static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key, unsigned int hash, dictEntry **existing);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+static void _dictEach(dictht *ht, dictEachFunction *fn, void *privdata);
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -911,6 +912,14 @@ unsigned long dictScan(dict *d,
     return v;
 }
 
+void dictEach(dict *d, dictEachFunction *fn, void *privdata)
+{
+    if (dictSize(d) == 0) return;
+    _dictEach(&d->ht[0],fn,privdata);
+    _dictEach(&d->ht[1],fn,privdata);
+}
+
+
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
@@ -978,6 +987,29 @@ static int _dictKeyIndex(dict *d, const void *key, unsigned int hash, dictEntry 
         if (!dictIsRehashing(d)) break;
     }
     return idx;
+}
+
+static void _dictEach(dictht *ht, dictEachFunction *fn, void *privdata)
+{
+    int sz = 0;
+    unsigned long left = ht->used;
+    const dictEntry *buffer[16];
+    dictEntry **pos = ht->table, **end = ht->table + ht->size;
+    for (; pos < end && left > 0; ++pos) {
+        const dictEntry *he = *pos;
+        while (he) {
+            buffer[sz++] = he;
+            if (sz == sizeof(buffer) / sizeof(buffer[0])) {
+              fn(privdata,buffer,sz);
+              sz = 0;
+            }
+            left--;
+            he = he->next;
+        }
+    }
+    if (sz > 0) {
+      fn(privdata,buffer,sz);
+    }
 }
 
 void dictEmpty(dict *d, void(callback)(void*)) {
