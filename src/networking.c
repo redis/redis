@@ -1537,7 +1537,7 @@ sds catClientInfoString(sds s, client *client) {
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
 
-sds getAllClientsInfoString(void) {
+sds getAllClientsInfoString(int type) {
     listNode *ln;
     listIter li;
     client *client;
@@ -1546,6 +1546,8 @@ sds getAllClientsInfoString(void) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
+        if (type != -1 && getClientType(client) != type) continue;
+
         o = catClientInfoString(o,client);
         o = sdscatlen(o,"\n",1);
     }
@@ -1557,9 +1559,21 @@ void clientCommand(client *c) {
     listIter li;
     client *client;
 
-    if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+    if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
-        sds o = getAllClientsInfoString();
+        int type = -1;
+        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
+            type = getClientTypeByName(c->argv[3]->ptr);
+            if (type == -1) {
+                addReplyErrorFormat(c,"Unknown client type '%s'",
+                    (char*) c->argv[3]->ptr);
+                return;
+             }
+        } else if (c->argc != 2) {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+        sds o = getAllClientsInfoString(type);
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
