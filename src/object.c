@@ -1053,7 +1053,11 @@ void objectCommand(client *c) {
             addReplyError(c,"A non-LFU maxmemory policy is selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
             return;
         }
-        addReplyLongLong(c,o->lru&255);
+        /* LFUGetCurrentCounter should be called
+         * in case of the key has not been accessed for a long time,
+         * because we update the access time only
+         * when the key is read or overwritten. */
+        addReplyLongLong(c,LFUGetCurrentCounter(o));
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help",
             (char *)c->argv[1]->ptr);
