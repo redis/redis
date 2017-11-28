@@ -42,7 +42,7 @@
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
 void updateLFU(robj *val) {
-    unsigned long counter = LFUDecrAndReturn(val);
+    unsigned long counter = LFUGetCurrentCounter(val);
     counter = LFULogIncr(counter);
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
