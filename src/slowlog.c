@@ -158,6 +158,11 @@ void slowlogCommand(client *c) {
             getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != C_OK)
             return;
 
+        if (count < 0) {
+            addReplyError(c,"value is out of range");
+            return;
+        }
+
         listRewind(server.slowlog,&li);
         totentries = addDeferredMultiBulkLength(c);
         while(count-- && (ln = listNext(&li))) {
