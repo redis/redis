@@ -2938,6 +2938,8 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak_perc:%.2f%%\r\n"
             "used_memory_overhead:%zu\r\n"
             "used_memory_startup:%zu\r\n"
+            "used_memory_clients_normal:%zu\r\n"
+            "used_memory_clients_slaves:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
             "used_memory_dataset_perc:%.2f%%\r\n"
             "total_system_memory:%lu\r\n"
@@ -2960,6 +2962,8 @@ sds genRedisInfoString(char *section) {
             mh->peak_perc,
             mh->overhead_total,
             mh->startup_allocated,
+            mh->clients_normal,
+            mh->clients_slaves,
             mh->dataset,
             mh->dataset_perc,
             (unsigned long)total_system_mem,
