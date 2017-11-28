@@ -353,7 +353,7 @@ void listJoin(list *l, list *o) {
     else
         l->head = o->head;
 
-    l->tail = o->tail;
+    if (o->tail) l->tail = o->tail;
     l->len += o->len;
 
     /* Setup other as an empty list. */
