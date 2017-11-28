@@ -2453,7 +2453,7 @@ static void statMode(void) {
         sprintf(buf,"%ld",aux);
         printf("%-8s",buf);
 
-        /* Requets */
+        /* Requests */
         aux = getLongInfoField(reply->str,"total_commands_processed");
         sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
         printf("%-19s",buf);
