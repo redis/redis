@@ -1118,6 +1118,7 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
+    unsigned char datacenter_id;              /* Support multiple datacenter, datacenter id. */
     unsigned int lfu_log_factor;    /* LFU logarithmic counter factor. */
     unsigned int lfu_decay_time;    /* LFU counter decay factor. */
     /* Blocked clients */
