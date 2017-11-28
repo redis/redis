@@ -77,7 +77,7 @@ void discardTransaction(client *c) {
 }
 
 /* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
- * Should be called every time there is an error while queueing a command. */
+ * Should be called every time there is an error while queuing a command. */
 void flagTransaction(client *c) {
     if (c->flags & CLIENT_MULTI)
         c->flags |= CLIENT_DIRTY_EXEC;
@@ -126,7 +126,7 @@ void execCommand(client *c) {
 
     /* Check if we need to abort the EXEC because:
      * 1) Some WATCHed key was touched.
-     * 2) There was a previous error while queueing commands.
+     * 2) There was a previous error while queuing commands.
      * A failed EXEC in the first case returns a multi bulk nil object
      * (technically it is not an error but a special behavior), while
      * in the second an EXECABORT error is returned. */

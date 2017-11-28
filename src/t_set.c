@@ -520,7 +520,7 @@ void spopWithCountCommand(client *c) {
         incrRefCount(set); /* Protect the old set value. */
         dbOverwrite(c->db,c->argv[1],newset);
 
-        /* Tranfer the old set to the client and release it. */
+        /* Transfer the old set to the client and release it */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {

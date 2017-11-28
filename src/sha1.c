@@ -16,8 +16,8 @@ A million repetitions of "a"
   34AA973C D4C4DAA4 F61EEB2B DBAD2731 6534016F
 */
 
-/* #define LITTLE_ENDIAN * This should be #define'd already, if true. */
-/* #define SHA1HANDSOFF * Copies data before messing with it. */
+/* #define LITTLE_ENDIAN * This should be #defined already, if true */
+/* #define SHA1HANDSOFF * Copies data before messing with it */
 
 #define SHA1HANDSOFF
 
