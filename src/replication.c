@@ -1105,11 +1105,23 @@ void restartAOF() {
     }
 }
 
+static int useDisklessLoad() {
+    /* compute boolean decision to use diskless load */
+    return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+           server.repl_diskless_load == REPL_DISKLESS_LOAD_FLUSHDB ||
+           (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && totalServerKeyCount()==0);
+}
+
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
     ssize_t nread, readlen;
+    int use_diskless_load;
+    redisDb *diskless_load_backup = NULL;
+    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS;
+    int i;
     off_t left;
     UNUSED(el);
     UNUSED(privdata);
@@ -1166,19 +1178,20 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             server.repl_transfer_size = 0;
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master with EOF %s",
-                server.repl_diskless_load? "to parser":"to disk");
+                useDisklessLoad()? "to parser":"to disk");
         } else {
             usemark = 0;
             server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master %s",
                 (long long) server.repl_transfer_size,
-                server.repl_diskless_load? "to parser":"to disk");
+                useDisklessLoad()? "to parser":"to disk");
         }
         return;
     }
 
-    if (!server.repl_diskless_load) {
+    use_diskless_load = useDisklessLoad();
+    if (!use_diskless_load) {
 
         /* read the data from the socket, store it to a file and search for the EOF */
         if (usemark) {
@@ -1259,10 +1272,17 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
      * RDB, otherwise we'll create a copy-on-write disaster. */
     if (server.aof_state != AOF_OFF) stopAppendOnly();
     signalFlushedDb(-1);
-    emptyDb(
-        -1,
-        server.repl_slave_lazy_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS,
-        replicationEmptyDbCallback);
+    if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+        /* create a backup of the current db */
+        diskless_load_backup = zmalloc(sizeof(redisDb)*server.dbnum);
+        for (i=0; i<server.dbnum; i++) {
+            diskless_load_backup[i] = server.db[i];
+            server.db[i].dict = dictCreate(&dbDictType,NULL);
+            server.db[i].expires = dictCreate(&keyptrDictType,NULL);
+        }
+    } else {
+        emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+    }
     /* Before loading the DB into memory we need to delete the readable
      * handler, otherwise it will get called recursively since
      * rdbLoad() will call the event loop to process events from time to
@@ -1270,7 +1290,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
     serverLog(LL_NOTICE, "MASTER <-> SLAVE sync: Loading DB in memory");
     rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-    if (server.repl_diskless_load) {
+    if (use_diskless_load) {
         rio rdb;
         rioInitWithFd(&rdb,fd,server.repl_transfer_size);
         /* Put the socket in blocking mode to simplify RDB transfer.
@@ -1280,18 +1300,37 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         startLoading(server.repl_transfer_size);
         if (rdbLoadRio(&rdb,&rsi) != C_OK) {
+            /* rdbloading failed */
             stopLoading();
-            serverLog(LL_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
+            serverLog(LL_WARNING,"Failed trying to load the MASTER synchronization DB from socket");
             cancelReplicationHandshake();
             rioFreeFd(&rdb, NULL);
-            /* Remove the half-loaded data */
-            emptyDb(
-                -1,
-                server.repl_slave_lazy_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS,
-                replicationEmptyDbCallback);
+            if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+                /* restore the backed up db */
+                emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
+                for (i=0; i<server.dbnum; i++) {
+                    dictRelease(server.db[i].dict);
+                    dictRelease(server.db[i].expires);
+                    server.db[i] = diskless_load_backup[i];
+                }
+                zfree(diskless_load_backup);
+            } else {
+                /* Remove the half-loaded data */
+                emptyDb(-1,empty_db_flags,replicationEmptyDbCallback);
+            }
             return;
         }
         stopLoading();
+        /* rdbloading succeeded */
+        if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+            /* delete the backup db that we created before starting to load the new rdb */
+            emptyDbGeneric(diskless_load_backup,-1,empty_db_flags,replicationEmptyDbCallback);
+            for (i=0; i<server.dbnum; i++) {
+                dictRelease(diskless_load_backup[i].dict);
+                dictRelease(diskless_load_backup[i].expires);
+            }
+            zfree(diskless_load_backup);
+        }
         if (usemark) {
             if (!rioRead(&rdb,buf,CONFIG_RUN_ID_SIZE) || memcmp(buf,eofmark,CONFIG_RUN_ID_SIZE) != 0) {
                 serverLog(LL_WARNING,"Replication stream EOF marker is broken");
@@ -1851,7 +1890,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Prepare a suitable temp file for bulk transfer */
-    if (!server.repl_diskless_load) {
+    if (!useDisklessLoad()) {
         while(maxtries--) {
             snprintf(tmpfile,256,
                 "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());

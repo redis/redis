@@ -193,7 +193,7 @@ start_server {} {
 
 foreach mdl {yes no} {
     foreach sdls {yes no} {
-        foreach sdll {yes no} {                
+        foreach sdll {disabled swapdb} {
             test_psync2 $mdl $sdls $sdll
         }
     }
