@@ -316,7 +316,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * On success the fuction returns the number of keys removed from the
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
-long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+long long emptyDbGeneric(redisDb* dbarray, int dbnum, int flags, void(callback)(void*)) {
     int j, async = (flags & EMPTYDB_ASYNC);
     long long removed = 0;
 
@@ -327,12 +327,12 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
 
     for (j = 0; j < server.dbnum; j++) {
         if (dbnum != -1 && dbnum != j) continue;
-        removed += dictSize(server.db[j].dict);
+        removed += dictSize(dbarray[j].dict);
         if (async) {
-            emptyDbAsync(&server.db[j]);
+            emptyDbAsync(&dbarray[j]);
         } else {
-            dictEmpty(server.db[j].dict,callback);
-            dictEmpty(server.db[j].expires,callback);
+            dictEmpty(dbarray[j].dict,callback);
+            dictEmpty(dbarray[j].expires,callback);
         }
     }
     if (server.cluster_enabled) {
@@ -346,11 +346,24 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     return removed;
 }
 
+long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
+    return emptyDbGeneric(server.db, dbnum, flags, callback);
+}
+
 int selectDb(client *c, int id) {
     if (id < 0 || id >= server.dbnum)
         return C_ERR;
     c->db = &server.db[id];
     return C_OK;
+}
+
+long long totalServerKeyCount() {
+    long long total = 0;
+    int j;
+    for (j = 0; j < server.dbnum; j++) {
+        total += dictSize(server.db[j].dict);
+    }
+    return total;
 }
 
 /*-----------------------------------------------------------------------------

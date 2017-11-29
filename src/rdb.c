@@ -44,6 +44,7 @@
 
 #define rdbExitReportCorruptRDB(...) rdbCheckThenExit(__LINE__,__VA_ARGS__)
 
+char* rdbFileBeingLoaded = NULL; /* used for rdb chekcing on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
@@ -61,11 +62,17 @@ void rdbCheckThenExit(int linenum, char *reason, ...) {
 
     if (!rdbCheckMode) {
         serverLog(LL_WARNING, "%s", msg);
-        char *argv[2] = {"",server.rdb_filename};
-        redis_check_rdb_main(2,argv,NULL);
+        if (rdbFileBeingLoaded) {
+            char *argv[2] = {"",rdbFileBeingLoaded};
+            redis_check_rdb_main(2,argv,NULL);
+        } else {
+            serverLog(LL_WARNING, "Failure loading rdb format from socket, assuming connection error, resuming operation.");
+            return;
+        }
     } else {
         rdbCheckError("%s",msg);
     }
+    serverLog(LL_WARNING, "Terminating server after rdb file reading failure.");
     exit(1);
 }
 
@@ -1553,10 +1560,14 @@ void startLoading(size_t size) {
     server.loading_total_bytes = size;
 }
 
-void startLoadingFile(FILE *fp) {
+/* Mark that we are loading in the global state and setup the fields
+ * needed to provide loading stats.
+ * 'filename' is optional and used for rdb-check on error */
+void startLoadingFile(FILE *fp, char* filename) {
     struct stat sb;
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
+    rdbFileBeingLoaded = filename;
     startLoading(sb.st_size);
 }
 
@@ -1570,6 +1581,7 @@ void loadingProgress(off_t pos) {
 /* Loading finished */
 void stopLoading(void) {
     server.loading = 0;
+    rdbFileBeingLoaded = NULL;
 }
 
 /* Track loading progress in order to serve client's from time to time
@@ -1768,7 +1780,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     int retval;
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-    startLoadingFile(fp);
+    startLoadingFile(fp, filename);
     rioInitWithFile(&rdb,fp);
     retval = rdbLoadRio(&rdb,rsi);
     fclose(fp);

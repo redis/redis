@@ -127,7 +127,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_RDB_CHECKSUM 1
 #define CONFIG_DEFAULT_RDB_FILENAME "dump.rdb"
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
-#define CONFIG_DEFAULT_REPL_DISKLESS_LOAD 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
 #define CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY 0
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
@@ -345,6 +344,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_FSYNC_ALWAYS 1
 #define AOF_FSYNC_EVERYSEC 2
 #define CONFIG_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
+
+/* Replication diskless load defines */
+#define REPL_DISKLESS_LOAD_DISABLED 0
+#define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
+#define REPL_DISKLESS_LOAD_SWAPDB 2
+#define REPL_DISKLESS_LOAD_FLUSHDB 3
+#define CONFIG_DEFAULT_REPL_DISKLESS_LOAD REPL_DISKLESS_LOAD_DISABLED
 
 /* Zip structure related defaults */
 #define OBJ_HASH_MAX_ZIPLIST_ENTRIES 512
@@ -1055,7 +1061,8 @@ struct redisServer {
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     int rdb_pipe_write_result_to_parent; /* RDB pipes used to return the state */
     int rdb_pipe_read_result_from_child; /* of each slave in diskless SYNC. */
-    int rdb_key_save_delay;         /* Delay in microseconds between keys while writing the RDB. (for testings) */
+    int rdb_key_save_delay;         /* Delay in microseconds between keys while
+                                     * writing the RDB. (for testings) */
     /* Pipe and data structures for child -> parent info sharing. */
     int child_info_pipe[2];         /* Pipe used to write the child_info_data. */
     struct {
@@ -1092,7 +1099,8 @@ struct redisServer {
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     int repl_diskless_load;         /* Slave parse RDB directly from the socket. */
-    int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
+    int repl_diskless_sync;         /* Master send RDB to slaves sockets directly.
+                                     * see REPL_DISKLESS_LOAD_* enum */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
@@ -1527,7 +1535,7 @@ void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
 
 /* Generic persistence functions */
-void startLoadingFile(FILE* fp);
+void startLoadingFile(FILE* fp, char* filename);
 void startLoading(size_t size);
 void loadingProgress(off_t pos);
 void stopLoading(void);
@@ -1750,6 +1758,8 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
+long long emptyDbGeneric(redisDb* dbarray, int dbnum, int flags, void(callback)(void*));
+long long totalServerKeyCount();
 
 int selectDb(client *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);

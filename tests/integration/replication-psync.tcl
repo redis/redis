@@ -125,7 +125,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
 }
 
 foreach mdl {no yes} {
-    foreach sdl {no yes} {
+    foreach sdl {disabled swapdb} {
         test_psync {no reconnection, just sync} 6 1000000 3600 0 {
         } $mdl $sdl 0
 

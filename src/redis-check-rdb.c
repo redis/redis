@@ -201,7 +201,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         goto err;
     }
 
-    startLoadingFile(fp);
+    startLoadingFile(fp, rdbfilename);
     while(1) {
         robj *key, *val;
         expiretime = -1;

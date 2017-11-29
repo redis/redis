@@ -91,6 +91,14 @@ configEnum aof_fsync_enum[] = {
     {NULL, 0}
 };
 
+configEnum repl_diskless_load_enum[] = {
+    {"disabled", REPL_DISKLESS_LOAD_DISABLED},
+    {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
+    {"swapdb", REPL_DISKLESS_LOAD_SWAPDB},
+    {"flushdb", REPL_DISKLESS_LOAD_FLUSHDB},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -366,8 +374,9 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-load") && argc==2) {
-            if ((server.repl_diskless_load = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            server.repl_diskless_load = configEnumGetValue(repl_diskless_load_enum,argv[1]);
+            if (server.repl_diskless_load == INT_MIN) {
+                err = "argument must be 'disabled', 'on-empty-db', 'swapdb' or 'flushdb'";
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
@@ -1029,8 +1038,6 @@ void configSetCommand(client *c) {
         }
 #endif
     } config_set_bool_field(
-      "repl-diskless-load",server.repl_diskless_load) {
-    } config_set_bool_field(
       "protected-mode",server.protected_mode) {
     } config_set_bool_field(
       "stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err) {
@@ -1160,6 +1167,8 @@ void configSetCommand(client *c) {
       "maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum) {
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
+    } config_set_enum_field(
+      "repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum) {
 
     /* Everyhing else is an error... */
     } config_set_else {
@@ -1315,8 +1324,6 @@ void configGetCommand(client *c) {
             server.repl_disable_tcp_nodelay);
     config_get_bool_field("repl-diskless-sync",
             server.repl_diskless_sync);
-    config_get_bool_field("repl-diskless-load",
-            server.repl_diskless_load);
     config_get_bool_field("aof-rewrite-incremental-fsync",
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
@@ -1343,6 +1350,8 @@ void configGetCommand(client *c) {
             server.aof_fsync,aof_fsync_enum);
     config_get_enum_field("syslog-facility",
             server.syslog_facility,syslog_facility_enum);
+    config_get_enum_field("repl-diskless-load",
+            server.repl_diskless_load,repl_diskless_load_enum);
 
     /* Everything we can't handle with macros follows. */
 
@@ -2003,7 +2012,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay,CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY);
     rewriteConfigYesNoOption(state,"repl-diskless-sync",server.repl_diskless_sync,CONFIG_DEFAULT_REPL_DISKLESS_SYNC);
-    rewriteConfigYesNoOption(state,"repl-diskless-load",server.repl_diskless_load,CONFIG_DEFAULT_REPL_DISKLESS_LOAD);
+    rewriteConfigEnumOption(state,"repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum,CONFIG_DEFAULT_REPL_DISKLESS_LOAD);
     rewriteConfigNumericalOption(state,"repl-diskless-sync-delay",server.repl_diskless_sync_delay,CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY);
     rewriteConfigNumericalOption(state,"slave-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);

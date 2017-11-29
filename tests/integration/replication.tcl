@@ -184,7 +184,7 @@ start_server {tags {"repl"}} {
 }
 
 foreach mdl {no yes} {
-    foreach sdl {no yes} {
+    foreach sdl {disabled swapdb} {
         start_server {tags {"repl"}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
@@ -270,6 +270,73 @@ foreach mdl {no yes} {
                    }
                 }
             }
+        }
+    }
+}
+
+test {slave fails full sync and diskless load swapdb recoveres it} {
+    start_server {tags {"repl"}} {
+        set slave [srv 0 client]
+        set slave_host [srv 0 host]
+        set slave_port [srv 0 port]
+        set slave_log [srv 0 stdout]
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            # Put different data sets on the master and slave
+            # we need to put large keys on the master since the slave replies to info only once in 2mb
+            $slave debug populate 2000 slave 10
+            $master debug populate 200 master 100000
+            $master config set rdbcompression no
+
+            # Set master and slave to use diskless replication
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+            $slave config set repl-diskless-load swapdb
+
+            # Set master with a slow rdb generation, so that we can easily disconnect it mid sync
+            # 10ms per key, with 200 keys is 2 seconds
+            $master config set rdb-key-save-delay 10000
+
+            # Start the replication process...
+            $slave slaveof $master_host $master_port
+
+            # wait for the slave to start reading the rdb
+            wait_for_condition 50 100 {
+                [s -1 loading] eq 1
+            } else {
+                fail "Slave didn't get into loading mode"
+            }
+
+            # make sure that next sync will not start immediately so that we can catch the slave in betweeen syncs
+            $master config set repl-diskless-sync-delay 5
+            # for faster server shutdown, make rdb saving fast again (the fork is already uses the slow one)
+            $master config set rdb-key-save-delay 0
+
+            # waiting slave to do flushdb (key count drop)
+            wait_for_condition 50 100 {
+                2000 != [scan [regexp -inline {keys\=([\d]*)} [$slave info keyspace]] keys=%d]
+            } else {
+                fail "Slave didn't flush"
+            }
+
+            # make sure we're still loading
+            assert_equal [s -1 loading] 1
+
+            # kill the slave connection on the master
+            set killed [$master client kill type slave]
+
+            # wait for loading to stop (fail)
+            wait_for_condition 50 100 {
+                [s -1 loading] eq 0
+            } else {
+                fail "Slave didn't disconnect"
+            }
+
+            # make sure the original keys were restored
+            assert_equal [$slave dbsize] 2000
         }
     }
 }

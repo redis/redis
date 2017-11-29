@@ -667,7 +667,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoadingFile(fp);
+    startLoadingFile(fp, filename);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
