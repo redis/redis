@@ -1159,7 +1159,7 @@ int redis_math_randomseed (lua_State *L) {
  * client context. */
 int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     sds funcdef = sdsempty();
-    char fname[42];
+    char fname[43];
 
     if (funcname == NULL) {
         fname[0] = 'f';
