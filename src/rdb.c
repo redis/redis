@@ -950,16 +950,9 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     if (rsi && dictSize(server.lua_scripts)) {
         di = dictGetIterator(server.lua_scripts);
         while((de = dictNext(di)) != NULL) {
-            sds sha = dictGetKey(de);
             robj *body = dictGetVal(de);
-            /* Concatenate the SHA1 and the Lua script together. Because the
-             * SHA1 is fixed length, we will always be able to load it back
-             * telling apart the name from the body. */
-            sds combo = sdsdup(sha);
-            combo = sdscatlen(combo,body->ptr,sdslen(body->ptr));
-            if (rdbSaveAuxField(rdb,"lua",3,combo,sdslen(combo)) == -1)
+            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
                 goto werr;
-            sdsfree(combo);
         }
         dictReleaseIterator(di);
     }
@@ -1611,31 +1604,12 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
-                /* Load the string combining the function name and body
-                 * back in memory. The format is basically:
-                 * <sha><lua-script-bodybody>. To load it back we need
-                 * to create the function name as "f_<sha>" and load the
-                 * body as a Redis string object. */
-                sds combo = auxval->ptr;
-                if (sdslen(combo) < 40) {
-                    rdbExitReportCorruptRDB(
-                        "Lua script stored into the RDB file has invalid "
-                        "length < 40 bytes: '%s'", combo);
-                }
-                char funcname[42];
-                funcname[0] = 'f';
-                funcname[1] = '_';
-                memcpy(funcname+2,combo,40);
-                robj *body = createRawStringObject(combo+40,sdslen(combo)-40);
-
-                /* Register the function. */
-                if (luaCreateFunction(NULL,server.lua,funcname,body) == C_ERR) {
+                /* Load the script back in memory. */
+                if (luaCreateFunction(NULL,server.lua,NULL,auxval) == C_ERR) {
                     rdbExitReportCorruptRDB(
                         "Can't load Lua script from RDB file! "
-                        "Script SHA1: %.42s BODY: %s",
-                            combo, combo+42);
+                        "BODY: %s", auxval->ptr);
                 }
-                decrRefCount(body);
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
