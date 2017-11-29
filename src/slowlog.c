@@ -140,7 +140,7 @@ void slowlogReset(void) {
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
             "get [count] -- Return the top entries from the slowlog (default: 10).",
             "len -- Return the length of the slowlog.",
