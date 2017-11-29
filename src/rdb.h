@@ -95,6 +95,7 @@
 #define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 14))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define RDB_OPCODE_SCRIPT     249
 #define RDB_OPCODE_AUX        250
 #define RDB_OPCODE_RESIZEDB   251
 #define RDB_OPCODE_EXPIRETIME_MS 252

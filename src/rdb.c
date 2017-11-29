@@ -943,6 +943,23 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     }
     di = NULL; /* So that we don't release it again on error. */
 
+    /* If we are storing the replication information on disk, persist
+     * the script cache as well: on successful PSYNC after a restart, we need
+     * to be able to process any EVALSHA inside the replication backlog the
+     * master will send us. */
+    if (rsi && dictSize(server.lua_scripts)) {
+        di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            sds sha = dictGetKey(de);
+            robj *body = dictGetVal(de);
+            if (rdbSaveType(rdb,RDB_OPCODE_SCRIPT) == -1) goto werr;
+            if (rdbSaveRawString(rdb,(unsigned char*)sha,sdslen(sha)) == -1) goto werr;
+            if (rdbSaveRawString(rdb,body->ptr,sdslen(body->ptr)) == -1)
+                goto werr;
+        }
+        dictReleaseIterator(di);
+    }
+
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
 
@@ -1562,6 +1579,33 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 goto eoferr;
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
+            continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_SCRIPT) {
+            sds sha;
+            robj *body;
+            char funcname[43];
+
+            if ((sha = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL))
+                == NULL) goto eoferr;
+            if (sdslen(sha) != 40) {
+                rdbExitReportCorruptRDB(
+                    "Lua script stored into the RDB file has invalid "
+                    "name length: '%s'", sha);
+            }
+            if ((body = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+
+            /* Compose the Lua function name, and load it. */
+            funcname[0] = 'f';
+            funcname[1] = '_';
+            memcpy(funcname+2,sha,41);
+            if (luaCreateFunction(NULL,server.lua,funcname,body) == C_ERR) {
+                rdbExitReportCorruptRDB(
+                    "Can't load Lua script from RDB file! "
+                    "Script SHA1: %s BODY: %d",
+                        sha, body->ptr);
+            }
+            sdsfree(sha);
+            decrRefCount(body);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
