@@ -1160,16 +1160,21 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     funcdef = sdscatlen(funcdef,"\nend",4);
 
     if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
-        addReplyErrorFormat(c,"Error compiling script (new function): %s\n",
-            lua_tostring(lua,-1));
+        if (c != NULL) {
+            addReplyErrorFormat(c,
+                "Error compiling script (new function): %s\n",
+                lua_tostring(lua,-1));
+        }
         lua_pop(lua,1);
         sdsfree(funcdef);
         return C_ERR;
     }
     sdsfree(funcdef);
     if (lua_pcall(lua,0,0,0)) {
-        addReplyErrorFormat(c,"Error running script (new function): %s\n",
-            lua_tostring(lua,-1));
+        if (c != NULL) {
+            addReplyErrorFormat(c,"Error running script (new function): %s\n",
+                lua_tostring(lua,-1));
+        }
         lua_pop(lua,1);
         return C_ERR;
     }
@@ -1180,7 +1185,7 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
     {
         int retval = dictAdd(server.lua_scripts,
                              sdsnewlen(funcname+2,40),body);
-        serverAssertWithInfo(c,NULL,retval == DICT_OK);
+        serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
         incrRefCount(body);
     }
     return C_OK;
