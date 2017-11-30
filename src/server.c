@@ -1583,6 +1583,8 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
+    zfree(server.exec_argv[0]);
+    server.exec_argv[0] = zstrdup(server.executable);
     execve(server.executable,server.exec_argv,environ);
 
     /* If an error occurred here, there is nothing we can do, but exit. */
