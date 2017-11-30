@@ -995,7 +995,7 @@ void dictDisableResize(void) {
     dict_can_resize = 0;
 }
 
-unsigned int dictGetHash(dict *d, const void *key) {
+uint64_t dictGetHash(dict *d, const void *key) {
     return dictHashKey(d, key);
 }
 
@@ -1004,7 +1004,7 @@ unsigned int dictGetHash(dict *d, const void *key) {
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
-dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash) {
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
     dictEntry *he, **heref;
     unsigned long idx, table;
 
