@@ -11,6 +11,33 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.4     Released Thu Nov 30 18:42:12 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: Several PSYNC2 bugs can corrupt the slave data set
+                          after a restart and a successful PSYNC2 handshake.
+
+This is a quick followup to Redis 4.0.3 since I forgot to add a few fixes...
+that are actually described in the 4.0.3 changelog (but not in the list of
+commits). Basically it's the following commits, implementing the ability
+to persist scripts into RDB files for a successful PSYNC, otherwise a corruption
+could happen when a slave is restarted and receives EVALSHA from the master
+about scripts it does not know:
+
+8449227f PSYNC2: Fix off by one buffer size in luaCreateFunction().
+eeac1d35 PSYNC2: just store script bodies into RDB.
+fb0441a8 PSYNC2: luaCreateFunction() should handle NULL client parameter.
+0429db3c PSYNC2: Save Lua scripts state into RDB file.
+d06fbbdd Regression test: Slave restart with EVALSHA in backlog issue #4483.
+ab3d3aca Prevent corruption of server.executable after DEBUG RESTART.
+b7c7edf9 Be more verbose when DEBUG RESTART fails.
+
+Please upgrade ASAP to 4.0.4 becuase 4.0.3 had an incomplete set of fixes.
+
+Cheers and sorry for the 4.0.3 fiasco ;-)
+Salvatore
+
+================================================================================
 Redis 4.0.3     Released Thu Nov 30 13:14:50 CET 2017
 ================================================================================
 
