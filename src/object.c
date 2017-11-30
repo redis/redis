@@ -31,9 +31,12 @@
 #include "server.h"
 #include <math.h>
 #include <ctype.h>
+
+#ifdef USE_NVML
 #include "obj.h"
 #include "libpmemobj.h"
 #include "libpmem.h"
+#endif
 
 #ifdef __CYGWIN__
 #define strtold(a,b) ((long double)strtod((a),(b)))
