@@ -239,6 +239,27 @@ void computeDatasetDigest(unsigned char *final) {
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
+            } else if (o->type == OBJ_STREAM) {
+                streamIterator si;
+                streamIteratorStart(&si,o->ptr,NULL,NULL,0);
+                streamID id;
+                int64_t numfields;
+
+                while(streamIteratorGetID(&si,&id,&numfields)) {
+                    sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
+                    mixDigest(digest,itemid,sdslen(itemid));
+                    sdsfree(itemid);
+
+                    while(numfields--) {
+                        unsigned char *field, *value;
+                        int64_t field_len, value_len;
+                        streamIteratorGetField(&si,&field,&value,
+                                                   &field_len,&value_len);
+                        mixDigest(digest,field,field_len);
+                        mixDigest(digest,value,value_len);
+                    }
+                }
+                streamIteratorStop(&si);
             } else if (o->type == OBJ_MODULE) {
                 RedisModuleDigest md;
                 moduleValue *mv = o->ptr;
