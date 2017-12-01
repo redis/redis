@@ -11,6 +11,17 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.5     Released Thu Dec 1 16:03:32 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: Redis 4.0.4 fix for PSYNC2 was broken, causing the
+                          slave to crash when receiving an RDB file from the
+                          master that contained a duplicated Lua script.
+
+Please upgrade ASAP if you are with 4.0.4 and you use any form of Lua scripting
+because this problem will easily crash Redis.
+
+================================================================================
 Redis 4.0.4     Released Thu Nov 30 18:42:12 CET 2017
 ================================================================================
 
