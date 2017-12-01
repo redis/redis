@@ -800,6 +800,49 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_STREAM) {
+        stream *s = o->ptr;
+        /* Note: to guess the size of the radix tree is not trivial, so we
+         * approximate it considering 64 bytes of data overhead for each
+         * key (the ID), and then adding the number of bare nodes, plus some
+         * overhead due by the data and child pointers. This secret recipe
+         * was obtained by checking the average radix tree created by real
+         * workloads, and then adjusting the constants to get numbers that
+         * more or less match the real memory usage.
+         *
+         * Actually the number of nodes and keys may be different depending
+         * on the insertion speed and thus the ability of the radix tree
+         * to compress prefixes. */
+        asize = sizeof(*o);
+        asize += s->rax->numele * 64;
+        asize += s->rax->numnodes * sizeof(raxNode);
+        asize += s->rax->numnodes * 32*7; /* Add a few child pointers... */
+
+        /* Now we have to add the listpacks. The last listpack is often non
+         * complete, so we estimate the size of the first N listpacks, and
+         * use the average to compute the size of the first N-1 listpacks, and
+         * finally add the real size of the last node. */
+        raxIterator ri;
+        raxStart(&ri,s->rax);
+        raxSeek(&ri,"^",NULL,0);
+        size_t lpsize = 0, samples = 0;
+        while(samples < sample_size && raxNext(&ri)) {
+            unsigned char *lp = ri.data;
+            lpsize += lpBytes(lp);
+            samples++;
+        }
+        if (s->rax->numele <= samples) {
+            asize += lpsize;
+        } else {
+            if (samples) lpsize /= samples; /* Compute the average. */
+            asize += lpsize * (s->rax->numele-1);
+            /* No need to check if seek succeeded, we enter this branch only
+             * if there are a few elements in the radix tree. */
+            raxSeek(&ri,"$",NULL,0);
+            raxNext(&ri);
+            asize += lpBytes(ri.data);
+        }
+        raxStop(&ri);
     } else if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
