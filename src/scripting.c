@@ -1151,13 +1151,16 @@ int redis_math_randomseed (lua_State *L) {
  * on the fly doing the SHA1 of the body, this means that passing the funcname
  * is just an optimization in case it's already at hand.
  *
+ * if 'allow_dup' is true, the function can be called with a script already
+ * in memory without crashing in assert(). In this case C_OK is returned.
+ *
  * The function increments the reference count of the 'body' object as a
  * side effect of a successful call.
  *
  * On success C_OK is returned, and nothing is left on the Lua stack.
  * On error C_ERR is returned and an appropriate error is set in the
  * client context. */
-int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
+int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body, int allow_dup) {
     sds funcdef = sdsempty();
     char fname[43];
 
@@ -1167,6 +1170,9 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body) {
         sha1hex(fname+2,body->ptr,sdslen(body->ptr));
         funcname = fname;
     }
+
+    if (allow_dup && dictFind(server.lua_scripts,funcname+2) != NULL)
+        return C_OK;
 
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
@@ -1302,7 +1308,7 @@ void evalGenericCommand(client *c, int evalsha) {
             addReply(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,lua,funcname,c->argv[1]) == C_ERR) {
+        if (luaCreateFunction(c,lua,funcname,c->argv[1],0) == C_ERR) {
             lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns C_ERR. */
@@ -1474,7 +1480,7 @@ void scriptCommand(client *c) {
         sha1hex(funcname+2,c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         sha = sdsnewlen(funcname+2,40);
         if (dictFind(server.lua_scripts,sha) == NULL) {
-            if (luaCreateFunction(c,server.lua,funcname,c->argv[2])
+            if (luaCreateFunction(c,server.lua,funcname,c->argv[2],0)
                     == C_ERR) {
                 sdsfree(sha);
                 return;
