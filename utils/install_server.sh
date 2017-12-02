@@ -52,10 +52,9 @@ die () {
 
 
 #Absolute path to this script
-#SCRIPT=$(readlink -f $0)
 SCRIPT=$(readlink -f $0)
 #Absolute path this script is in
-SCRIPTPATH=$(dirname $0)
+SCRIPTPATH=$(dirname "$SCRIPT")
 
 #Initial defaults
 _REDIS_PORT=6379
