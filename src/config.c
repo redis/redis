@@ -2065,19 +2065,24 @@ void configCommand(client *c) {
         return;
     }
 
-    if (!strcasecmp(c->argv[1]->ptr,"set")) {
-        if (c->argc != 4) goto badarity;
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+            "get <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
+            "set <parameter> <value> -- Set parameter to value.",
+            "resetstat -- Reset statistics reported by INFO.",
+            "rewrite -- Rewrite the configuration file.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
         configSetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"get")) {
-        if (c->argc != 3) goto badarity;
+    } else if (!strcasecmp(c->argv[1]->ptr,"get") && c->argc == 3) {
         configGetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
-        if (c->argc != 2) goto badarity;
+    } else if (!strcasecmp(c->argv[1]->ptr,"resetstat") && c->argc == 2) {
         resetServerStats();
         resetCommandTableStats();
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
-        if (c->argc != 2) goto badarity;
+    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite") && c->argc == 2) {
         if (server.configfile == NULL) {
             addReplyError(c,"The server is running without a config file");
             return;
@@ -2090,12 +2095,8 @@ void configCommand(client *c) {
             addReply(c,shared.ok);
         }
     } else {
-        addReplyError(c,
-            "CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG help",
+            (char*)c->argv[1]->ptr);
+        return;
     }
-    return;
-
-badarity:
-    addReplyErrorFormat(c,"Wrong number of arguments for CONFIG %s",
-        (char*) c->argv[1]->ptr);
 }
