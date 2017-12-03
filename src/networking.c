@@ -1580,7 +1580,22 @@ void clientCommand(client *c) {
     listIter li;
     client *client;
 
-    if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+            "getname -- Return the name of the current connection.",
+            "kill <ip:port> -- Kill connection made from <ip:port>.",
+            "kill <option> <value> [option value ...] -- Kill connections. Options are:",
+            "     addr <ip:port> -- Kill connection made from <ip:port>.",
+            "     type (normal|master|slave|pubsub) -- Kill connections by type.",
+            "     skipme (yes|no) -- Skip killing current connection (default: yes).",
+            "list -- Return information about client connections.",
+            "pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
+            "reply (on|off|skip) -- Control the replies sent to the current connection.",
+            "setname <name> -- Assign the name <name> to the current connection.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
         /* CLIENT LIST */
         sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
@@ -1726,8 +1741,9 @@ void clientCommand(client *c) {
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
-    }
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT help",
+            (char*)c->argv[1]->ptr);
+        return;    }
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not
