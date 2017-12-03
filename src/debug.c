@@ -372,13 +372,13 @@ void debugCommand(client *c) {
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
-        char extra[128] = {0};
+        char extra[138] = {0};
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%u", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */

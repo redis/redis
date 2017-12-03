@@ -64,7 +64,7 @@ typedef struct quicklistLZF {
     char compressed[];
 } quicklistLZF;
 
-/* quicklist is a 32 byte struct (on 64-bit systems) describing a quicklist.
+/* quicklist is a 40 byte struct (on 64-bit systems) describing a quicklist.
  * 'count' is the number of total entries.
  * 'len' is the number of quicklist nodes.
  * 'compress' is: -1 if compression disabled, otherwise it's the number
@@ -74,7 +74,7 @@ typedef struct quicklist {
     quicklistNode *head;
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all ziplists */
-    unsigned int len;           /* number of quicklistNodes */
+    unsigned long len;          /* number of quicklistNodes */
     int fill : 16;              /* fill factor for individual nodes */
     unsigned int compress : 16; /* depth of end nodes not to compress;0=off */
 } quicklist;
