@@ -2846,6 +2846,7 @@ sds genRedisInfoString(char *section) {
     unsigned long lol, bib;
     int allsections = 0, defsections = 0;
     int sections = 0;
+    struct redisMemOverhead *mh = NULL;
 
     if (section == NULL) section = "default";
     allsections = strcasecmp(section,"all") == 0;
@@ -2947,7 +2948,7 @@ sds genRedisInfoString(char *section) {
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
-        struct redisMemOverhead *mh = getMemoryOverheadData();
+        if (!mh) mh = getMemoryOverheadData();
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -3011,7 +3012,6 @@ sds genRedisInfoString(char *section) {
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
         );
-        freeMemoryOverheadData(mh);
     }
 
     /* Persistence */
@@ -3334,6 +3334,8 @@ sds genRedisInfoString(char *section) {
     /* Key space */
     if (allsections || defsections || !strcasecmp(section,"keyspace")) {
         if (sections++) info = sdscat(info,"\r\n");
+        if (!mh) mh = getMemoryOverheadData();
+        int mh_db = 0;
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
@@ -3342,11 +3344,15 @@ sds genRedisInfoString(char *section) {
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,overhead_ht_main=%zu,overhead_ht_expires=%zu,avg_ttl=%lld\r\n",
+                    j, keys, vkeys, mh->db[mh_db].overhead_ht_main, mh->db[mh_db].overhead_ht_expires, server.db[j].avg_ttl);
+                mh_db++;
             }
         }
     }
+
+    if (mh) freeMemoryOverheadData(mh);
+
     return info;
 }
 
