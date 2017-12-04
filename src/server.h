@@ -1794,7 +1794,8 @@ void scriptingInit(int setup);
 int ldbRemoveChild(pid_t pid);
 void ldbKillForkedSessions(void);
 int ldbPendingChildren(void);
-int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body, int allow_dup);
+int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body);
+void sha1hex(char *digest, char *script, size_t len);
 
 /* Blocked clients */
 void processUnblockedClients(void);

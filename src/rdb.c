@@ -1679,11 +1679,21 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
             } else if (!strcasecmp(auxkey->ptr,"lua")) {
                 /* Load the script back in memory. */
-                if (luaCreateFunction(NULL,server.lua,NULL,auxval,1) == C_ERR) {
-                    rdbExitReportCorruptRDB(
-                        "Can't load Lua script from RDB file! "
-                        "BODY: %s", auxval->ptr);
+                char funcname[43];
+                sds sha;
+
+                funcname[0] = 'f';
+                funcname[1] = '_';
+                sha1hex(funcname+2,auxval->ptr,sdslen(auxval->ptr));
+                sha = sdsnewlen(funcname+2,40);
+                if (dictFind(server.lua_scripts,sha) == NULL) {
+                    if (luaCreateFunction(NULL,server.lua,funcname,auxval) == C_ERR) {
+                        rdbExitReportCorruptRDB(
+                            "Can't load Lua script from RDB file! "
+                            "BODY: %s", auxval->ptr);
+                    }
                 }
+                sdsfree(sha);
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
