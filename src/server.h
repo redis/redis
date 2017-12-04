@@ -844,6 +844,7 @@ struct redisMemOverhead {
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
     } *db;
+    long numpubsubs;
 };
 
 /* This structure can be optionally passed to RDB save/load functions in

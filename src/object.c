@@ -904,6 +904,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem = 0;
     size_t mem_pubsubs = 0;
+    mh->numpubsubs = 0;
     if (listLength(server.clients)) {
         listIter li;
         listNode *ln;
@@ -917,6 +918,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
                 mem_pubsubs += getClientOutputBufferMemoryUsage(c);
                 mem_pubsubs += sdsAllocSize(c->querybuf);
                 mem_pubsubs += sizeof(client);
+                mh->numpubsubs++;
             } else {
                 mem += getClientOutputBufferMemoryUsage(c);
                 mem += sdsAllocSize(c->querybuf);
@@ -990,6 +992,7 @@ sds getMemoryDoctorReport(void) {
     int big_peak = 0;       /* Memory peak is much larger than used mem. */
     int high_frag = 0;      /* High fragmentation. */
     int big_slave_buf = 0;  /* Slave buffers are too big. */
+    int big_pubsub_buf = 0; /* Pubsub buffers are too big. */
     int big_client_buf = 0; /* Client buffers are too big. */
     int num_reports = 0;
     struct redisMemOverhead *mh = getMemoryOverheadData();
@@ -1010,11 +1013,17 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Clients using more than 200k each average? */
+        /* Normal clients using more than 200k each average? */
         long numslaves = listLength(server.slaves);
-        long numclients = listLength(server.clients)-numslaves;
-        if (mh->clients_normal / numclients > (1024*200)) {
+        long numclients = listLength(server.clients)-numslaves-mh->numpubsubs;
+        if (numclients > 0 && mh->clients_normal / numclients > (1024*200)) {
             big_client_buf = 1;
+            num_reports++;
+        }
+
+        /* Pubsub clients using more than 200k each average? */
+        if (mh->numpubsubs > 0 && mh->clients_pubsubs / mh->numpubsubs > (1024*200)) {
+            big_pubsub_buf = 1;
             num_reports++;
         }
 
@@ -1048,8 +1057,11 @@ sds getMemoryDoctorReport(void) {
         if (big_slave_buf) {
             s = sdscat(s," * Big slave buffers: The slave output buffers in this instance are greater than 10MB for each slave (on average). This likely means that there is some slave instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what slave is not receiving data correctly and why. You can use the INFO output in order to check the slaves delays and the CLIENT LIST command to check the output buffers of each slave.\n\n");
         }
+        if (big_pubsub_buf) {
+            s = sdscat(s," * Big Pub/Sub buffers: The Pub/Sub clients output buffers in this instance are greater than 200K per client (on average). This likely means that Pub/Sub clients subscribed to channels but not receiving data fast enough, so that data piles on the Redis instance output buffer. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
+        }
         if (big_client_buf) {
-            s = sdscat(s," * Big client buffers: The clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like Pub/Sub clients subscribed to channels bot not receiving data fast enough, so that data piles on the Redis instance output buffer, or clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
+            s = sdscat(s," * Big normal client buffers: The normal clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
         }
         s = sdscat(s,"I'm here to keep you safe, Sam. I want to help you.\n");
     }
