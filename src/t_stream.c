@@ -103,8 +103,10 @@ int64_t lpGetInteger(unsigned char *ele) {
     /* The following code path should never be used for how listpacks work:
      * they should always be able to store an int64_t value in integer
      * encoded form. However the implementation may change. */
-    int retval = string2ll((char*)e,v,&v);
+    long long ll;
+    int retval = string2ll((char*)e,v,&ll);
     serverAssert(retval != 0);
+    v = ll;
     return v;
 }
 
@@ -748,7 +750,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
     /* Parse <ms>.<seq> form. */
     char *dot = strchr(buf,'-');
     if (dot) *dot = '\0';
-    uint64_t ms, seq;
+    unsigned long long ms, seq;
     if (string2ull(buf,&ms) == 0) goto invalid;
     if (dot && string2ull(dot+1,&seq) == 0) goto invalid;
     if (!dot) seq = missing_seq;
