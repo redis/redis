@@ -1172,7 +1172,7 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body, int
 
     if (allow_dup) {
         sds sha = sdsnewlen(funcname+2,40);
-        if (allow_dup && dictFind(server.lua_scripts,sha) != NULL) {
+        if (dictFind(server.lua_scripts,sha) != NULL) {
             sdsfree(sha);
             return C_OK;
         }
