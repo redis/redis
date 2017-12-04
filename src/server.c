@@ -2977,6 +2977,7 @@ sds genRedisInfoString(char *section) {
             "used_memory_overhead:%zu\r\n"
             "used_memory_startup:%zu\r\n"
             "used_memory_clients_normal:%zu\r\n"
+            "used_memory_clients_pubsubs:%zu\r\n"
             "used_memory_clients_slaves:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
             "used_memory_dataset_perc:%.2f%%\r\n"
@@ -3001,6 +3002,7 @@ sds genRedisInfoString(char *section) {
             mh->overhead_total,
             mh->startup_allocated,
             mh->clients_normal,
+            mh->clients_pubsubs,
             mh->clients_slaves,
             mh->dataset,
             mh->dataset_perc,

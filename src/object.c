@@ -903,6 +903,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total+=mem;
 
     mem = 0;
+    size_t mem_pubsubs = 0;
     if (listLength(server.clients)) {
         listIter li;
         listNode *ln;
@@ -912,13 +913,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             client *c = listNodeValue(ln);
             if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
                 continue;
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
+            if (c->flags & CLIENT_PUBSUB) {
+                mem_pubsubs += getClientOutputBufferMemoryUsage(c);
+                mem_pubsubs += sdsAllocSize(c->querybuf);
+                mem_pubsubs += sizeof(client);
+            } else {
+                mem += getClientOutputBufferMemoryUsage(c);
+                mem += sdsAllocSize(c->querybuf);
+                mem += sizeof(client);
+            }
         }
     }
     mh->clients_normal = mem;
     mem_total+=mem;
+    mh->clients_pubsubs = mem_pubsubs;
+    mem_total+=mem_pubsubs;
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
@@ -1170,6 +1179,9 @@ void memoryCommand(client *c) {
 
         addReplyBulkCString(c,"clients.slaves");
         addReplyLongLong(c,mh->clients_slaves);
+
+        addReplyBulkCString(c,"clients.pubsubs");
+        addReplyLongLong(c,mh->clients_pubsubs);
 
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
