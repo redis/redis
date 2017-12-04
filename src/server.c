@@ -2944,6 +2944,12 @@ sds genRedisInfoString(char *section) {
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
+        char overhead_hmem[64];
+        char startup_hmem[64];
+        char clients_normal_hmem[64];
+        char clients_pubsubs_hmem[64];
+        char clients_slaves_hmem[64];
+        char dataset_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
@@ -2963,6 +2969,12 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(used_memory_lua_hmem,memory_lua);
         bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
+        bytesToHuman(overhead_hmem,mh->overhead_total);
+        bytesToHuman(startup_hmem,mh->startup_allocated);
+        bytesToHuman(clients_normal_hmem,mh->clients_normal);
+        bytesToHuman(clients_pubsubs_hmem,mh->clients_pubsubs);
+        bytesToHuman(clients_slaves_hmem,mh->clients_slaves);
+        bytesToHuman(dataset_hmem,mh->dataset);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -2975,11 +2987,17 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak_human:%s\r\n"
             "used_memory_peak_perc:%.2f%%\r\n"
             "used_memory_overhead:%zu\r\n"
+            "used_memory_overhead_human:%s\r\n"
             "used_memory_startup:%zu\r\n"
+            "used_memory_startup_human:%s\r\n"
             "used_memory_clients_normal:%zu\r\n"
+            "used_memory_clients_normal_human:%s\r\n"
             "used_memory_clients_pubsubs:%zu\r\n"
+            "used_memory_clients_pubsubs_human:%s\r\n"
             "used_memory_clients_slaves:%zu\r\n"
+            "used_memory_clients_slaves_human:%s\r\n"
             "used_memory_dataset:%zu\r\n"
+            "used_memory_dataset_human:%s\r\n"
             "used_memory_dataset_perc:%.2f%%\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
@@ -3000,11 +3018,17 @@ sds genRedisInfoString(char *section) {
             peak_hmem,
             mh->peak_perc,
             mh->overhead_total,
+            overhead_hmem,
             mh->startup_allocated,
+            startup_hmem,
             mh->clients_normal,
+            clients_normal_hmem,
             mh->clients_pubsubs,
+            clients_pubsubs_hmem,
             mh->clients_slaves,
+            clients_slaves_hmem,
             mh->dataset,
+            dataset_hmem,
             mh->dataset_perc,
             (unsigned long)total_system_mem,
             total_system_hmem,
