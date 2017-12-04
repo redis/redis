@@ -3350,8 +3350,8 @@ sds genRedisInfoString(char *section) {
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,overhead_ht_main=%zu,overhead_ht_expires=%zu,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, mh->db[mh_db].overhead_ht_main, mh->db[mh_db].overhead_ht_expires, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,overhead_ht_main=%zu,overhead_ht_expires=%zu,avg_ttl=%lld,rehashidx_main:%ld,rehashidx_expires:%ld\r\n",
+                    j, keys, vkeys, mh->db[mh_db].overhead_ht_main, mh->db[mh_db].overhead_ht_expires, server.db[j].avg_ttl,server.db[j].dict->rehashidx,server.db[j].expires->rehashidx);
                 mh_db++;
             }
         }
