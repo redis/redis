@@ -1161,7 +1161,6 @@ int redis_math_randomseed (lua_State *L) {
  * On error C_ERR is returned and an appropriate error is set in the
  * client context. */
 int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body, int allow_dup) {
-    sds funcdef = sdsempty();
     char fname[43];
 
     if (funcname == NULL) {
@@ -1171,9 +1170,16 @@ int luaCreateFunction(client *c, lua_State *lua, char *funcname, robj *body, int
         funcname = fname;
     }
 
-    if (allow_dup && dictFind(server.lua_scripts,funcname+2) != NULL)
-        return C_OK;
+    if (allow_dup) {
+        sds sha = sdsnewlen(funcname+2,40);
+        if (allow_dup && dictFind(server.lua_scripts,sha) != NULL) {
+            sdsfree(sha);
+            return C_OK;
+        }
+        sdsfree(sha);
+    }
 
+    sds funcdef = sdsempty();
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
     funcdef = sdscatlen(funcdef,"() ",3);
