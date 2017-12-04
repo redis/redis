@@ -11,6 +11,59 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.6     Released Thu Dec 4 17:54:10 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: More errors in the fixes for PSYNC2 in Redis 4.0.5
+                          were identified.
+
+This release fixes yet more errors present in the 4.0.5 fixes, that could
+affect slaves. Moreover another critical issue in quicklists, when they are
+used at a massive memory scale, was fixed in this release. Upgrading from
+any 4.0.x release, especially if you are running 4.0.4 or 4.0.5, is highly
+recommended.
+
+Note that while this fix for 4.0.6 was written in an hurry as well, this
+time we took extra precautions in order to avoid writing a broken patch:
+
+1. The code was reviewed by two developers independently.
+2. A regression test about the problem introduced in 4.0.4/5 was added.
+3. Resisting to duplicated Lua scripts loading into the Lua engine is now
+   the default action of the loading function, thus it's simpler to stress
+   its behavior.
+4. The code section was tested with Valgrind.
+
+The following is the list of commits included in this release:
+
+zhaozhao.zz in commit 57786b14:
+ quicklist: change the len of quicklist to unsigned long
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+zhaozhao.zz in commit 2211540d:
+ quicklist: fix the return value of quicklistCount
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit c85c84be:
+ Refactoring: improve luaCreateFunction() API.
+ 3 files changed, 38 insertions(+), 58 deletions(-)
+
+antirez in commit 85b24770:
+ Remove useless variable check from luaCreateFunction().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a945e5c0:
+ Fix issue #4505, Lua RDB AUX field loading of existing scripts.
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+antirez in commit 65a2e40a:
+ Regression test for #4505 (Lua AUX field loading).
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+antirez in commit d6c70f22:
+ DEBUG change-repl-id implemented.
+ 1 file changed, 7 insertions(+)
+
+================================================================================
 Redis 4.0.5     Released Thu Dec 1 16:03:32 CET 2017
 ================================================================================
 
