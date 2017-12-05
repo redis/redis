@@ -2767,7 +2767,16 @@ void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 1) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+            "(no subcommand) -- Return details about all Redis commands.",
+            "count -- Return the total number of commands in this Redis server.",
+            "getkeys <full-command> -- Return the keys from a full Redis command.",
+            "info [command-name ...] -- Return details about multiple Redis commands.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 1) {
         addReplyMultiBulkLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
@@ -2801,7 +2810,8 @@ void commandCommand(client *c) {
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
     } else {
-        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND help",
+            (char*)c->argv[1]->ptr);
         return;
     }
 }
