@@ -2478,8 +2478,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
-     * we are a slave with a broken link with master. */
+    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
+     * when slave-serve-stale-data is no and we are a slave with a broken
+     * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & CMD_STALE))
