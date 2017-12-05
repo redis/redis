@@ -407,7 +407,7 @@ void spopWithCountCommand(client *c) {
     /* Get the count argument */
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
-        count = (unsigned) l;
+        count = (unsigned long) l;
     } else {
         addReply(c,shared.outofrangeerr);
         return;
@@ -626,7 +626,7 @@ void srandmemberWithCountCommand(client *c) {
 
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != C_OK) return;
     if (l >= 0) {
-        count = (unsigned) l;
+        count = (unsigned long) l;
     } else {
         /* A negative count means: return the same elements multiple times
          * (i.e. don't remove the extracted element after every extraction). */
