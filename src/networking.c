@@ -610,11 +610,9 @@ void addReplyHelp(client *c, const char **help) {
         "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
     sdsfree(cmd);
     
-    while (help[blen]) {
-        addReplyStatus(c,help[blen++]);
-    }
+    while (help[blen]) addReplyStatus(c,help[blen++]);
 
-    blen += 1;  /* Account for the header line(s). */
+    blen++;  /* Account for the header line(s). */
     setDeferredMultiBulkLength(c,blenp,blen);
 }
 
