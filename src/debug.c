@@ -283,11 +283,6 @@ void computeDatasetDigest(unsigned char *final) {
 }
 
 void debugCommand(client *c) {
-    if (c->argc == 1) {
-        addReplyError(c,"You must specify a subcommand for DEBUG. Try DEBUG HELP for info.");
-        return;
-    }
-
     if (!strcasecmp(c->argv[1]->ptr,"help")) {
         void *blenp = addDeferredMultiBulkLength(c);
         int blen = 0;
