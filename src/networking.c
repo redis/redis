@@ -604,19 +604,17 @@ void addReplyHelp(client *c, const char **help) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     void *blenp = addDeferredMultiBulkLength(c);
     int blen = 0;
-    int hlen = 0;
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
         "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
-    blen++;
     sdsfree(cmd);
     
-    while (help[hlen]) {
-        addReplyStatus(c,help[hlen++]);
-        blen++;
+    while (help[blen]) {
+        addReplyStatus(c,help[blen++]);
     }
 
+    blen += 1;  /* Account for the header line(s). */
     setDeferredMultiBulkLength(c,blenp,blen);
 }
 
