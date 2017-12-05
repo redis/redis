@@ -774,15 +774,21 @@ void srandmemberCommand(client *c) {
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    return setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2);
+    if (setTypeSize(*(robj**)s1) > setTypeSize(*(robj**)s2)) return 1;
+    if (setTypeSize(*(robj**)s1) < setTypeSize(*(robj**)s2)) return -1;
+    return 0;
 }
 
 /* This is used by SDIFF and in this case we can receive NULL that should
  * be handled as empty sets. */
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     robj *o1 = *(robj**)s1, *o2 = *(robj**)s2;
+    unsigned long first = o1 ? setTypeSize(o1) : 0;
+    unsigned long second = o2 ? setTypeSize(o2) : 0;
 
-    return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
+    if (first < second) return 1;
+    if (first > second) return -1;
+    return 0;
 }
 
 void sinterGenericCommand(client *c, robj **setkeys,
