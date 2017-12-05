@@ -239,6 +239,27 @@ void computeDatasetDigest(unsigned char *final) {
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
+            } else if (o->type == OBJ_STREAM) {
+                streamIterator si;
+                streamIteratorStart(&si,o->ptr,NULL,NULL,0);
+                streamID id;
+                int64_t numfields;
+
+                while(streamIteratorGetID(&si,&id,&numfields)) {
+                    sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
+                    mixDigest(digest,itemid,sdslen(itemid));
+                    sdsfree(itemid);
+
+                    while(numfields--) {
+                        unsigned char *field, *value;
+                        int64_t field_len, value_len;
+                        streamIteratorGetField(&si,&field,&value,
+                                                   &field_len,&value_len);
+                        mixDigest(digest,field,field_len);
+                        mixDigest(digest,value,value_len);
+                    }
+                }
+                streamIteratorStop(&si);
             } else if (o->type == OBJ_MODULE) {
                 RedisModuleDigest md;
                 moduleValue *mv = o->ptr;
@@ -262,14 +283,10 @@ void computeDatasetDigest(unsigned char *final) {
 }
 
 void debugCommand(client *c) {
-    if (c->argc == 1) {
-        addReplyError(c,"You must specify a subcommand for DEBUG. Try DEBUG HELP for info.");
-        return;
-    }
-
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
             "assert -- Crash by assertion failed.",
+            "change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
             "crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
             "digest -- Outputs an hex signature representing the current DB content.",
             "htstats <dbid> -- Return hash table statistics of the specified Redis database.",
@@ -351,13 +368,13 @@ void debugCommand(client *c) {
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
-        char extra[128] = {0};
+        char extra[138] = {0};
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%u", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */
@@ -530,6 +547,11 @@ void debugCommand(client *c) {
         stats = sdscat(stats,buf);
 
         addReplyBulkSds(c,stats);
+    } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
+        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        changeReplicationId();
+        clearReplicationId2();
+        addReply(c,shared.ok);
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try DEBUG help",
             (char*)c->argv[1]->ptr);

@@ -107,6 +107,7 @@ static struct config {
     char *pattern;
     char *rdb_filename;
     int bigkeys;
+    int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
     int output; /* output mode, see OUTPUT_* defines */
@@ -710,7 +711,7 @@ int isColorTerm(void) {
     return t != NULL && strstr(t,"xterm") != NULL;
 }
 
-/* Helpe  function for sdsCatColorizedLdbReply() appending colorize strings
+/* Helper  function for sdsCatColorizedLdbReply() appending colorize strings
  * to an SDS string. */
 sds sdscatcolor(sds o, char *s, size_t len, char *color) {
     if (!isColorTerm()) return sdscatlen(o,s,len);
@@ -1129,6 +1130,8 @@ static int parseOptions(int argc, char **argv) {
             config.pipe_timeout = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--bigkeys")) {
             config.bigkeys = 1;
+        } else if (!strcmp(argv[i],"--hotkeys")) {
+            config.hotkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
             config.eval = argv[++i];
         } else if (!strcmp(argv[i],"--ldb")) {
@@ -1229,6 +1232,8 @@ static void usage(void) {
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n"
 "  --bigkeys          Sample Redis keys looking for big keys.\n"
+"  --hotkeys          Sample Redis keys looking for hot keys.\n"
+"                     only works when maxmemory-policy is *lfu.\n"
 "  --scan             List all keys using the SCAN command.\n"
 "  --pattern <pat>    Useful with --scan to specify a SCAN pattern.\n"
 "  --intrinsic-latency <sec> Run a test to measure intrinsic system latency.\n"
@@ -2069,7 +2074,8 @@ static void pipeMode(void) {
 #define TYPE_SET    2
 #define TYPE_HASH   3
 #define TYPE_ZSET   4
-#define TYPE_NONE   5
+#define TYPE_STREAM 5
+#define TYPE_NONE   6
 
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply = redisCommand(context, "SCAN %llu", *it);
@@ -2128,6 +2134,8 @@ static int toIntType(char *key, char *type) {
         return TYPE_HASH;
     } else if(!strcmp(type, "zset")) {
         return TYPE_ZSET;
+    } else if(!strcmp(type, "stream")) {
+        return TYPE_STREAM;
     } else if(!strcmp(type, "none")) {
         return TYPE_NONE;
     } else {
@@ -2216,7 +2224,7 @@ static void findBigKeys(void) {
     unsigned long long biggest[5] = {0}, counts[5] = {0}, totalsize[5] = {0};
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
     sds maxkeys[5] = {0};
-    char *typename[] = {"string","list","set","hash","zset"};
+    char *typename[] = {"string","list","set","hash","zset","stream"};
     char *typeunit[] = {"bytes","items","members","fields","members"};
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
@@ -2343,6 +2351,129 @@ static void findBigKeys(void) {
     exit(0);
 }
 
+static void getKeyFreqs(redisReply *keys, unsigned long long *freqs) {
+    redisReply *reply;
+    unsigned int i;
+
+    /* Pipeline OBJECT freq commands */
+    for(i=0;i<keys->elements;i++) {
+        redisAppendCommand(context, "OBJECT freq %s", keys->element[i]->str);
+    }
+
+    /* Retrieve freqs */
+    for(i=0;i<keys->elements;i++) {
+        if(redisGetReply(context, (void**)&reply)!=REDIS_OK) {
+            fprintf(stderr, "Error getting freq for key '%s' (%d: %s)\n",
+                keys->element[i]->str, context->err, context->errstr);
+            exit(1);
+        } else if(reply->type != REDIS_REPLY_INTEGER) {
+            if(reply->type == REDIS_REPLY_ERROR) {
+                fprintf(stderr, "Error: %s\n", reply->str);
+                exit(1);
+            } else {
+                fprintf(stderr, "Warning: OBJECT freq on '%s' failed (may have been deleted)\n", keys->element[i]->str);
+                freqs[i] = 0;
+            }
+        } else {
+            freqs[i] = reply->integer;
+        }
+        freeReplyObject(reply);
+    }
+}
+
+#define HOTKEYS_SAMPLE 16
+static void findHotKeys(void) {
+    redisReply *keys, *reply;
+    unsigned long long counters[HOTKEYS_SAMPLE] = {0};
+    sds hotkeys[HOTKEYS_SAMPLE] = {NULL};
+    unsigned long long sampled = 0, total_keys, *freqs = NULL, it = 0;
+    unsigned int arrsize = 0, i, k;
+    double pct;
+
+    /* Total keys pre scanning */
+    total_keys = getDbSize();
+
+    /* Status message */
+    printf("\n# Scanning the entire keyspace to find hot keys as well as\n");
+    printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
+    printf("# per 100 SCAN commands (not usually needed).\n\n");
+
+    /* SCAN loop */
+    do {
+        /* Calculate approximate percentage completion */
+        pct = 100 * (double)sampled/total_keys;
+
+        /* Grab some keys and point to the keys array */
+        reply = sendScan(&it);
+        keys  = reply->element[1];
+
+        /* Reallocate our freqs array if we need to */
+        if(keys->elements > arrsize) {
+            freqs = zrealloc(freqs, sizeof(unsigned long long)*keys->elements);
+
+            if(!freqs) {
+                fprintf(stderr, "Failed to allocate storage for keys!\n");
+                exit(1);
+            }
+
+            arrsize = keys->elements;
+        }
+
+        getKeyFreqs(keys, freqs);
+
+        /* Now update our stats */
+        for(i=0;i<keys->elements;i++) {
+            sampled++;
+            /* Update overall progress */
+            if(sampled % 1000000 == 0) {
+                printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
+            }
+
+            /* Use eviction pool here */
+            k = 0;
+            while (k < HOTKEYS_SAMPLE && freqs[i] > counters[k]) k++;
+            if (k == 0) continue;
+            k--;
+            if (k == 0 || counters[k] == 0) {
+                sdsfree(hotkeys[k]);
+            } else {
+                sdsfree(hotkeys[0]);
+                memmove(counters,counters+1,sizeof(counters[0])*k);
+                memmove(hotkeys,hotkeys+1,sizeof(hotkeys[0])*k);
+            }
+            counters[k] = freqs[i];
+            hotkeys[k] = sdsnew(keys->element[i]->str);
+            printf(
+               "[%05.2f%%] Hot key '%s' found so far with counter %llu\n",
+               pct, keys->element[i]->str, freqs[i]);
+        }
+
+        /* Sleep if we've been directed to do so */
+        if(sampled && (sampled %100) == 0 && config.interval) {
+            usleep(config.interval);
+        }
+
+        freeReplyObject(reply);
+    } while(it != 0);
+
+    if (freqs) zfree(freqs);
+
+    /* We're done */
+    printf("\n-------- summary -------\n\n");
+
+    printf("Sampled %llu keys in the keyspace!\n", sampled);
+
+    for (i=1; i<= HOTKEYS_SAMPLE; i++) {
+        k = HOTKEYS_SAMPLE - i;
+        if(counters[k]>0) {
+            printf("hot key found with counter: %llu\tkeyname: %s\n", counters[k], hotkeys[k]);
+            sdsfree(hotkeys[k]);
+        }
+    }
+
+    exit(0);
+}
+
 /*------------------------------------------------------------------------------
  * Stats mode
  *--------------------------------------------------------------------------- */
@@ -2453,7 +2584,7 @@ static void statMode(void) {
         sprintf(buf,"%ld",aux);
         printf("%-8s",buf);
 
-        /* Requets */
+        /* Requests */
         aux = getLongInfoField(reply->str,"total_commands_processed");
         sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
         printf("%-19s",buf);
@@ -2720,6 +2851,7 @@ int main(int argc, char **argv) {
     config.pipe_mode = 0;
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
+    config.hotkeys = 0;
     config.stdinarg = 0;
     config.auth = NULL;
     config.eval = NULL;
@@ -2778,6 +2910,12 @@ int main(int argc, char **argv) {
     if (config.bigkeys) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         findBigKeys();
+    }
+
+    /* Find hot keys */
+    if (config.hotkeys) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        findHotKeys();
     }
 
     /* Stat mode */
