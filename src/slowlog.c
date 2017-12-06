@@ -142,11 +142,12 @@ void slowlogReset(void) {
 void slowlogCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "get [count] -- Return top entries from the slowlog (default: 10). Entries are made of:",
-            "    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
-            "len -- Return the length of the slowlog.",
-            "reset -- Reset the slowlog.",
-            NULL
+"get [count] -- Return top entries from the slowlog (default: 10)."
+"    Entries are made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
+"len -- Return the length of the slowlog.",
+"reset -- Reset the slowlog.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
@@ -186,8 +187,6 @@ void slowlogCommand(client *c) {
         }
         setDeferredMultiBulkLength(c,totentries,sent);
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG help",
-            (char*)c->argv[1]->ptr);
-        return;
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG HELP", (char*)c->argv[1]->ptr);
     }
 }
