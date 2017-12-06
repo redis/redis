@@ -285,26 +285,26 @@ void computeDatasetDigest(unsigned char *final) {
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "assert -- Crash by assertion failed.",
-            "change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
-            "crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
-            "digest -- Outputs an hex signature representing the current DB content.",
-            "htstats <dbid> -- Return hash table statistics of the specified Redis database.",
-            "loadaof -- Flush the AOF buffers on disk and reload the AOF in memory.",
-            "lua-always-replicate-commands (0|1) -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
-            "object <key> -- Show low level info about key and associated value.",
-            "panic -- Crash the server simulating a panic.",
-            "populate <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-            "reload -- Save the RDB on disk and reload it back in memory.",
-            "restart -- Graceful restart: save config, db, restart.",
-            "sdslen <key> -- Show low level SDS string info representing key and value.",
-            "segfault -- Crash the server with sigsegv.",
-            "set-active-expire (0|1) -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
-            "sleep <seconds> -- Stop the server for <seconds>. Decimals allowed.",
-            "structsize -- Return the size of different Redis core C structures.",
-            "ziplist <key> -- Show low level info about the ziplist encoding.",
-            "error <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
-            NULL
+"assert -- Crash by assertion failed.",
+"change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
+"crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
+"digest -- Outputs an hex signature representing the current DB content.",
+"htstats <dbid> -- Return hash table statistics of the specified Redis database.",
+"loadaof -- Flush the AOF buffers on disk and reload the AOF in memory.",
+"lua-always-replicate-commands (0|1) -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
+"object <key> -- Show low level info about key and associated value.",
+"panic -- Crash the server simulating a panic.",
+"populate <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
+"reload -- Save the RDB on disk and reload it back in memory.",
+"restart -- Graceful restart: save config, db, restart.",
+"sdslen <key> -- Show low level SDS string info representing key and value.",
+"segfault -- Crash the server with sigsegv.",
+"set-active-expire (0|1) -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
+"sleep <seconds> -- Stop the server for <seconds>. Decimals allowed.",
+"structsize -- Return the size of different Redis core C structures.",
+"ziplist <key> -- Show low level info about the ziplist encoding.",
+"error <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
@@ -553,7 +553,7 @@ void debugCommand(client *c) {
         clearReplicationId2();
         addReply(c,shared.ok);
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try DEBUG help",
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try DEBUG HELP",
             (char*)c->argv[1]->ptr);
         return;
     }

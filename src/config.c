@@ -2071,11 +2071,11 @@ void configCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "get <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
-            "set <parameter> <value> -- Set parameter to value.",
-            "resetstat -- Reset statistics reported by INFO.",
-            "rewrite -- Rewrite the configuration file.",
-            NULL
+"get <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
+"set <parameter> <value> -- Set parameter to value.",
+"resetstat -- Reset statistics reported by INFO.",
+"rewrite -- Rewrite the configuration file.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"set") && c->argc == 4) {
@@ -2099,7 +2099,7 @@ void configCommand(client *c) {
             addReply(c,shared.ok);
         }
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG help",
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CONFIG HELP",
             (char*)c->argv[1]->ptr);
         return;
     }

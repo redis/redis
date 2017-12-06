@@ -327,10 +327,10 @@ void publishCommand(client *c) {
 void pubsubCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "channels [<pattern>] -- Return the currently active channels matching a pattern (default: all).",
-            "numpat -- Return number of subscriptions to patterns.",
-            "numsub [channel-1 .. channel-N] -- Returns the number of subscribers for the specified channels (excluding patterns, default: none).",
-            NULL
+"channels [<pattern>] -- Return the currently active channels matching a pattern (default: all).",
+"numpat -- Return number of subscriptions to patterns.",
+"numsub [channel-1 .. channel-N] -- Returns the number of subscribers for the specified channels (excluding patterns, default: none).",
+NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"channels") &&
@@ -372,8 +372,7 @@ void pubsubCommand(client *c) {
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try PUBSUB help",
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try PUBSUB HELP",
             (char*)c->argv[1]->ptr);
-        return;
     }
 }

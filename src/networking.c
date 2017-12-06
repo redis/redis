@@ -578,7 +578,7 @@ void addReplyBulkSds(client *c, sds s)  {
     addReply(c,shared.crlf);
 }
 
-/* Add a C nul term string as bulk reply */
+/* Add a C null term string as bulk reply */
 void addReplyBulkCString(client *c, const char *s) {
     if (s == NULL) {
         addReply(c,shared.nullbulk);
@@ -596,7 +596,7 @@ void addReplyBulkLongLong(client *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
-/* Add an array of strings as a bulk reply with a heading.
+/* Add an array of C strings as status replies with a heading.
  * This function is typically invoked by from commands that support
  * subcommands in response to the 'help' subcommand. The help array
  * is terminated by NULL sentinel. */
@@ -609,7 +609,7 @@ void addReplyHelp(client *c, const char **help) {
     addReplyStatusFormat(c,
         "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
     sdsfree(cmd);
-    
+
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
     blen++;  /* Account for the header line(s). */
@@ -1591,17 +1591,17 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "getname -- Return the name of the current connection.",
-            "kill <ip:port> -- Kill connection made from <ip:port>.",
-            "kill <option> <value> [option value ...] -- Kill connections. Options are:",
-            "     addr <ip:port> -- Kill connection made from <ip:port>.",
-            "     type (normal|master|slave|pubsub) -- Kill connections by type.",
-            "     skipme (yes|no) -- Skip killing current connection (default: yes).",
-            "list -- Return information about client connections.",
-            "pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
-            "reply (on|off|skip) -- Control the replies sent to the current connection.",
-            "setname <name> -- Assign the name <name> to the current connection.",
-            NULL
+"getname -- Return the name of the current connection.",
+"kill <ip:port> -- Kill connection made from <ip:port>.",
+"kill <option> <value> [option value ...] -- Kill connections. Options are:",
+"     addr <ip:port> -- Kill connection made from <ip:port>.",
+"     type (normal|master|slave|pubsub) -- Kill connections by type.",
+"     skipme (yes|no) -- Skip killing current connection (default: yes).",
+"list -- Return information about client connections.",
+"pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
+"reply (on|off|skip) -- Control the replies sent to the current connection.",
+"setname <name> -- Assign the name <name> to the current connection.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
@@ -1750,9 +1750,8 @@ void clientCommand(client *c) {
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT help",
-            (char*)c->argv[1]->ptr);
-        return;    }
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
+    }
 }
 
 /* This callback is bound to POST and "Host:" command names. Those are not

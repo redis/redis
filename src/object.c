@@ -1073,11 +1073,11 @@ void objectCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-            "freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-            "idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-            "refcount <key> -- Return the number of references of the value associated with the specified key.",
-            NULL
+"encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
+"freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
+"idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
+"refcount <key> -- Return the number of references of the value associated with the specified key.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
@@ -1109,9 +1109,7 @@ void objectCommand(client *c) {
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help",
-            (char *)c->argv[1]->ptr);
-        return;
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help", (char *)c->argv[1]->ptr);
     }
 }
 

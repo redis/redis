@@ -2769,11 +2769,11 @@ void commandCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-            "(no subcommand) -- Return details about all Redis commands.",
-            "count -- Return the total number of commands in this Redis server.",
-            "getkeys <full-command> -- Return the keys from a full Redis command.",
-            "info [command-name ...] -- Return details about multiple Redis commands.",
-            NULL
+"(no subcommand) -- Return details about all Redis commands.",
+"count -- Return the total number of commands in this Redis server.",
+"getkeys <full-command> -- Return the keys from a full Redis command.",
+"info [command-name ...] -- Return details about multiple Redis commands.",
+NULL
         };
         addReplyHelp(c, help);
     } else if (c->argc == 1) {
@@ -2810,9 +2810,7 @@ void commandCommand(client *c) {
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND help",
-            (char*)c->argv[1]->ptr);
-        return;
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND HELP", (char*)c->argv[1]->ptr);
     }
 }
 
