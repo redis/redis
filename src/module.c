@@ -235,6 +235,9 @@ typedef struct RedisModuleKeyspaceSubscriber {
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
+/* Static client recycled for all notification clients, to avoid allocating per round. */
+static client *moduleKeyspaceSubscribersClient;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -3769,10 +3772,6 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     /* Remove irrelevant flags from the type mask */
     type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE);
 
-    /* Setup a fake client, so we can have proper db selection when performing
-     * actions. We use one client for all handlers, writing to it will crash */
-    client *c = createClient(-1);
-    c->flags |= CLIENT_MODULE;
     
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
@@ -3781,8 +3780,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         if ((sub->event_mask & type) && sub->active == 0) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = sub->module;
-            selectDb(c, dbid);
-            ctx.client = c;
+            ctx.client = moduleKeyspaceSubscribersClient;
+            selectDb(ctx.client, dbid);
+
             /* mark the handler as activer to avoid reentrant loops. 
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
@@ -3792,7 +3792,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             moduleFreeContext(&ctx);
         }
     }
-    freeClient(c);
+    
 }
 
 /* Unsubscribe any notification subscirbers this module has upon unloading */
@@ -3850,7 +3850,11 @@ void moduleInitModulesSystem(void) {
     
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
+    
+    /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
+    moduleKeyspaceSubscribersClient = createClient(-1);
+    moduleKeyspaceSubscribersClient->flags |= CLIENT_MODULE;
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
