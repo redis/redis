@@ -3748,8 +3748,6 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->notify_callback = callback;
     sub->active = 0;
 
-    /* Let the notification system know that modules are interested in notifications */
-    server.notify_keyspace_events |= NOTIFY_MODULE;
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
     return REDISMODULE_OK;
 
@@ -3759,6 +3757,10 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
  * This gets called  only if at least one module requested to be notified on
  * keyspace notifications */
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
+    
+    /* Don't do anything if there aren't any subscribers */
+    if (listLength(moduleKeyspaceSubscribers) == 0) return;
+    
     listIter li;
     listNode *ln;
 
@@ -3804,10 +3806,6 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
             listDelNode(moduleKeyspaceSubscribers, ln);
             zfree(sub);
         }
-    }
-    /* If no subscribers are left - do not call the module norification function */
-    if (listLength(moduleKeyspaceSubscribers) == 0) {
-        server.notify_keyspace_events &= ~NOTIFY_MODULE;
     }
 }
 
