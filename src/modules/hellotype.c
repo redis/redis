@@ -195,7 +195,7 @@ int HelloTypeLen_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
 void *HelloTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     if (encver != 0) {
-        /* RedisModule_Log("warning","Can't load data with version %d", encver);*/
+        /* RedisModule_LogIOError(rdb, "warning","Can't load data with version %d", encver);*/
         return NULL;
     }
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
