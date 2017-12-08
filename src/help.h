@@ -1013,7 +1013,7 @@ struct commandHelp {
     4,
     "2.0.0" },
     { "MIGRATE-ASYNC",
-    "host port timeout maxbulks maxbytes key [key...]",
+    "host port timeout key [key...]",
     "Atomically migrate multiple keys from a Redis instance to another one.",
     0,
     "4.2.0"},
