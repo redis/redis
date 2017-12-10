@@ -2379,6 +2379,19 @@ int processCommand(client *c) {
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+
+    /* Only the RESTORE-ASYNC-ACK command will be accepted if current client
+     * has the CLIENT_ASYNC_MIGRATION flag. */
+    if (c->flags & CLIENT_ASYNC_MIGRATION) {
+        if (!c->cmd || c->cmd->proc != restoreAsyncAckCommand) {
+            addReplyErrorFormat(c,"invalid response command '%s'",
+                    (char*)c->argv[0]->ptr);
+            serverLog(LL_WARNING, "async_migration: invalid response command '%s'",
+                    (char*)c->argv[0]->ptr);
+            c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+            return C_ERR;
+        }
+    }
     if (!c->cmd) {
         flagTransaction(c);
         addReplyErrorFormat(c,"unknown command '%s'",
