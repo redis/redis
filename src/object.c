@@ -1120,7 +1120,18 @@ NULL
 void memoryCommand(client *c) {
     robj *o;
 
-    if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+
+        const char *help[] = {
+"doctor - Return memory problems reports.",
+"malloc-stats -- Return internal statistics report from the memory allocator.",
+"purge -- Attempt to purge dirty pages for reclamation by the allocator.",
+"stats -- Return information about the memory usage of the server.",
+"usage <key> [samples <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
         long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
         for (int j = 3; j < c->argc; j++) {
             if (!strcasecmp(c->argv[j]->ptr,"samples") &&
@@ -1234,19 +1245,7 @@ void memoryCommand(client *c) {
         addReply(c, shared.ok);
         /* Nothing to do for other allocators. */
 #endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        addReplyMultiBulkLen(c,5);
-        addReplyBulkCString(c,
-"MEMORY DOCTOR                        - Outputs memory problems report");
-        addReplyBulkCString(c,
-"MEMORY USAGE <key> [SAMPLES <count>] - Estimate memory usage of key");
-        addReplyBulkCString(c,
-"MEMORY STATS                         - Show memory usage details");
-        addReplyBulkCString(c,
-"MEMORY PURGE                         - Ask the allocator to release memory");
-        addReplyBulkCString(c,
-"MEMORY MALLOC-STATS                  - Show allocator internal stats");
     } else {
-        addReplyError(c,"Syntax error. Try MEMORY HELP");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
     }
 }
