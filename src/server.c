@@ -2386,8 +2386,8 @@ int processCommand(client *c) {
         if (!c->cmd || c->cmd->proc != restoreAsyncAckCommand) {
             addReplyErrorFormat(c,"invalid response command '%s'",
                     (char*)c->argv[0]->ptr);
-            serverLog(LL_WARNING, "async_migration: invalid response command '%s'",
-                    (char*)c->argv[0]->ptr);
+            serverLog(LL_WARNING, "async_migration[%d]: invalid response command '%s'",
+                    c->fd, (char*)c->argv[0]->ptr);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
             return C_ERR;
         }

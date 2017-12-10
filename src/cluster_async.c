@@ -904,10 +904,10 @@ void releaseClientFromAsyncMigration(client *c) {
     int db = c->db->id;
 
     serverLog(LL_WARNING,
-              "async_migration: release connection %s:%d (DB=%d): "
-              "pending(%lld), clients(%ld), iterator(%ld), "
-              "timeout(%lldms), elapsed(%lldms)",
-              ac->host, ac->port, db, ac->pending_msgs,
+              "async_migration[%d]: release connection %s:%d (DB=%d): "
+              "pending_msgs(%lld), blocked_clients(%ld), iterator_list(%ld), "
+              "timeout(%lldms), since_lastuse(%lldms)",
+              ac->c->fd, ac->host, ac->port, db, ac->pending_msgs,
               (long)listLength(ac->blocked_clients),
               (it != NULL) ? (long)listLength(it->iterator_list) : -1,
               ac->timeout, mstime() - ac->lastuse);
@@ -937,8 +937,8 @@ static int asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
     va_end(ap);
 
     serverLog(LL_WARNING,
-              "async_migration: release connection %s:%d (DB=%d) (%s)",
-              ac->host, ac->port, db, errmsg);
+              "async_migration[%d]: release connection %s:%d (DB=%d) (%s)",
+              ac->c->fd, ac->host, ac->port, db, errmsg);
 
     // Wake up the blocked clients with the specified error message.
     asyncMigrationClientInterrupt(ac, errmsg);
@@ -1028,8 +1028,8 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     ac->pending_msgs = 0;
     ac->blocked_clients = listCreate();
     ac->batched_iterator = NULL;
-    serverLog(LL_WARNING, "async_migration: connect to %s:%d (DB=%d) OK", host,
-              port, db);
+    serverLog(LL_WARNING, "async_migration[%d]: connect to %s:%d (DB=%d) OK",
+              fd, host, port, db);
     return ac;
 }
 
@@ -1847,19 +1847,21 @@ static int restoreAsyncAckCommandHandle(client *c) {
     }
 
     if (errcode != 0) {
-        serverLog(LL_WARNING, "async_migration: error[%d] (%s)", (int)errcode,
-                  (char *)c->argv[2]->ptr);
+        serverLog(LL_WARNING, "async_migration[%d]: error[%d] (%s)", c->fd,
+                  (int)errcode, (char *)c->argv[2]->ptr);
         return C_ERR;
     }
 
     batchedObjectIterator *it = ac->batched_iterator;
     if (it == NULL) {
-        serverLog(LL_WARNING, "async_migration: nil batched iterator");
+        serverLog(LL_WARNING, "async_migration[%d]: nil batched iterator",
+                  c->fd);
         addReplyError(c, "invalid iterator (nil)");
         return C_ERR;
     }
     if (ac->pending_msgs == 0) {
-        serverLog(LL_WARNING, "async_migration: not sending messages");
+        serverLog(LL_WARNING, "async_migration[%d]: not sending messages",
+                  c->fd);
         addReplyError(c, "invalid iterator (pending_msgs=0)");
         return C_ERR;
     }
