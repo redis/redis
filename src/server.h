@@ -895,9 +895,9 @@ struct clusterState;
 
 typedef struct {
     client *c;                  /* Client for data migration. */
-    int auth;                   /* If client has been authenticated. */
     sds host;                   /* Target host & port. */
     int port;
+    int authenticated;          /* If client has been authenticated. */
     mstime_t timeout;           /* Client timeout in milliseconds. */
     mstime_t lastuse;           /* Timestamp of the last operation, used for timeout, in milliseconds. */
     long long pending_msgs;     /* Number of commands that is marked sent but not delivered. */

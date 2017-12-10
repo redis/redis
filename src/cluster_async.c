@@ -156,8 +156,8 @@ static int singleObjectIteratorNextStagePrepare(client *c,
     //      1. Send RESTORE-ASYNC-AUTH   to verify password.
     //      2. Send RESTORE-ASYNC-SELECT to change database.
     if (ac->c == c) {
-        if (ac->auth == 0) {
-            ac->auth = 1;
+        if (ac->authenticated == 0) {
+            ac->authenticated = 1;
             if (server.requirepass != NULL) {
                 // RESTORE-ASYNC-AUTH $passwd
                 addReplyMultiBulkLen(c, 2);
@@ -1020,9 +1020,9 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
         db, "interrupted: replaced by %s:%d (DB=%d)", host, port, db);
 
     ac->c = c;
-    ac->auth = 0;
     ac->host = sdsdup(host);
     ac->port = port;
+    ac->authenticated = 0;
     ac->timeout = timeout;
     ac->lastuse = mstime();
     ac->pending_msgs = 0;
@@ -1331,8 +1331,8 @@ void migrateAsyncStatusCommand(client *c) {
     addReplyBulkLongLong(c, ac->port);
 
     total++;
-    addReplyBulkCString(c, "auth");
-    addReplyBulkLongLong(c, ac->auth);
+    addReplyBulkCString(c, "authenticated");
+    addReplyBulkLongLong(c, ac->authenticated);
 
     total++;
     addReplyBulkCString(c, "timeout");
