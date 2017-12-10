@@ -1055,6 +1055,9 @@ static int asyncMigrationClientStatusOrBlock(client *c, int block) {
 }
 
 static void cleanupImportingKeys(redisDb *db, mstime_t now) {
+    // Try to remove all expired keys from importing_keys.
+    // Notes: We don't need to touch the database, since the expired objects
+    // will be automatically removed by activeExpireCycle() in databaseCron().
     if (dictSize(db->importing_keys) != 0) {
         dictIterator *di = dictGetSafeIterator(db->importing_keys);
         dictEntry *de;
@@ -1067,6 +1070,12 @@ static void cleanupImportingKeys(redisDb *db, mstime_t now) {
         }
         dictReleaseIterator(di);
     }
+    // Try to rehash the importing_keys.
+    if (dictIsRehashing(db->importing_keys)) {
+        dictRehashMilliseconds(db->importing_keys, 1);
+    } else if (htNeedsResize(db->importing_keys)) {
+        dictResize(db->importing_keys);
+    }
 }
 
 static int hasImportingKeys(redisDb *db) {
@@ -1077,7 +1086,7 @@ static mstime_t lookupImportingKeys(redisDb *db, robj *key, mstime_t now) {
     dictEntry *de = dictFind(db->importing_keys, key);
     if (de != NULL) {
         mstime_t expire = dictGetSignedIntegerVal(de);
-        if (now != 0 && now < expire) {
+        if (now <= expire) {
             return expire;
         }
         dictDelete(db->importing_keys, key);
