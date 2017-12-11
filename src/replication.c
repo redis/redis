@@ -1104,13 +1104,14 @@ void restartAOF() {
     }
 }
 
-static int useDisklessLoad() {
-    /* compute boolean decision to use diskless load */
+/* Return true if slave-side diskless loading can be used according to the
+ * current configuration: it must be configured as SWAPDB or FLUSHDB, or
+ * if configured WHEN_DB_EMTPY no key at all should exist. */
+int slaveUseDisklessLoading() {
     return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            server.repl_diskless_load == REPL_DISKLESS_LOAD_FLUSHDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && totalServerKeyCount()==0);
 }
-
 
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
@@ -1177,19 +1178,19 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             server.repl_transfer_size = 0;
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master with EOF %s",
-                useDisklessLoad()? "to parser":"to disk");
+                slaveUseDisklessLoading()? "to parser":"to disk");
         } else {
             usemark = 0;
             server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master %s",
                 (long long) server.repl_transfer_size,
-                useDisklessLoad()? "to parser":"to disk");
+                slaveUseDisklessLoading()? "to parser":"to disk");
         }
         return;
     }
 
-    use_diskless_load = useDisklessLoad();
+    use_diskless_load = slaveUseDisklessLoading();
     if (!use_diskless_load) {
 
         /* read the data from the socket, store it to a file and search for the EOF */
@@ -1889,7 +1890,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Prepare a suitable temp file for bulk transfer */
-    if (!useDisklessLoad()) {
+    if (!slaveUseDisklessLoading()) {
         while(maxtries--) {
             snprintf(tmpfile,256,
                 "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
