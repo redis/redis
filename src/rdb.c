@@ -1560,9 +1560,11 @@ void startLoading(size_t size) {
     server.loading_total_bytes = size;
 }
 
-/* Mark that we are loading in the global state and setup the fields
- * needed to provide loading stats.
- * 'filename' is optional and used for rdb-check on error */
+/* This is a wrapper for startLoading() that takes a file pointer instead of
+ * the size of the file, and does the work of calling fstat() to get the size.
+ * Moreover, if the optional 'filename' is passed, the global
+ * 'rdbFileBeingLoaded' is set, and will cause an RDB check on that file in
+ * case the loading of the file fails becuase of encoding errors. */
 void startLoadingFile(FILE *fp, char* filename) {
     struct stat sb;
     if (fstat(fileno(fp), &sb) == -1)
