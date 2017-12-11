@@ -613,8 +613,7 @@ int startBgsaveForReplication(int mincapa) {
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 /* Check slave has at least the minimum capabilities */
-                if ((mincapa & slave->slave_capa) != mincapa)
-                    continue;
+                if ((mincapa & slave->slave_capa) != mincapa) continue;
                 replicationSetupSlaveForFullResync(slave,
                         getPsyncInitialOffset());
             }
