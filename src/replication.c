@@ -1178,15 +1178,15 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
              * at the next call. */
             server.repl_transfer_size = 0;
             serverLog(LL_NOTICE,
-                "MASTER <-> SLAVE sync: receiving streamed RDB from master with EOF %s",
-                slaveUseDisklessLoading()? "to parser":"to disk");
+                "MASTER <-> SLAVE sync: receiving streamed RDB from master %s",
+                slaveUseDisklessLoading()? "to RDB parser":"to disk");
         } else {
             usemark = 0;
             server.repl_transfer_size = strtol(buf+1,NULL,10);
             serverLog(LL_NOTICE,
                 "MASTER <-> SLAVE sync: receiving %lld bytes from master %s",
                 (long long) server.repl_transfer_size,
-                slaveUseDisklessLoading()? "to parser":"to disk");
+                slaveUseDisklessLoading()? "to RDB parser":"to disk");
         }
         return;
     }
