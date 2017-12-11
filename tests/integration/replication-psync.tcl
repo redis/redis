@@ -95,7 +95,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
                     [lindex [$slave role] 3] eq {connected}
                 } else {
                     fail "Slave still not connected after some time"
-                }  
+                }
 
                 set retry 10
                 while {$retry && ([$master debug digest] ne [$slave debug digest])}\

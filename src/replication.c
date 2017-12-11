@@ -1267,7 +1267,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* We reach here when the slave is using diskless replication,
-     * or when we are done reading from the socket to the rdb file. */
+     * or when we are done reading from the socket to the RDB file. */
     serverLog(LL_NOTICE, "MASTER <-> SLAVE sync: Flushing old data");
     /* We need to stop any AOFRW fork before flusing and parsing
      * RDB, otherwise we'll create a copy-on-write disaster. */

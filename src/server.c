@@ -2578,7 +2578,7 @@ int prepareForShutdown(int flags) {
         flushAppendOnlyFile(1);
         aof_fsync(server.aof_fd);
     }
-    
+
     if (saveit && isUnsyncedSlave()) {
         serverLog(LL_NOTICE,"Server is a slave with no loaded dataset, skipping RDB save on exit.");
         saveit = 0;

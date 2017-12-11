@@ -34,7 +34,7 @@ start_server {} {
 
     test "PSYNC2: ### SETTING diskless master: $mdl; diskless slave (sync, load): $sdls, $sdll ###" {
     }
-    
+
     set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
         test "PSYNC2: --- CYCLE $cycle ---" {

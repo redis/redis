@@ -211,7 +211,7 @@ start_server {tags {"repl"}} {
         test {Kill master and restart slave} {
             # Kill the master mid-RDB sending
             catch {$master shutdown}
-            
+
             # Restart slave
             catch {$slave debug restart}
         }
