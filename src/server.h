@@ -1759,7 +1759,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
 long long emptyDbGeneric(redisDb* dbarray, int dbnum, int flags, void(callback)(void*));
-long long totalServerKeyCount();
+long long dbTotalNumberOfKeys();
 
 int selectDb(client *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);

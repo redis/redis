@@ -1110,7 +1110,8 @@ void restartAOF() {
 int slaveUseDisklessLoading() {
     return server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            server.repl_diskless_load == REPL_DISKLESS_LOAD_FLUSHDB ||
-           (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && totalServerKeyCount()==0);
+           (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY &&
+            dbTotalNumberOfKeys()==0);
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
