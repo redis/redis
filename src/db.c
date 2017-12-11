@@ -346,6 +346,10 @@ long long emptyDbGeneric(redisDb* dbarray, int dbnum, int flags, void(callback)(
     return removed;
 }
 
+/* This is the actual wrapper we use to call emptyDbGeneric(), using as
+ * array of DBs the main DBs structures stored at server.db. However calling
+ * directly emptyDbGeneric() can be useful in certain contexts where we want
+ * to release DBs structures stored elsewhere. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
     return emptyDbGeneric(server.db, dbnum, flags, callback);
 }
