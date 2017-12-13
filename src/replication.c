@@ -2606,6 +2606,30 @@ long long replicationGetSlaveOffset(void) {
     return offset;
 }
 
+/* An unsynced slave is a slave that has no state in order to continue the
+ * replication with its master. Technically speaking this happens when
+ * there is no master representation in server.master or server.cached_master.
+ *
+ * For instance a slave immediately after a restart is considered to be
+ * unsynced (with the exception of slaves loading the replication meta
+ * data from the RDB file, when this is possible).
+ * Similarly a slave that was told to replicate from another master (via
+ * SLAVEOF or other ways) but was yet not able to connect the new master
+ * to sync, is considered to be in unsynced state.
+ * Basically when a slave is unsynced, the only possible replication
+ * continuation is to perform a full sync with its master, throw away
+ * the current dataset, and load the master one.
+ *
+ * This concept is used in order to avoid the slave to persist on disk or
+ * to append to or rewrite the AOF file when it is not useful or safe.
+ *
+ * It's especially useful when slave-diskless is enabled with dangerous
+ * parameters, so that the DB could be flushed away before loading a new
+ * one from the network, but then the connection drops and the slave remains
+ * empty. This could only happen when a slave is in unsynced state, so
+ * preventing an unsynched slave from persisting to disk, means we could not
+ * end with an empty DB replacing the on disk RDB file. If a restart happens
+ * the slave will reload its old DB. */
 int isUnsyncedSlave() {
     return server.masterhost && replicationGetSlaveOffsetRaw() == -1;
 }
