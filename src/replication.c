@@ -1276,6 +1276,15 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
+        /* Check if server.repl_transfer_s is still valid */
+        if (server.repl_transfer_s < 0) {
+            serverLog(LL_WARNING, "Master SYNC socket is closed during loading DB from disk");
+            cancelReplicationHandshake();
+            /* Re-enable the AOF if we disabled it earlier, in order to restore
+             * the original configuration. */
+            if (aof_is_enabled) restartAOF();
+            return;
+        }
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
         /* After a full resynchroniziation we use the replication ID and
