@@ -1929,6 +1929,17 @@ void initServer(void) {
                 "blocked clients subsystem.");
     }
 
+    /* Open the AOF file if needed. */
+    if (server.aof_state == AOF_ON) {
+        server.aof_fd = open(server.aof_filename,
+                               O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
+            serverLog(LL_WARNING, "Can't open the append-only file: %s",
+                strerror(errno));
+            exit(1);
+        }
+    }
+
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids

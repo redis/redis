@@ -295,15 +295,6 @@ void flushAppendOnlyFile(int force) {
     /* We are not supposed to reach here if a slave has an empty data set */
     serverAssert(!isUnsyncedSlave());
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == AOF_ON && server.aof_fd == -1) {
-        server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            serverLog(LL_WARNING, "Can't open the append-only file: %s", strerror(errno));
-            exit(1);
-        }
-    }
-
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 
@@ -648,8 +639,8 @@ int loadAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
 
     if (fp == NULL) {
-        serverLog(LL_NOTICE,"Warning: Can't open the append log file for reading: %s (First run?)",strerror(errno));
-        return C_ERR;
+        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
+        exit(1);
     }
 
     /* Handle a zero-length AOF file as a special case. An emtpy AOF file
@@ -659,7 +650,7 @@ int loadAppendOnlyFile(char *filename) {
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
-        return C_OK;
+        return C_ERR;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
