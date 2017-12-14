@@ -266,7 +266,14 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
-ssize_t safe_write(int fd, const char *buf, size_t len) {
+/* This is a wrapper to the write syscall in order to retry on short writes
+ * or if the syscall gets interrupted. It could look strange that we retry
+ * on short writes given that we are writing to a block device: normally if
+ * the first call is short, there is a end-of-space condition, so the next
+ * is likely to fail. However apparently in modern systems this is no longer
+ * true, and in general it looks just more resilient to retry the write. If
+ * there is an actual error condition we'll get it at the next try. */
+ssize_t aofWrite(int fd, const char *buf, size_t len) {
     ssize_t nwritten = 0, totwritten = 0;
 
     while(len) {
@@ -344,7 +351,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = safe_write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
+    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
