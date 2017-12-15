@@ -1290,11 +1290,11 @@ void memoryCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
 
         const char *help[] = {
-"doctor - Return memory problems reports.",
-"malloc-stats -- Return internal statistics report from the memory allocator.",
-"purge -- Attempt to purge dirty pages for reclamation by the allocator.",
-"stats -- Return information about the memory usage of the server.",
-"usage <key> [samples <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
+"DOCTOR - Return memory problems reports.",
+"MALLOC-STATS -- Return internal statistics report from the memory allocator.",
+"PURGE -- Attempt to purge dirty pages for reclamation by the allocator.",
+"STATS -- Return information about the memory usage of the server.",
+"USAGE <key> [SAMPLES <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
 NULL
         };
         addReplyHelp(c, help);
