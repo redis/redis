@@ -1071,20 +1071,15 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 void objectCommand(client *c) {
     robj *o;
 
-    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        void *blenp = addDeferredMultiBulkLength(c);
-        int blen = 0;
-        blen++; addReplyStatus(c,
-        "OBJECT <subcommand> key. Subcommands:");
-        blen++; addReplyStatus(c,
-        "refcount -- Return the number of references of the value associated with the specified key.");
-        blen++; addReplyStatus(c,
-        "encoding -- Return the kind of internal representation used in order to store the value associated with a key.");
-        blen++; addReplyStatus(c,
-        "idletime -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.");
-        blen++; addReplyStatus(c,
-        "freq -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.");
-        setDeferredMultiBulkLength(c,blenp,blen);
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
+"freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
+"idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
+"refcount <key> -- Return the number of references of the value associated with the specified key.",
+NULL
+        };
+        addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
@@ -1114,8 +1109,7 @@ void objectCommand(client *c) {
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help",
-            (char *)c->argv[1]->ptr);
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help", (char *)c->argv[1]->ptr);
     }
 }
 

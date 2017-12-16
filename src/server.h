@@ -733,6 +733,7 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
+    listNode *client_list_node; /* list node in client list */
 
     /* Response buffer */
     int bufpos;
@@ -1370,6 +1371,7 @@ void addReplyDouble(client *c, double d);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
+void addReplyHelp(client *c, const char **help);
 void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
@@ -1398,6 +1400,7 @@ int handleClientsWithPendingWrites(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);
 int writeToClient(int fd, client *c, int handler_installed);
+void linkClient(client *c);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)

@@ -258,7 +258,7 @@ struct redisCommand redisCommandTable[] = {
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-1,"as",0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
@@ -2478,8 +2478,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
-     * we are a slave with a broken link with master. */
+    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
+     * when slave-serve-stale-data is no and we are a slave with a broken
+     * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & CMD_STALE))
@@ -2766,7 +2767,16 @@ void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 1) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"(no subcommand) -- Return details about all Redis commands.",
+"count -- Return the total number of commands in this Redis server.",
+"getkeys <full-command> -- Return the keys from a full Redis command.",
+"info [command-name ...] -- Return details about multiple Redis commands.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 1) {
         addReplyMultiBulkLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
@@ -2800,8 +2810,7 @@ void commandCommand(client *c) {
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
     } else {
-        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
-        return;
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND HELP", (char*)c->argv[1]->ptr);
     }
 }
 
