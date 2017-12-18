@@ -370,10 +370,11 @@ size_t freeMemoryGetNotCountedMemory(void) {
 }
 
 int freeMemoryIfNeeded(void) {
-    size_t mem_reported, mem_used, mem_tofree, mem_freed;
+    size_t mem_reported, mem_used_init, mem_used, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency, lazyfree_latency;
     long long delta;
     int slaves = listLength(server.slaves);
+    int result = C_ERR;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -395,6 +396,7 @@ int freeMemoryIfNeeded(void) {
     if (mem_used <= server.maxmemory) return C_OK;
 
     /* Compute how much memory we need to free. */
+    mem_used_init = mem_used;
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
 
@@ -541,24 +543,26 @@ int freeMemoryIfNeeded(void) {
             goto cant_free; /* nothing to free... */
         }
     }
-    latencyEndMonitor(latency);
-    latencyAddSampleIfNeeded("eviction-cycle",latency);
-    return C_OK;
+    result = C_OK;
 
 cant_free:
     /* We are here if we are not able to reclaim memory. There is only one
      * last thing we can try: check if the lazyfree thread has jobs in queue
      * and wait... */
-    latencyStartMonitor(lazyfree_latency);
-    while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
-        if (((mem_reported - zmalloc_used_memory()) + mem_freed) >= mem_tofree)
-            break;
-        usleep(1000);
+    if (result != C_OK) {
+        latencyStartMonitor(lazyfree_latency);
+        while(bioPendingJobsOfType(BIO_LAZY_FREE)) {
+            if ((mem_used_init - zmalloc_used_memory()) >= mem_tofree) {
+                result = C_OK;
+                break;
+            }
+            usleep(1000);
+        }
+        latencyEndMonitor(lazyfree_latency);
+        latencyAddSampleIfNeeded("eviction-lazyfree",latency);
     }
-    latencyEndMonitor(lazyfree_latency);
-    latencyAddSampleIfNeeded("eviction-lazyfree",latency);
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("eviction-cycle",latency);
-    return C_ERR;
+    return result;
 }
 
