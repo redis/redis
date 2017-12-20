@@ -239,6 +239,27 @@ void computeDatasetDigest(unsigned char *final) {
                     xorDigest(digest,eledigest,20);
                 }
                 hashTypeReleaseIterator(hi);
+            } else if (o->type == OBJ_STREAM) {
+                streamIterator si;
+                streamIteratorStart(&si,o->ptr,NULL,NULL,0);
+                streamID id;
+                int64_t numfields;
+
+                while(streamIteratorGetID(&si,&id,&numfields)) {
+                    sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
+                    mixDigest(digest,itemid,sdslen(itemid));
+                    sdsfree(itemid);
+
+                    while(numfields--) {
+                        unsigned char *field, *value;
+                        int64_t field_len, value_len;
+                        streamIteratorGetField(&si,&field,&value,
+                                                   &field_len,&value_len);
+                        mixDigest(digest,field,field_len);
+                        mixDigest(digest,value,value_len);
+                    }
+                }
+                streamIteratorStop(&si);
             } else if (o->type == OBJ_MODULE) {
                 RedisModuleDigest md;
                 moduleValue *mv = o->ptr;
@@ -262,53 +283,30 @@ void computeDatasetDigest(unsigned char *final) {
 }
 
 void debugCommand(client *c) {
-    if (c->argc == 1) {
-        addReplyError(c,"You must specify a subcommand for DEBUG. Try DEBUG HELP for info.");
-        return;
-    }
-
-    if (!strcasecmp(c->argv[1]->ptr,"help")) {
-        void *blenp = addDeferredMultiBulkLength(c);
-        int blen = 0;
-        blen++; addReplyStatus(c,
-        "DEBUG <subcommand> arg arg ... arg. Subcommands:");
-        blen++; addReplyStatus(c,
-        "segfault -- Crash the server with sigsegv.");
-        blen++; addReplyStatus(c,
-        "panic -- Crash the server simulating a panic.");
-        blen++; addReplyStatus(c,
-        "restart  -- Graceful restart: save config, db, restart.");
-        blen++; addReplyStatus(c,
-        "crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.");
-        blen++; addReplyStatus(c,
-        "assert   -- Crash by assertion failed.");
-        blen++; addReplyStatus(c,
-        "reload   -- Save the RDB on disk and reload it back in memory.");
-        blen++; addReplyStatus(c,
-        "loadaof  -- Flush the AOF buffers on disk and reload the AOF in memory.");
-        blen++; addReplyStatus(c,
-        "object <key> -- Show low level info about key and associated value.");
-        blen++; addReplyStatus(c,
-        "sdslen <key> -- Show low level SDS string info representing key and value.");
-        blen++; addReplyStatus(c,
-        "ziplist <key> -- Show low level info about the ziplist encoding.");
-        blen++; addReplyStatus(c,
-        "populate <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.");
-        blen++; addReplyStatus(c,
-        "digest   -- Outputs an hex signature representing the current DB content.");
-        blen++; addReplyStatus(c,
-        "sleep <seconds> -- Stop the server for <seconds>. Decimals allowed.");
-        blen++; addReplyStatus(c,
-        "set-active-expire (0|1) -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.");
-        blen++; addReplyStatus(c,
-        "lua-always-replicate-commands (0|1) -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.");
-        blen++; addReplyStatus(c,
-        "error <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.");
-        blen++; addReplyStatus(c,
-        "structsize -- Return the size of different Redis core C structures.");
-        blen++; addReplyStatus(c,
-        "htstats <dbid> -- Return hash table statistics of the specified Redis database.");
-        setDeferredMultiBulkLength(c,blenp,blen);
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"assert -- Crash by assertion failed.",
+"change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
+"crash-and-recovery <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
+"digest -- Outputs an hex signature representing the current DB content.",
+"htstats <dbid> -- Return hash table statistics of the specified Redis database.",
+"loadaof -- Flush the AOF buffers on disk and reload the AOF in memory.",
+"lua-always-replicate-commands (0|1) -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
+"object <key> -- Show low level info about key and associated value.",
+"panic -- Crash the server simulating a panic.",
+"populate <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
+"reload -- Save the RDB on disk and reload it back in memory.",
+"restart -- Graceful restart: save config, db, restart.",
+"sdslen <key> -- Show low level SDS string info representing key and value.",
+"segfault -- Crash the server with sigsegv.",
+"set-active-expire (0|1) -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
+"sleep <seconds> -- Stop the server for <seconds>. Decimals allowed.",
+"structsize -- Return the size of different Redis core C structures.",
+"ziplist <key> -- Show low level info about the ziplist encoding.",
+"error <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
+NULL
+        };
+        addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
     } else if (!strcasecmp(c->argv[1]->ptr,"panic")) {
@@ -335,7 +333,9 @@ void debugCommand(client *c) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        if (rdbSave(server.rdb_filename,NULL) != C_OK) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
             addReply(c,shared.err);
             return;
         }
@@ -368,13 +368,13 @@ void debugCommand(client *c) {
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
-        char extra[128] = {0};
+        char extra[138] = {0};
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%u", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */
@@ -547,9 +547,15 @@ void debugCommand(client *c) {
         stats = sdscat(stats,buf);
 
         addReplyBulkSds(c,stats);
+    } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
+        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        changeReplicationId();
+        clearReplicationId2();
+        addReply(c,shared.ok);
     } else {
-        addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try DEBUG HELP",
             (char*)c->argv[1]->ptr);
+        return;
     }
 }
 

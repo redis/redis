@@ -67,6 +67,16 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+/* This function links the client to the global linked list of clients.
+ * unlinkClient() does the opposite, among other things. */
+void linkClient(client *c) {
+    listAddNodeTail(server.clients,c);
+    /* Note that we remember the linked list node where the client is stored,
+     * this way removing the client in unlinkClient() will not require
+     * a linear scan, but just a constant time operation. */
+    c->client_list_node = listLast(server.clients);
+}
+
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -124,8 +134,9 @@ client *createClient(int fd) {
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->btype = BLOCKED_NONE;
     c->bpop.timeout = 0;
-    c->bpop.keys = dictCreate(&objectKeyPointerValueDictType,NULL);
+    c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType,NULL);
     c->bpop.target = NULL;
+    c->bpop.xread_group = NULL;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
@@ -133,9 +144,10 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) linkClient(c);
     initClientMultiState(c);
     return c;
 }
@@ -566,7 +578,7 @@ void addReplyBulkSds(client *c, sds s)  {
     addReply(c,shared.crlf);
 }
 
-/* Add a C nul term string as bulk reply */
+/* Add a C null term string as bulk reply */
 void addReplyBulkCString(client *c, const char *s) {
     if (s == NULL) {
         addReply(c,shared.nullbulk);
@@ -582,6 +594,26 @@ void addReplyBulkLongLong(client *c, long long ll) {
 
     len = ll2string(buf,64,ll);
     addReplyBulkCBuffer(c,buf,len);
+}
+
+/* Add an array of C strings as status replies with a heading.
+ * This function is typically invoked by from commands that support
+ * subcommands in response to the 'help' subcommand. The help array
+ * is terminated by NULL sentinel. */
+void addReplyHelp(client *c, const char **help) {
+    sds cmd = sdsnew((char*) c->argv[0]->ptr);
+    void *blenp = addDeferredMultiBulkLength(c);
+    int blen = 0;
+
+    sdstoupper(cmd);
+    addReplyStatusFormat(c,
+        "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
+    sdsfree(cmd);
+
+    while (help[blen]) addReplyStatus(c,help[blen++]);
+
+    blen++;  /* Account for the header line(s). */
+    setDeferredMultiBulkLength(c,blenp,blen);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
@@ -743,9 +775,10 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
+        if (c->client_list_node) {
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
@@ -1556,7 +1589,22 @@ void clientCommand(client *c) {
     listIter li;
     client *client;
 
-    if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"getname -- Return the name of the current connection.",
+"kill <ip:port> -- Kill connection made from <ip:port>.",
+"kill <option> <value> [option value ...] -- Kill connections. Options are:",
+"     addr <ip:port> -- Kill connection made from <ip:port>.",
+"     type (normal|master|slave|pubsub) -- Kill connections by type.",
+"     skipme (yes|no) -- Skip killing current connection (default: yes).",
+"list -- Return information about client connections.",
+"pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
+"reply (on|off|skip) -- Control the replies sent to the current connection.",
+"setname <name> -- Assign the name <name> to the current connection.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
         /* CLIENT LIST */
         sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
@@ -1702,7 +1750,7 @@ void clientCommand(client *c) {
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL | GETNAME | SETNAME | PAUSE | REPLY)");
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
     }
 }
 

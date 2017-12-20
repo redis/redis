@@ -10,7 +10,7 @@ start_server {} {
     # Config
     set debug_msg 0                 ; # Enable additional debug messages
 
-    set no_exit 0;                  ; # Do not exit at end of the test
+    set no_exit 0                   ; # Do not exit at end of the test
 
     set duration 20                 ; # Total test seconds
 
@@ -173,6 +173,69 @@ start_server {} {
         }
         set new_sync_count [status $R($master_id) sync_full]
         assert {$sync_count == $new_sync_count}
+    }
+
+    test "PSYNC2: Slave RDB restart with EVALSHA in backlog issue #4483" {
+        # Pick a random slave
+        set slave_id [expr {($master_id+1)%5}]
+        set sync_count [status $R($master_id) sync_full]
+
+        # Make sure to replicate the first EVAL while the salve is online
+        # so that it's part of the scripts the master believes it's safe
+        # to propagate as EVALSHA.
+        $R($master_id) EVAL {return redis.call("incr","__mycounter")} 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+
+        # Wait for the two to sync
+        wait_for_condition 50 1000 {
+            [$R($master_id) debug digest] == [$R($slave_id) debug digest]
+        } else {
+            fail "Slave not reconnecting"
+        }
+
+        # Prevent the slave from receiving master updates, and at
+        # the same time send a new script several times to the
+        # master, so that we'll end with EVALSHA into the backlog.
+        $R($slave_id) slaveof 127.0.0.1 0
+
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+        $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
+
+        catch {
+            $R($slave_id) config rewrite
+            $R($slave_id) debug restart
+        }
+
+        # Reconfigure the slave correctly again, when it's back online.
+        set retry 50
+        while {$retry} {
+            if {[catch {
+                $R($slave_id) slaveof $master_host $master_port
+            }]} {
+                after 1000
+            } else {
+                break
+            }
+            incr retry -1
+        }
+
+        # The master should be back at 4 slaves eventually
+        wait_for_condition 50 1000 {
+            [status $R($master_id) connected_slaves] == 4
+        } else {
+            fail "Slave not reconnecting"
+        }
+        set new_sync_count [status $R($master_id) sync_full]
+        assert {$sync_count == $new_sync_count}
+
+        # However if the slave started with the full state of the
+        # scripting engine, we should now have the same digest.
+        wait_for_condition 50 1000 {
+            [$R($master_id) debug digest] == [$R($slave_id) debug digest]
+        } else {
+            fail "Debug digest mismatch between master and slave in post-restart handshake"
+        }
     }
 
     if {$no_exit} {

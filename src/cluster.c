@@ -243,6 +243,7 @@ int clusterLoadConfig(char *filename) {
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j]+1);
+                if (slot < 0 || slot >= CLUSTER_SLOTS) goto fmterr;
                 p += 3;
                 cn = clusterLookupNode(p);
                 if (!cn) {
@@ -262,6 +263,8 @@ int clusterLoadConfig(char *filename) {
             } else {
                 start = stop = atoi(argv[j]);
             }
+            if (start < 0 || start >= CLUSTER_SLOTS) goto fmterr;
+            if (stop < 0 || stop >= CLUSTER_SLOTS) goto fmterr;
             while(start <= stop) clusterAddSlot(n, start++);
         }
 
@@ -650,7 +653,7 @@ unsigned int keyHashSlot(char *key, int keylen) {
     for (e = s+1; e < keylen; e++)
         if (key[e] == '}') break;
 
-    /* No '}' or nothing betweeen {} ? Hash the whole key. */
+    /* No '}' or nothing between {} ? Hash the whole key. */
     if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
 
     /* If we are here there is both a { and a } on its right. Hash
@@ -4062,7 +4065,34 @@ void clusterCommand(client *c) {
         return;
     }
 
-    if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"addslots <slot> [slot ...] -- Assign slots to current node.",
+"bumpepoch -- Advance the cluster config epoch.",
+"count-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
+"countkeysinslot <slot> - Return the number of keys in <slot>.",
+"delslots <slot> [slot ...] -- Delete slots information from current node.",
+"failover [force|takeover] -- Promote current slave node to being a master.",
+"forget <node-id> -- Remove a node from the cluster.",
+"getkeysinslot <slot> <count> -- Return key names stored by current node in a slot.",
+"flushslots -- Delete current node own slots information.",
+"info - Return onformation about the cluster.",
+"keyslot <key> -- Return the hash slot for <key>.",
+"meet <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
+"myid -- Return the node id.",
+"nodes -- Return cluster configuration seen by node. Output format:",
+"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
+"replicate <node-id> -- Configure current node as slave to <node-id>.",
+"reset [hard|soft] -- Reset current node (default: soft).",
+"set-config-epoch <epoch> - Set config epoch of current node.",
+"setslot <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
+"slaves <node-id> -- Return <node-id> slaves.",
+"slots -- Return information about slots range mappings. Each range is made of:",
+"    start, end, master and replicas IP addresses, ports and ids",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
         /* CLUSTER MEET <ip> <port> [cport] */
         long long port, cport;
 
@@ -4255,7 +4285,7 @@ void clusterCommand(client *c) {
             clusterAddSlot(n,slot);
         } else {
             addReplyError(c,
-                "Invalid CLUSTER SETSLOT action or number of arguments");
+                "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
             return;
         }
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
@@ -4605,7 +4635,9 @@ void clusterCommand(client *c) {
         clusterReset(hard);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"Wrong CLUSTER subcommand or number of arguments");
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLUSTER HELP",
+            (char*)c->argv[1]->ptr);
+        return;
     }
 }
 
@@ -5397,7 +5429,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * node is a slave and the request is about an hash slot our master
      * is serving, we can reply without redirection. */
     if (c->flags & CLIENT_READONLY &&
-        cmd->flags & CMD_READONLY &&
+        (cmd->flags & CMD_READONLY || cmd->proc == evalCommand ||
+         cmd->proc == evalShaCommand) &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)
     {

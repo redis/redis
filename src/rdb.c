@@ -31,6 +31,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "stream.h"
 
 #include <math.h>
 #include <sys/types.h>
@@ -622,6 +623,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_HASH);
         else
             serverPanic("Unknown hash encoding");
+    case OBJ_STREAM:
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -656,7 +659,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
-            do {
+            while(node) {
                 if (quicklistNodeIsCompressed(node)) {
                     void *data;
                     size_t compress_len = quicklistGetLzf(node, &data);
@@ -666,7 +669,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
                     if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
                     nwritten += n;
                 }
-            } while ((node = node->next));
+                node = node->next;
+            }
         } else {
             serverPanic("Unknown list encoding");
         }
@@ -761,7 +765,39 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
         } else {
             serverPanic("Unknown hash encoding");
         }
+    } else if (o->type == OBJ_STREAM) {
+        /* Store how many listpacks we have inside the radix tree. */
+        stream *s = o->ptr;
+        rax *rax = s->rax;
+        if ((n = rdbSaveLen(rdb,raxSize(rax))) == -1) return -1;
+        nwritten += n;
 
+        /* Serialize all the listpacks inside the radix tree as they are,
+         * when loading back, we'll use the first entry of each listpack
+         * to insert it back into the radix tree. */
+        raxIterator ri;
+        raxStart(&ri,rax);
+        raxSeek(&ri,"^",NULL,0);
+        while (raxNext(&ri)) {
+            unsigned char *lp = ri.data;
+            size_t lp_bytes = lpBytes(lp);
+            if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveRawString(rdb,lp,lp_bytes)) == -1) return -1;
+            nwritten += n;
+        }
+        raxStop(&ri);
+
+        /* Save the number of elements inside the stream. We cannot obtain
+         * this easily later, since our macro nodes should be checked for
+         * number of items: not a great CPU / space tradeoff. */
+        if ((n = rdbSaveLen(rdb,s->length)) == -1) return -1;
+        nwritten += n;
+        /* Save the last entry ID. */
+        if ((n = rdbSaveLen(rdb,s->last_id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb,s->last_id.seq)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -858,16 +894,14 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
 
     /* Handle saving options that generate aux fields. */
     if (rsi) {
-        if (rsi->repl_stream_db &&
-            rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
-            == -1)
-        {
-            return -1;
-        }
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-stream-db",rsi->repl_stream_db)
+            == -1) return -1;
+        if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid)
+            == -1) return -1;
+        if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
+            == -1) return -1;
     }
     if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
-    if (rdbSaveAuxFieldStrStr(rdb,"repl-id",server.replid) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset) == -1) return -1;
     return 1;
 }
 
@@ -943,6 +977,20 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         dictReleaseIterator(di);
     }
     di = NULL; /* So that we don't release it again on error. */
+
+    /* If we are storing the replication information on disk, persist
+     * the script cache as well: on successful PSYNC after a restart, we need
+     * to be able to process any EVALSHA inside the replication backlog the
+     * master will send us. */
+    if (rsi && dictSize(server.lua_scripts)) {
+        di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            robj *body = dictGetVal(de);
+            if (rdbSaveAuxField(rdb,"lua",3,body->ptr,sdslen(body->ptr)) == -1)
+                goto werr;
+        }
+        dictReleaseIterator(di);
+    }
 
     /* EOF opcode */
     if (rdbSaveType(rdb,RDB_OPCODE_EOF) == -1) goto werr;
@@ -1396,6 +1444,45 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 rdbExitReportCorruptRDB("Unknown RDB encoding type %d",rdbtype);
                 break;
         }
+    } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS) {
+        o = createStreamObject();
+        stream *s = o->ptr;
+        uint64_t listpacks = rdbLoadLen(rdb,NULL);
+
+        while(listpacks--) {
+            /* Get the master ID, the one we'll use as key of the radix tree
+             * node: the entries inside the listpack itself are delta-encoded
+             * relatively to this ID. */
+            sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (sdslen(nodekey) != sizeof(streamID)) {
+                rdbExitReportCorruptRDB("Stream node key entry is not the "
+                                        "size of a stream ID");
+            }
+
+            /* Load the listpack. */
+            unsigned char *lp =
+                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,NULL);
+            if (lp == NULL) return NULL;
+            unsigned char *first = lpFirst(lp);
+            if (first == NULL) {
+                /* Serialized listpacks should never be empty, since on
+                 * deletion we should remove the radix tree key if the
+                 * resulting listpack is emtpy. */
+                rdbExitReportCorruptRDB("Empty listpack inside stream");
+            }
+
+            /* Insert the key in the radix tree. */
+            int retval = raxInsert(s->rax,
+                (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
+            sdsfree(nodekey);
+            if (!retval)
+                rdbExitReportCorruptRDB("Listpack re-added with existing key");
+        }
+        /* Load total number of items inside the stream. */
+        s->length = rdbLoadLen(rdb,NULL);
+        /* Load the last entry ID. */
+        s->last_id.ms = rdbLoadLen(rdb,NULL);
+        s->last_id.seq = rdbLoadLen(rdb,NULL);
     } else if (rdbtype == RDB_TYPE_MODULE || rdbtype == RDB_TYPE_MODULE_2) {
         uint64_t moduleid = rdbLoadLen(rdb,NULL);
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
@@ -1590,6 +1677,13 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 }
             } else if (!strcasecmp(auxkey->ptr,"repl-offset")) {
                 if (rsi) rsi->repl_offset = strtoll(auxval->ptr,NULL,10);
+            } else if (!strcasecmp(auxkey->ptr,"lua")) {
+                /* Load the script back in memory. */
+                if (luaCreateFunction(NULL,server.lua,auxval) == NULL) {
+                    rdbExitReportCorruptRDB(
+                        "Can't load Lua script from RDB file! "
+                        "BODY: %s", auxval->ptr);
+                }
             } else {
                 /* We ignore fields we don't understand, as by AUX field
                  * contract. */
@@ -1977,7 +2071,9 @@ void saveCommand(client *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
-    if (rdbSave(server.rdb_filename,NULL) == C_OK) {
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+    if (rdbSave(server.rdb_filename,rsiptr) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReply(c,shared.err);
@@ -1999,6 +2095,9 @@ void bgsaveCommand(client *c) {
         }
     }
 
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
@@ -2011,9 +2110,58 @@ void bgsaveCommand(client *c) {
                 "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
                 "possible.");
         }
-    } else if (rdbSaveBackground(server.rdb_filename,NULL) == C_OK) {
+    } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);
     }
+}
+
+/* Populate the rdbSaveInfo structure used to persist the replication
+ * information inside the RDB file. Currently the structure explicitly
+ * contains just the currently selected DB from the master stream, however
+ * if the rdbSave*() family functions receive a NULL rsi structure also
+ * the Replication ID/offset is not saved. The function popultes 'rsi'
+ * that is normally stack-allocated in the caller, returns the populated
+ * pointer if the instance has a valid master client, otherwise NULL
+ * is returned, and the RDB saving will not persist any replication related
+ * information. */
+rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi) {
+    rdbSaveInfo rsi_init = RDB_SAVE_INFO_INIT;
+    *rsi = rsi_init;
+
+    /* If the instance is a master, we can populate the replication info
+     * only when repl_backlog is not NULL. If the repl_backlog is NULL,
+     * it means that the instance isn't in any replication chains. In this
+     * scenario the replication info is useless, because when a slave
+     * connects to us, the NULL repl_backlog will trigger a full
+     * synchronization, at the same time we will use a new replid and clear
+     * replid2. */
+    if (!server.masterhost && server.repl_backlog) {
+        /* Note that when server.slaveseldb is -1, it means that this master
+         * didn't apply any write commands after a full synchronization.
+         * So we can let repl_stream_db be 0, this allows a restarted slave
+         * to reload replication ID/offset, it's safe because the next write
+         * command must generate a SELECT statement. */
+        rsi->repl_stream_db = server.slaveseldb == -1 ? 0 : server.slaveseldb;
+        return rsi;
+    }
+
+    /* If the instance is a slave we need a connected master
+     * in order to fetch the currently selected DB. */
+    if (server.master) {
+        rsi->repl_stream_db = server.master->db->id;
+        return rsi;
+    }
+
+    /* If we have a cached master we can use it in order to populate the
+     * replication selected DB info inside the RDB file: the slave can
+     * increment the master_repl_offset only from data arriving from the
+     * master, so if we are disconnected the offset in the cached master
+     * is valid. */
+    if (server.cached_master) {
+        rsi->repl_stream_db = server.cached_master->db->id;
+        return rsi;
+    }
+    return NULL;
 }
