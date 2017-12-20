@@ -5168,7 +5168,9 @@ socket_err:
     /* Cleanup we want to do if no retry is attempted. */
     zfree(ov); zfree(kv);
     if (auth_error)
-        addReply(c, shared.noautherr);
+        addReplyErrorFormat(c,
+            "Target instance replied with error: %s",
+            (char *)(getDecodedObject(shared.noautherr)->ptr) + 1);
     else
         addReplySds(c,
             sdscatprintf(sdsempty(),
