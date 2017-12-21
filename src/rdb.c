@@ -424,7 +424,7 @@ ssize_t rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
 }
 
 /* Like rdbSaveRawString() gets a Redis object instead. */
-int rdbSaveStringObject(rio *rdb, robj *obj) {
+ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
      * object is already integer encoded. */
     if (obj->encoding == OBJ_ENCODING_INT) {
@@ -826,21 +826,25 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
 }
 
 /* Save an AUX field. */
-int rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
-    if (rdbSaveType(rdb,RDB_OPCODE_AUX) == -1) return -1;
-    if (rdbSaveRawString(rdb,key,keylen) == -1) return -1;
-    if (rdbSaveRawString(rdb,val,vallen) == -1) return -1;
-    return 1;
+ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t vallen) {
+    ssize_t ret, len = 0;
+    if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) return -1;
+    len += ret;
+    if ((ret = rdbSaveRawString(rdb,key,keylen) == -1)) return -1;
+    len += ret;
+    if ((ret = rdbSaveRawString(rdb,val,vallen) == -1)) return -1;
+    len += ret;
+    return len;
 }
 
 /* Wrapper for rdbSaveAuxField() used when key/val length can be obtained
  * with strlen(). */
-int rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
+ssize_t rdbSaveAuxFieldStrStr(rio *rdb, char *key, char *val) {
     return rdbSaveAuxField(rdb,key,strlen(key),val,strlen(val));
 }
 
 /* Wrapper for strlen(key) + integer type (up to long long range). */
-int rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
+ssize_t rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
     char buf[LONG_STR_SIZE];
     int vlen = ll2string(buf,sizeof(buf),val);
     return rdbSaveAuxField(rdb,key,strlen(key),buf,vlen);
