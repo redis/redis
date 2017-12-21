@@ -310,7 +310,7 @@ void rioSetAutoSync(rio *r, off_t bytes) {
  * generating the Redis protocol for the Append Only File. */
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
-size_t rioWriteBulkCount(rio *r, char prefix, int count) {
+size_t rioWriteBulkCount(rio *r, char prefix, long count) {
     char cbuf[128];
     int clen;
 
