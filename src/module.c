@@ -442,9 +442,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
 void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
     client *c = ctx->client;
 
-    /* We don't want any automatic propagation here since in modules we handle
-     * replication / AOF propagation in explicit ways. */
-    preventCommandPropagation(c);
+    if (c->flags & CLIENT_LUA) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
      * emits is always wrappered around MULTI/EXEC. */
@@ -615,7 +613,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     sds cmdname = sdsnew(name);
 
     /* Check if the command name is busy. */
-    if (lookupCommand((char*)name) != NULL) {
+    if (lookupCommand(cmdname) != NULL) {
         sdsfree(cmdname);
         return REDISMODULE_ERR;
     }
@@ -650,7 +648,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
  *
  * This is an internal function, Redis modules developers don't need
  * to use it. */
-void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver){
+void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     RedisModule *module;
 
     if (ctx->module != NULL) return;
@@ -660,6 +658,15 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->apiver = apiver;
     module->types = listCreate();
     ctx->module = module;
+}
+
+/* Return non-zero if the module name is busy.
+ * Otherwise zero is returned. */
+int RM_IsModuleNameBusy(const char *name) {
+    sds modulename = sdsnew(name);
+    dictEntry *de = dictFind(modules,modulename);
+    sdsfree(modulename);
+    return de != NULL;
 }
 
 /* Return the current UNIX time in milliseconds. */
@@ -1164,6 +1171,9 @@ int RM_ReplyWithDouble(RedisModuleCtx *ctx, double d) {
  * in the context of a command execution. EXEC will be handled by the
  * RedisModuleCommandDispatcher() function. */
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx) {
+    /* Skip this if client explicitly wrap the command with MULTI, or if
+     * the module command was called by a script. */
+    if (ctx->client->flags & (CLIENT_MULTI|CLIENT_LUA)) return;
     /* If we already emitted MULTI return ASAP. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) return;
     /* If this is a thread safe context, we do not want to wrap commands
@@ -1216,6 +1226,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
     zfree(argv);
+    server.dirty++;
     return REDISMODULE_OK;
 }
 
@@ -1234,6 +1245,7 @@ int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
     alsoPropagate(ctx->client->cmd,ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
         PROPAGATE_AOF|PROPAGATE_REPL);
+    server.dirty++;
     return REDISMODULE_OK;
 }
 
@@ -3733,6 +3745,28 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     zfree(module);
 }
 
+void moduleUnregisterCommands(struct RedisModule *module) {
+    /* Unregister all the commands registered by this module. */
+    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->proc == RedisModuleCommandDispatcher) {
+            RedisModuleCommandProxy *cp =
+                (void*)(unsigned long)cmd->getkeys_proc;
+            sds cmdname = cp->rediscmd->name;
+            if (cp->module == module) {
+                dictDelete(server.commands,cmdname);
+                dictDelete(server.orig_commands,cmdname);
+                sdsfree(cmdname);
+                zfree(cp->rediscmd);
+                zfree(cp);
+            }
+        }
+    }
+    dictReleaseIterator(di);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
@@ -3753,7 +3787,10 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         return C_ERR;
     }
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
-        if (ctx.module) moduleFreeModuleStructure(ctx.module);
+        if (ctx.module) {
+            moduleUnregisterCommands(ctx.module);
+            moduleFreeModuleStructure(ctx.module);
+        }
         dlclose(handle);
         serverLog(LL_WARNING,
             "Module %s initialization failed. Module not loaded",path);
@@ -3787,25 +3824,7 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     }
 
-    /* Unregister all the commands registered by this module. */
-    dictIterator *di = dictGetSafeIterator(server.commands);
-    dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
-        struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->proc == RedisModuleCommandDispatcher) {
-            RedisModuleCommandProxy *cp =
-                (void*)(unsigned long)cmd->getkeys_proc;
-            sds cmdname = cp->rediscmd->name;
-            if (cp->module == module) {
-                dictDelete(server.commands,cmdname);
-                dictDelete(server.orig_commands,cmdname);
-                sdsfree(cmdname);
-                zfree(cp->rediscmd);
-                zfree(cp);
-            }
-        }
-    }
-    dictReleaseIterator(di);
+    moduleUnregisterCommands(module);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
 
@@ -3900,6 +3919,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Strdup);
     REGISTER_API(CreateCommand);
     REGISTER_API(SetModuleAttribs);
+    REGISTER_API(IsModuleNameBusy);
     REGISTER_API(WrongArity);
     REGISTER_API(ReplyWithLongLong);
     REGISTER_API(ReplyWithError);

@@ -237,11 +237,11 @@ void stopAppendOnly(void) {
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
     char cwd[MAXPATHLEN]; /* Current working dir path for error messages. */
+    int newfd;
 
-    server.aof_last_fsync = server.unixtime;
-    server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
+    newfd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     serverAssert(server.aof_state == AOF_OFF);
-    if (server.aof_fd == -1) {
+    if (newfd == -1) {
         char *cwdp = getcwd(cwd,MAXPATHLEN);
 
         serverLog(LL_WARNING,
@@ -256,14 +256,44 @@ int startAppendOnly(void) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else if (rewriteAppendOnlyFileBackground() == C_ERR) {
-        close(server.aof_fd);
+        close(newfd);
         serverLog(LL_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
         return C_ERR;
     }
     /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
     server.aof_state = AOF_WAIT_REWRITE;
+    server.aof_last_fsync = server.unixtime;
+    server.aof_fd = newfd;
     return C_OK;
+}
+
+/* This is a wrapper to the write syscall in order to retry on short writes
+ * or if the syscall gets interrupted. It could look strange that we retry
+ * on short writes given that we are writing to a block device: normally if
+ * the first call is short, there is a end-of-space condition, so the next
+ * is likely to fail. However apparently in modern systems this is no longer
+ * true, and in general it looks just more resilient to retry the write. If
+ * there is an actual error condition we'll get it at the next try. */
+ssize_t aofWrite(int fd, const char *buf, size_t len) {
+    ssize_t nwritten = 0, totwritten = 0;
+
+    while(len) {
+        nwritten = write(fd, buf, len);
+
+        if (nwritten < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return totwritten ? totwritten : -1;
+        }
+
+        len -= nwritten;
+        buf += nwritten;
+        totwritten += nwritten;
+    }
+
+    return totwritten;
 }
 
 /* Write the append only file buffer on disk.
@@ -323,7 +353,7 @@ void flushAppendOnlyFile(int force) {
      * or alike */
 
     latencyStartMonitor(latency);
-    nwritten = write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
+    nwritten = aofWrite(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
     /* We want to capture different events for delayed writes:
      * when the delay happens with a pending fsync, or with a saving child
@@ -342,7 +372,7 @@ void flushAppendOnlyFile(int force) {
     /* We performed the write so reset the postponed flush sentinel to zero. */
     server.aof_flush_postponed_start = 0;
 
-    if (nwritten != (signed)sdslen(server.aof_buf)) {
+    if (nwritten != (ssize_t)sdslen(server.aof_buf)) {
         static time_t last_write_error_log = 0;
         int can_log = 0;
 
@@ -1031,6 +1061,37 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Emit the commands needed to rebuild a stream object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteStreamObject(rio *r, robj *key, robj *o) {
+    streamIterator si;
+    streamIteratorStart(&si,o->ptr,NULL,NULL,0);
+    streamID id;
+    int64_t numfields;
+
+    while(streamIteratorGetID(&si,&id,&numfields)) {
+        /* Emit a two elements array for each item. The first is
+         * the ID, the second is an array of field-value pairs. */
+
+        /* Emit the XADD <key> <id> ...fields... command. */
+        if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+        if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
+        if (rioWriteBulkObject(r,key) == 0) return 0;
+        sds replyid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
+        if (rioWriteBulkString(r,replyid,sdslen(replyid)) == 0) return 0;
+        sdsfree(replyid);
+        while(numfields--) {
+            unsigned char *field, *value;
+            int64_t field_len, value_len;
+            streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+            if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
+            if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+        }
+    }
+    streamIteratorStop(&si);
+    return 1;
+}
+
 /* Call the module type callback in order to rewrite a data type
  * that is exported by a module and is not handled by Redis itself.
  * The function returns 0 on error, 1 on success. */
@@ -1111,6 +1172,8 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_HASH) {
                 if (rewriteHashObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_STREAM) {
+                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
             } else if (o->type == OBJ_MODULE) {
                 if (rewriteModuleObject(aof,&key,o) == 0) goto werr;
             } else {

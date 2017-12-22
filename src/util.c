@@ -84,7 +84,7 @@ int stringmatchlen(const char *pattern, int patternLen,
             }
             match = 0;
             while(1) {
-                if (pattern[0] == '\\') {
+                if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
                     if (pattern[0] == string[0])

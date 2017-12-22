@@ -258,7 +258,7 @@ struct redisCommand redisCommandTable[] = {
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-1,"as",0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"lat",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
@@ -276,7 +276,7 @@ struct redisCommand redisCommandTable[] = {
     {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
+    {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
     {"memory",memoryCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
@@ -302,6 +302,11 @@ struct redisCommand redisCommandTable[] = {
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
+    {"xadd",xaddCommand,-5,"wmF",0,NULL,1,1,1,0,0},
+    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
+    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"xread",xreadCommand,-3,"rs",0,xreadGetKeys,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
@@ -547,8 +552,19 @@ dictType objectKeyPointerValueDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
+};
+
+/* Like objectKeyPointerValueDictType(), but values can be destroyed, if
+ * not NULL, calling zfree(). */
+dictType objectKeyHeapPointerValueDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictObjectDestructor,      /* key destructor */
+    dictVanillaFree            /* val destructor */
 };
 
 /* Set dictionary type. Keys are SDS strings, values are ot used. */
@@ -908,12 +924,15 @@ void databasesCron(void) {
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db % server.dbnum);
-                rehash_db++;
+                int work_done = incrementallyRehash(rehash_db);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */
                     break;
+                } else {
+                    /* If this db didn't need rehash, we'll try the next one. */
+                    rehash_db++;
+                    rehash_db %= server.dbnum;
                 }
             }
         }
@@ -1408,7 +1427,9 @@ void initServerConfig(void) {
     server.active_defrag_running = 0;
     server.notify_keyspace_events = 0;
     server.maxclients = CONFIG_DEFAULT_MAX_CLIENTS;
-    server.bpop_blocked_clients = 0;
+    server.blocked_clients = 0;
+    memset(server.blocked_clients_by_type,0,
+           sizeof(server.blocked_clients_by_type));
     server.maxmemory = CONFIG_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = CONFIG_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = CONFIG_DEFAULT_MAXMEMORY_SAMPLES;
@@ -1546,16 +1567,29 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Check if we still have accesses to the executable that started this
      * server instance. */
-    if (access(server.executable,X_OK) == -1) return C_ERR;
+    if (access(server.executable,X_OK) == -1) {
+        serverLog(LL_WARNING,"Can't restart: this process has no "
+                             "permissions to execute %s", server.executable);
+        return C_ERR;
+    }
 
     /* Config rewriting. */
     if (flags & RESTART_SERVER_CONFIG_REWRITE &&
         server.configfile &&
-        rewriteConfig(server.configfile) == -1) return C_ERR;
+        rewriteConfig(server.configfile) == -1)
+    {
+        serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
+                             "failed");
+        return C_ERR;
+    }
 
     /* Perform a proper shutdown. */
     if (flags & RESTART_SERVER_GRACEFULLY &&
-        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK) return C_ERR;
+        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
+    {
+        serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
+        return C_ERR;
+    }
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
@@ -1567,6 +1601,8 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
+    zfree(server.exec_argv[0]);
+    server.exec_argv[0] = zstrdup(server.executable);
     execve(server.executable,server.exec_argv,environ);
 
     /* If an error occurred here, there is nothing we can do, but exit. */
@@ -2262,8 +2298,9 @@ void call(client *c, int flags) {
                 propagate_flags &= ~PROPAGATE_AOF;
 
         /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. */
-        if (propagate_flags != PROPAGATE_NONE)
+         * propagation is needed. Note that modules commands handle replication
+         * in an explicit way, so we never replicate them automatically. */
+        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
 
@@ -2441,8 +2478,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
-     * we are a slave with a broken link with master. */
+    /* Only allow commands with flag "t", such as INFO, SLAVEOF and so on,
+     * when slave-serve-stale-data is no and we are a slave with a broken
+     * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         !(c->cmd->flags & CMD_STALE))
@@ -2486,7 +2524,7 @@ int processCommand(client *c) {
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
-            handleClientsBlockedOnLists();
+            handleClientsBlockedOnKeys();
     }
     return C_OK;
 }
@@ -2729,7 +2767,16 @@ void commandCommand(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    if (c->argc == 1) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"(no subcommand) -- Return details about all Redis commands.",
+"count -- Return the total number of commands in this Redis server.",
+"getkeys <full-command> -- Return the keys from a full Redis command.",
+"info [command-name ...] -- Return details about multiple Redis commands.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 1) {
         addReplyMultiBulkLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
@@ -2763,8 +2810,7 @@ void commandCommand(client *c) {
         for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
         getKeysFreeResult(keys);
     } else {
-        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
-        return;
+        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND HELP", (char*)c->argv[1]->ptr);
     }
 }
 
@@ -2895,7 +2941,7 @@ sds genRedisInfoString(char *section) {
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
             lol, bib,
-            server.bpop_blocked_clients);
+            server.blocked_clients);
     }
 
     /* Memory */
@@ -3536,7 +3582,8 @@ void loadDataFromDisk(void) {
                 rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
-                 * of -1 inside the RDB file. */
+                 * of -1 inside the RDB file in a wrong way, see more information
+                 * in function rdbPopulateSaveInfo. */
                 rsi.repl_stream_db != -1)
             {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
