@@ -475,9 +475,8 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
 
 /* ================== Dense representation implementation  ================== */
 
-/* "Add" the element in the dense hyperloglog data structure.
- * Actually nothing is added, but the max 0 pattern counter of the subset
- * the element belongs to is incremented if needed.
+/* Low level function to set the dense HLL register at 'index' to the
+ * specified value if the current value is smaller than 'count'.
  *
  * 'registers' is expected to have room for HLL_REGISTERS plus an
  * additional byte on the right. This requirement is met by sds strings
@@ -486,12 +485,9 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
  * The function always succeed, however if as a result of the operation
  * the approximated cardinality changed, 1 is returned. Otherwise 0
  * is returned. */
-int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
-    uint8_t oldcount, count;
-    long index;
+int hllDenseSet(uint8_t *registers, long index, uint8_t count) {
+    uint8_t oldcount;
 
-    /* Update the register if this element produced a longer run of zeroes. */
-    count = hllPatLen(ele,elesize,&index);
     HLL_DENSE_GET_REGISTER(oldcount,registers,index);
     if (count > oldcount) {
         HLL_DENSE_SET_REGISTER(registers,index,count);
@@ -499,6 +495,19 @@ int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
     } else {
         return 0;
     }
+}
+
+/* "Add" the element in the dense hyperloglog data structure.
+ * Actually nothing is added, but the max 0 pattern counter of the subset
+ * the element belongs to is incremented if needed.
+ *
+ * This is just a wrapper to hllDenseSet(), performing the hashing of the
+ * element in order to retrieve the index and zero-run count. */
+int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
+    long index;
+    uint8_t count = hllPatLen(ele,elesize,&index);
+    /* Update the register if this element produced a longer run of zeroes. */
+    return hllDenseSet(registers,index,count);
 }
 
 /* Compute SUM(2^-reg) in the dense representation.
@@ -623,9 +632,8 @@ int hllSparseToDense(robj *o) {
     return C_OK;
 }
 
-/* "Add" the element in the sparse hyperloglog data structure.
- * Actually nothing is added, but the max 0 pattern counter of the subset
- * the element belongs to is incremented if needed.
+/* Low level function to set the sparse HLL register at 'index' to the
+ * specified value if the current value is smaller than 'count'.
  *
  * The object 'o' is the String object holding the HLL. The function requires
  * a reference to the object in order to be able to enlarge the string if
@@ -639,14 +647,11 @@ int hllSparseToDense(robj *o) {
  * sparse to dense: this happens when a register requires to be set to a value
  * not representable with the sparse representation, or when the resulting
  * size would be greater than server.hll_sparse_max_bytes. */
-int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
+int hllSparseSet(robj *o, long index, uint8_t count) {
     struct hllhdr *hdr;
-    uint8_t oldcount, count, *sparse, *end, *p, *prev, *next;
-    long index, first, span;
+    uint8_t oldcount, *sparse, *end, *p, *prev, *next;
+    long first, span;
     long is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
-
-    /* Update the register if this element produced a longer run of zeroes. */
-    count = hllPatLen(ele,elesize,&index);
 
     /* If the count is too big to be representable by the sparse representation
      * switch to dense representation. */
@@ -880,9 +885,22 @@ promote: /* Promote to dense representation. */
      * Note that this in turn means that PFADD will make sure the command
      * is propagated to slaves / AOF, so if there is a sparse -> dense
      * convertion, it will be performed in all the slaves as well. */
-    int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
+    int dense_retval = hllDenseSet(hdr->registers,index,count);
     serverAssert(dense_retval == 1);
     return dense_retval;
+}
+
+/* "Add" the element in the sparse hyperloglog data structure.
+ * Actually nothing is added, but the max 0 pattern counter of the subset
+ * the element belongs to is incremented if needed.
+ *
+ * This function is actually a wrapper for hllSparseSet(), it only performs
+ * the hashshing of the elmenet to obtain the index and zeros run length. */
+int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
+    long index;
+    uint8_t count = hllPatLen(ele,elesize,&index);
+    /* Update the register if this element produced a longer run of zeroes. */
+    return hllSparseSet(o,index,count);
 }
 
 /* Compute SUM(2^-reg) in the sparse representation.
@@ -1282,7 +1300,7 @@ void pfmergeCommand(client *c) {
     int j;
 
     /* Compute an HLL with M[i] = MAX(M[i]_j).
-     * We we the maximum into the max array of registers. We'll write
+     * We store the maximum into the max array of registers. We'll write
      * it to the target variable later. */
     memset(max,0,sizeof(max));
     for (j = 1; j < c->argc; j++) {
@@ -1329,7 +1347,7 @@ void pfmergeCommand(client *c) {
     HLL_INVALIDATE_CACHE(hdr);
 
     signalModifiedKey(c->db,c->argv[1]);
-    /* We generate an PFADD event for PFMERGE for semantical simplicity
+    /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
     server.dirty++;
