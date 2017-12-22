@@ -1347,14 +1347,16 @@ void pfmergeCommand(client *c) {
 
     /* Write the resulting HLL to the destination HLL registers and
      * invalidate the cached value. */
-    hdr = o->ptr;
     for (j = 0; j < HLL_REGISTERS; j++) {
         if (max[j] == 0) continue;
+        hdr = o->ptr;
         switch(hdr->encoding) {
         case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
         case HLL_SPARSE: hllSparseSet(o,j,max[j]); break;
         }
     }
+    hdr = o->ptr; /* o->ptr may be different now, as a side effect of
+                     last hllSparseSet() call. */
     HLL_INVALIDATE_CACHE(hdr);
 
     signalModifiedKey(c->db,c->argv[1]);
