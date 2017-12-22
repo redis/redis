@@ -21,7 +21,7 @@ typedef struct {
 
 // Create a L1-Iterator to hold the key and increase its refcount.
 static singleObjectIterator *createSingleObjectIterator(robj *key) {
-    singleObjectIterator *it = zmalloc(sizeof(singleObjectIterator));
+    singleObjectIterator *it = zmalloc(sizeof(*it));
     it->stage = STAGE_PREPARE;
     it->key = key;
     incrRefCount(it->key);
@@ -314,32 +314,31 @@ static int singleObjectIteratorNextStageChunkedTypeList(
 // Declare an append-only vector.
 typedef struct {
     size_t cap, len;
-    void **buff;
+    void **buf;
 } vector;
 
-static vector *vectorCreate(size_t cap) {
-    vector *v = zmalloc(sizeof(vector));
-    v->cap = cap;
-    v->len = 0;
+static vector *vectorInit(size_t cap) {
+    vector *v = zmalloc(sizeof(*v));
+    v->len = 0, v->cap = cap;
     if (v->cap != 0) {
-        v->buff = zmalloc(sizeof(void *) * v->cap);
+        v->buf = zmalloc(sizeof(v->buf[0]) * v->cap);
     } else {
-        v->buff = NULL;
+        v->buf = NULL;
     }
     return v;
 }
 
-static void vectorRelease(vector *v) {
-    zfree(v->buff);
+static void vectorFree(vector *v) {
+    zfree(v->buf);
     zfree(v);
 }
 
-static void vectorAppend(vector *v, void *value) {
+static void vectorPush(vector *v, void *value) {
     if (v->cap == v->len) {
-        v->cap = (v->cap == 0) ? 1024 : v->cap * 2;
-        v->buff = zrealloc(v->buff, sizeof(void *) * v->cap);
+        v->cap = (v->cap != 0) ? v->cap * 4 : 1024;
+        v->buf = zrealloc(v->buf, sizeof(v->buf[0]) * v->cap);
     }
-    v->buff[v->len++] = value;
+    v->buf[v->len++] = value;
 }
 
 static uint64_t doubleToLong(double value) {
@@ -378,7 +377,7 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
 
     // Send the zset's length in the first chunked data.
     int first = it->zindex == 0, done = 0;
-    vector *v = vectorCreate(maxbulks * 2);
+    vector *v = vectorInit(maxbulks * 2);
 
     // Send fields in revese order for better performance due to issue #3912.
     long long rank = (long long)zsetLength(obj) - it->zindex;
@@ -388,7 +387,7 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     size_t maxlen = maxbulks / 2;
     do {
         if (node != NULL) {
-            vectorAppend(v, node);
+            vectorPush(v, node);
             node = node->backward;
             it->zindex++;
         } else {
@@ -409,21 +408,21 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? zsetLength(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        zskiplistNode *node = v->buff[i];
+        zskiplistNode *node = v->buf[i];
         addReplyBulkCBuffer(c, node->ele, sdslen(node->ele));
         uint64_t u64 = doubleToLong(node->score);
         addReplyBulkCBuffer(c, &u64, sizeof(u64));
     }
 
 exit:
-    vectorRelease(v);
+    vectorFree(v);
     return done;
 }
 
 static void singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
     void **pd = (void **)data;
     vector *v = pd[0];
-    vectorAppend(v, (void *)de);
+    vectorPush(v, (void *)de);
 }
 
 static int singleObjectIteratorNextStageChunkedTypeHash(
@@ -434,7 +433,7 @@ static int singleObjectIteratorNextStageChunkedTypeHash(
 
     // Send the hash's size in the first chunked data.
     int first = it->cursor == 0, done = 0;
-    vector *v = vectorCreate(maxbulks * 2);
+    vector *v = vectorInit(maxbulks * 2);
 
     int loop = maxbulks * 10;
     if (loop < 100) {
@@ -465,7 +464,7 @@ static int singleObjectIteratorNextStageChunkedTypeHash(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? hashTypeLength(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        dictEntry *de = v->buff[i];
+        dictEntry *de = v->buf[i];
         sds sk = dictGetKey(de);
         addReplyBulkCBuffer(c, sk, sdslen(sk));
         sds sv = dictGetVal(de);
@@ -473,7 +472,7 @@ static int singleObjectIteratorNextStageChunkedTypeHash(
     }
 
 exit:
-    vectorRelease(v);
+    vectorFree(v);
     return done;
 }
 
@@ -485,7 +484,7 @@ static int singleObjectIteratorNextStageChunkedTypeSet(
 
     // Send the set's size in the first chunked data.
     int first = it->cursor == 0, done = 0;
-    vector *v = vectorCreate(maxbulks * 2);
+    vector *v = vectorInit(maxbulks * 2);
 
     int loop = maxbulks * 10;
     if (loop < 100) {
@@ -516,13 +515,13 @@ static int singleObjectIteratorNextStageChunkedTypeSet(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? setTypeSize(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        dictEntry *de = v->buff[i];
+        dictEntry *de = v->buf[i];
         sds sk = dictGetKey(de);
         addReplyBulkCBuffer(c, sk, sdslen(sk));
     }
 
 exit:
-    vectorRelease(v);
+    vectorFree(v);
     return done;
 }
 
@@ -717,7 +716,7 @@ typedef struct {
 
 // Create a L0-Iterator.
 static batchedObjectIterator *createBatchedObjectIterator(mstime_t timeout) {
-    batchedObjectIterator *it = zmalloc(sizeof(batchedObjectIterator));
+    batchedObjectIterator *it = zmalloc(sizeof(*it));
     it->timeout = timeout;
     it->keys = dictCreate(&setDictType, NULL);
     it->iterator_list = listCreate();
@@ -1897,7 +1896,7 @@ static int restoreAsyncAckCommandHandle(client *c) {
         zfree(c->argv);
 
         c->argc = 1 + listLength(ll);
-        c->argv = zmalloc(sizeof(robj *) * c->argc);
+        c->argv = zmalloc(sizeof(c->argv[0]) * c->argc);
 
         for (int i = 1; i < c->argc; i++) {
             listNode *head = listFirst(ll);
