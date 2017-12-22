@@ -1601,6 +1601,7 @@ void clientCommand(client *c) {
 "     type (normal|master|slave|pubsub) -- Kill connections by type.",
 "     skipme (yes|no) -- Skip killing current connection (default: yes).",
 "list -- Return information about client connections.",
+"list type (normal|master|slave|pubsub) -- Return information about client connections by type.",
 "pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
 "reply (on|off|skip) -- Control the replies sent to the current connection.",
 "setname <name> -- Assign the name <name> to the current connection.",
