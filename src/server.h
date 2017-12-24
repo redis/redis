@@ -48,7 +48,7 @@
 #include <lua.h>
 #include <signal.h>
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include <stdbool.h>
 #include <sys/queue.h>
 #include "libpmemobj.h"
@@ -174,7 +174,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD 0
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #define CONFIG_MIN_PM_FILE_SIZE PMEMOBJ_MIN_POOL
 #define CONFIG_DEFAULT_PM_FILE_SIZE (1024*1024*1024) /* 1GB */
 #endif
@@ -833,7 +833,7 @@ struct redisServer {
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
-#ifdef USE_NVML
+#ifdef USE_PMDK
     /* Persistent memory */
     char* pm_file_path;             /* Path to persistent memory file */
     size_t pm_file_size;            /* If PM file does not exist, create new one with given size */
@@ -1272,7 +1272,7 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Persistent Memory support */
 void decrRefCountPM(robj *o);
 void freeStringObjectPM(robj *o);

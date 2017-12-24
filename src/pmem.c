@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "server.h"
 #include "obj.h"
 #include "libpmemobj.h"

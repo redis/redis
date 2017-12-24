@@ -383,7 +383,7 @@ void loadServerConfigFromString(char *config) {
             server.hz = atoi(argv[1]);
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
-#ifdef USE_NVML
+#ifdef USE_PMDK
         } else if (!strcasecmp(argv[0],"pmfile") && (argc == 3)) {
             server.pm_file_path = zstrdup(argv[1]);
             long long size = memtoll(argv[2],NULL);

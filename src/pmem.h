@@ -30,7 +30,7 @@
 #ifndef __PMEM_H
 #define __PMEM_H
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 typedef struct key_val_pair_PM {
     PMEMoid key_oid;
     PMEMoid val_oid;

@@ -66,7 +66,7 @@ static int checkStringLength(client *c, long long size) {
 
 void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-#ifdef USE_NVML
+#ifdef USE_PMDK
     robj* newVal = 0;
 #endif
 
@@ -86,7 +86,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
-#ifdef USE_NVML
+#ifdef USE_PMDK
     if (server.persistent) {
         int error = 0;
 

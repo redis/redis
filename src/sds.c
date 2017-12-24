@@ -38,7 +38,7 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "server.h"
 #endif
 
@@ -138,7 +138,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     return s;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
@@ -236,7 +236,7 @@ sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Duplicate an sds string. */
 sds sdsdupPM(const sds s, void **oid_reference) {
     sds new_sds;
@@ -252,7 +252,7 @@ void sdsfree(sds s) {
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Free an sds string. No operation is performed if 's' is NULL. */
 void sdsfreePM(sds s) {
     PMEMoid oid;

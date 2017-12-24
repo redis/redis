@@ -23,41 +23,22 @@ If you want to know more, this is a list of selected starting points:
 Redis with Persistent Memory
 --------------
 This is modified version of Redis, which benefits from Persistent Memory and
-uses NVML libpmemobj API to allocate objects managed in Redis.
+uses PMDK (Persistent Memory Development Kit) libpmemobj API to allocate objects managed in Redis.
 Key-value pairs are created in Persistent Memory pool specified by "pmfile"
 parameter in config file.
-Currently, only simple structures : strings for keys and values can be allocated
+Currently, only simple structures: strings for keys and values can be allocated
 in Persistent Memory. Lists, sets etc. are not supported yet.
-Allocations are done with transactional API provided by NVML libpmemobj library. 
+Allocations are done with transactional API provided by PMDK libpmemobj library. 
 When PMEM mode is configured and turned-on, all other built-in persistence
 mechanisms (RDB, AOF) are disabled.
-To build Redis with PM support, it is necessary to place NVML Library in
-/deps/nvml directory. Check http://pmem.io/nvml for information about NVML
+To build Redis with PM support, it is necessary to place PMDK Library in
+/deps/pmdk directory. Check http://pmem.io/pmdk for information about PMDK
 and on how to retrieve its sources.
 
-Due to NVML requirements, compilation must be done with "-std=gnu99" option.
-To build Redis with NVML run command:
+Due to PMDK requirements, compilation must be done with "-std=gnu99" option.
+To build Redis with PMDK run command:
 
-    % make USE_NVML=yes STD=-std=gnu99
-
-Building Redis
---------------
-
-Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
-We support big endian and little endian architectures, and both 32 bit
-and 64 bit systems.
-
-It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is *best effort* and Redis is not guaranteed to
-work as well as in Linux, OSX, and \*BSD there.
-
-It is as simple as:
-
-    % make
-
-You can run a 32 bit Redis binary using:
-
-    % make 32bit
+    % make USE_PMDK=yes STD=-std=gnu99
 
 After building Redis is a good idea to test it, using:
 
@@ -97,22 +78,6 @@ the following steps:
 * Try using the following command line instead of `make 32bit`:
   `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
 
-Allocator
----------
-
-Selecting a non-default memory allocator when building Redis is done by setting
-the `MALLOC` environment variable. Redis is compiled and linked against libc
-malloc by default, with the exception of jemalloc being the default on Linux
-systems. This default was picked because jemalloc has proven to have fewer
-fragmentation problems than libc malloc.
-
-To force compiling against libc malloc, use:
-
-    % make MALLOC=libc
-
-To compile against jemalloc on Mac OS X systems, use:
-
-    % make MALLOC=jemalloc
 
 Verbose build
 -------------

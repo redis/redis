@@ -33,7 +33,7 @@
 #include <signal.h>
 #include <ctype.h>
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "obj.h"
 #include "libpmemobj.h"
 #endif
@@ -171,7 +171,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /*
  * Add the key to the DB using libpmemobj transactions.
  */
@@ -203,7 +203,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictReplace(db->dict, key->ptr, val);
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.
@@ -234,7 +234,7 @@ void setKey(redisDb *db, robj *key, robj *val) {
     signalModifiedKey(db,key);
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* High level Set operation. Used for PM */
 void setKeyPM(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
