@@ -121,6 +121,9 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
+
+/* NOTICE: this function may return a shared object,
+ * so do not change the ptr member of the returned object directly. */
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
     if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
