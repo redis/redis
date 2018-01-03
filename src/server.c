@@ -2951,9 +2951,12 @@ sds genRedisInfoString(char *section) {
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
+	char used_memory_dataset_hmem[64];
+        char used_memory_query_buffer_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
+	size_t query_buffer_mem = getQueryBufferSize();
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
         struct redisMemOverhead *mh = getMemoryOverheadData();
@@ -2971,6 +2974,8 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(used_memory_lua_hmem,memory_lua);
         bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
+        bytesToHuman(used_memory_dataset_hmem,mh->dataset);
+        bytesToHuman(used_memory_query_buffer_hmem,query_buffer_mem);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -2985,7 +2990,10 @@ sds genRedisInfoString(char *section) {
             "used_memory_overhead:%zu\r\n"
             "used_memory_startup:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
+	    "used_memory_dataset_human:%s\r\n"
             "used_memory_dataset_perc:%.2f%%\r\n"
+            "used_memory_query_buffer: %lu\r\n"
+            "used_memory_query_buffer_human: %s\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
@@ -3007,7 +3015,10 @@ sds genRedisInfoString(char *section) {
             mh->overhead_total,
             mh->startup_allocated,
             mh->dataset,
+            used_memory_dataset_hmem,
             mh->dataset_perc,
+            query_buffer_mem,
+            used_memory_query_buffer_hmem,
             (unsigned long)total_system_mem,
             total_system_hmem,
             memory_lua,

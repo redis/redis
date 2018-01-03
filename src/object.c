@@ -1250,3 +1250,15 @@ void memoryCommand(client *c) {
         addReplyError(c,"Syntax error. Try MEMORY HELP");
     }
 }
+
+size_t getQueryBufferSize(void){
+        listNode *ln;
+        size_t qbufsize = 0;
+        listIter *iter = listGetIterator(server.clients,AL_START_HEAD);
+        while ((ln = listNext(iter)) != NULL) {
+                client *c = listNodeValue(ln);
+                qbufsize += sdsAllocSize(c->querybuf);
+        }
+
+        return qbufsize;
+}
