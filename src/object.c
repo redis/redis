@@ -727,7 +727,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*listTypeLength(o);
+            asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
