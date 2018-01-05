@@ -739,7 +739,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*listTypeLength(o);
+            asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
@@ -1249,4 +1249,16 @@ void memoryCommand(client *c) {
     } else {
         addReplyError(c,"Syntax error. Try MEMORY HELP");
     }
+}
+
+size_t getQueryBufferSize(void){
+        listNode *ln;
+        size_t qbufsize = 0;
+        listIter *iter = listGetIterator(server.clients,AL_START_HEAD);
+        while ((ln = listNext(iter)) != NULL) {
+                client *c = listNodeValue(ln);
+                qbufsize += sdsAllocSize(c->querybuf);
+        }
+
+        return qbufsize;
 }
