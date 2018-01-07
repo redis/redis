@@ -120,6 +120,38 @@ int TestStringPrintf(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int failTest(RedisModuleCtx *ctx, const char *msg) {
+    RedisModule_ReplyWithError(ctx, msg);
+    return REDISMODULE_ERR;
+}
+int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleKey *k = RedisModule_OpenKey(ctx, RedisModule_CreateStringPrintf(ctx, "unlinked"), REDISMODULE_WRITE | REDISMODULE_READ);
+    if (!k) return failTest(ctx, "Could not create key");
+    
+    if (REDISMODULE_ERR == RedisModule_StringSet(k, RedisModule_CreateStringPrintf(ctx, "Foobar"))) {
+        return failTest(ctx, "Could not set string value");
+    }
+
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "EXISTS", "c", "unlinked");
+    if (!rep || RedisModule_CallReplyInteger(rep) != 1) {
+        return failTest(ctx, "Key does not exist before unlink");
+    }
+
+    if (REDISMODULE_ERR == RedisModule_UnlinkKey(k)) {
+        return failTest(ctx, "Could not unlink key");
+    }
+
+    rep = RedisModule_Call(ctx, "EXISTS", "c", "unlinked");
+    if (!rep || RedisModule_CallReplyInteger(rep) != 0) {
+        return failTest(ctx, "Could not verify key to be unlinked");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    
+}
 
 /* TEST.CTXFLAGS -- Test GetContextFlags. */
 int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -269,6 +301,9 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.string.append","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
+    T("test.unlink","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.string.append.am","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
@@ -309,6 +344,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.ctxflags",
         TestCtxFlags,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    
+    if (RedisModule_CreateCommand(ctx,"test.unlink",
+        TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.it",
