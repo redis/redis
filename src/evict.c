@@ -401,8 +401,19 @@ int freeMemoryIfNeeded(void) {
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
         goto cant_free; /* We need to free memory, but policy forbids. */
 
+    /*
+     * evciting should not block for too long
+     *
+     * the way we caculating how much memory should be freed was beased on total
+     * usage of the entire instance. There might be some cases (eg : dict rehashing,
+     * maxmemory change manually by user) , "mem_freed" would get a too big value,
+     * which would leads we block for too long time here
+     *
+     * the "iter" variable makes there`s maximun number of key evicting
+     * */
+    int iter = ATIVE_EVICT_PER_CALL;
     latencyStartMonitor(latency);
-    while (mem_freed < mem_tofree) {
+    while (mem_freed < mem_tofree && iter--) {
         int j, k, i, keys_freed = 0;
         static int next_db = 0;
         sds bestkey = NULL;
