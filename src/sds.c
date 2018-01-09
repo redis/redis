@@ -175,7 +175,7 @@ void sdsfree(sds s) {
  * the output will be "6" as the string was modified but the logical length
  * remains 6 bytes. */
 void sdsupdatelen(sds s) {
-    int reallen = strlen(s);
+    size_t reallen = strlen(s);
     sdssetlen(s, reallen);
 }
 
@@ -436,7 +436,7 @@ sds sdscpy(sds s, const char *t) {
  * The function returns the length of the null-terminated string
  * representation stored at 's'. */
 #define SDS_LLSTR_SIZE 21
-int sdsll2str(char *s, long long value) {
+size_t sdsll2str(char *s, long long value) {
     char *p, aux;
     unsigned long long v;
     size_t l;
@@ -468,7 +468,7 @@ int sdsll2str(char *s, long long value) {
 }
 
 /* Identical sdsll2str(), but for unsigned long long type. */
-int sdsull2str(char *s, unsigned long long v) {
+size_t sdsull2str(char *s, unsigned long long v) {
     char *p, aux;
     size_t l;
 
@@ -502,7 +502,7 @@ int sdsull2str(char *s, unsigned long long v) {
  */
 sds sdsfromlonglong(long long value) {
     char buf[SDS_LLSTR_SIZE];
-    int len = sdsll2str(buf,value);
+    size_t len = sdsll2str(buf,value);
 
     return sdsnewlen(buf,len);
 }
@@ -589,7 +589,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
 sds sdscatfmt(sds s, char const *fmt, ...) {
     size_t initlen = sdslen(s);
     const char *f = fmt;
-    int i;
+    size_t i;
     va_list ap;
 
     va_start(ap,fmt);
@@ -721,7 +721,7 @@ sds sdstrim(sds s, const char *cset) {
  * s = sdsnew("Hello World");
  * sdsrange(s,1,-1); => "ello World"
  */
-void sdsrange(sds s, int start, int end) {
+void sdsrange(sds s, ssize_t start, ssize_t end) {
     size_t newlen, len = sdslen(s);
 
     if (len == 0) return;
@@ -735,9 +735,9 @@ void sdsrange(sds s, int start, int end) {
     }
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
-        if (start >= (signed)len) {
+        if (start >= (ssize_t)len) {
             newlen = 0;
-        } else if (end >= (signed)len) {
+        } else if (end >= (ssize_t)len) {
             end = len-1;
             newlen = (start > end) ? 0 : (end-start)+1;
         }
@@ -751,14 +751,14 @@ void sdsrange(sds s, int start, int end) {
 
 /* Apply tolower() to every character of the sds string 's'. */
 void sdstolower(sds s) {
-    int len = sdslen(s), j;
+    size_t len = sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 /* Apply toupper() to every character of the sds string 's'. */
 void sdstoupper(sds s) {
-    int len = sdslen(s), j;
+    size_t len = sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
@@ -782,7 +782,7 @@ int sdscmp(const sds s1, const sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return l1-l2;
+    if (cmp == 0) cmp = l1 > l2 ? 1 : (l1 < l2 ? -1 : 0);
     return cmp;
 }
 
