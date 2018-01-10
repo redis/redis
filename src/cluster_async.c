@@ -11,8 +11,8 @@
 // The definition of L1-Iterator.
 typedef struct {
     int stage;  // The current state of the state machine.
-    robj *key;  // The key/value pair that will be serialized.
-    robj *obj;
+    robj* key;  // The key/value pair that will be serialized.
+    robj* obj;
     mstime_t expire;       // The expire time in ms, or -1 if no expire time.
     unsigned long cursor;  // Used to serialize Hash/Set object.
     unsigned long lindex;  // Used to serialize List object.
@@ -20,8 +20,8 @@ typedef struct {
 } singleObjectIterator;
 
 // Create a L1-Iterator to hold the key and increase its refcount.
-static singleObjectIterator *createSingleObjectIterator(robj *key) {
-    singleObjectIterator *it = zmalloc(sizeof(*it));
+static singleObjectIterator* createSingleObjectIterator(robj* key) {
+    singleObjectIterator* it = zmalloc(sizeof(*it));
     it->stage = STAGE_PREPARE;
     it->key = key;
     incrRefCount(it->key);
@@ -34,7 +34,7 @@ static singleObjectIterator *createSingleObjectIterator(robj *key) {
 }
 
 // Release a L1-Iterator and release its key/value's refcount.
-static void freeSingleObjectIterator(singleObjectIterator *it) {
+static void freeSingleObjectIterator(singleObjectIterator* it) {
     if (it->obj != NULL) {
         decrRefCount(it->obj);
     }
@@ -42,18 +42,13 @@ static void freeSingleObjectIterator(singleObjectIterator *it) {
     zfree(it);
 }
 
-static void freeSingleObjectIteratorVoid(void *it) {
-    freeSingleObjectIterator(it);
-}
+static void freeSingleObjectIteratorVoid(void* it) { freeSingleObjectIterator(it); }
 
-static int singleObjectIteratorHasNext(singleObjectIterator *it) {
-    return it->stage != STAGE_DONE;
-}
+static int singleObjectIteratorHasNext(singleObjectIterator* it) { return it->stage != STAGE_DONE; }
 
 // Estimate the number of RESTORE-ASYNC commands will be generated for the
 // specified object with the given maxbulks.
-static size_t estimateNumberOfRestoreCommandsObject(robj *obj,
-                                                    size_t maxbulks) {
+static size_t estimateNumberOfRestoreCommandsObject(robj* obj, size_t maxbulks) {
     size_t numbulks = 0;
     switch (obj->type) {
     case OBJ_LIST:
@@ -98,9 +93,8 @@ static size_t estimateNumberOfRestoreCommandsObject(robj *obj,
 // specified key in the given database, or return 0 if the key doesn't exist.
 // Unlike estimateNumberOfRestoreCommandsObject(), this function also counts
 // the precursor RESTORE-ASYNC DELETE command.
-static size_t estimateNumberOfRestoreCommands(redisDb *db, robj *key,
-                                              size_t maxbulks) {
-    robj *obj = lookupKeyWrite(db, key);
+static size_t estimateNumberOfRestoreCommands(redisDb* db, robj* key, size_t maxbulks) {
+    robj* obj = lookupKeyWrite(db, key);
     if (obj == NULL) {
         return 0;
     }
@@ -111,7 +105,7 @@ static size_t estimateNumberOfRestoreCommands(redisDb *db, robj *key,
     return 1 + estimateNumberOfRestoreCommandsObject(obj, maxbulks);
 }
 
-static asyncMigrationClient *getAsyncMigrationClient(int db);
+static asyncMigrationClient* getAsyncMigrationClient(int db);
 
 // State Machine:
 //                    (1)
@@ -129,13 +123,12 @@ static asyncMigrationClient *getAsyncMigrationClient(int db);
 // (1) If the specified key doesn't exist. Usually cased by time expiration.
 // (2) If the object is small enough or has a complex encoding type.
 // (3) Normal case.
-static int singleObjectIteratorNextStagePrepare(client *c,
-                                                singleObjectIterator *it,
+static int singleObjectIteratorNextStagePrepare(client* c, singleObjectIterator* it,
                                                 size_t maxbulks) {
     serverAssert(it->stage == STAGE_PREPARE);
 
-    robj *key = it->key;
-    robj *obj = lookupKeyWrite(c->db, key);
+    robj* key = it->key;
+    robj* obj = lookupKeyWrite(c->db, key);
 
     // If the specified key doesn't exist.
     if (obj == NULL) {
@@ -150,7 +143,7 @@ static int singleObjectIteratorNextStagePrepare(client *c,
 
     int msgs = 0;
 
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
 
     // If current client belongs to asyncMigrationClient, then:
     //      1. Send RESTORE-ASYNC-AUTH   to verify password.
@@ -195,7 +188,7 @@ static int singleObjectIteratorNextStagePrepare(client *c,
     return msgs;
 }
 
-extern void createDumpPayload(rio *payload, robj *o);
+extern void createDumpPayload(rio* payload, robj* o);
 
 // State Machine:
 //
@@ -211,12 +204,11 @@ extern void createDumpPayload(rio *payload, robj *o);
 //                           +-------+
 //
 // (4) Serialize the specified key/value pair, and then move to STAGE_DONE.
-static int singleObjectIteratorNextStagePayload(client *c,
-                                                singleObjectIterator *it) {
+static int singleObjectIteratorNextStagePayload(client* c, singleObjectIterator* it) {
     serverAssert(it->stage == STAGE_PAYLOAD);
 
-    robj *key = it->key;
-    robj *obj = it->obj;
+    robj* key = it->key;
+    robj* obj = it->obj;
 
     mstime_t ttlms = 0;
     if (it->expire != -1) {
@@ -258,9 +250,9 @@ static int singleObjectIteratorNextStagePayload(client *c,
     return 1;
 }
 
-static int singleObjectIteratorNextStageChunkedTypeList(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
-    size_t maxbulks, int *pmsgs) {
+static int singleObjectIteratorNextStageChunkedTypeList(client* c, singleObjectIterator* it,
+                                                        robj* key, robj* obj, mstime_t ttlms,
+                                                        size_t maxbulks, int* pmsgs) {
     serverAssert(obj->type == OBJ_LIST);
     serverAssert(obj->encoding == OBJ_ENCODING_QUICKLIST);
 
@@ -295,11 +287,11 @@ static int singleObjectIteratorNextStageChunkedTypeList(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? llen : 0);
 
-    listTypeIterator *li = listTypeInitIterator(obj, seek, LIST_TAIL);
+    listTypeIterator* li = listTypeInitIterator(obj, seek, LIST_TAIL);
     for (size_t i = 0; i < step; i++) {
         listTypeEntry entry;
         listTypeNext(li, &entry);
-        quicklistEntry *qe = &(entry.entry);
+        quicklistEntry* qe = &(entry.entry);
         if (qe->value) {
             addReplyBulkCBuffer(c, qe->value, qe->sz);
         } else {
@@ -314,11 +306,11 @@ static int singleObjectIteratorNextStageChunkedTypeList(
 // Declare an append-only vector.
 typedef struct {
     size_t cap, len;
-    void **buf;
+    void** buf;
 } vector;
 
-static vector *vectorInit(size_t cap) {
-    vector *v = zmalloc(sizeof(*v));
+static vector* vectorInit(size_t cap) {
+    vector* v = zmalloc(sizeof(*v));
     v->len = 0, v->cap = cap;
     if (v->cap != 0) {
         v->buf = zmalloc(sizeof(v->buf[0]) * v->cap);
@@ -328,12 +320,12 @@ static vector *vectorInit(size_t cap) {
     return v;
 }
 
-static void vectorFree(vector *v) {
+static void vectorFree(vector* v) {
     zfree(v->buf);
     zfree(v);
 }
 
-static void vectorPush(vector *v, void *value) {
+static void vectorPush(vector* v, void* value) {
     if (v->cap == v->len) {
         v->cap = (v->cap != 0) ? v->cap * 4 : 1024;
         v->buf = zrealloc(v->buf, sizeof(v->buf[0]) * v->cap);
@@ -359,30 +351,30 @@ static double longToDouble(uint64_t value) {
     return fp.d;
 }
 
-static int longToDoubleFromObject(robj *o, double *p) {
+static int longToDoubleFromObject(robj* o, double* p) {
     if (sdsEncodedObject(o) && sdslen(o->ptr) == sizeof(uint64_t)) {
-        *p = longToDouble(*(uint64_t *)(o->ptr));
+        *p = longToDouble(*(uint64_t*)(o->ptr));
         return C_OK;
     }
     return C_ERR;
 }
 
-extern zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank);
+extern zskiplistNode* zslGetElementByRank(zskiplist* zsl, unsigned long rank);
 
-static int singleObjectIteratorNextStageChunkedTypeZSet(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
-    size_t maxbulks, int *pmsgs) {
+static int singleObjectIteratorNextStageChunkedTypeZSet(client* c, singleObjectIterator* it,
+                                                        robj* key, robj* obj, mstime_t ttlms,
+                                                        size_t maxbulks, int* pmsgs) {
     serverAssert(obj->type == OBJ_ZSET);
     serverAssert(obj->encoding == OBJ_ENCODING_SKIPLIST);
 
     // Send the zset's length in the first chunked data.
     int first = it->zindex == 0, done = 0;
-    vector *v = vectorInit(maxbulks * 2);
+    vector* v = vectorInit(maxbulks * 2);
 
     // Send fields in revese order for better performance due to issue #3912.
     long long rank = (long long)zsetLength(obj) - it->zindex;
-    zskiplist *zsl = ((zset *)obj->ptr)->zsl;
-    zskiplistNode *node = (rank >= 1) ? zslGetElementByRank(zsl, rank) : NULL;
+    zskiplist* zsl = ((zset*)obj->ptr)->zsl;
+    zskiplistNode* node = (rank >= 1) ? zslGetElementByRank(zsl, rank) : NULL;
 
     size_t maxlen = maxbulks / 2;
     do {
@@ -408,7 +400,7 @@ static int singleObjectIteratorNextStageChunkedTypeZSet(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? zsetLength(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        zskiplistNode *node = v->buf[i];
+        zskiplistNode* node = v->buf[i];
         addReplyBulkCBuffer(c, node->ele, sdslen(node->ele));
         uint64_t u64 = doubleToLong(node->score);
         addReplyBulkCBuffer(c, &u64, sizeof(u64));
@@ -419,33 +411,32 @@ exit:
     return done;
 }
 
-static void singleObjectIteratorScanCallback(void *data, const dictEntry *de) {
-    void **pd = (void **)data;
-    vector *v = pd[0];
-    vectorPush(v, (void *)de);
+static void singleObjectIteratorScanCallback(void* data, const dictEntry* de) {
+    void** pd = (void**)data;
+    vector* v = pd[0];
+    vectorPush(v, (void*)de);
 }
 
-static int singleObjectIteratorNextStageChunkedTypeHash(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
-    size_t maxbulks, int *pmsgs) {
+static int singleObjectIteratorNextStageChunkedTypeHash(client* c, singleObjectIterator* it,
+                                                        robj* key, robj* obj, mstime_t ttlms,
+                                                        size_t maxbulks, int* pmsgs) {
     serverAssert(obj->type == OBJ_HASH);
     serverAssert(obj->encoding == OBJ_ENCODING_HT);
 
     // Send the hash's size in the first chunked data.
     int first = it->cursor == 0, done = 0;
-    vector *v = vectorInit(maxbulks * 2);
+    vector* v = vectorInit(maxbulks * 2);
 
     int loop = maxbulks * 10;
     if (loop < 100) {
         loop = 100;
     }
-    void *pd[] = {v};
+    void* pd[] = {v};
 
     // Call dictScan on hash table and keep all scanned entries.
     size_t maxlen = maxbulks / 2;
     do {
-        it->cursor = dictScan(obj->ptr, it->cursor,
-                              singleObjectIteratorScanCallback, NULL, pd);
+        it->cursor = dictScan(obj->ptr, it->cursor, singleObjectIteratorScanCallback, NULL, pd);
         if (it->cursor == 0) {
             done = 1;
         }
@@ -464,7 +455,7 @@ static int singleObjectIteratorNextStageChunkedTypeHash(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? hashTypeLength(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        dictEntry *de = v->buf[i];
+        dictEntry* de = v->buf[i];
         sds sk = dictGetKey(de);
         addReplyBulkCBuffer(c, sk, sdslen(sk));
         sds sv = dictGetVal(de);
@@ -476,27 +467,26 @@ exit:
     return done;
 }
 
-static int singleObjectIteratorNextStageChunkedTypeSet(
-    client *c, singleObjectIterator *it, robj *key, robj *obj, mstime_t ttlms,
-    size_t maxbulks, int *pmsgs) {
+static int singleObjectIteratorNextStageChunkedTypeSet(client* c, singleObjectIterator* it,
+                                                       robj* key, robj* obj, mstime_t ttlms,
+                                                       size_t maxbulks, int* pmsgs) {
     serverAssert(obj->type == OBJ_SET);
     serverAssert(obj->encoding == OBJ_ENCODING_HT);
 
     // Send the set's size in the first chunked data.
     int first = it->cursor == 0, done = 0;
-    vector *v = vectorInit(maxbulks * 2);
+    vector* v = vectorInit(maxbulks * 2);
 
     int loop = maxbulks * 10;
     if (loop < 100) {
         loop = 100;
     }
-    void *pd[] = {v};
+    void* pd[] = {v};
 
     // Call dictScan on hash table and keep all scanned entries.
     size_t maxlen = maxbulks;
     do {
-        it->cursor = dictScan(obj->ptr, it->cursor,
-                              singleObjectIteratorScanCallback, NULL, pd);
+        it->cursor = dictScan(obj->ptr, it->cursor, singleObjectIteratorScanCallback, NULL, pd);
         if (it->cursor == 0) {
             done = 1;
         }
@@ -515,7 +505,7 @@ static int singleObjectIteratorNextStageChunkedTypeSet(
     addReplyBulkLongLong(c, ttlms);
     addReplyBulkLongLong(c, first ? setTypeSize(obj) : 0);
     for (size_t i = 0; i < v->len; i++) {
-        dictEntry *de = v->buf[i];
+        dictEntry* de = v->buf[i];
         sds sk = dictGetKey(de);
         addReplyBulkCBuffer(c, sk, sdslen(sk));
     }
@@ -539,14 +529,12 @@ exit:
 //                           +-------+
 //
 // (5) Serialize the specified key/value pair, and then move to STAGE_PEXPIRE.
-static int singleObjectIteratorNextStageChunked(client *c,
-                                                singleObjectIterator *it,
-                                                mstime_t timeout,
-                                                size_t maxbulks) {
+static int singleObjectIteratorNextStageChunked(client* c, singleObjectIterator* it,
+                                                mstime_t timeout, size_t maxbulks) {
     serverAssert(it->stage == STAGE_CHUNKED);
 
-    robj *key = it->key;
-    robj *obj = it->obj;
+    robj* key = it->key;
+    robj* obj = it->obj;
 
     // Set a temporary ttl for the specified key/value pair.
     mstime_t ttlms = timeout * 3;
@@ -557,20 +545,19 @@ static int singleObjectIteratorNextStageChunked(client *c,
     int done, msgs = 0;
     switch (obj->type) {
     case OBJ_LIST:
-        done = singleObjectIteratorNextStageChunkedTypeList(
-            c, it, key, obj, ttlms, maxbulks, &msgs);
+        done =
+            singleObjectIteratorNextStageChunkedTypeList(c, it, key, obj, ttlms, maxbulks, &msgs);
         break;
     case OBJ_ZSET:
-        done = singleObjectIteratorNextStageChunkedTypeZSet(
-            c, it, key, obj, ttlms, maxbulks, &msgs);
+        done =
+            singleObjectIteratorNextStageChunkedTypeZSet(c, it, key, obj, ttlms, maxbulks, &msgs);
         break;
     case OBJ_HASH:
-        done = singleObjectIteratorNextStageChunkedTypeHash(
-            c, it, key, obj, ttlms, maxbulks, &msgs);
+        done =
+            singleObjectIteratorNextStageChunkedTypeHash(c, it, key, obj, ttlms, maxbulks, &msgs);
         break;
     case OBJ_SET:
-        done = singleObjectIteratorNextStageChunkedTypeSet(
-            c, it, key, obj, ttlms, maxbulks, &msgs);
+        done = singleObjectIteratorNextStageChunkedTypeSet(c, it, key, obj, ttlms, maxbulks, &msgs);
         break;
     default:
         serverPanic("unknown object type = %d", obj->type);
@@ -596,10 +583,9 @@ static int singleObjectIteratorNextStageChunked(client *c,
 //                           +-------+
 //
 // (6) Correct the ttl or remove the temporary ttl and then move to STAGE_DONE.
-static int singleObjectIteratorNextStagePExpire(client *c,
-                                                singleObjectIterator *it) {
+static int singleObjectIteratorNextStagePExpire(client* c, singleObjectIterator* it) {
     serverAssert(it->stage == STAGE_PEXPIRE);
-    robj *key = it->key;
+    robj* key = it->key;
 
     mstime_t ttlms = 0;
     if (it->expire != -1) {
@@ -638,8 +624,8 @@ static int singleObjectIteratorNextStagePExpire(client *c,
 // The entry point of the state machine.
 // This function returns the number of RESTORE-ASYNC commands that is generated
 // and will be serialized into client's sending buffer.
-static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
-                                    mstime_t timeout, size_t maxbulks) {
+static int singleObjectIteratorNext(client* c, singleObjectIterator* it, mstime_t timeout,
+                                    size_t maxbulks) {
     switch (it->stage) {
     case STAGE_PREPARE:
         return singleObjectIteratorNextStagePrepare(c, it, maxbulks);
@@ -657,12 +643,12 @@ static int singleObjectIteratorNext(client *c, singleObjectIterator *it,
 }
 
 // Dump the metrics of the given L1-Iterator.
-static void singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
+static void singleObjectIteratorStatus(client* c, singleObjectIterator* it) {
     if (it == NULL) {
         addReply(c, shared.nullmultibulk);
         return;
     }
-    void *ptr = addDeferredMultiBulkLength(c);
+    void* ptr = addDeferredMultiBulkLength(c);
     int total = 0;
 
     total++;
@@ -705,9 +691,9 @@ static void singleObjectIteratorStatus(client *c, singleObjectIterator *it) {
 // The definition of L0-Iterator.
 typedef struct {
     mstime_t timeout;     // Timeout for RTT.
-    dict *keys;           // The keys that will be migrated. (for Debug)
-    list *iterator_list;  // The L1-Iterators that will be dispatched.
-    list *finished_keys;  // The keys that have been migrated and will be
+    dict* keys;           // The keys that will be migrated. (for Debug)
+    list* iterator_list;  // The L1-Iterators that will be dispatched.
+    list* finished_keys;  // The keys that have been migrated and will be
                           // removed atomically once the entire batch finished.
     size_t maxbulks;
     size_t delivered_msgs;
@@ -715,8 +701,8 @@ typedef struct {
 } batchedObjectIterator;
 
 // Create a L0-Iterator.
-static batchedObjectIterator *createBatchedObjectIterator(mstime_t timeout) {
-    batchedObjectIterator *it = zmalloc(sizeof(*it));
+static batchedObjectIterator* createBatchedObjectIterator(mstime_t timeout) {
+    batchedObjectIterator* it = zmalloc(sizeof(*it));
     it->timeout = timeout;
     it->keys = dictCreate(&setDictType, NULL);
     it->iterator_list = listCreate();
@@ -730,18 +716,18 @@ static batchedObjectIterator *createBatchedObjectIterator(mstime_t timeout) {
 }
 
 // Release a L0-Iterator and release all related resouces respectively.
-static void freeBatchedObjectIterator(batchedObjectIterator *it) {
+static void freeBatchedObjectIterator(batchedObjectIterator* it) {
     dictRelease(it->keys);
     listRelease(it->iterator_list);
     listRelease(it->finished_keys);
     zfree(it);
 }
 
-static int batchedObjectIteratorHasNext(batchedObjectIterator *it) {
-    list *ll = it->iterator_list;
+static int batchedObjectIteratorHasNext(batchedObjectIterator* it) {
+    list* ll = it->iterator_list;
     while (listLength(ll) != 0) {
-        listNode *head = listFirst(ll);
-        singleObjectIterator *sp = listNodeValue(head);
+        listNode* head = listFirst(ll);
+        singleObjectIterator* sp = listNodeValue(head);
         if (singleObjectIteratorHasNext(sp)) {
             return 1;
         }
@@ -754,41 +740,39 @@ static int batchedObjectIteratorHasNext(batchedObjectIterator *it) {
     return 0;
 }
 
-static int batchedObjectIteratorNext(client *c, batchedObjectIterator *it) {
-    list *ll = it->iterator_list;
+static int batchedObjectIteratorNext(client* c, batchedObjectIterator* it) {
+    list* ll = it->iterator_list;
     if (listLength(ll) != 0) {
-        listNode *head = listFirst(ll);
-        singleObjectIterator *sp = listNodeValue(head);
+        listNode* head = listFirst(ll);
+        singleObjectIterator* sp = listNodeValue(head);
         return singleObjectIteratorNext(c, sp, it->timeout, it->maxbulks);
     }
     return 0;
 }
 
-static int batchedObjectIteratorContains(batchedObjectIterator *it, robj *key) {
+static int batchedObjectIteratorContains(batchedObjectIterator* it, robj* key) {
     return dictFind(it->keys, key->ptr) != NULL;
 }
 
 // Add the specified key to current batch if it doesn't exsit yet.
-static int batchedObjectIteratorAddKey(redisDb *db, batchedObjectIterator *it,
-                                       robj *key) {
+static int batchedObjectIteratorAddKey(redisDb* db, batchedObjectIterator* it, robj* key) {
     if (batchedObjectIteratorContains(it, key)) {
         return 0;
     }
     dictAdd(it->keys, sdsdup(key->ptr), NULL);
 
     listAddNodeTail(it->iterator_list, createSingleObjectIterator(key));
-    it->estimated_msgs +=
-        estimateNumberOfRestoreCommands(db, key, it->maxbulks);
+    it->estimated_msgs += estimateNumberOfRestoreCommands(db, key, it->maxbulks);
     return 1;
 }
 
 // Dump the metrics of the given L0-Iterator.
-static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
+static void batchedObjectIteratorStatus(client* c, batchedObjectIterator* it) {
     if (it == NULL) {
         addReply(c, shared.nullmultibulk);
         return;
     }
-    void *ptr = addDeferredMultiBulkLength(c);
+    void* ptr = addDeferredMultiBulkLength(c);
     int total = 0;
 
     total++;
@@ -797,8 +781,8 @@ static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
     addReplyBulkLongLong(c, dictSize(it->keys));
     do {
         addReplyMultiBulkLen(c, dictSize(it->keys));
-        dictIterator *di = dictGetIterator(it->keys);
-        dictEntry *de;
+        dictIterator* di = dictGetIterator(it->keys);
+        dictEntry* de;
         while ((de = dictNext(di)) != NULL) {
             sds s = dictGetKey(de);
             addReplyBulkCBuffer(c, s, sdslen(s));
@@ -831,9 +815,9 @@ static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
     addReplyMultiBulkLen(c, 2);
     addReplyBulkLongLong(c, listLength(it->iterator_list));
     do {
-        list *ll = it->iterator_list;
+        list* ll = it->iterator_list;
         if (listLength(ll) != 0) {
-            listNode *head = listFirst(ll);
+            listNode* head = listFirst(ll);
             singleObjectIteratorStatus(c, listNodeValue(head));
         } else {
             singleObjectIteratorStatus(c, NULL);
@@ -846,7 +830,7 @@ static void batchedObjectIteratorStatus(client *c, batchedObjectIterator *it) {
 // ==================== Clients for Asynchronous Migration ==================
 
 // Get the asyncMigrationClient instance that belongs to the given database.
-static asyncMigrationClient *getAsyncMigrationClient(int db) {
+static asyncMigrationClient* getAsyncMigrationClient(int db) {
     return &server.async_migration_clients[db];
 }
 
@@ -855,15 +839,14 @@ static asyncMigrationClient *getAsyncMigrationClient(int db) {
 //      Client will be notified with RespErr.
 // case errmsg == NULL:
 //      Client will be notified with RespInt. (# of migrated keys)
-static void asyncMigrationClientInterrupt(asyncMigrationClient *ac,
-                                          const char *errmsg) {
-    batchedObjectIterator *it = ac->batched_iterator;
+static void asyncMigrationClientInterrupt(asyncMigrationClient* ac, const char* errmsg) {
+    batchedObjectIterator* it = ac->batched_iterator;
     long ret = (it != NULL) ? (long)listLength(it->finished_keys) : -1;
 
-    list *ll = ac->blocked_clients;
+    list* ll = ac->blocked_clients;
     while (listLength(ll) != 0) {
-        listNode *head = listFirst(ll);
-        client *c = listNodeValue(head);
+        listNode* head = listFirst(ll);
+        client* c = listNodeValue(head);
         serverAssert(c->migration_wait == ll);
 
         if (errmsg != NULL) {
@@ -881,10 +864,10 @@ static void asyncMigrationClientInterrupt(asyncMigrationClient *ac,
 
 // NOTE: Ensure it's only called by unblockClient() in blocked.c.
 // Remove the specified client from its waiting list.
-void unblockClientFromAsyncMigration(client *c) {
-    list *ll = c->migration_wait;
+void unblockClientFromAsyncMigration(client* c) {
+    list* ll = c->migration_wait;
     if (ll != NULL) {
-        listNode *node = listSearchKey(ll, c);
+        listNode* node = listSearchKey(ll, c);
         serverAssert(node != NULL);
 
         c->migration_wait = NULL;
@@ -894,11 +877,11 @@ void unblockClientFromAsyncMigration(client *c) {
 
 // NOTE: Ensure it's only called by freeClient() in networking.c.
 // Cancel and release an asyncMigrationClient due to various reasons.
-void releaseClientFromAsyncMigration(client *c) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+void releaseClientFromAsyncMigration(client* c) {
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
     serverAssert(ac->c == c);
 
-    batchedObjectIterator *it = ac->batched_iterator;
+    batchedObjectIterator* it = ac->batched_iterator;
 
     int db = c->db->id;
 
@@ -908,8 +891,8 @@ void releaseClientFromAsyncMigration(client *c) {
               "timeout(%lldms), since_lastuse(%lldms)",
               ac->c->fd, ac->host, ac->port, db, ac->pending_msgs,
               (long)listLength(ac->blocked_clients),
-              (it != NULL) ? (long)listLength(it->iterator_list) : -1,
-              ac->timeout, mstime() - ac->lastuse);
+              (it != NULL) ? (long)listLength(it->iterator_list) : -1, ac->timeout,
+              mstime() - ac->lastuse);
 
     asyncMigrationClientInterrupt(ac, "interrupted: released connection");
 
@@ -925,8 +908,8 @@ void releaseClientFromAsyncMigration(client *c) {
 }
 
 // Cancel the migration operation and wake up all blocked clients.
-static int asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(db);
+static int asyncMigartionClientCancelErrorFormat(int db, const char* fmt, ...) {
+    asyncMigrationClient* ac = getAsyncMigrationClient(db);
     if (ac->c == NULL) {
         return 0;
     }
@@ -935,9 +918,8 @@ static int asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
     sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
     va_end(ap);
 
-    serverLog(LL_WARNING,
-              "async_migration[%d]: release connection %s:%d (DB=%d) (%s)",
-              ac->c->fd, ac->host, ac->port, db, errmsg);
+    serverLog(LL_WARNING, "async_migration[%d]: release connection %s:%d (DB=%d) (%s)", ac->c->fd,
+              ac->host, ac->port, db, errmsg);
 
     // Wake up the blocked clients with the specified error message.
     asyncMigrationClientInterrupt(ac, errmsg);
@@ -956,10 +938,9 @@ static int asyncMigartionClientCancelErrorFormat(int db, const char *fmt, ...) {
 
 // Close the previous client and dial a new one to the target instance, possibly
 // return a cached one if the target doesn't change.
-static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
-                                                      int port,
+static asyncMigrationClient* asyncMigrationClientInit(int db, sds host, int port,
                                                       mstime_t timeout) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(db);
+    asyncMigrationClient* ac = getAsyncMigrationClient(db);
     if (ac->c != NULL) {
         // Check if we have an already cached socket for given host:port.
         if (ac->port == port && !strcmp(ac->host, host)) {
@@ -970,9 +951,8 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     // Dial a new connection to host:port.
     int fd = anetTcpNonBlockConnect(server.neterr, host, port);
     if (fd == -1) {
-        serverLog(LL_WARNING,
-                  "async_migration: anetTcpNonBlockConnect %s:%d (DB=%d) (%s)",
-                  host, port, db, server.neterr);
+        serverLog(LL_WARNING, "async_migration: anetTcpNonBlockConnect %s:%d (DB=%d) (%s)", host,
+                  port, db, server.neterr);
         return NULL;
     }
 
@@ -984,27 +964,24 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
         wait = 10;
     }
     if ((aeWait(fd, AE_WRITABLE, wait) & AE_WRITABLE) == 0) {
-        serverLog(LL_WARNING,
-                  "async_migration: aeWait %s:%d (DB=%d) (io error or timeout)",
-                  host, port, db);
+        serverLog(LL_WARNING, "async_migration: aeWait %s:%d (DB=%d) (io error or timeout)", host,
+                  port, db);
         close(fd);
         return NULL;
     }
 
     // Create a new client struct to hold the socket.
-    client *c = createClient(fd);
+    client* c = createClient(fd);
     if (c == NULL) {
-        serverLog(LL_WARNING,
-                  "async_migration: createClient %s:%d (DB=%d) (%s)", host,
-                  port, db, server.neterr);
+        serverLog(LL_WARNING, "async_migration: createClient %s:%d (DB=%d) (%s)", host, port, db,
+                  server.neterr);
         return NULL;
     }
 
     // Change the database.
     if (selectDb(c, db) != C_OK) {
-        serverLog(LL_WARNING,
-                  "async_migration: selectDb %s:%d (DB=%d) (invalid DB index)",
-                  host, port, db);
+        serverLog(LL_WARNING, "async_migration: selectDb %s:%d (DB=%d) (invalid DB index)", host,
+                  port, db);
         freeClient(c);
         return NULL;
     }
@@ -1015,8 +992,8 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     c->authenticated = 1;
 
     // Cancel and release the previous client.
-    asyncMigartionClientCancelErrorFormat(
-        db, "interrupted: replaced by %s:%d (DB=%d)", host, port, db);
+    asyncMigartionClientCancelErrorFormat(db, "interrupted: replaced by %s:%d (DB=%d)", host, port,
+                                          db);
 
     ac->c = c;
     ac->host = sdsdup(host);
@@ -1027,14 +1004,13 @@ static asyncMigrationClient *asyncMigrationClientInit(int db, sds host,
     ac->pending_msgs = 0;
     ac->blocked_clients = listCreate();
     ac->batched_iterator = NULL;
-    serverLog(LL_WARNING, "async_migration[%d]: connect to %s:%d (DB=%d) OK",
-              fd, host, port, db);
+    serverLog(LL_WARNING, "async_migration[%d]: connect to %s:%d (DB=%d) OK", fd, host, port, db);
     return ac;
 }
 
 // Check if current database is being migrated.
-static int asyncMigrationClientStatusOrBlock(client *c, int block) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+static int asyncMigrationClientStatusOrBlock(client* c, int block) {
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
     if (ac->batched_iterator == NULL) {
         return 0;
     }
@@ -1043,7 +1019,7 @@ static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     }
     serverAssert(c->migration_wait == NULL);
 
-    list *ll = ac->blocked_clients;
+    list* ll = ac->blocked_clients;
 
     // Block current client.
     c->migration_wait = ll;
@@ -1053,13 +1029,13 @@ static int asyncMigrationClientStatusOrBlock(client *c, int block) {
     return 1;
 }
 
-static void cleanupImportingKeys(redisDb *db, mstime_t now) {
+static void cleanupImportingKeys(redisDb* db, mstime_t now) {
     // Try to remove all expired keys from importing_keys.
     // Notes: We don't need to touch the database, since the expired objects
     // will be automatically removed by activeExpireCycle() in databaseCron().
     if (dictSize(db->importing_keys) != 0) {
-        dictIterator *di = dictGetSafeIterator(db->importing_keys);
-        dictEntry *de;
+        dictIterator* di = dictGetSafeIterator(db->importing_keys);
+        dictEntry* de;
         while ((de = dictNext(di)) != NULL) {
             mstime_t expire = dictGetSignedIntegerVal(de);
             if (now != 0 && now < expire) {
@@ -1077,12 +1053,10 @@ static void cleanupImportingKeys(redisDb *db, mstime_t now) {
     }
 }
 
-static int hasImportingKeys(redisDb *db) {
-    return dictSize(db->importing_keys) != 0;
-}
+static int hasImportingKeys(redisDb* db) { return dictSize(db->importing_keys) != 0; }
 
-static mstime_t lookupImportingKeys(redisDb *db, robj *key, mstime_t now) {
-    dictEntry *de = dictFind(db->importing_keys, key);
+static mstime_t lookupImportingKeys(redisDb* db, robj* key, mstime_t now) {
+    dictEntry* de = dictFind(db->importing_keys, key);
     if (de != NULL) {
         mstime_t expire = dictGetSignedIntegerVal(de);
         if (now <= expire) {
@@ -1097,18 +1071,17 @@ static mstime_t lookupImportingKeys(redisDb *db, robj *key, mstime_t now) {
 // Check for timeouts.
 void cleanupClientsForAsyncMigration() {
     for (int db = 0; db < server.dbnum; db++) {
-        asyncMigrationClient *ac = getAsyncMigrationClient(db);
+        asyncMigrationClient* ac = getAsyncMigrationClient(db);
         if (ac->c == NULL) {
             continue;
         }
-        batchedObjectIterator *it = ac->batched_iterator;
+        batchedObjectIterator* it = ac->batched_iterator;
         mstime_t delta = mstime() - ac->lastuse;
         if (delta <= ac->timeout) {
             continue;
         }
         asyncMigartionClientCancelErrorFormat(
-            db, (it != NULL) ? "interrupted: migration timeout"
-                             : "interrupted: idle timeout");
+            db, (it != NULL) ? "interrupted: migration timeout" : "interrupted: idle timeout");
     }
     for (int db = 0; db < server.dbnum; db++) {
         cleanupImportingKeys(&server.db[db], mstime());
@@ -1116,13 +1089,12 @@ void cleanupClientsForAsyncMigration() {
 }
 
 // Check if there's a read/migrate or write/migrate conflict.
-int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
-                                 robj **argv, int argc) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+int inConflictWithAsyncMigration(client* c, struct redisCommand* cmd, robj** argv, int argc) {
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
     if (ac->batched_iterator == NULL && !hasImportingKeys(c->db)) {
         return 0;
     }
-    batchedObjectIterator *it = ac->batched_iterator;
+    batchedObjectIterator* it = ac->batched_iterator;
 
     multiState _ms, *ms = &_ms;
     multiCmd mc;
@@ -1141,17 +1113,17 @@ int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
     mstime_t now = mstime();
 
     for (int i = 0; i < ms->count; i++) {
-        robj **margv;
+        robj** margv;
         int margc, numkeys;
-        struct redisCommand *mcmd = ms->commands[i].cmd;
+        struct redisCommand* mcmd = ms->commands[i].cmd;
 
         margv = ms->commands[i].argv;
         margc = ms->commands[i].argc;
 
         int migrating = 0, importing = 0;
-        int *keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
+        int* keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
         for (int j = 0; j < numkeys; j++) {
-            robj *key = margv[keyindex[j]];
+            robj* key = margv[keyindex[j]];
             if (it != NULL && batchedObjectIteratorContains(it, key)) {
                 migrating = 1;
             }
@@ -1177,24 +1149,23 @@ int inConflictWithAsyncMigration(client *c, struct redisCommand *cmd,
 // ==================== Command: MIGRATE-ASNYC-DUMP =========================
 
 // MIGRATE-ASYNC-DUMP $timeout $key1 [$key2 ...]
-void migrateAsyncDumpCommand(client *c) {
+void migrateAsyncDumpCommand(client* c) {
     long long timeout;
     if (getLongLongFromObject(c->argv[1], &timeout) != C_OK ||
         !(timeout >= 0 && timeout <= INT_MAX)) {
-        addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                            (char *)c->argv[1]->ptr);
+        addReplyErrorFormat(c, "invalid value of timeout (%s)", (char*)c->argv[1]->ptr);
         return;
     }
     if (timeout < 1000) {
         timeout = 1000;
     }
 
-    batchedObjectIterator *it = createBatchedObjectIterator(timeout);
+    batchedObjectIterator* it = createBatchedObjectIterator(timeout);
     for (int i = 2; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
 
-    void *ptr = addDeferredMultiBulkLength(c);
+    void* ptr = addDeferredMultiBulkLength(c);
     int total = 0;
     while (batchedObjectIteratorHasNext(it)) {
         total += batchedObjectIteratorNext(c, it);
@@ -1206,9 +1177,9 @@ void migrateAsyncDumpCommand(client *c) {
 
 // ==================== Command: MIGRATE-ASNYC ==============================
 
-static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
-                                            int atleast, long long usecs) {
-    batchedObjectIterator *it = ac->batched_iterator;
+static int asyncMigrationNextInMicroseconds(asyncMigrationClient* ac, int atleast,
+                                            long long usecs) {
+    batchedObjectIterator* it = ac->batched_iterator;
     long long start = ustime();
     int msgs = 0;
     while (batchedObjectIteratorHasNext(it)) {
@@ -1229,7 +1200,7 @@ static int asyncMigrationNextInMicroseconds(asyncMigrationClient *ac,
 }
 
 // MIGRATE-ASYNC $host $port $timeout $key1 [$key2 ...]
-void migrateAsyncCommand(client *c) {
+void migrateAsyncCommand(client* c) {
     // Check if there's a migrate/migrate conflict.
     if (asyncMigrationClientStatusOrBlock(c, 0)) {
         addReplyError(c, "the specified DB is being migrated");
@@ -1244,35 +1215,30 @@ void migrateAsyncCommand(client *c) {
     sds host = c->argv[1]->ptr;
 
     long long port;
-    if (getLongLongFromObject(c->argv[2], &port) != C_OK ||
-        !(port >= 1 && port < 65536)) {
-        addReplyErrorFormat(c, "invalid value of port (%s)",
-                            (char *)c->argv[2]->ptr);
+    if (getLongLongFromObject(c->argv[2], &port) != C_OK || !(port >= 1 && port < 65536)) {
+        addReplyErrorFormat(c, "invalid value of port (%s)", (char*)c->argv[2]->ptr);
         return;
     }
 
     long long timeout;
     if (getLongLongFromObject(c->argv[3], &timeout) != C_OK ||
         !(timeout >= 0 && timeout <= INT_MAX)) {
-        addReplyErrorFormat(c, "invalid value of timeout (%s)",
-                            (char *)c->argv[3]->ptr);
+        addReplyErrorFormat(c, "invalid value of timeout (%s)", (char*)c->argv[3]->ptr);
         return;
     }
     if (timeout < 1000) {
         timeout = 1000;
     }
 
-    asyncMigrationClient *ac =
-        asyncMigrationClientInit(c->db->id, host, port, timeout);
+    asyncMigrationClient* ac = asyncMigrationClientInit(c->db->id, host, port, timeout);
     if (ac == NULL) {
         addReplyErrorFormat(c, "connect to %s:%d failed", host, (int)port);
         return;
     }
     serverAssert(ac->pending_msgs == 0);
-    serverAssert(listLength(ac->blocked_clients) == 0 &&
-                 ac->batched_iterator == NULL);
+    serverAssert(listLength(ac->blocked_clients) == 0 && ac->batched_iterator == NULL);
 
-    batchedObjectIterator *it = createBatchedObjectIterator(timeout);
+    batchedObjectIterator* it = createBatchedObjectIterator(timeout);
     for (int i = 4; i < c->argc; i++) {
         batchedObjectIteratorAddKey(c->db, it, c->argv[i]);
     }
@@ -1302,7 +1268,7 @@ void migrateAsyncCommand(client *c) {
 // ==================== Command: MIGRATE-ASNYC-{FENCE/CANCEL/STATUS} ========
 
 // MIGRATE-ASYNC-FENCE
-void migrateAsyncFenceCommand(client *c) {
+void migrateAsyncFenceCommand(client* c) {
     // Block until the previous migration is completed.
     if (asyncMigrationClientStatusOrBlock(c, 1)) {
         return;
@@ -1312,7 +1278,7 @@ void migrateAsyncFenceCommand(client *c) {
 }
 
 // MIGRATE-ASYNC-CANCEL
-void migrateAsyncCancelCommand(client *c) {
+void migrateAsyncCancelCommand(client* c) {
     int n = 0;
     for (int db = 0; db < server.dbnum; db++) {
         n += asyncMigartionClientCancelErrorFormat(db, "interrupted: canceled");
@@ -1321,13 +1287,13 @@ void migrateAsyncCancelCommand(client *c) {
 }
 
 // MIGRATE-ASYNC-STATUS
-void migrateAsyncStatusCommand(client *c) {
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+void migrateAsyncStatusCommand(client* c) {
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
     if (ac->c == NULL) {
         addReply(c, shared.nullmultibulk);
         return;
     }
-    void *ptr = addDeferredMultiBulkLength(c);
+    void* ptr = addDeferredMultiBulkLength(c);
     int total = 0;
 
     total++;
@@ -1381,7 +1347,7 @@ void migrateAsyncStatusCommand(client *c) {
 
 // Respond ACK to the source instance with status=0 to deliver a request.
 // This response will trigger the source instance to send more requests.
-static void asyncMigrationReplyAckString(client *c, const char *msg) {
+static void asyncMigrationReplyAckString(client* c, const char* msg) {
     do {
         // RESTORE-ASYNC-ACK $errno $message
         addReplyMultiBulkLen(c, 3);
@@ -1393,7 +1359,7 @@ static void asyncMigrationReplyAckString(client *c, const char *msg) {
 
 // Respond ACK to the source instance with status=1 to cancel migration.
 // Client will be closed immediately after reply.
-static void asyncMigrationReplyAckErrorFormat(client *c, const char *fmt, ...) {
+static void asyncMigrationReplyAckErrorFormat(client* c, const char* fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     sds errmsg = sdscatvprintf(sdsempty(), fmt, ap);
@@ -1411,13 +1377,12 @@ static void asyncMigrationReplyAckErrorFormat(client *c, const char *fmt, ...) {
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
 }
 
-extern int time_independent_strcmp(const char *a, const char *b);
+extern int time_independent_strcmp(const char* a, const char* b);
 
 // RESTORE-ASYNC-AUTH $passwd
-void restoreAsyncAuthCommand(client *c) {
+void restoreAsyncAuthCommand(client* c) {
     if (!server.requirepass) {
-        asyncMigrationReplyAckErrorFormat(
-            c, "Client sent AUTH, but no password is set");
+        asyncMigrationReplyAckErrorFormat(c, "Client sent AUTH, but no password is set");
         return;
     }
     if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
@@ -1432,12 +1397,11 @@ void restoreAsyncAuthCommand(client *c) {
 // ==================== Command: RESTORE-ASYNC-SELECT =======================
 
 // RESTORE-ASYNC-SELECT $db
-void restoreAsyncSelectCommand(client *c) {
+void restoreAsyncSelectCommand(client* c) {
     long long db;
-    if (getLongLongFromObject(c->argv[1], &db) != C_OK ||
-        !(db >= 0 && db <= INT_MAX) || selectDb(c, db) != C_OK) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid DB index (%s)",
-                                          c->argv[1]->ptr);
+    if (getLongLongFromObject(c->argv[1], &db) != C_OK || !(db >= 0 && db <= INT_MAX) ||
+        selectDb(c, db) != C_OK) {
+        asyncMigrationReplyAckErrorFormat(c, "invalid DB index (%s)", c->argv[1]->ptr);
     } else {
         asyncMigrationReplyAckString(c, "OK");
     }
@@ -1446,7 +1410,7 @@ void restoreAsyncSelectCommand(client *c) {
 // ==================== Command: RESTORE-ASYNC ==============================
 
 // RESTORE-ASYNC delete $key
-static int restoreAsyncCommandDeleteKey(client *c, robj *key) {
+static int restoreAsyncCommandDeleteKey(client* c, robj* key) {
     // Delete the key asynchronously.
     if (dbAsyncDelete(c->db, key)) {
         signalModifiedKey(c->db, key);
@@ -1456,46 +1420,41 @@ static int restoreAsyncCommandDeleteKey(client *c, robj *key) {
 }
 
 // RESTORE-ASYNC expire $key $ttlms
-static int restoreAsyncCommandExpireKey(client *c, robj *key) {
-    robj *obj = lookupKeyWrite(c->db, key);
+static int restoreAsyncCommandExpireKey(client* c, robj* key) {
+    robj* obj = lookupKeyWrite(c->db, key);
     if (obj == NULL) {
-        asyncMigrationReplyAckErrorFormat(
-            c, "the specified key doesn't exist (%s)", key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "the specified key doesn't exist (%s)", key->ptr);
         return C_ERR;
     }
     return C_OK;
 }
 
-extern int verifyDumpPayload(unsigned char *p, size_t len);
+extern int verifyDumpPayload(unsigned char* p, size_t len);
 
 // RESTORE-ASYNC object $key $ttlms $payload
-static int restoreAsyncCommandTypeObject(client *c, robj *key) {
+static int restoreAsyncCommandTypeObject(client* c, robj* key) {
     if (lookupKeyWrite(c->db, key) != NULL) {
-        asyncMigrationReplyAckErrorFormat(
-            c, "the specified key already exists (%s)", key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "the specified key already exists (%s)", key->ptr);
         return C_ERR;
     }
 
     rio payload;
-    void *bytes = c->argv[4]->ptr;
+    void* bytes = c->argv[4]->ptr;
     if (verifyDumpPayload(bytes, sdslen(bytes)) != C_OK) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid payload checksum (%s)",
-                                          key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload checksum (%s)", key->ptr);
         return C_ERR;
     }
     rioInitWithBuffer(&payload, bytes);
 
     int type = rdbLoadObjectType(&payload);
     if (type == -1) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid payload type (%s)",
-                                          key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload type (%s)", key->ptr);
         return C_ERR;
     }
 
-    robj *obj = rdbLoadObject(type, &payload);
+    robj* obj = rdbLoadObject(type, &payload);
     if (obj == NULL) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid payload body (%s)",
-                                          key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "invalid payload body (%s)", key->ptr);
         return C_ERR;
     }
 
@@ -1504,14 +1463,13 @@ static int restoreAsyncCommandTypeObject(client *c, robj *key) {
 }
 
 // RESTORE-ASYNC string $key $ttlms $payload
-static int restoreAsyncCommandTypeString(client *c, robj *key) {
+static int restoreAsyncCommandTypeString(client* c, robj* key) {
     if (lookupKeyWrite(c->db, key) != NULL) {
-        asyncMigrationReplyAckErrorFormat(
-            c, "the specified key already exists (%s)", key->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "the specified key already exists (%s)", key->ptr);
         return C_ERR;
     }
 
-    robj *obj = c->argv[4] = tryObjectEncoding(c->argv[4]);
+    robj* obj = c->argv[4] = tryObjectEncoding(c->argv[4]);
 
     incrRefCount(obj);
     dbAdd(c->db, key, obj);
@@ -1519,20 +1477,18 @@ static int restoreAsyncCommandTypeString(client *c, robj *key) {
 }
 
 // RESTORE-ASYNC list $key $ttlms $maxsize [$elem1 ...]
-static int restoreAsyncCommandTypeList(client *c, robj *key, int argc,
-                                       robj **argv) {
-    robj *obj = lookupKeyWrite(c->db, key);
+static int restoreAsyncCommandTypeList(client* c, robj* key, int argc, robj** argv) {
+    robj* obj = lookupKeyWrite(c->db, key);
     if (obj != NULL) {
         if (obj->type != OBJ_LIST || obj->encoding != OBJ_ENCODING_QUICKLIST) {
-            asyncMigrationReplyAckErrorFormat(
-                c, "wrong object type (%d/%d,expect=%d/%d)", obj->type,
-                obj->encoding, OBJ_LIST, OBJ_ENCODING_QUICKLIST);
+            asyncMigrationReplyAckErrorFormat(c, "wrong object type (%d/%d,expect=%d/%d)",
+                                              obj->type, obj->encoding, OBJ_LIST,
+                                              OBJ_ENCODING_QUICKLIST);
             return C_ERR;
         }
     } else {
         obj = createQuicklistObject();
-        quicklistSetOptions(obj->ptr, server.list_max_ziplist_size,
-                            server.list_compress_depth);
+        quicklistSetOptions(obj->ptr, server.list_max_ziplist_size, server.list_compress_depth);
         dbAdd(c->db, key, obj);
     }
 
@@ -1544,14 +1500,13 @@ static int restoreAsyncCommandTypeList(client *c, robj *key, int argc,
 }
 
 // RESTORE-ASYNC hash $key $ttlms $maxsize [$hkey1 $hval1 ...]
-static int restoreAsyncCommandTypeHash(client *c, robj *key, int argc,
-                                       robj **argv, long long size) {
-    robj *obj = lookupKeyWrite(c->db, key);
+static int restoreAsyncCommandTypeHash(client* c, robj* key, int argc, robj** argv,
+                                       long long size) {
+    robj* obj = lookupKeyWrite(c->db, key);
     if (obj != NULL) {
         if (obj->type != OBJ_HASH || obj->encoding != OBJ_ENCODING_HT) {
-            asyncMigrationReplyAckErrorFormat(
-                c, "wrong object type (%d/%d,expect=%d/%d)", obj->type,
-                obj->encoding, OBJ_HASH, OBJ_ENCODING_HT);
+            asyncMigrationReplyAckErrorFormat(c, "wrong object type (%d/%d,expect=%d/%d)",
+                                              obj->type, obj->encoding, OBJ_HASH, OBJ_ENCODING_HT);
             return C_ERR;
         }
     } else {
@@ -1564,7 +1519,7 @@ static int restoreAsyncCommandTypeHash(client *c, robj *key, int argc,
 
     // Resize the hash table for better performance.
     if (size != 0) {
-        dict *ht = obj->ptr;
+        dict* ht = obj->ptr;
         dictExpand(ht, size);
     }
 
@@ -1576,14 +1531,12 @@ static int restoreAsyncCommandTypeHash(client *c, robj *key, int argc,
 }
 
 // RESTORE-ASYNC set $key $ttlms $maxsize [$elem1 ...]
-static int restoreAsyncCommandTypeSet(client *c, robj *key, int argc,
-                                      robj **argv, long long size) {
-    robj *obj = lookupKeyWrite(c->db, key);
+static int restoreAsyncCommandTypeSet(client* c, robj* key, int argc, robj** argv, long long size) {
+    robj* obj = lookupKeyWrite(c->db, key);
     if (obj != NULL) {
         if (obj->type != OBJ_SET || obj->encoding != OBJ_ENCODING_HT) {
-            asyncMigrationReplyAckErrorFormat(
-                c, "wrong object type (%d/%d,expect=%d/%d)", obj->type,
-                obj->encoding, OBJ_SET, OBJ_ENCODING_HT);
+            asyncMigrationReplyAckErrorFormat(c, "wrong object type (%d/%d,expect=%d/%d)",
+                                              obj->type, obj->encoding, OBJ_SET, OBJ_ENCODING_HT);
             return C_ERR;
         }
     } else {
@@ -1596,7 +1549,7 @@ static int restoreAsyncCommandTypeSet(client *c, robj *key, int argc,
 
     // Resize the hash table for better performance.
     if (size != 0) {
-        dict *ht = obj->ptr;
+        dict* ht = obj->ptr;
         dictExpand(ht, size);
     }
 
@@ -1608,26 +1561,26 @@ static int restoreAsyncCommandTypeSet(client *c, robj *key, int argc,
 }
 
 // RESTORE-ASYNC zset $key $ttlms $maxsize [$elem1 $score1 ...]
-static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
-                                       robj **argv, long long size) {
-    double *scores = zmalloc(sizeof(double) * (argc / 2));
+static int restoreAsyncCommandTypeZSet(client* c, robj* key, int argc, robj** argv,
+                                       long long size) {
+    double* scores = zmalloc(sizeof(double) * (argc / 2));
     for (int i = 1, j = 0; i < argc; i += 2, j++) {
         double v;
         if (longToDoubleFromObject(argv[i], &v) != C_OK) {
-            asyncMigrationReplyAckErrorFormat(
-                c, "invalid value of score[%d] (%s)", j, argv[i]->ptr);
+            asyncMigrationReplyAckErrorFormat(c, "invalid value of score[%d] (%s)", j,
+                                              argv[i]->ptr);
             zfree(scores);
             return C_ERR;
         }
         scores[j] = v;
     }
 
-    robj *obj = lookupKeyWrite(c->db, key);
+    robj* obj = lookupKeyWrite(c->db, key);
     if (obj != NULL) {
         if (obj->type != OBJ_ZSET || obj->encoding != OBJ_ENCODING_SKIPLIST) {
-            asyncMigrationReplyAckErrorFormat(
-                c, "wrong object type (%d/%d,expect=%d/%d)", obj->type,
-                obj->encoding, OBJ_ZSET, OBJ_ENCODING_SKIPLIST);
+            asyncMigrationReplyAckErrorFormat(c, "wrong object type (%d/%d,expect=%d/%d)",
+                                              obj->type, obj->encoding, OBJ_ZSET,
+                                              OBJ_ENCODING_SKIPLIST);
             zfree(scores);
             return C_ERR;
         }
@@ -1641,8 +1594,8 @@ static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
 
     // Resize the hash table for better performance.
     if (size != 0) {
-        zset *zs = obj->ptr;
-        dict *ht = zs->dict;
+        zset* zs = obj->ptr;
+        dict* ht = zs->dict;
         dictExpand(ht, size);
     }
 
@@ -1655,8 +1608,8 @@ static int restoreAsyncCommandTypeZSet(client *c, robj *key, int argc,
     return C_OK;
 }
 
-static void updateImportingKeys(redisDb *db, robj *key, mstime_t expire) {
-    dictEntry *de = dictFind(db->importing_keys, key);
+static void updateImportingKeys(redisDb* db, robj* key, mstime_t expire) {
+    dictEntry* de = dictFind(db->importing_keys, key);
     if (de == NULL) {
         incrRefCount(key);
         de = dictAddRaw(db->importing_keys, key, NULL);
@@ -1664,9 +1617,7 @@ static void updateImportingKeys(redisDb *db, robj *key, mstime_t expire) {
     dictSetSignedIntegerVal(de, expire);
 }
 
-static void deleteImportingKeys(redisDb *db, robj *key) {
-    dictDelete(db->importing_keys, key);
-}
+static void deleteImportingKeys(redisDb* db, robj* key) { dictDelete(db->importing_keys, key); }
 
 // RESTORE-ASYNC delete $key
 //               expire $key $ttlms
@@ -1676,15 +1627,14 @@ static void deleteImportingKeys(redisDb *db, robj *key) {
 //               hash   $key $ttlms $maxsize [$hkey1 $hval1 ...]
 //               dict   $key $ttlms $maxsize [$elem1 ...]
 //               zset   $key $ttlms $maxsize [$elem1 $score1 ...]
-void restoreAsyncCommand(client *c) {
+void restoreAsyncCommand(client* c) {
     // Check if there's a restore/migrate conflict.
     if (asyncMigrationClientStatusOrBlock(c, 0)) {
-        asyncMigrationReplyAckErrorFormat(c,
-                                          "the specified DB is being migrated");
+        asyncMigrationReplyAckErrorFormat(c, "the specified DB is being migrated");
         return;
     }
 
-    const char *cmd = "(nil)";
+    const char* cmd = "(nil)";
     if (c->argc <= 1) {
         goto bad_arguments_number;
     }
@@ -1693,7 +1643,7 @@ void restoreAsyncCommand(client *c) {
     if (c->argc <= 2) {
         goto bad_arguments_number;
     }
-    robj *key = c->argv[2];
+    robj* key = c->argv[2];
 
     long long ttlms = 0, importing_partial = 0;
 
@@ -1712,8 +1662,7 @@ void restoreAsyncCommand(client *c) {
         goto bad_arguments_number;
     }
     if (getLongLongFromObject(c->argv[3], &ttlms) != C_OK || ttlms < 0) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid value of ttlms (%s)",
-                                          c->argv[3]->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "invalid value of ttlms (%s)", c->argv[3]->ptr);
         return;
     }
 
@@ -1755,12 +1704,11 @@ void restoreAsyncCommand(client *c) {
     }
     long long maxsize;
     if (getLongLongFromObject(c->argv[4], &maxsize) != C_OK || maxsize < 0) {
-        asyncMigrationReplyAckErrorFormat(c, "invalid value of maxsize (%s)",
-                                          c->argv[4]->ptr);
+        asyncMigrationReplyAckErrorFormat(c, "invalid value of maxsize (%s)", c->argv[4]->ptr);
         return;
     }
     int argc = c->argc - 5;
-    robj **argv = &c->argv[5];
+    robj** argv = &c->argv[5];
 
     // Make sure the db->importing_keys can be updated with the temporary ttlms.
     importing_partial = 1;
@@ -1809,8 +1757,7 @@ void restoreAsyncCommand(client *c) {
         return;
     }
 
-    asyncMigrationReplyAckErrorFormat(c, "unknown command (cmd=%s,argc=%d)",
-                                      cmd, c->argc);
+    asyncMigrationReplyAckErrorFormat(c, "unknown command (cmd=%s,argc=%d)", cmd, c->argc);
     return;
 
 success_common_ttlms:
@@ -1832,16 +1779,15 @@ success_common_reply:
     return;
 
 bad_arguments_number:
-    asyncMigrationReplyAckErrorFormat(c, "invalid arguments (cmd=%s,argc=%d)",
-                                      cmd, c->argc);
+    asyncMigrationReplyAckErrorFormat(c, "invalid arguments (cmd=%s,argc=%d)", cmd, c->argc);
     return;
 }
 
 // ==================== Command: RESTORE-ASYNC-ACK===========================
 
-static int restoreAsyncAckCommandHandle(client *c) {
+static int restoreAsyncAckCommandHandle(client* c) {
     // Only the migration client can call this function.
-    asyncMigrationClient *ac = getAsyncMigrationClient(c->db->id);
+    asyncMigrationClient* ac = getAsyncMigrationClient(c->db->id);
     if (ac->c != c) {
         addReplyErrorFormat(c, "invalid client, permission denied");
         return C_ERR;
@@ -1849,27 +1795,24 @@ static int restoreAsyncAckCommandHandle(client *c) {
 
     long long errcode;
     if (getLongLongFromObject(c->argv[1], &errcode) != C_OK) {
-        addReplyErrorFormat(c, "invalid value of errcode (%s)",
-                            (char *)c->argv[1]->ptr);
+        addReplyErrorFormat(c, "invalid value of errcode (%s)", (char*)c->argv[1]->ptr);
         return C_ERR;
     }
 
     if (errcode != 0) {
-        serverLog(LL_WARNING, "async_migration[%d]: error[%d] (%s)", c->fd,
-                  (int)errcode, (char *)c->argv[2]->ptr);
+        serverLog(LL_WARNING, "async_migration[%d]: error[%d] (%s)", c->fd, (int)errcode,
+                  (char*)c->argv[2]->ptr);
         return C_ERR;
     }
 
-    batchedObjectIterator *it = ac->batched_iterator;
+    batchedObjectIterator* it = ac->batched_iterator;
     if (it == NULL) {
-        serverLog(LL_WARNING, "async_migration[%d]: nil batched iterator",
-                  c->fd);
+        serverLog(LL_WARNING, "async_migration[%d]: nil batched iterator", c->fd);
         addReplyError(c, "invalid iterator (nil)");
         return C_ERR;
     }
     if (ac->pending_msgs == 0) {
-        serverLog(LL_WARNING, "async_migration[%d]: not sending messages",
-                  c->fd);
+        serverLog(LL_WARNING, "async_migration[%d]: not sending messages", c->fd);
         addReplyError(c, "invalid iterator (pending_msgs=0)");
         return C_ERR;
     }
@@ -1887,7 +1830,7 @@ static int restoreAsyncAckCommandHandle(client *c) {
 
     // Remove all migrated keys from database asynchronously.
     if (listLength(it->finished_keys) != 0) {
-        list *ll = it->finished_keys;
+        list* ll = it->finished_keys;
 
         // Propagate a DEL command to AOF and slaves.
         for (int i = 0; i < c->argc; i++) {
@@ -1899,8 +1842,8 @@ static int restoreAsyncAckCommandHandle(client *c) {
         c->argv = zmalloc(sizeof(c->argv[0]) * c->argc);
 
         for (int i = 1; i < c->argc; i++) {
-            listNode *head = listFirst(ll);
-            robj *key = listNodeValue(head);
+            listNode* head = listFirst(ll);
+            robj* key = listNodeValue(head);
 
             // Delete the key asynchronously.
             if (dbAsyncDelete(c->db, key)) {
@@ -1921,7 +1864,7 @@ static int restoreAsyncAckCommandHandle(client *c) {
 }
 
 // RESTORE-ASYNC-ACK $errno $message
-void restoreAsyncAckCommand(client *c) {
+void restoreAsyncAckCommand(client* c) {
     if (restoreAsyncAckCommandHandle(c) != C_OK) {
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     }
