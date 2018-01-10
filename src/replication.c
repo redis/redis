@@ -659,6 +659,10 @@ void syncCommand(client *c) {
     if (!strcasecmp(c->argv[0]->ptr,"psync")) {
         if (masterTryPartialResynchronization(c) == C_OK) {
             server.stat_sync_partial_ok++;
+            /* replication script cache should also be flushed
+             * after a partial resynchronization,
+             * because slave may lose the cached scripts after a restart */
+            replicationScriptCacheFlush();
             return; /* No full resync needed, return. */
         } else {
             char *master_replid = c->argv[1]->ptr;
