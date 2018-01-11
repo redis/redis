@@ -3024,7 +3024,7 @@ int64_t RM_LoadSigned(RedisModuleIO *io) {
 void RM_SaveString(RedisModuleIO *io, RedisModuleString *s) {
     if (io->error) return;
     /* Save opcode. */
-    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
     io->bytes += retval;
     /* Save value. */
@@ -3042,7 +3042,7 @@ saveerr:
 void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len) {
     if (io->error) return;
     /* Save opcode. */
-    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
     io->bytes += retval;
     /* Save value. */
