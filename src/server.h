@@ -161,7 +161,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES (100<<20) /* don't defrag if frag overhead is below 100mb */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MIN 25 /* 25% CPU min (at lower threshold) */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
-#define CONFIG_DEFAULT_MAX_BULK_LEN (512ll*1024*1024)
+#define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -1133,7 +1133,7 @@ struct redisServer {
     int maxmemory_samples;          /* Pricision of random sampling */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
-    long long max_bulk_len;
+    long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];

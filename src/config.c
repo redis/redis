@@ -328,9 +328,9 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
-        } else if ((!strcasecmp(argv[0],"max-bulk-len")) && argc == 2) {
-            server.max_bulk_len = memtoll(argv[1],NULL);
-        } else if ((!strcasecmp(argv[0],"max-querybuf-len")) && argc == 2) {
+        } else if ((!strcasecmp(argv[0],"proto-max-bulk-len")) && argc == 2) {
+            server.proto_max_bulk_len = memtoll(argv[1],NULL);
+        } else if ((!strcasecmp(argv[0],"proto-max-querybuf-len")) && argc == 2) {
             server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
             server.lfu_log_factor = atoi(argv[1]);
@@ -1137,9 +1137,9 @@ void configSetCommand(client *c) {
             freeMemoryIfNeeded();
         }
     } config_set_memory_field(
-      "max-bulk-len",server.max_bulk_len) {
+      "proto-max-bulk-len",server.proto_max_bulk_len) {
     } config_set_memory_field(
-      "max-querybuf-len",server.client_max_querybuf_len) {
+      "proto-max-querybuf-len",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
     } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
@@ -1228,8 +1228,8 @@ void configGetCommand(client *c) {
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
-    config_get_numerical_field("max-bulk-len",server.max_bulk_len);
-    config_get_numerical_field("max-querybuf-len",server.client_max_querybuf_len);
+    config_get_numerical_field("proto-max-bulk-len",server.proto_max_bulk_len);
+    config_get_numerical_field("proto-max-querybuf-len",server.client_max_querybuf_len);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("lfu-log-factor",server.lfu_log_factor);
     config_get_numerical_field("lfu-decay-time",server.lfu_decay_time);
@@ -2002,8 +2002,8 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
-    rewriteConfigBytesOption(state,"max-bulk-len",server.max_bulk_len,CONFIG_DEFAULT_MAX_BULK_LEN);
-    rewriteConfigBytesOption(state,"max-querybuf-len",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
+    rewriteConfigBytesOption(state,"proto-max-bulk-len",server.proto_max_bulk_len,CONFIG_DEFAULT_PROTO_MAX_BULK_LEN);
+    rewriteConfigBytesOption(state,"proto-max-querybuf-len",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
     rewriteConfigNumericalOption(state,"lfu-log-factor",server.lfu_log_factor,CONFIG_DEFAULT_LFU_LOG_FACTOR);
