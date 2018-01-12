@@ -65,6 +65,7 @@
 #define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
 #define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
+#define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
@@ -76,6 +77,16 @@ int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253
 /* The actual palette in use. */
 int *spectrum_palette;
 int spectrum_palette_size;
+
+/* Cluster Manager command info */
+struct clusterManagerCommand {
+    char *name;
+    int argc;
+    char **argv;
+    int flags;
+    int replicas;
+};
+
 
 static redisContext *context;
 static struct config {
@@ -119,7 +130,28 @@ static struct config {
     int eval_ldb_end;   /* Lua debugging session ended. */
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
+    struct clusterManagerCommand cluster_manager_command;
 } config;
+
+/* Cluster Manager commands. */
+typedef int clusterManagerCommandProc(int argc, char **argv);
+static struct clusterManagerCommandDef {
+    char *name;
+    clusterManagerCommandProc *proc;
+    int arity;
+};
+
+static int clusterManagerCommandCreate(int argc, char **argv) {
+    printf("CLUSTER: create\n");
+    printf("Arguments: %d\n", argc);
+    printf("Replicas: %d\n", config.cluster_manager_command.replicas);
+    fprintf(stderr, "Not implemented yet!\n");
+    return 0;
+}
+
+struct clusterManagerCommandDef clusterManagerCommands[] = {
+    {"create", clusterManagerCommandCreate, -2}
+};
 
 /* User preferences. */
 static struct pref {
@@ -1061,6 +1093,13 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
  * User interface
  *--------------------------------------------------------------------------- */
 
+static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
+    struct clusterManagerCommand *cmd = &config.cluster_manager_command;
+    cmd->name = cmdname;
+    cmd->argc = argc;
+    cmd->argv = argc ? argv : NULL;
+}
+
 static int parseOptions(int argc, char **argv) {
     int i;
 
@@ -1146,6 +1185,18 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
+            if (CLUSTER_MANAGER_MODE()) usage();
+            char *cmd = argv[++i];
+            int j = i;
+            for (; j < argc; j++) if (argv[j][0] == '-') break;
+            j--;
+            createClusterManagerCommand(cmd, j - i, argv + i);
+            i = j;
+        } else if (!strcmp(argv[i],"--cluster") && lastarg) {
+            usage();
+        } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
+            config.cluster_manager_command.replicas = atoi(argv[++i]);  
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
             printf("redis-cli %s\n", version);
@@ -1243,8 +1294,12 @@ static void usage(void) {
 "  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
 "                     this mode the server is blocked and script changes are\n"
 "                     are not rolled back from the server memory.\n"
+"  --cluster <command> [args...]\n"
+"                     Cluster Manager command and arguments (see below).\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
+"\n"
+"Cluster Manager Commands:\n"
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
@@ -1567,6 +1622,43 @@ static int evalMode(int argc, char **argv) {
         }
     }
     return retval;
+}
+
+/*------------------------------------------------------------------------------
+ * Cluster Manager mode
+ *--------------------------------------------------------------------------- */
+
+static clusterManagerCommandProc *validateClusterManagerCommand(void) {
+    int i, commands_count = sizeof(clusterManagerCommands) / 
+                            sizeof(struct clusterManagerCommandDef);
+    clusterManagerCommandProc *proc = NULL;
+    char *cmdname = config.cluster_manager_command.name;
+    int argc = config.cluster_manager_command.argc;
+    for (i = 0; i < commands_count; i++) {
+        struct clusterManagerCommandDef cmddef = clusterManagerCommands[i]; 
+        if (!strcmp(cmddef.name, cmdname)) {
+            if ((cmddef.arity > 0 && argc != cmddef.arity) || 
+                (cmddef.arity < 0 && argc < (cmddef.arity * -1))) {
+                fprintf(stderr, "[ERR] Wrong number of arguments for "
+                                "specified --cluster sub command\n");
+                return NULL;    
+            }
+            proc = cmddef.proc;
+        }
+    }
+    if (!proc) fprintf(stderr, "Unknown --cluster subcommand\n");
+    return proc;
+}
+
+static void clusterManagerMode(clusterManagerCommandProc *proc) {
+    int argc = config.cluster_manager_command.argc;
+    char **argv = config.cluster_manager_command.argv;
+    if (!proc(argc, argv)) {
+        sdsfree(config.hostip);
+        sdsfree(config.mb_delim);
+        exit(1); 
+    }
+    exit(0);
 }
 
 /*------------------------------------------------------------------------------
@@ -2861,7 +2953,11 @@ int main(int argc, char **argv) {
     config.eval_ldb_sync = 0;
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
-
+    config.cluster_manager_command.name = NULL;
+    config.cluster_manager_command.argc = 0;
+    config.cluster_manager_command.argv = NULL;
+    config.cluster_manager_command.flags = 0;
+    config.cluster_manager_command.replicas = 0;
     pref.hints = 1;
 
     spectrum_palette = spectrum_palette_color;
@@ -2876,6 +2972,17 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    /* Cluster Manager mode */
+    if (CLUSTER_MANAGER_MODE()) {
+        clusterManagerCommandProc *proc = validateClusterManagerCommand();
+        if (!proc) {
+            sdsfree(config.hostip);
+            sdsfree(config.mb_delim);
+            exit(1);
+        }
+        clusterManagerMode(proc);
+    }
 
     /* Latency mode */
     if (config.latency_mode) {
