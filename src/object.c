@@ -32,7 +32,7 @@
 #include <math.h>
 #include <ctype.h>
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "obj.h"
 #include "libpmemobj.h"
 #include "libpmem.h"
@@ -54,7 +54,7 @@ robj *createObject(int type, void *ptr) {
     return o;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 robj *createObjectPM(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
 
@@ -75,7 +75,7 @@ robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(OBJ_STRING,sdsnewlen(ptr,len));
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string.
  * Located in PM */
@@ -109,7 +109,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     return o;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself.
@@ -239,7 +239,7 @@ robj *dupStringObject(robj *o) {
     }
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Duplicate a string object. New object is created in PM
  *
  * The resulting object always has refcount set to 1. */
@@ -324,7 +324,7 @@ void freeStringObject(robj *o) {
     }
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 void freeStringObjectPM(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
         sdsfreePM(o->ptr);
@@ -405,7 +405,7 @@ void decrRefCount(robj *o) {
     }
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 void decrRefCountPM(robj *o) {
     if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {

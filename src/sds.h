@@ -39,7 +39,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "libpmemobj.h"
 #endif
 
@@ -230,7 +230,7 @@ sds sdscatsds(sds s, const sds t);
 sds sdscpylen(sds s, const char *t, size_t len);
 sds sdscpy(sds s, const char *t);
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 sds sdsnewlenPM(const void *init, size_t initlen);
 sds sdsdupPM(const sds s, void **oid_reference);
 void sdsfreePM(sds s);

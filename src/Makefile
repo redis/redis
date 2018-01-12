@@ -108,13 +108,13 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a
 endif
 
-ifeq ($(USE_NVML),yes)
-	DEPENDENCY_TARGETS+= nvml
-	FINAL_CFLAGS+= -I../deps/nvml/src/include -I../deps/nvml/src/libpmemobj -I../deps/nvml/src/common -DUSE_NVML
+ifeq ($(USE_PMDK),yes)
+	DEPENDENCY_TARGETS+= pmdk
+	FINAL_CFLAGS+= -I../deps/pmdk/src/include -I../deps/pmdk/src/libpmemobj -I../deps/pmdk/src/common -DUSE_PMDK
 ifeq ($(NVML_DEBUG),yes)
-	FINAL_LIBS+= ../deps/nvml/src/debug/libpmemobj.so ../deps/nvml/src/debug/libpmem.so
+	FINAL_LIBS+= ../deps/pmdk/src/debug/libpmemobj.so ../deps/pmdk/src/debug/libpmem.so
 else
-	FINAL_LIBS+= ../deps/nvml/src/nondebug/libpmemobj.so ../deps/nvml/src/nondebug/libpmem.so
+	FINAL_LIBS+= ../deps/pmdk/src/nondebug/libpmemobj.so ../deps/pmdk/src/nondebug/libpmem.so
 endif
 	FINAL_LIBS+= -ldl
 endif
@@ -148,7 +148,7 @@ REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
 REDIS_CHECK_AOF_OBJ=redis-check-aof.o
 
-ifeq ($(USE_NVML),yes)
+ifeq ($(USE_PMDK),yes)
 	REDIS_SERVER_OBJ+= pmem.o
 endif
 

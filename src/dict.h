@@ -177,7 +177,7 @@ void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* PMEM-specific API */
 int dictAddPM(dict *d, void *key, void *val);
 dictEntry *dictAddRawPM(dict *d, void *key);

@@ -43,7 +43,7 @@
 #include <sys/time.h>
 #include <ctype.h>
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 #include "obj.h"
 #include "libpmemobj.h"
 #include "server.h"
@@ -336,7 +336,7 @@ int dictAdd(dict *d, void *key, void *val)
     return DICT_OK;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Add an element to the target hash table */
 int dictAddPM(dict *d, void *key, void *val)
 {
@@ -393,7 +393,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
     return entry;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Low level add. This function adds the entry but instead of setting
  * a value returns the dictEntry structure to the user, that will make
  * sure to fill the value field as he wishes.
@@ -497,7 +497,7 @@ int dictReplace(dict *d, void *key, void *val)
     return 0;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Add an element, discarding the old if the key already exists.
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update

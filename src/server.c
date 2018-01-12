@@ -466,7 +466,7 @@ void dictObjectDestructor(void *privdata, void *val)
     decrRefCount(val);
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 void dictObjectDestructorPM(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
@@ -489,7 +489,7 @@ void dictSdsDestructor(void *privdata, void *val)
     sdsfree(val);
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 void dictSdsDestructorPM(void *privdata, void *val)
 {
     PMEMoid *kv_PM_oid;
@@ -597,7 +597,7 @@ dictType dbDictType = {
     dictObjectDestructor   /* val destructor */
 };
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 /* Db->dict, keys are sds strings, vals are Redis objects. */
 dictType dbDictTypePM = {
     dictSdsHash,                /* hash function */
@@ -1523,7 +1523,7 @@ void initServerConfig(void) {
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = CONFIG_DEFAULT_DAEMONIZE;
-#ifdef USE_NVML
+#ifdef USE_PMDK
     server.pm_file_path = NULL;
     server.pm_file_size = CONFIG_DEFAULT_PM_FILE_SIZE;
     server.pm_reconstruct_required = false;
@@ -1966,7 +1966,7 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-#ifdef USE_NVML
+#ifdef USE_PMDK
         if (server.persistent) {
             server.db[j].dict = dictCreate(&dbDictTypePM,NULL);
             
@@ -3997,7 +3997,7 @@ int redisIsSupervised(int mode) {
     return 0;
 }
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
 void initPersistentMemory(void) {
     PMEMoid oid;
     struct redis_pmem_root *root;
@@ -4179,7 +4179,7 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
-#ifdef USE_NVML
+#ifdef USE_PMDK
     if (server.pm_file_path) {
         initPersistentMemory();
     }
@@ -4198,7 +4198,7 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         loadDataFromDisk();
-#ifdef USE_NVML
+#ifdef USE_PMDK
         if (server.pm_reconstruct_required) {
             long long start = ustime();
             if (pmemReconstruct() == C_OK) {
