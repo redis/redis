@@ -1151,11 +1151,13 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         if (j >= argc) {
-            /* Modules command do not have dispatch time arity checks, so
-             * we need to handle the case where the user passed an invalid
-             * number of arguments here. In this case we return no keys
-             * and expect the module command to report an arity error. */
-            if (cmd->flags & CMD_MODULE) {
+            /* Modules commands, and standard commands with a not fixed number
+             * of arugments (negative arity parameter) do not have dispatch
+             * time arity checks, so we need to handle the case where the user
+             * passed an invalid number of arguments here. In this case we
+             * return no keys and expect the command implementation to report
+             * an arity or syntax error. */
+            if (cmd->flags & CMD_MODULE || cmd->arity < 0) {
                 zfree(keys);
                 *numkeys = 0;
                 return NULL;
