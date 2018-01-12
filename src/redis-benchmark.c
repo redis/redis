@@ -614,7 +614,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     UNUSED(id);
     UNUSED(clientData);
 
-    if (config.liveclients == 0) {
+    if (config.liveclients == 0 && config.requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
     }
