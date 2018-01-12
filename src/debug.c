@@ -1027,7 +1027,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
     if (eip != NULL) {
         serverLog(LL_WARNING,
-        "Crashed running the instuction at: %p", eip);
+        "Crashed running the instruction at: %p", eip);
     }
     if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,
