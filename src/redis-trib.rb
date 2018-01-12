@@ -1674,6 +1674,7 @@ ALLOWED_OPTIONS={
     "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true, "password" => true},
     "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true, "password" => true},
     "fix" => {"timeout" => MigrateDefaultTimeout, "password" => true},
+    "call" => {"password" => true},
 }
 
 def show_help
