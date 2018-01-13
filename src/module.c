@@ -1456,6 +1456,20 @@ int RM_DeleteKey(RedisModuleKey *key) {
     return REDISMODULE_OK;
 }
 
+/* If the key is open for writing, unlink it (that is delete it in a 
+ * non-blocking way, not reclaiming memory immediately) and setup the key to
+ * accept new writes as an empty key (that will be created on demand).
+ * On success REDISMODULE_OK is returned. If the key is not open for
+ * writing REDISMODULE_ERR is returned. */
+int RM_UnlinkKey(RedisModuleKey *key) {
+    if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
+    if (key->value) {
+        dbAsyncDelete(key->db,key->key);
+        key->value = NULL;
+    }
+    return REDISMODULE_OK;
+}
+
 /* Return the key expire value, as milliseconds of remaining TTL.
  * If no TTL is associated with the key or if the key is empty,
  * REDISMODULE_NO_EXPIRE is returned. */
@@ -3024,7 +3038,7 @@ int64_t RM_LoadSigned(RedisModuleIO *io) {
 void RM_SaveString(RedisModuleIO *io, RedisModuleString *s) {
     if (io->error) return;
     /* Save opcode. */
-    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
     io->bytes += retval;
     /* Save value. */
@@ -3042,7 +3056,7 @@ saveerr:
 void RM_SaveStringBuffer(RedisModuleIO *io, const char *str, size_t len) {
     if (io->error) return;
     /* Save opcode. */
-    int retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
+    ssize_t retval = rdbSaveLen(io->rio, RDB_MODULE_OPCODE_STRING);
     if (retval == -1) goto saveerr;
     io->bytes += retval;
     /* Save value. */
@@ -3960,6 +3974,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(Replicate);
     REGISTER_API(ReplicateVerbatim);
     REGISTER_API(DeleteKey);
+    REGISTER_API(UnlinkKey);
     REGISTER_API(StringSet);
     REGISTER_API(StringDMA);
     REGISTER_API(StringTruncate);
