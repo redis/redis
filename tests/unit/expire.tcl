@@ -128,6 +128,14 @@ start_server {tags {"expire"}} {
         assert {$ttl > 8 && $ttl <= 10}
     }
 
+    test {TTL returns -2 when tiem is 0} {
+        r del x
+        r setex x 1 somevalue
+        after 1000
+        set ttl [r ttl x]
+        assert {$ttl == -2}
+    }
+
     test {PTTL returns time to live in milliseconds} {
         r del x
         r setex x 1 somevalue

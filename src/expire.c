@@ -464,10 +464,10 @@ void ttlGenericCommand(client *c, int output_ms) {
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = expire-mstime();
-        if (ttl < 0) ttl = 0;
+        if (ttl <= 0) ttl = -2;
     }
-    if (ttl == -1) {
-        addReplyLongLong(c,-1);
+    if (ttl == -1 || ttl == -2) {
+        addReplyLongLong(c,ttl);
     } else {
         addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
     }
@@ -504,4 +504,3 @@ void touchCommand(client *c) {
         if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
     addReplyLongLong(c,touched);
 }
-
