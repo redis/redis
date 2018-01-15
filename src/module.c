@@ -211,6 +211,7 @@ typedef struct RedisModuleBlockedClient {
 
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
+static int moduleUnblockClientNotified = 0;
 
 /* We need a mutex that is unlocked / relocked in beforeSleep() in order to
  * allow thread safe contexts to execute commands at a safe moment. */
@@ -3473,8 +3474,11 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     bc->privdata = privdata;
     listAddNodeTail(moduleUnblockedClients,bc);
-    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
-        /* Ignore the error, this is best-effort. */
+    if (moduleUnblockClientNotified == 0) {
+        if (write(server.module_blocked_pipe[1],"A",1) != 1) {
+            /* Ignore the error, this is best-effort. */
+        }
+        moduleUnblockClientNotified = 1;
     }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
@@ -3504,6 +3508,7 @@ void moduleHandleBlockedClients(void) {
      * so we can read every pending "awake byte" in the pipe. */
     char buf[1];
     while (read(server.module_blocked_pipe[0],buf,1) == 1);
+    moduleUnblockClientNotified = 0;
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
