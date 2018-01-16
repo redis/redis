@@ -1971,9 +1971,10 @@ void replicationUnsetMaster(void) {
      * master switch. */
     server.slaveseldb = -1;
 
-    /* We need to remember the time when we became a master and lost all
-     * attached slaves (if we had any), as after some time we'll free the
-     * replication backlog. */
+    /* Once we turn from slave to master, we consider the starting time without
+     * slaves (that is used to count the replication backlog time to live) as
+     * starting from now. Otherwise the backlog will be freed after a
+     * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
 }
 
