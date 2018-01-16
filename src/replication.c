@@ -1970,6 +1970,11 @@ void replicationUnsetMaster(void) {
      * with PSYNC version 2, there is no need for full resync after a
      * master switch. */
     server.slaveseldb = -1;
+
+    /* We need to remember the time when we became a master and lost all
+     * attached slaves (if we had any), as after some time we'll free the
+     * replication backlog. */
+    server.repl_no_slaves_since = server.unixtime;
 }
 
 /* This function is called when the slave lose the connection with the
