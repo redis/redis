@@ -440,7 +440,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if ((prevlensize) == 1) {                                                  \
         (prevlen) = (ptr)[0];                                                  \
     } else if ((prevlensize) == 5) {                                           \
-        assert(sizeof((prevlensize)) == 4);                                    \
+        assert(sizeof((prevlen)) == 4);                                    \
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
         memrev32ifbe(&prevlen);                                                \
     }                                                                          \
