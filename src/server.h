@@ -2024,6 +2024,7 @@ void xrangeCommand(client *c);
 void xrevrangeCommand(client *c);
 void xlenCommand(client *c);
 void xreadCommand(client *c);
+void xgroupCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

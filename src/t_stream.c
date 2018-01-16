@@ -40,6 +40,8 @@
 #define STREAM_ITEM_FLAG_DELETED (1<<0)     /* Entry is delted. Skip it. */
 #define STREAM_ITEM_FLAG_SAMEFIELDS (1<<1)  /* Same fields as master entry. */
 
+void streamFreeCG(streamCG *cg);
+
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
@@ -51,12 +53,15 @@ stream *streamNew(void) {
     s->length = 0;
     s->last_id.ms = 0;
     s->last_id.seq = 0;
+    s->cgroups = NULL; /* Created on demand to save memory when not used. */
     return s;
 }
 
 /* Free a stream, including the listpacks stored inside the radix tree. */
 void freeStream(stream *s) {
     raxFreeWithCallback(s->rax,(void(*)(void*))lpFree);
+    if (s->cgroups)
+        raxFreeWithCallback(s->cgroups,(void(*)(void*))streamFreeCG);
     zfree(s);
 }
 
@@ -1053,4 +1058,99 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
+/* -----------------------------------------------------------------------
+ * Low level implementation of consumer groups
+ * ----------------------------------------------------------------------- */
 
+void streamNotAckedFree(streamNotAcked *na) {
+    zfree(na);
+}
+
+void streamConsumerFree(streamConsumer *sc) {
+    zfree(sc);
+}
+
+/* Create a new consumer group in the context of the stream 's', having the
+ * specified name and last server ID. If a consumer group with the same name
+ * already existed NULL is returned, otherwise the pointer to the consumer
+ * group is returned. */
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID id) {
+    if (s->cgroups == NULL) s->cgroups = raxNew();
+    if (raxFind(s->cgroups,(unsigned char*)name,namelen)) return NULL;
+
+    streamCG *cg = zmalloc(sizeof(*cg));
+    cg->pel = raxNew();
+    cg->consumers = raxNew();
+    cg->lastid = id;
+    raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
+    return cg;
+}
+
+/* Free a consumer group and all its associated data. */
+void streamFreeCG(streamCG *cg) {
+    raxFreeWithCallback(cg->pel,(void(*)(void*))streamNotAckedFree);
+    raxFreeWithCallback(cg->consumers,(void(*)(void*))streamConsumerFree);
+    zfree(cg);
+}
+
+/* -----------------------------------------------------------------------
+ * Consumer groups commands
+ * ----------------------------------------------------------------------- */
+
+/* XGROUP CREATE <key> <groupname> <id or $>
+ * XGROUP SETID <key> <id or $>
+ * XGROUP DELGROUP <key> <groupname>
+ * XGROUP DELCONSUMER <key> <groupname> <consumername> */
+void xgroupCommand(client *c) {
+    const char *help[] = {
+"CREATE      <key> <groupname> <id or $>  -- Create a new consumer group.",
+"SETID       <key> <groupname> <id or $>  -- Set the current group ID.",
+"DELGROUP    <key> <groupname>            -- Remove the specified group.",
+"DELCONSUMER <key> <groupname> <consumer> -- Remove the specified conusmer.",
+"HELP                                     -- Prints this help.",
+NULL
+    };
+    stream *s = NULL;
+    sds grpname = NULL;
+
+    /* Lookup the key now, this is common for all the subcommands but HELP. */
+    if (c->argc >= 4) {
+        robj *o = lookupKeyWriteOrReply(c,c->argv[2],shared.nokeyerr);
+        if (o == NULL) return;
+        s = o->ptr;
+        grpname = c->argv[3]->ptr;
+    }
+
+    char *opt = c->argv[1]->ptr;
+    if (!strcasecmp(opt,"CREATE") && c->argc == 5) {
+        streamID id;
+        if (!strcmp(c->argv[4]->ptr,"$")) {
+            id = s->last_id;
+        } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
+            return;
+        }
+        streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),id);
+        if (cg) {
+            addReply(c,shared.ok);
+        } else {
+            addReplyError(c,"Consumer Group name already exists");
+        }
+    } else if (!strcasecmp(opt,"SETID") && c->argc == 5) {
+    } else if (!strcasecmp(opt,"DELGROUP") && c->argc == 4) {
+    } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
+    } else if (!strcasecmp(opt,"HELP")) {
+        addReplyHelp(c, help);
+    } else {
+        addReply(c,shared.syntaxerr);
+    }
+}
+
+/* XPENDING <key> [<start> <stop>]. */
+
+/* XCLAIM <key> <group-name> <consumer-name> <min-idle-time> <ID-1> <ID-2> ...*/
+
+/* XACK <stream-key> */
+
+/* XREAD-GROUP will be implemented by xreadGenericCommand() */
+
+/* XINFO <key> [CONSUMERS|GROUPS|STREAM]. STREAM is the default */
