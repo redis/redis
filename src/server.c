@@ -1104,7 +1104,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
          /* Trigger an AOF rewrite if needed */
          // If AOF disabled, we don't rewrite AOF file.
-         if (server.aof_fd != -1 &&
+         if (server.aof_state == AOF_ON &&
              server.rdb_child_pid == -1 &&
              server.aof_child_pid == -1 &&
              server.aof_rewrite_perc &&
