@@ -1779,7 +1779,7 @@ unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
 void clusterCron(void);
 void clusterPropagatePublish(robj *channel, robj *message);
-void migrateCloseTimedoutSockets(void);
+void migrateCloseTimeoutSockets(void);
 void clusterBeforeSleep(void);
 
 /* Sentinel */

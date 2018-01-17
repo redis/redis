@@ -85,7 +85,7 @@ int THPGetAnonHugePagesSize(void) {
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
- * of time series, each time serie is craeted on demand in order to avoid
+ * of time series, each time serie is created on demand in order to avoid
  * having a fixed list to maintain. */
 void latencyMonitorInit(void) {
     server.latency_events = dictCreate(&latencyTimeSeriesDictType,NULL);
@@ -151,9 +151,9 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
- * Check latency.h definition of struct latenctStat for more info.
+ * Check latency.h definition of struct latencyStats for more info.
  * If the specified event has no elements the structure is populate with
  * zero values. */
 void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
@@ -342,7 +342,7 @@ sds createLatencyReport(void) {
         }
 
         if (!strcasecmp(event,"aof-fstat") ||
-            !strcasecmp(event,"rdb-unlik-temp-file")) {
+            !strcasecmp(event,"rdb-unlink-temp-file")) {
             advise_disk_contention = 1;
             advise_local_disk = 1;
             advices += 2;

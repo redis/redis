@@ -1171,7 +1171,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Cleanup expired MIGRATE cached sockets. */
     run_with_period(1000) {
-        migrateCloseTimedoutSockets();
+        migrateCloseTimeoutSockets();
     }
 
     /* Start a scheduled BGSAVE if the corresponding flag is set. This is
