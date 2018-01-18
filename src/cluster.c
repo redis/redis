@@ -5057,12 +5057,15 @@ try_again:
             socket_error = 1;
             break;
         }
-        if (buf0[0] == '-' || (select && buf1[0] == '-') || buf2[0] == '-') {
+        if ((password && buf0[0] == '-') ||
+            (select && buf1[0] == '-') ||
+            buf2[0] == '-')
+        {
             /* On error assume that last_dbid is no longer valid. */
             if (!error_from_target) {
                 cs->last_dbid = -1;
                 char *errbuf;
-                if (buf0[0] == '-') errbuf = buf0;
+                if (password && buf0[0] == '-') errbuf = buf0;
                 else if (select && buf1[0] == '-') errbuf = buf1;
                 else errbuf = buf2;
 
