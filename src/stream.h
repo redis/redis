@@ -47,7 +47,7 @@ typedef struct streamIterator {
 
 /* Consumer group. */
 typedef struct streamCG {
-    streamID lastid;        /* Last delivered (not acknowledged) ID for this
+    streamID last_id;       /* Last delivered (not acknowledged) ID for this
                                group. Consumers that will just ask for more
                                messages will served with IDs > than this. */
     rax *pel;               /* Pending entries list. This is a radix tree that
