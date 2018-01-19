@@ -64,7 +64,7 @@ typedef struct streamCG {
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
     mstime_t seen_time;         /* Last time this consumer was active. */
-    sds *name;                  /* Consumer name. This is how the consumer
+    sds name;                   /* Consumer name. This is how the consumer
                                    will be identified in the consumer group
                                    protocol. Case sensitive. */
     rax *pel;                   /* Consumer specific pending entries list: all
@@ -89,7 +89,7 @@ struct client;
 
 stream *streamNew(void);
 void freeStream(stream *s);
-size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev);
+size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
