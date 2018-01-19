@@ -1076,7 +1076,8 @@ void streamConsumerFree(streamConsumer *sc) {
  * group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID id) {
     if (s->cgroups == NULL) s->cgroups = raxNew();
-    if (raxFind(s->cgroups,(unsigned char*)name,namelen)) return NULL;
+    if (raxFind(s->cgroups,(unsigned char*)name,namelen) != raxNotFound)
+        return NULL;
 
     streamCG *cg = zmalloc(sizeof(*cg));
     cg->pel = raxNew();
