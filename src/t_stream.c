@@ -976,8 +976,8 @@ void xreadCommand(client *c) {
                                 "XREADGROUP. You called XREAD instead.");
                 return;
             }
-            groupname = c->argv[i]->ptr;
-            consumername = c->argv[i+1]->ptr;
+            groupname = c->argv[i+1]->ptr;
+            consumername = c->argv[i+2]->ptr;
             i += 2;
         } else {
             addReply(c,shared.syntaxerr);
@@ -1147,6 +1147,7 @@ void streamFreeCG(streamCG *cg) {
 /* Lookup the consumer group in the specified stream and returns its
  * pointer, otherwise if there is no such group, NULL is returned. */
 streamCG *streamLookupCG(stream *s, sds groupname) {
+    if (s->cgroups == NULL) return NULL;
     streamCG *cg = raxFind(s->cgroups,(unsigned char*)groupname,
                            sdslen(groupname));
     return (cg == raxNotFound) ? NULL : cg;
