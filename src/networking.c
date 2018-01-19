@@ -137,6 +137,7 @@ client *createClient(int fd) {
     c->bpop.keys = dictCreate(&objectKeyHeapPointerValueDictType,NULL);
     c->bpop.target = NULL;
     c->bpop.xread_group = NULL;
+    c->bpop.xread_consumer = NULL;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;

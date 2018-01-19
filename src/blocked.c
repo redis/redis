@@ -442,7 +442,9 @@ void unblockClientWaitingData(client *c) {
     }
     if (c->bpop.xread_group) {
         decrRefCount(c->bpop.xread_group);
+        decrRefCount(c->bpop.xread_consumer);
         c->bpop.xread_group = NULL;
+        c->bpop.xread_consumer = NULL;
     }
 }
 

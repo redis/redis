@@ -653,7 +653,8 @@ typedef struct blockingState {
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
-    robj *xread_group;      /* XREAD group name. */
+    robj *xread_group;      /* XREADGROUP group name. */
+    robj *xread_consumer;   /* XREADGROUP consumer name. */
     mstime_t xread_retry_time, xread_retry_ttl;
 
     /* BLOCKED_WAIT */
