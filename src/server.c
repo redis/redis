@@ -307,6 +307,7 @@ struct redisCommand redisCommandTable[] = {
     {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"xread",xreadCommand,-3,"rs",0,xreadGetKeys,1,1,1,0,0},
+    {"xreadgroup",xreadCommand,-3,"ws",0,xreadGetKeys,1,1,1,0,0},
     {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
