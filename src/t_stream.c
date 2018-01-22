@@ -1075,6 +1075,7 @@ void xreadCommand(client *c) {
                 goto cleanup;
             }
             ids[id_idx] = group->last_id;
+            continue;
         }
         if (streamParseIDOrReply(c,c->argv[i],ids+id_idx,0) != C_OK)
             goto cleanup;
