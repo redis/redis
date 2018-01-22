@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <string.h>
 
@@ -151,6 +152,23 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
     
+}
+
+int TestPublish(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    /* We cannot subscribe from within the module, so we just publish, 
+     * and make sure that 0 receivers received the message */
+    int rc = RedisModule_Publish(RedisModule_CreateStringPrintf(ctx,"pubsub"), 
+                                RedisModule_CreateStringPrintf(ctx,"bar"));
+    if (rc != 0) {
+        return failTest(ctx, "Got unexpected return from Publish");
+    }
+    RedisModule_Call(ctx, "FLUSHDB", "");
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+
 }
 
 /* TEST.CTXFLAGS -- Test GetContextFlags. */
@@ -304,6 +322,9 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.unlink","");
     if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
+     T("test.publish","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     T("test.string.append.am","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
 
@@ -348,6 +369,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     
     if (RedisModule_CreateCommand(ctx,"test.unlink",
         TestUnlink,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.publish",
+        TestPublish,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.it",

@@ -3600,6 +3600,11 @@ void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
 }
 
+/* Publish a message into a PubSub channel. Returns the number of listeners that received it */
+int RM_Publish(RedisModuleString *channel, RedisModuleString *message) {  
+    return pubsubPublishMessage(channel, message);
+}
+
 /* --------------------------------------------------------------------------
  * Thread Safe Contexts
  * -------------------------------------------------------------------------- */
@@ -4037,4 +4042,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
+    REGISTER_API(Publish);
 }
