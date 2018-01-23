@@ -55,7 +55,7 @@ typedef struct streamCG {
                                the NOACK option) that was yet not acknowledged
                                as processed. The key of the radix tree is the
                                ID as a 64 bit big endian number, while the
-                               associated value is a streamNotAcked structure.*/
+                               associated value is a streamNACK structure.*/
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -71,25 +71,25 @@ typedef struct streamConsumer {
                                    the pending messages delivered to this
                                    consumer not yet acknowledged. Keys are
                                    big endian message IDs, while values are
-                                   the same streamNotAcked structure referenced
+                                   the same streamNACK structure referenced
                                    in the "pel" of the conumser group structure
                                    itself, so the value is shared. */
 } streamConsumer;
 
 /* Pending (yet not acknowledged) message in a consumer group. */
-typedef struct streamNotAcked {
+typedef struct streamNACK {
     mstime_t delivery_time;     /* Last time this message was delivered. */
     uint64_t delivery_count;    /* Number of times this message was delivered.*/
     streamConsumer *consumer;   /* The consumer this message was delivered to
                                    in the last delivery. */
-} streamNotAcked;
+} streamNACK;
 
 /* Prototypes of exported APIs. */
 struct client;
 
 stream *streamNew(void);
 void freeStream(stream *s);
-size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer);
+size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int noack);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
