@@ -11,6 +11,230 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.7     Released Wed Jan 24 11:01:40 CET 2018
+================================================================================
+
+Upgrade urgency MODERATE: Several bugs fixed, but none of critical level.
+
+Dear Redis Users,
+
+Redis 4.0.7 addresses a number of problems and adds a few things that are
+very useful to have and was worth to backport into a patchlevel release.
+Here is a list of the most important things, but you can find the full list
+of commits below as usually:
+
+* Many 32 bit overflows were addressed in order to allow to use Redis with
+  a very significant amount of data, memory size permitting. (zhaozhao.zz,
+  Oran Agra)
+
+* MEMORY USAGE fixed for the list type. (gnuhpc)
+
+* Allow read-only scripts in Redis Cluster. (Salvatore Sanfilippo)
+
+* Fix AOF pipes setup in edge case. (heqin)
+
+* AUTH option for MIGRATE. (AlexStocks, Salvatore Sanfilippo, Fabio Nicotra)
+
+* HyperLogLogs are no longer converted from sparse to dense in order
+  to be merged. (Salvatore Sanfilippo)
+
+* Fix AOF rewrite dead loop under edge cases. (heqin)
+
+* Fix processing of large bulk strings (>= 2GB). (Oran Agra)
+
+* Added RM_UnlinkKey in modules API. (Dvir Volk)
+
+* Fix Redis Cluster crashes when certain commands with a variable number
+  of arguments are called in an improper way. (Salvatore Sanfilippo)
+
+* Fix memory leak in lazyfree engine. (zhaozhao.zz)
+
+* Fix many potentially successful partial synchronizations that end
+  doing a full SYNC, because of a bug destroying the replication
+  backlog on the slave. So after a failover the slave was often not able
+  to PSYNC with masters, and a full SYNC was triggered. The bug only
+  happened after 1 hour of uptime so escaped the unit tests. (Oran Agra)
+
+* Improve anti-affinity in master/slave allocation for Redis Cluster
+  when the cluster is created. (Salvatore Sanfilippo)
+
+* Improve output buffer handling for slaves, by not limiting the amount
+  of writes a slave could receive. (Guy Benoish)
+
+The full list of commits follow.
+
+Enjoy,
+Salvatore
+
+jianqingdu in commit 2b99d77a:
+ fix not call va_end when syncWrite() failed
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Yusaku Kaneta in commit 5f9b9e11:
+ Fix the firstkey, lastkey, and keystep of moduleCommand
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Mark Nunberg in commit ba2d3e8e:
+ redismodule.h: Check ModuleNameBusy before calling it
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 05c1f18d:
+ Fix integration test NOREPLICAS error time dependent false positive.
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+antirez in commit 4acd6973:
+ Fix migrateCommand() access of not initialized byte.
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 548e4fe0:
+ Replication buffer fills up on high rate traffic.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit efa7063c:
+ Cluster: improve anti-affinity algo in redis-trib.rb.
+ 1 file changed, 131 insertions(+), 1 deletion(-)
+
+antirez in commit 48568ab6:
+ Remove useless comment from serverCron().
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+heqin in commit 0201dea5:
+ fixbug for #4545 dead loop aof rewrite
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 926beaa3:
+ Hopefully more clear comment to explain the change in #4607.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+qinchao in commit 019ad3e2:
+ fix assert problem in ZIP_DECODE_PREVLENSIZE , see issue: https://github.com/antirez/redis/issues/4587
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 8d9dff84:
+ PSYNC2 fix - promoted slave should hold on to it's backlog
+ 1 file changed, 5 insertions(+)
+
+zhaozhao.zz in commit fba2e169:
+ aof: format code and comment
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 7777be7b:
+ Put more details in the comment introduced by #4601.
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit 91c1568b:
+ lazyfree: fix memory leak for lazyfree-lazy-server-del
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit f9c2c1ac:
+ Fix getKeysUsingCommandTable() in the case of nagative arity.
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+antirez in commit 61135f18:
+ Document new protocol options in #4568 into redis.conf.
+ 1 file changed, 14 insertions(+)
+
+antirez in commit e77fba4d:
+ proto-max-querybuf-len -> client-query-buffer-limit.
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 87fe813b:
+ New config options about protocol prefixed with "proto".
+ 4 files changed, 13 insertions(+), 13 deletions(-)
+
+gnuhpc in commit 2e0d2414:
+ Fix a typo(maybe instruction?) in crash log
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Dvir Volk in commit 9f7e214e:
+ Added RM_UnlinkKey - a low level analog to UNLINK command
+ 3 files changed, 56 insertions(+)
+
+zhaozhao.zz in commit 947077bb:
+ redis-benchmark: bugfix - handle zero liveclients in right way
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit ff2e628f:
+ Add config options for max-bulk-len and max-querybuf-len mainly to support RESTORE of large keys
+ 4 files changed, 16 insertions(+), 1 deletion(-)
+
+Oran Agra in commit aefa9caa:
+ fix processing of large bulks (above 2GB)
+ 8 files changed, 39 insertions(+), 33 deletions(-)
+
+heqin in commit 896cf1a9:
+ fixbug for #4545 dead loop aof rewrite
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 5abb12e0:
+ Hyperloglog: refresh hdr variable correctly.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit c39a0f7c:
+ Hyperloglog: Support for PFMERGE sparse encoding as target.
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+antirez in commit 8a012df9:
+ Hyperloglog: refactoring of sparse/dense add function.
+ 1 file changed, 38 insertions(+), 20 deletions(-)
+
+antirez in commit 549409ff:
+ Test: MIGRATE AUTH test added.
+ 1 file changed, 24 insertions(+)
+
+antirez in commit 47717222:
+ Rewrite MIGRATE AUTH option.
+ 1 file changed, 38 insertions(+), 12 deletions(-)
+
+heqin in commit d8da89ea:
+ fixbug for #4538 Error opening /setting AOF rewrite IPC pipes: No such file or directory
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 4fcc564a:
+ safe_write -> aofWrite. Function commented.
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 27d9c729:
+ aof: cast sdslen to ssize_t
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit de4fb877:
+ aof: fix the short write
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+Tomasz Poradowski in commit 1fade3d3:
+ always enable command history in redis-cli
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 9f4d4eef:
+ Cluster: allow read-only EVAL/EVALSHA in slaves.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+nashe in commit 8eeceabd:
+ Prevent off-by-one read in stringmatchlen() (fixes #4527)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+gnuhpc in commit 733af148:
+ Fix memory usage list bug
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit c9cb699b:
+ dict: fix the int problem for defrag
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit b37099a1:
+ dict: fix the int problem
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit 8fe586d3:
+ set: fix the int problem for qsort
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 219e29af:
+ set: fix the int problem for SPOP & SRANDMEMBER
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+================================================================================
 Redis 4.0.6     Released Thu Dec 4 17:54:10 CET 2017
 ================================================================================
 
