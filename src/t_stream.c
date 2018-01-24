@@ -694,7 +694,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
  *    'noack' is non-zero.
  */
 size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int noack) {
-    void *arraylen_ptr = addDeferredMultiBulkLength(c);
+    void *arraylen_ptr;
     size_t arraylen = 0;
     streamIterator si;
     int64_t numfields;
@@ -713,6 +713,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                                                    group,consumer);
     }
 
+    arraylen_ptr = addDeferredMultiBulkLength(c);
     streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
