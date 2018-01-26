@@ -41,8 +41,6 @@
 #define STREAM_ITEM_FLAG_SAMEFIELDS (1<<1)  /* Same fields as master entry. */
 
 void streamFreeCG(streamCG *cg);
-streamCG *streamLookupCG(stream *s, sds groupname);
-streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer);
 
@@ -1242,8 +1240,20 @@ void xreadCommand(client *c) {
          * in case the ID provided is too low, we do not want the server to
          * block just to serve this client a huge stream of messages. */
         c->bpop.xread_count = count ? count : XREAD_BLOCKED_DEFAULT_COUNT;
-        c->bpop.xread_group = groupname;
-        c->bpop.xread_consumer = consumername;
+
+        /* If this is a XREADGROUP + GROUP we need to remember for which
+         * group and consumer name we are blocking, so later when one of the
+         * keys receive more data, we can call streamReplyWithRange() passing
+         * the right arguments. */
+        if (groupname) {
+            incrRefCount(groupname);
+            incrRefCount(consumername);
+            c->bpop.xread_group = groupname;
+            c->bpop.xread_consumer = consumername;
+        } else {
+            c->bpop.xread_group = NULL;
+            c->bpop.xread_consumer = NULL;
+        }
         goto cleanup;
     }
 
