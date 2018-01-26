@@ -26,7 +26,8 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifndef __AE_EVPORT_H__
+#define __AE_EVPORT_H__
 
 #include <assert.h>
 #include <errno.h>
@@ -318,3 +319,5 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 static char *aeApiName(void) {
     return "evport";
 }
+
+#endif

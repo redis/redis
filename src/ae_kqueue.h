@@ -1,6 +1,6 @@
-/* Select()-based ae.c module.
+/* Kqueue(2)-based ae.c module
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (C) 2009 Harish Mallipeddi - harish.mallipeddi@gmail.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,80 +27,115 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+#ifndef __AE_KQUEUE_H__
+#define __AE_KQUEUE_H__
 
-
-#include <sys/select.h>
-#include <string.h>
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/time.h>
 
 typedef struct aeApiState {
-    fd_set rfds, wfds;
-    /* We need to have a copy of the fd sets as it's not safe to reuse
-     * FD sets after select(). */
-    fd_set _rfds, _wfds;
+    int kqfd;
+    struct kevent *events;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
-    FD_ZERO(&state->rfds);
-    FD_ZERO(&state->wfds);
+    state->events = zmalloc(sizeof(struct kevent)*eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
+    state->kqfd = kqueue();
+    if (state->kqfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
     return 0;
 }
 
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
-    /* Just ensure we have enough room in the fd_set type. */
-    if (setsize >= FD_SETSIZE) return -1;
+    aeApiState *state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
     return 0;
 }
 
 static void aeApiFree(aeEventLoop *eventLoop) {
-    zfree(eventLoop->apidata);
+    aeApiState *state = eventLoop->apidata;
+
+    close(state->kqfd);
+    zfree(state->events);
+    zfree(state);
 }
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
+    struct kevent ke;
 
-    if (mask & AE_READABLE) FD_SET(fd,&state->rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd,&state->wfds);
+    if (mask & AE_READABLE) {
+        EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
+    }
+    if (mask & AE_WRITABLE) {
+        EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
+    }
     return 0;
 }
 
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
+    struct kevent ke;
 
-    if (mask & AE_READABLE) FD_CLR(fd,&state->rfds);
-    if (mask & AE_WRITABLE) FD_CLR(fd,&state->wfds);
+    if (mask & AE_READABLE) {
+        EV_SET(&ke, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
+    }
+    if (mask & AE_WRITABLE) {
+        EV_SET(&ke, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
+    }
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
-    int retval, j, numevents = 0;
+    int retval, numevents = 0;
 
-    memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
-    memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
+    if (tvp != NULL) {
+        struct timespec timeout;
+        timeout.tv_sec = tvp->tv_sec;
+        timeout.tv_nsec = tvp->tv_usec * 1000;
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+                        &timeout);
+    } else {
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+                        NULL);
+    }
 
-    retval = select(eventLoop->maxfd+1,
-                &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
-        for (j = 0; j <= eventLoop->maxfd; j++) {
-            int mask = 0;
-            aeFileEvent *fe = &eventLoop->events[j];
+        int j;
 
-            if (fe->mask == AE_NONE) continue;
-            if (fe->mask & AE_READABLE && FD_ISSET(j,&state->_rfds))
-                mask |= AE_READABLE;
-            if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
-                mask |= AE_WRITABLE;
-            eventLoop->fired[numevents].fd = j;
-            eventLoop->fired[numevents].mask = mask;
-            numevents++;
+        numevents = retval;
+        for(j = 0; j < numevents; j++) {
+            int mask = 0;
+            struct kevent *e = state->events+j;
+
+            if (e->filter == EVFILT_READ) mask |= AE_READABLE;
+            if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
+            eventLoop->fired[j].fd = e->ident;
+            eventLoop->fired[j].mask = mask;
         }
     }
     return numevents;
 }
 
 static char *aeApiName(void) {
-    return "select";
+    return "kqueue";
 }
+
+#endif

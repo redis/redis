@@ -27,7 +27,8 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#ifndef __AE_EPOLL_H__
+#define __AE_EPOLL_H__
 
 #include <sys/epoll.h>
 
@@ -133,3 +134,5 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 static char *aeApiName(void) {
     return "epoll";
 }
+
+#endif
