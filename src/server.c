@@ -310,6 +310,7 @@ struct redisCommand redisCommandTable[] = {
     {"xreadgroup",xreadCommand,-3,"ws",0,xreadGetKeys,1,1,1,0,0},
     {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0},
     {"xack",xackCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    {"xpending",xpendingCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
