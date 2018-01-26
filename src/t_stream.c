@@ -1412,7 +1412,7 @@ void xackCommand(client *c) {
 
     /* No key or group? Nothing to ack. */
     if (o == NULL || group == NULL) {
-        addReply(c,shared.cone);
+        addReply(c,shared.czero);
         return;
     }
 
