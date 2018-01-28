@@ -832,7 +832,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
             if (tokens[elements] == NULL) goto cleanup;
             elements++;
             start = j+seplen;
-            j = j+seplen-1; /* skip the separator */
+            j = j+seplen; /* skip the separator */
         }
     }
     /* Add the final element. We are sure there is room in the tokens array. */
