@@ -331,7 +331,8 @@ void handleClientsBlockedOnKeys(void) {
                             }
                             if (group) {
                                 consumer = streamLookupConsumer(group,
-                                           receiver->bpop.xread_consumer->ptr);
+                                           receiver->bpop.xread_consumer->ptr,
+                                           1);
                             }
 
                             /* Note that after we unblock the client, 'gt'
