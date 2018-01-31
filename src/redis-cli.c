@@ -2310,12 +2310,6 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
         }         
         if (!flags) goto node_cmd_err;
         int myself = (strstr(flags, "myself") != NULL);
-        if (strstr(flags, "noaddr") != NULL)
-            node->flags |= CLUSTER_MANAGER_FLAG_NOADDR;
-        if (strstr(flags, "disconnected") != NULL)
-            node->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
-        if (strstr(flags, "fail") != NULL)
-            node->flags |= CLUSTER_MANAGER_FLAG_FAIL;
         clusterManagerNode *currentNode = NULL;
         if (myself) {
             node->flags |= CLUSTER_MANAGER_FLAG_MYSELF;
@@ -2396,10 +2390,22 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             if (node->friends == NULL) node->friends = listCreate();
             listAddNodeTail(node->friends, currentNode);
         }
-        if (name != NULL) currentNode->name = sdsnew(name);
+        if (name != NULL) {
+            if (currentNode->name) sdsfree(currentNode->name);
+            currentNode->name = sdsnew(name);
+        }
+        if (strstr(flags, "noaddr") != NULL)
+            currentNode->flags |= CLUSTER_MANAGER_FLAG_NOADDR;
+        if (strstr(flags, "disconnected") != NULL)
+            currentNode->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
+        if (strstr(flags, "fail") != NULL)
+            currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
         if (strstr(flags, "slave") != NULL) {
             currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
-            if (master_id != NULL) currentNode->replicate = sdsnew(master_id);
+            if (master_id != NULL) {
+                if (currentNode->replicate) sdsfree(currentNode->replicate);
+                currentNode->replicate = sdsnew(master_id);
+            }
         }
         if (config_epoch != NULL) 
             currentNode->current_epoch = atoll(config_epoch);
@@ -2442,27 +2448,39 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
         freeClusterManagerNode(node);
         return 0;
     }
+    listIter li;
+    listNode *ln;
+    if (cluster_manager.nodes != NULL) {
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) 
+            freeClusterManagerNode((clusterManagerNode *) ln->value);
+        listRelease(cluster_manager.nodes);
+    }
     cluster_manager.nodes = listCreate();
     listAddNodeTail(cluster_manager.nodes, node);
     if (node->friends != NULL) {
-        listIter li;
-        listNode *ln;
         listRewind(node->friends, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *friend = ln->value;
-            if (!friend->ip || !friend->port) continue;
+            if (!friend->ip || !friend->port) goto invalid_friend;
             if (!friend->context)
                 friend->context = redisConnect(friend->ip, friend->port);
-            if (friend->context->err) continue;
+            if (friend->context->err) goto invalid_friend;
             e = NULL;
             if (clusterManagerNodeLoadInfo(friend, 0, &e)) {
                 if (friend->flags & (CLUSTER_MANAGER_FLAG_NOADDR | 
                                      CLUSTER_MANAGER_FLAG_DISCONNECT | 
-                                     CLUSTER_MANAGER_FLAG_FAIL)) continue;
+                                     CLUSTER_MANAGER_FLAG_FAIL))
+                    goto invalid_friend;
                 listAddNodeTail(cluster_manager.nodes, friend);
-                 
-            } else fprintf(stderr,"[ERR] Unable to load info for node %s:%d\n",
-                           friend->ip, friend->port);
+            } else {
+                fprintf(stderr,"[ERR] Unable to load info for node %s:%d\n",
+                        friend->ip, friend->port);
+                goto invalid_friend;
+            }
+            continue;
+invalid_friend:
+            freeClusterManagerNode(friend);
         }
         listRelease(node->friends);
         node->friends = NULL;
@@ -2601,6 +2619,7 @@ static void clusterManagerCheckCluster(int quiet) {
         CLUSTER_MANAGER_ERROR(err);
     } else printf("[OK] All nodes agree about slots configuration.\n");
     // Check open slots
+    printf(">>> Check for open slots...\n");
     listIter li;
     listRewind(cluster_manager.nodes, &li);
     int i;
@@ -2836,6 +2855,7 @@ assign_replicas:
             if (slave != NULL) {
                 assigned_replicas++;
                 available_count--;
+                if (slave->replicate) sdsfree(slave->replicate);
                 slave->replicate = sdsnew(master->name); 
                 slave->dirty = 1;
             } else break;
@@ -2873,7 +2893,7 @@ assign_replicas:
                     zfree(err);
                 }
                 goto cmd_err;
-            }
+            } else if (err != NULL) zfree(err);
         }
         printf(">>> Nodes configuration updated\n");
         printf(">>> Assign a different config epoch to each node\n");
