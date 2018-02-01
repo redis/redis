@@ -2949,7 +2949,16 @@ assign_replicas:
             redisReply *reply = NULL;
             reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d", 
                                             first->ip, first->port);
-            if (reply != NULL) freeReplyObject(reply);
+            int is_err = 0;
+            if (reply != NULL) {
+                if ((is_err = reply->type == REDIS_REPLY_ERROR))
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, reply->str);
+                freeReplyObject(reply);
+            } else {
+                is_err = 1;
+                fprintf(stderr, "Failed to send CLUSTER MEET command.\n");
+            }
+            if (is_err) goto cmd_err;
         }
         // Give one second for the join to start, in order to avoid that
         // waiting for cluster join will find all the nodes agree about 
