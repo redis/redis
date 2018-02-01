@@ -2607,6 +2607,24 @@ static int clusterManagerIsConfigConsistent(void) {
     return consistent;
 }
 
+static int clusterManagerGetCoveredSlots(char *all_slots) {
+    if (cluster_manager.nodes == NULL) return 0;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    int totslots = 0, i;
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+            if (node->slots[i] && !all_slots[i]) {
+                all_slots[i] = 1;
+                totslots++;
+            }
+        }
+    }
+    return totslots;
+}
+
 static void clusterManagerCheckCluster(int quiet) {
     listNode *ln = listFirst(cluster_manager.nodes);
     if (!ln) return;
@@ -2677,7 +2695,19 @@ static void clusterManagerCheckCluster(int quiet) {
         sdsfree(errstr);
         dictRelease(open_slots);
     }
-    //TODO:check_slots_coverage
+    printf(">>> Check slots coverage...\n");
+    char slots[CLUSTER_MANAGER_SLOTS];
+    memset(slots, 0, CLUSTER_MANAGER_SLOTS);
+    int coverage = clusterManagerGetCoveredSlots(slots);
+    if (coverage == CLUSTER_MANAGER_SLOTS)
+        printf("[OK] All %d slots covered.\n", CLUSTER_MANAGER_SLOTS);
+    else {
+        sds err = sdsempty();
+        err = sdscatprintf(err, "[ERR] Not all %d slots are "
+                                "covered by nodes.\n", 
+                                CLUSTER_MANAGER_SLOTS);
+        CLUSTER_MANAGER_ERROR(err);
+    }
 }
 
 static void clusterManagerMode(clusterManagerCommandProc *proc) {
