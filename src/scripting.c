@@ -1480,6 +1480,26 @@ NULL
             else
                 addReply(c,shared.czero);
         }
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"list")) {
+        dictEntry* de;
+
+        addReplyMultiBulkLen(c, dictSize(server.lua_scripts));
+        dictIterator *di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            addReplyBulkCString(c, dictGetKey(de));
+        }
+        dictReleaseIterator(di);
+    } else if (c->argc >= 3 && !strcasecmp(c->argv[1]->ptr,"getluabysha")) {
+        int j;
+
+        addReplyMultiBulkLen(c, c->argc-2);
+        for (j = 2; j < c->argc; j++) {
+            robj *s = dictFetchValue(server.lua_scripts, c->argv[j]->ptr);
+            if (s != NULL)
+                addReplyBulkCString(c, s->ptr);
+            else
+                addReply(c, shared.noscripterr);
+        }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
         sds sha = luaCreateFunction(c,server.lua,c->argv[2]);
         if (sha == NULL) return; /* The error was sent by luaCreateFunction(). */
