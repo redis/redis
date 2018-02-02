@@ -11,6 +11,31 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.8     Released Fri Feb 2 11:17:40 CET 2018
+================================================================================
+
+Upgrade urgency CRITICAL ONLY for Redis Cluster users. Otherwise no reason
+to upgrade at all.
+
+Redis 4.0.8 fixes a single critical bug in the radix tree data structure
+used for Redis Cluster keys slot tracking. The problem was actually fixed
+10 months ago into unstable, but it was fixed in a commit related to Streams
+so it was never backported (for error) into the 4.0 branch.
+
+The problem will crash Redis Cluster instances during deletions, but it is
+very hard to trigger: only when the node removed is in the edge of a memory
+mapped area there are the conditions to create an issue, because otherwise
+the code just accesses an out of range word in read-only way in an allocated
+structure: this is almost always harmless.
+
+The single commit in this release:
+
+f603940f Rax updated to latest antirez/rax commit. (Salvatore Sanfilippo)
+
+Cheers,
+Salvatore
+
+================================================================================
 Redis 4.0.7     Released Wed Jan 24 11:01:40 CET 2018
 ================================================================================
 
