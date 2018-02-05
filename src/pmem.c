@@ -66,6 +66,7 @@ void pmemKVpairSet(void *key, void *val)
 
     kv_PM_oid = sdsPMEMoidBackReference((sds)key);
     kv_PM_p = (struct key_val_pair_PM *)pmemobj_direct(*kv_PM_oid);
+    TX_ADD_DIRECT(kv_PM_p);
 
     val_oid.pool_uuid_lo = server.pool_uuid_lo;
     val_oid.off = (uint64_t)val - (uint64_t)server.pm_pool->addr;
@@ -96,9 +97,12 @@ pmemAddToPmemList(void *key, void *val)
     kv_PM_p->val_oid = val_oid;
     typed_kv_PM.oid = kv_PM;
 
+    pmemobj_tx_add_range(server.pm_rootoid.oid, 0, sizeof(struct redis_pmem_root));
     root = pmemobj_direct(server.pm_rootoid.oid);
+
     kv_PM_p->pmem_list_next = root->pe_first;
     if(!TOID_IS_NULL(root->pe_first)) {
+        TX_ADD(D_RW(root->pe_first)->pmem_list_prev);
     	D_RW(root->pe_first)->pmem_list_prev = typed_kv_PM;
     }
     root->pe_first = typed_kv_PM;
@@ -114,6 +118,7 @@ pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
     TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
+    pmemobj_tx_add_range(server.pm_rootoid.oid, 0, sizeof(struct redis_pmem_root));
     root = pmemobj_direct(server.pm_rootoid.oid);
 
     typed_kv_PM.oid = kv_PM_oid;
@@ -121,6 +126,7 @@ pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
     if(TOID_EQUALS(root->pe_first, typed_kv_PM)) {
     	TOID(struct key_val_pair_PM) typed_kv_PM_next = D_RO(typed_kv_PM)->pmem_list_next;
     	if(!TOID_IS_NULL(typed_kv_PM_next)){
+    		TX_ADD(typed_kv_PM_next);
     		D_RW(typed_kv_PM_next)->pmem_list_prev.oid = OID_NULL;
     	}
     	TX_FREE(root->pe_first);
@@ -130,9 +136,11 @@ pmemRemoveFromPmemList(PMEMoid kv_PM_oid)
     	TOID(struct key_val_pair_PM) typed_kv_PM_prev = D_RO(typed_kv_PM)->pmem_list_prev;
     	TOID(struct key_val_pair_PM) typed_kv_PM_next = D_RO(typed_kv_PM)->pmem_list_next;
     	if(!TOID_IS_NULL(typed_kv_PM_prev)){
+    		TX_ADD(typed_kv_PM_prev);
     		D_RW(typed_kv_PM_prev)->pmem_list_next = typed_kv_PM_next;
     	}
     	if(!TOID_IS_NULL(typed_kv_PM_next)){
+    		TX_ADD(typed_kv_PM_next);
     		D_RW(typed_kv_PM_next)->pmem_list_prev = typed_kv_PM_prev;
     	}
     	TX_FREE(typed_kv_PM);
