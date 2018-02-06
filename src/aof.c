@@ -1195,6 +1195,15 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         dictReleaseIterator(di);
         di = NULL;
     }
+    char scriptloadcmd[]="*3\r\n$6\r\nSCRIPT\r\n$4\r\nLOAD\r\n";
+    di = dictGetIterator(server.lua_scripts);
+    while((de = dictNext(di)) != NULL) {
+        robj* script=dictGetVal(de);
+        if (rioWrite(aof,scriptloadcmd,sizeof(scriptloadcmd)-1) == 0) goto werr;
+        if (rioWriteBulkObject(aof,script) == 0) goto werr;
+    }
+    dictReleaseIterator(di);
+    di = NULL;
     return C_OK;
 
 werr:
