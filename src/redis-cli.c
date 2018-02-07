@@ -2584,7 +2584,10 @@ cleanup:
 
 static int clusterManagerIsConfigConsistent(void) {
     if (cluster_manager.nodes == NULL) return 0;
-    int consistent = 0;
+    int consistent = (listLength(cluster_manager.nodes) <= 1);
+    // If the Cluster has only one node, it's always consistent
+    // Does it make sense?
+    if (consistent) return 1;
     sds first_cfg = NULL;
     listIter li;
     listNode *ln;
