@@ -346,9 +346,9 @@ unsigned long LFUDecrAndReturn(robj *o) {
  * server when there is data to add in order to make space if needed.
  * --------------------------------------------------------------------------*/
 
-/* We don't want to count AOF buffers and slaves output buffers as
+/* We don't want to count AOF buffers, replication backlog and slaves output buffers as
  * used memory: the eviction should use mostly data size. This function
- * returns the sum of AOF and slaves buffer. */
+ * returns the sum of AOF and slaves buffer, and replication backlog. */
 size_t freeMemoryGetNotCountedMemory(void) {
     size_t overhead = 0;
     int slaves = listLength(server.slaves);
@@ -366,6 +366,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
     if (server.aof_state != AOF_OFF) {
         overhead += sdslen(server.aof_buf)+aofRewriteBufferSize();
     }
+    if (server.repl_backlog) overhead += zmalloc_size(server.repl_backlog);
     return overhead;
 }
 
