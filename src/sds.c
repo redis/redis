@@ -509,6 +509,7 @@ sds sdsfromlonglong(long long value) {
 
 /* Like sdscatprintf() but gets va_list instead of being variadic. */
 sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
+#if 0
     va_list cpy;
     char staticbuf[1024], *buf = staticbuf, *t;
     size_t buflen = strlen(fmt)*2;
@@ -537,6 +538,32 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
             continue;
         }
         break;
+    }
+#endif
+    va_list cpy;
+    char staticbuf[1024], *buf = staticbuf, *t;
+    int buflen = sizeof(staticbuf);
+    int ret_len = 0;
+
+    while (1) {
+        va_copy(cpy,ap);
+        ret_len = vsnprintf(buf, buflen, fmt, cpy);
+        va_end(cpy);
+        if (ret_len < 0) {
+            if (buf != staticbuf) s_free(buf);
+            return NULL;
+        }
+
+        if (ret_len <= buflen) break;
+
+        if (buf == staticbuf) {
+            buflen = ret_len;
+            buf = s_malloc(buflen);
+            if (buf == NULL) return NULL;
+        } else {
+            s_free(buf);
+            return NULL;
+        }
     }
 
     /* Finally concat the obtained string to the SDS string and return it. */
@@ -828,6 +855,7 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
         }
         /* search the separator */
         if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+            if (j == start) continue;
             tokens[elements] = sdsnewlen(s+start,j-start);
             if (tokens[elements] == NULL) goto cleanup;
             elements++;
@@ -836,9 +864,11 @@ sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *c
         }
     }
     /* Add the final element. We are sure there is room in the tokens array. */
-    tokens[elements] = sdsnewlen(s+start,len-start);
-    if (tokens[elements] == NULL) goto cleanup;
-    elements++;
+    if (len != start) {
+        tokens[elements] = sdsnewlen(s+start,len-start);
+        if (tokens[elements] == NULL) goto cleanup;
+        elements++;
+    }
     *count = elements;
     return tokens;
 
@@ -1062,6 +1092,11 @@ err:
  * as the input pointer since no resize is needed. */
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
     size_t j, i, l = sdslen(s);
+    size_t fl = strlen(from);
+    size_t tl = strlen(to);
+    size_t min = fl > tl ? tl : fl;
+    if (min < setlen)
+        setlen = min;
 
     for (j = 0; j < l; j++) {
         for (i = 0; i < setlen; i++) {
