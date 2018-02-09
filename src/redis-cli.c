@@ -70,6 +70,8 @@
 #define CLUSTER_MANAGER_SLOTS 16384
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
+#define CLUSTER_MANAGER_NODE_CONNECT(n) \
+    (n->context = redisConnect(n->ip, n->port));
 #define CLUSTER_MANAGER_COMMAND(n,...) \
         (reconnectingRedisCommand(n->context, __VA_ARGS__))
 #define CLUSTER_MANAGER_NODE_INFO(n) (CLUSTER_MANAGER_COMMAND(n, "INFO"))
@@ -2449,7 +2451,7 @@ node_cmd_err:
 
 static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
     if (node->context == NULL) 
-        node->context = redisConnect(node->ip, node->port);
+        CLUSTER_MANAGER_NODE_CONNECT(node);
     if (node->context->err) {
         fprintf(stderr,"Could not connect to Redis at ");
         fprintf(stderr,"%s:%d: %s\n", node->ip, node->port, 
@@ -2491,7 +2493,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
             clusterManagerNode *friend = ln->value;
             if (!friend->ip || !friend->port) goto invalid_friend;
             if (!friend->context)
-                friend->context = redisConnect(friend->ip, friend->port);
+                CLUSTER_MANAGER_NODE_CONNECT(friend);
             if (friend->context->err) goto invalid_friend;
             e = NULL;
             if (clusterManagerNodeLoadInfo(friend, 0, &e)) {
@@ -2785,7 +2787,7 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         char *ip = addr;
         int port = atoi(++c);
         clusterManagerNode *node = clusterManagerNewNode(ip, port);
-        node->context = redisConnect(ip, port);
+        CLUSTER_MANAGER_NODE_CONNECT(node);
         if (node->context->err) {
             fprintf(stderr,"Could not connect to Redis at ");
             fprintf(stderr,"%s:%d: %s\n", ip, port, node->context->errstr);
