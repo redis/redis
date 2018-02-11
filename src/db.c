@@ -187,9 +187,6 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
         int saved_lru = old->lru;
         dictReplace(db->dict, key->ptr, val);
         val->lru = saved_lru;
-        /* LFU should be not only copied but also updated
-         * when a key is overwritten. */
-        updateLFU(val);
     } else {
         dictReplace(db->dict, key->ptr, val);
     }
@@ -1340,7 +1337,7 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     for (i = 5; i < argc; i++) {
         char *arg = argv[i]->ptr;
         /* For the case when user specifies both "store" and "storedist" options, the
-         * second key specified would override the first key. This behavior is kept 
+         * second key specified would override the first key. This behavior is kept
          * the same as in georadiusCommand method.
          */
         if ((!strcasecmp(arg, "store") || !strcasecmp(arg, "storedist")) && ((i+1) < argc)) {
@@ -1361,7 +1358,7 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
     if(num > 1) {
          keys[1] = stored_key;
     }
-    *numkeys = num; 
+    *numkeys = num;
     return keys;
 }
 
