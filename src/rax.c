@@ -783,7 +783,7 @@ oom:
      * do that only if the node is a terminal node, otherwise if the OOM
      * happened reallocating a node in the middle, we don't need to free
      * anything. */
-    if (h->size == 0) {
+    if (h && (h->size == 0)) {
         h->isnull = 1;
         h->iskey = 1;
         rax->numele++; /* Compensate the next remove. */
