@@ -644,7 +644,7 @@ dictEntry *dictGetRandomKey(dict *d)
     }
     listele = random() % listlen;
     he = orighe;
-    while(listele--) he = he->next;
+    while(he && (listele--)) he = he->next;
     return he;
 }
 
