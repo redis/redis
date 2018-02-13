@@ -44,6 +44,7 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
+    o->a = z_alloc;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
@@ -81,14 +82,15 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
-robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a) {
+    robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
+    o->a = a;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -111,9 +113,9 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
  *
- * The current limit of 39 is chosen so that the biggest string object
+ * The current limit of 36 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
-#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 36
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
@@ -179,10 +181,11 @@ robj *dupStringObject(const robj *o) {
     }
 }
 
-robj *createQuicklistObject(void) {
-    quicklist *l = quicklistCreate();
+robj *createQuicklistObjectA(alloc a) {
+    quicklist *l = quicklistCreateA(a);
     robj *o = createObject(OBJ_LIST,l);
     o->encoding = OBJ_ENCODING_QUICKLIST;
+    o->a = a;
     return o;
 }
 
@@ -247,7 +250,7 @@ void freeStringObject(robj *o) {
 
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistRelease(o->ptr);
+		quicklistReleaseA(o->ptr, o->a);
     } else {
         serverPanic("Unknown list encoding type");
     }

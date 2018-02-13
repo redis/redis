@@ -31,6 +31,8 @@
 #ifndef __QUICKLIST_H__
 #define __QUICKLIST_H__
 
+#include "alloc.h"
+
 /* Node, quicklist, and Iterator are the only data structures used currently. */
 
 /* quicklistNode is a 32 byte struct describing a ziplist for a quicklist.
@@ -115,43 +117,123 @@ typedef struct quicklistEntry {
     ((node)->encoding == QUICKLIST_NODE_ENCODING_LZF)
 
 /* Prototypes */
-quicklist *quicklistCreate(void);
+quicklist *quicklistCreateA(alloc a);
+static inline quicklist *quicklistCreate(void) { return quicklistCreateA(z_alloc); }
+//static inline quicklist *quicklistCreateM(void) { return quicklistCreateA(m_alloc); }
 quicklist *quicklistNew(int fill, int compress);
 void quicklistSetCompressDepth(quicklist *quicklist, int depth);
 void quicklistSetFill(quicklist *quicklist, int fill);
 void quicklistSetOptions(quicklist *quicklist, int fill, int depth);
-void quicklistRelease(quicklist *quicklist);
-int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz);
-int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz);
-void quicklistPush(quicklist *quicklist, void *value, const size_t sz,
-                   int where);
+void quicklistReleaseA(quicklist *quicklist, alloc a);
+//static inline void quicklistRelease(quicklist *quicklist) { quicklistReleaseA(quicklist, z_alloc); }
+//static inline void quicklistReleaseM(quicklist *quicklist) { quicklistReleaseA(quicklist, m_alloc); }
+int quicklistPushHeadA(quicklist *quicklist, void *value, const size_t sz, alloc a);
+static inline int quicklistPushHead(quicklist *quicklist, void *value, const size_t sz) {
+	return quicklistPushHeadA(quicklist, value, sz, z_alloc);
+}
+//static inline int quicklistPushHeadM(quicklist *quicklist, void *value, const size_t sz) {
+//	return quicklistPushHeadA(quicklist, value, sz, m_alloc);
+//}
+int quicklistPushTailA(quicklist *quicklist, void *value, const size_t sz, alloc a);
+static inline int quicklistPushTail(quicklist *quicklist, void *value, const size_t sz) {
+	return quicklistPushTailA(quicklist, value, sz, z_alloc);
+}
+//static inline int quicklistPushTailM(quicklist *quicklist, void *value, const size_t sz) {
+//	return quicklistPushTailA(quicklist, value, sz, m_alloc);
+//}
+void quicklistPushA(quicklist *quicklist, void *value, const size_t sz,
+                   int where, alloc a);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
                                             unsigned char *zl);
 quicklist *quicklistCreateFromZiplist(int fill, int compress,
                                       unsigned char *zl);
-void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
-                          void *value, const size_t sz);
-void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,
-                           void *value, const size_t sz);
-void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
-int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
-                            int sz);
-int quicklistDelRange(quicklist *quicklist, const long start, const long stop);
+void quicklistInsertAfterA(quicklist *quicklist, quicklistEntry *node,
+                          void *value, const size_t sz, alloc a);
+//static inline void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
+//                          void *value, const size_t sz) {
+//	quicklistInsertAfterA(quicklist, node, value, sz, z_alloc);
+//}
+//static inline void quicklistInsertAfterM(quicklist *quicklist, quicklistEntry *node,
+//                          void *value, const size_t sz) {
+//	quicklistInsertAfterA(quicklist, node, value, sz, m_alloc);
+//}
+void quicklistInsertBeforeA(quicklist *quicklist, quicklistEntry *node,
+                           void *value, const size_t sz, alloc a);
+//static inline void quicklistInsertBefore(quicklist *quicklist, quicklistEntry *node,
+//                           void *value, const size_t sz) {
+//	quicklistInsertBeforeA(quicklist, node, value, sz, z_alloc);
+//}
+//static inline void quicklistInsertBeforeM(quicklist *quicklist, quicklistEntry *node,
+//                           void *value, const size_t sz) {
+//	quicklistInsertBeforeA(quicklist, node, value, sz, m_alloc);
+//}
+void quicklistDelEntryA(quicklistIter *iter, quicklistEntry *entry, alloc a);
+//static inline void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
+//	quicklistDelEntryA(iter, entry, z_alloc);
+//}
+//static inline void quicklistDelEntryM(quicklistIter *iter, quicklistEntry *entry) {
+//	quicklistDelEntryA(iter, entry, m_alloc);
+//}
+int quicklistReplaceAtIndexA(quicklist *quicklist, long index, void *data,
+                            int sz, alloc a);
+//static inline int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
+//                            int sz) {
+//	return quicklistReplaceAtIndexA(quicklist, index, data, sz, z_alloc);
+//}
+static inline int quicklistReplaceAtIndexM(quicklist *quicklist, long index, void *data,
+                            int sz) {
+	return quicklistReplaceAtIndexA(quicklist, index, data, sz, m_alloc);
+}
+int quicklistDelRangeA(quicklist *quicklist, const long start, const long stop, alloc a);
+//static inline int quicklistDelRange(quicklist *quicklist, const long start, const long stop) {
+//	return quicklistDelRangeA(quicklist, start, stop, z_alloc);
+//}
+static inline int quicklistDelRangeM(quicklist *quicklist, const long start, const long stop) {
+	return quicklistDelRangeA(quicklist, start, stop, m_alloc);
+}
 quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction);
-quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist,
-                                         int direction, const long long idx);
-int quicklistNext(quicklistIter *iter, quicklistEntry *node);
+quicklistIter *quicklistGetIteratorAtIdxA(const quicklist *quicklist,
+                                         int direction, const long long idx, alloc a);
+static inline quicklistIter *quicklistGetIteratorAtIdx(const quicklist *quicklist,
+                                         int direction, const long long idx) {
+	return quicklistGetIteratorAtIdxA(quicklist, direction, idx, z_alloc);
+}
+int quicklistNextA(quicklistIter *iter, quicklistEntry *node, alloc a);
+static inline int quicklistNext(quicklistIter *iter, quicklistEntry *node) {
+	return quicklistNextA(iter, node, z_alloc);
+}
+//static inline int quicklistNextM(quicklistIter *iter, quicklistEntry *node) {
+//	return quicklistNextA(iter, node, m_alloc);
+//}
 void quicklistReleaseIterator(quicklistIter *iter);
 quicklist *quicklistDup(quicklist *orig);
-int quicklistIndex(const quicklist *quicklist, const long long index,
-                   quicklistEntry *entry);
+int quicklistIndexA(const quicklist *quicklist, const long long index,
+                   quicklistEntry *entry, alloc a);
+//static inline int quicklistIndex(const quicklist *quicklist, const long long index,
+//                   quicklistEntry *entry) {
+//	return quicklistIndexA(quicklist, index, entry, z_alloc);
+//}
+static inline int quicklistIndexM(const quicklist *quicklist, const long long index,
+                   quicklistEntry *entry) {
+	return quicklistIndexA(quicklist, index, entry, m_alloc);
+}
 void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
 void quicklistRotate(quicklist *quicklist);
-int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
+int quicklistPopCustomA(quicklist *quicklist, int where, unsigned char **data,
                        unsigned int *sz, long long *sval,
-                       void *(*saver)(unsigned char *data, unsigned int sz));
+                       void *(*saver)(unsigned char *data, unsigned int sz), alloc a);
+static inline int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
+                       unsigned int *sz, long long *sval,
+                       void *(*saver)(unsigned char *data, unsigned int sz)) {
+	return quicklistPopCustomA(quicklist, where, data, sz, sval, saver, z_alloc);
+}
+//static inline int quicklistPopCustomM(quicklist *quicklist, int where, unsigned char **data,
+//                       unsigned int *sz, long long *sval,
+//                       void *(*saver)(unsigned char *data, unsigned int sz)) {
+//	return quicklistPopCustomA(quicklist, where, data, sz, sval, saver, m_alloc);
+//}
 int quicklistPop(quicklist *quicklist, int where, unsigned char **data,
                  unsigned int *sz, long long *slong);
 unsigned long quicklistCount(const quicklist *ql);

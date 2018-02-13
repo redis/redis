@@ -31,19 +31,53 @@
 #ifndef _ZIPLIST_H
 #define _ZIPLIST_H
 
+#include "alloc.h"
+
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
-unsigned char *ziplistNew(void);
-unsigned char *ziplistMerge(unsigned char **first, unsigned char **second);
-unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where);
+unsigned char *ziplistNewA(alloc a);
+static inline unsigned char *ziplistNew(void) { return ziplistNewA(z_alloc); }
+//static inline unsigned char *ziplistNewM(void) { return ziplistNewA(m_alloc); }
+unsigned char *ziplistMergeA(unsigned char **first, unsigned char **second, alloc a);
+static inline unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
+	return ziplistMergeA(first, second, z_alloc);
+}
+static inline unsigned char *ziplistMergeM(unsigned char **first, unsigned char **second) {
+	return ziplistMergeA(first, second, m_alloc);
+}
+unsigned char *ziplistPushA(unsigned char *zl, unsigned char *s, unsigned int slen, int where, alloc a);
+static inline unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
+	return ziplistPushA(zl, s, slen, where, z_alloc);
+}
+static inline unsigned char *ziplistPushM(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
+	return ziplistPushA(zl, s, slen, where, m_alloc);
+}
 unsigned char *ziplistIndex(unsigned char *zl, int index);
 unsigned char *ziplistNext(unsigned char *zl, unsigned char *p);
 unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p);
 unsigned int ziplistGet(unsigned char *p, unsigned char **sval, unsigned int *slen, long long *lval);
-unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen);
-unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
-unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num);
+unsigned char *ziplistInsertA(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen, alloc a);
+static inline unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+	return ziplistInsertA(zl, p, s, slen, z_alloc);
+}
+static inline unsigned char *ziplistInsertM(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+	return ziplistInsertA(zl, p, s, slen, m_alloc);
+}
+unsigned char *ziplistDeleteA(unsigned char *zl, unsigned char **p, alloc a);
+static inline unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
+	return ziplistDeleteA(zl, p, z_alloc);
+}
+static inline unsigned char *ziplistDeleteM(unsigned char *zl, unsigned char **p) {
+	return ziplistDeleteA(zl, p, m_alloc);
+}
+unsigned char *ziplistDeleteRangeA(unsigned char *zl, int index, unsigned int num, alloc a);
+static inline unsigned char *ziplistDeleteRange(unsigned char *zl, int index, unsigned int num) {
+	return ziplistDeleteRangeA(zl, index, num, z_alloc);
+}
+static inline unsigned char *ziplistDeleteRangeM(unsigned char *zl, int index, unsigned int num) {
+	return ziplistDeleteRangeA(zl, index, num, m_alloc);
+}
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
 unsigned int ziplistLen(unsigned char *zl);

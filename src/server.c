@@ -3697,6 +3697,7 @@ int redisIsSupervised(int mode) {
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
+    int err = 0;
 
 #ifdef REDIS_TEST
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -3723,6 +3724,14 @@ int main(int argc, char **argv) {
         return -1; /* test not found */
     }
 #endif
+
+	err = memkind_create_pmem("/mnt/pmem", PMEM1_MAX_SIZE, &server.pmem_kind1);
+	if (err) {
+		perror("memkind_create_pmem()");
+		fprintf(stderr, "Unable to create pmem partition\n");
+	} else {
+		printf("memkind created\n");
+	}
 
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
