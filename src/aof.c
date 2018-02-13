@@ -260,6 +260,9 @@ int startAppendOnly(void) {
         server.aof_rewrite_scheduled = 1;
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
+        /* If there is a pending AOF rewrite, we need to switch it off and
+         * start a new one: the old one cannot be reused becuase it is not
+         * accumulating the AOF buffer. */
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
             killAppendOnlyChild();
