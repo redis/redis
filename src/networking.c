@@ -985,7 +985,6 @@ int writeToClient(int fd, client *c, int handler_installed) {
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
-            nwritten = 0;
         } else {
             serverLog(LL_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
