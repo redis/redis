@@ -115,6 +115,7 @@ void latencyAddSample(char *event, mstime_t latency) {
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)
             ts->samples[prev].latency = latency;
+        if (latency > ts->max) ts->max = latency;
         return;
     }
 
