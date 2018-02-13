@@ -388,8 +388,12 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
-    if (c->flags & CLIENT_MASTER)
-        serverLog(LL_WARNING,"Error sent to master: %s", s);
+    if (c->flags & CLIENT_MASTER) {
+        char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
+        serverLog(LL_WARNING,"== CRITICAL == This slave is sending an error "
+                             "to its master: '%s' after processing the command "
+                             "'%s'", s, cmdname);
+    }
 }
 
 void addReplyError(client *c, const char *err) {
