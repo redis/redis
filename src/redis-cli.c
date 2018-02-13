@@ -286,6 +286,7 @@ static int clusterManagerIsConfigConsistent(void);
 static int clusterManagerCommandCreate(int argc, char **argv);
 static int clusterManagerCommandInfo(int argc, char **argv);
 static int clusterManagerCommandCheck(int argc, char **argv);
+static int clusterManagerCommandCall(int argc, char **argv);
 static int clusterManagerCommandHelp(int argc, char **argv);
 
 /* User preferences. */
@@ -1802,6 +1803,8 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "cluster-replicas"},
     {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
     {"check", clusterManagerCommandCheck, -1, "host:port", NULL},
+    {"call", clusterManagerCommandCall, -2, 
+        "host:port command arg arg .. arg", NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
@@ -2448,6 +2451,11 @@ node_cmd_err:
     freeReplyObject(reply);
     return 0;
 }
+
+/* Retrieves info about the cluster using argument 'node' as the starting 
+ * point. All nodes will be loaded inside the cluster_manager.nodes list.
+ * Warning: if something goes wrong, it will free the starting node before 
+ * returning 0. */
 
 static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
     if (node->context == NULL) 
@@ -3113,6 +3121,56 @@ invalid_args:
                     "address (ie. 120.0.0.1:7000) or space separated IP "
                     "and port (ie. 120.0.0.1 7000)\n");
     return 0;
+}
+
+static int clusterManagerCommandCall(int argc, char **argv) {
+    int port = 0;
+    char *ip = NULL;
+    char *addr = argv[0];
+    char *c = strrchr(addr, '@');
+    int i;
+    if (c != NULL) *c = '\0';
+    c = strrchr(addr, ':');
+    if (c != NULL) {
+        *c = '\0';
+        ip = addr;
+        port = atoi(++c);
+    } else {
+        fprintf(stderr, 
+                "Invalid arguments: first agrumnt must be host:port.\n");
+        return 0;
+    }
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    argc--;
+    argv++;
+    size_t *argvlen = zmalloc(argc*sizeof(size_t));
+    printf(">>> Calling");
+    for (i = 0; i < argc; i++) {
+        argvlen[i] = strlen(argv[i]);
+        printf(" %s", argv[i]);
+    }
+    printf("\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (!n->context) CLUSTER_MANAGER_NODE_CONNECT(n);
+        redisReply *reply = NULL;
+        redisAppendCommandArgv(n->context, argc, (const char **) argv, argvlen);
+        int status = redisGetReply(n->context, (void **)(&reply));
+        if (status != REDIS_OK || reply == NULL ) 
+            printf("%s:%d: Failed!\n", n->ip, n->port); //TODO: better message?
+        else {
+            sds formatted_reply = cliFormatReplyTTY(reply, "");
+            printf("%s:%d: %s\n", n->ip, n->port, (char *) formatted_reply);
+            sdsfree(formatted_reply);
+        }
+        if (reply != NULL) freeReplyObject(reply);
+    }
+    zfree(argvlen);
+    return 1;
 }
 
 static int clusterManagerCommandHelp(int argc, char **argv) {
