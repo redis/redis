@@ -1,3 +1,4 @@
+#include <assert.h>
 /* quicklist.c - A doubly linked list of ziplists
  *
  * Copyright (c) 2014, Matt Stancliff <matt@genges.com>
@@ -709,6 +710,7 @@ REDIS_STATIC quicklistNode *_quicklistZiplistMerge(quicklist *quicklist,
             nokeep = b;
             keep = a;
         }
+	assert(keep != NULL && "keep is NULL");
         keep->count = ziplistLen(keep->zl);
         quicklistNodeUpdateSz(keep);
 
