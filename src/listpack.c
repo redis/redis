@@ -693,7 +693,6 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
         }
         dst += enclen;
         memcpy(dst,backlen,backlen_size);
-        dst += backlen_size;
     }
 
     /* Update header. */
