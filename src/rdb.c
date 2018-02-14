@@ -1670,7 +1670,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (raxInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL))
+                    if (!raxInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL))
                         rdbExitReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
