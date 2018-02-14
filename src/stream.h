@@ -96,5 +96,7 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create);
+streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
+streamNACK *streamCreateNACK(streamConsumer *consumer);
 
 #endif
