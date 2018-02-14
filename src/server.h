@@ -728,6 +728,13 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+#ifdef USE_PMDK
+typedef struct actionNode {
+	struct pobj_action actions[POBJ_MAX_ACTIONS];
+	int counter;
+	struct actionNode *next;
+}actionNode;
+#endif
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -842,6 +849,9 @@ struct redisServer {
     PMEMobjpool *pm_pool;           /* PMEM pool handle */
     TOID(struct redis_pmem_root) pm_rootoid; /*PMEM root object OID*/
     uint64_t pool_uuid_lo;          /* PMEM pool UUID */
+    struct actionNode *head_action;	/* List of arrays of actions for reserve/publish*/
+    struct actionNode *cursor_action;	/* List of arrays of actions for reserve/publish*/
+    //int action_counter;				/* Counter of actions to be published */
 #endif
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -1714,6 +1724,9 @@ void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
+
+void publishActions();
+void commitRedisOperation();
 
 /* Debugging stuff */
 void _serverAssertWithInfo(client *c, robj *o, char *estr, char *file, int line);

@@ -1353,6 +1353,39 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
+void publishActions() {
+	if (server.cursor_action->counter == 0)
+		return;
+	struct actionNode *iterator;
+	struct actionNode *tmp;
+	iterator = server.head_action;
+	while (iterator) {
+		pmemobj_publish(server.pm_pool, iterator->actions, iterator->counter);
+		iterator = iterator->next;
+	}
+	iterator = server.head_action->next;
+	while (iterator) {
+		tmp = iterator;
+		iterator = iterator->next;
+		zfree(tmp);
+	}
+
+	server.cursor_action = server.head_action;
+	server.head_action->counter = 0;
+	server.head_action->next = NULL;
+}
+
+/* Indicate that current Redis operation is finished and there will be
+ * no more actions */
+void commitRedisOperation() {
+	if (server.cursor_action->counter > 50) {
+		server.cursor_action->next = zmalloc(sizeof(struct actionNode));
+		server.cursor_action = server.cursor_action->next;
+		server.cursor_action->next = NULL;
+		server.cursor_action->counter = 0;
+	}
+}
+
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
@@ -1396,6 +1429,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
+
+    publishActions();
 
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWrites();
@@ -4039,6 +4074,11 @@ void initPersistentMemory(void) {
 			(float)(ustime()-start)/1000000);
     server.persistent = true;
 
+    /* Init List of actions*/
+    server.head_action = zmalloc(sizeof(struct actionNode));
+    server.cursor_action = server.head_action;
+    server.head_action->counter = 0;
+    server.head_action->next = NULL;
     resetServerSaveParams();
 }
 #endif

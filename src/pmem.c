@@ -29,8 +29,7 @@
 
 #ifdef USE_PMDK
 #include "server.h"
-#include "obj.h"
-#include "libpmemobj.h"
+
 #include "util.h"
 
 int
@@ -70,8 +69,9 @@ void pmemKVpairSet(void *key, void *val)
     val_oid.pool_uuid_lo = server.pool_uuid_lo;
     val_oid.off = (uint64_t)val - (uint64_t)server.pm_pool->addr;
 
-    TX_ADD_FIELD_DIRECT(kv_PM_p, val_oid);
-    kv_PM_p->val_oid = val_oid;
+    //TX_ADD_FIELD_DIRECT(kv_PM_p, val_oid);
+    //kv_PM_p->val_oid = val_oid;
+    set_value_wrapper(&(kv_PM_p->val_oid.off), val_oid.off);
     return;
 }
 
@@ -82,7 +82,6 @@ pmemAddToPmemList(void *key, void *val)
     PMEMoid val_oid;
     PMEMoid kv_PM;
     struct key_val_pair_PM *kv_PM_p;
-    TOID(struct key_val_pair_PM) typed_kv_PM;
     struct redis_pmem_root *root;
 
     key_oid.pool_uuid_lo = server.pool_uuid_lo;
@@ -91,26 +90,36 @@ pmemAddToPmemList(void *key, void *val)
     val_oid.pool_uuid_lo = server.pool_uuid_lo;
     val_oid.off = (uint64_t)val - (uint64_t)server.pm_pool->addr;
 
-    kv_PM = pmemobj_tx_zalloc(sizeof(struct key_val_pair_PM), pm_type_key_val_pair_PM);
+    kv_PM = reserve_wrapper(sizeof(struct key_val_pair_PM), pm_type_key_val_pair_PM);
     kv_PM_p = (struct key_val_pair_PM *)pmemobj_direct(kv_PM);
     kv_PM_p->key_oid = key_oid;
     kv_PM_p->val_oid = val_oid;
-    typed_kv_PM.oid = kv_PM;
 
     root = pmemobj_direct(server.pm_rootoid.oid);
 
     kv_PM_p->pmem_list_next = root->pe_first;
-    if(!TOID_IS_NULL(root->pe_first)) {
-        struct key_val_pair_PM *head = D_RW(root->pe_first);
-        TX_ADD_FIELD_DIRECT(head,pmem_list_prev);
-    	head->pmem_list_prev = typed_kv_PM;
-    }
+    pmemobj_persist(server.pm_pool, kv_PM_p, sizeof(struct key_val_pair_PM));
 
-    TX_ADD_DIRECT(root);
-    root->pe_first = typed_kv_PM;
-    root->num_dict_entries++;
+    if (!TOID_IS_NULL(root->pe_first)) {
+        struct key_val_pair_PM *head = D_RW(root->pe_first);
+        set_value_wrapper(&(head->pmem_list_prev.oid.off), kv_PM.off);
+    }
+	if (TOID_IS_NULL(root->pe_first)) {
+		set_value_wrapper(&(root->pe_first.oid.pool_uuid_lo), kv_PM.pool_uuid_lo);
+	}
+	set_value_wrapper(&(root->pe_first.oid.off), kv_PM.off);
+	set_value_wrapper(&(root->num_dict_entries), (root->num_dict_entries)+1);
 
     return kv_PM;
+}
+
+PMEMoid reserve_wrapper(size_t size, uint64_t type_num) {
+	return pmemobj_reserve(server.pm_pool, &server.cursor_action->actions[server.cursor_action->counter++], size, type_num);
+}
+
+
+void set_value_wrapper(uint64_t *ptr, uint64_t value) {
+	pmemobj_set_value(server.pm_pool, &server.cursor_action->actions[server.cursor_action->counter++], ptr, value);
 }
 
 void

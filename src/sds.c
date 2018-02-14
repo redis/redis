@@ -163,7 +163,10 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     hdrlen += sizeof(PMEMoid);
-    oid = pmemobj_tx_zalloc((hdrlen+initlen+1),PM_TYPE_SDS);
+    //printf("adding 1, server.action_counter = %d\n", server.action_counter);
+    //oid = pmemobj_reserve(server.pm_pool, &server.actv[server.action_counter++], (hdrlen+initlen+1), PM_TYPE_SDS);
+    oid = reserve_wrapper((hdrlen+initlen+1), PM_TYPE_SDS);
+    //oid = pmemobj_tx_zalloc((hdrlen+initlen+1),PM_TYPE_SDS);
     sh = pmemobj_direct(oid);
 
     if (!init)
@@ -208,6 +211,9 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
     if (initlen && init)
         memcpy(s, init, initlen);
     s[initlen] = '\0';
+
+    pmemobj_persist(server.pm_pool, sh, (hdrlen+initlen+1));
+
     return s;
 }
 
