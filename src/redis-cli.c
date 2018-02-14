@@ -2220,7 +2220,7 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
 {
     redisReply *reply = NULL;
     void *_reply = NULL;
-    int is_err = 0;
+    int is_err = 0, success = 1;
     int argc;
     sds *argv = NULL;
     size_t *argvlen = NULL;
@@ -2235,39 +2235,44 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
             added++;
         }
     }
-    if (!added) goto node_cmd_err;
+    if (!added) {
+        success = 0;
+        goto cleanup;
+    }
     argv = cliSplitArgs(cmd, &argc);
-    if (argc == 0 || argv == NULL) goto node_cmd_err;
+    if (argc == 0 || argv == NULL) {
+        success = 0;
+        goto cleanup;
+    }
     argvlen = zmalloc(argc*sizeof(size_t));
     for (i = 0; i < argc; i++)
         argvlen[i] = sdslen(argv[i]);
     redisAppendCommandArgv(node->context,argc,(const char**)argv,argvlen);
-    if (redisGetReply(node->context, &_reply) != REDIS_OK) goto node_cmd_err;
+    if (redisGetReply(node->context, &_reply) != REDIS_OK) {
+        success = 1;
+        goto cleanup;
+    }
     reply = (redisReply*) _reply;
     if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
         if (is_err && err != NULL) {
             *err = zmalloc((reply->len + 1) * sizeof(char));  
             strcpy(*err, reply->str); 
         } 
-        goto node_cmd_err;
+        success = 0;
+        goto cleanup;
     }
-    sdsfree(cmd);
-    zfree(argvlen);
-    sdsfreesplitres(argv,argc);
-    freeReplyObject(reply);
-    return 1;
-node_cmd_err:
+cleanup:
     sdsfree(cmd);
     zfree(argvlen);
     if (argv != NULL) sdsfreesplitres(argv,argc);
     if (reply != NULL) freeReplyObject(reply);
-    return 0;
+    return success;
 }
 
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
     if (!node->dirty) return 0;
     redisReply *reply = NULL;
-    int is_err = 0;
+    int is_err = 0, success = 1;
     *err = NULL;
     if (node->replicate != NULL) {
         reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER REPLICATE %s", 
@@ -2277,18 +2282,20 @@ static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));  
                 strcpy(*err, reply->str); 
             } 
-            goto node_cmd_err;
+            success = 0;
+            goto cleanup;
         }
     } else {
         int added = clusterManagerAddSlots(node, err);
-        if (!added || *err != NULL) goto node_cmd_err;
+        if (!added || *err != NULL) {
+            success = 0;
+            goto cleanup;
+        }
     }
     node->dirty = 0;
-    freeReplyObject(reply);
-    return 1;
-node_cmd_err:
-    freeReplyObject(reply);
-    return 0;
+cleanup:
+    if (reply != NULL) freeReplyObject(reply);
+    return success;
 }
 
 static void clusterManagerWaitForClusterJoin(void) {
@@ -2305,14 +2312,15 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                                       char **err) 
 {
     redisReply *reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER NODES"); 
-    int is_err = 0;
+    int is_err = 0, success = 1;
     *err = NULL;
     if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
         if (is_err && err != NULL) {
             *err = zmalloc((reply->len + 1) * sizeof(char));  
             strcpy(*err, reply->str); 
         } 
-        goto node_cmd_err;
+        success = 0;
+        goto cleanup;
     }
     int getfriends = (opts & CLUSTER_MANAGER_OPT_GETFRIENDS);
     char *lines = reply->str, *p, *line;
@@ -2340,7 +2348,10 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             }
             if (i == 8) break; // Slots
         }         
-        if (!flags) goto node_cmd_err;
+        if (!flags) {
+            success = 0;
+            goto cleanup;
+        }
         int myself = (strstr(flags, "myself") != NULL);
         clusterManagerNode *currentNode = NULL;
         if (myself) {
@@ -2406,14 +2417,16 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             if (addr == NULL) {
                 // TODO: find a better err message
                 fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
-                goto node_cmd_err;
+                success = 0;
+                goto cleanup;
             }
             char *c = strrchr(addr, '@');
             if (c != NULL) *c = '\0';
             c = strrchr(addr, ':');
             if (c == NULL) {
                 fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
-                goto node_cmd_err;
+                success = 0;
+                goto cleanup;
             }
             *c = '\0';
             int port = atoi(++c);
@@ -2445,11 +2458,9 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
         if (ping_recv != NULL) currentNode->ping_recv = atoll(ping_recv);
         if (!getfriends && myself) break;
     }
-    freeReplyObject(reply);
-    return 1;
-node_cmd_err:
-    freeReplyObject(reply);
-    return 0;
+cleanup:
+    if (reply) freeReplyObject(reply);
+    return success;
 }
 
 /* Retrieves info about the cluster using argument 'node' as the starting 
@@ -2780,7 +2791,7 @@ cluster_manager_err:
 
 static int clusterManagerCommandCreate(int argc, char **argv) {
     printf("Cluster Manager: Creating Cluster\n");
-    int i, j;
+    int i, j, success = 1;
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
         char *addr = argv[i];
@@ -2974,7 +2985,8 @@ assign_replicas:
                     CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
                     zfree(err);
                 }
-                goto cmd_err;
+                success = 0;
+                goto cleanup;
             } else if (err != NULL) zfree(err);
         }
         printf(">>> Nodes configuration updated\n");
@@ -3010,7 +3022,10 @@ assign_replicas:
                 is_err = 1;
                 fprintf(stderr, "Failed to send CLUSTER MEET command.\n");
             }
-            if (is_err) goto cmd_err;
+            if (is_err) {
+                success = 0;
+                goto cleanup;
+            }
         }
         // Give one second for the join to start, in order to avoid that
         // waiting for cluster join will find all the nodes agree about 
@@ -3029,7 +3044,8 @@ assign_replicas:
                     CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
                     zfree(err);
                 }
-                goto cmd_err;
+                success = 0;
+                goto cleanup;
             }
         }
         // Reset Nodes
@@ -3041,9 +3057,13 @@ assign_replicas:
             else freeClusterManagerNode(node);
         }
         listEmpty(cluster_manager.nodes);
-        if (!clusterManagerLoadInfoFromNode(first_node, 0)) goto cmd_err; //TODO: msg?
+        if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
+            success = 0;
+            goto cleanup; //TODO: msg?
+        }
         clusterManagerCheckCluster(0);
     }
+cleanup:
     /* Free everything */
     zfree(masters);
     zfree(ips);
@@ -3052,16 +3072,7 @@ assign_replicas:
         CLUSTER_MANAGER_NODEARRAY_FREE(node_array);
     }
     zfree(ip_nodes);
-    return 1;
-cmd_err:
-    zfree(masters);
-    zfree(ips);
-    for (i = 0; i < node_len; i++) {
-        clusterManagerNodeArray *node_array = ip_nodes + i;
-        CLUSTER_MANAGER_NODEARRAY_FREE(node_array);
-    }
-    zfree(ip_nodes);
-    return 0;
+    return success;
 }
 
 static int clusterManagerCommandInfo(int argc, char **argv) {
