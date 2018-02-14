@@ -67,6 +67,7 @@
 #define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
 #define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
+
 #define CLUSTER_MANAGER_SLOTS 16384
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
@@ -80,7 +81,7 @@
     if (cluster_manager.errors == NULL)             \
         cluster_manager.errors = listCreate();      \
     listAddNodeTail(cluster_manager.errors, err);   \
-    fprintf(stderr, "%s\n", (char *) err);          \
+    clusterManagerLogErr("%s\n", (char *) err);          \
 } while(0)
 
 #define CLUSTER_MANAGER_RESET_SLOTS(n) do { \
@@ -124,7 +125,20 @@
 } while(0)
 
 #define CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err) \
-    fprintf(stderr,"Node %s:%d replied with error:\n%s\n", n->ip, n->port, err);
+    clusterManagerLogErr("Node %s:%d replied with error:\n%s\n", \
+                         n->ip, n->port, err);
+
+#define clusterManagerLogInfo(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_INFO,__VA_ARGS__)
+
+#define clusterManagerLogErr(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_ERR,__VA_ARGS__)
+
+#define clusterManagerLogWarn(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_WARN,__VA_ARGS__)
+
+#define clusterManagerLogOk(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_SUCCESS,__VA_ARGS__)
 
 #define CLUSTER_MANAGER_FLAG_MYSELF     1 << 0
 #define CLUSTER_MANAGER_FLAG_SLAVE      1 << 1
@@ -133,7 +147,22 @@
 #define CLUSTER_MANAGER_FLAG_DISCONNECT 1 << 4
 #define CLUSTER_MANAGER_FLAG_FAIL       1 << 5
 
-#define CLUSTER_MANAGER_OPT_GETFRIENDS 1 << 0
+#define CLUSTER_MANAGER_CMD_FLAG_FIX    1 << 0
+#define CLUSTER_MANAGER_CMD_FLAG_SLAVE  1 << 1
+#define CLUSTER_MANAGER_CMD_FLAG_COLOR  1 << 7
+
+#define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
+
+#define CLUSTER_MANAGER_LOG_LVL_INFO    1 
+#define CLUSTER_MANAGER_LOG_LVL_WARN    2
+#define CLUSTER_MANAGER_LOG_LVL_ERR     3
+#define CLUSTER_MANAGER_LOG_LVL_SUCCESS 4
+
+#define LOG_COLOR_BOLD      "29;1m"
+#define LOG_COLOR_RED       "31;1m"
+#define LOG_COLOR_GREEN     "32;1m"
+#define LOG_COLOR_YELLOW    "33;1m"
+#define LOG_COLOR_RESET     "0m"
 
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
@@ -270,6 +299,7 @@ static void clusterManagerShowInfo(void);
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err);
 static void clusterManagerWaitForClusterJoin(void);
 static void clusterManagerCheckCluster(int quiet);
+static void clusterManagerLog(int level, const char* fmt, ...);
 
 typedef int clusterManagerCommandProc(int argc, char **argv);
 typedef struct clusterManagerCommandDef {
@@ -1267,6 +1297,7 @@ static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
     cmd->name = cmdname;
     cmd->argc = argc;
     cmd->argv = argc ? argv : NULL;
+    if (isColorTerm()) cmd->flags |= CLUSTER_MANAGER_CMD_FLAG_COLOR;
 }
 
 static int parseOptions(int argc, char **argv) {
@@ -2042,7 +2073,8 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
     clusterManagerNode **offenders = NULL, **aux;
     int score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, &aux, NULL);
     if (score == 0) goto cleanup;
-    printf(">>> Trying to optimize slaves allocation for anti-affinity\n");
+    clusterManagerLogInfo(">>> Trying to optimize slaves allocation "
+                          "for anti-affinity\n");
     int node_len = cluster_manager.nodes->len;
     int maxiter = 500 * node_len;
     srand(time(NULL));
@@ -2091,12 +2123,15 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
     zfree(aux), aux = NULL;
     score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, &aux, NULL);
     char *msg;
-    if (score == 0) msg = "[OK] Perfect anti-affinity obtained!"; 
+    int perfect = (score == 0);
+    int log_level = (perfect ? CLUSTER_MANAGER_LOG_LVL_SUCCESS : 
+                               CLUSTER_MANAGER_LOG_LVL_WARN);
+    if (perfect) msg = "[OK] Perfect anti-affinity obtained!"; 
     else if (score >= 10000) 
         msg = ("[WARNING] Some slaves are in the same host as their master");
     else
         msg=("[WARNING] Some slaves of the same master are in the same host");
-    printf("%s\n", msg);
+    clusterManagerLog(log_level, "%s\n", msg);
 cleanup:
     zfree(offenders);
     zfree(aux);
@@ -2211,7 +2246,7 @@ static void clusterManagerShowInfo(void) {
             keys += dbsize;
         }
     }
-    printf("[OK] %d keys in %d masters.\n", keys, masters);
+    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
     float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
     printf("%.2f keys per slot on average.\n", keys_per_slot);
 }
@@ -2482,7 +2517,7 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
     char *e = NULL;
     if (!clusterManagerNodeIsCluster(node, &e)) {
         char *msg = (e ? e : "is not configured as a cluster node.");
-        fprintf(stderr, "[ERR] Node %s:%d %s\n", node->ip, node->port, msg);
+        clusterManagerLogErr("[ERR] Node %s:%d %s\n",node->ip,node->port,msg);
         if (e) zfree(e);
         freeClusterManagerNode(node);
         return 0;
@@ -2522,8 +2557,9 @@ static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
                     goto invalid_friend;
                 listAddNodeTail(cluster_manager.nodes, friend);
             } else {
-                fprintf(stderr,"[ERR] Unable to load info for node %s:%d\n",
-                        friend->ip, friend->port);
+                clusterManagerLogErr("[ERR] Unable to load info for "
+                                     "node %s:%d\n",
+                                     friend->ip, friend->port);
                 goto invalid_friend;
             }
             continue;
@@ -2692,15 +2728,18 @@ static void clusterManagerCheckCluster(int quiet) {
     listNode *ln = listFirst(cluster_manager.nodes);
     if (!ln) return;
     clusterManagerNode *node = ln->value;
-    printf(">>> Performing Cluster Check (using node %s:%d)\n", 
-            node->ip, node->port);
+    clusterManagerLogInfo(">>> Performing Cluster Check (using node %s:%d)\n", 
+                          node->ip, node->port);
     if (!quiet) clusterManagerShowNodes();
     if (!clusterManagerIsConfigConsistent()) {
         sds err = sdsnew("[ERR] Nodes don't agree about configuration!");
         CLUSTER_MANAGER_ERROR(err);
-    } else printf("[OK] All nodes agree about slots configuration.\n");
+    } else {
+        clusterManagerLogOk("[OK] All nodes agree about slots "
+                            "configuration.\n");
+    }
     // Check open slots
-    printf(">>> Check for open slots...\n");
+    clusterManagerLogInfo(">>> Check for open slots...\n");
     listIter li;
     listRewind(cluster_manager.nodes, &li);
     int i;
@@ -2754,23 +2793,44 @@ static void clusterManagerCheckCluster(int quiet) {
             char *fmt = (i++ > 0 ? ",%S" : "%S");
             errstr = sdscatfmt(errstr, fmt, slot);
         }
-        fprintf(stderr, "%s.\n", (char *) errstr);
+        clusterManagerLogErr("%s.\n", (char *) errstr);
         sdsfree(errstr);
         dictRelease(open_slots);
     }
-    printf(">>> Check slots coverage...\n");
+    clusterManagerLogInfo(">>> Check slots coverage...\n");
     char slots[CLUSTER_MANAGER_SLOTS];
     memset(slots, 0, CLUSTER_MANAGER_SLOTS);
     int coverage = clusterManagerGetCoveredSlots(slots);
-    if (coverage == CLUSTER_MANAGER_SLOTS)
-        printf("[OK] All %d slots covered.\n", CLUSTER_MANAGER_SLOTS);
-    else {
+    if (coverage == CLUSTER_MANAGER_SLOTS) {
+        clusterManagerLogOk("[OK] All %d slots covered.\n", 
+                            CLUSTER_MANAGER_SLOTS);
+    } else {
         sds err = sdsempty();
         err = sdscatprintf(err, "[ERR] Not all %d slots are "
                                 "covered by nodes.\n", 
                                 CLUSTER_MANAGER_SLOTS);
         CLUSTER_MANAGER_ERROR(err);
     }
+}
+
+static void clusterManagerLog(int level, const char* fmt, ...) {
+    int use_colors = 
+        (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COLOR);
+    if (use_colors) {
+        printf("\033["); 
+        switch (level) {
+        case CLUSTER_MANAGER_LOG_LVL_INFO: printf(LOG_COLOR_BOLD); break;
+        case CLUSTER_MANAGER_LOG_LVL_WARN: printf(LOG_COLOR_YELLOW); break;
+        case CLUSTER_MANAGER_LOG_LVL_ERR: printf(LOG_COLOR_RED); break;
+        case CLUSTER_MANAGER_LOG_LVL_SUCCESS: printf(LOG_COLOR_GREEN); break;
+        default: printf(LOG_COLOR_RESET); break;
+        }
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    if (use_colors) printf("\033[" LOG_COLOR_RESET);
 }
 
 static void clusterManagerMode(clusterManagerCommandProc *proc) {
@@ -2790,7 +2850,6 @@ cluster_manager_err:
 /* Cluster Manager Commands */
 
 static int clusterManagerCommandCreate(int argc, char **argv) {
-    printf("Cluster Manager: Creating Cluster\n");
     int i, j, success = 1;
     cluster_manager.nodes = listCreate();
     for (i = 0; i < argc; i++) {
@@ -2816,7 +2875,7 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         char *err = NULL;
         if (!clusterManagerNodeIsCluster(node, &err)) {
             char *msg = (err ? err : "is not configured as a cluster node.");
-            fprintf(stderr, "[ERR] Node %s:%d %s\n", ip, port, msg);
+            clusterManagerLogErr("[ERR] Node %s:%d %s\n", ip, port, msg);
             if (err) zfree(err);
             freeClusterManagerNode(node);
             return 0;
@@ -2835,11 +2894,11 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
             char *msg; 
             if (err) msg = err;
             else {
-                msg = " is not empty. Either the node already knows other "
+                msg = "is not empty. Either the node already knows other "
                       "nodes (check with CLUSTER NODES) or contains some "
                       "key in database 0.";
             }
-            fprintf(stderr, "[ERR] Node %s:%d %s\n", ip, port, msg);
+            clusterManagerLogErr("[ERR] Node %s:%d %s\n", ip, port, msg);
             if (err) zfree(err);
             freeClusterManagerNode(node);
             return 0;
@@ -2850,18 +2909,17 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     int replicas = config.cluster_manager_command.replicas;
     int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
     if (masters_count < 3) {
-        fprintf(stderr, 
-            "*** ERROR: Invalid configuration for cluster creation.\n");
-        fprintf(stderr, 
-            "*** Redis Cluster requires at least 3 master nodes.\n");
-        fprintf(stderr, 
+        clusterManagerLogErr(
+            "*** ERROR: Invalid configuration for cluster creation.\n"
+            "*** Redis Cluster requires at least 3 master nodes.\n" 
             "*** This is not possible with %d nodes and %d replicas per node.", 
             node_len, replicas);
-        fprintf(stderr, "\n*** At least %d nodes are required.\n", 
-                (3 * (replicas + 1)));
+        clusterManagerLogErr("\n*** At least %d nodes are required.\n", 
+                             3 * (replicas + 1));
         return 0;
     }
-    printf(">>> Performing hash slots allocation on %d nodes...\n", node_len);
+    clusterManagerLogInfo(">>> Performing hash slots allocation "
+                          "on %d nodes...\n", node_len);
     int interleaved_len = 0, ips_len = 0;
     clusterManagerNode **interleaved = zcalloc(node_len*sizeof(**interleaved)); 
     char **ips = zcalloc(node_len * sizeof(char*));
@@ -2989,8 +3047,9 @@ assign_replicas:
                 goto cleanup;
             } else if (err != NULL) zfree(err);
         }
-        printf(">>> Nodes configuration updated\n");
-        printf(">>> Assign a different config epoch to each node\n");
+        clusterManagerLogInfo(">>> Nodes configuration updated\n");
+        clusterManagerLogInfo(">>> Assign a different config epoch to "
+                              "each node\n");
         int config_epoch = 1;
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
@@ -3001,7 +3060,8 @@ assign_replicas:
                                             config_epoch++);
             if (reply != NULL) freeReplyObject(reply);
         }
-        printf(">>> Sending CLUSTER MEET messages to join the cluster\n");
+        clusterManagerLogInfo(">>> Sending CLUSTER MEET messages to join "
+                              "the cluster\n");
         clusterManagerNode *first = NULL;
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
@@ -3156,7 +3216,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     argc--;
     argv++;
     size_t *argvlen = zmalloc(argc*sizeof(size_t));
-    printf(">>> Calling");
+    clusterManagerLogInfo(">>> Calling");
     for (i = 0; i < argc; i++) {
         argvlen[i] = strlen(argv[i]);
         printf(" %s", argv[i]);
