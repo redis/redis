@@ -210,11 +210,14 @@ void dbAddPM(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdupPM(key->ptr, (void **) &kv_pm_reference);
     keyHeader = copy - sizeof(pmHeader);;
     keyHeader->dbId = db->id;
+    keyHeader->encoding = val->encoding;
+    keyHeader->type = val->type;
+    keyHeader->valOffset = (uint64_t)val->ptr - (uint64_t)server.pm_pool->addr;
 
     pmemobj_flush(server.pm_pool, keyHeader, sizeof(pmHeader) + (sdslen(copy)+sdsReqType(sdslen(copy))+1));
     int retval = dictAddPM(db->dict, copy, val);
 
-    kv_PM = pmemAddToPmemList((void *)copy, (void *)(val->ptr));
+    //kv_PM = pmemAddToPmemList((void *)copy, (void *)(val->ptr));
     *kv_pm_reference = kv_PM;
 
     serverAssertWithInfo(NULL,key,retval == C_OK);
