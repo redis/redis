@@ -212,7 +212,8 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
         memcpy(s, init, initlen);
     s[initlen] = '\0';
 
-    pmemobj_persist(server.pm_pool, sh, (hdrlen+initlen+1));
+    //pmemobj_persist(server.pm_pool, sh, (hdrlen+initlen+1));
+    pmemobj_flush(server.pm_pool, sh, (hdrlen+initlen+1));
 
     return s;
 }

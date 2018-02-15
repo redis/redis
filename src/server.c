@@ -1373,6 +1373,7 @@ void publishActions() {
 	server.cursor_action = server.head_action;
 	server.head_action->counter = 0;
 	server.head_action->next = NULL;
+	pmemobj_drain(server.pm_pool);
 }
 
 /* Indicate that current Redis operation is finished and there will be
