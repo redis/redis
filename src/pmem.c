@@ -98,7 +98,8 @@ pmemAddToPmemList(void *key, void *val)
     root = pmemobj_direct(server.pm_rootoid.oid);
 
     kv_PM_p->pmem_list_next = root->pe_first;
-    pmemobj_persist(server.pm_pool, kv_PM_p, sizeof(struct key_val_pair_PM));
+    //pmemobj_persist(server.pm_pool, kv_PM_p, sizeof(struct key_val_pair_PM));
+    pmemobj_flush(server.pm_pool, kv_PM_p, sizeof(struct key_val_pair_PM));
 
     if (!TOID_IS_NULL(root->pe_first)) {
         struct key_val_pair_PM *head = D_RW(root->pe_first);
