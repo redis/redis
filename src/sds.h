@@ -87,6 +87,13 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(f) ((f)>>SDS_TYPE_BITS)
 
+typedef struct pmHeader {
+    unsigned type:4;
+    unsigned encoding:4;
+    uint64_t valOffset;
+    int dbId;
+}pmHeader;
+
 static inline size_t sdslen(const sds s) {
     unsigned char flags = s[-1];
     switch(flags&SDS_TYPE_MASK) {
@@ -231,7 +238,8 @@ sds sdscpylen(sds s, const char *t, size_t len);
 sds sdscpy(sds s, const char *t);
 
 #ifdef USE_PMDK
-sds sdsnewlenPM(const void *init, size_t initlen);
+//sds sdsnewlenPM(const void *init, size_t initlen);
+sds sdsnewlenPM(const void *init, size_t initlen, char isExtended);
 sds sdsdupPM(const sds s, void **oid_reference);
 void sdsfreePM(sds s);
 PMEMoid *sdsPMEMoidBackReference(sds s);

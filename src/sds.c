@@ -151,23 +151,28 @@ sds sdsnewlen(const void *init, size_t initlen) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
-sds sdsnewlenPM(const void *init, size_t initlen) {
+sds sdsnewlenPM(const void *init, size_t initlen, char isExtended) {
     void *sh;
     sds s;
     char type = sdsReqType(initlen);
     PMEMoid oid;
+    int pmHeader = 0;
+    if (isExtended != 0) {
+    	pmHeader = sizeof(pmHeader);;
+    }
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
     if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
-    hdrlen += sizeof(PMEMoid);
+    hdrlen += sizeof(pmHeader);
     //printf("adding 1, server.action_counter = %d\n", server.action_counter);
     //oid = pmemobj_reserve(server.pm_pool, &server.actv[server.action_counter++], (hdrlen+initlen+1), PM_TYPE_SDS);
-    oid = reserve_wrapper((hdrlen+initlen+1), PM_TYPE_SDS);
+    oid = reserve_wrapper((hdrlen+initlen+1) + pmHeader, PM_TYPE_SDS);
     //oid = pmemobj_tx_zalloc((hdrlen+initlen+1),PM_TYPE_SDS);
     sh = pmemobj_direct(oid);
+    sh += pmHeader;
 
     if (!init)
         memset(sh, 0, hdrlen+initlen+1);
@@ -213,7 +218,9 @@ sds sdsnewlenPM(const void *init, size_t initlen) {
     s[initlen] = '\0';
 
     //pmemobj_persist(server.pm_pool, sh, (hdrlen+initlen+1));
-    pmemobj_flush(server.pm_pool, sh, (hdrlen+initlen+1));
+    if (isExtended == 0) {
+    	pmemobj_flush(server.pm_pool, sh, (hdrlen+initlen+1));
+    }
 
     return s;
 }
@@ -247,7 +254,7 @@ sds sdsdup(const sds s) {
 /* Duplicate an sds string. */
 sds sdsdupPM(const sds s, void **oid_reference) {
     sds new_sds;
-    new_sds = sdsnewlenPM(s, sdslen(s));
+    new_sds = sdsnewlenPM(s, sdslen(s), true);
     *oid_reference = (void *)sdsPMEMoidBackReference(new_sds);
     return new_sds;
 }

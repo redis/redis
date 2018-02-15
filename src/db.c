@@ -45,6 +45,34 @@ void slotToKeyAdd(robj *key);
 void slotToKeyDel(robj *key);
 void slotToKeyFlush(void);
 
+static inline int sdsHdrSize(char type) {
+    switch(type&SDS_TYPE_MASK) {
+        case SDS_TYPE_5:
+            return sizeof(struct sdshdr5);
+        case SDS_TYPE_8:
+            return sizeof(struct sdshdr8);
+        case SDS_TYPE_16:
+            return sizeof(struct sdshdr16);
+        case SDS_TYPE_32:
+            return sizeof(struct sdshdr32);
+        case SDS_TYPE_64:
+            return sizeof(struct sdshdr64);
+    }
+    return 0;
+}
+
+static inline char sdsReqType(size_t string_size) {
+    if (string_size < 1<<5)
+        return SDS_TYPE_5;
+    if (string_size < 1<<8)
+        return SDS_TYPE_8;
+    if (string_size < 1<<16)
+        return SDS_TYPE_16;
+    if (string_size < 1ll<<32)
+        return SDS_TYPE_32;
+    return SDS_TYPE_64;
+}
+
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
@@ -178,8 +206,11 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbAddPM(redisDb *db, robj *key, robj *val) {
     PMEMoid kv_PM;
     PMEMoid *kv_pm_reference;
-
+    void *keyHeader;
     sds copy = sdsdupPM(key->ptr, (void **) &kv_pm_reference);
+    keyHeader = copy - sizeof(pmHeader);;
+    //keyHeader->
+    pmemobj_flush(server.pm_pool, keyHeader, sizeof(pmHeader) + (sdslen(copy)+sdsReqType(sdslen(copy))+1));
     int retval = dictAddPM(db->dict, copy, val);
 
     kv_PM = pmemAddToPmemList((void *)copy, (void *)(val->ptr));
