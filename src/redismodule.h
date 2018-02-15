@@ -82,6 +82,18 @@
 #define REDISMODULE_CTX_FLAGS_EVICT 0x0200 
 
 
+#define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
+#define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */
+#define REDISMODULE_NOTIFY_LIST (1<<4)        /* l */
+#define REDISMODULE_NOTIFY_SET (1<<5)         /* s */
+#define REDISMODULE_NOTIFY_HASH (1<<6)        /* h */
+#define REDISMODULE_NOTIFY_ZSET (1<<7)        /* z */
+#define REDISMODULE_NOTIFY_EXPIRED (1<<8)     /* x */
+#define REDISMODULE_NOTIFY_EVICTED (1<<9)     /* e */
+#define REDISMODULE_NOTIFY_STREAM (1<<10)     /* t */ 
+#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM)      /* A */
+
+
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
 #define REDISMODULE_HASH_DELETE ((RedisModuleString*)(long)1)
@@ -112,6 +124,7 @@ typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
 
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString *key, void *value);
@@ -251,6 +264,8 @@ RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModu
 void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb);
+
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -372,6 +387,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
+    REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
+
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

@@ -1335,6 +1335,8 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
+void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+
 
 /* Utils */
 long long ustime(void);
