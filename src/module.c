@@ -220,22 +220,25 @@ static pthread_mutex_t moduleGIL = PTHREAD_MUTEX_INITIALIZER;
 /* Function pointer type for keyspace event notification subscriptions from modules. */
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 
-/* Keyspace notification subscriber information. See RM_SubscribeToKeyspaceEvents */
+/* Keyspace notification subscriber information.
+ * See RM_SubscribeToKeyspaceEvents() for more information. */
 typedef struct RedisModuleKeyspaceSubscriber {
     /* The module subscribed to the event */
-    RedisModule *module;    
+    RedisModule *module;
     /* Notification callback in the module*/
-    RedisModuleNotificationFunc notify_callback; 
+    RedisModuleNotificationFunc notify_callback;
     /* A bit mask of the events the module is interested in */
-    int event_mask; 
-    /* Active flag set on entry, to avoid reentrant subscribers calling themselves */
-    int active; 
+    int event_mask;
+    /* Active flag set on entry, to avoid reentrant subscribers
+     * calling themselves */
+    int active;
 } RedisModuleKeyspaceSubscriber;
 
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
-/* Static client recycled for all notification clients, to avoid allocating per round. */
+/* Static client recycled for all notification clients, to avoid allocating
+ * per round. */
 static client *moduleKeyspaceSubscribersClient;
 
 /* --------------------------------------------------------------------------
@@ -3696,18 +3699,18 @@ void moduleReleaseGIL(void) {
  * Module Keyspace Notifications API
  * -------------------------------------------------------------------------- */
 
-/* Subscribe to keyspace notifications. This is a low-level version of the 
+/* Subscribe to keyspace notifications. This is a low-level version of the
  * keyspace-notifications API. A module cand register callbacks to be notified
- * when keyspce events occur. 
- * 
+ * when keyspce events occur.
+ *
  * Notification events are filtered by their type (string events, set events,
  * etc), and the subsriber callback receives only events that match a specific
- * mask of event types. 
- * 
+ * mask of event types.
+ *
  * When subscribing to notifications with RedisModule_SubscribeToKeyspaceEvents 
  * the module must provide an event type-mask, denoting the events the subscriber
  * is interested in. This can be an ORed mask of any of the following flags:
- * 
+ *
  *  - REDISMODULE_NOTIFY_GENERIC: Generic commands like DEL, EXPIRE, RENAME
  *  - REDISMODULE_NOTIFY_STRING: String events
  *  - REDISMODULE_NOTIFY_LIST: List events
@@ -3718,32 +3721,32 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_ALL: All events
- * 
+ *
  * We do not distinguish between key events and keyspace events, and it is up
- * to the module to filter the actions taken based on the key. 
- * 
+ * to the module to filter the actions taken based on the key.
+ *
  * The subscriber signature is:
- * 
- *   int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, 
- *                                       const char *event, 
+ *
+ *   int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type,
+ *                                       const char *event,
  *                                       RedisModuleString *key);
- * 
+ *
  * `type` is the event type bit, that must match the mask given at registration
  * time. The event string is the actual command being executed, and key is the
- * relevant Redis key. 
- * 
+ * relevant Redis key.
+ *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
  * occured as its selected db number.
- * 
- * Notice that it is not necessary to enable norifications in redis.conf for 
- * module notifications to work. 
- * 
+ *
+ * Notice that it is not necessary to enable norifications in redis.conf for
+ * module notifications to work.
+ *
  * Warning: the notification callbacks are performed in a synchronous manner,
- * so notification callbacks must to be fast, or they would slow Redis down. 
+ * so notification callbacks must to be fast, or they would slow Redis down.
  * If you need to take long actions, use threads to offload them.
- * 
- * See https://redis.io/topics/notifications for more information. 
+ *
+ * See https://redis.io/topics/notifications for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
     RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
@@ -3754,26 +3757,22 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
     return REDISMODULE_OK;
-
 }
 
-/* Dispatcher for keyspace notifications to module subscriber functions. 
+/* Dispatcher for keyspace notifications to module subscriber functions.
  * This gets called  only if at least one module requested to be notified on
  * keyspace notifications */
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
-    
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
-    
+
     listIter li;
     listNode *ln;
-
     listRewind(moduleKeyspaceSubscribers,&li);
 
     /* Remove irrelevant flags from the type mask */
     type &= ~(NOTIFY_KEYEVENT | NOTIFY_KEYSPACE);
 
-    
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         /* Only notify subscribers on events matching they registration,
@@ -3784,7 +3783,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             ctx.client = moduleKeyspaceSubscribersClient;
             selectDb(ctx.client, dbid);
 
-            /* mark the handler as activer to avoid reentrant loops. 
+            /* mark the handler as activer to avoid reentrant loops.
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
@@ -3793,7 +3792,6 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             moduleFreeContext(&ctx);
         }
     }
-    
 }
 
 /* Unsubscribe any notification subscirbers this module has upon unloading */
@@ -3809,7 +3807,6 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
         }
     }
 }
-
 
 /* --------------------------------------------------------------------------
  * Modules API internals
@@ -3848,10 +3845,9 @@ void moduleRegisterCoreAPI(void);
 
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
-    
     server.loadmodule_queue = listCreate();
     modules = dictCreate(&modulesDictType,NULL);
-    
+
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
     moduleKeyspaceSubscribersClient = createClient(-1);
@@ -3906,7 +3902,6 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     sdsfree(module->name);
     zfree(module);
 }
-
 
 void moduleUnregisterCommands(struct RedisModule *module) {
     /* Unregister all the commands registered by this module. */
