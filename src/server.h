@@ -74,6 +74,9 @@ uint64_t pm_type_emb_sds_type_id;
 /* Type Embedded SDS Object */
 #define PM_TYPE_EMB_SDS pm_type_emb_sds_type_id
 
+
+enum PM_TYPE { PM_TYPE_KEY, PM_TYPE_VALUE } ;
+
 struct redis_pmem_root {
 	uint64_t num_dict_entries;
 	TOID(struct key_val_pair_PM) pe_first;
@@ -506,6 +509,14 @@ typedef struct redisObject {
     int refcount;
     void *ptr;
 } robj;
+
+typedef struct pmHeader {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS;
+    int dbId;
+    uint64_t valOffset;
+}pmHeader;
 
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the

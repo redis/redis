@@ -206,10 +206,11 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbAddPM(redisDb *db, robj *key, robj *val) {
     PMEMoid kv_PM;
     PMEMoid *kv_pm_reference;
-    void *keyHeader;
+    pmHeader *keyHeader;
     sds copy = sdsdupPM(key->ptr, (void **) &kv_pm_reference);
     keyHeader = copy - sizeof(pmHeader);;
-    //keyHeader->
+    keyHeader->dbId = db->id;
+
     pmemobj_flush(server.pm_pool, keyHeader, sizeof(pmHeader) + (sdslen(copy)+sdsReqType(sdslen(copy))+1));
     int retval = dictAddPM(db->dict, copy, val);
 

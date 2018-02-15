@@ -2013,6 +2013,8 @@ void initServer(void) {
             
             pm_type_root_type_id = TOID_TYPE_NUM(struct redis_pmem_root);
             pm_type_key_val_pair_PM = TOID_TYPE_NUM(struct key_val_pair_PM);
+
+
         } else
 #endif
             server.db[j].dict = dictCreate(&dbDictType,NULL);
