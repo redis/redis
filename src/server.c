@@ -1359,20 +1359,21 @@ void publishActions() {
 	struct actionNode *iterator;
 	struct actionNode *tmp;
 	iterator = server.head_action;
-	while (iterator) {
+	while (iterator && iterator->counter!=0) {
 		pmemobj_publish(server.pm_pool, iterator->actions, iterator->counter);
+		iterator->counter = 0;
 		iterator = iterator->next;
 	}
 	iterator = server.head_action->next;
-	while (iterator) {
+	/*while (iterator) {
 		tmp = iterator;
 		iterator = iterator->next;
 		zfree(tmp);
-	}
+	}*/
 
 	server.cursor_action = server.head_action;
 	server.head_action->counter = 0;
-	server.head_action->next = NULL;
+	//server.head_action->next = NULL;
 	pmemobj_drain(server.pm_pool);
 }
 
@@ -1380,10 +1381,14 @@ void publishActions() {
  * no more actions */
 void commitRedisOperation() {
 	if (server.cursor_action->counter > 50) {
-		server.cursor_action->next = zmalloc(sizeof(struct actionNode));
+		if(!server.cursor_action->next) {
+			server.cursor_action->next = zmalloc(sizeof(struct actionNode));
+			server.cursor_action->next->counter = 0;
+			server.cursor_action->next->next = NULL;
+		}
 		server.cursor_action = server.cursor_action->next;
-		server.cursor_action->next = NULL;
-		server.cursor_action->counter = 0;
+		//server.cursor_action->next = NULL;
+		//server.cursor_action->counter = 0;
 	}
 }
 
