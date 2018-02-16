@@ -519,7 +519,7 @@ int dictReplacePM(dict *d, void *key, void *val)
      * reverse. */
     auxentry = *entry;
     dictSetVal(d, entry, val);
-    pmemKVpairSet(entry->key, ((robj *)val)->ptr);
+    //pmemKVpairSet(entry->key, ((robj *)val)->ptr);
     dictFreeVal(d, &auxentry);
     return 0;
 }
