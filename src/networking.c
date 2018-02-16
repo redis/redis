@@ -385,8 +385,18 @@ void addReplyString(client *c, const char *s, size_t len) {
         _addReplyStringToList(c,s,len);
 }
 
+/* Low level function called by the addReplyError...() functions.
+ * It emits the protocol for a Redis error, in the form:
+ *
+ * -ERRORCODE Error Message<CR><LF>
+ *
+ * If the error code is already passed in the string 's', the error
+ * code provided is used, otherwise the string "-ERR " for the generic
+ * error code is automatically added. */
 void addReplyErrorLength(client *c, const char *s, size_t len) {
-    addReplyString(c,"-ERR ",5);
+    /* If the string already starts with "-..." then the error code
+     * is provided by the caller. Otherwise we use "-ERR". */
+    if (!len || s[0] != '-') addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
     if (c->flags & CLIENT_MASTER) {
