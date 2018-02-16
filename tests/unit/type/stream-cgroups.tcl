@@ -71,4 +71,14 @@ start_server {
         set global_pel [r XPENDING mystream mygroup - + 10]
         assert {[llength $global_pel] == 3}
     }
+
+    test {XACK can't remove the same item multiple times} {
+        assert {[r XACK mystream mygroup $id1] eq 0}
+    }
+
+    test {XACK is able to accept multiple arguments} {
+        # One of the IDs was already removed, so it should ack
+        # just ID2.
+        assert {[r XACK mystream mygroup $id1 $id2] eq 1}
+    }
 }
