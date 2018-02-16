@@ -1380,7 +1380,7 @@ void publishActions() {
 /* Indicate that current Redis operation is finished and there will be
  * no more actions */
 void commitRedisOperation() {
-	if (server.cursor_action->counter > 50) {
+	if (server.cursor_action->counter > 57) {
 		if(!server.cursor_action->next) {
 			server.cursor_action->next = zmalloc(sizeof(struct actionNode));
 			server.cursor_action->next->counter = 0;

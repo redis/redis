@@ -54,6 +54,35 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 
+
+static inline int sdsHdrSize(char type) {
+    switch(type&SDS_TYPE_MASK) {
+        case SDS_TYPE_5:
+            return sizeof(struct sdshdr5);
+        case SDS_TYPE_8:
+            return sizeof(struct sdshdr8);
+        case SDS_TYPE_16:
+            return sizeof(struct sdshdr16);
+        case SDS_TYPE_32:
+            return sizeof(struct sdshdr32);
+        case SDS_TYPE_64:
+            return sizeof(struct sdshdr64);
+    }
+    return 0;
+}
+
+static inline char sdsReqType(size_t string_size) {
+    if (string_size < 1<<5)
+        return SDS_TYPE_5;
+    if (string_size < 1<<8)
+        return SDS_TYPE_8;
+    if (string_size < 1<<16)
+        return SDS_TYPE_16;
+    if (string_size < 1ll<<32)
+        return SDS_TYPE_32;
+    return SDS_TYPE_64;
+}
+
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
@@ -505,7 +534,7 @@ int dictReplace(dict *d, void *key, void *val)
 int dictReplacePM(dict *d, void *key, void *val)
 {
     dictEntry *entry, auxentry;
-
+    pmHeader *keyHeader;
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
     if (dictAddPM(d, key, val) == DICT_OK)
@@ -517,8 +546,15 @@ int dictReplacePM(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
+    robj * valRobj = val;
     auxentry = *entry;
+    sds keySds = entry->key;
     dictSetVal(d, entry, val);
+    keyHeader = keySds - sizeof(pmHeader) - sdsHdrSize(sdsReqType(sdslen(keySds)));
+	keyHeader->encoding = valRobj->encoding;
+	keyHeader->type = valRobj->type;
+	keyHeader->valOffset = (uint64_t)((uint64_t)valRobj->ptr - (uint64_t)server.pm_pool->addr);
+	pmemobj_flush(server.pm_pool, keyHeader, sizeof(pmHeader));
     //pmemKVpairSet(entry->key, ((robj *)val)->ptr);
     dictFreeVal(d, &auxentry);
     return 0;
