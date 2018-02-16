@@ -27,6 +27,7 @@ set ::all_tests {
     unit/type/zset
     unit/type/hash
     unit/type/stream
+    unit/type/stream-cgroups
     unit/sort
     unit/expire
     unit/other
