@@ -1391,7 +1391,8 @@ NULL
         if (cg) {
             addReply(c,shared.ok);
         } else {
-            addReplyError(c,"Consumer Group name already exists");
+            addReplySds(c,
+                sdsnew("-BUSYGROUP Consumer Group name already exists\r\n"));
         }
     } else if (!strcasecmp(opt,"SETID") && c->argc == 5) {
     } else if (!strcasecmp(opt,"DELGROUP") && c->argc == 4) {
