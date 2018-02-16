@@ -38,4 +38,24 @@ start_server {
         assert {[lindex $r1 0 1 0 1] eq {a 1}}
         assert {[lindex $r2 0 1 0 1] eq {c 3}}
     }
+
+    test {XPENDING is able to return pending items} {
+        set pending [r XPENDING mystream mygroup - + 10]
+        assert {[llength $pending] == 4}
+        for {set j 0} {$j < 4} {incr j} {
+            set item [lindex $pending $j]
+            if {$j < 2} {
+                set owner client-1
+            } else {
+                set owner client-2
+            }
+            assert {[lindex $item 1] eq $owner}
+            assert {[lindex $item 1] eq $owner}
+        }
+    }
+
+    test {XPENDING can return single consumer items} {
+        set pending [r XPENDING mystream mygroup - + 10 client-1]
+        assert {[llength $pending] == 2}
+    }
 }
