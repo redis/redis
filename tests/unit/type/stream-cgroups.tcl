@@ -58,4 +58,17 @@ start_server {
         set pending [r XPENDING mystream mygroup - + 10 client-1]
         assert {[llength $pending] == 2}
     }
+
+    test {XACK is able to remove items from the client/group PEL} {
+        set pending [r XPENDING mystream mygroup - + 10 client-1]
+        set id1 [lindex $pending 0 0]
+        set id2 [lindex $pending 1 0]
+        assert {[r XACK mystream mygroup $id1] eq 1}
+        set pending [r XPENDING mystream mygroup - + 10 client-1]
+        assert {[llength $pending] == 1}
+        set id [lindex $pending 0 0]
+        assert {$id eq $id2}
+        set global_pel [r XPENDING mystream mygroup - + 10]
+        assert {[llength $global_pel] == 3}
+    }
 }
