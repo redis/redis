@@ -1007,8 +1007,33 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
-    /* Sample the RSS here since this is a relatively slow call. */
-    server.resident_set_size = zmalloc_get_rss();
+    run_with_period(10) {
+        /* Sample the RSS and other metrics here since this is a relatively slow call.
+         * We must sample the zmalloc_used at the same time we take the rss, otherwise
+         * the frag ratio calculate may be off (ratio of two samples at different times) */
+        server.cron_malloc_stats.process_rss = zmalloc_get_rss();
+        server.cron_malloc_stats.zmalloc_used = zmalloc_used_memory();
+        /* Sampling the allcator info can be slow too.
+         * The fragmentation ratio it'll show is potentically more accurate
+         * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
+         * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
+        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+                                   &server.cron_malloc_stats.allocator_active,
+                                   &server.cron_malloc_stats.allocator_resident);
+        /* in case the allocator isn't providing these stats, fake them so that
+         * fragmention info still shows some (inaccurate metrics) */
+        if (!server.cron_malloc_stats.allocator_resident) {
+            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
+             * so we must desuct it in order to be able to calculate correct
+             * "allocator fragmentation" ratio */
+            size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
+        }
+        if (!server.cron_malloc_stats.allocator_active)
+            server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
+        if (!server.cron_malloc_stats.allocator_allocated)
+            server.cron_malloc_stats.allocator_allocated = server.cron_malloc_stats.zmalloc_used;
+    }
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -1924,7 +1949,11 @@ void initServer(void) {
     server.stat_peak_memory = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
-    server.resident_set_size = 0;
+    server.cron_malloc_stats.zmalloc_used = 0;
+    server.cron_malloc_stats.process_rss = 0;
+    server.cron_malloc_stats.allocator_allocated = 0;
+    server.cron_malloc_stats.allocator_active = 0;
+    server.cron_malloc_stats.allocator_resident = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -2974,7 +3003,7 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
-        bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
+        bytesToHuman(used_memory_rss_hmem,server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
         if (sections++) info = sdscat(info,"\r\n");
@@ -2991,6 +3020,9 @@ sds genRedisInfoString(char *section) {
             "used_memory_startup:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
             "used_memory_dataset_perc:%.2f%%\r\n"
+            "allocator_allocated:%zu\r\n"
+            "allocator_active:%zu\r\n"
+            "allocator_resident:%zu\r\n"
             "total_system_memory:%lu\r\n"
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
@@ -2998,13 +3030,20 @@ sds genRedisInfoString(char *section) {
             "maxmemory:%lld\r\n"
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
+            "allocator_frag_ratio:%.2f\r\n"
+            "allocator_frag_bytes:%zu\r\n"
+            "allocator_rss_ratio:%.2f\r\n"
+            "allocator_rss_bytes:%zu\r\n"
+            "rss_overhead_ratio:%.2f\r\n"
+            "rss_overhead_bytes:%zu\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
+            "mem_fragmentation_bytes:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
             zmalloc_used,
             hmem,
-            server.resident_set_size,
+            server.cron_malloc_stats.process_rss,
             used_memory_rss_hmem,
             server.stat_peak_memory,
             peak_hmem,
@@ -3013,6 +3052,9 @@ sds genRedisInfoString(char *section) {
             mh->startup_allocated,
             mh->dataset,
             mh->dataset_perc,
+            server.cron_malloc_stats.allocator_allocated,
+            server.cron_malloc_stats.allocator_active,
+            server.cron_malloc_stats.allocator_resident,
             (unsigned long)total_system_mem,
             total_system_hmem,
             memory_lua,
@@ -3020,7 +3062,14 @@ sds genRedisInfoString(char *section) {
             server.maxmemory,
             maxmemory_hmem,
             evict_policy,
-            mh->fragmentation,
+            mh->allocator_frag,
+            mh->allocator_frag_bytes,
+            mh->allocator_rss,
+            mh->allocator_rss_bytes,
+            mh->rss_extra,
+            mh->rss_extra_bytes,
+            mh->total_frag, /* this is the total RSS overhead, including fragmentation, */
+            mh->total_frag_bytes, /* named so for backwards compatibility */
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()

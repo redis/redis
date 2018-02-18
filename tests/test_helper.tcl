@@ -452,6 +452,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             puts $t
         }
         exit 0
+    } elseif {$opt eq {--verbose}} {
+        set ::verbose 1
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg
