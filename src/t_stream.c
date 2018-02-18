@@ -966,7 +966,7 @@ void xaddCommand(client *c) {
         &id, id_given ? &id : NULL)
         == C_ERR)
     {
-        addReplyError(c,"The ID specified in XADD is smaller than the "
+        addReplyError(c,"The ID specified in XADD is equal or smaller than the "
                         "target stream top item");
         return;
     }
