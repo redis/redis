@@ -894,34 +894,38 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
          * type, so serialize every consumer group. */
 
         /* Save the number of groups. */
-        if ((n = rdbSaveLen(rdb,raxSize(s->cgroups))) == -1) return -1;
+        size_t num_cgroups = s->cgroups ? raxSize(s->cgroups) : 0;
+        if ((n = rdbSaveLen(rdb,num_cgroups)) == -1) return -1;
         nwritten += n;
 
-        /* Serialize each consumer group. */
-        raxStart(&ri,s->cgroups);
-        raxSeek(&ri,"^",NULL,0);
-        while(raxNext(&ri)) {
-            streamCG *cg = ri.data;
+        if (num_cgroups) {
+            /* Serialize each consumer group. */
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                streamCG *cg = ri.data;
 
-            /* Save the group name. */
-            if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1) return -1;
-            nwritten += n;
+                /* Save the group name. */
+                if ((n = rdbSaveRawString(rdb,ri.key,ri.key_len)) == -1)
+                    return -1;
+                nwritten += n;
 
-            /* Last ID. */
-            if ((n = rdbSaveLen(rdb,cg->last_id.ms)) == -1) return -1;
-            nwritten += n;
-            if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) return -1;
-            nwritten += n;
+                /* Last ID. */
+                if ((n = rdbSaveLen(rdb,cg->last_id.ms)) == -1) return -1;
+                nwritten += n;
+                if ((n = rdbSaveLen(rdb,cg->last_id.seq)) == -1) return -1;
+                nwritten += n;
 
-            /* Save the global PEL. */
-            if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) return -1;
-            nwritten += n;
+                /* Save the global PEL. */
+                if ((n = rdbSaveStreamPEL(rdb,cg->pel,1)) == -1) return -1;
+                nwritten += n;
 
-            /* Save the consumers of this group. */
-            if ((n = rdbSaveStreamConsumers(rdb,cg)) == -1) return -1;
-            nwritten += n;
+                /* Save the consumers of this group. */
+                if ((n = rdbSaveStreamConsumers(rdb,cg)) == -1) return -1;
+                nwritten += n;
+            }
+            raxStop(&ri);
         }
-        raxStop(&ri);
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
