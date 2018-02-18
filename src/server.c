@@ -1389,6 +1389,7 @@ void initServerConfig(void) {
     server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
     server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
     server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
+    server.active_defrag_max_scan_fields = CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS;
     server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
@@ -1806,6 +1807,7 @@ void resetServerStats(void) {
     server.stat_active_defrag_misses = 0;
     server.stat_active_defrag_key_hits = 0;
     server.stat_active_defrag_key_misses = 0;
+    server.stat_active_defrag_scanned = 0;
     server.stat_fork_time = 0;
     server.stat_fork_rate = 0;
     server.stat_rejected_conn = 0;
@@ -1894,6 +1896,7 @@ void initServer(void) {
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
+        server.db[j].defrag_later = listCreate();
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
