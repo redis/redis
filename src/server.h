@@ -1343,6 +1343,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
 /* Utils */
 long long ustime(void);
 long long mstime(void);
+long long monotonic_mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);

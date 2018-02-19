@@ -138,12 +138,18 @@ static int cliConnect(int force);
  *--------------------------------------------------------------------------- */
 
 static long long ustime(void) {
-    struct timeval tv;
     long long ust;
-
+#ifdef CLOCK_MONOTONIC
+   struct timespec tv;
+   clock_gettime(CLOCK_MONOTONIC, &tv);
+   ust = ((long long)tv.tv_sec) *1000000;
+   ust += (tv.tv_nsec / 1000);
+#else
+    struct timeval tv;
     gettimeofday(&tv, NULL);
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
+#endif
     return ust;
 }
 

@@ -417,6 +417,18 @@ mstime_t mstime(void) {
     return ustime()/1000;
 }
 
+/* Return the UNIX monotonic time in milliseconds */
+mstime_t mstime_monotonic(void) {
+#if CLOCK_MONOTONIC
+    struct timespec tv;
+    
+    clock_gettime(CLOCK_MONOTONIC, &tv);
+    return ((tv.tv_sec*1000)+(tv.tv_nsec/1000000));
+#else
+    return mstime();
+#endif
+}
+
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is

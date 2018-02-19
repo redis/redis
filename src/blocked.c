@@ -89,7 +89,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 
     if (tval > 0) {
         if (unit == UNIT_SECONDS) tval *= 1000;
-        tval += mstime();
+        tval += mstime_monotonic();
     }
     *timeout = tval;
 
