@@ -111,7 +111,7 @@ void activeExpireCycle(int type) {
     if (clientsArePaused()) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
-        /* Don't start a fast cycle if the previous cycle did not exited
+        /* Don't start a fast cycle if the previous cycle did not exit
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
@@ -139,6 +139,12 @@ void activeExpireCycle(int type) {
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
         timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
+
+    /* Accumulate some global stats as we expire keys, to have some idea
+     * about the number of keys that are already logically expired, but still
+     * existing inside the database. */
+    long total_sampled = 0;
+    long total_expired = 0;
 
     for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         int expired;
@@ -192,7 +198,9 @@ void activeExpireCycle(int type) {
                     ttl_sum += ttl;
                     ttl_samples++;
                 }
+                total_sampled++;
             }
+            total_expired += expired;
 
             /* Update the average TTL stats for this database. */
             if (ttl_samples) {
@@ -212,6 +220,7 @@ void activeExpireCycle(int type) {
                 elapsed = ustime()-start;
                 if (elapsed > timelimit) {
                     timelimit_exit = 1;
+                    server.stat_expired_time_cap_reached_count++;
                     break;
                 }
             }
@@ -222,6 +231,16 @@ void activeExpireCycle(int type) {
 
     elapsed = ustime()-start;
     latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
+
+    /* Update our estimate of keys existing but yet to be expired.
+     * Running average with this sample accounting for 5%. */
+    double current_perc;
+    if (total_sampled) {
+        current_perc = (double)total_expired/total_sampled;
+    } else
+        current_perc = 0;
+    server.stat_expired_stale_perc = (current_perc*0.05)+
+                                     (server.stat_expired_stale_perc*0.95);
 }
 
 /*-----------------------------------------------------------------------------
