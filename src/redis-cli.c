@@ -505,7 +505,6 @@ static int dictSdsKeyCompare(void *privdata, const void *key1,
 static void dictSdsDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
-
     sdsfree(val);
 }
 
@@ -2008,11 +2007,13 @@ result:
 static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
     int ip_len, clusterManagerNode ***offending, int *offending_len)
 {
-    assert(offending != NULL);
     int score = 0, i, j;
     int node_len = cluster_manager.nodes->len;
-    *offending = zcalloc(node_len * sizeof(clusterManagerNode*));
-    clusterManagerNode **offending_p = *offending;
+    clusterManagerNode **offending_p = NULL;
+    if (offending != NULL) {
+        *offending = zcalloc(node_len * sizeof(clusterManagerNode*));
+        offending_p = *offending;
+    }
     for (i = 0; i < ip_len; i++) {
         clusterManagerNodeArray *node_array = &(ipnodes[i]);
         dict *related = dictCreate(&clusterManagerDictType, NULL);
@@ -2021,23 +2022,21 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             clusterManagerNode *node = node_array->nodes[j];
             if (node == NULL) continue;
             if (!ip) ip = node->ip;
-            sds types;
-            if (!node->replicate) {
-                assert(node->name != NULL);
-                dictEntry *entry = dictFind(related, node->name);
-                if (entry) types = (sds) dictGetVal(entry);
-                else types = sdsempty();
-                types = sdscatprintf(types, "m%s", types);
-                dictReplace(related, node->name, types);
-            } else {
-                dictEntry *entry = dictFind(related, node->replicate);     
-                if (entry) types = (sds) dictGetVal(entry);
-                else {
-                    types = sdsempty();
-                    dictAdd(related, node->replicate, types);
-                }
-                sdscat(types, "s");
+            sds types, otypes;
+            // We always use the Master ID as key
+            sds key = (!node->replicate ? node->name : node->replicate);
+            assert(key != NULL);
+            dictEntry *entry = dictFind(related, key);
+            if (entry) otypes = (sds) dictGetVal(entry);
+            else {
+                otypes = sdsempty();
+                dictAdd(related, key, otypes);
             }
+            // Master type 'm' is always set as the first character of the 
+            // types string.
+            if (!node->replicate) types = sdscatprintf(otypes, "m%s", otypes);
+            else types = sdscat(otypes, "s"); 
+            if (types != otypes) dictReplace(related, key, types);
         }
         dictIterator *iter = dictGetIterator(related);
         dictEntry *entry;
@@ -2048,6 +2047,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             if (typeslen < 2) continue;
             if (types[0] == 'm') score += (10000 * (typeslen - 1));
             else score += (1 * typeslen);
+            if (offending == NULL) continue;
             listIter li;
             listNode *ln;
             listRewind(cluster_manager.nodes, &li);
@@ -2056,11 +2056,12 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
                 if (n->replicate == NULL) continue;
                 if (!strcmp(n->replicate, name) && !strcmp(n->ip, ip)) {
                     *(offending_p++) = n;               
+                    if (offending_len != NULL) (*offending_len)++;
                     break;
                 }
             }
         }
-        if (offending_len != NULL) *offending_len = offending_p - *offending;
+        //if (offending_len != NULL) *offending_len = offending_p - *offending;
         dictReleaseIterator(iter);
         dictRelease(related);
     }
@@ -2070,8 +2071,8 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
 static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
     int ip_len)
 {
-    clusterManagerNode **offenders = NULL, **aux;
-    int score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, &aux, NULL);
+    clusterManagerNode **offenders = NULL;
+    int score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, NULL, NULL);
     if (score == 0) goto cleanup;
     clusterManagerLogInfo(">>> Trying to optimize slaves allocation "
                           "for anti-affinity\n");
@@ -2088,7 +2089,8 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
                                                    &offending_len);
         if (score == 0) break;
         int rand_idx = rand() % offending_len;
-        clusterManagerNode *first = offenders[rand_idx], *second;
+        clusterManagerNode *first = offenders[rand_idx], 
+                           *second = NULL;
         clusterManagerNode **other_replicas = zcalloc((node_len - 1) * 
                                                       sizeof(*other_replicas));
         int other_replicas_count = 0;
@@ -2110,9 +2112,8 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
              *second_master = second->replicate;
         first->replicate = second_master, first->dirty = 1;
         second->replicate = first_master, second->dirty = 1;
-        zfree(aux), aux = NULL;
         int new_score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, 
-                                                           &aux, NULL);
+                                                           NULL, NULL);
         if (new_score > score) {
             first->replicate = first_master;
             second->replicate = second_master;
@@ -2120,8 +2121,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
         zfree(other_replicas);
         maxiter--;
     }
-    zfree(aux), aux = NULL;
-    score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, &aux, NULL);
+    score = clusterManagerGetAntiAffinityScore(ipnodes, ip_len, NULL, NULL);
     char *msg;
     int perfect = (score == 0);
     int log_level = (perfect ? CLUSTER_MANAGER_LOG_LVL_SUCCESS : 
@@ -2134,7 +2134,6 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
     clusterManagerLog(log_level, "%s\n", msg);
 cleanup:
     zfree(offenders);
-    zfree(aux);
 }
 
 static sds clusterManagerNodeSlotsString(clusterManagerNode *node) {
