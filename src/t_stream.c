@@ -1611,7 +1611,9 @@ void xpendingCommand(client *c) {
  * the consumer group PEL.
  *
  * This command creates the consumer as side effect if it does not yet
- * exists.
+ * exists. Moreover the command reset the idle time of the message to 0,
+ * even if by using the IDLE or TIME options, the user can control the
+ * new idle time.
  *
  * The options at the end can be used in order to specify more attributes
  * to set in the representation of the pending message:
@@ -1639,7 +1641,8 @@ void xpendingCommand(client *c) {
  * 4. FORCE:
  *      Creates the pending message entry in the PEL even if certain
  *      specified IDs are not already in the PEL assigned to a different
- *      client.
+ *      client. However the message must be exist in the stream, otherwise
+ *      the IDs of non existing messages are ignored.
  *
  * 5. JUSTID:
  *      Return just an array of IDs of messages successfully claimed,
@@ -1723,12 +1726,16 @@ void xclaimCommand(client *c) {
         /* If a delivery time was passed, either with IDLE or TIME, we
          * do some sanity check on it, and set the deliverytime to now
          * (which is a sane choice usually) if the value is bogus.
-         *
-         * We could raise an error here, but it's not a sensible choice
-         * because the client may use it's local clock to compute the
-         * time, and in case of desynchronizations to fail is not a good
-         * idea most of the times. */
+         * To raise an error here is not wise because clients may compute
+         * the idle time doing some math startin from their local time,
+         * and this is not a good excuse to fail in case, for instance,
+         * the computed time is a bit in the future from our POV. */
         if (deliverytime < 0 || deliverytime > now) deliverytime = now;
+    } else {
+        /* If no IDLE/TIME option was passed, we want the last delivery
+         * time to be now, so that the idle time of the message will be
+         * zero. */
+        deliverytime = now;
     }
 
     /* Do the actual claiming. */
@@ -1752,8 +1759,9 @@ void xclaimCommand(client *c) {
             }
             /* Remove the entry from the old consumer. */
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            /* Update the consumer. */
+            /* Update the consumer and idle time. */
             nack->consumer = consumer;
+            nack->delivery_time = deliverytime;
             /* Add the entry in the new cosnumer local PEL. */
             raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
             /* Send the reply for this entry. */
