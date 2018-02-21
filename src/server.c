@@ -2998,6 +2998,11 @@ sds genRedisInfoString(char *section) {
             "maxmemory_human:%s\r\n"
             "maxmemory_policy:%s\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
+            "mem_not_counted_for_evict:%zu\r\n"
+            "mem_replication_backlog:%zu\r\n"
+            "mem_clients_slaves:%zu\r\n"
+            "mem_clients_normal:%zu\r\n"
+            "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
@@ -3020,6 +3025,11 @@ sds genRedisInfoString(char *section) {
             maxmemory_hmem,
             evict_policy,
             mh->fragmentation,
+            freeMemoryGetNotCountedMemory(),
+            mh->repl_backlog,
+            mh->clients_slaves,
+            mh->clients_normal,
+            mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()

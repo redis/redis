@@ -67,8 +67,24 @@ static inline char sdsReqType(size_t string_size) {
 #if (LONG_MAX == LLONG_MAX)
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
-#endif
     return SDS_TYPE_64;
+#else
+    return SDS_TYPE_32;
+#endif
+}
+
+static inline size_t sdsTypeMaxSize(char type) {
+    if (type == SDS_TYPE_5)
+        return (1<<5) - 1;
+    if (type == SDS_TYPE_8)
+        return (1<<8) - 1;
+    if (type == SDS_TYPE_16)
+        return (1<<16) - 1;
+#if (LONG_MAX == LLONG_MAX)
+    if (type == SDS_TYPE_32)
+        return (1ll<<32) - 1;
+#endif
+    return SIZE_MAX;
 }
 
 /* Create a new sds string with the content specified by the 'init' pointer
@@ -84,21 +100,17 @@ static inline char sdsReqType(size_t string_size) {
  * You can print the string with printf() as there is an implicit \0 at the
  * end of the string. However the string is binary safe and can contain
  * \0 characters in the middle, as the length is stored in the sds header. */
-sds sdsnewlen(const void *init, size_t initlen) {
+sds sdsnewlenType(const void *init, size_t initlen, size_t extra, char type) {
     void *sh;
     sds s;
-    char type = sdsReqType(initlen);
-    /* Empty strings are usually created in order to append. Use type 8
-     * since type 5 is not good at this. */
-    if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
-    sh = s_malloc(hdrlen+initlen+1);
+    sh = s_malloc(hdrlen+initlen+extra+1);
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
-        memset(sh, 0, hdrlen+initlen+1);
+        memset(sh, 0, hdrlen+initlen+extra+1);
     if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
@@ -110,28 +122,28 @@ sds sdsnewlen(const void *init, size_t initlen) {
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
             sh->len = initlen;
-            sh->alloc = initlen;
+            sh->alloc = initlen+extra;
             *fp = type;
             break;
         }
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
             sh->len = initlen;
-            sh->alloc = initlen;
+            sh->alloc = initlen+extra;
             *fp = type;
             break;
         }
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
             sh->len = initlen;
-            sh->alloc = initlen;
+            sh->alloc = initlen+extra;
             *fp = type;
             break;
         }
         case SDS_TYPE_64: {
             SDS_HDR_VAR(64,s);
             sh->len = initlen;
-            sh->alloc = initlen;
+            sh->alloc = initlen+extra;
             *fp = type;
             break;
         }
@@ -140,6 +152,22 @@ sds sdsnewlen(const void *init, size_t initlen) {
         memcpy(s, init, initlen);
     s[initlen] = '\0';
     return s;
+}
+
+sds sdsnewlen(const void *init, size_t initlen) {
+    char type = sdsReqType(initlen);
+    /* Empty strings are usually created in order to append. Use type 8
+     * since type 5 is not good at this. */
+    if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
+    return sdsnewlenType(init, initlen, 0, type);
+}
+
+sds sdsnewalloc(const void *init, size_t initlen, size_t extra) {
+    char type = sdsReqType(initlen+extra);
+    /* These strings are usually created in order to append. Use type 8
+     * since type 5 is not good at this. */
+    if (type == SDS_TYPE_5) type = SDS_TYPE_8;
+    return sdsnewlenType(init, initlen, extra, type);
 }
 
 /* Create an empty (zero length) sds string. Even in this case the string
@@ -198,8 +226,33 @@ void sdsclear(sds s) {
  * bytes after the end of the string, plus one more byte for nul term.
  *
  * Note: this does not change the *length* of the sds string as returned
- * by sdslen(), but only the free buffer space we have. */
+ * by sdslen(), but only the free buffer space we have.
+ * Note: This function adds extra space for future groth too. */
 sds sdsMakeRoomFor(sds s, size_t addlen) {
+    size_t avail = sdsavail(s);
+    size_t len, newlen;
+
+    /* Return ASAP if there is enough space left. */
+    if (avail >= addlen) return s;
+
+    len = sdslen(s);
+    newlen = (len+addlen);
+    if (newlen < SDS_MAX_PREALLOC)
+        newlen *= 2;
+    else
+        newlen += SDS_MAX_PREALLOC;
+
+    return sdsMakeRoomForExact(s, newlen-len);
+}
+
+/* Enlarge the free space at the end of the sds string so that the caller
+ * is sure that after calling this function can overwrite up to addlen
+ * bytes after the end of the string, plus one more byte for nul term.
+ *
+ * Note: this does not change the *length* of the sds string as returned
+ * by sdslen(), but only the free buffer space we have.
+ * Note: unlike sdsMakeRoomFor this function does not add any extra space */
+sds sdsMakeRoomForExact(sds s, size_t addlen) {
     void *sh, *newsh;
     size_t avail = sdsavail(s);
     size_t len, newlen;
@@ -212,11 +265,6 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     len = sdslen(s);
     sh = (char*)s-sdsHdrSize(oldtype);
     newlen = (len+addlen);
-    if (newlen < SDS_MAX_PREALLOC)
-        newlen *= 2;
-    else
-        newlen += SDS_MAX_PREALLOC;
-
     type = sdsReqType(newlen);
 
     /* Don't use type 5: the user is appending to the string and type 5 is
@@ -299,6 +347,30 @@ size_t sdsAllocSize(sds s) {
  * are referenced by the start of the string buffer). */
 void *sdsAllocPtr(sds s) {
     return (void*) (s-sdsHdrSize(s[-1]));
+}
+
+/* Return the size consumed from the allocator, for the specified SDS string,
+ * including internal fragmentation. This function is used in order to compute
+ * the client output buffer size. */
+size_t sdsMallocSize(sds s) {
+    void *sh = sdsAllocPtr(s);
+    return s_malloc_size(sh);
+}
+
+/* Return is similarly to sdsMallocSize.
+ * Additionally, the sds is logically grown to that size, so that will
+ * sdsAllocSize returns the same.
+ * This is not possible if the sds type header can't hold that much free space. */
+size_t sdsGrowToMallocSize(sds s) {
+    void *sh = sdsAllocPtr(s);
+    size_t real_size = s_malloc_size(sh);
+    size_t extra = (intptr_t)s - (intptr_t)sh + 1; /* null terminator and header */
+    char type = s[-1] & SDS_TYPE_MASK;
+    size_t max_size = sdsTypeMaxSize(type);
+    if (real_size - extra < max_size)
+        max_size = real_size - extra;
+    sdssetalloc(s, max_size);
+    return real_size;
 }
 
 /* Increment the sds length and decrements the left free space at the
@@ -1112,6 +1184,7 @@ sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen) {
 void *sds_malloc(size_t size) { return s_malloc(size); }
 void *sds_realloc(void *ptr, size_t size) { return s_realloc(ptr,size); }
 void sds_free(void *ptr) { s_free(ptr); }
+size_t sds_malloc_size(void* ptr) { return s_malloc_size(ptr); }
 
 #if defined(SDS_TEST_MAIN)
 #include <stdio.h>

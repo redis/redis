@@ -179,7 +179,7 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Protocol and I/O related defines */
 #define PROTO_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
-#define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
+#define PROTO_REPLY_CHUNK_BYTES (16*1024 - 6) /* 16k output buffer (minus sds header, so that we don't have internal fragmentation) */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define LONG_STR_SIZE      21          /* Bytes needed for long -> str + '\0' */
@@ -1379,7 +1379,7 @@ void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void copyClientOutputBuffer(client *dst, client *src);
-size_t sdsZmallocSize(sds s);
+#define sdsZmallocSize sdsMallocSize
 size_t getStringObjectSdsUsedMemory(robj *o);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -1619,6 +1619,7 @@ int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Core functions */
+size_t freeMemoryGetNotCountedMemory();
 int freeMemoryIfNeeded(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
