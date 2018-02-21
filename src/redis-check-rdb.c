@@ -85,7 +85,8 @@ char *rdb_type_string[] = {
     "set-intset",
     "zset-ziplist",
     "hash-ziplist",
-    "quicklist"
+    "quicklist",
+    "stream"
 };
 
 /* Show a few stats collected into 'rdbstate' */

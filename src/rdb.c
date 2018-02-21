@@ -1624,6 +1624,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
              * we read more data. */
             streamID cg_id;
             sds cgname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (cgname == NULL) {
+                rdbExitReportCorruptRDB(
+                    "Error reading the consumer group name from Stream");
+            }
             cg_id.ms = rdbLoadLen(rdb,NULL);
             cg_id.seq = rdbLoadLen(rdb,NULL);
             streamCG *cgroup = streamCreateCG(s,cgname,sdslen(cgname),&cg_id);
@@ -1654,6 +1658,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             size_t consumers_num = rdbLoadLen(rdb,NULL);
             while(consumers_num--) {
                 sds cname = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+                if (cname == NULL) {
+                    rdbExitReportCorruptRDB(
+                        "Error reading the consumer name from Stream group");
+                }
                 streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
                                            1);
                 sdsfree(cname);
