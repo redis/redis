@@ -2292,7 +2292,7 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementatino called preventCommandPropagation() or similar,
+         * implementation called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
