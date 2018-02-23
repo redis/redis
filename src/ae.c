@@ -158,6 +158,10 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeFileEvent *fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return;
 
+    /* We want to always remove AE_BARRIER if set when AE_WRITABLE
+     * is removed. */
+    if (mask & AE_WRITABLE) mask |= AE_BARRIER;
+
     aeApiDelEvent(eventLoop, fd, mask);
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
@@ -412,8 +416,22 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
             }
             if (fe->mask & mask & AE_WRITABLE) {
-                if (!rfired || fe->wfileProc != fe->rfileProc)
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                int can_fire = 1;
+                if (rfired) {
+                    /* The previous event fired? We do not want this to
+                     * fire again if:
+                     *
+                     * 1. The handler is the same as the READABLE event.
+                     * 2. If there AE_BARRIER is set, to signal that we
+                     *    are never allowed to fire WRITABLE after READABLE
+                     *    in the same iteration. */
+                    if (fe->wfileProc == fe->rfileProc ||
+                        fe->mask & AE_BARRIER)
+                    {
+                        can_fire = 0;
+                    }
+                }
+                if (can_fire) fe->wfileProc(eventLoop,fd,fe->clientData,mask);
             }
             processed++;
         }
