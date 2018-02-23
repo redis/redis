@@ -1410,7 +1410,7 @@ size_t moduleCount(void);
 void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
-
+void moduleCallCommandFilters(client *c);
 
 /* Utils */
 long long ustime(void);

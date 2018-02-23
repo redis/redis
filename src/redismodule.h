@@ -163,6 +163,12 @@ typedef void (*RedisModuleTypeFreeFunc)(void *value);
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 
+typedef struct RedisModuleFilteredCommand {
+    RedisModuleString **argv;
+    int argc;
+} RedisModuleFilteredCommand;
+typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd);
+
 #define REDISMODULE_TYPE_METHOD_VERSION 1
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
@@ -338,6 +344,7 @@ void REDISMODULE_API_FUNC(RedisModule_SetDisconnectCallback)(RedisModuleBlockedC
 void REDISMODULE_API_FUNC(RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags);
 int REDISMODULE_API_FUNC(RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func);
 void *REDISMODULE_API_FUNC(RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const char *apiname);
+int REDISMODULE_API_FUNC(RedisModule_RegisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc cb);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -501,6 +508,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetClusterFlags);
     REDISMODULE_GET_API(ExportSharedAPI);
     REDISMODULE_GET_API(GetSharedAPI);
+    REDISMODULE_GET_API(RegisterCommandFilter);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

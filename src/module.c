@@ -270,6 +270,28 @@ typedef struct RedisModuleDictIter {
     raxIterator ri;
 } RedisModuleDictIter;
 
+/* Information about the command to be executed, as passed to and from a
+ * filter. */
+typedef struct RedisModuleFilteredCommand {
+    RedisModuleString **argv;
+    int argc;
+} RedisModuleFilteredCommand;
+
+typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd);
+
+typedef struct RedisModuleCommandFilter {
+    /* The module that registered the filter */
+    RedisModule *module;
+    /* Filter callback function */
+    RedisModuleCommandFilterFunc callback;
+    /* Indicates a filter is active, avoid reentrancy */
+    int active;
+} RedisModuleCommandFilter;
+
+/* Registered filters */
+static list *moduleCommandFilters;
+
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -4773,6 +4795,56 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
 }
 
 /* --------------------------------------------------------------------------
+ * Module Command Filter API
+ * -------------------------------------------------------------------------- */
+
+/* Register a new command filter function.  Filters get executed by Redis
+ * before processing an inbound command and can be used to manipulate the
+ * behavior of standard Redis commands.  Filters must not attempt to
+ * perform Redis commands or operate on the dataset, and must restrict
+ * themselves to manipulation of the arguments.
+ */
+
+int RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
+    RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
+    filter->module = ctx->module;
+    filter->callback = callback;
+    filter->active = 0;
+
+    listAddNodeTail(moduleCommandFilters, filter);
+    return REDISMODULE_OK;
+}
+
+void moduleCallCommandFilters(client *c) {
+    if (listLength(moduleCommandFilters) == 0) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(moduleCommandFilters,&li);
+
+    RedisModuleFilteredCommand cmd = {
+        .argv = c->argv,
+        .argc = c->argc
+    };
+
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *filter = ln->value;
+        if (filter->active) continue;
+
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = filter->module;
+
+        filter->active = 1;
+        filter->callback(&ctx, &cmd);
+        filter->active = 0;
+        moduleFreeContext(&ctx);
+    }
+
+    c->argv = cmd.argv;
+    c->argc = cmd.argc;
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -4816,6 +4888,9 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
     moduleFreeContextReusedClient = createClient(-1);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
+
+    /* Set up filter list */
+    moduleCommandFilters = listCreate();
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
@@ -5215,4 +5290,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictCompare);
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
+    REGISTER_API(RegisterCommandFilter);
 }
