@@ -145,9 +145,14 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
-    if (mask & AE_READABLE) fe->rfileProc = proc;
-    if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    fe->clientData = clientData;
+    if (mask & AE_READABLE) {
+    	fe->rfileProc = proc;
+    	fe->readClientData = clientData;
+    }
+    if (mask & AE_WRITABLE) {
+    	fe->wfileProc = proc;
+    	fe->writeClientData = clientData;
+    }
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -200,7 +205,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *sec = when_sec;
     *ms = when_ms;
 }
-
+ 
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -418,11 +423,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * processed, so we check if the event is still valid. */
             if (fe->mask & mask & AE_READABLE) {
                 rfired = 1;
-                fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fe->rfileProc(eventLoop,fd,fe->readClientData,mask);
             }
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!rfired || fe->wfileProc != fe->rfileProc)
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fe->wfileProc(eventLoop,fd,fe->writeClientData,mask);
             }
             processed++;
         }

@@ -77,7 +77,8 @@ typedef struct aeTimeEvent {
     long when_ms; /* milliseconds */
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
-    void *clientData;
+    void *readClientData;
+    void *writeClientData;
     struct aeTimeEvent *next;
 } aeTimeEvent;
 
