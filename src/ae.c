@@ -406,33 +406,49 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
-            int rfired = 0;
+            int fired = 0; /* Number of events fired for current fd. */
 
-	    /* note the fe->mask & mask & ... code: maybe an already processed
-             * event removed an element that fired and we still didn't
-             * processed, so we check if the event is still valid. */
-            if (fe->mask & mask & AE_READABLE) {
-                rfired = 1;
+            /* Normally we execute the readable event first, and the writable
+             * event laster. This is useful as sometimes we may be able
+             * to serve the reply of a query immediately after processing the
+             * query.
+             *
+             * However if AE_BARRIER is set in the mask, our application is
+             * asking us to do the reverse: never fire the writable event
+             * after the readable. In such a case, we invert the calls.
+             * This is useful when, for instance, we want to do things
+             * in the beforeSleep() hook, like fsynching a file to disk,
+             * before replying to a client. */
+            int invert = fe->mask & AE_BARRIER;
+
+	    /* Note the "fe->mask & mask & ..." code: maybe an already
+             * processed event removed an element that fired and we still
+             * didn't processed, so we check if the event is still valid.
+             *
+             * Fire the readable event if the call sequence is not
+             * inverted. */
+            if (!invert && fe->mask & mask & AE_READABLE) {
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fired++;
             }
+
+            /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
-                int can_fire = 1;
-                if (rfired) {
-                    /* The previous event fired? We do not want this to
-                     * fire again if:
-                     *
-                     * 1. The handler is the same as the READABLE event.
-                     * 2. If there AE_BARRIER is set, to signal that we
-                     *    are never allowed to fire WRITABLE after READABLE
-                     *    in the same iteration. */
-                    if (fe->wfileProc == fe->rfileProc ||
-                        fe->mask & AE_BARRIER)
-                    {
-                        can_fire = 0;
-                    }
+                if (!fired || fe->wfileProc != fe->rfileProc) {
+                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fired++;
                 }
-                if (can_fire) fe->wfileProc(eventLoop,fd,fe->clientData,mask);
             }
+
+            /* If we have to invert the call, fire the readable event now
+             * after the writable one. */
+            if (invert && fe->mask & mask & AE_READABLE) {
+                if (!fired || fe->wfileProc != fe->rfileProc) {
+                    fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                    fired++;
+                }
+            }
+
             processed++;
         }
     }
