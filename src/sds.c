@@ -39,6 +39,8 @@
 #include "sds.h"
 #include "sdsalloc.h"
 
+const char *SDS_NOINIT = "SDS_NOINIT";
+
 static inline int sdsHdrSize(char type) {
     switch(type&SDS_TYPE_MASK) {
         case SDS_TYPE_5:
@@ -72,6 +74,7 @@ static inline char sdsReqType(size_t string_size) {
 /* Create a new sds string with the content specified by the 'init' pointer
  * and 'initlen'.
  * If NULL is used for 'init' the string is initialized with zero bytes.
+ * If SDS_NOINIT is used, the buffer is left uninitialized;
  *
  * The string is always null-termined (all the sds strings are, always) so
  * even if you create an sds string with:
@@ -92,7 +95,9 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
-    if (!init)
+    if (init==SDS_NOINIT)
+        init = NULL;
+    else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;

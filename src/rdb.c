@@ -255,7 +255,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         char buf[LONG_STR_SIZE], *p;
         int len = ll2string(buf,sizeof(buf),val);
         if (lenptr) *lenptr = len;
-        p = plain ? zmalloc(len) : sdsnewlen(NULL,len);
+        p = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
@@ -344,10 +344,10 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     /* Allocate our target according to the uncompressed size. */
     if (plain) {
         val = zmalloc(len);
-        if (lenptr) *lenptr = len;
     } else {
-        val = sdsnewlen(NULL,len);
+        val = sdsnewlen(SDS_NOINIT,len);
     }
+    if (lenptr) *lenptr = len;
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
@@ -472,7 +472,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     if (len == RDB_LENERR) return NULL;
     if (plain || sds) {
-        void *buf = plain ? zmalloc(len) : sdsnewlen(NULL,len);
+        void *buf = plain ? zmalloc(len) : sdsnewlen(SDS_NOINIT,len);
         if (lenptr) *lenptr = len;
         if (len && rioRead(rdb,buf,len) == 0) {
             if (plain)
@@ -483,8 +483,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         }
         return buf;
     } else {
-        robj *o = encode ? createStringObject(NULL,len) :
-                           createRawStringObject(NULL,len);
+        robj *o = encode ? createStringObject(SDS_NOINIT,len) :
+                           createRawStringObject(SDS_NOINIT,len);
         if (len && rioRead(rdb,o->ptr,len) == 0) {
             decrRefCount(o);
             return NULL;

@@ -759,7 +759,7 @@ int loadAppendOnlyFile(char *filename) {
             }
             if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
-            argsds = sdsnewlen(NULL,len);
+            argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
