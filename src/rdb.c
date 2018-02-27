@@ -865,9 +865,9 @@ ssize_t rdbSaveAuxField(rio *rdb, void *key, size_t keylen, void *val, size_t va
     ssize_t ret, len = 0;
     if ((ret = rdbSaveType(rdb,RDB_OPCODE_AUX)) == -1) return -1;
     len += ret;
-    if ((ret = rdbSaveRawString(rdb,key,keylen) == -1)) return -1;
+    if ((ret = rdbSaveRawString(rdb,key,keylen)) == -1) return -1;
     len += ret;
-    if ((ret = rdbSaveRawString(rdb,val,vallen) == -1)) return -1;
+    if ((ret = rdbSaveRawString(rdb,val,vallen)) == -1) return -1;
     len += ret;
     return len;
 }
