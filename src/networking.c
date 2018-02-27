@@ -1011,13 +1011,25 @@ int handleClientsWithPendingWrites(void) {
         /* Try to write buffers to the client socket. */
         if (writeToClient(c->fd,c,0) == C_ERR) continue;
 
-        /* If there is nothing left, do nothing. Otherwise install
-         * the write handler. */
-        if (clientHasPendingReplies(c) &&
-            aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
+        /* If after the synchronous writes above we still have data to
+         * output to the client, we need to install the writable handler. */
+        if (clientHasPendingReplies(c)) {
+            int ae_flags = AE_WRITABLE;
+            /* For the fsync=always policy, we want that a given FD is never
+             * served for reading and writing in the same event loop iteration,
+             * so that in the middle of receiving the query, and serving it
+             * to the client, we'll call beforeSleep() that will do the
+             * actual fsync of AOF to disk. AE_BARRIER ensures that. */
+            if (server.aof_state == AOF_ON &&
+                server.aof_fsync == AOF_FSYNC_ALWAYS)
+            {
+                ae_flags |= AE_BARRIER;
+            }
+            if (aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
                 sendReplyToClient, c) == AE_ERR)
-        {
-            freeClientAsync(c);
+            {
+                    freeClientAsync(c);
+            }
         }
     }
     return processed;
