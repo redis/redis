@@ -1103,7 +1103,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
 
-    /* If we are in the context of a Lua script, we claim that time is
+    /* If we are in the context of a Lua script, we pretend that time is
      * blocked to when the Lua script started. This way a key can expire
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
