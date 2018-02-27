@@ -516,15 +516,11 @@ void keysCommand(client *c) {
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
-        robj *keyobj;
-
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
-            keyobj = createStringObject(key,sdslen(key));
-            if (expireIfNeeded(c->db,keyobj) == 0) {
-                addReplyBulk(c,keyobj);
+            if (expireIfNeededSds(c->db,key) == 0) {
+                addReplyBulkCBuffer(c,key,sdslen(key));
                 numkeys++;
             }
-            decrRefCount(keyobj);
         }
     }
     dictReleaseIterator(di);
@@ -1095,10 +1091,20 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
-int expireIfNeeded(redisDb *db, robj *key) {
-    mstime_t when = getExpire(db,key);
+/* either one of key or keysds is valid (the other one is NULL) */
+int expireIfNeededGeneric(redisDb *db, robj *key, sds keysds) {
+    mstime_t when;
     mstime_t now;
+    robj skeyOb;
+    int ret;
 
+    if (keysds) {
+        /* create stack object for expiry lookup, we don't want to create heap
+         * object if we don't need it and we don't need refcount */
+        initStaticStringObject(skeyOb, keysds);
+        key = &skeyOb;
+    }
+    when = getExpire(db,key);
     if (when < 0) return 0; /* No expire for this key */
 
     /* Don't expire anything while loading. It will be done later. */
@@ -1123,13 +1129,26 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Return when this key has not expired */
     if (now <= when) return 0;
 
+    /* create a heap robj if we only have static one */
+    if (keysds) key = createStringObject(keysds, sdslen(keysds));
+
     /* Delete the key */
     server.stat_expiredkeys++;
     propagateExpire(db,key,server.lazyfree_lazy_expire);
     notifyKeyspaceEvent(NOTIFY_EXPIRED,
         "expired",key,db->id);
-    return server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
+    ret =  server.lazyfree_lazy_expire ? dbAsyncDelete(db,key) :
                                          dbSyncDelete(db,key);
+    if (keysds) decrRefCount(key);
+    return ret!=0;
+}
+
+int expireIfNeeded(redisDb *db, robj *key) {
+    return expireIfNeededGeneric(db, key, NULL);
+}
+
+int expireIfNeededSds(redisDb *db, sds key) {
+    return expireIfNeededGeneric(db, NULL, key);
 }
 
 /* -----------------------------------------------------------------------------
