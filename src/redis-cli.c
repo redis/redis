@@ -2295,7 +2295,7 @@ static void clusterManagerShowNodes(void) {
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *node = ln->value;
         sds info = clusterManagerNodeInfo(node, 0);
-        printf("%s\n", info);
+        printf("%s\n", (char *) info);
         sdsfree(info);
     }
 }
@@ -2916,8 +2916,8 @@ static sds clusterManagerGetConfigSignature(clusterManagerNode *node) {
             line = p + 1;
             if (i == 0) {
                 nodename = token;
-                tot_size = p - token;
-                name_len = tot_size;
+                tot_size = (p - token);
+                name_len = tot_size++; // Make room for ':' in tot_size
             } else if (i == 8) break;
             i++;
         }
@@ -2951,6 +2951,7 @@ static sds clusterManagerGetConfigSignature(clusterManagerNode *node) {
             node_count++;
             node_configs = 
                 zrealloc(node_configs, (node_count * sizeof(char *)));
+            /* Make room for '|' separators. */
             tot_size += (sizeof(char) * (c - 1));
             char *cfg = zmalloc((sizeof(char) * tot_size) + 1);
             memcpy(cfg, nodename, name_len);
@@ -3760,7 +3761,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
                                         opts, &err);
         if (!result) {
             if (err != NULL) {
-                clusterManagerLogErr("\n%s\n", err);
+                //clusterManagerLogErr("\n%s\n", err);
                 zfree(err);
             }
             goto cleanup;
