@@ -1230,8 +1230,18 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Unblock all the clients blocked for synchronous replication
      * or AOF sync in WAIT. */
-    if (listLength(server.clients_waiting_acks))
+    if (listLength(server.clients_waiting_acks)) {
         processClientsBlockedInWait();
+
+        /* If after this cycle we have still clients blocked waiting for
+         * AOF fsync, try to start a new sync cycle. Note that if one is
+         * already in progress, the call does nothing. */
+        if (server.blocked_clients_by_type[BLOCKED_AOF] &&
+            server.aof_state == AOF_ON)
+        {
+            aofStartBackgroundFsync();
+        }
+    }
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */

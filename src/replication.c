@@ -2404,6 +2404,10 @@ void waitCommand(client *c) {
     /* AOF or number of replicas argument parsing. */
     if (!strcasecmp(c->argv[1]->ptr,"AOF")) {
         waitaof = 1;
+        if (server.aof_state != AOF_ON) {
+            addReplyError(c,"WAIT AOF is only allowed when AOF is enabled");
+            return;
+        }
     } else {
         if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
             return;
@@ -2495,11 +2499,6 @@ void processClientsBlockedInWait(void) {
             }
         }
     }
-
-    /* If after this cycle we have still clients blocked, try to start
-     * a new AOF fsync. If one is already in progress nothig will happen. */
-    if (server.blocked_clients_by_type[BLOCKED_AOF])
-        aofStartBackgroundFsync();
 }
 
 /* Return the slave replication offset for this instance, that is
