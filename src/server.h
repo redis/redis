@@ -258,7 +258,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
-#define BLOCKED_NUM 5     /* Number of blocked states. */
+#define BLOCKED_AOF 5     /* WAIT AOF waiting for AOF sync. */
+#define BLOCKED_NUM 6     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -660,6 +661,9 @@ typedef struct blockingState {
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
     long long reploffset;   /* Replication offset to reach. */
 
+    /* BLOCKED_AOF */
+    uint64_t aofepoch;      /* WAIT AOF: the sync epoch we are waiting for. */
+
     /* BLOCKED_MODULE */
     void *module_blocked_handle; /* RedisModuleBlockedClient structure.
                                     which is opaque for the Redis core, only
@@ -1016,7 +1020,7 @@ struct redisServer {
     int aof_fd;       /* File descriptor of currently selected AOF file */
     int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
-    time_t aof_last_fsync;            /* UNIX time of last fsync() */
+    time_t aof_last_fsync;            /* UNIX time of last fsync() *attempt* */
     time_t aof_rewrite_time_last;   /* Time used by last AOF rewrite run. */
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* C_OK or C_ERR */
@@ -1026,6 +1030,8 @@ struct redisServer {
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     int aof_use_rdb_preamble;       /* Use RDB preamble on AOF rewrites. */
+    uint64_t aof_fsync_epoch;       /* AOF sync epoch used for WAIT AOF. */
+    uint64_t aof_fsync_in_progress_epoch; /* Current ongoing AOF sync epoch. */
     /* AOF pipes used to communicate between parent and child during rewrite. */
     int aof_pipe_write_data_to_child;
     int aof_pipe_read_data_from_parent;
@@ -1513,7 +1519,7 @@ void replicationScriptCacheInit(void);
 void replicationScriptCacheFlush(void);
 void replicationScriptCacheAdd(sds sha1);
 int replicationScriptCacheExists(sds sha1);
-void processClientsWaitingReplicas(void);
+void processClientsBlockedInWait(void);
 void unblockClientWaitingReplicas(client *c);
 int replicationCountAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
@@ -1548,6 +1554,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
 ssize_t aofReadDiffFromParent(void);
+void aofStartBackgroundFsync(void);
+uint64_t aofNextEpoch(void);
 
 /* Child info */
 void openChildInfoPipe(void);

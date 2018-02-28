@@ -1229,9 +1229,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* Unblock all the clients blocked for synchronous replication
-     * in WAIT. */
+     * or AOF sync in WAIT. */
     if (listLength(server.clients_waiting_acks))
-        processClientsWaitingReplicas();
+        processClientsBlockedInWait();
 
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
@@ -1418,6 +1418,8 @@ void initServerConfig(void) {
     server.aof_rewrite_incremental_fsync = CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.aof_load_truncated = CONFIG_DEFAULT_AOF_LOAD_TRUNCATED;
     server.aof_use_rdb_preamble = CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE;
+    server.aof_fsync_in_progress_epoch = 0;
+    server.aof_fsync_epoch = 0;
     server.pidfile = NULL;
     server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);

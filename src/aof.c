@@ -211,13 +211,18 @@ void aofStartBackgroundFsync(void) {
         return;
     }
 
-    /* No fsync is in progress. If there was one, the new epoch, now that it
-     * termianted, is stored in server.aof_fsync_in_progress_epoch. So
-     * update the current fsync epoch. */
+    /* Before starting a new fsync, we need to flush the AOF buffer to
+     * disk if there are clients blocked in WAIT AOF, otherwise we are
+     * not going to sync their data. */
+    if (server.blocked_clients_by_type[BLOCKED_AOF])
+        flushAppendOnlyFile(0);
+
+    /* No fsync is in progress. If there was one, the new epoch is stored
+     * in server.aof_fsync_in_progress_epoch. So update the current fsync
+     * epoch with the one of the fsync in progress. */
     server.aof_fsync_epoch = server.aof_fsync_in_progress_epoch;
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)server.aof_fd,NULL,NULL);
     server.aof_fsync_in_progress_epoch++;
-    handleClientsBlockedForAOF(); /* Unblock clients if we can. */
 }
 
 /* Returns an AOF epoch so that, when such epoch is reached by

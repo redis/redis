@@ -2394,15 +2394,22 @@ void waitCommand(client *c) {
     mstime_t timeout;
     long numreplicas, ackreplicas;
     long long offset = c->woff;
+    int waitaof = 0; /* True if the user requested to wait for AOF sync. */
 
     if (server.masterhost) {
         addReplyError(c,"WAIT cannot be used with slave instances. Please also note that since Redis 4.0 if a slave is configured to be writable (which is not the default) writes to slaves are just local and are not propagated.");
         return;
     }
 
-    /* Argument parsing. */
-    if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
-        return;
+    /* AOF or number of replicas argument parsing. */
+    if (!strcasecmp(c->argv[1]->ptr,"AOF")) {
+        waitaof = 1;
+    } else {
+        if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
+            return;
+    }
+
+    /* Timeout parsing. */
     if (getTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
         != C_OK) return;
 
@@ -2415,11 +2422,17 @@ void waitCommand(client *c) {
 
     /* Otherwise block the client and put it into our list of clients
      * waiting for ack from slaves. */
-    c->bpop.timeout = timeout;
-    c->bpop.reploffset = offset;
-    c->bpop.numreplicas = numreplicas;
-    listAddNodeTail(server.clients_waiting_acks,c);
-    blockClient(c,BLOCKED_WAIT);
+    if (waitaof) {
+        c->bpop.aofepoch = aofNextEpoch();
+        listAddNodeTail(server.clients_waiting_acks,c);
+        blockClient(c,BLOCKED_AOF);
+    } else {
+        c->bpop.timeout = timeout;
+        c->bpop.reploffset = offset;
+        c->bpop.numreplicas = numreplicas;
+        listAddNodeTail(server.clients_waiting_acks,c);
+        blockClient(c,BLOCKED_WAIT);
+    }
 
     /* Make sure that the server will send an ACK request to all the slaves
      * before returning to the event loop. */
@@ -2438,7 +2451,7 @@ void unblockClientWaitingReplicas(client *c) {
 
 /* Check if there are clients blocked in WAIT that can be unblocked since
  * we received enough ACKs from slaves. */
-void processClientsWaitingReplicas(void) {
+void processClientsBlockedInWait(void) {
     long long last_offset = 0;
     int last_numreplicas = 0;
 
@@ -2449,26 +2462,44 @@ void processClientsWaitingReplicas(void) {
     while((ln = listNext(&li))) {
         client *c = ln->value;
 
-        /* Every time we find a client that is satisfied for a given
-         * offset and number of replicas, we remember it so the next client
-         * may be unblocked without calling replicationCountAcksByOffset()
-         * if the requested offset / replicas were equal or less. */
-        if (last_offset && last_offset > c->bpop.reploffset &&
-                           last_numreplicas > c->bpop.numreplicas)
-        {
-            unblockClient(c);
-            addReplyLongLong(c,last_numreplicas);
-        } else {
-            int numreplicas = replicationCountAcksByOffset(c->bpop.reploffset);
-
-            if (numreplicas >= c->bpop.numreplicas) {
-                last_offset = c->bpop.reploffset;
-                last_numreplicas = numreplicas;
+        if (c->btype == BLOCKED_AOF) {
+            /* Handle WAIT AOF. */
+            if (server.aof_fsync == AOF_FSYNC_ALWAYS ||
+                c->bpop.aofepoch <= server.aof_fsync_epoch)
+            {
                 unblockClient(c);
-                addReplyLongLong(c,numreplicas);
+                addReply(c,shared.cone);
+            }
+        } else {
+            /* Handle WAIT for slaves to ACK.
+             *
+             * Every time we find a client that is satisfied for a given
+             * offset and number of replicas, we remember it so the next client
+             * may be unblocked without calling replicationCountAcksByOffset()
+             * if the requested offset / replicas were equal or less. */
+            if (last_offset && last_offset > c->bpop.reploffset &&
+                               last_numreplicas > c->bpop.numreplicas)
+            {
+                unblockClient(c);
+                addReplyLongLong(c,last_numreplicas);
+            } else {
+                int numreplicas =
+                    replicationCountAcksByOffset(c->bpop.reploffset);
+
+                if (numreplicas >= c->bpop.numreplicas) {
+                    last_offset = c->bpop.reploffset;
+                    last_numreplicas = numreplicas;
+                    unblockClient(c);
+                    addReplyLongLong(c,numreplicas);
+                }
             }
         }
     }
+
+    /* If after this cycle we have still clients blocked, try to start
+     * a new AOF fsync. If one is already in progress nothig will happen. */
+    if (server.blocked_clients_by_type[BLOCKED_AOF])
+        aofStartBackgroundFsync();
 }
 
 /* Return the slave replication offset for this instance, that is
