@@ -2412,14 +2412,19 @@ static int clusterManagerSetSlot(clusterManagerNode *node1,
                                                 (char *) node2->name);
     if (err != NULL) *err = NULL;
     if (!reply) return 0;
+    int success = 1;
     if (reply->type == REDIS_REPLY_ERROR) {
+        success = 0;
         if (err != NULL) {
             *err = zmalloc((reply->len + 1) * sizeof(char));  
             strcpy(*err, reply->str); 
+            CLUSTER_MANAGER_PRINT_REPLY_ERROR(node1, err);
         }
-        return 0;
+        goto cleanup;
     }
-    return 1;
+cleanup:
+    freeReplyObject(reply);
+    return success;
 }
 
 static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source, 
@@ -3175,7 +3180,7 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
             int slot = node->slots[j];
             if (!slot) continue;
             if (count >= max || (int)listLength(moved) >= numslots) break;
-            clusterManagerReshardTableItem *item = zmalloc(sizeof(item));
+            clusterManagerReshardTableItem *item = zmalloc(sizeof(*item));
             item->source = node;
             item->slot = j;
             listAddNodeTail(moved, item);
