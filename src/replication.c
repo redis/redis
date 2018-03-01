@@ -553,7 +553,7 @@ need_full_resync:
  * Side effects, other than starting a BGSAVE:
  *
  * 1) Handle the slaves in WAIT_START state, by preparing them for a full
- *    sync if the BGSAVE was succesfully started, or sending them an error
+ *    sync if the BGSAVE was successfully started, or sending them an error
  *    and dropping them from the list of slaves.
  *
  * 2) Flush the Lua scripting script cache if the BGSAVE was actually
