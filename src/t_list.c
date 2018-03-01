@@ -520,7 +520,7 @@ void lremCommand(client *c) {
 
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
     if (listTypeLength(subject) == 0) {
@@ -557,7 +557,6 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
     }
     signalModifiedKey(c->db,dstkey);
     listTypePush(dstobj,value,LIST_HEAD);
-    notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
     /* Always send the pushed value to the client. */
     addReplyBulk(c,value);
 }
@@ -574,6 +573,7 @@ void rpoplpushCommand(client *c) {
     } else {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
+        robj *dstkey = c->argv[2];
 
         if (dobj && checkType(c,dobj,OBJ_LIST)) return;
         value = listTypePop(sobj,LIST_TAIL);
@@ -581,7 +581,7 @@ void rpoplpushCommand(client *c) {
          * may change the client command argument vector (it does not
          * currently). */
         incrRefCount(touchedkey);
-        rpoplpushHandlePush(c,c->argv[2],dobj,value);
+        rpoplpushHandlePush(c,dstkey,dobj,value);
 
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
@@ -593,6 +593,7 @@ void rpoplpushCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
                                 touchedkey,c->db->id);
         }
+        notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
         signalModifiedKey(c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
