@@ -422,6 +422,9 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
             /* TODO: perform a garbage collection. */
         }
 
+        /* Update the listpack with the new pointer. */
+        raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+
         break; /* If we are here, there was enough to delete in the current
                   node, so no need to go to the next node. */
     }
