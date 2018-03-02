@@ -1805,6 +1805,4 @@ void xclaimCommand(client *c) {
     setDeferredMultiBulkLength(c,arraylenptr,arraylen);
 }
 
-/* XREAD-GROUP will be implemented by xreadGenericCommand() */
-
 /* XINFO <key> [CONSUMERS group|GROUPS|STREAM]. STREAM is the default */
