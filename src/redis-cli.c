@@ -3137,12 +3137,12 @@ static clusterManagerNode *clusterNodeForResharding(char *id,
                                                     int *raise_err) 
 {
     clusterManagerNode *node = NULL; 
-    const char *invalid_node_msg = "*** The specified node is not known or "
-                                   "not a master, please retry.\n";
+    const char *invalid_node_msg = "*** The specified node (%s) is not known "
+                                   "or not a master, please retry.\n";
     node = clusterManagerNodeByName(id);
     *raise_err = 0;
     if (!node || node->flags & CLUSTER_MANAGER_FLAG_SLAVE) {
-        clusterManagerLogErr(invalid_node_msg);
+        clusterManagerLogErr(invalid_node_msg, id);
         *raise_err = 1;
         return NULL;
     } else if (node != NULL && target != NULL) {
@@ -3700,12 +3700,15 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
         }
         /* Check if there's still another source to process. */
         if (!all && strlen(from) > 0) {
-            clusterManagerNode *src = 
-                clusterNodeForResharding(from, target, &raise_err);
-            if (src != NULL) listAddNodeTail(sources, src);
-            else if (raise_err) {
-                result = 0;
-                goto cleanup;
+            if (!strcmp(from, "all")) all = 1;
+            if (!all) {
+                clusterManagerNode *src = 
+                    clusterNodeForResharding(from, target, &raise_err);
+                if (src != NULL) listAddNodeTail(sources, src);
+                else if (raise_err) {
+                    result = 0;
+                    goto cleanup;
+                }
             }
         }
     }
