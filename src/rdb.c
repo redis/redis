@@ -1674,7 +1674,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     unsigned char rawid[sizeof(streamID)];
                     rdbLoadRaw(rdb,rawid,sizeof(rawid));
                     streamNACK *nack = raxFind(cgroup->pel,rawid,sizeof(rawid));
-                    if (nack == NULL)
+                    if (nack == raxNotFound)
                         rdbExitReportCorruptRDB("Consumer entry not found in "
                                                 "group global PEL");
 
