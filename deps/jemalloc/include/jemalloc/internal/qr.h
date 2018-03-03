@@ -40,8 +40,10 @@ struct {								\
 	(a_qr_b)->a_field.qre_prev = t;					\
 } while (0)
 
-/* qr_meld() and qr_split() are functionally equivalent, so there's no need to
- * have two copies of the code. */
+/*
+ * qr_meld() and qr_split() are functionally equivalent, so there's no need to
+ * have two copies of the code.
+ */
 #define	qr_split(a_qr_a, a_qr_b, a_field)				\
 	qr_meld((a_qr_a), (a_qr_b), a_field)
 

@@ -4,6 +4,7 @@
 typedef struct tcache_bin_stats_s tcache_bin_stats_t;
 typedef struct malloc_bin_stats_s malloc_bin_stats_t;
 typedef struct malloc_large_stats_s malloc_large_stats_t;
+typedef struct malloc_huge_stats_s malloc_huge_stats_t;
 typedef struct arena_stats_s arena_stats_t;
 typedef struct chunk_stats_s chunk_stats_t;
 
@@ -21,12 +22,6 @@ struct tcache_bin_stats_s {
 
 struct malloc_bin_stats_s {
 	/*
-	 * Current number of bytes allocated, including objects currently
-	 * cached by tcache.
-	 */
-	size_t		allocated;
-
-	/*
 	 * Total number of allocation/deallocation requests served directly by
 	 * the bin.  Note that tcache may allocate an object, then recycle it
 	 * many times, resulting many increments to nrequests, but only one
@@ -41,6 +36,12 @@ struct malloc_bin_stats_s {
 	 * periodically merges into this counter.
 	 */
 	uint64_t	nrequests;
+
+	/*
+	 * Current number of regions of this size class, including regions
+	 * currently cached by tcache.
+	 */
+	size_t		curregs;
 
 	/* Number of tcache fills from this bin. */
 	uint64_t	nfills;
@@ -78,8 +79,23 @@ struct malloc_large_stats_s {
 	 */
 	uint64_t	nrequests;
 
-	/* Current number of runs of this size class. */
+	/*
+	 * Current number of runs of this size class, including runs currently
+	 * cached by tcache.
+	 */
 	size_t		curruns;
+};
+
+struct malloc_huge_stats_s {
+	/*
+	 * Total number of allocation/deallocation requests served directly by
+	 * the arena.
+	 */
+	uint64_t	nmalloc;
+	uint64_t	ndalloc;
+
+	/* Current number of (multi-)chunk allocations of this size class. */
+	size_t		curhchunks;
 };
 
 struct arena_stats_s {
@@ -95,34 +111,28 @@ struct arena_stats_s {
 	uint64_t	nmadvise;
 	uint64_t	purged;
 
+	/*
+	 * Number of bytes currently mapped purely for metadata purposes, and
+	 * number of bytes currently allocated for internal metadata.
+	 */
+	size_t		metadata_mapped;
+	size_t		metadata_allocated; /* Protected via atomic_*_z(). */
+
 	/* Per-size-category statistics. */
 	size_t		allocated_large;
 	uint64_t	nmalloc_large;
 	uint64_t	ndalloc_large;
 	uint64_t	nrequests_large;
 
-	/*
-	 * One element for each possible size class, including sizes that
-	 * overlap with bin size classes.  This is necessary because ipalloc()
-	 * sometimes has to use such large objects in order to assure proper
-	 * alignment.
-	 */
+	size_t		allocated_huge;
+	uint64_t	nmalloc_huge;
+	uint64_t	ndalloc_huge;
+
+	/* One element for each large size class. */
 	malloc_large_stats_t	*lstats;
-};
 
-struct chunk_stats_s {
-	/* Number of chunks that were allocated. */
-	uint64_t	nchunks;
-
-	/* High-water mark for number of chunks allocated. */
-	size_t		highchunks;
-
-	/*
-	 * Current number of chunks allocated.  This value isn't maintained for
-	 * any other purpose, so keep track of it in order to be able to set
-	 * highchunks.
-	 */
-	size_t		curchunks;
+	/* One element for each huge size class. */
+	malloc_huge_stats_t	*hstats;
 };
 
 #endif /* JEMALLOC_H_STRUCTS */

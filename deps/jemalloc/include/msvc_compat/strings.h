@@ -3,8 +3,9 @@
 
 /* MSVC doesn't define ffs/ffsl. This dummy strings.h header is provided
  * for both */
-#include <intrin.h>
-#pragma intrinsic(_BitScanForward)
+#ifdef _MSC_VER
+#  include <intrin.h>
+#  pragma intrinsic(_BitScanForward)
 static __forceinline int ffsl(long x)
 {
 	unsigned long i;
@@ -20,4 +21,9 @@ static __forceinline int ffs(int x)
 	return (ffsl(x));
 }
 
+#else
+#  define ffsl(x) __builtin_ffsl(x)
+#  define ffs(x) __builtin_ffs(x)
 #endif
+
+#endif /* strings_h */

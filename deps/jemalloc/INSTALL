@@ -1,9 +1,22 @@
-Building and installing jemalloc can be as simple as typing the following while
-in the root directory of the source tree:
+Building and installing a packaged release of jemalloc can be as simple as
+typing the following while in the root directory of the source tree:
 
     ./configure
     make
     make install
+
+If building from unpackaged developer sources, the simplest command sequence
+that might work is:
+
+    ./autogen.sh
+    make dist
+    make
+    make install
+
+Note that documentation is not built by the default target because doing so
+would create a dependency on xsltproc in packaged releases, hence the
+requirement to either run 'make dist' or avoid installing docs via the various
+install_* targets documented below.
 
 === Advanced configuration =====================================================
 
@@ -56,7 +69,7 @@ any of the following arguments (not a definitive list) to 'configure':
     replace the "malloc", "calloc", etc. symbols.
 
 --without-export
-    Don't export public APIs. This can be useful when building jemalloc as a
+    Don't export public APIs.  This can be useful when building jemalloc as a
     static library, or to avoid exporting public APIs when using the zone
     allocator on OSX.
 
@@ -71,10 +84,10 @@ any of the following arguments (not a definitive list) to 'configure':
     versions of jemalloc can coexist in the same installation directory.  For
     example, libjemalloc.so.0 becomes libjemalloc<suffix>.so.0.
 
---enable-cc-silence
-    Enable code that silences non-useful compiler warnings.  This is helpful
-    when trying to tell serious warnings from those due to compiler
-    limitations, but it potentially incurs a performance penalty.
+--disable-cc-silence
+    Disable code that silences non-useful compiler warnings.  This is mainly
+    useful during development when auditing the set of warnings that are being
+    silenced.
 
 --enable-debug
     Enable assertions and validation code.  This incurs a substantial
@@ -94,14 +107,14 @@ any of the following arguments (not a definitive list) to 'configure':
     there are interactions between the various coverage targets, so it is
     usually advisable to run 'make clean' between repeated code coverage runs.
 
---enable-ivsalloc
-    Enable validation code, which verifies that pointers reside within
-    jemalloc-owned chunks before dereferencing them. This incurs a substantial
-    performance hit.
-
 --disable-stats
     Disable statistics gathering functionality.  See the "opt.stats_print"
     option documentation for usage details.
+
+--enable-ivsalloc
+    Enable validation code, which verifies that pointers reside within
+    jemalloc-owned chunks before dereferencing them.  This incurs a minor
+    performance hit.
 
 --enable-prof
     Enable heap profiling and leak detection functionality.  See the "opt.prof"
@@ -132,22 +145,12 @@ any of the following arguments (not a definitive list) to 'configure':
     released in bulk, thus reducing the total number of mutex operations.  See
     the "opt.tcache" option for usage details.
 
---enable-mremap
-    Enable huge realloc() via mremap(2).  mremap() is disabled by default
-    because the flavor used is specific to Linux, which has a quirk in its
-    virtual memory allocation algorithm that causes semi-permanent VM map holes
-    under normal jemalloc operation.
-
 --disable-munmap
     Disable virtual memory deallocation via munmap(2); instead keep track of
     the virtual memory for later use.  munmap() is disabled by default (i.e.
     --disable-munmap is implied) on Linux, which has a quirk in its virtual
     memory allocation algorithm that causes semi-permanent VM map holes under
     normal jemalloc operation.
-
---enable-dss
-    Enable support for page allocation/deallocation via sbrk(2), in addition to
-    mmap(2).
 
 --disable-fill
     Disable support for junk/zero filling of memory, quarantine, and redzones.
@@ -157,11 +160,8 @@ any of the following arguments (not a definitive list) to 'configure':
 --disable-valgrind
     Disable support for Valgrind.
 
---disable-experimental
-    Disable support for the experimental API (*allocm()).
-
 --disable-zone-allocator
-    Disable zone allocator for Darwin. This means jemalloc won't be hooked as
+    Disable zone allocator for Darwin.  This means jemalloc won't be hooked as
     the default allocator on OSX/iOS.
 
 --enable-utrace
@@ -185,9 +185,105 @@ any of the following arguments (not a definitive list) to 'configure':
     thread-local variables via the __thread keyword.  If TLS is available,
     jemalloc uses it for several purposes.
 
+--disable-cache-oblivious
+    Disable cache-oblivious large allocation alignment for large allocation
+    requests with no alignment constraints.  If this feature is disabled, all
+    large allocations are page-aligned as an implementation artifact, which can
+    severely harm CPU cache utilization.  However, the cache-oblivious layout
+    comes at the cost of one extra page per large allocation, which in the
+    most extreme case increases physical memory usage for the 16 KiB size class
+    to 20 KiB.
+
 --with-xslroot=<path>
     Specify where to find DocBook XSL stylesheets when building the
     documentation.
+
+--with-lg-page=<lg-page>
+    Specify the base 2 log of the system page size.  This option is only useful
+    when cross compiling, since the configure script automatically determines
+    the host's page size by default.
+
+--with-lg-page-sizes=<lg-page-sizes>
+    Specify the comma-separated base 2 logs of the page sizes to support.  This
+    option may be useful when cross-compiling in combination with
+    --with-lg-page, but its primary use case is for integration with FreeBSD's
+    libc, wherein jemalloc is embedded.
+
+--with-lg-size-class-group=<lg-size-class-group>
+    Specify the base 2 log of how many size classes to use for each doubling in
+    size.  By default jemalloc uses <lg-size-class-group>=2, which results in
+    e.g. the following size classes:
+
+      [...], 64,
+      80, 96, 112, 128,
+      160, [...]
+
+    <lg-size-class-group>=3 results in e.g. the following size classes:
+
+      [...], 64,
+      72, 80, 88, 96, 104, 112, 120, 128,
+      144, [...]
+
+    The minimal <lg-size-class-group>=0 causes jemalloc to only provide size
+    classes that are powers of 2:
+
+      [...],
+      64,
+      128,
+      256,
+      [...]
+
+    An implementation detail currently limits the total number of small size
+    classes to 255, and a compilation error will result if the
+    <lg-size-class-group> you specify cannot be supported.  The limit is
+    roughly <lg-size-class-group>=4, depending on page size.
+
+--with-lg-quantum=<lg-quantum>
+    Specify the base 2 log of the minimum allocation alignment.  jemalloc needs
+    to know the minimum alignment that meets the following C standard
+    requirement (quoted from the April 12, 2011 draft of the C11 standard):
+
+      The pointer returned if the allocation succeeds is suitably aligned so
+      that it may be assigned to a pointer to any type of object with a
+      fundamental alignment requirement and then used to access such an object
+      or an array of such objects in the space allocated [...]
+
+    This setting is architecture-specific, and although jemalloc includes known
+    safe values for the most commonly used modern architectures, there is a
+    wrinkle related to GNU libc (glibc) that may impact your choice of
+    <lg-quantum>.  On most modern architectures, this mandates 16-byte alignment
+    (<lg-quantum>=4), but the glibc developers chose not to meet this
+    requirement for performance reasons.  An old discussion can be found at
+    https://sourceware.org/bugzilla/show_bug.cgi?id=206 .  Unlike glibc,
+    jemalloc does follow the C standard by default (caveat: jemalloc
+    technically cheats if --with-lg-tiny-min is smaller than
+    --with-lg-quantum), but the fact that Linux systems already work around
+    this allocator noncompliance means that it is generally safe in practice to
+    let jemalloc's minimum alignment follow glibc's lead.  If you specify
+    --with-lg-quantum=3 during configuration, jemalloc will provide additional
+    size classes that are not 16-byte-aligned (24, 40, and 56, assuming
+    --with-lg-size-class-group=2).
+
+--with-lg-tiny-min=<lg-tiny-min>
+    Specify the base 2 log of the minimum tiny size class to support.  Tiny
+    size classes are powers of 2 less than the quantum, and are only
+    incorporated if <lg-tiny-min> is less than <lg-quantum> (see
+    --with-lg-quantum).  Tiny size classes technically violate the C standard
+    requirement for minimum alignment, and crashes could conceivably result if
+    the compiler were to generate instructions that made alignment assumptions,
+    both because illegal instruction traps could result, and because accesses
+    could straddle page boundaries and cause segmentation faults due to
+    accessing unmapped addresses.
+
+    The default of <lg-tiny-min>=3 works well in practice even on architectures
+    that technically require 16-byte alignment, probably for the same reason
+    --with-lg-quantum=3 works.  Smaller tiny size classes can, and will, cause
+    crashes (see https://bugzilla.mozilla.org/show_bug.cgi?id=691003 for an
+    example).
+
+    This option is rarely useful, and is mainly provided as documentation of a
+    subtle implementation detail.  If you do use this option, specify a
+    value in [3, ..., <lg-quantum>].
 
 The following environment variables (not a definitive list) impact configure's
 behavior:

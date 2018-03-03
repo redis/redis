@@ -17,6 +17,7 @@ proc main {} {
     }
     run_tests
     cleanup
+    end_tests
 }
 
 if {[catch main e]} {

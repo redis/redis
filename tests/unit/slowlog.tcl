@@ -31,12 +31,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     } {0}
 
     test {SLOWLOG - logged entry sanity check} {
+        r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 4
+        assert_equal [llength $e] 6
         assert_equal [lindex $e 0] 105
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
+        assert_equal {foobar} [lindex $e 5]
     }
 
     test {SLOWLOG - commands with too many arguments are trimmed} {
@@ -66,5 +68,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [r slowlog len] 1
         set e [lindex [r slowlog get] 0]
         assert_equal [lindex $e 3] {debug sleep 0.2}
+    }
+
+    test {SLOWLOG - can clean older entires} {
+        r client setname lastentry_client
+        r config set slowlog-max-len 1
+        r debug sleep 0.2
+        assert {[llength [r slowlog get]] == 1}
+        set e [lindex [r slowlog get] 0]
+        assert_equal {lastentry_client} [lindex $e 5]
     }
 }

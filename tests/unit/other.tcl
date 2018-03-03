@@ -52,7 +52,7 @@ start_server {tags {"other"}} {
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
         set _ $err
-    } {*invalid*}
+    } {*index is out of range*}
 
     tags {consistency} {
         if {![catch {package require sha1}]} {
@@ -194,6 +194,7 @@ start_server {tags {"other"}} {
     }
 
     test {APPEND basics} {
+        r del foo
         list [r append foo bar] [r get foo] \
              [r append foo 100] [r get foo]
     } {3 bar 6 bar100}

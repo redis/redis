@@ -2,19 +2,6 @@
 #include "jemalloc/internal/jemalloc_internal.h"
 
 /******************************************************************************/
-/* Function prototypes for non-inline static functions. */
-
-static size_t	bits2groups(size_t nbits);
-
-/******************************************************************************/
-
-static size_t
-bits2groups(size_t nbits)
-{
-
-	return ((nbits >> LG_BITMAP_GROUP_NBITS) +
-	    !!(nbits & BITMAP_GROUP_NBITS_MASK));
-}
 
 void
 bitmap_info_init(bitmap_info_t *binfo, size_t nbits)
@@ -31,15 +18,16 @@ bitmap_info_init(bitmap_info_t *binfo, size_t nbits)
 	 * that requires only one group.
 	 */
 	binfo->levels[0].group_offset = 0;
-	group_count = bits2groups(nbits);
+	group_count = BITMAP_BITS2GROUPS(nbits);
 	for (i = 1; group_count > 1; i++) {
 		assert(i < BITMAP_MAX_LEVELS);
 		binfo->levels[i].group_offset = binfo->levels[i-1].group_offset
 		    + group_count;
-		group_count = bits2groups(group_count);
+		group_count = BITMAP_BITS2GROUPS(group_count);
 	}
 	binfo->levels[i].group_offset = binfo->levels[i-1].group_offset
 	    + group_count;
+	assert(binfo->levels[i].group_offset <= BITMAP_GROUPS_MAX);
 	binfo->nlevels = i;
 	binfo->nbits = nbits;
 }

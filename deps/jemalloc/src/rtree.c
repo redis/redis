@@ -1,73 +1,74 @@
 #define	JEMALLOC_RTREE_C_
 #include "jemalloc/internal/jemalloc_internal.h"
 
-rtree_t *
-rtree_new(unsigned bits, rtree_alloc_t *alloc, rtree_dalloc_t *dalloc)
+static unsigned
+hmin(unsigned ha, unsigned hb)
 {
-	rtree_t *ret;
-	unsigned bits_per_level, bits_in_leaf, height, i;
+
+	return (ha < hb ? ha : hb);
+}
+
+/* Only the most significant bits of keys passed to rtree_[gs]et() are used. */
+bool
+rtree_new(rtree_t *rtree, unsigned bits, rtree_node_alloc_t *alloc,
+    rtree_node_dalloc_t *dalloc)
+{
+	unsigned bits_in_leaf, height, i;
 
 	assert(bits > 0 && bits <= (sizeof(uintptr_t) << 3));
 
-	bits_per_level = ffs(pow2_ceil((RTREE_NODESIZE / sizeof(void *)))) - 1;
-	bits_in_leaf = ffs(pow2_ceil((RTREE_NODESIZE / sizeof(uint8_t)))) - 1;
+	bits_in_leaf = (bits % RTREE_BITS_PER_LEVEL) == 0 ? RTREE_BITS_PER_LEVEL
+	    : (bits % RTREE_BITS_PER_LEVEL);
 	if (bits > bits_in_leaf) {
-		height = 1 + (bits - bits_in_leaf) / bits_per_level;
-		if ((height-1) * bits_per_level + bits_in_leaf != bits)
+		height = 1 + (bits - bits_in_leaf) / RTREE_BITS_PER_LEVEL;
+		if ((height-1) * RTREE_BITS_PER_LEVEL + bits_in_leaf != bits)
 			height++;
-	} else {
-		height = 1;
-	}
-	assert((height-1) * bits_per_level + bits_in_leaf >= bits);
-
-	ret = (rtree_t*)alloc(offsetof(rtree_t, level2bits) +
-	    (sizeof(unsigned) * height));
-	if (ret == NULL)
-		return (NULL);
-	memset(ret, 0, offsetof(rtree_t, level2bits) + (sizeof(unsigned) *
-	    height));
-
-	ret->alloc = alloc;
-	ret->dalloc = dalloc;
-	if (malloc_mutex_init(&ret->mutex)) {
-		if (dalloc != NULL)
-			dalloc(ret);
-		return (NULL);
-	}
-	ret->height = height;
-	if (height > 1) {
-		if ((height-1) * bits_per_level + bits_in_leaf > bits) {
-			ret->level2bits[0] = (bits - bits_in_leaf) %
-			    bits_per_level;
-		} else
-			ret->level2bits[0] = bits_per_level;
-		for (i = 1; i < height-1; i++)
-			ret->level2bits[i] = bits_per_level;
-		ret->level2bits[height-1] = bits_in_leaf;
 	} else
-		ret->level2bits[0] = bits;
+		height = 1;
+	assert((height-1) * RTREE_BITS_PER_LEVEL + bits_in_leaf == bits);
 
-	ret->root = (void**)alloc(sizeof(void *) << ret->level2bits[0]);
-	if (ret->root == NULL) {
-		if (dalloc != NULL)
-			dalloc(ret);
-		return (NULL);
+	rtree->alloc = alloc;
+	rtree->dalloc = dalloc;
+	rtree->height = height;
+
+	/* Root level. */
+	rtree->levels[0].subtree = NULL;
+	rtree->levels[0].bits = (height > 1) ? RTREE_BITS_PER_LEVEL :
+	    bits_in_leaf;
+	rtree->levels[0].cumbits = rtree->levels[0].bits;
+	/* Interior levels. */
+	for (i = 1; i < height-1; i++) {
+		rtree->levels[i].subtree = NULL;
+		rtree->levels[i].bits = RTREE_BITS_PER_LEVEL;
+		rtree->levels[i].cumbits = rtree->levels[i-1].cumbits +
+		    RTREE_BITS_PER_LEVEL;
 	}
-	memset(ret->root, 0, sizeof(void *) << ret->level2bits[0]);
+	/* Leaf level. */
+	if (height > 1) {
+		rtree->levels[height-1].subtree = NULL;
+		rtree->levels[height-1].bits = bits_in_leaf;
+		rtree->levels[height-1].cumbits = bits;
+	}
 
-	return (ret);
+	/* Compute lookup table to be used by rtree_start_level(). */
+	for (i = 0; i < RTREE_HEIGHT_MAX; i++) {
+		rtree->start_level[i] = hmin(RTREE_HEIGHT_MAX - 1 - i, height -
+		    1);
+	}
+
+	return (false);
 }
 
 static void
-rtree_delete_subtree(rtree_t *rtree, void **node, unsigned level)
+rtree_delete_subtree(rtree_t *rtree, rtree_node_elm_t *node, unsigned level)
 {
 
-	if (level < rtree->height - 1) {
+	if (level + 1 < rtree->height) {
 		size_t nchildren, i;
 
-		nchildren = ZU(1) << rtree->level2bits[level];
+		nchildren = ZU(1) << rtree->levels[level].bits;
 		for (i = 0; i < nchildren; i++) {
-			void **child = (void **)node[i];
+			rtree_node_elm_t *child = node[i].child;
 			if (child != NULL)
 				rtree_delete_subtree(rtree, child, level + 1);
 		}
@@ -78,28 +79,49 @@ rtree_delete_subtree(rtree_t *rtree, void **node, unsigned level)
 void
 rtree_delete(rtree_t *rtree)
 {
+	unsigned i;
 
-	rtree_delete_subtree(rtree, rtree->root, 0);
-	rtree->dalloc(rtree);
+	for (i = 0; i < rtree->height; i++) {
+		rtree_node_elm_t *subtree = rtree->levels[i].subtree;
+		if (subtree != NULL)
+			rtree_delete_subtree(rtree, subtree, i);
+	}
 }
 
-void
-rtree_prefork(rtree_t *rtree)
+static rtree_node_elm_t *
+rtree_node_init(rtree_t *rtree, unsigned level, rtree_node_elm_t **elmp)
 {
+	rtree_node_elm_t *node;
 
-	malloc_mutex_prefork(&rtree->mutex);
+	if (atomic_cas_p((void **)elmp, NULL, RTREE_NODE_INITIALIZING)) {
+		/*
+		 * Another thread is already in the process of initializing.
+		 * Spin-wait until initialization is complete.
+		 */
+		do {
+			CPU_SPINWAIT;
+			node = atomic_read_p((void **)elmp);
+		} while (node == RTREE_NODE_INITIALIZING);
+	} else {
+		node = rtree->alloc(ZU(1) << rtree->levels[level].bits);
+		if (node == NULL)
+			return (NULL);
+		atomic_write_p((void **)elmp, node);
+	}
+
+	return (node);
 }
 
-void
-rtree_postfork_parent(rtree_t *rtree)
+rtree_node_elm_t *
+rtree_subtree_read_hard(rtree_t *rtree, unsigned level)
 {
 
-	malloc_mutex_postfork_parent(&rtree->mutex);
+	return (rtree_node_init(rtree, level, &rtree->levels[level].subtree));
 }
 
-void
-rtree_postfork_child(rtree_t *rtree)
+rtree_node_elm_t *
+rtree_child_read_hard(rtree_t *rtree, rtree_node_elm_t *elm, unsigned level)
 {
 
-	malloc_mutex_postfork_child(&rtree->mutex);
+	return (rtree_node_init(rtree, level, &elm->child));
 }

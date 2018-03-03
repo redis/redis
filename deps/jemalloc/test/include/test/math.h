@@ -299,7 +299,7 @@ pt_chi2(double p, double df, double ln_gamma_df_2)
 
 /*
  * Given a value p in [0..1] and Gamma distribution shape and scale parameters,
- * compute the upper limit on the definite integeral from [0..z] that satisfies
+ * compute the upper limit on the definite integral from [0..z] that satisfies
  * p.
  */
 JEMALLOC_INLINE double

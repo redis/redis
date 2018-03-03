@@ -52,8 +52,8 @@ TEST_BEGIN(test_malloc_strtoumax)
 		const char *expected_errno_name;
 		uintmax_t expected_x;
 	};
-#define	ERR(e)	e, #e
-#define	UMAX(x)	((uintmax_t)x##ULL)
+#define	ERR(e)		e, #e
+#define	KUMAX(x)	((uintmax_t)x##ULL)
 	struct test_s tests[] = {
 		{"0",		"0",	-1,	ERR(EINVAL),	UINTMAX_MAX},
 		{"0",		"0",	1,	ERR(EINVAL),	UINTMAX_MAX},
@@ -64,51 +64,51 @@ TEST_BEGIN(test_malloc_strtoumax)
 		{"++3",		"++3",	0,	ERR(EINVAL),	UINTMAX_MAX},
 		{"-",		"-",	0,	ERR(EINVAL),	UINTMAX_MAX},
 
-		{"42",		"",	0,	ERR(0),		UMAX(42)},
-		{"+42",		"",	0,	ERR(0),		UMAX(42)},
-		{"-42",		"",	0,	ERR(0),		UMAX(-42)},
-		{"042",		"",	0,	ERR(0),		UMAX(042)},
-		{"+042",	"",	0,	ERR(0),		UMAX(042)},
-		{"-042",	"",	0,	ERR(0),		UMAX(-042)},
-		{"0x42",	"",	0,	ERR(0),		UMAX(0x42)},
-		{"+0x42",	"",	0,	ERR(0),		UMAX(0x42)},
-		{"-0x42",	"",	0,	ERR(0),		UMAX(-0x42)},
+		{"42",		"",	0,	ERR(0),		KUMAX(42)},
+		{"+42",		"",	0,	ERR(0),		KUMAX(42)},
+		{"-42",		"",	0,	ERR(0),		KUMAX(-42)},
+		{"042",		"",	0,	ERR(0),		KUMAX(042)},
+		{"+042",	"",	0,	ERR(0),		KUMAX(042)},
+		{"-042",	"",	0,	ERR(0),		KUMAX(-042)},
+		{"0x42",	"",	0,	ERR(0),		KUMAX(0x42)},
+		{"+0x42",	"",	0,	ERR(0),		KUMAX(0x42)},
+		{"-0x42",	"",	0,	ERR(0),		KUMAX(-0x42)},
 
-		{"0",		"",	0,	ERR(0),		UMAX(0)},
-		{"1",		"",	0,	ERR(0),		UMAX(1)},
+		{"0",		"",	0,	ERR(0),		KUMAX(0)},
+		{"1",		"",	0,	ERR(0),		KUMAX(1)},
 
-		{"42",		"",	0,	ERR(0),		UMAX(42)},
-		{" 42",		"",	0,	ERR(0),		UMAX(42)},
-		{"42 ",		" ",	0,	ERR(0),		UMAX(42)},
-		{"0x",		"x",	0,	ERR(0),		UMAX(0)},
-		{"42x",		"x",	0,	ERR(0),		UMAX(42)},
+		{"42",		"",	0,	ERR(0),		KUMAX(42)},
+		{" 42",		"",	0,	ERR(0),		KUMAX(42)},
+		{"42 ",		" ",	0,	ERR(0),		KUMAX(42)},
+		{"0x",		"x",	0,	ERR(0),		KUMAX(0)},
+		{"42x",		"x",	0,	ERR(0),		KUMAX(42)},
 
-		{"07",		"",	0,	ERR(0),		UMAX(7)},
-		{"010",		"",	0,	ERR(0),		UMAX(8)},
-		{"08",		"8",	0,	ERR(0),		UMAX(0)},
-		{"0_",		"_",	0,	ERR(0),		UMAX(0)},
+		{"07",		"",	0,	ERR(0),		KUMAX(7)},
+		{"010",		"",	0,	ERR(0),		KUMAX(8)},
+		{"08",		"8",	0,	ERR(0),		KUMAX(0)},
+		{"0_",		"_",	0,	ERR(0),		KUMAX(0)},
 
-		{"0x",		"x",	0,	ERR(0),		UMAX(0)},
-		{"0X",		"X",	0,	ERR(0),		UMAX(0)},
-		{"0xg",		"xg",	0,	ERR(0),		UMAX(0)},
-		{"0XA",		"",	0,	ERR(0),		UMAX(10)},
+		{"0x",		"x",	0,	ERR(0),		KUMAX(0)},
+		{"0X",		"X",	0,	ERR(0),		KUMAX(0)},
+		{"0xg",		"xg",	0,	ERR(0),		KUMAX(0)},
+		{"0XA",		"",	0,	ERR(0),		KUMAX(10)},
 
-		{"010",		"",	10,	ERR(0),		UMAX(10)},
-		{"0x3",		"x3",	10,	ERR(0),		UMAX(0)},
+		{"010",		"",	10,	ERR(0),		KUMAX(10)},
+		{"0x3",		"x3",	10,	ERR(0),		KUMAX(0)},
 
-		{"12",		"2",	2,	ERR(0),		UMAX(1)},
-		{"78",		"8",	8,	ERR(0),		UMAX(7)},
-		{"9a",		"a",	10,	ERR(0),		UMAX(9)},
-		{"9A",		"A",	10,	ERR(0),		UMAX(9)},
-		{"fg",		"g",	16,	ERR(0),		UMAX(15)},
-		{"FG",		"G",	16,	ERR(0),		UMAX(15)},
-		{"0xfg",	"g",	16,	ERR(0),		UMAX(15)},
-		{"0XFG",	"G",	16,	ERR(0),		UMAX(15)},
-		{"z_",		"_",	36,	ERR(0),		UMAX(35)},
-		{"Z_",		"_",	36,	ERR(0),		UMAX(35)}
+		{"12",		"2",	2,	ERR(0),		KUMAX(1)},
+		{"78",		"8",	8,	ERR(0),		KUMAX(7)},
+		{"9a",		"a",	10,	ERR(0),		KUMAX(9)},
+		{"9A",		"A",	10,	ERR(0),		KUMAX(9)},
+		{"fg",		"g",	16,	ERR(0),		KUMAX(15)},
+		{"FG",		"G",	16,	ERR(0),		KUMAX(15)},
+		{"0xfg",	"g",	16,	ERR(0),		KUMAX(15)},
+		{"0XFG",	"G",	16,	ERR(0),		KUMAX(15)},
+		{"z_",		"_",	36,	ERR(0),		KUMAX(35)},
+		{"Z_",		"_",	36,	ERR(0),		KUMAX(35)}
 	};
 #undef ERR
-#undef UMAX
+#undef KUMAX
 	unsigned i;
 
 	for (i = 0; i < sizeof(tests)/sizeof(struct test_s); i++) {
@@ -141,8 +141,8 @@ TEST_BEGIN(test_malloc_snprintf_truncated)
 	char buf[BUFLEN];
 	int result;
 	size_t len;
-#define TEST(expected_str_untruncated, fmt...) do {			\
-	result = malloc_snprintf(buf, len, fmt);			\
+#define TEST(expected_str_untruncated, ...) do {			\
+	result = malloc_snprintf(buf, len, __VA_ARGS__);		\
 	assert_d_eq(strncmp(buf, expected_str_untruncated, len-1), 0,	\
 	    "Unexpected string inequality (\"%s\" vs \"%s\")",		\
 	    buf, expected_str_untruncated);		\
@@ -173,8 +173,8 @@ TEST_BEGIN(test_malloc_snprintf)
 #define	BUFLEN	128
 	char buf[BUFLEN];
 	int result;
-#define	TEST(expected_str, fmt...) do {					\
-	result = malloc_snprintf(buf, sizeof(buf), fmt);		\
+#define	TEST(expected_str, ...) do {					\
+	result = malloc_snprintf(buf, sizeof(buf), __VA_ARGS__);	\
 	assert_str_eq(buf, expected_str, "Unexpected output");		\
 	assert_d_eq(result, strlen(expected_str), "Unexpected result");	\
 } while (0)

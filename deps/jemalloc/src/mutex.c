@@ -73,9 +73,13 @@ malloc_mutex_init(malloc_mutex_t *mutex)
 {
 
 #ifdef _WIN32
+#  if _WIN32_WINNT >= 0x0600
+	InitializeSRWLock(&mutex->lock);
+#  else
 	if (!InitializeCriticalSectionAndSpinCount(&mutex->lock,
 	    _CRT_SPINCOUNT))
 		return (true);
+#  endif
 #elif (defined(JEMALLOC_OSSPIN))
 	mutex->lock = 0;
 #elif (defined(JEMALLOC_MUTEX_INIT_CB))
@@ -83,8 +87,8 @@ malloc_mutex_init(malloc_mutex_t *mutex)
 		mutex->postponed_next = postponed_mutexes;
 		postponed_mutexes = mutex;
 	} else {
-		if (_pthread_mutex_init_calloc_cb(&mutex->lock, base_calloc) !=
-		    0)
+		if (_pthread_mutex_init_calloc_cb(&mutex->lock,
+		    bootstrap_calloc) != 0)
 			return (true);
 	}
 #else
@@ -140,7 +144,7 @@ mutex_boot(void)
 	postpone_init = false;
 	while (postponed_mutexes != NULL) {
 		if (_pthread_mutex_init_calloc_cb(&postponed_mutexes->lock,
-		    base_calloc) != 0)
+		    bootstrap_calloc) != 0)
 			return (true);
 		postponed_mutexes = postponed_mutexes->postponed_next;
 	}

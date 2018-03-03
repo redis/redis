@@ -158,6 +158,8 @@ struct {								\
 #define	rb_proto(a_attr, a_prefix, a_rbt_type, a_type)			\
 a_attr void								\
 a_prefix##new(a_rbt_type *rbtree);					\
+a_attr bool								\
+a_prefix##empty(a_rbt_type *rbtree);					\
 a_attr a_type *								\
 a_prefix##first(a_rbt_type *rbtree);					\
 a_attr a_type *								\
@@ -198,7 +200,7 @@ a_prefix##reverse_iter(a_rbt_type *rbtree, a_type *start,		\
  *                 int (a_cmp *)(a_type *a_node, a_type *a_other);
  *                                       ^^^^^^
  *                                    or a_key
- *               Interpretation of comparision function return values:
+ *               Interpretation of comparison function return values:
  *                 -1 : a_node <  a_other
  *                  0 : a_node == a_other
  *                  1 : a_node >  a_other
@@ -223,6 +225,13 @@ a_prefix##reverse_iter(a_rbt_type *rbtree, a_type *start,		\
  *       Description: Initialize a red-black tree structure.
  *       Args:
  *         tree: Pointer to an uninitialized red-black tree object.
+ *
+ *   static bool
+ *   ex_empty(ex_t *tree);
+ *       Description: Determine whether tree is empty.
+ *       Args:
+ *         tree: Pointer to an initialized red-black tree object.
+ *       Ret: True if tree is empty, false otherwise.
  *
  *   static ex_node_t *
  *   ex_first(ex_t *tree);
@@ -308,6 +317,10 @@ a_prefix##reverse_iter(a_rbt_type *rbtree, a_type *start,		\
 a_attr void								\
 a_prefix##new(a_rbt_type *rbtree) {					\
     rb_new(a_type, a_field, rbtree);					\
+}									\
+a_attr bool								\
+a_prefix##empty(a_rbt_type *rbtree) {					\
+    return (rbtree->rbt_root == &rbtree->rbt_nil);			\
 }									\
 a_attr a_type *								\
 a_prefix##first(a_rbt_type *rbtree) {					\
@@ -580,7 +593,7 @@ a_prefix##remove(a_rbt_type *rbtree, a_type *node) {			\
 	if (left != &rbtree->rbt_nil) {					\
 	    /* node has no successor, but it has a left child.        */\
 	    /* Splice node out, without losing the left child.        */\
-	    assert(rbtn_red_get(a_type, a_field, node) == false);	\
+	    assert(!rbtn_red_get(a_type, a_field, node));		\
 	    assert(rbtn_red_get(a_type, a_field, left));		\
 	    rbtn_black_set(a_type, a_field, left);			\
 	    if (pathp == path) {					\
@@ -616,8 +629,7 @@ a_prefix##remove(a_rbt_type *rbtree, a_type *node) {			\
 	if (pathp->cmp < 0) {						\
 	    rbtn_left_set(a_type, a_field, pathp->node,			\
 	      pathp[1].node);						\
-	    assert(rbtn_red_get(a_type, a_field, pathp[1].node)		\
-	      == false);						\
+	    assert(!rbtn_red_get(a_type, a_field, pathp[1].node));	\
 	    if (rbtn_red_get(a_type, a_field, pathp->node)) {		\
 		a_type *right = rbtn_right_get(a_type, a_field,		\
 		  pathp->node);						\
@@ -681,7 +693,7 @@ a_prefix##remove(a_rbt_type *rbtree, a_type *node) {			\
 		    rbtn_rotate_left(a_type, a_field, pathp->node,	\
 		      tnode);						\
 		    /* Balance restored, but rotation modified        */\
-		    /* subree root, which may actually be the tree    */\
+		    /* subtree root, which may actually be the tree   */\
 		    /* root.                                          */\
 		    if (pathp == path) {				\
 			/* Set root. */					\
@@ -849,7 +861,7 @@ a_prefix##remove(a_rbt_type *rbtree, a_type *node) {			\
     }									\
     /* Set root. */							\
     rbtree->rbt_root = path->node;					\
-    assert(rbtn_red_get(a_type, a_field, rbtree->rbt_root) == false);	\
+    assert(!rbtn_red_get(a_type, a_field, rbtree->rbt_root));		\
 }									\
 a_attr a_type *								\
 a_prefix##iter_recurse(a_rbt_type *rbtree, a_type *node,		\

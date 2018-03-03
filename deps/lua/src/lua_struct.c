@@ -89,12 +89,14 @@ typedef struct Header {
 } Header;
 
 
-static int getnum (const char **fmt, int df) {
+static int getnum (lua_State *L, const char **fmt, int df) {
   if (!isdigit(**fmt))  /* no number? */
     return df;  /* return default value */
   else {
     int a = 0;
     do {
+      if (a > (INT_MAX / 10) || a * 10 > (INT_MAX - (**fmt - '0')))
+        luaL_error(L, "integral size overflow");
       a = a*10 + *((*fmt)++) - '0';
     } while (isdigit(**fmt));
     return a;
@@ -115,9 +117,9 @@ static size_t optsize (lua_State *L, char opt, const char **fmt) {
     case 'f':  return sizeof(float);
     case 'd':  return sizeof(double);
     case 'x': return 1;
-    case 'c': return getnum(fmt, 1);
+    case 'c': return getnum(L, fmt, 1);
     case 'i': case 'I': {
-      int sz = getnum(fmt, sizeof(int));
+      int sz = getnum(L, fmt, sizeof(int));
       if (sz > MAXINTSIZE)
         luaL_error(L, "integral size %d is larger than limit of %d",
                        sz, MAXINTSIZE);
@@ -150,7 +152,7 @@ static void controloptions (lua_State *L, int opt, const char **fmt,
     case '>': h->endian = BIG; return;
     case '<': h->endian = LITTLE; return;
     case '!': {
-      int a = getnum(fmt, MAXALIGN);
+      int a = getnum(L, fmt, MAXALIGN);
       if (!isp2(a))
         luaL_error(L, "alignment %d is not a power of 2", a);
       h->align = a;
