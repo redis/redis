@@ -1278,7 +1278,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         close(server.repl_transfer_fd);
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
-        /* After a full resynchroniziation we use the replication ID and
+        /* After a full resynchronization we use the replication ID and
          * offset of the master. The secondary ID / offset are cleared since
          * we are starting a new history. */
         memcpy(server.replid,server.master->replid,sizeof(server.replid));
