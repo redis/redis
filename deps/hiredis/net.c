@@ -474,3 +474,10 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
     c->flags |= REDIS_CONNECTED;
     return REDIS_OK;
 }
+
+/* Cygwin Fix */
+#ifdef __CYGWIN__
+#define TCP_KEEPCNT 8
+#define TCP_KEEPINTVL 150
+#define TCP_KEEPIDLE 14400
+#endif

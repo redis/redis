@@ -94,6 +94,10 @@ ifeq ($(uname_S),OpenBSD)
 	# OpenBSD
 	FINAL_LIBS+= -lpthread
 else
+ifeq ($(uname_S),CYGWIN_NT-6.1)
+	# Cygwin
+	FINAL_LDFLAGS+= -rdynamic
+else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
 	FINAL_LIBS+= -lpthread
