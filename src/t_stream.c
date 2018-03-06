@@ -1171,7 +1171,7 @@ void xreadCommand(client *c) {
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
             o = lookupKeyRead(c->db,key);
-            if (checkType(c,o,OBJ_STREAM)) goto cleanup;
+            if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
