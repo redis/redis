@@ -2354,32 +2354,28 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
     redisReply *reply = NULL;
     void *_reply = NULL;
     int is_err = 0, success = 1;
-    int argc;
-    sds *argv = NULL;
-    size_t *argvlen = NULL;
+    /* First two args are used for the command itself. */
+    int argc = node->slots_count + 2; 
+    sds *argv = zmalloc(argc * sizeof(*argv));
+    size_t *argvlen = zmalloc(argc * sizeof(*argvlen));
+    argv[0] = "CLUSTER";
+    argv[1] = "ADDSLOTS";
+    argvlen[0] = 7;
+    argvlen[1] = 8;
     *err = NULL;
-    sds cmd = sdsnew("CLUSTER ADDSLOTS ");
-    int i, added = 0;
+    int i, argv_idx = 2;
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
-        int last_slot = (i == (CLUSTER_MANAGER_SLOTS - 1));
+        if (argv_idx >= argc) break;
         if (node->slots[i]) {
-            char *fmt = (!last_slot ? "%u " : "%u");
-            cmd = sdscatfmt(cmd, fmt, i);
-            added++;
+            argv[argv_idx] = sdsfromlonglong((long long) i);
+            argvlen[argv_idx] = sdslen(argv[argv_idx]);
+            argv_idx++;
         }
     }
-    if (!added) {
+    if (!argv_idx) {
         success = 0;
         goto cleanup;
     }
-    argv = cliSplitArgs(cmd, &argc);
-    if (argc == 0 || argv == NULL) {
-        success = 0;
-        goto cleanup;
-    }
-    argvlen = zmalloc(argc*sizeof(size_t));
-    for (i = 0; i < argc; i++)
-        argvlen[i] = sdslen(argv[i]);
     redisAppendCommandArgv(node->context,argc,(const char**)argv,argvlen);
     if (redisGetReply(node->context, &_reply) != REDIS_OK) {
         success = 0;
@@ -2395,9 +2391,11 @@ static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
         goto cleanup;
     }
 cleanup:
-    sdsfree(cmd);
     zfree(argvlen);
-    if (argv != NULL) sdsfreesplitres(argv,argc);
+    if (argv != NULL) {
+        for (i = 2; i < argc; i++) sdsfree(argv[i]);
+        zfree(argv);
+    }
     if (reply != NULL) freeReplyObject(reply);
     return success;
 }
