@@ -1131,6 +1131,13 @@ void xreadCommand(client *c) {
         return;
     }
 
+    /* If the user specified XREADGROUP then it must also
+     * provide the GROUP option. */
+    if (xreadgroup && groupname == NULL) {
+        addReplyError(c,"Missing GROUP option for XREADGROUP");
+        return;
+    }
+
     /* Parse the IDs and resolve the group name. */
     if (streams_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*streams_count);
