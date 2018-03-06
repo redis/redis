@@ -44,12 +44,23 @@ size_t sdsZmallocSize(sds s) {
 }
 
 /* Return the amount of memory used by the sds string at object->ptr
- * for a string object. */
+ * for a string object. This includes internal fragmentation. */
 size_t getStringObjectSdsUsedMemory(robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     switch(o->encoding) {
     case OBJ_ENCODING_RAW: return sdsZmallocSize(o->ptr);
     case OBJ_ENCODING_EMBSTR: return zmalloc_size(o)-sizeof(robj);
+    default: return 0; /* Just integer encoding for now. */
+    }
+}
+
+/* Return approximate memory used by the sds string at object->ptr
+ * for a string object. This method does not include internal fragmentation. */
+size_t getStringObjectSize(robj *o) {
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    switch(o->encoding) {
+    case OBJ_ENCODING_RAW: return sdsAllocSize(o->ptr);
+    case OBJ_ENCODING_EMBSTR: return sdsAllocSize(o->ptr);
     default: return 0; /* Just integer encoding for now. */
     }
 }
@@ -116,6 +127,7 @@ client *createClient(int fd) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_bytes = 0;
     c->cmd = c->lastcmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -756,6 +768,7 @@ static void freeClientArgv(client *c) {
         decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
+    c->argv_bytes = 0;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -903,6 +916,7 @@ void freeClient(client *c) {
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
     zfree(c->argv);
+    c->argv_bytes = 0;
     freeClientMultiState(c);
     sdsfree(c->peerid);
     zfree(c);
@@ -1158,12 +1172,14 @@ int processInlineBuffer(client *c) {
     if (argc) {
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*argc);
+        c->argv_bytes = 0;
     }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
         if (sdslen(argv[j])) {
             c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
+            c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
             c->argc++;
         } else {
             sdsfree(argv[j]);
@@ -1260,6 +1276,7 @@ int processMultibulkBuffer(client *c) {
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
         c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        c->argv_bytes = 0;
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1327,7 +1344,9 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
-                c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
+                c->argv[c->argc] = createObject(OBJ_STRING,c->querybuf);
+                c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
+                c->argc++;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
                  * likely... */
@@ -1335,8 +1354,10 @@ int processMultibulkBuffer(client *c) {
                 sdsclear(c->querybuf);
                 pos = 0;
             } else {
-                c->argv[c->argc++] =
+                c->argv[c->argc] =
                     createStringObject(c->querybuf+pos,c->bulklen);
+                c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
+                c->argc++;
                 pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -1586,7 +1607,7 @@ sds catClientInfoString(sds s, client *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatfmt(s,
-        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U argv=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
         (unsigned long long) client->id,
         getClientPeerId(client),
         client->fd,
@@ -1600,9 +1621,10 @@ sds catClientInfoString(sds s, client *client) {
         (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         (unsigned long long) sdslen(client->querybuf),
         (unsigned long long) sdsavail(client->querybuf),
+        (unsigned long long) zmalloc_size(client->argv) + client->argv_bytes,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
-        (unsigned long long) getClientOutputBufferMemoryUsage(client),
+        (unsigned long long) getClientOutputBufferMemoryUsage(client) + sizeof(client->buf),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
@@ -1888,6 +1910,10 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
+    c->argv_bytes = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_bytes += getStringObjectSize(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
@@ -1895,10 +1921,15 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
+    int j;
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
+    c->argv_bytes = 0;
+    for (j = 0; j < c->argc; j++)
+        if (c->argv[j])
+            c->argv_bytes += getStringObjectSize(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
@@ -1923,6 +1954,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
+    if (oldval) c->argv_bytes -= getStringObjectSize(oldval);
+    if (newval) c->argv_bytes += getStringObjectSize(newval);
     c->argv[i] = newval;
     incrRefCount(newval);
     if (oldval) decrRefCount(oldval);
