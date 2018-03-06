@@ -1628,6 +1628,8 @@ int clientsCronTrackClientsMemUsage(client *c) {
     mem += getClientOutputBufferMemoryUsage(c);
     mem += sdsAllocSize(c->querybuf);
     mem += sizeof(client);
+    mem += c->argv_sum;
+    if (c->argv) mem += zmalloc_size(c->argv);
     /* Now that we have the memory used by the client, remove the old
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->client_cron_last_memory_type] -=
