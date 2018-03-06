@@ -28,9 +28,38 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "geo.h"
+#include "server.h"
 #include "geohash_helper.h"
 #include "debugmacro.h"
+
+#define GSRS_ENCODING_ARRAY     0        /* The result set is a simple array */
+#define GSRS_ENCODING_HEAP      1        /* The result set is a min/max heap */
+
+#define LEFT_CHILD_OF(x)        ((2 * x) + 1)
+#define RIGHT_CHILD_OF(x)       ((2 * x) + 2)
+#define PARENT_OF(x)            ((x - 1) / 2)
+
+/* represent points and array of
+ * points on the earth. */
+typedef struct geoPoint {
+    double longitude;
+    double latitude;
+    double dist;
+    double score;
+    char *member;
+} geoPoint;
+
+/*
+ * This structure is used to store points found during search.
+ */
+typedef struct {
+    int encoding;
+    size_t number_of_elements_allocated;
+    size_t number_of_elements_used;
+    size_t maximum_number_of_results;
+    int (*point_comparator)(const void *, const void *);
+    geoPoint *array_of_points;
+} geoSearchResultSet;
 
 /* Things exported from t_zset.c only for geo.c, since it is the only other
  * part of Redis that requires close zset introspection. */
@@ -46,37 +75,177 @@ int zslValueLteMax(double value, zrangespec *spec);
  * ==================================================================== */
 
 /* ====================================================================
- * geoArray implementation
+ * geoSearchResultSet implementation
  * ==================================================================== */
 
-/* Create a new array of geoPoints. */
-geoArray *geoArrayCreate(void) {
-    geoArray *ga = zmalloc(sizeof(*ga));
-    /* It gets allocated on first geoArrayAppend() call. */
-    ga->array = NULL;
-    ga->buckets = 0;
-    ga->used = 0;
-    return ga;
+/* Create a geopoint result set as an array */
+geoSearchResultSet *
+geoSearchResultSetCreateAsArray (
+    void
+) {
+    geoSearchResultSet *rs = zmalloc(sizeof(*rs));
+
+    rs->encoding = GSRS_ENCODING_ARRAY;
+    rs->number_of_elements_used = 0;
+
+    /* Used only in the heap implementation to handle COUNT limit */
+    rs->maximum_number_of_results = 0;
+    rs->point_comparator = NULL;
+
+    /*
+     * Given the expected use of this append-only variant is to store all
+     * points found in a given radius, the array will grow dynamically in
+     * relation to the number of points. As such, let's leave management
+     * of it's memory to the result set appendation function.
+     */
+    rs->number_of_elements_allocated = 0;
+    rs->array_of_points = NULL;
+
+    return rs;
 }
 
-/* Add a new entry and return its pointer so that the caller can populate
- * it with data. */
-geoPoint *geoArrayAppend(geoArray *ga) {
-    if (ga->used == ga->buckets) {
-        ga->buckets = (ga->buckets == 0) ? 8 : ga->buckets*2;
-        ga->array = zrealloc(ga->array,sizeof(geoPoint)*ga->buckets);
+/* Create a geopoint result set as heap optimized for KNN */
+geoSearchResultSet *
+geoSearchResultSetCreateAsHeap (
+    int maximum_number_of_results,
+    int (*point_comparator)(const void *, const void *)
+) {
+    geoSearchResultSet *rs = zmalloc(sizeof(*rs));
+
+    rs->encoding = GSRS_ENCODING_HEAP;
+    rs->number_of_elements_used = 0;
+    rs->maximum_number_of_results = maximum_number_of_results;
+    rs->point_comparator = point_comparator;
+
+    /*
+     * Unlike the array-based variant, we're using a heap to store a given
+     * number of k-nearest-neighbors. As the given number is constant, we'll
+     * allocate the memory here as not to add an unnecessary one-time-use
+     * conditional to the result set appendation function.
+     */
+    rs->number_of_elements_allocated = rs->maximum_number_of_results;
+    rs->array_of_points = zmalloc(
+      (sizeof(geoPoint) * rs->number_of_elements_allocated));
+
+    return rs;
+}
+
+void
+geoSearchResultSetHeapify (
+    geoSearchResultSet *rs,
+    size_t gpidx
+) {
+    size_t gplcidx = LEFT_CHILD_OF(gpidx);
+    size_t gprcidx = RIGHT_CHILD_OF(gpidx);
+    size_t gpgtidx; /* Greatest Element Found */
+
+    if ((gplcidx < rs->number_of_elements_used)
+        && (0 < rs->point_comparator(&rs->array_of_points[gplcidx],
+              &rs->array_of_points[gpidx]))) {
+        gpgtidx = gplcidx;
+    } else {
+        gpgtidx = gpidx;
     }
-    geoPoint *gp = ga->array+ga->used;
-    ga->used++;
-    return gp;
+
+    if ((gprcidx < rs->number_of_elements_used)
+        && (0 < rs->point_comparator(&rs->array_of_points[gprcidx],
+              &rs->array_of_points[gpgtidx]))) {
+        gpgtidx = gprcidx;
+    }
+
+    if (gpgtidx != gpidx) {
+        geoPoint tmpgp;
+        memcpy(&tmpgp, &rs->array_of_points[gpgtidx], sizeof(geoPoint));
+        memcpy(&rs->array_of_points[gpgtidx], &rs->array_of_points[gpidx],
+          sizeof(geoPoint));
+        memcpy(&rs->array_of_points[gpidx], &tmpgp, sizeof(geoPoint));
+        geoSearchResultSetHeapify(rs, gpgtidx);
+    }
 }
 
-/* Destroy a geoArray created with geoArrayCreate(). */
-void geoArrayFree(geoArray *ga) {
+/*
+ * Add the new point to the result set iff it should do so.
+ */
+int
+geoSearchResultSetAppend (
+    geoSearchResultSet *rs,
+    geoPoint *srcgp
+) {
+    geoPoint *dstgp = NULL;
+
+    if (GSRS_ENCODING_ARRAY == rs->encoding) {
+        /* See if we need to enlarge the point result array */
+        if (rs->number_of_elements_used == rs->number_of_elements_allocated) {
+            /* Enlarge by powers of two */
+            if (0 < rs->number_of_elements_allocated) {
+                rs->number_of_elements_allocated *= 2;
+            } else {
+                rs->number_of_elements_allocated = 8;
+            }
+
+            rs->array_of_points = zrealloc(rs->array_of_points,
+              (sizeof(geoPoint) * rs->number_of_elements_allocated));
+        }
+
+        dstgp = (rs->array_of_points + rs->number_of_elements_used);
+        memcpy(dstgp, srcgp, sizeof(geoPoint));
+        ++rs->number_of_elements_used;
+        return C_OK;
+    } else {
+        /*
+         * Once we already have K points, we will perform replacement of set
+         * members iff they are comparably "nearer" distance-wise.
+         */
+        if (rs->number_of_elements_used == rs->number_of_elements_allocated) {
+            dstgp = rs->array_of_points;
+            if (rs->point_comparator(dstgp, srcgp) > 0) {
+                /*
+                 * Once we added the member to our set, we own the memory for
+                 * it. So, we need to free it before swapping.
+                 */
+                sdsfree(dstgp->member);
+
+                memcpy(dstgp, srcgp, sizeof(geoPoint));
+                geoSearchResultSetHeapify(rs, 0);
+                return C_OK;
+            }
+            return C_ERR;
+        } else {
+            int gpidx = rs->number_of_elements_used;
+
+            dstgp = (rs->array_of_points + gpidx);
+            memcpy(dstgp, srcgp, sizeof(geoPoint));
+            ++rs->number_of_elements_used;
+
+            /*
+             * Keep swapping the inserted element its parent as long as its
+             * distance is higher.
+             */
+            while ((0 < gpidx)
+                      && (0 < rs->point_comparator(&rs->array_of_points[gpidx],
+                          &rs->array_of_points[PARENT_OF(gpidx)]))) {
+                geoPoint tmpgp;
+                memcpy(&tmpgp, &rs->array_of_points[gpidx], sizeof(geoPoint));
+                memcpy(&rs->array_of_points[gpidx],
+                  &rs->array_of_points[PARENT_OF(gpidx)], sizeof(geoPoint));
+                memcpy(&rs->array_of_points[PARENT_OF(gpidx)], &tmpgp,
+                  sizeof(geoPoint));
+                gpidx = PARENT_OF(gpidx);
+            }
+            return C_OK;
+        }
+    }
+    return C_ERR;
+}
+
+/* Destroy a geoSearchResultSet created with geoSearchResultSetCreate(). */
+void geoSearchResultSetFree(geoSearchResultSet *rs) {
     size_t i;
-    for (i = 0; i < ga->used; i++) sdsfree(ga->array[i].member);
-    zfree(ga->array);
-    zfree(ga);
+    for (i = 0; i < rs->number_of_elements_used; i++) {
+      sdsfree(rs->array_of_points[i].member);
+    }
+    zfree(rs->array_of_points);
+    zfree(rs);
 }
 
 /* ====================================================================
@@ -184,12 +353,13 @@ void addReplyDoubleDistance(client *c, double d) {
 
 /* Helper function for geoGetPointsInRange(): given a sorted set score
  * representing a point, and another point (the center of our search) and
- * a radius, appends this entry as a geoPoint into the specified geoArray
+ * a radius, appends this entry as a geoPoint into the specified geoSearchResultSet
  * only if the point is within the search area.
  *
  * returns C_OK if the point is included, or REIDS_ERR if it is outside. */
-int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius, double score, sds member) {
+int geoAppendIfWithinRadius(geoSearchResultSet *ga, double lon, double lat, double radius, double score, sds member) {
     double distance, xy[2];
+    geoPoint thisgp;
 
     if (!decodeGeohash(score,xy)) return C_ERR; /* Can't decode. */
     /* Note that geohashGetDistanceIfInRadiusWGS84() takes arguments in
@@ -200,14 +370,15 @@ int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius,
         return C_ERR;
     }
 
-    /* Append the new element. */
-    geoPoint *gp = geoArrayAppend(ga);
-    gp->longitude = xy[0];
-    gp->latitude = xy[1];
-    gp->dist = distance;
-    gp->member = member;
-    gp->score = score;
-    return C_OK;
+    /* Append the new element (optimistic) */
+    thisgp.longitude = xy[0];
+    thisgp.latitude = xy[1];
+    thisgp.dist = distance;
+    thisgp.member = member;
+    thisgp.score = score;
+    int rc = geoSearchResultSetAppend(ga, &thisgp);
+    //return geoSearchResultSetAppend(ga, &thisgp);
+    return rc;
 }
 
 /* Query a Redis sorted set to extract all the elements between 'min' and
@@ -222,11 +393,11 @@ int geoAppendIfWithinRadius(geoArray *ga, double lon, double lat, double radius,
  * using multiple queries to the sorted set, that we later need to sort
  * via qsort. Similarly we need to be able to reject points outside the search
  * radius area ASAP in order to allocate and process more points than needed. */
-int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double lat, double radius, geoArray *ga) {
+int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double lat, double radius, geoSearchResultSet *ga) {
     /* minex 0 = include min in range; maxex 1 = exclude max in range */
     /* That's: min <= val < max */
     zrangespec range = { .min = min, .max = max, .minex = 0, .maxex = 1 };
-    size_t origincount = ga->used;
+    size_t origincount = ga->number_of_elements_used;
     sds member;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -280,7 +451,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, double lon, double l
             ln = ln->level[0].forward;
         }
     }
-    return ga->used - origincount;
+    return ga->number_of_elements_used - origincount;
 }
 
 /* Compute the sorted set scores min (inclusive), max (exclusive) we should
@@ -313,9 +484,9 @@ void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bit
 }
 
 /* Obtain all members between the min/max of this geohash bounding box.
- * Populate a geoArray of GeoPoints by calling geoGetPointsInRange().
+ * Populate a geoSearchResultSet of GeoPoints by calling geoGetPointsInRange().
  * Return the number of points added to the array. */
-int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, double lat, double radius) {
+int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoSearchResultSet *ga, double lon, double lat, double radius) {
     GeoHashFix52Bits min, max;
 
     scoresOfGeoHashBox(hash,&min,&max);
@@ -323,7 +494,7 @@ int membersOfGeoHashBox(robj *zobj, GeoHashBits hash, geoArray *ga, double lon, 
 }
 
 /* Search all eight neighbors + self geohash box */
-int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoArray *ga) {
+int membersOfAllNeighbors(robj *zobj, GeoHashRadius n, double lon, double lat, double radius, geoSearchResultSet *ga) {
     GeoHashBits neighbors[9];
     unsigned int i, count = 0, last_processed = 0;
     int debugmsg = 0;
@@ -561,26 +732,32 @@ void georadiusGeneric(client *c, int flags) {
         geohashGetAreasByRadiusWGS84(xy[0], xy[1], radius_meters);
 
     /* Search the zset for all matching points */
-    geoArray *ga = geoArrayCreate();
+    geoSearchResultSet *ga = NULL;
+    if (0 == count) {
+      ga = geoSearchResultSetCreateAsArray();
+    } else {
+      ga = geoSearchResultSetCreateAsHeap(count, 
+        (SORT_ASC == sort) ? sort_gp_asc : sort_gp_desc);
+    }
     membersOfAllNeighbors(zobj, georadius, xy[0], xy[1], radius_meters, ga);
 
     /* If no matching results, the user gets an empty reply. */
-    if (ga->used == 0 && storekey == NULL) {
+    if (ga->number_of_elements_used == 0 && storekey == NULL) {
         addReply(c, shared.emptymultibulk);
-        geoArrayFree(ga);
+        geoSearchResultSetFree(ga);
         return;
     }
 
-    long result_length = ga->used;
+    long result_length = ga->number_of_elements_used;
     long returned_items = (count == 0 || result_length < count) ?
                           result_length : count;
     long option_length = 0;
 
     /* Process [optional] requested sorting */
     if (sort == SORT_ASC) {
-        qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_asc);
+        qsort(ga->array_of_points, result_length, sizeof(geoPoint), sort_gp_asc);
     } else if (sort == SORT_DESC) {
-        qsort(ga->array, result_length, sizeof(geoPoint), sort_gp_desc);
+        qsort(ga->array_of_points, result_length, sizeof(geoPoint), sort_gp_desc);
     }
 
     if (storekey == NULL) {
@@ -606,7 +783,7 @@ void georadiusGeneric(client *c, int flags) {
         /* Finally send results back to the caller */
         int i;
         for (i = 0; i < returned_items; i++) {
-            geoPoint *gp = ga->array+i;
+            geoPoint *gp = ga->array_of_points+i;
             gp->dist /= conversion; /* Fix according to unit. */
 
             /* If we have options in option_length, return each sub-result
@@ -644,7 +821,7 @@ void georadiusGeneric(client *c, int flags) {
 
         for (i = 0; i < returned_items; i++) {
             zskiplistNode *znode;
-            geoPoint *gp = ga->array+i;
+            geoPoint *gp = ga->array_of_points+i;
             gp->dist /= conversion; /* Fix according to unit. */
             double score = storedist ? gp->dist : gp->score;
             size_t elelen = sdslen(gp->member);
@@ -669,7 +846,7 @@ void georadiusGeneric(client *c, int flags) {
         }
         addReplyLongLong(c, returned_items);
     }
-    geoArrayFree(ga);
+    geoSearchResultSetFree(ga);
 }
 
 /* GEORADIUS wrapper function. */
