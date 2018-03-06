@@ -986,6 +986,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             mem += getClientOutputBufferMemoryUsage(c);
             mem += sdsAllocSize(c->querybuf);
             mem += sizeof(client);
+            mem += c->argv_bytes;
+            if (c->argv)
+                mem += zmalloc_size(c->argv);
         }
     }
     mh->clients_slaves = mem;
@@ -1004,6 +1007,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             mem += getClientOutputBufferMemoryUsage(c);
             mem += sdsAllocSize(c->querybuf);
             mem += sizeof(client);
+            mem += c->argv_bytes;
+            if (c->argv)
+                mem += zmalloc_size(c->argv);
         }
     }
     mh->clients_normal = mem;
