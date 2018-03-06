@@ -279,7 +279,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */
-        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->size = zmalloc_usable_size(tail) - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(c->reply, tail);
@@ -464,7 +464,7 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
         /* Create a new node */
         clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
         /* Take over the allocation's internal fragmentation */
-        buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
+        buf->size = zmalloc_usable_size(buf) - sizeof(clientReplyBlock);
         buf->used = lenstr_len;
         memcpy(buf->buf, lenstr, lenstr_len);
         listNodeValue(ln) = buf;
