@@ -2856,7 +2856,10 @@ void genericZrangebylexCommand(client *c, int reverse) {
         while (remaining) {
             if (remaining >= 3 && !strcasecmp(c->argv[pos]->ptr,"limit")) {
                 if ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL) != C_OK) ||
-                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) return;
+                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) {
+                    zslFreeLexRange(&range);
+                    return;
+                }
                 pos += 3; remaining -= 3;
             } else {
                 zslFreeLexRange(&range);
