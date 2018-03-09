@@ -448,11 +448,13 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
     return sdsfromlonglong(vll);
 }
 
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
+
+robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a) {
+    //printf("%s\n", key->ptr);
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
-        o = createHashObject();
-        dbAdd(c->db,key,o);
+        o = createHashObjectA(a);
+        dbAdd(c->db,key,o); // TODO
     } else {
         if (o->type != OBJ_HASH) {
             addReply(c,shared.wrongtypeerr);

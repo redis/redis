@@ -1725,7 +1725,14 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
 sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
+robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a);
+static inline robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
+    return hashTypeLookupWriteOrCreateA(c, key, z_alloc);
+}
+static inline robj *hashTypeLookupWriteOrCreateM(c, key) {
+    return hashTypeLookupWriteOrCreateA(c, key, m_alloc);
+}
+
 robj *hashTypeGetValueObject(robj *o, sds field);
 int hashTypeSet(robj *o, sds field, sds value, int flags);
 
