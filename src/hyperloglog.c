@@ -1009,7 +1009,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    double alphaInf = 0.5 / log(2.);
+    static double alphaInf = 0.5 / log(2.);
     int regHisto[HLL_Q+2] = {0};
 
     /* Compute register histogram */
