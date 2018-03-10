@@ -192,11 +192,11 @@ struct hllhdr {
 #define HLL_VALID_CACHE(hdr) (((hdr)->card[7] & (1<<7)) == 0)
 
 #define HLL_P 14 /* The greater is P, the smaller the error. */
-#define HLL_Q (63-HLL_P)
 #define HLL_REGISTERS (1<<HLL_P) /* With P=14, 16384 registers. */
 #define HLL_P_MASK (HLL_REGISTERS-1) /* Mask to index register. */
 #define HLL_BITS 6 /* Enough to count up to 63 leading zeroes. */
 #define HLL_REGISTER_MAX ((1<<HLL_BITS)-1)
+#define HLL_Q (HLL_REGISTER_MAX-HLL_P)
 #define HLL_HDR_SIZE sizeof(struct hllhdr)
 #define HLL_DENSE_SIZE (HLL_HDR_SIZE+((HLL_REGISTERS*HLL_BITS+7)/8))
 #define HLL_DENSE 0 /* Dense encoding. */
