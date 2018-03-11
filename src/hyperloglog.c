@@ -192,11 +192,12 @@ struct hllhdr {
 #define HLL_VALID_CACHE(hdr) (((hdr)->card[7] & (1<<7)) == 0)
 
 #define HLL_P 14 /* The greater is P, the smaller the error. */
+#define HLL_Q (64-HLL_P) /* The number of bits of the hash value used for
+                            determining the number of leading zeros. */
 #define HLL_REGISTERS (1<<HLL_P) /* With P=14, 16384 registers. */
 #define HLL_P_MASK (HLL_REGISTERS-1) /* Mask to index register. */
 #define HLL_BITS 6 /* Enough to count up to 63 leading zeroes. */
 #define HLL_REGISTER_MAX ((1<<HLL_BITS)-1)
-#define HLL_Q (HLL_REGISTER_MAX-HLL_P)
 #define HLL_HDR_SIZE sizeof(struct hllhdr)
 #define HLL_DENSE_SIZE (HLL_HDR_SIZE+((HLL_REGISTERS*HLL_BITS+7)/8))
 #define HLL_DENSE 0 /* Dense encoding. */
@@ -452,7 +453,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
 
     /* Count the number of zeroes starting from bit HLL_REGISTERS
      * (that is a power of two corresponding to the first bit we don't use
-     * as index). The max run can be 64-P+1 bits.
+     * as index). The max run can be 64-P+1 = Q+1 bits.
      *
      * Note that the final "1" ending the sequence of zeroes must be
      * included in the count, so if we find "001" the count is 3, and
@@ -463,8 +464,10 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
      * there are high probabilities to find a 1 after a few iterations. */
     hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
     index = hash & HLL_P_MASK; /* Register index. */
-    hash |= ((uint64_t)1<<63); /* Make sure the loop terminates. */
-    bit = HLL_REGISTERS; /* First bit not used to address the register. */
+    hash >>= HLL_P; /* Remove bits used to address the register. */
+    hash |= ((uint64_t)1<<HLL_Q); /* Make sure the loop terminates
+                                     and count will be <= Q+1. */
+    bit = 1;
     count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
     while((hash & bit) == 0) {
         count++;
