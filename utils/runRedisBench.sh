@@ -5,13 +5,11 @@
 ################################################################################
 
 USER=fedora
-SERVER_HOME_DIR=/home/$USER
-CLIENT_HOME_DIR=/home/$USER
 
 # Client-server communication interfaces
 USE_UNIX_SOCKETS=0
 
-# Redis server port
+# Redis default server port
 SERVER_PORT=6379
 
 SPINNER="-\|/"
@@ -29,20 +27,23 @@ print_help() {
 	echo "Usage:"
 	echo "runRedisBench.sh [options]"
 	echo "where accepted options are:"
-	echo "  -h|--help                         print this help message"
-	echo "  -s=N|--servers=N                  start N redis servers on ports 6379, ..., 6379 + N - 1"
-	echo "  -c=N|--clients=N                  start N redis clients per thread"
-	echo "  -t=N|--threads=N                  start N threads with redis clients"
-	echo "  -r=N|--requests=N                 send N requests per client"
-	echo "  --sa=ADDR|--server-addr=ADDR      use ADDR as address of a host with redis servers"
-	echo "  --ca=ADDR|--client-addr=ADDR      use ADDR as address of a host with redis clients (memtier_benchmark)"
-	echo "  --sn=N|--server-numa=N            run redis servers only on NUMA node N"
-	echo "  --cn=N|--client-numa=N            run memtier (redis clients) only on NUMA node N"
-	echo "  --si=ADDR|--server-interface=ADDR use ADDR as redis servers interface"
-	echo "  --us|--use-unix-sockets           use unix sockets for client-server communication"
-	echo "  --sc=FILE|--server-config=FILE    use FILE as redis config file"
-	echo "  --tag=WORD                        add WORD as a tag to output log file names"
-	echo "  --ts|--timestamp                  add timestamp as a prefix to output log file names"
+	echo "  -h|--help                      print this help message"
+	echo "  -s=|--servers=N                start N redis servers on ports 6379, ..., 6379 + N - 1"
+	echo "  -c=|--clients=N                start N redis clients per thread"
+	echo "  -t=|--threads=N                start N threads with redis clients"
+	echo "  -r=|--requests=N               send N requests per client"
+	echo "  --sa=|--server-addr=ADDR       use ADDR as address of a host with redis servers"
+	echo "  --ca=|--client-addr=ADDR       use ADDR as address of a host with redis clients (memtier_benchmark)"
+	echo "  --sn=|--server-numa=N          run redis servers only on NUMA node N"
+	echo "  --cn=|--client-numa=N          run memtier (redis clients) only on NUMA node N"
+	echo "  --si=|--server-interface=ADDR  use ADDR as redis servers interface"
+	echo "  --us|--use-unix-sockets        use unix sockets for client-server communication"
+	echo "  --sc=|--server-config=FILE     use FILE as redis config file (the path is on the server host)"
+	echo "  --wr=|--wr-ratio=RATIO         use RATIO for write:read ratio"
+	echo "  --tag=WORD                     add WORD as a tag to output log file names"
+	echo "Each use of --ca option adds a client node to the test."
+	echo "If N client nodes are defined, also the options --si has to be used N times."
+	echo "The --cn option also can be used several times (for each client node)."
 }
 
 getOptionsAddr() {
@@ -57,13 +58,14 @@ getOptionsAddr() {
 			SERVER_ADDR="${arg#*=}"
 			;;
 			--ca=*|--client-addr=*)
-			CLIENT_ADDR="${arg#*=}"
+			CLIENT_ADDR+=("${arg#*=}")
 			;;
 		esac
 	done
 }
 
 getOptions() {
+	CLIENT_ADDR=()
 	local arg
 	for arg in "$@"; do
 		case $arg in
@@ -87,10 +89,10 @@ getOptions() {
 			SERVER_ADDR="${arg#*=}"
 			;;
 			--ca=*|--client-addr=*)
-			CLIENT_ADDR="${arg#*=}"
+			CLIENT_ADDR+=("${arg#*=}")
 			;;
 			--si=*|--server-interface=*)
-			SERVER_IFC="${arg#*=}"
+			SERVER_IFC+=("${arg#*=}")
 			;;
 			--sc=*|--server-config=*)
 			SERVER_CONFIG="${arg#*=}"
@@ -99,19 +101,19 @@ getOptions() {
 			SERVER_NUMA="${arg#*=}"
 			;;
 			--cn=*|--client-numa=*)
-			CLIENT_NUMA="${arg#*=}"
+			CLIENT_NUMA+=("${arg#*=}")
 			;;
 			--us|--use-unix-sockets)
 			USE_UNIX_SOCKETS=1
 			;;
 			--tag=*)
-			TAG="${arg#*=}_"
+			TAG="${arg#*=}"
 			;;
 			--wr=*|--wr-ratio=*)
 			WR_RATIO="${arg#*=}"
 			;;
-			--ts|--timestamp)
-			TIMESTAMP="$(get_timestamp)_"
+			--user=*)
+			USER="${arg#*=}"
 			;;
 		esac
 	done
@@ -119,25 +121,31 @@ getOptions() {
 
 getKernelVersions() {
 	SERVER_KERNEL=`ssh $USER@$SERVER_ADDR "uname -r"`
-	CLIENT_KERNEL=`ssh $USER@$CLIENT_ADDR "uname -r"`
+	for client in ${CLIENT_ADDR[@]}; do
+		CLIENT_KERNEL+=(`ssh $USER@$client "uname -r"`)
+	done
 }
 
 readServerConf() {
-        local vars=`ssh $USER@$SERVER_ADDR "cat $SERVER_HOME_DIR/redisServer.conf"`
-        export $vars
+	# Not very secure ... be careful
+        local vars=`ssh $USER@$SERVER_ADDR "cat /home/$USER/redisServer.conf"`
+        eval $vars
 	# while read -r line || [[ -n "$line" ]]; do
 		## eval "$line"
 		# export "$line"
-	# done <<< `ssh $USER@$SERVER_ADDR "cat $SERVER_HOME_DIR/redisServer.conf"`
+	# done <<< `ssh $USER@$SERVER_ADDR "cat /home/$USER/redisServer.conf"`
 }
 
 readClientConf() {
-        local vars=`ssh $USER@$CLIENT_ADDR "cat $CLIENT_HOME_DIR/redisClient.conf"`
-        export $vars
+	# Not very secure ... be careful
+	for client in ${CLIENT_ADDR[@]}; do
+		local vars=`ssh $USER@$client "cat /home/$USER/redisClient.conf"`
+		eval $vars
+	done
 	# while read -r line || [[ -n "$line" ]]; do
 		## eval "$line"
 		# export "$line"
-	# done <<< `ssh $USER@$CLIENT_ADDR "cat $CLIENT_HOME_DIR/redisClient.conf"`
+	# done <<< `ssh $USER@$CLIENT_ADDR "cat /home/$USER/redisClient.conf"`
 }
 
 readConfiguration() {
@@ -148,11 +156,11 @@ readConfiguration() {
 
 checkAddr() {
 	if [ -z "$SERVER_ADDR" ]; then echo SERVER_ADDR is not set; exit 1; fi
-	if [ -z "$CLIENT_ADDR" ]; then echo CLIENT_ADDR is not set; exit 1; fi
+	if [ -z "${CLIENT_ADDR[0]}" ]; then echo CLIENT_ADDR is not set; exit 1; fi
 }
 
 print_spinner() {
-	printf %b "${SPINNER:$SPINNER_POS:1} \r"
+	printf %b "$1 ${SPINNER:$SPINNER_POS:1}         \r"
 	SPINNER_POS=$(((SPINNER_POS + 1) % ${#SPINNER}))
 }
 
@@ -163,66 +171,69 @@ check() {
 	if [ -z "$REQUESTS" ]; then echo REQUESTS is not set; exit 1; fi
 	if [ -z "$SERVER_ADDR" ]; then echo SERVER_ADDR is not set; exit 1; fi
 	if [ -z "$CLIENT_ADDR" ]; then echo CLIENT_ADDR is not set; exit 1; fi
-	if [ -z "$SERVER_NUMA" ]; then echo SERVER_NUMA is not set; exit 1; fi
-	if [ -z "$CLIENT_NUMA" ]; then echo CLIENT_NUMA is not set; exit 1; fi
 	if [ -z "$SERVER_REDIS_DIR" ]; then echo SERVER_REDIS_DIR is not set; exit 1; fi
-	if [ -z "$CLIENT_REDIS_DIR" ]; then echo CLIENT_REDIS_DIR is not set; exit 1; fi
 	if [ -z "$SERVER_MEMKIND_DIR" ]; then echo SERVER_MEMKIND_DIR is not set; exit 1; fi
-	if [ -z "$CLIENT_MEMKIND_DIR" ]; then echo CLIENT_MEMKIND_DIR is not set; exit 1; fi
 	if [ -z "$SERVER_LOGS_DIR" ]; then echo SERVER_LOGS_DIR is not set; exit 1; fi
-	if [ -z "$CLIENT_LOGS_DIR" ]; then echo CLIENT_LOGS_DIR is not set; exit 1; fi
 	if [ -z "$SERVER_CONFIG" ]; then echo SERVER_CONFIG is not set; exit 1; fi
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		if [ -z "${CLIENT_MEMKIND_DIR[$i]}" ]; then echo CLIENT_MEMKIND_DIR is not set for client $i node ${CLIENT_ADDR[$i]}; exit 1; fi
+		if [ -z "${CLIENT_LOGS_DIR[$i]}" ]; then echo CLIENT_LOGS_DIR is not set for client node ${CLIENT_ADDR[$i]}; exit 1; fi
+		if [ -z "${SERVER_IFC[$i]}" -a "$USE_UNIX_SOCKETS" -eq "0" ]; then echo SERVER_IFC must be set or unix sockets must be used for client $i node ${CLIENT_ADDR[$i]}; exit 1; fi
+	done
 	if [ -z "$WR_RATIO" ]; then echo WR_RATIO is not set; exit 1; fi
-	echo "server ifc $SERVER_IFC"
-	echo "use sockets $USE_UNIX_SOCKETS"
-	if [ -z "$SERVER_IFC" -a "$USE_UNIX_SOCKETS" -eq "0" ]; then echo SERVER_IFC must be set or unix sockets must be used; exit 1; fi
 }
 
 printConfiguration() {
 	echo "###################"
 	echo "# Configuration:"
-	echo "# No. of servers: $SERVERS"
-	echo "# No. of clients per thread: $CLIENTS"
+	echo "# No. of client nodes: ${#CLIENT_ADDR[@]}"
+	echo "# No. of servers per client node: $SERVERS"
 	echo "# No. of threads: $THREADS"
+	echo "# No. of clients per thread: $CLIENTS"
 	echo "# No. of requests per client: $REQUESTS"
 	echo "# Server host address: $SERVER_ADDR"
-	echo "# Client host address: $CLIENT_ADDR"
+	echo "# Client host address(es): ${CLIENT_ADDR[@]}"
 	echo "# Server host kernel: $SERVER_KERNEL"
-	echo "# Client host kernel: $CLIENT_KERNEL"
-	echo "# Server interface: $SERVER_IFC"
+	echo "# Client host kernel(s): ${CLIENT_KERNEL[@]}"
+	echo "# Server interface(s): ${SERVER_IFC[@]}"
 	echo "# Use unix sockets: $USE_UNIX_SOCKETS"
 	echo "# Server NUMA node: $SERVER_NUMA"
-	echo "# Client NUMA node: $CLIENT_NUMA"
+	echo "# Client NUMA node(s): ${CLIENT_NUMA[@]}"
 	echo "# Server redis dir: $SERVER_REDIS_DIR"
-	echo "# Client redis dir: $CLIENT_REDIS_DIR"
 	echo "# Server memkind dir: $SERVER_MEMKIND_DIR"
-	echo "# Client memkind dir: $CLIENT_MEMKIND_DIR"
+	echo "# Client memkind dir(s): ${CLIENT_MEMKIND_DIR[@]}"
 	echo "# Server logs dir: $SERVER_LOGS_DIR"
-	echo "# Client logs dir: $CLIENT_LOGS_DIR"
+	echo "# Client logs dir(s): ${CLIENT_LOGS_DIR[@]}"
 	echo "# Server config: $SERVER_CONFIG"
 	echo "# Write/read ratio: $WR_RATIO"
-	echo "# Timestamp: $TIMESTAMP"
 	echo "# Log files tag: $TAG"
 	echo "###################"
 }
 
 storeConfiguration() {
 	printConfiguration | ssh $USER@$SERVER_ADDR "cat > ${SERVER_LOGS_DIR}/configuration_${TAG}.txt"
-	printConfiguration | ssh $USER@$CLIENT_ADDR "cat > ${CLIENT_LOGS_DIR}/configuration_${TAG}.txt"
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		printConfiguration | ssh $USER@${CLIENT_ADDR[$i]} "cat > ${CLIENT_LOGS_DIR[$i]}/configuration_${TAG}.txt"
+	done
 }
 
 startRedisServers() {
-	echo "Starting $SERVERS server(s)"
+	if [ -z "$1" ]; then echo pass node number to start servers for; exit 1; fi
+	local node=$1
+	echo "Starting $SERVERS server(s) for client node $node (${CLIENT_ADDR[$node]})"
+	local i
 	for i in $(seq $SERVERS); do
-		local port=$((SERVER_PORT + i - 1))
-		local out_file_base="${TIMESTAMP}redis_server_${TAG}${SERVERS}_${i}"
+		local port=$((SERVER_PORT + i - 1 + node * SERVERS))
+		local out_file_base="redis_server_${TAG}_${SERVERS}_${i}_${node}"
 		local cmd=""
 		if [ -n "$SERVER_NUMA" ]; then
 			cmd+="numactl -N $SERVER_NUMA"
 		fi
 		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG --appendonly no"
 		if [ "$USE_UNIX_SOCKETS" == "1" ]; then 
-			cmd+=" --unixsocket /tmp/redis$i.sock"
+			cmd+=" --unixsocket /tmp/redis$port.sock"
 		else
 			cmd+=" --port $port"
 		fi
@@ -231,6 +242,13 @@ startRedisServers() {
 
 	done
 	echo "Done."
+}
+
+startAllRedisServers() {
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		startRedisServers $i
+	done
 }
 
 stopRedisServers() {
@@ -249,52 +267,107 @@ waitForProcessToFinish() {
 }
 
 fillDatabases() {
-	echo "Filling databases"
+	if [ -z "$1" ]; then echo pass node number to fill databases for; stopRedisServers; exit 1; fi
+	local node=$1
+	echo "Filling databases from client node $node (${CLIENT_ADDR[$node]})"
 	local memtier_base_args="--ratio=1:0 -d 1024 -t $THREADS -c $CLIENTS --key-minimum=1 --key-maximum=$REQUESTS -n $REQUESTS"
+	local i
 	for i in $(seq $SERVERS); do
-		local out_file_base="${TIMESTAMP}memtier_filldb_${TAG}${SERVERS}_${i}"
-		local memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR}/${out_file_base}.json"
+		local out_file_base="memtier_filldb_${TAG}_${SERVERS}_${i}_${node}"
+		local memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${out_file_base}.json"
 		local cmd=""
-		if [ -n "$CLIENT_NUMA" ]; then
-			cmd+="numactl -N $CLIENT_NUMA"
+		if [ -n "${CLIENT_NUMA[$node]}" ]; then
+			cmd+="numactl -N ${CLIENT_NUMA[$node]}"
 		fi
-		cmd+=" memtier_benchmark $memtier_args" 
-		local port=$((SERVER_PORT + i - 1))
+		cmd+=" memtier_benchmark $memtier_args"
+		local port=$((SERVER_PORT + i - 1 + node * SERVERS))
 		if [ "$USE_UNIX_SOCKETS" == "1" ]; then 
-			cmd+=" -S /tmp/redis$i.sock"
+			cmd+=" -S /tmp/redis$port.sock"
 		else
-			cmd+=" -s $SERVER_IFC -p $port"
+			cmd+=" -s ${SERVER_IFC[$node]} -p $port"
 		fi
 		# echo "fill: $cmd"
-		ssh -n -f $USER@$CLIENT_ADDR "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR}/${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${out_file_base}.log 2>&1 &"
 	done
-	waitForProcessToFinish $CLIENT_ADDR "memtier_benchmark"
+	waitForProcessToFinish ${CLIENT_ADDR[$node]} "memtier_benchmark"
 	echo "Done."
 }
 
-runBenchmark() {
-	echo "Running benchmark"
+fillAllDatabases() {
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		fillDatabases $i
+	done
+}
+
+runBenchmarks() {
+	if [ -z "$1" ]; then echo pass node number to start benchmarks on; stopRedisServers; exit 1; fi
+	local node=$1
+	echo "Running benchmark from client node $node (${CLIENT_ADDR[$node]})"
 	local memtier_base_args="--ratio=$WR_RATIO -d 1024 -t $THREADS -c $CLIENTS  --key-minimum=1 --key-maximum=$REQUESTS -n $REQUESTS"
+	local i
 	for i in $(seq $SERVERS); do
-		local out_file_base="${TIMESTAMP}memtier_bench_${TAG}${SERVERS}_${i}"
-		memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR}/${out_file_base}.json"
+		local out_file_base="memtier_bench_${TAG}_${SERVERS}_${i}_${node}"
+		memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${out_file_base}.json"
 		local cmd=""
-		if [ -n "$CLIENT_NUMA" ]; then
-			cmd+="numactl -N $CLIENT_NUMA"
+		if [ -n "${CLIENT_NUMA[$node]}" ]; then
+			cmd+="numactl -N ${CLIENT_NUMA[$node]}"
 		fi
 		cmd+=" memtier_benchmark $memtier_args"
-		local port=$((SERVER_PORT + i - 1))
+		local port=$((SERVER_PORT + i - 1 + node * SERVERS))
 		if [ "$USE_UNIX_SOCKETS" == "1" ]; then 
-			cmd+=" -S /tmp/redis$i.sock"
+			cmd+=" -S /tmp/redis$port.sock"
 		else
-			cmd+=" -s $SERVER_IFC -p $port"
+			cmd+=" -s ${SERVER_IFC[$node]} -p $port"
 		fi
 		# echo "bench: $cmd"
-		ssh -n -f $USER@$CLIENT_ADDR "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR}/${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${out_file_base}.log 2>&1 &"
 	done
-	waitForProcessToFinish $CLIENT_ADDR "memtier_benchmark"
 	echo "Done."
 }
+
+runAllBenchmarks() {
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		runBenchmarks $i
+	done
+}
+
+getNoOfRunningBenchmarks() {
+	local pattern="memtier_benchmark"
+	local running=0
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		((running+=$(ssh $USER@${CLIENT_ADDR[$i]} "pgrep -c -f \"$pattern\"")))
+	done
+	echo $running
+}
+
+waitForAnyBenchmarkToFinish() {
+	echo "Waiting for any benchmark to finish"
+	local nodes=${#CLIENT_ADDR[@]}
+	local allservers=$((nodes * SERVERS))
+	local running=$(getNoOfRunningBenchmarks)
+	while [ "$running" -ge "$allservers" ]; do
+		print_spinner "running servers: $running "
+	       	sleep 1
+		running=$(getNoOfRunningBenchmarks)
+	done
+	echo "Done.                                      "
+}
+
+
+
+waitForAllBenchmarksToFinish() {
+	echo "Waiting for all benchmarks to finish"
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		waitForProcessToFinish ${CLIENT_ADDR[$i]} "memtier_benchmark"
+	done
+	echo "Done."
+}
+
+
 
 ################################################################################
 # Your default test configuration
@@ -305,8 +378,6 @@ runBenchmark() {
 # CLIENTS=5
 # REQUESTS=100000
 # SERVER_CONFIG=/home/fedora/git/redis/redis.conf
-SERVER_NUMA=0
-CLIENT_NUMA=0
 
 # Write:Read ratio
 WR_RATIO="1:20"
@@ -322,12 +393,14 @@ getOptions $@
 check
 printConfiguration
 storeConfiguration
-startRedisServers
+startAllRedisServers
 sleep 3
-fillDatabases
+fillAllDatabases
 sleep 3
-runBenchmark
+runAllBenchmarks
+waitForAnyBenchmarkToFinish
+waitForAllBenchmarksToFinish
 sleep 3
-# sleep 60
+# sleep 20
 stopRedisServers
 
