@@ -386,6 +386,7 @@ static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
     *(p) = (_l>>8) | HLL_SPARSE_XZERO_BIT; \
     *((p)+1) = (_l&0xff); \
 } while(0)
+#define HLL_ALPHA_INF 0.721347520444481703680 /* constant for 0.5/ln(2) */
 
 /* ========================= HyperLogLog algorithm  ========================= */
 
@@ -1012,7 +1013,6 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    static double alphaInf = 0.5 / log(2.);
     int regHisto[HLL_Q+2] = {0};
 
     /* Compute register histogram */
@@ -1036,7 +1036,7 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
         z *= 0.5;
     }
     z += m * hllSigma(regHisto[0]/(double)m);
-    E = llroundl(alphaInf*m*m/z);
+    E = llroundl(HLL_ALPHA_INF*m*m/z);
 
     return (uint64_t) E;
 }
