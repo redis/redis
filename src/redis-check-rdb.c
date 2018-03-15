@@ -202,10 +202,10 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         goto err;
     }
 
+    expiretime = -1;
     startLoading(fp);
     while(1) {
         robj *key, *val;
-        expiretime = -1;
 
         /* Read type. */
         rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
@@ -218,20 +218,23 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-            /* the EXPIRETIME opcode specifies time in seconds, so convert
-             * into milliseconds. */
             expiretime *= 1000;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
             if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_FREQ) {
+            /* FREQ: LFU frequency. */
+            uint8_t byte;
+            if (rioRead(&rdb,&byte,1) == 0) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_IDLE) {
+            /* IDLE: LRU idle time. */
+            if (rdbLoadLen(&rdb,NULL) == RDB_LENERR) goto eoferr;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
@@ -296,6 +299,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         decrRefCount(key);
         decrRefCount(val);
         rdbstate.key_type = -1;
+        expiretime = -1;
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
