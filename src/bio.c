@@ -187,7 +187,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         if (type == BIO_CLOSE_FILE) {
             close((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
-            aof_fsync((long)job->arg1);
+            redis_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {
             /* What we free changes depending on what arguments are set:
              * arg1 -> free the object at pointer.
