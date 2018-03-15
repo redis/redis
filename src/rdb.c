@@ -1811,7 +1811,6 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
-    long long expiretime, now = mstime();
 
     rdb->update_cksum = rdbLoadProgressCallback;
     rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
@@ -1829,9 +1828,14 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
         return C_ERR;
     }
 
+    /* Key-specific attributes, set by opcodes before the key type. */
+    long long expiretime = -1, now = mstime();
+    long long lru_clock = LRU_CLOCK();
+    uint64_t lru_idle = -1;
+    int lfu_freq = -1;
+
     while(1) {
         robj *key, *val;
-        expiretime = -1;
 
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
@@ -1842,24 +1846,27 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
-            /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
-            /* the EXPIRETIME opcode specifies time in seconds, so convert
-             * into milliseconds. */
             expiretime *= 1000;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb);
-            /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_FREQ) {
+            /* FREQ: LFU frequency. */
+            uint8_t byte;
+            if (rioRead(rdb,&byte,1) == 0) goto eoferr;
+            lfu_freq = byte;
+        } else if (type == RDB_OPCODE_IDLE) {
+            /* IDLE: LRU idle time. */
+            if ((lru_idle = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
         } else if (type == RDB_OPCODE_SELECTDB) {
             /* SELECTDB: Select the specified database. */
-            if ((dbid = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
-                goto eoferr;
+            if ((dbid = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
                 serverLog(LL_WARNING,
                     "FATAL: Data file was created with a Redis "
@@ -1868,7 +1875,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 exit(1);
             }
             db = server.db+dbid;
-            continue; /* Read type again. */
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_RESIZEDB) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
@@ -1879,7 +1886,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
                 goto eoferr;
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
-            continue; /* Read type again. */
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
@@ -1937,15 +1944,37 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
         if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
-            continue;
+        } else {
+            /* Add the new object in the hash table */
+            dbAdd(db,key,val);
+
+            /* Set the expire time if needed */
+            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+            if (lfu_freq != -1) {
+                val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
+            } else {
+                /* LRU idle time loaded from RDB is in seconds. Scale
+                 * according to the LRU clock resolution this Redis
+                 * instance was compiled with (normaly 1000 ms, so the
+                 * below statement will expand to lru_idle*1000/1000. */
+                lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
+                val->lru = lru_clock - lru_idle;
+                /* If the lru field overflows (since LRU it is a wrapping
+                 * clock), the best we can do is to provide the maxium
+                 * representable idle time. */
+                if (val->lru < 0) val->lru = lru_clock+1;
+            }
+
+            /* Decrement the key refcount since dbAdd() will take its
+             * own reference. */
+            decrRefCount(key);
         }
-        /* Add the new object in the hash table */
-        dbAdd(db,key,val);
 
-        /* Set the expire time if needed */
-        if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-
-        decrRefCount(key);
+        /* Reset the state that is key-specified and is populated by
+         * opcodes before the key, so that we start from scratch again. */
+        expiretime = -1;
+        lfu_freq = -1;
+        lru_idle = -1;
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
