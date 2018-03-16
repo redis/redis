@@ -97,6 +97,7 @@
 #define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 15))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
 #define RDB_OPCODE_IDLE       248   /* LRU idle time. */
 #define RDB_OPCODE_FREQ       249   /* LFU frequency. */
 #define RDB_OPCODE_AUX        250   /* RDB aux field. */

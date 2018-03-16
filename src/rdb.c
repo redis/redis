@@ -1717,8 +1717,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
         char name[10];
 
-        if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2)
+        if (rdbCheckMode && rdbtype == RDB_TYPE_MODULE_2) {
+            moduleTypeNameByID(name,moduleid);
             return rdbLoadCheckModuleValue(rdb,name);
+        }
 
         if (mt == NULL) {
             moduleTypeNameByID(name,moduleid);
@@ -1932,6 +1934,34 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
             decrRefCount(auxkey);
             decrRefCount(auxval);
             continue; /* Read type again. */
+        } else if (type == RDB_OPCODE_MODULE_AUX) {
+            /* This is just for compatibility with the future: we have plans
+             * to add the ability for modules to store anything in the RDB
+             * file, like data that is not related to the Redis key space.
+             * Such data will potentially be stored both before and after the
+             * RDB keys-values section. For this reason since RDB version 9,
+             * we have the ability to read a MODULE_AUX opcode followed by an
+             * identifier of the module, and a serialized value in "MODULE V2"
+             * format. */
+            uint64_t moduleid = rdbLoadLen(rdb,NULL);
+            moduleType *mt = moduleTypeLookupModuleByID(moduleid);
+            char name[10];
+            moduleTypeNameByID(name,moduleid);
+
+            if (!rdbCheckMode && mt == NULL) {
+                /* Unknown module. */
+                serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load: no matching module '%s'", name);
+                exit(1);
+            } else if (!rdbCheckMode && mt != NULL) {
+                /* This version of Redis actually does not know what to do
+                 * with modules AUX data... */
+                serverLog(LL_WARNING,"The RDB file contains AUX module data I can't load for the module '%s'. Probably you want to use a newer version of Redis which implements aux data callbacks", name);
+                exit(1);
+            } else {
+                /* RDB check mode. */
+                robj *aux = rdbLoadCheckModuleValue(rdb,name);
+                decrRefCount(aux);
+            }
         }
 
         /* Read key */
