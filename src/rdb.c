@@ -1800,7 +1800,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this.
- * This function covers the case of RDB -> Salves socket transfers for
+ * This function covers the case of RDB -> Slaves socket transfers for
  * diskless replication. */
 void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     uint64_t *ok_slaves;
