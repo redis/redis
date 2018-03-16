@@ -23,7 +23,7 @@ NODEPS:=clean distclean
 STD=-std=c99 -pedantic -DREDIS_STATIC=''
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
-
+JEMALLOC_PATH=../deps/memkind
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
@@ -121,9 +121,12 @@ ifeq ($(MALLOC),tcmalloc_minimal)
 endif
 
 ifeq ($(MALLOC),jemalloc)
-	DEPENDENCY_TARGETS+= jemalloc
-	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a
+	FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(JEMALLOC_PATH)/jemalloc/include
+	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
+	FINAL_CFLAGS+= -DJE_PREFIX=je_
+	FINAL_LIBS+= $(JEMALLOC_PATH)/jemalloc/obj/lib/libjemalloc.a
+	FINAL_LIBS+= -ldl
+	FINAL_LIBS+= -L$(JEMALLOC_PATH)/libs -lmemkind
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)

@@ -1,4 +1,6 @@
 # Top level makefile, the real shit is at src/Makefile
+JEMALLOC_PATH=../deps/memkind
+export JEMALLOC_PATH
 
 default: all
 
