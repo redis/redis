@@ -185,6 +185,10 @@ start_server {tags {"aofrw"}} {
         }
     }
 
+    test {CONFIG GET of AOF parameters} {
+        assert_equal {appendonly.aof} [lindex [r config get appendfilename] 1]
+    }
+
     test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
         r multi
         r bgsave
