@@ -255,7 +255,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        /* Don't feed slaves that are still waiting for BGSAVE to start */
+        /* Don't feed slaves that are still waiting for BGSAVE to start. */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
 
         /* Feed slaves that are waiting for the initial SYNC (so these commands
@@ -294,7 +294,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     while((ln = listNext(&li))) {
         client *slave = ln->value;
 
-        /* Don't feed slaves that are still waiting for BGSAVE to start */
+        /* Don't feed slaves that are still waiting for BGSAVE to start. */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
         addReplyString(slave,buf,buflen);
     }
@@ -584,7 +584,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
-     * resynchorinization from the list of salves, inform them with
+     * resynchronization from the list of slaves, inform them with
      * an error about what happened, close the connection ASAP. */
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
@@ -604,7 +604,7 @@ int startBgsaveForReplication(int mincapa) {
     }
 
     /* If the target is socket, rdbSaveToSlavesSockets() already setup
-     * the salves for a full resync. Otherwise for disk target do it now.*/
+     * the slaves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
