@@ -405,7 +405,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
 
 #if (BYTE_ORDER == LITTLE_ENDIAN)
     #ifdef USE_ALIGNED_ACCESS
-    memcpy(&k,data,sizeof(uint64_t));
+        memcpy(&k,data,sizeof(uint64_t));
     #else
         k = *((uint64_t*)data);
     #endif
@@ -516,7 +516,7 @@ int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
 }
 
 /* Compute the register histogram in the dense representation. */
-void hllDenseRegHisto(uint8_t *registers, int* regHisto) {
+void hllDenseRegHisto(uint8_t *registers, int* reghisto) {
     int j;
 
     /* Redis default is to use 16384 registers 6 bits each. The code works
@@ -545,22 +545,22 @@ void hllDenseRegHisto(uint8_t *registers, int* regHisto) {
             r14 = (r[10] >> 4 | r[11] << 4) & 63;
             r15 = (r[11] >> 2) & 63;
 
-            regHisto[r0] += 1;
-            regHisto[r1] += 1;
-            regHisto[r2] += 1;
-            regHisto[r3] += 1;
-            regHisto[r4] += 1;
-            regHisto[r5] += 1;
-            regHisto[r6] += 1;
-            regHisto[r7] += 1;
-            regHisto[r8] += 1;
-            regHisto[r9] += 1;
-            regHisto[r10] += 1;
-            regHisto[r11] += 1;
-            regHisto[r12] += 1;
-            regHisto[r13] += 1;
-            regHisto[r14] += 1;
-            regHisto[r15] += 1;
+            reghisto[r0]++;
+            reghisto[r1]++;
+            reghisto[r2]++;
+            reghisto[r3]++;
+            reghisto[r4]++;
+            reghisto[r5]++;
+            reghisto[r6]++;
+            reghisto[r7]++;
+            reghisto[r8]++;
+            reghisto[r9]++;
+            reghisto[r10]++;
+            reghisto[r11]++;
+            reghisto[r12]++;
+            reghisto[r13]++;
+            reghisto[r14]++;
+            reghisto[r15]++;
 
             r += 12;
         }
@@ -568,7 +568,7 @@ void hllDenseRegHisto(uint8_t *registers, int* regHisto) {
         for(j = 0; j < HLL_REGISTERS; j++) {
             unsigned long reg;
             HLL_DENSE_GET_REGISTER(reg,registers,j);
-            regHisto[reg] += 1;
+            reghisto[reg]++;
         }
     }
 }
@@ -907,7 +907,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
 }
 
 /* Compute the register histogram in the sparse representation. */
-void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* regHisto) {
+void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* reghisto) {
     int idx = 0, runlen, regval;
     uint8_t *end = sparse+sparselen, *p = sparse;
 
@@ -915,18 +915,18 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* regHis
         if (HLL_SPARSE_IS_ZERO(p)) {
             runlen = HLL_SPARSE_ZERO_LEN(p);
             idx += runlen;
-            regHisto[0] += runlen;
+            reghisto[0] += runlen;
             p++;
         } else if (HLL_SPARSE_IS_XZERO(p)) {
             runlen = HLL_SPARSE_XZERO_LEN(p);
             idx += runlen;
-            regHisto[0] += runlen;
+            reghisto[0] += runlen;
             p += 2;
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
             idx += runlen;
-            regHisto[regval] += runlen;
+            reghisto[regval] += runlen;
             p++;
         }
     }
@@ -941,24 +941,24 @@ void hllSparseRegHisto(uint8_t *sparse, int sparselen, int *invalid, int* regHis
 
 /* Implements the register histogram calculation for uint8_t data type
  * which is only used internally as speedup for PFCOUNT with multiple keys. */
-void hllRawRegHisto(uint8_t *registers, int* regHisto) {
+void hllRawRegHisto(uint8_t *registers, int* reghisto) {
     uint64_t *word = (uint64_t*) registers;
     uint8_t *bytes;
     int j;
 
     for (j = 0; j < HLL_REGISTERS/8; j++) {
         if (*word == 0) {
-            regHisto[0] += 8;
+            reghisto[0] += 8;
         } else {
             bytes = (uint8_t*) word;
-            regHisto[bytes[0]] += 1;
-            regHisto[bytes[1]] += 1;
-            regHisto[bytes[2]] += 1;
-            regHisto[bytes[3]] += 1;
-            regHisto[bytes[4]] += 1;
-            regHisto[bytes[5]] += 1;
-            regHisto[bytes[6]] += 1;
-            regHisto[bytes[7]] += 1;
+            reghisto[bytes[0]]++;
+            reghisto[bytes[1]]++;
+            reghisto[bytes[2]]++;
+            reghisto[bytes[3]]++;
+            reghisto[bytes[4]]++;
+            reghisto[bytes[5]]++;
+            reghisto[bytes[6]]++;
+            reghisto[bytes[7]]++;
         }
         word++;
     }
@@ -1013,16 +1013,16 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    int regHisto[HLL_Q+2] = {0};
+    int reghisto[HLL_Q+2] = {0};
 
     /* Compute register histogram */
     if (hdr->encoding == HLL_DENSE) {
-        hllDenseRegHisto(hdr->registers,regHisto);
+        hllDenseRegHisto(hdr->registers,reghisto);
     } else if (hdr->encoding == HLL_SPARSE) {
         hllSparseRegHisto(hdr->registers,
-                         sdslen((sds)hdr)-HLL_HDR_SIZE,invalid,regHisto);
+                         sdslen((sds)hdr)-HLL_HDR_SIZE,invalid,reghisto);
     } else if (hdr->encoding == HLL_RAW) {
-        hllRawRegHisto(hdr->registers,regHisto);
+        hllRawRegHisto(hdr->registers,reghisto);
     } else {
         serverPanic("Unknown HyperLogLog encoding in hllCount()");
     }
@@ -1030,12 +1030,12 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     /* Estimate cardinality form register histogram. See:
      * "New cardinality estimation algorithms for HyperLogLog sketches"
      * Otmar Ertl, arXiv:1702.01284 */
-    double z = m * hllTau((m-regHisto[HLL_Q+1])/(double)m);
+    double z = m * hllTau((m-reghisto[HLL_Q+1])/(double)m);
     for (j = HLL_Q; j >= 1; --j) {
-        z += regHisto[j];
+        z += reghisto[j];
         z *= 0.5;
     }
-    z += m * hllSigma(regHisto[0]/(double)m);
+    z += m * hllSigma(reghisto[0]/(double)m);
     E = llroundl(HLL_ALPHA_INF*m*m/z);
 
     return (uint64_t) E;
