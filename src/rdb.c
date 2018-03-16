@@ -1755,7 +1755,11 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int retval;
 
-    if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
+    if ((fp = fopen(filename,"r")) == NULL) {
+        serverLog(LL_WARNING, "Failed trying to load rdb from file (%s): %s",
+            filename, strerror(errno));
+      return C_ERR;
+    }
     startLoading(fp);
     rioInitWithFile(&rdb,fp);
     retval = rdbLoadRio(&rdb,rsi);
