@@ -1158,11 +1158,18 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
         di = NULL; /* So that we don't release it again on error. */
     }
 
-    /* If we are storing the replication information on disk, persist
-     * the script cache as well: on successful PSYNC after a restart, we need
-     * to be able to process any EVALSHA inside the replication backlog the
-     * master will send us. */
-    if (rsi && dictSize(server.lua_scripts)) {
+    /* We should not only persist data on disk, but also
+     * persist the script cache as well:
+     * 1. On successful PSYNC after a restart, we need
+     *    to be able to process any EVALSHA inside the
+     *    replication backlog the master will send us.
+     * 2. The RDB file represents the state of redis, and
+     *    the scripts are a part of redis too, so after a
+     *    restart, redis should be able to excute EVALSHA.
+     * 3. Consider about config option 'aof-use-rdb-preamble',
+     *    the RDB file should take lua scripts, in case of
+     *    redis lost scripts after restart from AOF. */
+    if (dictSize(server.lua_scripts)) {
         di = dictGetIterator(server.lua_scripts);
         while((de = dictNext(di)) != NULL) {
             robj *body = dictGetVal(de);
