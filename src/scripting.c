@@ -1313,6 +1313,18 @@ void evalGenericCommand(client *c, int evalsha) {
              * itself when it returns NULL. */
             return;
         }
+        /* Run here, it means that it's the first time we execute the script
+         * by EVAL command. We should propagate the script as SCRIPT LOAD
+         * command, that can make redis execute EVALSHA after failover or
+         * reboot, even the script is READ ONLY. */
+        robj *tmpargv[3];
+        tmpargv[0] = createStringObject("SCRIPT",6);;
+        tmpargv[1] = createStringObject("LOAD",4);
+        tmpargv[2] = c->argv[1];
+        propagate(server.scriptCommand,c->db->id,tmpargv,3,
+                  PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(tmpargv[0]);
+        decrRefCount(tmpargv[1]);
         /* Now the following is guaranteed to return non nil */
         lua_getglobal(lua, funcname);
         serverAssert(!lua_isnil(lua,-1));
@@ -1401,6 +1413,17 @@ void evalGenericCommand(client *c, int evalsha) {
                 PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(propargv[0]);
         }
+    }
+
+    /* We are sure that the script was already in the context of all the
+     * attached slaves *and* the current AOF file if enabled. Because we
+     * have already propagate the script in EVAL caommand as 'script load'.
+     * So, we can rewrite EVAL command as EVALSHA. */
+    if (!evalsha && !server.lua_replicate_commands) {
+        rewriteClientCommandArgument(c,0,
+            resetRefCount(createStringObject("EVALSHA",7)));
+        rewriteClientCommandArgument(c,1,
+            resetRefCount(createStringObject(funcname+2,40)));
     }
 }
 
