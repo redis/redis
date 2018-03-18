@@ -1990,7 +1990,6 @@ void initServer(void) {
     }
 
     if (server.cluster_enabled) clusterInit();
-    replicationScriptCacheInit();
     scriptingInit(1);
     slowlogInit();
     latencyMonitorInit();
