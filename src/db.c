@@ -89,6 +89,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *
  *  LOOKUP_NONE (or zero): no special flags are passed.
  *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
+ *  LOOKUP_NOSTATS: don't update the global hits/misses stats.
  *
  * Note: this function also returns NULL is the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
@@ -125,10 +126,12 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         }
     }
     val = lookupKey(db,key,flags);
-    if (val == NULL)
-        server.stat_keyspace_misses++;
-    else
-        server.stat_keyspace_hits++;
+    if (!(flags & LOOKUP_NOSTATS)) {
+        if (val == NULL)
+            server.stat_keyspace_misses++;
+        else
+            server.stat_keyspace_hits++;
+    }
     return val;
 }
 
@@ -212,10 +215,6 @@ void setKey(redisDb *db, robj *key, robj *val) {
     incrRefCount(val);
     removeExpire(db,key);
     signalModifiedKey(db,key);
-}
-
-int dbExists(redisDb *db, robj *key) {
-    return dictFind(db->dict,key->ptr) != NULL;
 }
 
 /* Return a random key, in form of a Redis object.
@@ -468,8 +467,9 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbExists(c->db,c->argv[j])) count++;
+        if (lookupKeyReadWithFlags(c->db,c->argv[j],
+            LOOKUP_NOTOUCH|LOOKUP_NOSTATS) != NULL)
+            count++;
     }
     addReplyLongLong(c,count);
 }
