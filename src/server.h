@@ -59,7 +59,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "anet.h"    /* Networking the easy way */
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h"  /* Compact integer set structure */
-#include "stream.h"  /* Stream data type header file. */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
@@ -944,8 +943,8 @@ struct redisServer {
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand, *execCommand, *expireCommand,
-                        *pexpireCommand;
+                        *rpopCommand, *sremCommand, *execCommand,
+                        *expireCommand, *pexpireCommand, *xclaimCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1297,6 +1296,8 @@ typedef struct {
     dictIterator *di;
     dictEntry *de;
 } hashTypeIterator;
+
+#include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2

@@ -84,12 +84,19 @@ typedef struct streamNACK {
                                    in the last delivery. */
 } streamNACK;
 
+/* Stream propagation informations, passed to functions in order to propagate
+ * XCLAIM commands to AOF and slaves. */
+typedef struct sreamPropInfo {
+    robj *keyname;
+    robj *groupname;
+} streamPropInfo;
+
 /* Prototypes of exported APIs. */
 struct client;
 
 stream *streamNew(void);
 void freeStream(stream *s);
-size_t streamReplyWithRange(struct client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags);
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);
