@@ -71,14 +71,10 @@ void zlibc_free(void *ptr) {
 #endif
 
 #define update_zmalloc_stat_alloc(__n) do { \
-    size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicIncr(used_memory,__n); \
 } while(0)
 
 #define update_zmalloc_stat_free(__n) do { \
-    size_t _n = (__n); \
-    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     atomicDecr(used_memory,__n); \
 } while(0)
 
