@@ -40,3 +40,4 @@
 #define s_malloc zmalloc
 #define s_realloc zrealloc
 #define s_free zfree
+#define s_alloc z_alloc
