@@ -699,7 +699,7 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     argv[8] = createStringObject("RETRYCOUNT",10);
     argv[9] = createStringObjectFromLongLong(nack->delivery_count);
     argv[10] = createStringObject("FORCE",5);
-    propagate(server.xclaimCommand,c->db->id,argv,10,PROPAGATE_AOF|PROPAGATE_REPL);
+    propagate(server.xclaimCommand,c->db->id,argv,11,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
     decrRefCount(argv[4]);
