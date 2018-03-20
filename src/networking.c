@@ -35,13 +35,6 @@
 
 static void setProtocolError(const char *errstr, client *c, long pos);
 
-/* Return the size consumed from the allocator, for the specified SDS string,
- * including internal fragmentation. This function is used in order to compute
- * the client output buffer size. */
-size_t sdsZmallocSize(sds s) {
-    void *sh = sdsAllocPtr(s);
-    return zmalloc_size(sh);
-}
 
 /* Return the amount of memory used by the sds string at object->ptr
  * for a string object. */
@@ -234,84 +227,80 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
-void _addReplyObjectToList(client *c, robj *o) {
+/* This method copies the input data, caller is responsible of freeing it */
+void _addReplyStringToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-    if (listLength(c->reply) == 0) {
-        sds s = sdsdup(o->ptr);
-        listAddNodeTail(c->reply,s);
-        c->reply_bytes += sdslen(s);
-    } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
+    listNode *ln = listLast(c->reply);
+    sds tail = ln? listNodeValue(ln): NULL;
+    /* It is possible that we have a tail list node, but no tail sds.
+     * if addDeferredMultiBulkLength() was used. */
 
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatsds(tail,o->ptr);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += sdslen(o->ptr);
-        } else {
-            sds s = sdsdup(o->ptr);
-            listAddNodeTail(c->reply,s);
-            c->reply_bytes += sdslen(s);
+    /* Append to tail string when possible. */
+    if (tail) {
+        if (sdsavail(tail) >= len) {
+            /* We can encode the entire new string inside the existing tail's free space */
+            tail = sdscatlen(tail,s,len);
+            serverAssert(tail == listNodeValue(ln));
+            len = 0;
+            /* No need to adjust c->reply_bytes */
+        } else if (sdslen(tail) < PROTO_REPLY_CHUNK_BYTES) {
+            /* We can fit at least part of the new string into the tail (considering the limit).
+             * but check if the target sds is already at the desired size, so that we can
+             * avoid sdsMallocSize (which is slow) the realloc attempt */
+            if (sdsalloc(tail) != PROTO_REPLY_CHUNK_BYTES) {
+                /* We can grow the existing tail to include at least part of the new string,
+                 * make sure to grow to at least PROTO_REPLY_CHUNK_BYTES */
+                c->reply_bytes -= sdsMallocSize(tail);
+                tail = sdsMakeRoomForExact(tail, PROTO_REPLY_CHUNK_BYTES - sdslen(tail));
+                listNodeValue(ln) = tail;
+                c->reply_bytes += sdsGrowToMallocSize(tail);
+            }
+            /* Copy the part we can fit into the tail, and leave the rest for a new node */
+            size_t avail = sdsavail(tail);
+            size_t copy = avail >= len? len: avail;
+            tail = sdscatlen(tail,s,copy);
+            serverAssert(tail == listNodeValue(ln));
+            s += copy;
+            len -= copy;
         }
+    }
+    if (len) {
+        /* Create a new node, make sure it is allocated to at least PROTO_REPLY_CHUNK_BYTES */
+        size_t extra = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES - len: 0;
+        sds node = sdsnewalloc(s,len,extra);
+        listAddNodeTail(c->reply,node);
+        c->reply_bytes += sdsGrowToMallocSize(node);
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* This method takes responsibility over the sds. When it is no longer
- * needed it will be free'd, otherwise it ends up in a robj. */
+ * needed it will be free'd. */
 void _addReplySdsToList(client *c, sds s) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
         sdsfree(s);
         return;
     }
 
-    if (listLength(c->reply) == 0) {
+    listNode *ln = listLast(c->reply);
+    sds tail = ln? listNodeValue(ln): NULL;
+    /* It is possible that we have a tail list node, but no tail sds.
+     * if addDeferredMultiBulkLength() was used. */
+
+    /* Create a new node when necessary. */
+    if (!tail || sdslen(s) > PROTO_REPLY_CHUNK_BYTES * 4) {
+        /* If we have to start a new node,
+         * or, on big strings, create a new node, don't do any realloc or memcpy
+         * the relative size of the wasted memory is small. */
         listAddNodeTail(c->reply,s);
-        c->reply_bytes += sdslen(s);
+        c->reply_bytes += sdsGrowToMallocSize(s);
     } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
-
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+sdslen(s) <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatsds(tail,s);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += sdslen(s);
-            sdsfree(s);
-        } else {
-            listAddNodeTail(c->reply,s);
-            c->reply_bytes += sdslen(s);
-        }
-    }
-    asyncCloseClientOnOutputBufferLimitReached(c);
-}
-
-void _addReplyStringToList(client *c, const char *s, size_t len) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-
-    if (listLength(c->reply) == 0) {
-        sds node = sdsnewlen(s,len);
-        listAddNodeTail(c->reply,node);
-        c->reply_bytes += len;
-    } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
-
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatlen(tail,s,len);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += len;
-        } else {
-            sds node = sdsnewlen(s,len);
-            listAddNodeTail(c->reply,node);
-            c->reply_bytes += len;
-        }
+        /* we can encode the new string inside the existing tail's free space, */
+        /* or split the string, let _addReplyStringToList handle it. */
+        _addReplyStringToList(c, (const char*)s, sdslen(s));
+        sdsfree(s);
+        return; /* asyncCloseClientOnOutputBufferLimitReached already triggered */
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
@@ -333,7 +322,7 @@ void addReply(client *c, robj *obj) {
      * messing with its page. */
     if (sdsEncodedObject(obj)) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyObjectToList(c,obj);
+            _addReplyStringToList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* Optimization: if there is room in the static buffer for 32 bytes
          * (more than the max chars a 64 bit integer can take as string) we
@@ -350,7 +339,7 @@ void addReply(client *c, robj *obj) {
         }
         obj = getDecodedObject(obj);
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyObjectToList(c,obj);
+            _addReplyStringToList(c,obj->ptr,sdslen(obj->ptr));
         decrRefCount(obj);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
@@ -465,21 +454,19 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addDeferredMultiBulkLength() */
     if (node == NULL) return;
+    serverAssert(!listNodeValue(ln));
 
     len = sdscatprintf(sdsnewlen("*",1),"%ld\r\n",length);
     listNodeValue(ln) = len;
-    c->reply_bytes += sdslen(len);
-    if (ln->next != NULL) {
-        next = listNodeValue(ln->next);
-
+    if (ln->next != NULL && (next = listNodeValue(ln->next))) {
         /* Only glue when the next node is non-NULL (an sds in this case) */
-        if (next != NULL) {
-            len = sdscatsds(len,next);
-            listDelNode(c->reply,ln->next);
-            listNodeValue(ln) = len;
-            /* No need to update c->reply_bytes: we are just moving the same
-             * amount of bytes from one node to another. */
-        }
+        c->reply_bytes -= sdsMallocSize(next);
+        len = sdscatsds(len,next);
+        c->reply_bytes += sdsMallocSize(len);
+        listDelNode(c->reply,ln->next);
+        listNodeValue(ln) = len;
+    } else {
+        c->reply_bytes += sdsMallocSize(len);
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
@@ -637,11 +624,20 @@ void addReplyHelp(client *c, const char **help) {
  * The function takes care of freeing the old output buffers of the
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
+    listIter li;
+    listNode *ln;
     listRelease(dst->reply);
     dst->reply = listDup(src->reply);
     memcpy(dst->buf,src->buf,src->bufpos);
     dst->bufpos = src->bufpos;
-    dst->reply_bytes = src->reply_bytes;
+    /* we have to re-compute the reply_bytes, since there's a chance
+     * sdsMallocSize give a different size after sdsdup */
+    dst->reply_bytes = 0;
+    listRewind(dst->reply,&li);
+    while((ln = listNext(&li))) {
+        sds o = listNodeValue(ln);
+        dst->reply_bytes += sdsMallocSize(o);
+    }
 }
 
 /* Return true if the specified client has pending reply buffers to write to
@@ -962,6 +958,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
             objlen = sdslen(o);
 
             if (objlen == 0) {
+                c->reply_bytes -= sdsMallocSize(o);
                 listDelNode(c->reply,listFirst(c->reply));
                 continue;
             }
@@ -973,9 +970,9 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
             /* If we fully sent the object on head go to the next one */
             if (c->sentlen == objlen) {
+                c->reply_bytes -= sdsMallocSize(o);
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
-                c->reply_bytes -= objlen;
                 /* If there are no longer objects in the list, we expect
                  * the count of reply bytes to be exactly zero. */
                 if (listLength(c->reply) == 0)
@@ -1894,11 +1891,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode)+5;
-    /* The +5 above means we assume an sds16 hdr, may not be true
-     * but is not going to be a problem. */
-
-    return c->reply_bytes + (list_item_size*listLength(c->reply));
+    return c->reply_bytes + sizeof(listNode)*listLength(c->reply);
 }
 
 /* Get the class of a client, used in order to enforce limits to different
