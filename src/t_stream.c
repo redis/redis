@@ -1559,6 +1559,7 @@ void xackCommand(client *c) {
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamFreeNACK(nack);
             acknowledged++;
+            server.dirty++;
         }
     }
     addReplyLongLong(c,acknowledged);
