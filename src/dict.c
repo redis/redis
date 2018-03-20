@@ -940,7 +940,8 @@ static unsigned long _dictNextPower(unsigned long size)
 {
   unsigned long prev;
   unsigned long iter = size;
-
+  
+  if (size >= LONG_MAX) return LONG_MAX + 1LU;
   while (iter) {
       prev = iter;
       iter = iter & (iter - 1);
