@@ -507,8 +507,11 @@ start_server {
             create_list xlist "$large c"
             assert_equal 3 [r rpushx xlist d]
             assert_equal 4 [r lpushx xlist a]
-            assert_equal 6 [r rpushx xlist 42 x]
-            assert_equal 9 [r lpushx xlist y3 y2 y1]
+            assert_equal 5 [r rpushx xlist 42]
+            assert_equal 6 [r rpushx xlist x]
+            assert_equal 7 [r lpushx xlist y3]
+            assert_equal 8 [r lpushx xlist y2]
+            assert_equal 9 [r lpushx xlist y1]
             assert_equal "y1 y2 y3 a $large c d 42 x" [r lrange xlist 0 -1]
         }
 
