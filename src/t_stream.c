@@ -1496,6 +1496,7 @@ NULL
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id);
         if (cg) {
             addReply(c,shared.ok);
+            server.dirty++;
         } else {
             addReplySds(c,
                 sdsnew("-BUSYGROUP Consumer Group name already exists\r\n"));
@@ -1507,6 +1508,7 @@ NULL
          * that were yet associated with such a consumer. */
         long long pending = streamDelConsumer(cg,c->argv[4]->ptr);
         addReplyLongLong(c,pending);
+        server.dirty++;
     } else if (!strcasecmp(opt,"HELP")) {
         addReplyHelp(c, help);
     } else {
