@@ -686,8 +686,11 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     /* We need to generate an XCLAIM that will work in a idempotent fashion:
      *
      * XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
-     *        RETRYCOUNT <count> [FORCE]. */
-    robj *argv[11];
+     *        RETRYCOUNT <count> FORCE JUSTID.
+     *
+     * Note that JUSTID is useful in order to avoid that XCLAIM will do
+     * useless work in the slave side, trying to fetch the stream item. */
+    robj *argv[12];
     argv[0] = createStringObject("XCLAIM",6);
     argv[1] = key;
     argv[2] = group;
@@ -699,7 +702,8 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     argv[8] = createStringObject("RETRYCOUNT",10);
     argv[9] = createStringObjectFromLongLong(nack->delivery_count);
     argv[10] = createStringObject("FORCE",5);
-    propagate(server.xclaimCommand,c->db->id,argv,11,PROPAGATE_AOF|PROPAGATE_REPL);
+    argv[11] = createStringObject("JUSTID",6);
+    propagate(server.xclaimCommand,c->db->id,argv,12,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
     decrRefCount(argv[4]);
