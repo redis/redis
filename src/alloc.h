@@ -63,12 +63,4 @@ static const struct __alloc __m_alloc = {
 };
 static const struct __alloc *m_alloc = &__m_alloc;
 
-static const struct __alloc __c_alloc = {
-		malloc,
-		calloc,
-		realloc,
-		free
-};
-static const struct __alloc *c_alloc = &__c_alloc;
-
 #endif /* __ALLOC_H__ */
