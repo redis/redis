@@ -234,62 +234,6 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
-void _addReplyObjectToList(client *c, robj *o) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
-
-    if (listLength(c->reply) == 0) {
-        sds s = sdsdup(o->ptr);
-        listAddNodeTail(c->reply,s);
-        c->reply_bytes += sdslen(s);
-    } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
-
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+sdslen(o->ptr) <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatsds(tail,o->ptr);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += sdslen(o->ptr);
-        } else {
-            sds s = sdsdup(o->ptr);
-            listAddNodeTail(c->reply,s);
-            c->reply_bytes += sdslen(s);
-        }
-    }
-    asyncCloseClientOnOutputBufferLimitReached(c);
-}
-
-/* This method takes responsibility over the sds. When it is no longer
- * needed it will be free'd, otherwise it ends up in a robj. */
-void _addReplySdsToList(client *c, sds s) {
-    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
-        sdsfree(s);
-        return;
-    }
-
-    if (listLength(c->reply) == 0) {
-        listAddNodeTail(c->reply,s);
-        c->reply_bytes += sdslen(s);
-    } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
-
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+sdslen(s) <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatsds(tail,s);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += sdslen(s);
-            sdsfree(s);
-        } else {
-            listAddNodeTail(c->reply,s);
-            c->reply_bytes += sdslen(s);
-        }
-    }
-    asyncCloseClientOnOutputBufferLimitReached(c);
-}
-
 void _addReplyStringToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
@@ -324,34 +268,17 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
 void addReply(client *c, robj *obj) {
     if (prepareClientToWrite(c) != C_OK) return;
 
-    /* This is an important place where we can avoid copy-on-write
-     * when there is a saving child running, avoiding touching the
-     * refcount field of the object if it's not needed.
-     *
-     * If the encoding is RAW and there is room in the static buffer
-     * we'll be able to send the object to the client without
-     * messing with its page. */
     if (sdsEncodedObject(obj)) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyObjectToList(c,obj);
+            _addReplyStringToList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
-        /* Optimization: if there is room in the static buffer for 32 bytes
-         * (more than the max chars a 64 bit integer can take as string) we
-         * avoid decoding the object and go for the lower level approach. */
-        if (listLength(c->reply) == 0 && (sizeof(c->buf) - c->bufpos) >= 32) {
-            char buf[32];
-            int len;
-
-            len = ll2string(buf,sizeof(buf),(long)obj->ptr);
-            if (_addReplyToBuffer(c,buf,len) == C_OK)
-                return;
-            /* else... continue with the normal code path, but should never
-             * happen actually since we verified there is room. */
-        }
-        obj = getDecodedObject(obj);
-        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyObjectToList(c,obj);
-        decrRefCount(obj);
+        /* For integer encoded strings we just convert it into a string
+         * using our optimized function, and attach the resulting string
+         * to the output buffer. */
+        char buf[32];
+        size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+        if (_addReplyToBuffer(c,buf,len) != C_OK)
+            _addReplyStringToList(c,buf,len);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
     }
@@ -363,12 +290,9 @@ void addReplySds(client *c, sds s) {
         sdsfree(s);
         return;
     }
-    if (_addReplyToBuffer(c,s,sdslen(s)) == C_OK) {
-        sdsfree(s);
-    } else {
-        /* This method free's the sds when it is no longer needed. */
-        _addReplySdsToList(c,s);
-    }
+    if (_addReplyToBuffer(c,s,sdslen(s)) != C_OK)
+        _addReplyStringToList(c,s,sdslen(s));
+    sdsfree(s);
 }
 
 /* This low level function just adds whatever protocol you send it to the
