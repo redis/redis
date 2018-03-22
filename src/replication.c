@@ -569,18 +569,19 @@ int startBgsaveForReplication(int mincapa) {
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "slaves sockets" : "disk");
 
-    rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-    /* If we are saving for a chained slave (that is, if we are,
-     * in turn, a slave of another instance), make sure after
-     * loadig the RDB, our slaves select the right DB: we'll just
-     * send the replication stream we receive from our master, so
-     * no way to send SELECT commands. */
-    if (server.master) rsi.repl_stream_db = server.master->db->id;
-
-    if (socket_target)
-        retval = rdbSaveToSlavesSockets(&rsi);
-    else
-        retval = rdbSaveBackground(server.rdb_filename,&rsi);
+    rdbSaveInfo rsi, *rsiptr;
+    rsiptr = rdbPopulateSaveInfo(&rsi);
+    /* Only do rdbSave* when rsiptr is not NULL,
+     * otherwise slave will miss repl-stream-db. */
+    if (rsiptr) {
+        if (socket_target)
+            retval = rdbSaveToSlavesSockets(rsiptr);
+        else
+            retval = rdbSaveBackground(server.rdb_filename,rsiptr);
+    } else {
+        serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
+        retval = C_ERR;
+    }
 
     /* If we failed to BGSAVE, remove the slaves waiting for a full
      * resynchorinization from the list of salves, inform them with
@@ -1329,7 +1330,8 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
             cmd = sdscat(cmd,arg);
         }
         cmd = sdscatlen(cmd,"\r\n",2);
-
+        va_end(ap);
+        
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
@@ -1339,7 +1341,6 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
                     strerror(errno));
         }
         sdsfree(cmd);
-        va_end(ap);
     }
 
     /* Read the reply from the server. */
@@ -1531,6 +1532,11 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         /* Setup the replication to continue. */
         sdsfree(reply);
         replicationResurrectCachedMaster(fd);
+
+        /* If this instance was restarted and we read the metadata to
+         * PSYNC from the persistence file, our replication backlog could
+         * be still not initialized. Create it. */
+        if (server.repl_backlog == NULL) createReplicationBacklog();
         return PSYNC_CONTINUE;
     }
 
@@ -1943,7 +1949,6 @@ void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
-    server.repl_no_slaves_since = server.unixtime;
     /* When a slave is turned into a master, the current replication ID
      * (that was inherited from the master at synchronization time) is
      * used as secondary ID up to the current offset, and a new replication
@@ -1965,6 +1970,12 @@ void replicationUnsetMaster(void) {
      * master switch. */
     server.slaveseldb = -1;
     server.repl_slave_repl_all = CONFIG_DEFAULT_SLAVE_REPLICATE_ALL;
+
+    /* Once we turn from slave to master, we consider the starting time without
+     * slaves (that is used to count the replication backlog time to live) as
+     * starting from now. Otherwise the backlog will be freed after a
+     * failover if slaves do not connect immediately. */
+    server.repl_no_slaves_since = server.unixtime;
 }
 
 /* This function is called when the slave lose the connection with the
@@ -2608,6 +2619,23 @@ void replicationCron(void) {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
 
         if (idle > server.repl_backlog_time_limit) {
+            /* When we free the backlog, we always use a new
+             * replication ID and clear the ID2. This is needed
+             * because when there is no backlog, the master_repl_offset
+             * is not updated, but we would still retain our replication
+             * ID, leading to the following problem:
+             *
+             * 1. We are a master instance.
+             * 2. Our slave is promoted to master. It's repl-id-2 will
+             *    be the same as our repl-id.
+             * 3. We, yet as master, receive some updates, that will not
+             *    increment the master_repl_offset.
+             * 4. Later we are turned into a slave, connecto to the new
+             *    master that will accept our PSYNC request by second
+             *    replication ID, but there will be data inconsistency
+             *    because we received writes. */
+            changeReplicationId();
+            clearReplicationId2();
             freeReplicationBacklog();
             serverLog(LL_NOTICE,
                 "Replication backlog freed after %d seconds "

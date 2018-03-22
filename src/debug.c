@@ -308,6 +308,8 @@ void debugCommand(client *c) {
         "structsize -- Return the size of different Redis core C structures.");
         blen++; addReplyStatus(c,
         "htstats <dbid> -- Return hash table statistics of the specified Redis database.");
+        blen++; addReplyStatus(c,
+        "change-repl-id -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.");
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
@@ -335,7 +337,9 @@ void debugCommand(client *c) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        if (rdbSave(server.rdb_filename,NULL) != C_OK) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
             addReply(c,shared.err);
             return;
         }
@@ -368,13 +372,13 @@ void debugCommand(client *c) {
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
-        char extra[128] = {0};
+        char extra[138] = {0};
         if (val->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
             quicklist *ql = val->ptr;
             /* Add number of quicklist nodes */
-            int used = snprintf(nextra, remaining, " ql_nodes:%u", ql->len);
+            int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
             nextra += used;
             remaining -= used;
             /* Add average quicklist fill factor */
@@ -547,6 +551,11 @@ void debugCommand(client *c) {
         stats = sdscat(stats,buf);
 
         addReplyBulkSds(c,stats);
+    } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
+        serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
+        changeReplicationId();
+        clearReplicationId2();
+        addReply(c,shared.ok);
     } else {
         addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
             (char*)c->argv[1]->ptr);
@@ -1021,7 +1030,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
         "Redis %s crashed by signal: %d", REDIS_VERSION, sig);
     if (eip != NULL) {
         serverLog(LL_WARNING,
-        "Crashed running the instuction at: %p", eip);
+        "Crashed running the instruction at: %p", eip);
     }
     if (sig == SIGSEGV || sig == SIGBUS) {
         serverLog(LL_WARNING,

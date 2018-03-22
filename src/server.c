@@ -125,7 +125,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    are not fast commands.
  */
 struct redisCommand redisCommandTable[] = {
-    {"module",moduleCommand,-2,"as",0,NULL,1,1,1,0,0},
+    {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
@@ -278,7 +278,7 @@ struct redisCommand redisCommandTable[] = {
     {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
+    {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
     {"memory",memoryCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
@@ -910,12 +910,15 @@ void databasesCron(void) {
         /* Rehash */
         if (server.activerehashing) {
             for (j = 0; j < dbs_per_call; j++) {
-                int work_done = incrementallyRehash(rehash_db % server.dbnum);
-                rehash_db++;
+                int work_done = incrementallyRehash(rehash_db);
                 if (work_done) {
                     /* If the function did some work, stop here, we'll do
                      * more at the next cron loop. */
                     break;
+                } else {
+                    /* If this db didn't need rehash, we'll try the next one. */
+                    rehash_db++;
+                    rehash_db %= server.dbnum;
                 }
             }
         }
@@ -1078,7 +1081,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     } else {
         /* If there is not a background saving/rewrite in progress check if
-         * we have to save/rewrite now */
+         * we have to save/rewrite now. */
          for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -1094,13 +1097,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 serverLog(LL_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
-                rdbSaveBackground(server.rdb_filename,NULL);
+                rdbSaveInfo rsi, *rsiptr;
+                rsiptr = rdbPopulateSaveInfo(&rsi);
+                rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
          }
 
-         /* Trigger an AOF rewrite if needed */
-         if (server.rdb_child_pid == -1 &&
+         /* Trigger an AOF rewrite if needed. */
+         if (server.aof_state == AOF_ON &&
+             server.rdb_child_pid == -1 &&
              server.aof_child_pid == -1 &&
              server.aof_rewrite_perc &&
              server.aof_current_size > server.aof_rewrite_min_size)
@@ -1166,7 +1172,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         (server.unixtime-server.lastbgsave_try > CONFIG_BGSAVE_RETRY_DELAY ||
          server.lastbgsave_status == C_OK))
     {
-        if (rdbSaveBackground(server.rdb_filename,NULL) == C_OK)
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK)
             server.rdb_bgsave_scheduled = 0;
     }
 
@@ -1367,6 +1375,7 @@ void initServerConfig(void) {
     server.active_defrag_threshold_upper = CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER;
     server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
     server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
+    server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
@@ -1545,16 +1554,29 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Check if we still have accesses to the executable that started this
      * server instance. */
-    if (access(server.executable,X_OK) == -1) return C_ERR;
+    if (access(server.executable,X_OK) == -1) {
+        serverLog(LL_WARNING,"Can't restart: this process has no "
+                             "permissions to execute %s", server.executable);
+        return C_ERR;
+    }
 
     /* Config rewriting. */
     if (flags & RESTART_SERVER_CONFIG_REWRITE &&
         server.configfile &&
-        rewriteConfig(server.configfile) == -1) return C_ERR;
+        rewriteConfig(server.configfile) == -1)
+    {
+        serverLog(LL_WARNING,"Can't restart: configuration rewrite process "
+                             "failed");
+        return C_ERR;
+    }
 
     /* Perform a proper shutdown. */
     if (flags & RESTART_SERVER_GRACEFULLY &&
-        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK) return C_ERR;
+        prepareForShutdown(SHUTDOWN_NOFLAGS) != C_OK)
+    {
+        serverLog(LL_WARNING,"Can't restart: error preparing for shutdown");
+        return C_ERR;
+    }
 
     /* Close all file descriptors, with the exception of stdin, stdout, strerr
      * which are useful if we restart a Redis server which is not daemonized. */
@@ -1566,6 +1588,8 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
+    zfree(server.exec_argv[0]);
+    server.exec_argv[0] = zstrdup(server.executable);
     execve(server.executable,server.exec_argv,environ);
 
     /* If an error occurred here, there is nothing we can do, but exit. */
@@ -1990,15 +2014,18 @@ void populateCommandTable(void) {
 }
 
 void resetCommandTableStats(void) {
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-    int j;
+    struct redisCommand *c;
+    dictEntry *de;
+    dictIterator *di;
 
-    for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = redisCommandTable+j;
-
+    di = dictGetSafeIterator(server.commands);
+    while((de = dictNext(di)) != NULL) {
+        c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
     }
+    dictReleaseIterator(di);
+
 }
 
 /* ========================== Redis OP Array API ============================ */
@@ -2258,8 +2285,9 @@ void call(client *c, int flags) {
                 propagate_flags &= ~PROPAGATE_AOF;
 
         /* Call propagate() only if at least one of AOF / replication
-         * propagation is needed. */
-        if (propagate_flags != PROPAGATE_NONE)
+         * propagation is needed. Note that modules commands handle replication
+         * in an explicit way, so we never replicate them automatically. */
+        if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
     }
 
@@ -2536,8 +2564,9 @@ int prepareForShutdown(int flags) {
                 "There is a child rewriting the AOF. Killing it!");
             kill(server.aof_child_pid,SIGUSR1);
         }
-        /* Append only file: fsync() the AOF and exit */
+        /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
+        flushAppendOnlyFile(1);
         aof_fsync(server.aof_fd);
     }
 
@@ -2545,7 +2574,9 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.rdb_filename,NULL) != C_OK) {
+        rdbSaveInfo rsi, *rsiptr;
+        rsiptr = rdbPopulateSaveInfo(&rsi);
+        if (rdbSave(server.rdb_filename,rsiptr) != C_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -2797,7 +2828,7 @@ void bytesToHuman(char *s, unsigned long long n) {
 sds genRedisInfoString(char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
-    int j, numcommands;
+    int j;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
     int allsections = 0, defsections = 0;
@@ -3260,20 +3291,24 @@ sds genRedisInfoString(char *section) {
         (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);
     }
 
-    /* cmdtime */
+    /* Command statistics */
     if (allsections || !strcasecmp(section,"commandstats")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
-        numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
-        for (j = 0; j < numcommands; j++) {
-            struct redisCommand *c = redisCommandTable+j;
 
+        struct redisCommand *c;
+        dictEntry *de;
+        dictIterator *di;
+        di = dictGetSafeIterator(server.commands);
+        while((de = dictNext(di)) != NULL) {
+            c = (struct redisCommand *) dictGetVal(de);
             if (!c->calls) continue;
             info = sdscatprintf(info,
                 "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
                 c->name, c->calls, c->microseconds,
                 (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
         }
+        dictReleaseIterator(di);
     }
 
     /* Cluster */
@@ -3523,13 +3558,21 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if (rsi.repl_id_is_set && rsi.repl_offset != -1) {
+            if (server.masterhost &&
+                rsi.repl_id_is_set &&
+                rsi.repl_offset != -1 &&
+                /* Note that older implementations may save a repl_stream_db
+                 * of -1 inside the RDB file in a wrong way, see more information
+                 * in function rdbPopulateSaveInfo. */
+                rsi.repl_stream_db != -1)
+            {
                 memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
                 server.master_repl_offset = rsi.repl_offset;
                 /* If we are a slave, create a cached master from this
                  * information, in order to allow partial resynchronizations
                  * with masters. */
-                if (server.masterhost) replicationCacheMasterUsingMyself();
+                replicationCacheMasterUsingMyself();
+                selectDb(server.cached_master,rsi.repl_stream_db);
             }
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));

@@ -11,6 +11,631 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.8     Released Fri Feb 2 11:17:40 CET 2018
+================================================================================
+
+Upgrade urgency CRITICAL ONLY for Redis Cluster users. Otherwise no reason
+to upgrade at all.
+
+Redis 4.0.8 fixes a single critical bug in the radix tree data structure
+used for Redis Cluster keys slot tracking. The problem was actually fixed
+10 months ago into unstable, but it was fixed in a commit related to Streams
+so it was never backported (for error) into the 4.0 branch.
+
+The problem will crash Redis Cluster instances during deletions, but it is
+very hard to trigger: only when the node removed is in the edge of a memory
+mapped area there are the conditions to create an issue, because otherwise
+the code just accesses an out of range word in read-only way in an allocated
+structure: this is almost always harmless.
+
+The single commit in this release:
+
+f603940f Rax updated to latest antirez/rax commit. (Salvatore Sanfilippo)
+
+Cheers,
+Salvatore
+
+================================================================================
+Redis 4.0.7     Released Wed Jan 24 11:01:40 CET 2018
+================================================================================
+
+Upgrade urgency MODERATE: Several bugs fixed, but none of critical level.
+
+Dear Redis Users,
+
+Redis 4.0.7 addresses a number of problems and adds a few things that are
+very useful to have and was worth to backport into a patchlevel release.
+Here is a list of the most important things, but you can find the full list
+of commits below as usually:
+
+* Many 32 bit overflows were addressed in order to allow to use Redis with
+  a very significant amount of data, memory size permitting. (zhaozhao.zz,
+  Oran Agra)
+
+* MEMORY USAGE fixed for the list type. (gnuhpc)
+
+* Allow read-only scripts in Redis Cluster. (Salvatore Sanfilippo)
+
+* Fix AOF pipes setup in edge case. (heqin)
+
+* AUTH option for MIGRATE. (AlexStocks, Salvatore Sanfilippo, Fabio Nicotra)
+
+* HyperLogLogs are no longer converted from sparse to dense in order
+  to be merged. (Salvatore Sanfilippo)
+
+* Fix AOF rewrite dead loop under edge cases. (heqin)
+
+* Fix processing of large bulk strings (>= 2GB). (Oran Agra)
+
+* Added RM_UnlinkKey in modules API. (Dvir Volk)
+
+* Fix Redis Cluster crashes when certain commands with a variable number
+  of arguments are called in an improper way. (Salvatore Sanfilippo)
+
+* Fix memory leak in lazyfree engine. (zhaozhao.zz)
+
+* Fix many potentially successful partial synchronizations that end
+  doing a full SYNC, because of a bug destroying the replication
+  backlog on the slave. So after a failover the slave was often not able
+  to PSYNC with masters, and a full SYNC was triggered. The bug only
+  happened after 1 hour of uptime so escaped the unit tests. (Oran Agra)
+
+* Improve anti-affinity in master/slave allocation for Redis Cluster
+  when the cluster is created. (Salvatore Sanfilippo)
+
+* Improve output buffer handling for slaves, by not limiting the amount
+  of writes a slave could receive. (Guy Benoish)
+
+The full list of commits follow.
+
+Enjoy,
+Salvatore
+
+jianqingdu in commit 2b99d77a:
+ fix not call va_end when syncWrite() failed
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Yusaku Kaneta in commit 5f9b9e11:
+ Fix the firstkey, lastkey, and keystep of moduleCommand
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Mark Nunberg in commit ba2d3e8e:
+ redismodule.h: Check ModuleNameBusy before calling it
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 05c1f18d:
+ Fix integration test NOREPLICAS error time dependent false positive.
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+antirez in commit 4acd6973:
+ Fix migrateCommand() access of not initialized byte.
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 548e4fe0:
+ Replication buffer fills up on high rate traffic.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit efa7063c:
+ Cluster: improve anti-affinity algo in redis-trib.rb.
+ 1 file changed, 131 insertions(+), 1 deletion(-)
+
+antirez in commit 48568ab6:
+ Remove useless comment from serverCron().
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+heqin in commit 0201dea5:
+ fixbug for #4545 dead loop aof rewrite
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 926beaa3:
+ Hopefully more clear comment to explain the change in #4607.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+qinchao in commit 019ad3e2:
+ fix assert problem in ZIP_DECODE_PREVLENSIZE , see issue: https://github.com/antirez/redis/issues/4587
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 8d9dff84:
+ PSYNC2 fix - promoted slave should hold on to it's backlog
+ 1 file changed, 5 insertions(+)
+
+zhaozhao.zz in commit fba2e169:
+ aof: format code and comment
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 7777be7b:
+ Put more details in the comment introduced by #4601.
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit 91c1568b:
+ lazyfree: fix memory leak for lazyfree-lazy-server-del
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit f9c2c1ac:
+ Fix getKeysUsingCommandTable() in the case of nagative arity.
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+antirez in commit 61135f18:
+ Document new protocol options in #4568 into redis.conf.
+ 1 file changed, 14 insertions(+)
+
+antirez in commit e77fba4d:
+ proto-max-querybuf-len -> client-query-buffer-limit.
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 87fe813b:
+ New config options about protocol prefixed with "proto".
+ 4 files changed, 13 insertions(+), 13 deletions(-)
+
+gnuhpc in commit 2e0d2414:
+ Fix a typo(maybe instruction?) in crash log
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Dvir Volk in commit 9f7e214e:
+ Added RM_UnlinkKey - a low level analog to UNLINK command
+ 3 files changed, 56 insertions(+)
+
+zhaozhao.zz in commit 947077bb:
+ redis-benchmark: bugfix - handle zero liveclients in right way
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit ff2e628f:
+ Add config options for max-bulk-len and max-querybuf-len mainly to support RESTORE of large keys
+ 4 files changed, 16 insertions(+), 1 deletion(-)
+
+Oran Agra in commit aefa9caa:
+ fix processing of large bulks (above 2GB)
+ 8 files changed, 39 insertions(+), 33 deletions(-)
+
+heqin in commit 896cf1a9:
+ fixbug for #4545 dead loop aof rewrite
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 5abb12e0:
+ Hyperloglog: refresh hdr variable correctly.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit c39a0f7c:
+ Hyperloglog: Support for PFMERGE sparse encoding as target.
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+antirez in commit 8a012df9:
+ Hyperloglog: refactoring of sparse/dense add function.
+ 1 file changed, 38 insertions(+), 20 deletions(-)
+
+antirez in commit 549409ff:
+ Test: MIGRATE AUTH test added.
+ 1 file changed, 24 insertions(+)
+
+antirez in commit 47717222:
+ Rewrite MIGRATE AUTH option.
+ 1 file changed, 38 insertions(+), 12 deletions(-)
+
+heqin in commit d8da89ea:
+ fixbug for #4538 Error opening /setting AOF rewrite IPC pipes: No such file or directory
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 4fcc564a:
+ safe_write -> aofWrite. Function commented.
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 27d9c729:
+ aof: cast sdslen to ssize_t
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit de4fb877:
+ aof: fix the short write
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+Tomasz Poradowski in commit 1fade3d3:
+ always enable command history in redis-cli
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 9f4d4eef:
+ Cluster: allow read-only EVAL/EVALSHA in slaves.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+nashe in commit 8eeceabd:
+ Prevent off-by-one read in stringmatchlen() (fixes #4527)
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+gnuhpc in commit 733af148:
+ Fix memory usage list bug
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit c9cb699b:
+ dict: fix the int problem for defrag
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit b37099a1:
+ dict: fix the int problem
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit 8fe586d3:
+ set: fix the int problem for qsort
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 219e29af:
+ set: fix the int problem for SPOP & SRANDMEMBER
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+================================================================================
+Redis 4.0.6     Released Thu Dec 4 17:54:10 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: More errors in the fixes for PSYNC2 in Redis 4.0.5
+                          were identified.
+
+This release fixes yet more errors present in the 4.0.5 fixes, that could
+affect slaves. Moreover another critical issue in quicklists, when they are
+used at a massive memory scale, was fixed in this release. Upgrading from
+any 4.0.x release, especially if you are running 4.0.4 or 4.0.5, is highly
+recommended.
+
+Note that while this fix for 4.0.6 was written in an hurry as well, this
+time we took extra precautions in order to avoid writing a broken patch:
+
+1. The code was reviewed by two developers independently.
+2. A regression test about the problem introduced in 4.0.4/5 was added.
+3. Resisting to duplicated Lua scripts loading into the Lua engine is now
+   the default action of the loading function, thus it's simpler to stress
+   its behavior.
+4. The code section was tested with Valgrind.
+
+The following is the list of commits included in this release:
+
+zhaozhao.zz in commit 57786b14:
+ quicklist: change the len of quicklist to unsigned long
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+zhaozhao.zz in commit 2211540d:
+ quicklist: fix the return value of quicklistCount
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit c85c84be:
+ Refactoring: improve luaCreateFunction() API.
+ 3 files changed, 38 insertions(+), 58 deletions(-)
+
+antirez in commit 85b24770:
+ Remove useless variable check from luaCreateFunction().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a945e5c0:
+ Fix issue #4505, Lua RDB AUX field loading of existing scripts.
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+antirez in commit 65a2e40a:
+ Regression test for #4505 (Lua AUX field loading).
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+antirez in commit d6c70f22:
+ DEBUG change-repl-id implemented.
+ 1 file changed, 7 insertions(+)
+
+================================================================================
+Redis 4.0.5     Released Thu Dec 1 16:03:32 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: Redis 4.0.4 fix for PSYNC2 was broken, causing the
+                          slave to crash when receiving an RDB file from the
+                          master that contained a duplicated Lua script.
+
+Please upgrade ASAP if you are with 4.0.4 and you use any form of Lua scripting
+because this problem will easily crash Redis.
+
+================================================================================
+Redis 4.0.4     Released Thu Nov 30 18:42:12 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: Several PSYNC2 bugs can corrupt the slave data set
+                          after a restart and a successful PSYNC2 handshake.
+
+This is a quick followup to Redis 4.0.3 since I forgot to add a few fixes...
+that are actually described in the 4.0.3 changelog (but not in the list of
+commits). Basically it's the following commits, implementing the ability
+to persist scripts into RDB files for a successful PSYNC, otherwise a corruption
+could happen when a slave is restarted and receives EVALSHA from the master
+about scripts it does not know:
+
+8449227f PSYNC2: Fix off by one buffer size in luaCreateFunction().
+eeac1d35 PSYNC2: just store script bodies into RDB.
+fb0441a8 PSYNC2: luaCreateFunction() should handle NULL client parameter.
+0429db3c PSYNC2: Save Lua scripts state into RDB file.
+d06fbbdd Regression test: Slave restart with EVALSHA in backlog issue #4483.
+ab3d3aca Prevent corruption of server.executable after DEBUG RESTART.
+b7c7edf9 Be more verbose when DEBUG RESTART fails.
+
+Please upgrade ASAP to 4.0.4 becuase 4.0.3 had an incomplete set of fixes.
+
+Cheers and sorry for the 4.0.3 fiasco ;-)
+Salvatore
+
+================================================================================
+Redis 4.0.3     Released Thu Nov 30 13:14:50 CET 2017
+================================================================================
+
+Upgrade urgency CRITICAL: Several PSYNC2 bugs can corrupt the slave data set
+                          after a restart and a successful PSYNC2 handshake.
+
+Hi all, Redis 4.0.3 contains several bug fixes to different parts of Redis 4.0,
+but the highlight is definitely in the "PSYNC after restart" that the new
+RDB format, containing replication metadata information, was able to provide
+to Redis 4.0. There were several bugs that are addressed in this release.
+Moreover several LFU fixes improve the ability of Redis to correctly estimate
+the popularity of keys. This release also fixes important bugs in Redis modules,
+including bugs related to replication of modules commands, reloading the same
+module multiple times, and other related things. Finally there is even a
+security fix related to loading a corrupted Cluster state from a corrupted
+file. We advice to upgrade ASAP. Check the list of commits for credits, several
+people helped a lot in this release. I'm grateful to each of them.
+
+Cheers,
+Salvatore
+
+antirez in commit d766322e:
+ LFU: Fix LFUDecrAndReturn() to just decrement.
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+zhaozhao.zz in commit 6544796a:
+ LFU: add hotkeys option to redis-cli
+ 1 file changed, 135 insertions(+)
+
+zhaozhao.zz in commit e2355c19:
+ LFU: do some changes about LFU to find hotkeys
+ 4 files changed, 39 insertions(+), 19 deletions(-)
+
+zhaozhao.zz in commit 22969a13:
+ LFU: change lfu* parameters to int
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit 6b71f714:
+ LFU: fix the missing of config get and rewrite
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+Felix Krause in commit 2090052e:
+ Update link to https and use inline link
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Bo Cai in commit a75f2025:
+ redis-cli.c typo: Requets -> Requests.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Bo Cai in commit 76aab08f:
+ redis-cli.c typo: helpe -> helper.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Sébastien Fievet in commit b6fe5074:
+ Fix some typos
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit eda5cb0a:
+ t_hash.c: clarify calling two times the same function.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 4a60fbd8:
+ adlist: fix listJoin() in the case the second list is empty.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Chris Lamb in commit 060eb3b2:
+ Correct spelling of "faield".
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 3c942b12:
+ Improve OBJECT HELP descriptions.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 6b6a83c7:
+ Fix entry command table entry for OBJECT for HELP option.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit 048097ad:
+ Adds `OBJECT help`
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+David Carlier in commit 906134fe:
+ Fix undefined behavior constant defined.
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+rouzier in commit 03657e88:
+ Fix file descriptor leak and error handling
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+Itamar Haber in commit 52fda013:
+ Prevents `OBJECT freq` with `noeviction`
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Itamar Haber in commit 15bc8e97:
+ Adds -u <uri> option to redis-cli.
+ 1 file changed, 89 insertions(+)
+
+antirez in commit f30454c1:
+ Test: regression test for latency expire events logging bug.
+ 1 file changed, 14 insertions(+)
+
+zhaozhao.zz in commit 1e7227f4:
+ expire & latency: fix the missing latency records generated by expire
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+antirez in commit 9524fce0:
+ Modules: fix memory leak in RM_IsModuleNameBusy().
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+antirez in commit 2a27da1c:
+ PSYNC2: reorganize comments related to recent fixes.
+ 2 files changed, 24 insertions(+), 26 deletions(-)
+
+zhaozhao.zz in commit e0c2a0ec:
+ PSYNC2: persist cached_master's dbid inside the RDB
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 2eca8aed:
+ PSYNC2: make repl_stream_db never be -1
+ 1 file changed, 6 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit 35942383:
+ PSYNC2: clarify the scenario when repl_stream_db can be -1
+ 2 files changed, 21 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit be1b9ee0:
+ PSYNC2 & RDB: fix the missing rdbSaveInfo for BGSAVE
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit 9f69e179:
+ PSYNC2: safe free backlog when reach the time limit
+ 1 file changed, 12 insertions(+)
+
+zhaozhao.zz in commit 0205dd01:
+ Modules: handle the busy module name
+ 2 files changed, 19 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 3cce566e:
+ Modules: handle the conflict of registering commands
+ 1 file changed, 28 insertions(+), 21 deletions(-)
+
+Oran Agra in commit d01f163c:
+ fix string to double conversion, stopped parsing on \0 even if the string has more data.
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+antirez in commit 9a3e15c6:
+ Modules: fix for scripting replication of modules commands.
+ 2 files changed, 9 insertions(+), 7 deletions(-)
+
+Yossi Gottlieb in commit fa87879b:
+ Nested MULTI/EXEC may replicate in different cases.
+ 2 files changed, 10 insertions(+)
+
+zhaozhao.zz in commit bc7076b0:
+ rehash: handle one db until finished
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+kmiku7 in commit 7675b00a:
+ fix boundary case for _dictNextPower
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit f31d9b12:
+ Fixes an off-by-one in argument handling of `MEMORY USAGE`
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 897d8571:
+ SDS: improve sdsRemoveFreeSpace() to avoid useless data copy.
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+antirez in commit 1ee6af4d:
+ Fix saving of zero-length lists.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit 1740300f:
+ Fix buffer overflows occurring reading redis.conf.
+ 1 file changed, 3 insertions(+)
+
+antirez in commit b25c2451:
+ Regression test for issue #4391.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 1847b987:
+ More robust object -> double conversion.
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+antirez in commit c94cd1d8:
+ Limit statement in RM_BlockClient() to 80 cols.
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+Dvir Volk in commit 193e4acc:
+ Added safety net preventing redis from crashing if a module decide to block in MULTI
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+Dvir Volk in commit d131921c:
+ Renamed GetCtxFlags to GetContextFlags
+ 3 files changed, 11 insertions(+), 11 deletions(-)
+
+Dvir Volk in commit 2e71edcc:
+ Added support for module context flags with RM_GetCtxFlags
+ 3 files changed, 177 insertions(+)
+
+================================================================================
+Redis 4.0.2     Released Thu Sep 21 15:47:53 CEST 2017
+================================================================================
+
+Upgrade urgency HIGH: Several potentially critical bugs fixed.
+
+Hello, this release addresses several significant bugs in Redis 4.0:
+
+1. A number of bugs were fixed in the area of PSYNC2 replication in the
+specific area of restarting an instance with an RDB file having the
+repliacation meta-data to continue without a full resynchronization. The
+old code allowed several inconsistencies under certain conditions, like
+starting a master with an RDB file generated by a slave, and later using
+such master to connect previous slaves having the same replication history.
+Because of other bugs, sometimes the replication resulted in a full
+synchronization even if actually a partial resynchronization was possible
+and so forth. Several commits by different authors fix different bugs here.
+
+2. AOF flush on SHUTDOWN did not cared to really write the AOF buffers
+(not in the kernel but in the Redis process memory) to disk before exiting.
+Calling SHUTDOWN during traffic resulted into not every operation to be
+persisted on disk.
+
+3. The SLOWLOG could reference values inside string objects stored at keys,
+creating a race condition during FLUSHALL ASYNC while the DB is reclaimed
+in another thread.
+
+There are other smaller bugs addessed in this relase, see the full commit
+history below for more information.
+
+A big thank you to all the contributors of this release. Without the
+help I received, Redis 4.0 would take a much longer time to mature. It's
+a real pleasure to work together with people around the world, while making
+Redis better.
+
+antirez in commit 1c60b7a6:
+ Clarify comment in change fixing #4323.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 368124e8:
+ Lazyfree: avoid memory leak when free slowlog entry
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+antirez in commit 79567b6e:
+ PSYNC2: More refinements related to #4316.
+ 2 files changed, 14 insertions(+), 11 deletions(-)
+
+zhaozhao.zz in commit f1194649:
+ PSYNC2: make persisiting replication info more solid
+ 4 files changed, 33 insertions(+), 9 deletions(-)
+
+antirez in commit 097a5556:
+ PSYNC2: Fix the way replication info is saved/loaded from RDB.
+ 4 files changed, 49 insertions(+), 23 deletions(-)
+
+antirez in commit f1a2cbfd:
+ PSYNC2: Create backlog on slave partial sync as well.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit 0c0b77d1:
+ Add MEMORY DOCTOR to MEMORY HELP.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Mota in commit fa6bd1b2:
+ redis-benchmark: default value size usage update.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+jybaek in commit ad0ddcf3:
+ Remove Duplicate Processing
+ 1 file changed, 1 deletion(-)
+
+Oran Agra (and also Buğra Gedik) in commit 8651e5d5:
+ Flush append only buffers before existing.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit f2b2897f:
+ Changelog: note that 4.0 CLUSTER NODES output changed.
+ 1 file changed, 6 insertions(+)
+
+Itamar Haber in commit 363be783:
+ Changes command stats iteration to being dict-based
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+================================================================================
 Redis 4.0.1     Released Mon Jul 24 15:51:31 CEST 2017
 ================================================================================
 
@@ -3718,6 +4343,12 @@ non-backward compatible changes introduced in the 4.0 release:
   This was needed in order to provide Docker / NAT compatibility to Redis
   Cluster. SO in order to upgrade a Redis Cluster to 4.0, a mass restart of
   all the instances is needed.
+
+* Redis Cluster CLUSTER NODES output is now slightly different. Nodes
+  addresses are now in the form host:port@bus-port instead of host:port.
+  Clients should use CLUSTER SLOTS in order to fetch the cluster configuration
+  however if they are still using CLUSTER NODES, they should be modified in
+  order to ignore the @bus-port part.
 
 * Writable slaves do not propagate writes to their sub-slaves, so writes to
   writable slaves remain just local.

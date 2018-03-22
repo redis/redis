@@ -572,8 +572,8 @@ usage:
 " -a <password>      Password for Redis Auth\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
-" -d <size>          Data size of SET/GET value in bytes (default 2)\n"
-" --dbnum <db>        SELECT the specified db number (default 0)\n"
+" -d <size>          Data size of SET/GET value in bytes (default 3)\n"
+" --dbnum <db>       SELECT the specified db number (default 0)\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
@@ -614,7 +614,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     UNUSED(id);
     UNUSED(clientData);
 
-    if (config.liveclients == 0) {
+    if (config.liveclients == 0 && config.requests_finished != config.requests) {
         fprintf(stderr,"All clients disconnected... aborting.\n");
         exit(1);
     }

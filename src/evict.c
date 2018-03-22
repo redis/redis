@@ -60,8 +60,6 @@ struct evictionPoolEntry {
 
 static struct evictionPoolEntry *EvictionPoolLRU;
 
-unsigned long LFUDecrAndReturn(robj *o);
-
 /* ----------------------------------------------------------------------------
  * Implementation of eviction, aging and LRU
  * --------------------------------------------------------------------------*/
@@ -302,8 +300,8 @@ unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
 
-/* Given an object last decrement time, compute the minimum number of minutes
- * that elapsed since the last decrement. Handle overflow (ldt greater than
+/* Given an object last access time, compute the minimum number of minutes
+ * that elapsed since the last access. Handle overflow (ldt greater than
  * the current 16 bits minutes time) considering the time as wrapping
  * exactly once. */
 unsigned long LFUTimeElapsed(unsigned long ldt) {
@@ -324,25 +322,22 @@ uint8_t LFULogIncr(uint8_t counter) {
     return counter;
 }
 
-/* If the object decrement time is reached, decrement the LFU counter and
- * update the decrement time field. Return the object frequency counter.
+/* If the object decrement time is reached decrement the LFU counter but
+ * do not update LFU fields of the object, we update the access time
+ * and counter in an explicit way when the object is really accessed.
+ * And we will times halve the counter according to the times of
+ * elapsed time than server.lfu_decay_time.
+ * Return the object frequency counter.
  *
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
-#define LFU_DECR_INTERVAL 1
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
-    if (LFUTimeElapsed(ldt) >= server.lfu_decay_time && counter) {
-        if (counter > LFU_INIT_VAL*2) {
-            counter /= 2;
-            if (counter < LFU_INIT_VAL*2) counter = LFU_INIT_VAL*2;
-        } else {
-            counter--;
-        }
-        o->lru = (LFUGetTimeInMinutes()<<8) | counter;
-    }
+    unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
+    if (num_periods)
+        counter = (num_periods > counter) ? 0 : counter - num_periods;
     return counter;
 }
 

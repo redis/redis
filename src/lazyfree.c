@@ -64,9 +64,15 @@ int dbAsyncDelete(redisDb *db, robj *key) {
         robj *val = dictGetVal(de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
 
-        /* If releasing the object is too much work, let's put it into the
-         * lazy free list. */
-        if (free_effort > LAZYFREE_THRESHOLD) {
+        /* If releasing the object is too much work, do it in the background
+         * by adding the object to the lazy free list.
+         * Note that if the object is shared, to reclaim it now it is not
+         * possible. This rarely happens, however sometimes the implementation
+         * of parts of the Redis core may call incrRefCount() to protect
+         * objects, and then call dbDelete(). In this case we'll fall
+         * through and reach the dictFreeUnlinkedEntry() call, that will be
+         * equivalent to just calling decrRefCount(). */
+        if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
             atomicIncr(lazyfree_objects,1);
             bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
             dictSetVal(db->dict,de,NULL);

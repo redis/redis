@@ -72,9 +72,16 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
-            } else {
+            } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
-                incrRefCount(argv[j]);
+            } else {
+                /* Here we need to dupliacate the string objects composing the
+                 * argument vector of the command, because those may otherwise
+                 * end shared with string objects stored into keys. Having
+                 * shared objects between any part of Redis, and the data
+                 * structure holding the data, is a problem: FLUSHALL ASYNC
+                 * may release the shared string object and create a race. */
+                se->argv[j] = dupStringObject(argv[j]);
             }
         }
     }

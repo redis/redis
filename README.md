@@ -11,14 +11,13 @@
 <!-- /MarkdownTOC -->
 
 
-
 <a name="introduction"></a>
 # Introduction
 XRedis is [ctrip](http://www.ctrip.com/) redis branch. Ctrip is a leading provider of travel services including accommodation reservation, transportation ticketing, packaged tours and corporate travel management.
 
 <a name="features"></a>
 # Features
-* all features of redis 4.0.1 are inherited (from xredis 1.0.0)
+* all features of redis 4.0.8 are inherited (from xredis 1.0.1)
 * xslaveof command support
 * force full sync
 * enhanced partial sync
