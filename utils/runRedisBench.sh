@@ -9,6 +9,10 @@ USER=fedora
 # Client-server communication interfaces
 USE_UNIX_SOCKETS=0
 
+USE_PMFILE=0
+
+SERVER_LD_LIBRARY_PATH=""
+
 # Redis default server port
 SERVER_PORT=6379
 
@@ -18,6 +22,12 @@ SPINNER_POS=0
 ################################################################################
 # Function definitions
 ################################################################################
+
+cleanup() {
+	if [ "USE_PMFILE" == "1" ]; do
+		ssh $USER@$SERVER_ADDR "rm -f /mnt/pmem/*"
+	done
+}
 
 get_timestamp() {
 	date +"%Y%m%d%H%M%S"
@@ -32,6 +42,7 @@ print_help() {
 	echo "  -c=|--clients=N                start N redis clients per thread"
 	echo "  -t=|--threads=N                start N threads with redis clients"
 	echo "  -r=|--requests=N               send N requests per client"
+	echo "  -e=|--records=N                store N records in each database"
 	echo "  --sa=|--server-addr=ADDR       use ADDR as address of a host with redis servers"
 	echo "  --ca=|--client-addr=ADDR       use ADDR as address of a host with redis clients (memtier_benchmark)"
 	echo "  --sn=|--server-numa=N          run redis servers only on NUMA node N"
@@ -41,6 +52,7 @@ print_help() {
 	echo "  --sc=|--server-config=FILE     use FILE as redis config file (the path is on the server host)"
 	echo "  --wr=|--wr-ratio=RATIO         use RATIO for write:read ratio"
 	echo "  --tag=WORD                     add WORD as a tag to output log file names"
+	echo "  --pm                           use pmfiles on /mnt/pmem/redis[port].pm"
 	echo "Each use of --ca option adds a client node to the test."
 	echo "If N client nodes are defined, also the options --si has to be used N times."
 	echo "The --cn option also can be used several times (for each client node)."
@@ -109,6 +121,9 @@ getOptions() {
 			--us|--use-unix-sockets)
 			USE_UNIX_SOCKETS=1
 			;;
+			--pm)
+			USE_PMFILE=1
+			;;
 			--tag=*)
 			TAG="${arg#*=}"
 			;;
@@ -176,7 +191,6 @@ check() {
 	if [ -z "$SERVER_ADDR" ]; then echo SERVER_ADDR is not set; exit 1; fi
 	if [ -z "$CLIENT_ADDR" ]; then echo CLIENT_ADDR is not set; exit 1; fi
 	if [ -z "$SERVER_REDIS_DIR" ]; then echo SERVER_REDIS_DIR is not set; exit 1; fi
-	if [ -z "$SERVER_MEMKIND_DIR" ]; then echo SERVER_MEMKIND_DIR is not set; exit 1; fi
 	if [ -z "$SERVER_LOGS_DIR" ]; then echo SERVER_LOGS_DIR is not set; exit 1; fi
 	if [ -z "$SERVER_CONFIG" ]; then echo SERVER_CONFIG is not set; exit 1; fi
 	local i
@@ -203,10 +217,11 @@ printConfiguration() {
 	echo "# Client host kernel(s): ${CLIENT_KERNEL[@]}"
 	echo "# Server interface(s): ${SERVER_IFC[@]}"
 	echo "# Use unix sockets: $USE_UNIX_SOCKETS"
+	echo "# Use pmfile: $USE_PMFILE"
 	echo "# Server NUMA node: $SERVER_NUMA"
 	echo "# Client NUMA node(s): ${CLIENT_NUMA[@]}"
 	echo "# Server redis dir: $SERVER_REDIS_DIR"
-	echo "# Server memkind dir: $SERVER_MEMKIND_DIR"
+	echo "# Server pmdk dir: $SERVER_PMDK_DIR"
 	echo "# Client memkind dir(s): ${CLIENT_MEMKIND_DIR[@]}"
 	echo "# Server logs dir: $SERVER_LOGS_DIR"
 	echo "# Client logs dir(s): ${CLIENT_LOGS_DIR[@]}"
@@ -243,13 +258,17 @@ startRedisServers() {
 			cmd+="numactl -N $SERVER_NUMA"
 		fi
 		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG --appendonly no"
+		if [ "$USE_PMFILE" == "1" ]; then
+			cmd+=" --pmfile /mnt/pmem/redis${port}.pm 300mb"
+			SERVER_LD_LIBRARY_PATH+=":${SERVER_PMDK_DIR}/src/nondebug/"
+		fi
 		if [ "$USE_UNIX_SOCKETS" == "1" ]; then 
-			cmd+=" --unixsocket /tmp/redis$port.sock"
+			cmd+=" --unixsocket /tmp/redis${port}.sock"
 		else
 			cmd+=" --port $port"
 		fi
 		# echo "start: $cmd"
-		ssh -n -f $USER@$SERVER_ADDR "export LD_LIBRARY_PATH=${SERVER_MEMKIND_DIR}/.libs/; nohup $cmd > ${SERVER_LOGS_DIR}/${TAG+${TAG}/}${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@$SERVER_ADDR "export LD_LIBRARY_PATH=$SERVER_LD_LIBRARY_PATH; nohup $cmd > ${SERVER_LOGS_DIR}/${TAG+${TAG}/}${out_file_base}.log 2>&1 &"
 
 	done
 	echo "Done."
@@ -281,7 +300,7 @@ fillDatabases() {
 	if [ -z "$1" ]; then echo pass node number to fill databases for; stopRedisServers; exit 1; fi
 	local node=$1
 	echo "Filling databases from client node $node (${CLIENT_ADDR[$node]})"
-	local memtier_base_args="--ratio=1:0 -d 1024 -t $THREADS -c $CLIENTS --key-minimum=1 --key-maximum=$RECORDS -n $RECORDS"
+	local memtier_base_args="--ratio=1:0 -d 1024 -t $THREADS -c $CLIENTS --key-minimum=1 --key-maximum=$RECORDS --key-pattern=S:S -n $RECORDS"
 	local i
 	for i in $(seq $SERVERS); do
 		local out_file_base="memtier_filldb_${TAG}_${SERVERS}_${i}_${node}"
@@ -395,6 +414,7 @@ checkAddr
 readConfiguration
 getOptions $@
 check
+cleanup
 printConfiguration
 storeConfiguration
 getUniqueClients

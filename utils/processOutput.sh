@@ -31,10 +31,10 @@ sum_ops=0
 # ignore failed match in case there are no matching files
 shopt -s nullglob
 for file in $logs_dir/*_bench_*.json; do
-	local val_set=$(get_SET_perc_from_json 99 $file)
-	local val_get=$(get_GET_perc_from_json 99 $file)
-	local val_lat=$(get_average_latency_from_json $file)
-	local val_ops=$(get_ops_from_json $file)
+	val_set=$(get_SET_perc_from_json 99 $file)
+	val_get=$(get_GET_perc_from_json 99 $file)
+	val_lat=$(get_average_latency_from_json $file)
+	val_ops=$(get_ops_from_json $file)
 
 	sum_set=`echo "scale=2; $sum_set + $val_set" | bc`
 	sum_get=`echo "scale=2; $sum_get + $val_get" | bc`
