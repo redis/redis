@@ -194,7 +194,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
              * first. So inside the pool we put objects using the inverted
              * frequency subtracting the actual frequency to the maximum
              * frequency of 255. */
-            idle = 255-LFUDecrAndReturn(o);
+            idle = 255-LFUGetLogicalCounter(o);
         } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
             /* In this case the sooner the expire the better. */
             idle = ULLONG_MAX - (long)dictGetVal(de);
@@ -265,21 +265,20 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  *
  * We split the 24 bits into two fields:
  *
- *          16 bits      8 bits
- *     +----------------+--------+
- *     + Last decr time | LOG_C  |
- *     +----------------+--------+
+ *          16 bits         8 bits
+ *     +------------------+--------+
+ *     + Last access time | LOG_C  |
+ *     +------------------+--------+
  *
  * LOG_C is a logarithmic counter that provides an indication of the access
  * frequency. However this field must also be decremented otherwise what used
  * to be a frequently accessed key in the past, will remain ranked like that
  * forever, while we want the algorithm to adapt to access pattern changes.
  *
- * So the remaining 16 bits are used in order to store the "decrement time",
+ * So the remaining 16 bits are used in order to store the "access time",
  * a reduced-precision Unix time (we take 16 bits of the time converted
  * in minutes since we don't care about wrapping around) where the LOG_C
- * counter is halved if it has an high value, or just decremented if it
- * has a low value.
+ * counter is decremented.
  *
  * New keys don't start at zero, in order to have the ability to collect
  * some accesses before being trashed away, so they start at COUNTER_INIT_VAL.
@@ -288,26 +287,25 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
  * (or having a smaller value) have a very high chance of being incremented
  * on access.
  *
- * During decrement, the value of the logarithmic counter is halved if
- * its current value is greater than two times the COUNTER_INIT_VAL, otherwise
- * it is just decremented by one.
+ * During decrement, the value of the logarithmic counter is decremented
+ * by the times of elapsed time than server.lfu_decay_time.
  * --------------------------------------------------------------------------*/
 
 /* Return the current time in minutes, just taking the least significant
- * 16 bits. The returned time is suitable to be stored as LDT (last decrement
+ * 16 bits. The returned time is suitable to be stored as LAT (last access
  * time) for the LFU implementation. */
 unsigned long LFUGetTimeInMinutes(void) {
     return (server.unixtime/60) & 65535;
 }
 
 /* Given an object last access time, compute the minimum number of minutes
- * that elapsed since the last access. Handle overflow (ldt greater than
+ * that elapsed since the last access. Handle overflow (lat greater than
  * the current 16 bits minutes time) considering the time as wrapping
  * exactly once. */
-unsigned long LFUTimeElapsed(unsigned long ldt) {
+unsigned long LFUTimeElapsed(unsigned long lat) {
     unsigned long now = LFUGetTimeInMinutes();
-    if (now >= ldt) return now-ldt;
-    return 65535-ldt+now;
+    if (now >= lat) return now-lat;
+    return 65535-lat+now;
 }
 
 /* Logarithmically increment a counter. The greater is the current counter value
@@ -322,20 +320,19 @@ uint8_t LFULogIncr(uint8_t counter) {
     return counter;
 }
 
-/* If the object decrement time is reached decrement the LFU counter but
- * do not update LFU fields of the object, we update the access time
+/* If the object decrement time is reached, decrement the LFU counter,
+ * but do not update LFU fields of the object, we update the access time
  * and counter in an explicit way when the object is really accessed.
- * And we will times halve the counter according to the times of
- * elapsed time than server.lfu_decay_time.
- * Return the object frequency counter.
+ * And we will decrement the counter according to the times of elapsed time
+ * than server.lfu_decay_time.
  *
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
-unsigned long LFUDecrAndReturn(robj *o) {
-    unsigned long ldt = o->lru >> 8;
+unsigned long LFUGetLogicalCounter(robj *o) {
+    unsigned long lat = o->lru >> 8;
     unsigned long counter = o->lru & 255;
-    unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
+    unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(lat) / server.lfu_decay_time : 0;
     if (num_periods)
         counter = (num_periods > counter) ? 0 : counter - num_periods;
     return counter;

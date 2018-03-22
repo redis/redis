@@ -995,7 +995,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
     /* Save the LFU info. */
     if (savelfu) {
         uint8_t buf[1];
-        buf[0] = LFUDecrAndReturn(val);
+        buf[0] = LFUGetLogicalCounter(val);
         /* We can encode this in exactly two bytes: the opcode and an 8
          * bit counter, since the frequency is logarithmic with a 0-255 range.
          * Note that we do not store the halving time because to reset it
