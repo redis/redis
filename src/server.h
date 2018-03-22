@@ -1472,12 +1472,12 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
-robj *createObject(int type, void *ptr);
-//robj *createObjectA(int type, void *ptr, alloc a);
-//static inline robj *createObject(int type, void *ptr) { return createObjectA(type, ptr, z_alloc); }
-//static inline robj *createObjectM(int type, void *ptr) { return createObjectA(type, ptr, m_alloc); }
+robj *createObjectA(int type, void *ptr, alloc a);
+static inline robj *createObject(int type, void *ptr) { return createObjectA(type, ptr, z_alloc); }
+static inline robj *createObjectM(int type, void *ptr) { return createObjectA(type, ptr, m_alloc); }
 robj *createStringObject(const char *ptr, size_t len);
-robj *createRawStringObject(const char *ptr, size_t len);
+robj *createRawStringObjectA(const char *ptr, size_t len, alloc a);
+static inline robj *createRawStringObject(const char *ptr, size_t len) { return createRawStringObjectA(ptr, len, z_alloc); }
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a);
 static inline robj *createEmbeddedStringObject(const char *ptr, size_t len) { return createEmbeddedStringObjectA(ptr, len, z_alloc); }
 //static inline robj *createEmbeddedStringObjectM(const char *ptr, size_t len) { return createEmbeddedStringObjectA(ptr, len, m_alloc); }
@@ -1487,8 +1487,12 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
-robj *createStringObjectFromLongLong(long long value);
-robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
+robj *createStringObjectFromLongLongA(long long value, alloc a);
+static inline robj *createStringObjectFromLongLong(long long value) { return createStringObjectFromLongLongA(value, s_alloc); }
+static inline robj *createStringObjectFromLongLongM(long long value) { return createStringObjectFromLongLongA(value, m_alloc); }
+robj *createStringObjectFromLongDoubleA(long double value, int humanfriendly, alloc a);
+static inline robj *createStringObjectFromLongDouble(long double value, int humanfriendly) { return createStringObjectFromLongDoubleA(value, humanfriendly, s_alloc); }
+static inline robj *createStringObjectFromLongDoubleM(long double value, int humanfriendly) { return createStringObjectFromLongDoubleA(value, humanfriendly, m_alloc); }
 robj *createQuicklistObjectA(alloc a);
 static inline robj *createQuicklistObject(void) { return createQuicklistObjectA(z_alloc); }
 static inline robj *createQuicklistObjectM(void) { return createQuicklistObjectA(m_alloc); }
@@ -1766,7 +1770,9 @@ int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
-robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
+robj *dbUnshareStringValueA(redisDb *db, robj *key, robj *o, alloc a);
+static inline robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) { return dbUnshareStringValueA(db, key, o, s_alloc); }
+static inline robj *dbUnshareStringValueM(redisDb *db, robj *key, robj *o) { return dbUnshareStringValueA(db, key, o, m_alloc); }
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
