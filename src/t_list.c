@@ -639,6 +639,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         addReplyMultiBulkLen(receiver,2);
         addReplyBulk(receiver,key);
         addReplyBulk(receiver,value);
+        
+        /* Notify event. */
+        char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
+        notifyKeyspaceEvent(NOTIFY_LIST,event,key,receiver->db->id);
     } else {
         /* BRPOPLPUSH */
         robj *dstobj =
@@ -663,6 +667,9 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
+
+            /* Notify event ("lpush" was notified by rpoplpushHandlePush). */
+            notifyKeyspaceEvent(NOTIFY_LIST,"rpop",key,receiver->db->id);
         } else {
             /* BRPOPLPUSH failed because of wrong
              * destination type. */
