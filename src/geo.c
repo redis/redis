@@ -701,8 +701,11 @@ void geohashCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
-    if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
+    robj *zobj = NULL;
+    if ((NULL == (zobj = lookupKeyReadOrReply(c, c->argv[1], shared.nullbulk)))
+      || checkType(c, zobj, OBJ_ZSET)) {
+       return; /* Reply for missing zset or wrong type already sent */
+    }
 
     /* Geohash elements one after the other, using a null bulk reply for
      * missing elements. */
@@ -754,8 +757,11 @@ void geoposCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
-    if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
+    robj *zobj = NULL;
+    if ((NULL == (zobj = lookupKeyReadOrReply(c, c->argv[1], shared.nullbulk)))
+      || checkType(c, zobj, OBJ_ZSET)) {
+       return; /* Reply for missing zset or wrong type already sent */
+    }
 
     /* Report elements one after the other, using a null bulk reply for
      * missing elements. */
@@ -797,8 +803,10 @@ void geodistCommand(client *c) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.nullbulk))
-        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
+    if ((NULL == (zobj = lookupKeyReadOrReply(c, c->argv[1], shared.nullbulk)))
+      || checkType(c, zobj, OBJ_ZSET)) {
+       return; /* Reply for missing zset or wrong type already sent */
+    }
 
     /* Get the scores. We need both otherwise NULL is returned. */
     double score1, score2, xyxy[4];
