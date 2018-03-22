@@ -537,6 +537,12 @@ void loadServerConfigFromString(char *config) {
                 err = "active-defrag-cycle-max must be between 1 and 99";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"active-defrag-max-scan-fields") && argc == 2) {
+            server.active_defrag_max_scan_fields = strtoll(argv[1],NULL,10);
+            if (server.active_defrag_max_scan_fields < 1) {
+                err = "active-defrag-max-scan-fields must be positive";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -1069,6 +1075,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
     } config_set_numerical_field(
+      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LLONG_MAX) {
+    } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
     } config_set_numerical_field(
       "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LLONG_MAX) {
@@ -1249,6 +1257,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("active-defrag-ignore-bytes",server.active_defrag_ignore_bytes);
     config_get_numerical_field("active-defrag-cycle-min",server.active_defrag_cycle_min);
     config_get_numerical_field("active-defrag-cycle-max",server.active_defrag_cycle_max);
+    config_get_numerical_field("active-defrag-max-scan-fields",server.active_defrag_max_scan_fields);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
@@ -2025,6 +2034,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-min",server.active_defrag_cycle_min,CONFIG_DEFAULT_DEFRAG_CYCLE_MIN);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-max",server.active_defrag_cycle_max,CONFIG_DEFAULT_DEFRAG_CYCLE_MAX);
+    rewriteConfigNumericalOption(state,"active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
