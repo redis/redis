@@ -3939,6 +3939,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     }
     onload = (int (*)(void *, void **, int))(unsigned long) dlsym(handle,"RedisModule_OnLoad");
     if (onload == NULL) {
+        dlclose(handle);
         serverLog(LL_WARNING,
             "Module %s does not export RedisModule_OnLoad() "
             "symbol. Module not loaded.",path);
