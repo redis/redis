@@ -265,6 +265,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
 
+/* Add the object 'obj' string representation to the client output buffer. */
 void addReply(client *c, robj *obj) {
     if (prepareClientToWrite(c) != C_OK) return;
 
@@ -284,6 +285,8 @@ void addReply(client *c, robj *obj) {
     }
 }
 
+/* Add the SDS 's' string to the client output buffer, as a side effect
+ * the SDS string is freed. */
 void addReplySds(client *c, sds s) {
     if (prepareClientToWrite(c) != C_OK) {
         /* The caller expects the sds to be free'd. */
