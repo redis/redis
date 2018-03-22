@@ -85,6 +85,9 @@ getOptions() {
 			-r=*|--requests=*)
 			REQUESTS="${arg#*=}"
 			;;
+			-e=*|--records=*)
+			RECORDS="${arg#*=}"
+			;;
 			--sa=*|--server-addr=*)
 			SERVER_ADDR="${arg#*=}"
 			;;
@@ -169,6 +172,7 @@ check() {
 	if [ -z "$CLIENTS" ]; then echo CLIENTS is not set; exit 1; fi
 	if [ -z "$THREADS" ]; then echo THREADS is not set; exit 1; fi
 	if [ -z "$REQUESTS" ]; then echo REQUESTS is not set; exit 1; fi
+	if [ -z "$RECORDS" ]; then echo RECORDS is not set; exit 1; fi
 	if [ -z "$SERVER_ADDR" ]; then echo SERVER_ADDR is not set; exit 1; fi
 	if [ -z "$CLIENT_ADDR" ]; then echo CLIENT_ADDR is not set; exit 1; fi
 	if [ -z "$SERVER_REDIS_DIR" ]; then echo SERVER_REDIS_DIR is not set; exit 1; fi
@@ -192,6 +196,7 @@ printConfiguration() {
 	echo "# No. of threads: $THREADS"
 	echo "# No. of clients per thread: $CLIENTS"
 	echo "# No. of requests per client: $REQUESTS"
+	echo "# No. of records in each database: $RECORDS"
 	echo "# Server host address: $SERVER_ADDR"
 	echo "# Client host address(es): ${CLIENT_ADDR[@]}"
 	echo "# Server host kernel: $SERVER_KERNEL"
@@ -212,10 +217,16 @@ printConfiguration() {
 }
 
 storeConfiguration() {
-	printConfiguration | ssh $USER@$SERVER_ADDR "cat > ${SERVER_LOGS_DIR}/configuration_${TAG}.txt"
+	if [ -n "$TAG" ]; then
+		ssh $USER@$SERVER_ADDR "mkdir -p ${SERVER_LOGS_DIR}/$TAG"
+	fi
+	printConfiguration | ssh $USER@$SERVER_ADDR "cat > ${SERVER_LOGS_DIR}/${TAG+${TAG}/}configuration_${TAG}.txt"
 	local i
 	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
-		printConfiguration | ssh $USER@${CLIENT_ADDR[$i]} "cat > ${CLIENT_LOGS_DIR[$i]}/configuration_${TAG}.txt"
+		if [ -n "$TAG" ]; then
+			ssh $USER@${CLIENT_ADDR[$i]} "mkdir -p ${CLIENT_LOGS_DIR[$i]}/$TAG"
+		fi
+		printConfiguration | ssh $USER@${CLIENT_ADDR[$i]} "cat > ${CLIENT_LOGS_DIR[$i]}/${TAG+${TAG}/}configuration_${TAG}.txt"
 	done
 }
 
@@ -238,7 +249,7 @@ startRedisServers() {
 			cmd+=" --port $port"
 		fi
 		# echo "start: $cmd"
-		ssh -n -f $USER@$SERVER_ADDR "export LD_LIBRARY_PATH=${SERVER_MEMKIND_DIR}/.libs/; nohup $cmd > ${SERVER_LOGS_DIR}/${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@$SERVER_ADDR "export LD_LIBRARY_PATH=${SERVER_MEMKIND_DIR}/.libs/; nohup $cmd > ${SERVER_LOGS_DIR}/${TAG+${TAG}/}${out_file_base}.log 2>&1 &"
 
 	done
 	echo "Done."
@@ -270,11 +281,11 @@ fillDatabases() {
 	if [ -z "$1" ]; then echo pass node number to fill databases for; stopRedisServers; exit 1; fi
 	local node=$1
 	echo "Filling databases from client node $node (${CLIENT_ADDR[$node]})"
-	local memtier_base_args="--ratio=1:0 -d 1024 -t $THREADS -c $CLIENTS --key-minimum=1 --key-maximum=$REQUESTS -n $REQUESTS"
+	local memtier_base_args="--ratio=1:0 -d 1024 -t $THREADS -c $CLIENTS --key-minimum=1 --key-maximum=$RECORDS -n $RECORDS"
 	local i
 	for i in $(seq $SERVERS); do
 		local out_file_base="memtier_filldb_${TAG}_${SERVERS}_${i}_${node}"
-		local memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${out_file_base}.json"
+		local memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${TAG+${TAG}/}${out_file_base}.json"
 		local cmd=""
 		if [ -n "${CLIENT_NUMA[$node]}" ]; then
 			cmd+="numactl -N ${CLIENT_NUMA[$node]}"
@@ -287,7 +298,7 @@ fillDatabases() {
 			cmd+=" -s ${SERVER_IFC[$node]} -p $port"
 		fi
 		# echo "fill: $cmd"
-		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${TAG+${TAG}/}${out_file_base}.log 2>&1 &"
 	done
 	waitForProcessToFinish ${CLIENT_ADDR[$node]} "memtier_benchmark"
 	echo "Done."
@@ -304,11 +315,11 @@ runBenchmarks() {
 	if [ -z "$1" ]; then echo pass node number to start benchmarks on; stopRedisServers; exit 1; fi
 	local node=$1
 	echo "Running benchmark from client node $node (${CLIENT_ADDR[$node]})"
-	local memtier_base_args="--ratio=$WR_RATIO -d 1024 -t $THREADS -c $CLIENTS  --key-minimum=1 --key-maximum=$REQUESTS -n $REQUESTS"
+	local memtier_base_args="--ratio=$WR_RATIO -d 1024 -t $THREADS -c $CLIENTS  --key-minimum=1 --key-maximum=$RECORDS -n $REQUESTS"
 	local i
 	for i in $(seq $SERVERS); do
 		local out_file_base="memtier_bench_${TAG}_${SERVERS}_${i}_${node}"
-		memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${out_file_base}.json"
+		memtier_args="$memtier_base_args --json-out-file=${CLIENT_LOGS_DIR[$node]}/${TAG+${TAG}/}${out_file_base}.json"
 		local cmd=""
 		if [ -n "${CLIENT_NUMA[$node]}" ]; then
 			cmd+="numactl -N ${CLIENT_NUMA[$node]}"
@@ -321,7 +332,7 @@ runBenchmarks() {
 			cmd+=" -s ${SERVER_IFC[$node]} -p $port"
 		fi
 		# echo "bench: $cmd"
-		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${out_file_base}.log 2>&1 &"
+		ssh -n -f $USER@${CLIENT_ADDR[$node]} "export LD_LIBRARY_PATH=${CLIENT_MEMKIND_DIR[$node]}/.libs/; nohup $cmd > ${CLIENT_LOGS_DIR[$node]}/${TAG+${TAG}/}${out_file_base}.log 2>&1 &"
 	done
 	echo "Done."
 }
@@ -337,34 +348,26 @@ getNoOfRunningBenchmarks() {
 	local pattern="memtier_benchmark"
 	local running=0
 	local i
-	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
-		((running+=$(ssh $USER@${CLIENT_ADDR[$i]} "pgrep -c -f \"$pattern\"")))
+	for (( i=0; i<${#CLIENT_ADDR_UNIQUE[@]}; i++ )); do
+		((running+=$(ssh $USER@${CLIENT_ADDR_UNIQUE[$i]} "pgrep -c -f \"$pattern\"")))
 	done
+	((running-=1))
 	echo $running
 }
 
-waitForAnyBenchmarkToFinish() {
-	echo "Waiting for any benchmark to finish"
-	local nodes=${#CLIENT_ADDR[@]}
-	local allservers=$((nodes * SERVERS))
+getUniqueClients() {
+	CLIENT_ADDR_UNIQUE=($(printf "%s\n" "${CLIENT_ADDR[@]}" | sort -u))
+}
+
+waitForBenchmarksToFinish() {
+	echo "Waiting for benchmarks to finish"
 	local running=$(getNoOfRunningBenchmarks)
-	while [ "$running" -ge "$allservers" ]; do
-		print_spinner "running servers: $running "
+	while [ "$running" -ge "1" ]; do
+		print_spinner "running benchmarks: $running "
 	       	sleep 1
 		running=$(getNoOfRunningBenchmarks)
 	done
 	echo "Done.                                      "
-}
-
-
-
-waitForAllBenchmarksToFinish() {
-	echo "Waiting for all benchmarks to finish"
-	local i
-	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
-		waitForProcessToFinish ${CLIENT_ADDR[$i]} "memtier_benchmark"
-	done
-	echo "Done."
 }
 
 
@@ -377,6 +380,7 @@ waitForAllBenchmarksToFinish() {
 # THREADS=3
 # CLIENTS=5
 # REQUESTS=100000
+# RECORDS=180000
 # SERVER_CONFIG=/home/fedora/git/redis/redis.conf
 
 # Write:Read ratio
@@ -393,13 +397,13 @@ getOptions $@
 check
 printConfiguration
 storeConfiguration
+getUniqueClients
 startAllRedisServers
 sleep 3
 fillAllDatabases
 sleep 3
 runAllBenchmarks
-waitForAnyBenchmarkToFinish
-waitForAllBenchmarksToFinish
+waitForBenchmarksToFinish
 sleep 3
 # sleep 20
 stopRedisServers
