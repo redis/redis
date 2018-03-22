@@ -182,6 +182,15 @@ void dbAddZ(redisDb *db, robj *key, robj *val) {
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
+void dbAddM(redisDb *db, robj *key, robj *val) {
+    sds copy = sdsdupM(key->ptr);
+    int retval = dictAdd(db->dict, copy, val); // TODO
+
+    serverAssertWithInfo(NULL,key,retval == DICT_OK);
+    if (val->type == OBJ_LIST) signalListAsReady(db, key);
+    if (server.cluster_enabled) slotToKeyAdd(key);
+ }
+
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
  * This function does not modify the expire time of the existing key.

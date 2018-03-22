@@ -39,7 +39,7 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObjectA(int type, void *ptr, alloc a) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o  = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -210,10 +210,18 @@ robj *createIntsetObject(void) {
     return o;
 }
 
+robj *createHashObjectM(void) {
+    unsigned char *zl = ziplistNewA(m_alloc);
+    robj *o = createObject(OBJ_HASH, zl);
+    o->a = m_alloc;
+    o->encoding = OBJ_ENCODING_ZIPLIST;
+    return o;
+}
+
 robj *createHashObject(void) {
     unsigned char *zl = ziplistNew();
     robj *o = createObject(OBJ_HASH, zl);
-    o->a = m_alloc;
+    o->a = z_alloc;
     o->encoding = OBJ_ENCODING_ZIPLIST;
     return o;
 }

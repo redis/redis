@@ -450,11 +450,15 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
 
 
 robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a) {
-    //printf("%s\n", key->ptr);
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
-        o = createHashObjectA(a);
-        dbAdd(c->db,key,o); // TODO
+        if (a == m_alloc) {
+            o = createHashObjectM();
+            dbAddM(c->db,key,o);
+        } else {
+            o = createHashObject();
+            dbAdd(c->db,key,o);
+        }
     } else {
         if (o->type != OBJ_HASH) {
             addReply(c,shared.wrongtypeerr);

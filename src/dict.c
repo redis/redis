@@ -45,6 +45,7 @@
 
 #include "dict.h"
 #include "zmalloc.h"
+#include "alloc.h"
 #ifndef DICT_BENCHMARK_MAIN
 #include "redisassert.h"
 #else
@@ -263,6 +264,15 @@ static void _dictRehashStep(dict *d) {
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
+{
+    dictEntry *entry = dictAddRaw(d,key,NULL);
+
+    if (!entry) return DICT_ERR;
+    dictSetVal(d, entry, val);
+    return DICT_OK;
+}
+
+int dictAddM(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 

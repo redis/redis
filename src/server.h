@@ -1502,6 +1502,7 @@ robj *createZiplistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
+robj *createHashObjectM(void);
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
@@ -1729,7 +1730,7 @@ robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a);
 static inline robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     return hashTypeLookupWriteOrCreateA(c, key, z_alloc);
 }
-static inline robj *hashTypeLookupWriteOrCreateM(c, key) {
+static inline robj *hashTypeLookupWriteOrCreateM(client *c, robj *key) {
     return hashTypeLookupWriteOrCreateA(c, key, m_alloc);
 }
 
