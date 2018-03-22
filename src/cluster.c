@@ -3410,8 +3410,7 @@ void clusterCron(void) {
                 orphaned_masters++;
             }
             if (okslaves > max_slaves) max_slaves = okslaves;
-            if (nodeIsSlave(myself) && myself->slaveof == node)
-                this_slaves = okslaves;
+            if (myself->slaveof == node) this_slaves = okslaves;
         }
 
         /* If we are waiting for the PONG more than half the cluster
