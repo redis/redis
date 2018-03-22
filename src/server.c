@@ -2948,7 +2948,8 @@ sds genRedisInfoString(char *section) {
             "hz:%d\r\n"
             "lru_clock:%ld\r\n"
             "executable:%s\r\n"
-            "config_file:%s\r\n",
+            "config_file:%s\r\n"
+            "current_timestamp:%jd\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -2971,7 +2972,8 @@ sds genRedisInfoString(char *section) {
             server.hz,
             (unsigned long) lruclock,
             server.executable ? server.executable : "",
-            server.configfile ? server.configfile : "");
+            server.configfile ? server.configfile : "",
+            server.unixtime);
     }
 
     /* Clients */
