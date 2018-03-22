@@ -1,9 +1,5 @@
-/* SDSLib 2.0 -- A C dynamic strings library
- *
- * Copyright (c) 2006-2015, Salvatore Sanfilippo <antirez at gmail dot com>
- * Copyright (c) 2015, Oran Agra
- * Copyright (c) 2015, Redis Labs, Inc
- * All rights reserved.
+/*
+ * Copyright (c) 2018, Intel Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -30,14 +26,31 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* SDS allocator selection.
- *
- * This file is used in order to change the SDS allocator at compile time.
- * Just define the following defines to what you want to use. Also add
- * the include of your alternate allocator if needed (not needed in order
- * to use the default libc allocator). */
+#ifndef __ALLOC_H__
+#define __ALLOC_H__
 
-#define s_malloc malloc
-#define s_realloc realloc
-#define s_free free
-#define s_alloc c_alloc
+#include <stdint.h>
+
+/* Typedefs for user data allocator */
+typedef void *(*ualloc)(size_t size);
+typedef void *(*ucalloc)(size_t size);
+typedef void *(*ufree)(void *ptr);
+typedef void *(*urealloc)(void *ptr, size_t size);
+
+struct __alloc {
+	void *(*alloc)(size_t size);
+	void *(*calloc)(size_t size);
+	void *(*realloc)(void *ptr, size_t size);
+	void (*free)(void *ptr);
+};
+typedef const struct __alloc *alloc;
+
+static const struct __alloc __c_alloc = {
+		malloc,
+		calloc,
+		realloc,
+		free
+};
+static const struct __alloc *c_alloc = &__c_alloc;
+
+#endif /* __ALLOC_H__ */

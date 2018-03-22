@@ -38,6 +38,8 @@
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include "alloc.h"
+#include "sdsalloc.h"
 
 typedef char *sds;
 
@@ -214,10 +216,10 @@ static inline void sdssetalloc(sds s, size_t newlen) {
     }
 }
 
-
 sds sdsnewlenA(const void *init, size_t initlen, alloc a);
 static inline sds sdsnewlen(const void *init, size_t initlen) { return sdsnewlenA(init, initlen, s_alloc); }
 static inline sds sdsnewlenM(const void *init, size_t initlen) { return sdsnewlenA(init, initlen, m_alloc); }
+
 sds sdsnew(const char *init);
 sds sdsempty(void);
 sds sdsdupA(const sds s, alloc a);
@@ -263,9 +265,11 @@ sds sdsjoin(char **argv, int argc, char *sep);
 sds sdsjoinsds(sds *argv, int argc, const char *sep, size_t seplen);
 
 /* Low level functions exposed to the user API */
-sds sdsMakeRoomFor(sds s, size_t addlen);
+sds sdsMakeRoomForA(sds s, size_t addlen, alloc a);
+static inline sds sdsMakeRoomFor(sds s, size_t addlen) { return sdsMakeRoomForA(s, addlen, s_alloc); }
 void sdsIncrLen(sds s, ssize_t incr);
-sds sdsRemoveFreeSpace(sds s);
+sds sdsRemoveFreeSpaceA(sds s, alloc a);
+static inline sds sdsRemoveFreeSpace(sds s) { return sdsRemoveFreeSpaceA(s, s_alloc); }
 size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
