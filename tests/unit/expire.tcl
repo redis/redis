@@ -205,18 +205,21 @@ start_server {tags {"expire"}} {
         set e
     } {*not an integer*}
 
-    test {SET - use EX/PX option, TTL should not be reseted after loadaof} {
-        r config set appendonly yes
-        r set foo bar EX 100
-        after 2000
-        r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+if 0 {
+        Commented out due to lack of support for AOF
+        test {SET - use EX/PX option, TTL should not be reseted after loadaof} {
+            r config set appendonly yes
+            r set foo bar EX 100
+            after 2000
+            r debug loadaof
+            set ttl [r ttl foo]
+            assert {$ttl <= 98 && $ttl > 90}
 
-        r set foo bar PX 100000
-        after 2000
-        r debug loadaof
-        set ttl [r ttl foo]
-        assert {$ttl <= 98 && $ttl > 90}
+            r set foo bar PX 100000
+            after 2000
+            r debug loadaof
+            set ttl [r ttl foo]
+            assert {$ttl <= 98 && $ttl > 90}
+        }
     }
 }
