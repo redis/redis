@@ -712,6 +712,7 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     decrRefCount(argv[8]);
     decrRefCount(argv[9]);
     decrRefCount(argv[10]);
+    decrRefCount(argv[11]);
 }
 
 /* Send the specified range to the client 'c'. The range the client will
