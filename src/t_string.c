@@ -42,6 +42,18 @@ static int checkStringLength(client *c, long long size) {
     return C_OK;
 }
 
+static robj *moveSdsToMemkind(robj *o) {
+    if(o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_RAW) {
+        sds *copy = sdsdupM(o->ptr);
+        sdsfree (o->ptr);
+        o->ptr = copy;
+        o->a = m_alloc;
+        return o;
+	}
+    return o;
+    /*TODO: OBJ_ENCODING_EMBSTR case */
+}
+
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
@@ -83,6 +95,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    val = moveSdsToMemkind(val);
     setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
@@ -174,9 +187,11 @@ void getCommand(client *c) {
 }
 
 void getsetCommand(client *c) {
+	robj *o;
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c->db,c->argv[1],c->argv[2]);
+    o = moveSdsToMemkind(c->argv[2]);
+    setKey(c->db,c->argv[1],o);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -206,7 +221,7 @@ void setrangeCommand(client *c) {
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+sdslen(value)));
+        o = createObjectM(OBJ_STRING,sdsnewlenM(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
@@ -227,11 +242,11 @@ void setrangeCommand(client *c) {
             return;
 
         /* Create a copy when the object is shared or encoded. */
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        o = dbUnshareStringValueM(c->db,c->argv[1],o);
     }
 
     if (sdslen(value) > 0) {
-        o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
+        o->ptr = sdsgrowzeroM(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
@@ -302,6 +317,7 @@ void mgetCommand(client *c) {
 
 void msetGenericCommand(client *c, int nx) {
     int j, busykeys = 0;
+    robj *o;
 
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
@@ -323,7 +339,8 @@ void msetGenericCommand(client *c, int nx) {
 
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c->db,c->argv[j],c->argv[j+1]);
+        o = moveSdsToMemkind(c->argv[j+1]);
+        setKey(c->db,c->argv[j],o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -361,7 +378,7 @@ void incrDecrCommand(client *c, long long incr) {
         new = o;
         o->ptr = (void*)((long)value);
     } else {
-        new = createStringObjectFromLongLong(value);
+        new = createStringObjectFromLongLongM(value);
         if (o) {
             dbOverwrite(c->db,c->argv[1],new);
         } else {
@@ -413,7 +430,7 @@ void incrbyfloatCommand(client *c) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
-    new = createStringObjectFromLongDouble(value,1);
+    new = createStringObjectFromLongDoubleM(value,1);
     if (o)
         dbOverwrite(c->db,c->argv[1],new);
     else
@@ -440,9 +457,10 @@ void appendCommand(client *c) {
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db,c->argv[1],c->argv[2]);
-        incrRefCount(c->argv[2]);
-        totlen = stringObjectLen(c->argv[2]);
+        append = moveSdsToMemkind(c->argv[2]);
+        dbAdd(c->db,c->argv[1],append);
+        incrRefCount(append);
+        totlen = stringObjectLen(append);
     } else {
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))
@@ -455,8 +473,8 @@ void appendCommand(client *c) {
             return;
 
         /* Append the value */
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
-        o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
+        o = dbUnshareStringValueM(c->db,c->argv[1],o);
+        o->ptr = sdscatlenM(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }
     signalModifiedKey(c->db,c->argv[1]);

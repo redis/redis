@@ -38,13 +38,13 @@
 
 /* ===================== Creation and parsing of objects ==================== */
 
-robj *createObject(int type, void *ptr) {
+robj *createObjectA(int type, void *ptr, alloc a) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
-    o->a = z_alloc;
+    o->a = a;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
@@ -75,8 +75,8 @@ robj *makeObjectShared(robj *o) {
 
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
-robj *createRawStringObject(const char *ptr, size_t len) {
-    return createObject(OBJ_STRING, sdsnewlen(ptr,len));
+robj *createRawStringObjectA(const char *ptr, size_t len, alloc a) {
+    return createObjectA(OBJ_STRING, sdsnewlenA(ptr,len, a), a);
 }
 
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
@@ -123,7 +123,7 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+robj *createStringObjectFromLongLongA(long long value, alloc a) {
     robj *o;
     if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
         incrRefCount(shared.integers[value]);
@@ -134,7 +134,7 @@ robj *createStringObjectFromLongLong(long long value) {
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
-            o = createObject(OBJ_STRING,sdsfromlonglong(value));
+            o = createObjectA(OBJ_STRING,sdsfromlonglongA(value, a), a);
         }
     }
     return o;
@@ -146,7 +146,7 @@ robj *createStringObjectFromLongLong(long long value) {
  * and the output of snprintf() is not modified.
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
-robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
+robj *createStringObjectFromLongDoubleA(long double value, int humanfriendly, alloc a) {
     char buf[256];
     int len = ld2string(buf,sizeof(buf),value,humanfriendly);
     return createStringObject(buf,len);
@@ -244,7 +244,7 @@ robj *createModuleObject(moduleType *mt, void *value) {
 
 void freeStringObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_RAW) {
-        sdsfree(o->ptr);
+        sdsfreeA(o->ptr, o->a);
     }
 }
 
@@ -321,7 +321,10 @@ void decrRefCount(robj *o) {
         case OBJ_MODULE: freeModuleObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        zfree(o);
+        if(o->encoding == OBJ_ENCODING_EMBSTR)
+            o->a->free(o);
+        else
+            zfree(o);
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;

@@ -364,11 +364,11 @@ void sdsIncrLen(sds s, ssize_t incr) {
  *
  * if the specified length is smaller than the current length, no operation
  * is performed. */
-sds sdsgrowzero(sds s, size_t len) {
+sds sdsgrowzeroA(sds s, size_t len, alloc a) {
     size_t curlen = sdslen(s);
 
     if (len <= curlen) return s;
-    s = sdsMakeRoomFor(s,len-curlen);
+    s = sdsMakeRoomForA(s,len-curlen, a);
     if (s == NULL) return NULL;
 
     /* Make sure added region doesn't contain garbage */
@@ -382,10 +382,10 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
-sds sdscatlen(sds s, const void *t, size_t len) {
+sds sdscatlenA(sds s, const void *t, size_t len, alloc a) {
     size_t curlen = sdslen(s);
 
-    s = sdsMakeRoomFor(s,len);
+    s = sdsMakeRoomForA(s,len,a);
     if (s == NULL) return NULL;
     memcpy(s+curlen, t, len);
     sdssetlen(s, curlen+len);
@@ -499,11 +499,11 @@ int sdsull2str(char *s, unsigned long long v) {
  *
  * sdscatprintf(sdsempty(),"%lld\n", value);
  */
-sds sdsfromlonglong(long long value) {
+sds sdsfromlonglongA(long long value, alloc a) {
     char buf[SDS_LLSTR_SIZE];
     int len = sdsll2str(buf,value);
 
-    return sdsnewlen(buf,len);
+    return sdsnewlenA(buf,len, a);
 }
 
 /* Like sdscatprintf() but gets va_list instead of being variadic. */

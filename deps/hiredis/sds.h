@@ -224,7 +224,8 @@ sds sdsdup(const sds s);
 void sdsfreeA(sds s, alloc a);
 static inline void sdsfree(sds s) { sdsfreeA(s, s_alloc); }
 sds sdsgrowzero(sds s, size_t len);
-sds sdscatlen(sds s, const void *t, size_t len);
+sds sdscatlenA(sds s, const void *t, size_t len, alloc a);
+static inline sds sdscatlen(sds s, const void *t, size_t len) { return sdscatlenA(s, t, len, s_alloc); }
 sds sdscat(sds s, const char *t);
 sds sdscatsds(sds s, const sds t);
 sds sdscpylen(sds s, const char *t, size_t len);

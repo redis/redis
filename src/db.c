@@ -291,11 +291,11 @@ int dbDelete(redisDb *db, robj *key) {
  * At this point the caller is ready to modify the object, for example
  * using an sdscat() call to append some data, or anything else.
  */
-robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+robj *dbUnshareStringValueA(redisDb *db, robj *key, robj *o, alloc a) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
-        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+        o = createRawStringObjectA(decoded->ptr, sdslen(decoded->ptr), a);
         decrRefCount(decoded);
         dbOverwrite(db,key,o);
     }
