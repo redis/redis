@@ -115,8 +115,11 @@ void resizeReplicationBacklog(long long newsize) {
 
 void freeReplicationBacklog(void) {
     serverAssert(listLength(server.slaves) == 0);
-    zfree(server.repl_backlog);
-    server.repl_backlog = NULL;
+    if(server.repl_backlog != NULL){
+		serverLog(LL_NOTICE, "free replication log");
+		zfree(server.repl_backlog);
+		server.repl_backlog = NULL;
+    }
 }
 
 /* Add data to the replication backlog.
@@ -1172,6 +1175,12 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
+    /**
+     * sync command success free ReplicationBacklog
+     * sync command fail, keep ReplicationBacklog
+     */
+	freeReplicationBacklog();
+
     /* Read bulk data */
     if (usemark) {
         readlen = sizeof(buf);
@@ -1789,8 +1798,10 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
      * as well, if we have any sub-slaves. The master may transfer us an
      * entirely different data set and we have no way to incrementally feed
      * our slaves after that. */
-    disconnectSlaves(); /* Force our slaves to resync with us as well. */
-    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+	disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    if (psync_result == PSYNC_FULLRESYNC) {
+		freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+    }
 
     /* Fall back to SYNC if needed. Otherwise psync_result == PSYNC_FULLRESYNC
      * and the server.master_replid and master_initial_offset are
