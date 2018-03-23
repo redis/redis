@@ -406,14 +406,14 @@ REDIS_STATIC void _quicklistInsertNodeBeforeA(quicklist *quicklist,
     __quicklistInsertNodeA(quicklist, old_node, new_node, 0, a);
 }
 
-REDIS_STATIC void _quicklistInsertNodeAfterA(quicklist *quicklist,
+static void _quicklistInsertNodeAfterA(quicklist *quicklist,
                                             quicklistNode *old_node,
                                             quicklistNode *new_node, alloc a) {
 // +
     __quicklistInsertNodeA(quicklist, old_node, new_node, 1, a);
 }
 
-REDIS_STATIC inline void _quicklistInsertNodeAfter(quicklist *quicklist,
+static inline void _quicklistInsertNodeAfter(quicklist *quicklist,
                                             quicklistNode *old_node,
                                             quicklistNode *new_node) {
 	_quicklistInsertNodeAfterA(quicklist, old_node, new_node, z_alloc);
@@ -654,7 +654,7 @@ REDIS_STATIC int quicklistDelIndexA(quicklist *quicklist, quicklistNode *node,
     return gone ? 1 : 0;
 }
 
-REDIS_STATIC inline int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
+static inline int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
 	return quicklistDelIndexA(quicklist, node, p, z_alloc);
 }
