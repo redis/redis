@@ -59,7 +59,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "anet.h"    /* Networking the easy way */
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h"  /* Compact integer set structure */
-#include "stream.h"  /* Stream data type header file. */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
@@ -140,7 +139,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_AOF_FILENAME "appendonly.aof"
 #define CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define CONFIG_DEFAULT_AOF_LOAD_TRUNCATED 1
-#define CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE 0
+#define CONFIG_DEFAULT_AOF_USE_RDB_PREAMBLE 1
 #define CONFIG_DEFAULT_ACTIVE_REHASHING 1
 #define CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 #define CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE 0
@@ -159,8 +158,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_THRESHOLD_LOWER 10 /* don't defrag when fragmentation is below 10% */
 #define CONFIG_DEFAULT_DEFRAG_THRESHOLD_UPPER 100 /* maximum defrag force at 100% fragmentation */
 #define CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES (100<<20) /* don't defrag if frag overhead is below 100mb */
-#define CONFIG_DEFAULT_DEFRAG_CYCLE_MIN 25 /* 25% CPU min (at lower threshold) */
+#define CONFIG_DEFAULT_DEFRAG_CYCLE_MIN 5 /* 5% CPU min (at lower threshold) */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
+#define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
@@ -622,6 +622,7 @@ typedef struct redisDb {
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
+    list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
 } redisDb;
 
 /* Client MULTI/EXEC state */
@@ -653,7 +654,8 @@ typedef struct blockingState {
 
     /* BLOCK_STREAM */
     size_t xread_count;     /* XREAD COUNT option. */
-    robj *xread_group;      /* XREAD group name. */
+    robj *xread_group;      /* XREADGROUP group name. */
+    robj *xread_consumer;   /* XREADGROUP consumer name. */
     mstime_t xread_retry_time, xread_retry_ttl;
 
     /* BLOCKED_WAIT */
@@ -838,7 +840,14 @@ struct redisMemOverhead {
     size_t bytes_per_key;
     float dataset_perc;
     float peak_perc;
-    float fragmentation;
+    float total_frag;
+    size_t total_frag_bytes;
+    float allocator_frag;
+    size_t allocator_frag_bytes;
+    float allocator_rss;
+    size_t allocator_rss_bytes;
+    float rss_extra;
+    size_t rss_extra_bytes;
     size_t num_dbs;
     struct {
         size_t dbid;
@@ -866,6 +875,14 @@ typedef struct rdbSaveInfo {
 } rdbSaveInfo;
 
 #define RDB_SAVE_INFO_INIT {-1,0,"000000000000000000000000000000",-1}
+
+typedef struct malloc_stats {
+    size_t zmalloc_used;
+    size_t process_rss;
+    size_t allocator_allocated;
+    size_t allocator_active;
+    size_t allocator_resident;
+} malloc_stats;
 
 /*-----------------------------------------------------------------------------
  * Global server state
@@ -943,8 +960,8 @@ struct redisServer {
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *sremCommand, *execCommand, *expireCommand,
-                        *pexpireCommand;
+                        *rpopCommand, *sremCommand, *execCommand,
+                        *expireCommand, *pexpireCommand, *xclaimCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -959,6 +976,7 @@ struct redisServer {
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
+    long long stat_active_defrag_scanned;   /* number of dictEntries scanned */
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
@@ -970,7 +988,7 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
-    size_t resident_set_size;       /* RSS sampled in serverCron(). */
+    malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
@@ -994,6 +1012,7 @@ struct redisServer {
     int active_defrag_threshold_upper; /* maximum percentage of fragmentation at which we use maximum effort */
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
+    unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
@@ -1174,6 +1193,8 @@ struct redisServer {
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
     int cluster_require_full_coverage; /* If true, put the cluster down if
                                           there is at least an uncovered slot.*/
+    int cluster_slave_no_failover;  /* Prevent slave from starting a failover
+                                       if the master is in failure state. */
     char *cluster_announce_ip;  /* IP address to announce on cluster bus. */
     int cluster_announce_port;     /* base port to announce on cluster bus. */
     int cluster_announce_bus_port; /* bus port to announce on cluster bus. */
@@ -1294,6 +1315,8 @@ typedef struct {
     dictIterator *di;
     dictEntry *de;
 } hashTypeIterator;
+
+#include "stream.h"  /* Stream data type header file. */
 
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
@@ -2022,6 +2045,11 @@ void xrangeCommand(client *c);
 void xrevrangeCommand(client *c);
 void xlenCommand(client *c);
 void xreadCommand(client *c);
+void xgroupCommand(client *c);
+void xackCommand(client *c);
+void xpendingCommand(client *c);
+void xclaimCommand(client *c);
+void xinfoCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

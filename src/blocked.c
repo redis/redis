@@ -283,6 +283,7 @@ void handleClientsBlockedOnKeys(void) {
 
                 if (listTypeLength(o) == 0) {
                     dbDelete(rl->db,rl->key);
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",rl->key,rl->db->id);
                 }
                 /* We don't call signalModifiedKey() as it was already called
                  * when an element was pushed on the list. */
@@ -313,9 +314,32 @@ void handleClientsBlockedOnKeys(void) {
                         {
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
+
+                            /* If we blocked in the context of a consumer
+                             * group, we need to resolve the group and
+                             * consumer here. */
+                            streamCG *group = NULL;
+                            streamConsumer *consumer = NULL;
+                            if (receiver->bpop.xread_group) {
+                                group = streamLookupCG(s,
+                                        receiver->bpop.xread_group->ptr);
+                                /* In theory if the group is not found we
+                                 * just perform the read without the group,
+                                 * but actually when the group, or the key
+                                 * itself is deleted (triggering the removal
+                                 * of the group), we check for blocked clients
+                                 * and send them an error. */
+                            }
+                            if (group) {
+                                consumer = streamLookupConsumer(group,
+                                           receiver->bpop.xread_consumer->ptr,
+                                           1);
+                            }
+
                             /* Note that after we unblock the client, 'gt'
-                             * is no longer valid, so we must do it after
-                             * we copied the ID into the 'start' variable. */
+                             * and other receiver->bpop stuff are no longer
+                             * valid, so we must do the setup above before
+                             * this call. */
                             unblockClient(receiver);
 
                             /* Emit the two elements sub-array consisting of
@@ -325,8 +349,14 @@ void handleClientsBlockedOnKeys(void) {
                             addReplyMultiBulkLen(receiver,1);
                             addReplyMultiBulkLen(receiver,2);
                             addReplyBulk(receiver,rl->key);
+
+                            streamPropInfo pi = {
+                                rl->key,
+                                receiver->bpop.xread_group
+                            };
                             streamReplyWithRange(receiver,s,&start,NULL,
-                                                 receiver->bpop.xread_count,0);
+                                                 receiver->bpop.xread_count,
+                                                 0, group, consumer, 0, &pi);
                         }
                     }
                 }
@@ -442,7 +472,9 @@ void unblockClientWaitingData(client *c) {
     }
     if (c->bpop.xread_group) {
         decrRefCount(c->bpop.xread_group);
+        decrRefCount(c->bpop.xread_consumer);
         c->bpop.xread_group = NULL;
+        c->bpop.xread_consumer = NULL;
     }
 }
 
