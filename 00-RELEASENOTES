@@ -11,6 +11,199 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.9     Released Mon Mar 26 17:52:32 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL: Critical upgrade for users using AOF with the
+                          fsync policy set to "always".
+
+Dear Redis users,
+
+Redis version 4.0.9 adds a few interesting new features and fixes a very
+critical bug regarding the Append Only File. Let's start with the bad news
+(the critical bug), explaining what happens and in what conditions:
+
+Critical AOF bug explained
+--------------------------
+
+When AOF is enabled with the fsync policy set to "always", we have a
+(rarely used) setup where Redis fsyncs every new write on disk. On this
+setup Redis MUST reply to the client with an OK code to the write, only
+after the write is already persisted on disk.
+
+Because of a bug, in particular conditions, it sometimes happens (verified
+experimentally that the condition can be actually created) that in the
+same event loop cycle the command is both processed and the reply sent, before
+the beforeSleep() function has the ability to fsync the write on disk.
+
+The redis 4.0.9 release fixes this problem introducing the concept of
+write barriers in the Redis event loop (ae.c). If you are using a different
+AOF setup, like fsync everysec, you are not affected because such guarantee
+is not provided anyway. Similarly if you have fsync set to always but you
+do not semantically use the fact that the reply is only sent after the
+successful fsync, you may avoid upgrading.
+
+Other bugfixes
+--------------
+
+Other things that we fixed in this release include:
+
+* Latency monitor could report wrong latencies under certain conditions.
+* AOF rewriting could fail when a backgronud rewrite is triggered and
+  at the same time the AOF is switched on/off.
+* Redis Cluster crash-recovery safety improved.
+* Other smaller fixes (check commnits).
+
+New features
+------------
+
+* Redis Cluster has now the ability to configure certain slaves so that
+  they'll never attempt a failover.
+* Keyspace notifications API in modules.
+* RM_Call() is now faster by reusing the same client.
+* Tracking of the percentage of keys already logically expired but yet
+  not evicted.
+* Other smaller improvements (check commits)
+
+This is the list of commits composing this release:
+
+zhaozhao.zz in commit 5b722bd7:
+ fix missed call on freeaddrinfo
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 2551b0f6:
+ anet: avoid double close
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 8d92885b:
+ Cluster: add test for the nofailover flag.
+ 2 files changed, 71 insertions(+)
+
+antirez in commit 70597a30:
+ Cluster: ability to prevent slaves from failing over their masters.
+ 6 files changed, 70 insertions(+), 2 deletions(-)
+
+antirez in commit 16cad10a:
+ redis-cli: fix missed unit in array. Change define name.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+charsyam in commit 640fa434:
+ fix-out-of-index-range-for-redis-cli-findbigkey
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 83390f55:
+ expireIfNeeded() needed a top comment documenting the behavior.
+ 1 file changed, 19 insertions(+)
+
+antirez in commit 888039ca:
+ expireIfNeeded() comment: claim -> pretend.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit e09c8c10:
+ Actually use ae_flags to add AE_BARRIER if needed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+charsyam in commit fb7560bc:
+ refactoring-make-condition-clear-for-rdb
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 1e2f0d69:
+ ae.c: insetad of not firing, on AE_BARRIER invert the sequence.
+ 1 file changed, 38 insertions(+), 22 deletions(-)
+
+antirez in commit b2e4aad9:
+ AOF: fix a bug that may prevent proper fsyncing when fsync=always.
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+antirez in commit 93bad8ae:
+ Cluster: improve crash-recovery safety after failover auth vote.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit e32752e8:
+ ae.c: introduce the concept of read->write barrier.
+ 2 files changed, 29 insertions(+), 6 deletions(-)
+
+antirez in commit 262f4039:
+ Fix ziplist prevlen encoding description. See #4705.
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+antirez in commit 83923afa:
+ Track number of logically expired keys still in memory.
+ 3 files changed, 28 insertions(+), 1 deletion(-)
+
+antirez in commit 256ddbf6:
+ Remove non semantical spaces from module.c.
+ 1 file changed, 36 insertions(+), 41 deletions(-)
+
+antirez in commit 280c3e39:
+ Fix typo in notifyKeyspaceEvent() comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Dvir Volk in commit 7c4623b0:
+ Add doc comment about notification flags
+ 1 file changed, 1 insertion(+)
+
+Dvir Volk in commit f4e7502e:
+ Fix indentation and comment style in testmodule
+ 1 file changed, 92 insertions(+), 98 deletions(-)
+
+Dvir Volk in commit 3c8456c6:
+ Use one static client for all keyspace notification callbacks
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+Dvir Volk in commit aaaff8bd:
+ Remove the NOTIFY_MODULE flag and simplify the module notification flow if there aren't subscribers
+ 3 files changed, 5 insertions(+), 9 deletions(-)
+
+Dvir Volk in commit 0be51b8f:
+ Document flags for notifications
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+Dvir Volk in commit 3b95c89c:
+ removed some trailing whitespaces
+ 1 file changed, 2 deletions(-)
+
+Dvir Volk in commit 84c6f1e3:
+ removed hellonotify.c
+ 3 files changed, 1 insertion(+), 87 deletions(-)
+
+Dvir Volk in commit 53b85e53:
+ fixed test
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+Dvir Volk in commit b43f66c9:
+ finished implementation of notifications. Tests unfinished
+ 7 files changed, 339 insertions(+), 3 deletions(-)
+
+antirez in commit eddf5deb:
+ More verbose logging when slave sends errors to master.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+oranagra in commit c09cc0a9:
+ when a slave experiances an error on commands that come from master, print to the log
+ 1 file changed, 2 insertions(+)
+
+charsyam in commit 5c374f94:
+ getting rid of duplicated code
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit a64f36e5:
+ enlarged buffer given to ld2string
+ 3 files changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit f1705801:
+ Make it explicit with a comment why we kill the old AOF rewrite.
+ 1 file changed, 3 insertions(+)
+
+Guy Benoish in commit 0c030dea:
+ rewriteAppendOnlyFileBackground() failure fix
+ 1 file changed, 31 insertions(+), 21 deletions(-)
+
+Oran Agra in commit 58073974:
+ fix to latency monitor reporting wrong max latency
+ 1 file changed, 1 insertion(+)
+
+================================================================================
 Redis 4.0.8     Released Fri Feb 2 11:17:40 CET 2018
 ================================================================================
 
