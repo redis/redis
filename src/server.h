@@ -1308,6 +1308,7 @@ extern dictType dbDictType;
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
+extern dictType hashDictTypeM;
 extern dictType replScriptCacheDictType;
 extern dictType keyptrDictType;
 extern dictType modulesDictType;
@@ -1710,7 +1711,10 @@ void setTypeConvert(robj *subject, int enc);
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
 
-void hashTypeConvert(robj *o, int enc);
+void hashTypeConvertA(robj *o, int enc, alloc a);
+static inline void hashTypeConvert(robj *o, int enc) { hashTypeConvertA(o,enc,z_alloc); }
+static inline void hashTypeConvertM(robj *o, int enc) { hashTypeConvertA(o,enc,m_alloc); }
+
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
 int hashTypeExists(robj *o, sds key);
@@ -1725,7 +1729,14 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 long long *vll);
 sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
-sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
+sds hashTypeCurrentObjectNewSdsA(hashTypeIterator *hi, int what, alloc a);
+static inline sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
+    return hashTypeCurrentObjectNewSdsA(hi, what, z_alloc);
+}
+static inline sds hashTypeCurrentObjectNewSdsM(hashTypeIterator *hi, int what) {
+    return hashTypeCurrentObjectNewSdsA(hi, what, m_alloc);
+}
+
 robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a);
 static inline robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     return hashTypeLookupWriteOrCreateA(c, key, z_alloc);

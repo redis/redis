@@ -624,8 +624,8 @@ dictType hashDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor           /* val destructor */
+    dictSdsDestructorM,          /* key destructor */
+    dictSdsDestructorM           /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
