@@ -2928,6 +2928,7 @@ sds genRedisInfoString(char *section) {
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        size_t memkind_malloc_used = memkind_malloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = (long long)lua_gc(server.lua,LUA_GCCOUNT,0)*1024;
@@ -2950,6 +2951,7 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
+            "used_memory_memkind:%zu\r\n"
             "used_memory:%zu\r\n"
             "used_memory_human:%s\r\n"
             "used_memory_rss:%zu\r\n"
@@ -2972,6 +2974,7 @@ sds genRedisInfoString(char *section) {
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
+            memkind_malloc_used,
             zmalloc_used,
             hmem,
             server.resident_set_size,
@@ -3725,13 +3728,13 @@ int main(int argc, char **argv) {
     }
 #endif
 
-	err = memkind_create_pmem("/mnt/pmem", PMEM1_MAX_SIZE, &server.pmem_kind1);
-	if (err) {
-		perror("memkind_create_pmem()");
-		fprintf(stderr, "Unable to create pmem partition\n");
-	} else {
-		printf("memkind created\n");
-	}
+    err = memkind_create_pmem("/mnt/pmem", PMEM1_MAX_SIZE, &server.pmem_kind1);
+    if (err) {
+        perror("memkind_create_pmem()");
+        fprintf(stderr, "Unable to create pmem partition\n");
+    } else {
+        printf("memkind created\n");
+    }
 
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
