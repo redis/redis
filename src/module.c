@@ -3809,6 +3809,29 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
 }
 
 /* --------------------------------------------------------------------------
+ * Modules Cluster API
+ * -------------------------------------------------------------------------- */
+
+typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
+
+/* This structure identifies a registered caller: it must match a given module
+ * ID, for a given message type. The callback function is just the function
+ * that was registered as receiver. */
+struct moduleClusterReceiver {
+    uint64_t module_id;
+    uint8_t msg_type;
+    RedisModuleClusterMessageReceiver callback;
+    struct moduleClusterReceiver *next;
+};
+
+/* We have an array of message types: each bucket is a linked list of
+ * configured receivers. */
+static struct moduleClusterReceiver *clusterReceivers[UINT8_MAX];
+
+void moduleCallClusterReceivers(char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len) {
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
