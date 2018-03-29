@@ -165,8 +165,11 @@ void queueClientForReprocessing(client *c) {
 }
 
 /* Unblock a client calling the right function depending on the kind
- * of operation the client is blocking for. */
-void unblockClient(client *c) {
+ * of operation the client is blocking for.
+ * If 'modules'==1 we also take care of freeing the memory allocated
+ * by the module subsystem (RedisModuleBlockedClient struct) and
+ * module-generated private data (c->bpop.module_data) */
+void unblockClientGeneric(client *c, int modules) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
@@ -175,16 +178,36 @@ void unblockClient(client *c) {
         unblockClientWaitingReplicas(c);
     } else if (c->btype == BLOCKED_MODULE) {
         unblockClientFromModule(c);
+    } else if (c->btype == BLOCKED_MODULE_KEYS) {
+        unblockClientWaitingData(c);
+        unblockClientFromModule(c);
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
+    int btype = c->btype;
     server.blocked_clients--;
     server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
     queueClientForReprocessing(c);
+
+    /* When a module is blocked on keys, it's Redis core's
+     * responsibility to unblock it (unlike a "regular"
+     * blocked module client, which has to be unblocked
+     * by RedisModule_UnblockClient) */
+    if (modules && btype == BLOCKED_MODULE_KEYS) {
+        /* This will trigger moduleHandleBlockedClients to
+         * free the RedisModuleBlockedClient struct. */
+        moduleBlockedOnKeysData bkd = {NULL, c->bpop.module_data};
+        moduleUnblockClient(c, &bkd);
+        moduleHandleBlockedClients();
+    }
+}
+
+void unblockClient(client *c) {
+    unblockClientGeneric(c, 1);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -197,7 +220,7 @@ void replyToBlockedClientTimedOut(client *c) {
         addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
-    } else if (c->btype == BLOCKED_MODULE) {
+    } else if (c->btype == BLOCKED_MODULE || c->btype == BLOCKED_MODULE_KEYS) {
         moduleBlockedClientTimedOut(c);
     } else {
         serverPanic("Unknown btype in replyToBlockedClientTimedOut().");
@@ -430,6 +453,36 @@ void serveClientsBlockedOnStreamKey(robj *o, readyList *rl) {
     }
 }
 
+/* Helper function for handleClientsBlockedOnKeys(). This function is called
+ * when there may be clients blocked on a module key, and there may be new
+ * data to fetch (the key is ready). */
+void serveClientsBlockedOnModuleKey(readyList *rl) {
+    dictEntry *de;
+
+    /* We serve clients in the same order they blocked for
+     * this key, from the first blocked to the last. */
+    de = dictFind(rl->db->blocking_keys,rl->key);
+    if (de) {
+        list *clients = dictGetVal(de);
+        int numclients = listLength(clients);
+
+        while(numclients--) {
+            listNode *clientnode = listFirst(clients);
+            client *receiver = clientnode->value;
+            moduleBlockedOnKeysData bkd = {rl->key, receiver->bpop.module_data};
+
+            if (!moduleIsKeyReady(receiver, &bkd))
+                break;
+
+            /* Unblock module client */
+            moduleUnblockClient(receiver, &bkd);
+
+            /* Reply and release block */
+            moduleHandleBlockedClients();
+        }
+    }
+}
+
 /* This function should be called by Redis every time a single command,
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
  * being called by a client. It handles serving clients blocked in
@@ -480,6 +533,8 @@ void handleClientsBlockedOnKeys(void) {
                     serveClientsBlockedOnSortedSetKey(o,rl);
                 else if (o->type == OBJ_STREAM)
                     serveClientsBlockedOnStreamKey(o,rl);
+                else if (o->type == OBJ_MODULE)
+                    serveClientsBlockedOnModuleKey(rl);
             }
 
             /* Free this item. */
@@ -518,13 +573,14 @@ void handleClientsBlockedOnKeys(void) {
  * stream keys, we also provide an array of streamID structures: clients will
  * be unblocked only when items with an ID greater or equal to the specified
  * one is appended to the stream. */
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids) {
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids, void *module_data) {
     dictEntry *de;
     list *l;
     int j;
 
     c->bpop.timeout = timeout;
     c->bpop.target = target;
+    c->bpop.module_data = module_data;
 
     if (target != NULL) incrRefCount(target);
 

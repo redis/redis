@@ -503,6 +503,10 @@ int REDISMODULE_API_FUNC(RedisModule_SubscribeToServerEvent)(RedisModuleCtx *ctx
 #ifdef REDISMODULE_EXPERIMENTAL_API
 #define REDISMODULE_EXPERIMENTAL_API_VERSION 3
 RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms);
+RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClientOnKeys)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, long long timeout_ms, int (*is_key_ready)(RedisModuleCtx*), RedisModuleString **keys, int numkeys, void* privdata, void (*free_privdata)(RedisModuleCtx*,void*));
+RedisModuleString *REDISMODULE_API_FUNC(RedisModule_GetBlockedOnKeysKeyname)(RedisModuleCtx *ctx);
+void *REDISMODULE_API_FUNC(RedisModule_GetBlockedOnKeysMetadata)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_SignalKeyAsReady)(RedisModuleCtx *ctx, RedisModuleString *key);
 int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
 int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx);
@@ -704,6 +708,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ThreadSafeContextLock);
     REDISMODULE_GET_API(ThreadSafeContextUnlock);
     REDISMODULE_GET_API(BlockClient);
+    REDISMODULE_GET_API(BlockClientOnKeys);
+    REDISMODULE_GET_API(GetBlockedOnKeysKeyname);
+    REDISMODULE_GET_API(GetBlockedOnKeysMetadata);
+    REDISMODULE_GET_API(SignalKeyAsReady);
     REDISMODULE_GET_API(UnblockClient);
     REDISMODULE_GET_API(IsBlockedReplyRequest);
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);

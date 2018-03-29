@@ -320,9 +320,10 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_LIST 1    /* BLPOP & co. */
 #define BLOCKED_WAIT 2    /* WAIT for synchronous replication. */
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
-#define BLOCKED_STREAM 4  /* XREAD. */
-#define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_NUM 6     /* Number of blocked states. */
+#define BLOCKED_MODULE_KEYS 4  /* Blocked on keys by a loadable module. */
+#define BLOCKED_STREAM 5  /* XREAD. */
+#define BLOCKED_ZSET 6    /* BZPOP et al. */
+#define BLOCKED_NUM 7     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -654,6 +655,12 @@ typedef struct RedisModuleDigest {
     memset(mdvar.x,0,sizeof(mdvar.x)); \
 } while(0);
 
+/* For modules that are blocked on keys: Allow to get keyname and metadata */
+typedef struct moduleBlockedOnKeysData {
+    struct redisObject *key;
+    void *metadata;
+} moduleBlockedOnKeysData;
+
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
@@ -768,6 +775,7 @@ typedef struct blockingState {
     void *module_blocked_handle; /* RedisModuleBlockedClient structure.
                                     which is opaque for the Redis core, only
                                     handled in module.c. */
+    void* module_data;           /* Per-client data the module mayprovide in RM_BlockForKeys */
 } blockingState;
 
 /* The following structure represents a node in the server.ready_keys list,
@@ -1591,6 +1599,8 @@ void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
 void moduleBlockedClientTimedOut(client *c);
 void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
+void moduleUnblockClient(client *c, void *privdata);
+int moduleIsKeyReady(client *c, moduleBlockedOnKeysData *bkd);
 size_t moduleCount(void);
 void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
@@ -2160,6 +2170,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body);
 /* Blocked clients */
 void processUnblockedClients(void);
 void blockClient(client *c, int btype);
+void unblockClientGeneric(client *c, int modules);
 void unblockClient(client *c);
 void queueClientForReprocessing(client *c);
 void replyToBlockedClientTimedOut(client *c);
@@ -2167,7 +2178,7 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids, void *module_data);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);

@@ -1652,7 +1652,7 @@ int processCommandAndResetClient(client *c) {
          * still be able to access the client argv and argc field.
          * The client will be reset in unblockClientFromModule(). */
         if (!(c->flags & CLIENT_BLOCKED) ||
-            c->btype != BLOCKED_MODULE)
+            (c->btype != BLOCKED_MODULE && c->btype != BLOCKED_MODULE_KEYS))
         {
             resetClient(c);
         }

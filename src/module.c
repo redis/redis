@@ -234,6 +234,7 @@ typedef struct RedisModuleCallReply {
 typedef struct RedisModuleBlockedClient {
     client *client;  /* Pointer to the blocked client. or NULL if the client
                         was destroyed during the life of this object. */
+    int btype;       /* BLOCKED_* (If client is blocked) */
     RedisModule *module;    /* Module blocking the client. */
     RedisModuleCmdFunc reply_callback; /* Reply callback on normal completion.*/
     RedisModuleCmdFunc timeout_callback; /* Reply callback on timeout. */
@@ -242,6 +243,9 @@ typedef struct RedisModuleBlockedClient {
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
+    int (*is_key_ready)(RedisModuleCtx*); /* A callback implemented by the module to
+                                             determine whether a key on which it is
+                                             blocked is ready (not empty). */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
@@ -4013,10 +4017,15 @@ void unblockClientFromModule(client *c) {
  *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
-RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
+RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback,
+                                            RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*),
+                                            long long timeout_ms, int (*is_key_ready)(RedisModuleCtx*),
+                                            RedisModuleString **keys, int numkeys, void* module_data)
+{
     client *c = ctx->client;
     int islua = c->flags & CLIENT_LUA;
     int ismulti = c->flags & CLIENT_MULTI;
+    mstime_t timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
 
     c->bpop.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
@@ -4033,20 +4042,54 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
+    bc->is_key_ready = is_key_ready;
     bc->reply_client = createClient(NULL);
     bc->reply_client->flags |= CLIENT_MODULE;
     bc->dbid = c->db->id;
-    c->bpop.timeout = timeout_ms ? (mstime()+timeout_ms) : 0;
+    c->bpop.timeout = timeout;
 
     if (islua || ismulti) {
         c->bpop.module_blocked_handle = NULL;
         addReplyError(c, islua ?
             "Blocking module command called from Lua script" :
             "Blocking module command called from transaction");
+    } else if (keys){
+        blockForKeys(c,BLOCKED_MODULE_KEYS,keys,numkeys,timeout,NULL,NULL,module_data);
+        bc->btype = BLOCKED_MODULE_KEYS;
     } else {
         blockClient(c,BLOCKED_MODULE);
+        bc->btype = BLOCKED_MODULE;
     }
     return bc;
+}
+
+RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback,
+                                         void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms)
+{
+    return moduleBlockClient(ctx, reply_callback, timeout_callback, free_privdata, timeout_ms, NULL, NULL, 0, NULL);
+}
+
+RedisModuleBlockedClient *RM_BlockClientOnKeys(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback,
+                                               long long timeout_ms, int (*is_key_ready)(RedisModuleCtx*), RedisModuleString **keys, int numkeys,
+                                               void* privdata, void (*free_privdata)(RedisModuleCtx*,void*))
+{
+    return moduleBlockClient(ctx, reply_callback, timeout_callback, free_privdata, timeout_ms, is_key_ready, keys, numkeys, privdata);
+}
+
+int RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
+    signalKeyAsReady(ctx->client->db, key);
+    return REDISMODULE_OK;
+}
+
+int moduleIsKeyReady(client *c, moduleBlockedOnKeysData *bkd) {
+    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+    ctx.module = bc->module;
+    ctx.client = bc->client;
+    ctx.blocked_privdata = bkd;
+    int ready = bc->is_key_ready(&ctx);
+    moduleFreeContext(&ctx);
+    return ready;
 }
 
 /* Unblock a client blocked by `RedisModule_BlockedClient`. This will trigger
@@ -4099,6 +4142,11 @@ void RM_SetDisconnectCallback(RedisModuleBlockedClient *bc, RedisModuleDisconnec
     bc->disconnect_callback = callback;
 }
 
+void moduleUnblockClient(client *c, void *privdata) {
+    RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+    RM_UnblockClient(bc, privdata);
+}
+
 /* This function will check the moduleUnblockedClients queue in order to
  * call the reply callback and really unblock the client.
  *
@@ -4148,7 +4196,15 @@ void moduleHandleBlockedClients(void) {
             ctx.blocked_privdata = bc->privdata;
             ctx.module = bc->module;
             ctx.client = bc->client;
-            bc->free_privdata(&ctx,bc->privdata);
+            if (bc->btype == BLOCKED_MODULE_KEYS) {
+                /* Module is blocked on keys, we have to free its metadata */
+                moduleBlockedOnKeysData *bkd = bc->privdata;
+                bc->free_privdata(&ctx,bkd->metadata);
+                if (c != NULL)
+                    c->bpop.module_data = NULL;
+            } else {
+                bc->free_privdata(&ctx,bc->privdata);
+            }
             moduleFreeContext(&ctx);
         }
 
@@ -4164,7 +4220,7 @@ void moduleHandleBlockedClients(void) {
              * to NULL, because if we reached this point, the client was
              * properly unblocked by the module. */
             bc->disconnect_callback = NULL;
-            unblockClient(c);
+            unblockClientGeneric(c, 0); /* Prevent recursive calls to moduleHandleBlockedClients */
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
              * during a non blocking command the client may receive output. */
@@ -4222,6 +4278,16 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
 /* Get the private data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
+}
+
+/* Get the name of the ready key set by handleClientsBlockedOnKeys */
+RedisModuleString *RM_GetBlockedOnKeysKeyname(RedisModuleCtx *ctx) {
+    return ((moduleBlockedOnKeysData*)ctx->blocked_privdata)->key;
+}
+
+/* Get the metadata of the ready key set by RedisModule_BlockClientOnKeys */
+void *RM_GetBlockedOnKeysMetadata(RedisModuleCtx *ctx) {
+    return ((moduleBlockedOnKeysData*)ctx->blocked_privdata)->metadata;
 }
 
 /* Get the blocked client associated with a given context.
@@ -6495,6 +6561,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetKeyNameFromIO);
     REGISTER_API(GetKeyNameFromModuleKey);
     REGISTER_API(BlockClient);
+    REGISTER_API(BlockClientOnKeys);
+    REGISTER_API(GetBlockedOnKeysKeyname);
+    REGISTER_API(GetBlockedOnKeysMetadata);
+    REGISTER_API(SignalKeyAsReady);
     REGISTER_API(UnblockClient);
     REGISTER_API(IsBlockedReplyRequest);
     REGISTER_API(IsBlockedTimeoutRequest);
