@@ -665,7 +665,7 @@ void hincrbyCommand(client *c) {
         return;
     }
     value += incr;
-    new = sdsfromlonglong(value); // CHANGE
+    new = sdsfromlonglongA(value, m_alloc);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyLongLong(c,value);
     signalModifiedKey(c->db,c->argv[1]);

@@ -301,7 +301,7 @@ void freeHashObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+        o->a->free(o->ptr);
         break;
     default:
         serverPanic("Unknown hash encoding type");
