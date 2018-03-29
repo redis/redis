@@ -6,21 +6,29 @@ def markdown(s)
     s = s.gsub(/\*\/$/,"")
     s = s.gsub(/^ \* {0,1}/,"")
     s = s.gsub(/^\/\* /,"")
-    if s[0] != ' '
-        s = s.gsub(/RM_[A-z()]+/){|x| "`#{x}`"}
-        s = s.gsub(/RedisModule_[A-z()]+/){|x| "`#{x}`"}
-        s = s.gsub(/REDISMODULE_[A-z]+/){|x| "`#{x}`"}
-    end
     s.chop! while s[-1] == "\n" || s[-1] == " "
-    return s
+    lines = s.split("\n")
+    newlines = []
+    lines.each{|l|
+        if l[0] != ' '
+            l = l.gsub(/RM_[A-z()]+/){|x| "`#{x}`"}
+            l = l.gsub(/RedisModule_[A-z()]+/){|x| "`#{x}`"}
+            l = l.gsub(/REDISMODULE_[A-z]+/){|x| "`#{x}`"}
+        end
+        newlines << l
+    }
+    return newlines.join("\n")
 end
 
 # Given the source code array and the index at which an exported symbol was
 # detected, extracts and outputs the documentation.
 def docufy(src,i)
     m = /RM_[A-z0-9]+/.match(src[i])
+    name = m[0]
+    name = name.sub("RM_","RedisModule_")
     proto = src[i].sub("{","").strip+";\n"
-    puts "## `#{m[0]}`\n\n"
+    proto = proto.sub("RM_","RedisModule_")
+    puts "## `#{name}`\n\n"
     puts "    #{proto}\n"
     comment = ""
     while true

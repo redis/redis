@@ -47,4 +47,18 @@ start_server {tags {"latency-monitor"}} {
         assert {[r latency reset] > 0}
         assert {[r latency latest] eq {}}
     }
+
+    test {LATENCY of expire events are correctly collected} {
+        r config set latency-monitor-threshold 20
+        r eval {
+            local i = 0
+            while (i < 1000000) do
+                redis.call('sadd','mybigkey',i)
+                i = i+1
+             end
+        } 0
+        r pexpire mybigkey 1
+        after 500
+        assert_match {*expire-cycle*} [r latency latest]
+    }
 }

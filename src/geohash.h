@@ -95,7 +95,7 @@ typedef struct {
  * -1:failed
  */
 void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range);
-int geohashEncode(GeoHashRange *long_range, GeoHashRange *lat_range,
+int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash);
 int geohashEncodeType(double longitude, double latitude,

@@ -379,7 +379,7 @@ void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
 
-unsigned int dictSdsHash(const void *key);
+uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
@@ -2579,9 +2579,15 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     /* If this is a slave of a master in O_DOWN condition we start sending
      * it INFO every second, instead of the usual SENTINEL_INFO_PERIOD
      * period. In this state we want to closely monitor slaves in case they
-     * are turned into masters by another Sentinel, or by the sysadmin. */
+     * are turned into masters by another Sentinel, or by the sysadmin.
+     *
+     * Similarly we monitor the INFO output more often if the slave reports
+     * to be disconnected from the master, so that we can have a fresh
+     * disconnection time figure. */
     if ((ri->flags & SRI_SLAVE) &&
-        (ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS))) {
+        ((ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS)) ||
+         (ri->master_link_down_time != 0)))
+    {
         info_period = 1000;
     } else {
         info_period = SENTINEL_INFO_PERIOD;
@@ -3634,15 +3640,15 @@ struct sentinelLeader {
 /* Helper function for sentinelGetLeader, increment the counter
  * relative to the specified runid. */
 int sentinelLeaderIncr(dict *counters, char *runid) {
-    dictEntry *de = dictFind(counters,runid);
+    dictEntry *existing, *de;
     uint64_t oldval;
 
-    if (de) {
-        oldval = dictGetUnsignedIntegerVal(de);
-        dictSetUnsignedIntegerVal(de,oldval+1);
+    de = dictAddRaw(counters,runid,&existing);
+    if (existing) {
+        oldval = dictGetUnsignedIntegerVal(existing);
+        dictSetUnsignedIntegerVal(existing,oldval+1);
         return oldval+1;
     } else {
-        de = dictAddRaw(counters,runid);
         serverAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
         return 1;
@@ -3668,7 +3674,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
+    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);

@@ -1,4 +1,4 @@
-# Helper functins to simulate search-in-radius in the Tcl side in order to
+# Helper functions to simulate search-in-radius in the Tcl side in order to
 # verify the Redis implementation with a fuzzy test.
 proc geo_degrad deg {expr {$deg*atan(1)*8/360}}
 
@@ -22,6 +22,47 @@ proc geo_random_point {lonvar latvar} {
     set lon [expr {-180 + rand()*360}]
     set lat [expr {-70 + rand()*140}]
 }
+
+# Return elements non common to both the lists.
+# This code is from http://wiki.tcl.tk/15489
+proc compare_lists {List1 List2} {
+   set DiffList {}
+   foreach Item $List1 {
+      if {[lsearch -exact $List2 $Item] == -1} {
+         lappend DiffList $Item
+      }
+   }
+   foreach Item $List2 {
+      if {[lsearch -exact $List1 $Item] == -1} {
+         if {[lsearch -exact $DiffList $Item] == -1} {
+            lappend DiffList $Item
+         }
+      }
+   }
+   return $DiffList
+}
+
+# The following list represents sets of random seed, search position
+# and radius that caused bugs in the past. It is used by the randomized
+# test later as a starting point. When the regression vectors are scanned
+# the code reverts to using random data.
+#
+# The format is: seed km lon lat
+set regression_vectors {
+    {1482225976969 7083 81.634948934258375 30.561509253718668}
+    {1482340074151 5416 -70.863281847379767 -46.347003465679947}
+    {1499014685896 6064 -89.818768962202014 -40.463868561416803}
+    {1412 156 149.29737817929004 15.95807862745508}
+    {441574 143 59.235461856813856 66.269555127373678}
+    {160645 187 -101.88575239939883 49.061997951502917}
+    {750269 154 -90.187939661642517 66.615930412251487}
+    {342880 145 163.03472387745728 64.012747720821181}
+    {729955 143 137.86663517256579 63.986745399416776}
+    {939895 151 59.149620271823181 65.204186651485145}
+    {1412 156 149.29737817929004 15.95807862745508}
+    {564862 149 84.062063109158544 -65.685403922426232}
+}
+set rv_idx 0
 
 start_server {tags {"geo"}} {
     test {GEOADD create} {
@@ -183,35 +224,83 @@ start_server {tags {"geo"}} {
     }
 
     test {GEOADD + GEORANGE randomized test} {
-        set attempt 10
+        set attempt 30
         while {[incr attempt -1]} {
+            set rv [lindex $regression_vectors $rv_idx]
+            incr rv_idx
+
             unset -nocomplain debuginfo
-            set srand_seed [randomInt 1000000]
+            set srand_seed [clock milliseconds]
+            if {$rv ne {}} {set srand_seed [lindex $rv 0]}
             lappend debuginfo "srand_seed is $srand_seed"
             expr {srand($srand_seed)} ; # If you need a reproducible run
             r del mypoints
-            set radius_km [expr {[randomInt 200]+10}]
+
+            if {[randomInt 10] == 0} {
+                # From time to time use very big radiuses
+                set radius_km [expr {[randomInt 50000]+10}]
+            } else {
+                # Normally use a few - ~200km radiuses to stress
+                # test the code the most in edge cases.
+                set radius_km [expr {[randomInt 200]+10}]
+            }
+            if {$rv ne {}} {set radius_km [lindex $rv 1]}
             set radius_m [expr {$radius_km*1000}]
             geo_random_point search_lon search_lat
+            if {$rv ne {}} {
+                set search_lon [lindex $rv 2]
+                set search_lat [lindex $rv 3]
+            }
             lappend debuginfo "Search area: $search_lon,$search_lat $radius_km km"
             set tcl_result {}
             set argv {}
             for {set j 0} {$j < 20000} {incr j} {
                 geo_random_point lon lat
                 lappend argv $lon $lat "place:$j"
-                if {[geo_distance $lon $lat $search_lon $search_lat] < $radius_m} {
+                set distance [geo_distance $lon $lat $search_lon $search_lat]
+                if {$distance < $radius_m} {
                     lappend tcl_result "place:$j"
-                    lappend debuginfo "place:$j $lon $lat [expr {[geo_distance $lon $lat $search_lon $search_lat]/1000}] km"
                 }
+                lappend debuginfo "place:$j $lon $lat [expr {$distance/1000}] km"
             }
             r geoadd mypoints {*}$argv
             set res [lsort [r georadius mypoints $search_lon $search_lat $radius_km km]]
             set res2 [lsort $tcl_result]
             set test_result OK
+
             if {$res != $res2} {
+                set rounding_errors 0
+                set diff [compare_lists $res $res2]
+                foreach place $diff {
+                    set mydist [geo_distance $lon $lat $search_lon $search_lat]
+                    set mydist [expr $mydist/1000]
+                    if {($mydist / $radius_km) > 0.999} {incr rounding_errors}
+                }
+                # Make sure this is a real error and not a rounidng issue.
+                if {[llength $diff] == $rounding_errors} {
+                    set res $res2; # Error silenced
+                }
+            }
+
+            if {$res != $res2} {
+                set diff [compare_lists $res $res2]
+                puts "*** Possible problem in GEO radius query ***"
                 puts "Redis: $res"
                 puts "Tcl  : $res2"
+                puts "Diff : $diff"
                 puts [join $debuginfo "\n"]
+                foreach place $diff {
+                    if {[lsearch -exact $res2 $place] != -1} {
+                        set where "(only in Tcl)"
+                    } else {
+                        set where "(only in Redis)"
+                    }
+                    lassign [lindex [r geopos mypoints $place] 0] lon lat
+                    set mydist [geo_distance $lon $lat $search_lon $search_lat]
+                    set mydist [expr $mydist/1000]
+                    puts "$place -> [r geopos mypoints $place] $mydist $where"
+                    if {($mydist / $radius_km) > 0.999} {incr rounding_errors}
+                }
                 set test_result FAIL
             }
             unset -nocomplain debuginfo
