@@ -130,6 +130,7 @@ typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleType RedisModuleType;
 typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
+typedef struct RedisModuleClusterInfo RedisModuleClusterInfo;
 
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);

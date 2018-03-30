@@ -3676,13 +3676,13 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
  * This is not needed for `RedisModule_Reply*` calls when there is
  * a blocked client connected to the thread safe context. */
 void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
-    DICT_NOTUSED(ctx);
+    UNUSED(ctx);
     moduleAcquireGIL();
 }
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
-    DICT_NOTUSED(ctx);
+    UNUSED(ctx);
     moduleReleaseGIL();
 }
 
@@ -3909,6 +3909,112 @@ int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, un
         return REDISMODULE_ERR;
 }
 
+/* Return an array of string pointers, each string pointer points to a cluster
+ * node ID of exactly REDISMODULE_NODE_ID_SIZE bytes (without any null term).
+ * The number of returned node IDs is stored into `*numnodes`.
+ * However if this function is called by a module not running an a Redis
+ * instance with Redis Cluster enabled, NULL is returned instead.
+ *
+ * The IDs returned can be used with RedisModule_GetClusterNodeInfo() in order
+ * to get more information about single nodes.
+ *
+ * The array returned by this function must be freed using the function
+ * RedisModule_FreeClusterNodesList().
+ *
+ * Example:
+ *
+ *     size_t count, j;
+ *     char **ids = RedisModule_GetClusterNodesList(ctx,&count);
+ *     for (j = 0; j < count; j++) {
+ *         RedisModule_Log("notice","Node %.*s",
+ *             REDISMODULE_NODE_ID_LEN,ids[j]);
+ *     }
+ *     RedisModule_FreeClusterNodesList(ids);
+ */
+char **RM_GetClusterNodesList(RedisModuleCtx *ctx, size_t *numnodes) {
+    UNUSED(ctx);
+
+    if (!server.cluster_enabled) return NULL;
+    size_t count = dictSize(server.cluster->nodes);
+    char **ids = zmalloc((count+1)*REDISMODULE_NODE_ID_LEN);
+    dictIterator *di = dictGetIterator(server.cluster->nodes);
+    dictEntry *de;
+    int j = 0;
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE)) continue;
+        ids[j] = zmalloc(REDISMODULE_NODE_ID_LEN);
+        memcpy(ids[j],node->name,REDISMODULE_NODE_ID_LEN);
+        j++;
+    }
+    *numnodes = j;
+    ids[j] = NULL; /* Null term so that FreeClusterNodesList does not need
+                    * to also get the count argument. */
+    dictReleaseIterator(di);
+    return ids;
+}
+
+/* Free the node list obtained with RedisModule_GetClusterNodesList. */
+void RM_FreeClusterNodesList(char **ids) {
+    if (ids == NULL) return;
+    for (int j = 0; ids[j]; j++) zfree(ids[j]);
+    zfree(ids);
+}
+
+/* Populate the specified info for the node having as ID the specified 'id',
+ * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
+ * the POV of this local node, REDISMODULE_ERR is returned.
+ *
+ * The arguments ip, master_id, port and flags can be NULL in case we don't
+ * need to populate back certain info. If an ip and master_id (only populated
+ * if the instance is a slave) are specified, they point to buffers holding
+ * at least REDISMODULE_NODE_ID_LEN bytes. The strings written back as ip
+ * and master_id are not null terminated.
+ *
+ * The list of flags reported is the following:
+ *
+ * * REDISMODULE_NODE_MYSELF        This node
+ * * REDISMODULE_NODE_MASTER        The node is a master
+ * * REDISMODULE_NODE_SLAVE         The ndoe is a slave
+ * * REDISMODULE_NODE_PFAIL         We see the node as failing
+ * * REDISMODULE_NODE_FAIL          The cluster agrees the node is failing
+ * * REDISMODULE_NODE_NOFAILOVER    The slave is configured to never failover
+ */
+
+clusterNode *clusterLookupNode(const char *name); /* We need access to internals */
+
+int RM_GetClusterNodeInfo(const char *id, char *ip, char *master_id, int *port, int *flags) {
+    clusterNode *node = clusterLookupNode(id);
+    if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
+        return REDISMODULE_ERR;
+
+    if (ip) memcpy(ip,node->name,REDISMODULE_NODE_ID_LEN);
+
+    if (master_id) {
+        /* If the information is not available, the function will set the
+         * field to zero bytes, so that when the field can't be populated the
+         * function kinda remains predictable. */
+        if (node->flags & CLUSTER_NODE_MASTER && node->slaveof)
+            memcpy(master_id,node->slaveof->name,REDISMODULE_NODE_ID_LEN);
+        else
+            memset(master_id,0,REDISMODULE_NODE_ID_LEN);
+    }
+    if (port) *port = node->port;
+
+    /* As usually we have to remap flags for modules, in order to ensure
+     * we can provide binary compatibility. */
+    if (flags) {
+        *flags = 0;
+        if (node->flags & CLUSTER_NODE_MYSELF) *flags |= REDISMODULE_NODE_MYSELF;
+        if (node->flags & CLUSTER_NODE_MASTER) *flags |= REDISMODULE_NODE_MASTER;
+        if (node->flags & CLUSTER_NODE_SLAVE) *flags |= REDISMODULE_NODE_SLAVE;
+        if (node->flags & CLUSTER_NODE_PFAIL) *flags |= REDISMODULE_NODE_PFAIL;
+        if (node->flags & CLUSTER_NODE_FAIL) *flags |= REDISMODULE_NODE_FAIL;
+        if (node->flags & CLUSTER_NODE_NOFAILOVER) *flags |= REDISMODULE_NODE_NOFAILOVER;
+    }
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -3921,7 +4027,7 @@ uint64_t dictCStringKeyHash(const void *key) {
 }
 
 int dictCStringKeyCompare(void *privdata, const void *key1, const void *key2) {
-    DICT_NOTUSED(privdata);
+    UNUSED(privdata);
     return strcmp(key1,key2) == 0;
 }
 
