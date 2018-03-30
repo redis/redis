@@ -3850,6 +3850,8 @@ void moduleCallClusterReceivers(char *sender_id, uint64_t module_id, uint8_t typ
  * is already a callback for this function, the callback is unregistered
  * (so this API call is also used in order to delete the receiver). */
 void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) {
+    if (!server.cluster_enabled) return;
+
     uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
     moduleClusterReceiver *r = clusterReceivers[type], *prev = NULL;
     while(r) {
@@ -3892,6 +3894,7 @@ void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisM
  * otherwise if the node is not connected or such node ID does not map to any
  * known cluster node, REDISMODULE_ERR is returned. */
 int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len) {
+    if (!server.cluster_enabled) return REDISMODULE_ERR;
     uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
     if (clusterSendModuleMessageToTarget(target_id,module_id,type,msg,len) == C_OK)
         return REDISMODULE_OK;
