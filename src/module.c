@@ -3813,7 +3813,7 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
  * -------------------------------------------------------------------------- */
 
 /* The Cluster message callback function pointer type. */
-typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
+typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 
 /* This structure identifies a registered caller: it must match a given module
  * ID, for a given message type. The callback function is just the function
@@ -3830,7 +3830,7 @@ typedef struct moduleClusterReceiver {
 static moduleClusterReceiver *clusterReceivers[UINT8_MAX];
 
 /* Dispatch the message to the right module receiver. */
-void moduleCallClusterReceivers(char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len) {
+void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len) {
     moduleClusterReceiver *r = clusterReceivers[type];
     while(r) {
         if (r->module_id == module_id) {
