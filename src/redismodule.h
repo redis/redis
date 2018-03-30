@@ -106,6 +106,12 @@
 
 /* Cluster API defines. */
 #define REDISMODULE_NODE_ID_LEN 40
+#define REDISMODULE_NODE_MYSELF     (1<<0)
+#define REDISMODULE_NODE_MASTER     (1<<1)
+#define REDISMODULE_NODE_SLAVE      (1<<2)
+#define REDISMODULE_NODE_PFAIL      (1<<3)
+#define REDISMODULE_NODE_FAIL       (1<<4)
+#define REDISMODULE_NODE_NOFAILOVER (1<<5)
 
 #define REDISMODULE_NOT_USED(V) ((void) V)
 

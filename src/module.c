@@ -3825,6 +3825,13 @@ typedef struct moduleClusterReceiver {
     struct moduleClusterReceiver *next;
 } moduleClusterReceiver;
 
+typedef struct moduleClusterNodeInfo {
+    int flags;
+    char ip[NET_IP_STR_LEN];
+    int port;
+    char master_id[40]; /* Only if flags & REDISMODULE_NODE_MASTER is true. */
+} mdouleClusterNodeInfo;
+
 /* We have an array of message types: each bucket is a linked list of
  * configured receivers. */
 static moduleClusterReceiver *clusterReceivers[UINT8_MAX];
