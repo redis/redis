@@ -4100,10 +4100,12 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     while(1) {
         key = htonu64(expiretime);
         int retval = raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
-        if (retval)
+        if (retval) {
             expiretime = key;
-        else
+            break;
+        } else {
             expiretime++;
+        }
     }
 
     /* We need to install the main event loop timer if it's not already
@@ -4551,4 +4553,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetClusterNodeInfo);
     REGISTER_API(GetClusterNodesList);
     REGISTER_API(FreeClusterNodesList);
+    REGISTER_API(CreateTimer);
+    REGISTER_API(StopTimer);
+    REGISTER_API(GetTimerInfo);
 }

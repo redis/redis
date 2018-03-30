@@ -13,7 +13,7 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
-all: helloworld.so hellotype.so helloblock.so testmodule.so hellocluster.so
+all: helloworld.so hellotype.so helloblock.so testmodule.so hellocluster.so hellotimer.so
 
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
@@ -36,6 +36,11 @@ helloblock.so: helloblock.xo
 hellocluster.xo: ../redismodule.h
 
 hellocluster.so: hellocluster.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+hellotimer.xo: ../redismodule.h
+
+hellotimer.so: hellotimer.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 testmodule.xo: ../redismodule.h
