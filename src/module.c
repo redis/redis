@@ -4018,6 +4018,96 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
 }
 
 /* --------------------------------------------------------------------------
+ * Modules Timers API
+ *
+ * Module timers are an high precision "green timers" abstraction where
+ * every module can register even millions of timers without problems, even if
+ * the actual event loop will just have a single timer that is used to awake the
+ * module timers subsystem in order to process the next event.
+ *
+ * All the timers are stored into a radix tree, ordered by expire time, when
+ * the main Redis event loop timer callback is called, we try to process all
+ * the timers already expired one after the other. Then we re-enter the event
+ * loop registering a timer that will expire when the next to process module
+ * timer will expire.
+ *
+ * Every time the list of active timers drops to zero, we unregister the
+ * main event loop timer, so that there is no overhead when such feature is
+ * not used.
+ * -------------------------------------------------------------------------- */
+
+static rax *Timers;     /* The radix tree of all the timers sorted by expire. */
+long long aeTimer = -1; /* Main event loop (ae.c) timer identifier. */
+
+typedef int64_t (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
+
+/* The timer descriptor, stored as value in the radix tree. */
+typedef struct RedisModuleTimer {
+    RedisModule *module;                /* Module reference. */
+    RedisModuleTimerProc callback;      /* The callback to invoke on expire. */
+    void *data;                         /* Private data for the callback. */
+} RedisModuleTimer;
+
+/* Create a new timer that will fire after `period` milliseconds, and will call
+ * the specified function using `data` as argument. The returned timer ID can be
+ * used to get information from the timer or to stop it before it fires. */
+RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) {
+    RedisModuleTimer *timer = zmalloc(sizeof(*timer));
+    timer->module = ctx->module;
+    timer->callback = callback;
+    timer->data = data;
+    uint64_t expiretime = ustime()+period*1000;
+    uint64_t key;
+
+    while(1) {
+        key = htonu64(expiretime);
+        int retval = raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
+        if (retval)
+            expiretime = key;
+        else
+            expiretime++;
+    }
+
+    /* We need to install the main event loop timer if it's not already
+     * installed, or we may need to refresh its period if we just installed
+     * a timer that will expire sooner than any other else. */
+    return key;
+}
+
+/* Stop a timer, returns REDISMODULE_OK if the timer was found, belonged to the
+ * calling module, and was stoped, otherwise REDISMODULE_ERR is returned.
+ * If not NULL, the data pointer is set to the value of the data argument when
+ * the timer was created. */
+int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
+    RedisModuleTimer *timer = raxFind(Timers,(unsigned char*)&id,sizeof(id));
+    if (timer == raxNotFound || timer->module != ctx->module)
+        return REDISMODULE_ERR;
+    if (data) *data = timer->data;
+    raxRemove(Timers,(unsigned char*)&id,sizeof(id),NULL);
+    zfree(timer);
+    return REDISMODULE_OK;
+}
+
+/* Obtain information about a timer: its remaining time before firing
+ * (in milliseconds), and the private data pointer associated with the timer.
+ * If the timer specified does not exist or belongs to a different module
+ * no information is returned and the function returns REDISMODULE_ERR, otherwise
+ * REDISMODULE_OK is returned. The argumnets remaining or data can be NULL if
+ * the caller does not need certain information. */
+int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remaining, void **data) {
+    RedisModuleTimer *timer = raxFind(Timers,(unsigned char*)&id,sizeof(id));
+    if (timer == raxNotFound || timer->module != ctx->module)
+        return REDISMODULE_ERR;
+    if (remaining) {
+        int64_t rem = ntohu64(id)-ustime();
+        if (rem < 0) rem = 0;
+        *remaining = rem;
+    }
+    if (data) *data = timer->data;
+    return REDISMODULE_OK;
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -4073,6 +4163,9 @@ void moduleInitModulesSystem(void) {
      * and we do not want to block not in the read nor in the write half. */
     anetNonBlock(NULL,server.module_blocked_pipe[0]);
     anetNonBlock(NULL,server.module_blocked_pipe[1]);
+
+    /* Create the timers radix tree. */
+    Timers = raxNew();
 
     /* Our thread-safe contexts GIL must start with already locked:
      * it is just unlocked when it's safe. */

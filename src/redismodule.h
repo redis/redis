@@ -115,6 +115,12 @@
 
 #define REDISMODULE_NOT_USED(V) ((void) V)
 
+/* This type represents a timer handle, and is returned when a timer is
+ * registered and used in order to invalidate a timer. It's just a 64 bit
+ * number, because this is how each timer is represented inside the radix tree
+ * of timers that are going to expire, sorted by expire time. */
+typedef uint64_t RedisModuleTimerID;
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
