@@ -3812,23 +3812,91 @@ void moduleUnsubscribeNotifications(RedisModule *module) {
  * Modules Cluster API
  * -------------------------------------------------------------------------- */
 
+/* The Cluster message callback function pointer type. */
 typedef void (*RedisModuleClusterMessageReceiver)(RedisModuleCtx *ctx, char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len);
 
 /* This structure identifies a registered caller: it must match a given module
  * ID, for a given message type. The callback function is just the function
  * that was registered as receiver. */
-struct moduleClusterReceiver {
+typedef struct moduleClusterReceiver {
     uint64_t module_id;
-    uint8_t msg_type;
     RedisModuleClusterMessageReceiver callback;
+    struct RedisModule *module;
     struct moduleClusterReceiver *next;
-};
+} moduleClusterReceiver;
 
 /* We have an array of message types: each bucket is a linked list of
  * configured receivers. */
-static struct moduleClusterReceiver *clusterReceivers[UINT8_MAX];
+static moduleClusterReceiver *clusterReceivers[UINT8_MAX];
 
+/* Dispatch the message to the right module receiver. */
 void moduleCallClusterReceivers(char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len) {
+    moduleClusterReceiver *r = clusterReceivers[type];
+    while(r) {
+        if (r->module_id == module_id) {
+            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            ctx.module = r->module;
+            r->callback(&ctx,sender_id,type,payload,len);
+            moduleFreeContext(&ctx);
+            return;
+        }
+        r = r->next;
+    }
+}
+
+/* Register a callback receiver for cluster messages of type 'type'. If there
+ * was already a registered callback, this will replace the callback function
+ * with the one provided, otherwise if the callback is set to NULL and there
+ * is already a callback for this function, the callback is unregistered
+ * (so this API call is also used in order to delete the receiver). */
+void RM_RegisterClusterMessageReceiver(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback) {
+    uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
+    moduleClusterReceiver *r = clusterReceivers[type], *prev = NULL;
+    while(r) {
+        if (r->module_id == module_id) {
+            /* Found! Set or delete. */
+            if (callback) {
+                r->callback = callback;
+            } else {
+                /* Delete the receiver entry if the user is setting
+                 * it to NULL. Just unlink the receiver node from the
+                 * linked list. */
+                if (prev)
+                    prev->next = r->next;
+                else
+                    clusterReceivers[type]->next = r->next;
+                zfree(r);
+            }
+            return;
+        }
+        prev = r;
+        r = r->next;
+    }
+
+    /* Not found, let's add it. */
+    if (callback) {
+        r = zmalloc(sizeof(*r));
+        r->module_id = module_id;
+        r->module = ctx->module;
+        r->callback = callback;
+        r->next = clusterReceivers[type];
+        clusterReceivers[type] = r;
+    }
+}
+
+/* Send a message to all the nodes in the cluster if `target` is NULL, otherwise
+ * at the specified target, which is a REDISMODULE_NODE_ID_LEN bytes node ID, as
+ * returned by the receiver callback or by the nodes iteration functions.
+ *
+ * The function returns REDISMODULE_OK if the message was successfully sent,
+ * otherwise if the node is not connected or such node ID does not map to any
+ * known cluster node, REDISMODULE_ERR is returned. */
+int RM_SendClusterMessage(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len) {
+    uint64_t module_id = moduleTypeEncodeId(ctx->module->name,0);
+    if (clusterSendModuleMessageToTarget(target_id,module_id,type,msg,len) == C_OK)
+        return REDISMODULE_OK;
+    else
+        return REDISMODULE_ERR;
 }
 
 /* --------------------------------------------------------------------------
@@ -4210,4 +4278,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(RegisterClusterMessageReceiver);
+    REGISTER_API(SendClusterMessage);
 }
