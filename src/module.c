@@ -4039,7 +4039,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
 static rax *Timers;     /* The radix tree of all the timers sorted by expire. */
 long long aeTimer = -1; /* Main event loop (ae.c) timer identifier. */
 
-typedef int64_t (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
+typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
 
 /* The timer descriptor, stored as value in the radix tree. */
 typedef struct RedisModuleTimer {
@@ -4047,6 +4047,44 @@ typedef struct RedisModuleTimer {
     RedisModuleTimerProc callback;      /* The callback to invoke on expire. */
     void *data;                         /* Private data for the callback. */
 } RedisModuleTimer;
+
+/* This is the timer handler that is called by the main event loop. We schedule
+ * this timer to be called when the nearest of our module timers will expire. */
+int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    UNUSED(eventLoop);
+    UNUSED(id);
+    UNUSED(clientData);
+
+    /* To start let's try to fire all the timers already expired. */
+    raxIterator ri;
+    raxStart(&ri,Timers);
+    uint64_t now = ustime();
+    long long next_period = 0;
+    while(1) {
+        raxSeek(&ri,"^",NULL,0);
+        if (!raxNext(&ri)) break;
+        uint64_t expiretime;
+        memcpy(&expiretime,ri.key,sizeof(expiretime));
+        expiretime = ntohu64(expiretime);
+        if (now >= expiretime) {
+            RedisModuleTimer *timer = ri.data;
+            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+
+            ctx.module = timer->module;
+            timer->callback(&ctx,timer->data);
+            moduleFreeContext(&ctx);
+            raxRemove(Timers,(unsigned char*)&ri.key,ri.key_len,NULL);
+            zfree(timer);
+        } else {
+            next_period = expiretime-now;
+            break;
+        }
+    }
+    raxStop(&ri);
+
+    /* Reschedule the next timer or cancel it. */
+    return (raxSize(Timers) > 0) ? next_period : AE_NOMORE;
+}
 
 /* Create a new timer that will fire after `period` milliseconds, and will call
  * the specified function using `data` as argument. The returned timer ID can be
@@ -4071,6 +4109,25 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     /* We need to install the main event loop timer if it's not already
      * installed, or we may need to refresh its period if we just installed
      * a timer that will expire sooner than any other else. */
+    if (aeTimer != -1) {
+        raxIterator ri;
+        raxStart(&ri,Timers);
+        raxSeek(&ri,"^",NULL,0);
+        raxNext(&ri);
+        if (memcmp(ri.key,&key,sizeof(key)) == 0) {
+            /* This is the first key, we need to re-install the timer according
+             * to the just added event. */
+            aeDeleteTimeEvent(server.el,aeTimer);
+            aeTimer = -1;
+        }
+        raxStop(&ri);
+    }
+
+    /* If we have no main timer (the old one was invalidated, or this is the
+     * first module timer we have), install one. */
+    if (aeTimer == -1)
+        aeTimer = aeCreateTimeEvent(server.el,period,moduleTimerHandler,NULL,NULL);
+
     return key;
 }
 
