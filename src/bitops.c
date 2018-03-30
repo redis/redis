@@ -490,6 +490,21 @@ robj *lookupStringForBitCommand(client *c, size_t maxbit) {
     return o;
 }
 
+robj *lookupStringForBitCommandM(client *c, size_t maxbit) {
+    size_t byte = maxbit >> 3;
+    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+//    serverPanic("NOT IMPLEMENTED"); // TODO
+    if (o == NULL) {
+        o = createObject(OBJ_STRING,sdsnewlenM(NULL, byte+1));
+        dbAddM(c->db,c->argv[1],o);
+    } else {
+        if (checkType(c,o,OBJ_STRING)) return NULL;
+        o = dbUnshareStringValueM(c->db,c->argv[1],o);
+        o->ptr = sdsgrowzeroM(o->ptr,byte+1);
+    }
+    return o;
+}
+
 /* Return a pointer to the string object content, and stores its length
  * in 'len'. The user is required to pass (likely stack allocated) buffer
  * 'llbuf' of at least LONG_STR_SIZE bytes. Such a buffer is used in the case

@@ -225,7 +225,18 @@ void setKey(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
-        dbOverwrite(db,key,val);
+        dbOverwrite(db,key,val); // TODO
+    }
+    incrRefCount(val);
+    removeExpire(db,key);
+    signalModifiedKey(db,key);
+}
+
+void setKeyM(redisDb *db, robj *key, robj *val) {
+    if (lookupKeyWrite(db,key) == NULL) {
+        dbAddM(db,key,val);
+    } else {
+        dbOverwrite(db,key,val); // TODO
     }
     incrRefCount(val);
     removeExpire(db,key);

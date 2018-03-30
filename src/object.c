@@ -83,14 +83,17 @@ robj *createRawStringObjectA(const char *ptr, size_t len, alloc a) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a) {
-    robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    //robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    robj *o = z_alloc->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    o->a = a;
+//    o->a = a;
+    o->a = z_alloc;
+
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {

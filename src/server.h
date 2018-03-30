@@ -1718,7 +1718,11 @@ static inline void hashTypeConvertM(robj *o, int enc) { hashTypeConvertA(o,enc,m
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
 int hashTypeExists(robj *o, sds key);
-int hashTypeDelete(robj *o, sds key);
+int hashTypeDeleteA(robj *o, sds key, alloc a);
+static inline int hashTypeDelete(robj *o, sds key) {
+    return hashTypeDeleteA(o, key, z_alloc);
+}
+
 unsigned long hashTypeLength(const robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
@@ -1786,8 +1790,10 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
 void dbAddZ(redisDb *db, robj *key, robj *val);
+void dbAddM(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
+void setKeyM(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
