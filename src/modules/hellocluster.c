@@ -39,6 +39,7 @@
 #define MSGTYPE_PING 1
 #define MSGTYPE_PONG 2
 
+/* HELLOCLUSTER.PINGALL */
 int PingallCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -47,15 +48,38 @@ int PingallCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/* HELLOCLUSTER.LIST */
+int ListCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    size_t numnodes;
+    char **ids = RedisModule_GetClusterNodesList(ctx,&numnodes);
+    if (ids == NULL) {
+        return RedisModule_ReplyWithError(ctx,"Cluster not enabled");
+    }
+
+    RedisModule_ReplyWithArray(ctx,numnodes);
+    for (size_t j = 0; j < numnodes; j++) {
+        int port;
+        RedisModule_GetClusterNodeInfo(ctx,ids[j],NULL,NULL,&port,NULL);
+        RedisModule_ReplyWithArray(ctx,2);
+        RedisModule_ReplyWithStringBuffer(ctx,ids[j],REDISMODULE_NODE_ID_LEN);
+        RedisModule_ReplyWithLongLong(ctx,port);
+    }
+    RedisModule_FreeClusterNodesList(ids);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 /* Callback for message MSGTYPE_PING */
-void PingReceiver(RedisModuleCtx *ctx, char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len) {
+void PingReceiver(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len) {
     RedisModule_Log(ctx,"notice","PING (type %d) RECEIVED from %.*s: '%.*s'",
         type,REDISMODULE_NODE_ID_LEN,sender_id,(int)len, payload);
     RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PONG,(unsigned char*)"Ohi!",4);
 }
 
 /* Callback for message MSGTYPE_PONG. */
-void PongReceiver(RedisModuleCtx *ctx, char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len) {
+void PongReceiver(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, const unsigned char *payload, uint32_t len) {
     RedisModule_Log(ctx,"notice","PONG (type %d) RECEIVED from %.*s: '%.*s'",
         type,REDISMODULE_NODE_ID_LEN,sender_id,(int)len, payload);
 }
@@ -71,6 +95,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"hellocluster.pingall",
         PingallCommand_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hellocluster.list",
+        ListCommand_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_RegisterClusterMessageReceiver(ctx,MSGTYPE_PING,PingReceiver);

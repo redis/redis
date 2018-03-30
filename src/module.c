@@ -3983,7 +3983,9 @@ void RM_FreeClusterNodesList(char **ids) {
 
 clusterNode *clusterLookupNode(const char *name); /* We need access to internals */
 
-int RM_GetClusterNodeInfo(const char *id, char *ip, char *master_id, int *port, int *flags) {
+int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
+    UNUSED(ctx);
+
     clusterNode *node = clusterLookupNode(id);
     if (node->flags & (CLUSTER_NODE_NOADDR|CLUSTER_NODE_HANDSHAKE))
         return REDISMODULE_ERR;
@@ -4396,4 +4398,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SubscribeToKeyspaceEvents);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);
+    REGISTER_API(GetClusterNodeInfo);
+    REGISTER_API(GetClusterNodesList);
+    REGISTER_API(FreeClusterNodesList);
 }
