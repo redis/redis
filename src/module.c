@@ -4073,7 +4073,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             ctx.module = timer->module;
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
-            raxRemove(Timers,(unsigned char*)&ri.key,ri.key_len,NULL);
+            raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
             next_period = expiretime-now;
