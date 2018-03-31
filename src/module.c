@@ -4076,13 +4076,14 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            next_period = expiretime-now;
+            next_period = (expiretime-now)/1000; /* Scale to milliseconds. */
             break;
         }
     }
     raxStop(&ri);
 
     /* Reschedule the next timer or cancel it. */
+    if (next_period <= 0) next_period = 1;
     return (raxSize(Timers) > 0) ? next_period : AE_NOMORE;
 }
 
@@ -4160,7 +4161,7 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (remaining) {
         int64_t rem = ntohu64(id)-ustime();
         if (rem < 0) rem = 0;
-        *remaining = rem;
+        *remaining = rem/1000; /* Scale to milliseconds. */
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;
