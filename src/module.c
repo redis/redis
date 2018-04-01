@@ -3961,6 +3961,13 @@ void RM_FreeClusterNodesList(char **ids) {
     zfree(ids);
 }
 
+/* Return this node ID (REDISMODULE_CLUSTER_ID_LEN bytes) or NULL if the cluster
+ * is disabled. */
+const char *RM_GetMyClusterID(void) {
+    if (!server.cluster_enabled) return NULL;
+    return server.cluster->myself->name;
+}
+
 /* Populate the specified info for the node having as ID the specified 'id',
  * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
  * the POV of this local node, REDISMODULE_ERR is returned.
@@ -4557,4 +4564,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateTimer);
     REGISTER_API(StopTimer);
     REGISTER_API(GetTimerInfo);
+    REGISTER_API(GetMyClusterID);
 }
