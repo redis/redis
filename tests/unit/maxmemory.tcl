@@ -182,7 +182,7 @@ proc test_slave_buffers {cmd_count payload_len limit_memory pipeline} {
 
             # put the slave to sleep
             set rd_slave [redis_deferring_client]
-            $rd_slave debug sleep 60
+            $rd_slave debug sleep 300
 
             # send some 10mb woth of commands that don't increase the memory usage
             if {$pipeline == 1} {
