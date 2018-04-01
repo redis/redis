@@ -3968,6 +3968,15 @@ const char *RM_GetMyClusterID(void) {
     return server.cluster->myself->name;
 }
 
+/* Return the number of nodes in the cluster, regardless of their state
+ * (handshake, noaddress, ...) so that the number of active nodes may actually
+ * be smaller, but not greater than this number. If the instance is not in
+ * cluster mode, zero is returned. */
+size_t RM_GetClusterSize(void) {
+    if (!server.cluster_enabled) return 0;
+    return dictSize(server.cluster->nodes);
+}
+
 /* Populate the specified info for the node having as ID the specified 'id',
  * then returns REDISMODULE_OK. Otherwise if the node ID does not exist from
  * the POV of this local node, REDISMODULE_ERR is returned.
@@ -4565,4 +4574,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StopTimer);
     REGISTER_API(GetTimerInfo);
     REGISTER_API(GetMyClusterID);
+    REGISTER_API(GetClusterSize);
 }
