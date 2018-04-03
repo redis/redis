@@ -479,6 +479,13 @@ void dictSdsDestructor(void *privdata, void *val)
     sdsfree(val);
 }
 
+void dictSdsDestructorM(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+
+    sdsfreeA(val,m_alloc);
+}
+
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
@@ -577,7 +584,7 @@ dictType dbDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructorM,         /* key destructor */
     dictObjectDestructor   /* val destructor */
 };
 
