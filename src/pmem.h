@@ -30,6 +30,9 @@
 #ifndef __PMEM_H
 #define __PMEM_H
 
+#include "obj.h"
+#include "libpmemobj.h"
+
 #ifdef USE_PMDK
 typedef struct key_val_pair_PM {
     PMEMoid key_oid;
@@ -42,6 +45,8 @@ int pmemReconstruct(void);
 void pmemKVpairSet(void *key, void *val);
 PMEMoid pmemAddToPmemList(void *key, void *val);
 void pmemRemoveFromPmemList(PMEMoid kv_PM_oid);
+void set_value_wrapper(uint64_t *ptr, uint64_t value);
+PMEMoid reserve_wrapper(size_t size, uint64_t type_num);
 #endif
 
 #endif

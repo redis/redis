@@ -80,7 +80,7 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * string object where o->ptr points to a proper sds string.
  * Located in PM */
 robj *createRawStringObjectPM(const char *ptr, size_t len) {
-    return createObjectPM(OBJ_STRING,sdsnewlenPM(ptr,len));
+    return createObjectPM(OBJ_STRING,sdsnewlenPM(ptr,len, false));
 }
 #endif
 

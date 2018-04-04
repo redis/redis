@@ -74,6 +74,9 @@ uint64_t pm_type_emb_sds_type_id;
 /* Type Embedded SDS Object */
 #define PM_TYPE_EMB_SDS pm_type_emb_sds_type_id
 
+
+enum PM_TYPE { PM_TYPE_KEY, PM_TYPE_VALUE } ;
+
 struct redis_pmem_root {
 	uint64_t num_dict_entries;
 	TOID(struct key_val_pair_PM) pe_first;
@@ -507,6 +510,14 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
+typedef struct pmHeader {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS;
+    int dbId;
+    uint64_t valOffset;
+}pmHeader;
+
 /* Macro used to obtain the current LRU clock.
  * If the current resolution is lower than the frequency we refresh the
  * LRU clock (as it should be in production servers) we return the
@@ -728,6 +739,13 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+#ifdef USE_PMDK
+typedef struct actionNode {
+	struct pobj_action actions[POBJ_MAX_ACTIONS];
+	int counter;
+	struct actionNode *next;
+}actionNode;
+#endif
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -842,6 +860,9 @@ struct redisServer {
     PMEMobjpool *pm_pool;           /* PMEM pool handle */
     TOID(struct redis_pmem_root) pm_rootoid; /*PMEM root object OID*/
     uint64_t pool_uuid_lo;          /* PMEM pool UUID */
+    struct actionNode *head_action;	/* List of arrays of actions for reserve/publish*/
+    struct actionNode *cursor_action;	/* List of arrays of actions for reserve/publish*/
+    //int action_counter;				/* Counter of actions to be published */
 #endif
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -1714,6 +1735,9 @@ void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
+
+void publishActions();
+void commitRedisOperation();
 
 /* Debugging stuff */
 void _serverAssertWithInfo(client *c, robj *o, char *estr, char *file, int line);
