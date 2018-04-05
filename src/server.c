@@ -1446,6 +1446,10 @@ void initServerConfig(void) {
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
+    server.pm_dir_path = NULL;
+    server.pm_file_size = MEMKIND_PMEM_MIN_SIZE;
+    server.use_volatile = true;
+
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
     resetServerSaveParams();
@@ -3725,14 +3729,6 @@ int main(int argc, char **argv) {
     }
 #endif
 
-	err = memkind_create_pmem("/mnt/pmem", PMEM1_MAX_SIZE, &server.pmem_kind1);
-	if (err) {
-		perror("memkind_create_pmem()");
-		fprintf(stderr, "Unable to create pmem partition\n");
-	} else {
-		printf("memkind created\n");
-	}
-
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
@@ -3855,6 +3851,14 @@ int main(int argc, char **argv) {
     server.supervised = redisIsSupervised(server.supervised_mode);
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
+
+    err = memkind_create_pmem(server.pm_dir_path, server.pm_file_size, &server.pmem_kind1);
+	if (err) {
+		perror("memkind_create_pmem()");
+		fprintf(stderr, "Unable to create pmem partition\n");
+	} else {
+		printf("memkind created\n");
+	}
 
     initServer();
     if (background || server.pidfile) createPidFile();

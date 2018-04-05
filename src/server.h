@@ -81,8 +81,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define C_OK                    0
 #define C_ERR                   -1
 
-#define PMEM1_MAX_SIZE	(MEMKIND_PMEM_MIN_SIZE * 100)
-
 /* Static server configuration */
 #define CONFIG_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
 #define CONFIG_MIN_HZ            1
@@ -994,6 +992,10 @@ struct redisServer {
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     struct memkind *pmem_kind1;
+    /* PM parameters */
+    char* pm_dir_path;				/* Path to pmem directory*/
+    size_t pm_file_size;			/* Limit for pmem pool size*/
+    bool use_volatile;              /* Indicates volatile usage */
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
