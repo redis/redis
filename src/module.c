@@ -4184,6 +4184,25 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
 }
 
 /* --------------------------------------------------------------------------
+ * Modules utility APIs
+ * -------------------------------------------------------------------------- */
+
+/* Return random bytes using SHA1 in counter mode with a /dev/urandom
+ * initialized seed. This function is fast so can be used to generate
+ * many bytes without any effect on the operating system entropy pool.
+ * Currently this function is not thread safe. */
+void RM_GetRandomBytes(unsigned char *dst, size_t len) {
+    getRandomBytes(dst,len);
+}
+
+/* Like RedisModule_GetRandomBytes() but instead of setting the string to
+ * random bytes the string is set to random characters in the in the
+ * hex charset [0-9a-f]. */
+void RM_GetRandomHexChars(char *dst, size_t len) {
+    getRandomHexChars(dst,len);
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -4575,4 +4594,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetTimerInfo);
     REGISTER_API(GetMyClusterID);
     REGISTER_API(GetClusterSize);
+    REGISTER_API(GetRandomBytes);
+    REGISTER_API(GetRandomHexChars);
 }

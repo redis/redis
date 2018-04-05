@@ -536,14 +536,12 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
     return l;
 }
 
-/* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
- * given execution of Redis, so that if you are talking with an instance
- * having run_id == A, and you reconnect and it has run_id == B, you can be
- * sure that it is either a different instance or it was restarted. */
-void getRandomHexChars(char *p, unsigned int len) {
-    char *charset = "0123456789abcdef";
-    unsigned int j;
-
+/* Get random bytes, attempts to get an initial seed from /dev/urandom and
+ * the uses a one way hash function in counter mode to generate a random
+ * stream. However if /dev/urandom is not available, a weaker seed is used.
+ *
+ * This function is not thread safe, since the state is global. */
+void getRandomBytes(unsigned char *p, size_t len) {
     /* Global state. */
     static int seed_initialized = 0;
     static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
@@ -555,62 +553,48 @@ void getRandomHexChars(char *p, unsigned int len) {
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
         FILE *fp = fopen("/dev/urandom","r");
-        if (fp && fread(seed,sizeof(seed),1,fp) == 1)
+        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
+            /* Revert to a weaker seed, and in this case reseed again
+             * at every call.*/
+            for (unsigned int j = 0; j < sizeof(seed); j++) {
+                struct timeval tv;
+                gettimeofday(&tv,NULL);
+                pid_t pid = getpid();
+                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
+            }
+        } else {
             seed_initialized = 1;
+        }
         if (fp) fclose(fp);
     }
 
-    if (seed_initialized) {
-        while(len) {
-            unsigned char digest[20];
-            SHA1_CTX ctx;
-            unsigned int copylen = len > 20 ? 20 : len;
+    while(len) {
+        unsigned char digest[20];
+        SHA1_CTX ctx;
+        unsigned int copylen = len > 20 ? 20 : len;
 
-            SHA1Init(&ctx);
-            SHA1Update(&ctx, seed, sizeof(seed));
-            SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
-            SHA1Final(digest, &ctx);
-            counter++;
+        SHA1Init(&ctx);
+        SHA1Update(&ctx, seed, sizeof(seed));
+        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+        SHA1Final(digest, &ctx);
+        counter++;
 
-            memcpy(p,digest,copylen);
-            /* Convert to hex digits. */
-            for (j = 0; j < copylen; j++) p[j] = charset[p[j] & 0x0F];
-            len -= copylen;
-            p += copylen;
-        }
-    } else {
-        /* If we can't read from /dev/urandom, do some reasonable effort
-         * in order to create some entropy, since this function is used to
-         * generate run_id and cluster instance IDs */
-        char *x = p;
-        unsigned int l = len;
-        struct timeval tv;
-        pid_t pid = getpid();
-
-        /* Use time and PID to fill the initial array. */
-        gettimeofday(&tv,NULL);
-        if (l >= sizeof(tv.tv_usec)) {
-            memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
-            l -= sizeof(tv.tv_usec);
-            x += sizeof(tv.tv_usec);
-        }
-        if (l >= sizeof(tv.tv_sec)) {
-            memcpy(x,&tv.tv_sec,sizeof(tv.tv_sec));
-            l -= sizeof(tv.tv_sec);
-            x += sizeof(tv.tv_sec);
-        }
-        if (l >= sizeof(pid)) {
-            memcpy(x,&pid,sizeof(pid));
-            l -= sizeof(pid);
-            x += sizeof(pid);
-        }
-        /* Finally xor it with rand() output, that was already seeded with
-         * time() at startup, and convert to hex digits. */
-        for (j = 0; j < len; j++) {
-            p[j] ^= rand();
-            p[j] = charset[p[j] & 0x0F];
-        }
+        memcpy(p,digest,copylen);
+        len -= copylen;
+        p += copylen;
     }
+}
+
+/* Generate the Redis "Run ID", a SHA1-sized random number that identifies a
+ * given execution of Redis, so that if you are talking with an instance
+ * having run_id == A, and you reconnect and it has run_id == B, you can be
+ * sure that it is either a different instance or it was restarted. */
+void getRandomHexChars(char *p, size_t len) {
+    char *charset = "0123456789abcdef";
+    size_t j;
+
+    getRandomBytes((unsigned char*)p,len);
+    for (j = 0; j < len; j++) p[j] = charset[p[j] & 0x0F];
 }
 
 /* Given the filename, return the absolute path as an SDS string, or NULL

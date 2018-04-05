@@ -278,6 +278,9 @@ int REDISMODULE_API_FUNC(RedisModule_StopTimer)(RedisModuleCtx *ctx, RedisModule
 int REDISMODULE_API_FUNC(RedisModule_GetTimerInfo)(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remaining, void **data);
 const char *REDISMODULE_API_FUNC(RedisModule_GetMyClusterID)(void);
 size_t REDISMODULE_API_FUNC(RedisModule_GetClusterSize)(void);
+void REDISMODULE_API_FUNC(RedisModule_GetRandomBytes)(unsigned char *dst, size_t len);
+void REDISMODULE_API_FUNC(RedisModule_GetRandomHexChars)(char *dst, size_t len);
+
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -411,6 +414,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetTimerInfo);
     REDISMODULE_GET_API(GetMyClusterID);
     REDISMODULE_GET_API(GetClusterSize);
+    REDISMODULE_GET_API(GetRandomBytes);
+    REDISMODULE_GET_API(GetRandomHexChars);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
