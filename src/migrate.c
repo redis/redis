@@ -15,8 +15,21 @@ typedef struct {
                          // pipe_fds[1]: written by worker thread
 } migrateCommandThread;
 
-static void* migrateCommandThreadMain(void* privdata) {
-    migrateCommandThread* p = privdata;
+static void *migrateCommandThreadMain(void *privdata) {
+#if defined(USE_JEMALLOC)
+    do {
+        unsigned arena_ind = 0;
+        int ret = je_mallctl("thread.arena", NULL, NULL, &arena_ind,
+                             sizeof(arena_ind));
+        if (ret != 0) {
+            serverLog(LL_WARNING,
+                      "Call je_mallctl to set thread.arena=%d failed: %s",
+                      (int)arena_ind, strerror(ret));
+        }
+    } while (0);
+#endif
+
+    migrateCommandThread *p = privdata;
 
     // TODO: Not finished yet.
     UNUSED(p);
