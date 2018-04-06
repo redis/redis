@@ -1,5 +1,8 @@
 #include "server.h"
 
+// ---------------- MIGRATE CACHED SOCKET ----------------------------------- //
+
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -92,12 +95,9 @@ void migrateBackgroundThreadInit(void) {
 
 // TODO
 
-void freeMigrateCommandArgsFromFreeClient(client *c) {
-    UNUSED(c);
-    serverPanic("TODO");
-}
-
-void freeRestoreCommandArgsFromFreeClient(client *c) {
-    UNUSED(c);
-    serverPanic("TODO");
-}
+void migrateCommand(client *c) {}
+void restoreCommand(client *c) {}
+void migrateCloseTimedoutSockets(void) {}
+void restoreCloseTimedoutCommands(void) {}
+void freeMigrateCommandArgsFromFreeClient(client *c) {}
+void freeRestoreCommandArgsFromFreeClient(client *c) {}
