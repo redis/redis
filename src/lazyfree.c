@@ -46,11 +46,29 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     }
 }
 
+#define LAZYFREE_THRESHOLD 64
+
+/* Try to reclaim an object in lazyfree way.
+ *
+ * If releasing the object is too much work, do it in the background by adding
+ * the object to the lazy free list. Otherwise, or if the object is shared,
+ * we'll fallback to the decrRefCount call to reclaim the object or decrease its
+ * refcount in blocking way. */
+void decrRefCountLazyfree(robj *o) {
+    if (o->refcount == 1 && lazyfreeGetFreeEffort(o) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, 1);
+        bioCreateBackgroundJob(BIO_LAZY_FREE, o, NULL, NULL);
+    } else {
+        decrRefCount(o);
+    }
+}
+
+void decrRefcountLazyfreeVoid(void *o) { decrRefCountLazyfree(o); }
+
 /* Delete a key, value, and associated expiration entry if any, from the DB.
  * If there are enough allocations to free the value object may be put into
  * a lazy free list instead of being freed synchronously. The lazy free list
  * will be reclaimed in a different bio.c thread. */
-#define LAZYFREE_THRESHOLD 64
 int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
@@ -59,24 +77,11 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
-    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    dictEntry *de = dictUnlink(db->dict, key->ptr);
     if (de) {
         robj *val = dictGetVal(de);
-        size_t free_effort = lazyfreeGetFreeEffort(val);
-
-        /* If releasing the object is too much work, do it in the background
-         * by adding the object to the lazy free list.
-         * Note that if the object is shared, to reclaim it now it is not
-         * possible. This rarely happens, however sometimes the implementation
-         * of parts of the Redis core may call incrRefCount() to protect
-         * objects, and then call dbDelete(). In this case we'll fall
-         * through and reach the dictFreeUnlinkedEntry() call, that will be
-         * equivalent to just calling decrRefCount(). */
-        if (free_effort > LAZYFREE_THRESHOLD && val->refcount == 1) {
-            atomicIncr(lazyfree_objects,1);
-            bioCreateBackgroundJob(BIO_LAZY_FREE,val,NULL,NULL);
-            dictSetVal(db->dict,de,NULL);
-        }
+        decrRefCountLazyfree(val);
+        dictSetVal(db->dict, de, NULL);
     }
 
     /* Release the key-val pair, or just the key if we set the val
