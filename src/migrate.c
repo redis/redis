@@ -118,6 +118,28 @@ static int syncWriteBuffer(int fd, sds buffer, mstime_t timeout) {
     return C_OK;
 }
 
+static sds syncPingCommand(int fd, mstime_t timeout) {
+    rio cmd;
+    rioInitWithBuffer(&cmd, sdsempty());
+
+    const char *cmd_name = "PING";
+    serverAssert(rioWriteBulkCount(&cmd, '*', 1));
+    serverAssert(rioWriteBulkString(&cmd, cmd_name, strlen(cmd_name)));
+
+    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
+        sdsfree(cmd.io.buffer.ptr);
+        return sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
+    }
+    sdsfree(cmd.io.buffer.ptr);
+
+    char buf[4096];
+    if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
+        return sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
+    }
+    return buf[0] != '+' ? sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf)
+                         : NULL;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
