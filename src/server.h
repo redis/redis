@@ -641,6 +641,7 @@ typedef struct redisDb {
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    dict *migrating_keys;       /* Keys are being migrated. */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
@@ -706,6 +707,9 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+typedef struct _migrateCommandArgs migrateCommandArgs;
+typedef struct _restoreCommandArgs restoreCommandArgs;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
@@ -761,6 +765,10 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
+
+    /* Arguments for non-blocking migration */
+    migrateCommandArgs *migrate_command_args;
+    restoreCommandArgs *restore_command_args;
 
     /* Response buffer */
     int bufpos;
@@ -993,7 +1001,7 @@ struct redisServer {
                         *lpopCommand, *rpopCommand, *zpopminCommand,
                         *zpopmaxCommand, *sremCommand, *execCommand,
                         *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand;
+                        *xgroupCommand, *restoreCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1869,7 +1877,6 @@ unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
 void clusterCron(void);
 void clusterPropagatePublish(robj *channel, robj *message);
-void migrateCloseTimedoutSockets(void);
 void clusterBeforeSleep(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 
@@ -1903,6 +1910,17 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+
+/* migarte.c -- non-blocking migartion */
+void migrateBackgroundThreadInit(void);
+void migrateAsyncCommand(client *c);
+void restoreAsyncCommand(client *c);
+void unblockClientFromMigrate(client *c);
+void unblockClientFromRestore(client *c);
+void freeMigrateCommandArgsFromFreeClient(client *c);
+void freeRestoreCommandArgsFromFreeClient(client *c);
+void migrateCloseTimedoutSockets(void);
+void restoreCloseTimedoutCommands(void);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
