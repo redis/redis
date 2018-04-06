@@ -76,3 +76,15 @@ static migrateCommandThread migrate_command_threads[1];
 void migrateBackgroundThreadInit(void) {
     migrateCommandThreadInit(&migrate_command_threads[0]);
 }
+
+// TODO
+
+void freeMigrateCommandArgsFromFreeClient(client *c) {
+    UNUSED(c);
+    serverPanic("TODO");
+}
+
+void freeRestoreCommandArgsFromFreeClient(client *c) {
+    UNUSED(c);
+    serverPanic("TODO");
+}

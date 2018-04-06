@@ -919,6 +919,9 @@ void freeClient(client *c) {
         listDelNode(server.clients_to_close,ln);
     }
 
+    if (c->migrate_command_args) freeMigrateCommandArgsFromFreeClient(c);
+    if (c->restore_command_args) freeRestoreCommandArgsFromFreeClient(c);
+
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
