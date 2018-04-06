@@ -266,7 +266,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_NUM 6     /* Number of blocked states. */
+#define BLOCKED_MIGRATE 6 /* Blocked by MIGRATE-ASYNC. */
+#define BLOCKED_RESTORE 7 /* Blocked by RESTORE-ASYNC. */
+#define BLOCKED_NUM 8     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
