@@ -97,6 +97,27 @@ static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj 
     return cs;
 }
 
+// ---------------- SYNC COMMANDS ------------------------------------------- //
+
+#define SYNC_WRITE_IOBUF_LEN (64 * 1024)
+
+static int syncWriteBuffer(int fd, sds buffer, mstime_t timeout) {
+    ssize_t pos = 0;
+    ssize_t len = sdslen(buffer);
+    while (pos != len) {
+        ssize_t towrite = len - pos;
+        if (towrite > SYNC_WRITE_IOBUF_LEN) {
+            towrite = SYNC_WRITE_IOBUF_LEN;
+        }
+        ssize_t written = syncWrite(fd, buffer + pos, towrite, timeout);
+        if (written != towrite) {
+            return C_ERR;
+        }
+        pos += written;
+    }
+    return C_OK;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
