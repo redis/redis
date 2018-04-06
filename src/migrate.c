@@ -136,8 +136,10 @@ static sds syncPingCommand(int fd, mstime_t timeout) {
     if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
         return sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
     }
-    return buf[0] != '+' ? sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf)
-                         : NULL;
+    if (buf[0] != '+') {
+        return sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf);
+    }
+    return NULL;
 }
 
 static sds syncAuthCommand(int fd, mstime_t timeout, sds password) {
@@ -159,8 +161,35 @@ static sds syncAuthCommand(int fd, mstime_t timeout, sds password) {
     if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
         return sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
     }
-    return buf[0] != '+' ? sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf)
-                         : NULL;
+    if (buf[0] != '+') {
+        return sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf);
+    }
+    return NULL;
+}
+
+static sds syncSelectCommand(int fd, mstime_t timeout, int dbid) {
+    rio cmd;
+    rioInitWithBuffer(&cmd, sdsempty());
+
+    const char *cmd_name = "SELECT";
+    serverAssert(rioWriteBulkCount(&cmd, '*', 2));
+    serverAssert(rioWriteBulkString(&cmd, cmd_name, strlen(cmd_name)));
+    serverAssert(rioWriteBulkLongLong(&cmd, dbid));
+
+    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
+        sdsfree(cmd.io.buffer.ptr);
+        return sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
+    }
+    sdsfree(cmd.io.buffer.ptr);
+
+    char buf[4096];
+    if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
+        return sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
+    }
+    if (buf[0] != '+') {
+        return sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf);
+    }
+    return NULL;
 }
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
