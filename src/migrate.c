@@ -2,6 +2,26 @@
 
 // ---------------- MIGRATE CACHED SOCKET ----------------------------------- //
 
+#define MIGRATE_SOCKET_CACHE_ITEMS 64
+#define MIGRATE_SOCKET_CACHE_TTL 10  // In seconds.
+
+typedef struct {
+    int fd;
+    int last_dbid;
+    time_t last_use_time;
+    const char *name;
+    int inuse;
+    int error;
+    int authenticated;
+} migrateCachedSocket;
+
+static sds migrateSocketName(robj *host, robj *port, robj *auth) {
+    sds name = sdscatfmt(sdsempty(), "%S:%S", host->ptr, port->ptr);
+    if (auth != NULL) {
+        name = sdscat(name, "#");
+    }
+    return name;
+}
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
