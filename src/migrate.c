@@ -23,6 +23,27 @@ static sds migrateSocketName(robj *host, robj *port, robj *auth) {
     return name;
 }
 
+static void migrateCloseSocket(migrateCachedSocket *cs) {
+    serverAssert(dictDelete(server.migrate_cached_sockets, cs->name) ==
+                 DICT_OK);
+    close(cs->fd);
+    zfree(cs);
+}
+
+void migrateCloseTimedoutSockets(void) {
+    dictIterator *di = dictGetSafeIterator(server.migrate_cached_sockets);
+    dictEntry *entry;
+    while ((entry = dictNext(di)) != NULL) {
+        migrateCachedSocket *cs = dictGetVal(entry);
+        if (cs->inuse ||
+            server.unixtime - cs->last_use_time <= MIGRATE_SOCKET_CACHE_TTL) {
+            continue;
+        }
+        migrateCloseSocket(cs);
+    }
+    dictReleaseIterator(di);
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -117,7 +138,6 @@ void migrateBackgroundThreadInit(void) {
 
 void migrateCommand(client *c) {}
 void restoreCommand(client *c) {}
-void migrateCloseTimedoutSockets(void) {}
 void restoreCloseTimedoutCommands(void) {}
 void freeMigrateCommandArgsFromFreeClient(client *c) {}
 void freeRestoreCommandArgsFromFreeClient(client *c) {}
