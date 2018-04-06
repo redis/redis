@@ -2176,6 +2176,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    migrateBackgroundThreadInit();
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
