@@ -384,11 +384,44 @@ static int rioMigrateCommandObject(rioMigrateCommand *cmd, robj *key, robj *obj,
     RIO_GOTO_IF_ERROR(rioWrite(rio, &crc, sizeof(crc)));
 
     RIO_GOTO_IF_ERROR(rioFlush(rio));
+
+    serverAssert(sdslen(cmd->payload) == 0);
     return 1;
 
 rio_failed_cleanup:
     return 0;
 }
+
+// ---------------- MIGRATE COMMAND ----------------------------------------- //
+
+struct _migrateCommandArgs {
+    redisDb *db;
+    robj *host;
+    robj *port;
+    robj *auth;
+    int dbid;
+    int copy;
+    int replace;
+    int non_blocking;
+    int num_keys;
+    mstime_t timeout;
+
+    struct {
+        robj *key;
+        robj *obj;
+        mstime_t expireat;
+        int num_fragments;
+        int success;
+    } * kvpairs;
+
+    migrateCachedSocket *socket;
+    sds errmsg;
+
+    const char *cmd_name;
+
+    client *client;
+    int background;
+};
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
