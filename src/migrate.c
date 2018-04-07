@@ -244,6 +244,49 @@ static off_t _rioMigrateObjectTell(rio *r) {
     serverPanic("Unsupported operation.");
 }
 
+static int _rioMigrateObjectFlushNonBlockingFragment(rioMigrateCommand *cmd) {
+    if (sdslen(cmd->payload) == 0) {
+        return 1;
+    }
+    serverAssert(cmd->non_blocking);
+
+    rio _rio;
+    rio *rio = &_rio;
+    rioInitWithBuffer(rio, cmd->io.buffer);
+
+    robj *key = cmd->privdata.key;
+    const char *cmd_name = server.cluster_enabled ? "RESTORE-ASYNC-ASKING" : "RESTORE-ASYNC";
+
+    if (cmd->seq_num != 0) {
+        goto rio_fragment_payload;
+    }
+    RIO_GOTO_IF_ERROR(rioWriteBulkCount(rio, '*', 2));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd_name, strlen(cmd_name)));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "PREPARE", 7));
+
+    cmd->seq_num++;
+
+rio_fragment_payload:
+    RIO_GOTO_IF_ERROR(rioWriteBulkCount(rio, '*', 4));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd_name, strlen(cmd_name)));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "PAYLOAD", 7));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, key->ptr, sdslen(key->ptr)));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd->payload, sdslen(cmd->payload)));
+
+    cmd->seq_num++;
+    cmd->io.buffer = rio->io.buffer.ptr;
+    sdsclear(cmd->payload);
+
+    if (sdslen(cmd->io.buffer) < RIO_MAX_IOBUF_LEN) {
+        return 1;
+    }
+    return rioMigrateCommandFlushIOBuffer(cmd);
+
+rio_failed_cleanup:
+    cmd->io.buffer = rio->io.buffer.ptr;
+    return 0;
+}
+
 #define RIO_MIGRATE_COMMAND(r) ((rioMigrateCommand *)((char *)(r)-offsetof(rioMigrateCommand, rio)))
 
 static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
@@ -263,10 +306,8 @@ static int _rioMigrateObjectFlush(rio *r) {
     if (!cmd->non_blocking) {
         serverAssert(cmd->seq_num == 0 && sdslen(cmd->payload) != 0);
     } else {
-        if (sdslen(cmd->payload) != 0) {
-            if (!_rioMigrateObjectFlushNonBlockingFragment(cmd)) {
-                return 0;
-            }
+        if (!_rioMigrateObjectFlushNonBlockingFragment(cmd)) {
+            return 0;
         }
         serverAssert(cmd->seq_num >= 2 && sdslen(cmd->payload) == 0);
     }
