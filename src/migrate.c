@@ -621,6 +621,42 @@ failed_socket_error:
     return 0;
 }
 
+static int migrateGenericCommandFetchReplies(migrateCommandArgs *args) {
+    migrateCachedSocket *cs = args->socket;
+    for (int j = 0; j < args->num_keys; j++) {
+        int errors = 0;
+        for (int i = 0; i < args->kvpairs[j].num_fragments; i++) {
+            char buf[4096];
+            if (syncReadLine(cs->fd, buf, sizeof(buf), args->timeout) <= 0) {
+                goto failed_socket_error;
+            }
+            if (buf[0] != '+') {
+                if (args->errmsg == NULL) {
+                    args->errmsg =
+                        sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", args->cmd_name, buf);
+                }
+                errors++;
+            }
+        }
+        if (errors == 0) {
+            args->kvpairs[j].success = 1;
+        }
+    }
+
+    args->socket->last_use_time = server.unixtime;
+    return 1;
+
+failed_socket_error:
+    if (args->errmsg != NULL) {
+        sdsfree(args->errmsg);
+    }
+    args->errmsg =
+        sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", args->cmd_name, strerror(errno));
+
+    args->socket->error = 1;
+    return 0;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
