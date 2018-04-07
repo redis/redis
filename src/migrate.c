@@ -408,7 +408,7 @@ struct _migrateCommandArgs {
 
     struct {
         robj *key;
-        robj *obj;
+        robj *val;
         mstime_t expireat;
         int num_fragments;
         int success;
@@ -422,6 +422,38 @@ struct _migrateCommandArgs {
     client *client;
     int background;
 };
+
+static void freeMigrateCommandArgs(migrateCommandArgs *args) {
+    if (args->host != NULL) {
+        decrRefCount(args->host);
+    }
+    if (args->port != NULL) {
+        decrRefCount(args->port);
+    }
+    if (args->auth != NULL) {
+        decrRefCount(args->auth);
+    }
+    if (args->kvpairs != NULL) {
+        for (int j = 0; j < args->num_keys; j++) {
+            robj *key = args->kvpairs[j].key;
+            robj *val = args->kvpairs[j].val;
+            decrRefCount(key);
+            decrRefCountLazyfree(val);
+        }
+        zfree(args->kvpairs);
+    }
+    if (args->socket != NULL) {
+        if (args->socket->error) {
+            migrateCloseSocket(args->socket);
+        } else {
+            args->socket->busy = 0;
+        }
+    }
+    if (args->errmsg != NULL) {
+        sdsfree(args->errmsg);
+    }
+    zfree(args);
+}
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
