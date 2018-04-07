@@ -400,11 +400,12 @@ struct _migrateCommandArgs {
     robj *port;
     robj *auth;
     int dbid;
+    mstime_t timeout;
+
     int copy;
     int replace;
     int non_blocking;
     int num_keys;
-    mstime_t timeout;
 
     struct {
         robj *key;
@@ -453,6 +454,101 @@ static void freeMigrateCommandArgs(migrateCommandArgs *args) {
         sdsfree(args->errmsg);
     }
     zfree(args);
+}
+
+// MIGRATE host port key dbid timeout [COPY] [REPLACE] [ASYNC] [AUTH password]
+// MIGRATE host port ""  dbid timeout [COPY] [REPLACE] [ASYNC] [AUTH password]
+//         KEYS key1 key2 ... keyN
+static migrateCommandArgs *initMigrateCommandArgsOrReply(client *c) {
+    migrateCommandArgs *args = zcalloc(sizeof(*args));
+    int first_key = 3;
+    int num_keys = 1;
+    for (int j = 6; j < c->argc; j++) {
+        int moreargs = (j != c->argc - 1);
+        if (strcasecmp(c->argv[j]->ptr, "copy") == 0) {
+            args->copy = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
+            args->replace = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "async") == 0) {
+            args->non_blocking = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "auth") == 0) {
+            if (!moreargs) {
+                addReply(c, shared.syntaxerr);
+                goto failed_cleanup;
+            }
+            j++;
+            args->auth = c->argv[j];
+            incrRefCount(args->auth);
+        } else if (strcasecmp(c->argv[j]->ptr, "keys") == 0) {
+            if (sdslen(c->argv[3]->ptr) != 0) {
+                addReplyError(c, "When using MIGRATE KEYS option, the key argument must be set to the empty string");
+                goto failed_cleanup;
+            }
+            first_key = j + 1;
+            num_keys = c->argc - first_key;
+            goto parsed_options;
+        } else {
+            addReply(c, shared.syntaxerr);
+            goto failed_cleanup;
+        }
+    }
+
+parsed_options:
+    args->host = c->argv[1];
+    incrRefCount(args->host);
+
+    args->port = c->argv[2];
+    incrRefCount(args->port);
+
+    long dbid, timeout;
+    if (getLongFromObjectOrReply(c, c->argv[4], &dbid, NULL) != C_OK ||
+        getLongFromObjectOrReply(c, c->argv[5], &timeout, NULL) != C_OK) {
+        goto failed_cleanup;
+    }
+
+    args->dbid = (int)dbid;
+    args->timeout = (timeout <= 0 ? 1000 : timeout);
+
+    args->kvpairs = zcalloc(sizeof(args->kvpairs[0]) * num_keys);
+
+    for (int i = 0; i < num_keys; i++) {
+        robj *key = c->argv[first_key + i];
+        robj *val = lookupKeyRead(c->db, key);
+        if (val == NULL) {
+            continue;
+        }
+        int j = args->num_keys++;
+        args->kvpairs[j].key = key;
+        args->kvpairs[j].val = val;
+        args->kvpairs[j].expireat = getExpire(c->db, key);
+        incrRefCount(key);
+        incrRefCount(val);
+    }
+
+    if (args->num_keys == 0) {
+        addReplySds(c, sdsnew("+NOKEY\r\n"));
+        goto failed_cleanup;
+    }
+
+    migrateCachedSocket *cs = migrateGetSocketOrReply(c, args->host, args->port, args->auth, args->timeout);
+    if (cs == NULL) {
+        goto failed_cleanup;
+    }
+    serverAssert(!cs->busy && !cs->error);
+
+    args->socket = cs;
+    args->socket->busy = 1;
+    args->socket->last_use_time = server.unixtime;
+
+    args->db = c->db;
+    args->client = c;
+    args->errmsg = NULL;
+    args->cmd_name = (args->non_blocking ? "MIGRATE-ASYNC" : "MIGRATE");
+    return args;
+
+failed_cleanup:
+    freeMigrateCommandArgs(args);
+    return NULL;
 }
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
