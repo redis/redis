@@ -223,7 +223,13 @@ typedef struct {
 #define RIO_MAX_IOBUF_LEN (64LL * 1024 * 1024)
 
 static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
-    // TODO
+    if (sdslen(cmd->io.buffer) != 0) {
+        if (syncWriteBuffer(cmd->io.fd, cmd->io.buffer, cmd->timeout) != C_OK) {
+            return 0;
+        }
+        sdsclear(cmd->io.buffer);
+    }
+    return 1;
 }
 
 static size_t _rioMigrateObjectRead(rio *r, void *buf, size_t len) {
