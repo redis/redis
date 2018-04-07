@@ -21,7 +21,7 @@ static sds migrateSocketName(robj *host, robj *port, robj *auth) {
     if (auth == NULL) {
         return name;
     }
-    return sdscat(name, "#");
+    return sdscatlen(name, "#", 1);
 }
 
 static void migrateCloseSocket(migrateCachedSocket *cs) {
@@ -238,11 +238,25 @@ static off_t _rioMigrateObjectTell(rio *r) {
     serverPanic("Unsupported operation.");
 }
 
+#define RIO_MIGRATE_COMMAND(r) ((rioMigrateCommand *)((char *)(r)-offsetof(rioMigrateCommand, rio)))
+
+static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
+    rioMigrateCommand *cmd = RIO_MIGRATE_COMMAND(r);
+    cmd->payload = sdscatlen(cmd->payload, buf, len);
+    if (!cmd->non_blocking) {
+        return 1;
+    }
+    if (sdslen(cmd->payload) < RIO_MAX_IOBUF_LEN) {
+        return 1;
+    }
+    return _rioMigrateObjectFlushNonBlockingFragment(cmd);
+}
+
 static const rio _rioMigrateObjectIO = {
     .read = _rioMigrateObjectRead,
     .tell = _rioMigrateObjectTell,
+    .write = _rioMigrateObjectWrite,
     // .flush = _rioMigrateObjectFlush,
-    // .write = _rioMigrateObjectWrite,
     .update_cksum = rioGenericUpdateChecksum,
 };
 
