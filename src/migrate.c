@@ -26,7 +26,9 @@ static sds migrateSocketName(robj *host, robj *port, robj *auth) {
 
 static void migrateCloseSocket(migrateCachedSocket *cs) {
     serverAssert(dictDelete(server.migrate_cached_sockets, cs->name) == DICT_OK);
-    sdsfree(cs->auth);
+    if (cs->auth != NULL) {
+        sdsfree(cs->auth);
+    }
     close(cs->fd);
     zfree(cs);
 }
@@ -190,6 +192,85 @@ static sds syncSelectCommand(int fd, mstime_t timeout, int dbid) {
         return sdscatfmt(sdsempty(), "-ERR Command %s failed, target replied: %s.\r\n", cmd_name, buf);
     }
     return NULL;
+}
+
+// ---------------- MIGRATE RIO COMMAND ------------------------------------- //
+
+typedef struct {
+    rio rio;
+    sds payload;
+    int seq_num;
+    mstime_t timeout;
+    int replace;
+    int non_blocking;
+    struct {
+        int fd;
+        sds buffer;
+    } io;
+    struct {
+        robj *key;
+        mstime_t ttl;
+    } privdata;
+} rioMigrateCommand;
+
+#define RIO_GOTO_IF_ERROR(e)         \
+    do {                             \
+        if (!(e)) {                  \
+            goto rio_failed_cleanup; \
+        }                            \
+    } while (0)
+
+#define RIO_MAX_IOBUF_LEN (64LL * 1024 * 1024)
+
+static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
+    // TODO
+}
+
+static size_t _rioMigrateObjectRead(rio *r, void *buf, size_t len) {
+    UNUSED(r);
+    UNUSED(buf);
+    UNUSED(len);
+    serverPanic("Unsupported operation.");
+}
+
+static off_t _rioMigrateObjectTell(rio *r) {
+    UNUSED(r);
+    serverPanic("Unsupported operation.");
+}
+
+static const rio _rioMigrateObjectIO = {
+    .read = _rioMigrateObjectRead,
+    .tell = _rioMigrateObjectTell,
+    // .flush = _rioMigrateObjectFlush,
+    // .write = _rioMigrateObjectWrite,
+    .update_cksum = rioGenericUpdateChecksum,
+};
+
+static int rioMigrateCommandObject(rioMigrateCommand *cmd, robj *key, robj *obj, mstime_t ttl) {
+    rio *rio = &(cmd->rio);
+    rio->cksum = 0;
+
+    cmd->seq_num = 0;
+    cmd->privdata.key = key;
+    cmd->privdata.ttl = ttl;
+    serverAssert(sdslen(cmd->payload) == 0);
+
+    RIO_GOTO_IF_ERROR(rdbSaveObjectType(rio, obj));
+    RIO_GOTO_IF_ERROR(rdbSaveObject(rio, obj));
+
+    uint16_t ver = RDB_VERSION;
+    memrev64ifbe(&ver);
+    RIO_GOTO_IF_ERROR(rioWrite(rio, &ver, sizeof(ver)));
+
+    uint64_t crc = rio->cksum;
+    memrev64ifbe(&crc);
+    RIO_GOTO_IF_ERROR(rioWrite(rio, &crc, sizeof(crc)));
+
+    RIO_GOTO_IF_ERROR(rioFlush(rio));
+    return 1;
+
+rio_failed_cleanup:
+    return 0;
 }
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
