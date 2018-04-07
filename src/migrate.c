@@ -551,6 +551,76 @@ failed_cleanup:
     return NULL;
 }
 
+static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
+    migrateCachedSocket *cs = args->socket;
+    if (!cs->authenticated) {
+        if (cs->auth != NULL) {
+            if ((args->errmsg = syncAuthCommand(cs->fd, args->timeout, cs->auth)) != NULL) {
+                goto failed_socket_error;
+            }
+        } else {
+            if ((args->errmsg = syncPingCommand(cs->fd, args->timeout)) != NULL) {
+                goto failed_socket_error;
+            }
+        }
+        cs->authenticated = 1;
+    }
+
+    if (cs->last_dbid != args->dbid) {
+        if ((args->errmsg = syncSelectCommand(cs->fd, args->timeout, args->dbid)) != NULL) {
+            goto failed_socket_error;
+        }
+        cs->last_dbid = args->dbid;
+    }
+
+    rioMigrateCommand _cmd = {
+        .rio = _rioMigrateObjectIO,
+        .payload = sdsMakeRoomFor(sdsempty(), RIO_MAX_IOBUF_LEN),
+        .seq_num = 0,
+        .timeout = args->timeout,
+        .replace = args->replace,
+        .non_blocking = args->non_blocking,
+        .io =
+            {
+                .fd = cs->fd,
+                .buffer = sdsMakeRoomFor(sdsempty(), RIO_MAX_IOBUF_LEN),
+            },
+    };
+    rioMigrateCommand *cmd = &_cmd;
+
+    for (int j = 0; j < args->num_keys; j++) {
+        robj *key = args->kvpairs[j].key;
+        robj *val = args->kvpairs[j].val;
+        mstime_t ttl = 0;
+        mstime_t expireat = args->kvpairs[j].expireat;
+        if (expireat != -1) {
+            ttl = expireat - mstime();
+            ttl = (ttl < 1 ? 1 : ttl);
+        }
+        RIO_GOTO_IF_ERROR(rioMigrateCommandObject(cmd, key, val, ttl));
+
+        args->kvpairs[j].num_fragments = cmd->seq_num;
+    }
+    RIO_GOTO_IF_ERROR(rioMigrateCommandFlushIOBuffer(cmd));
+
+    sdsfree(cmd->payload);
+    sdsfree(cmd->io.buffer);
+
+    args->socket->last_use_time = server.unixtime;
+    return 1;
+
+rio_failed_cleanup:
+    sdsfree(cmd->payload);
+    sdsfree(cmd->io.buffer);
+
+    args->errmsg =
+        sdscatfmt(sdsempty(), "-ERR Command %s failed, sending error '%s'.\r\n", args->cmd_name, strerror(errno));
+
+failed_socket_error:
+    args->socket->error = 1;
+    return 0;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
