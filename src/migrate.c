@@ -252,11 +252,67 @@ static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
     return _rioMigrateObjectFlushNonBlockingFragment(cmd);
 }
 
+static int _rioMigrateObjectFlush(rio *r) {
+    rioMigrateCommand *cmd = RIO_MIGRATE_COMMAND(r);
+    if (!cmd->non_blocking) {
+        serverAssert(cmd->seq_num == 0 && sdslen(cmd->payload) != 0);
+    } else {
+        if (sdslen(cmd->payload) != 0) {
+            if (!_rioMigrateObjectFlushNonBlockingFragment(cmd)) {
+                return 0;
+            }
+        }
+        serverAssert(cmd->seq_num >= 2 && sdslen(cmd->payload) == 0);
+    }
+
+    rio _rio;
+    rio *rio = &_rio;
+    rioInitWithBuffer(rio, cmd->io.buffer);
+
+    robj *key = cmd->privdata.key;
+    mstime_t ttl = cmd->privdata.ttl;
+
+    if (!cmd->non_blocking) {
+        const char *cmd_name = server.cluster_enabled ? "RESTORE-ASKING" : "RESTORE";
+        RIO_GOTO_IF_ERROR(rioWriteBulkCount(rio, '*', cmd->replace ? 5 : 4));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd_name, strlen(cmd_name)));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, key->ptr, sdslen(key->ptr)));
+        RIO_GOTO_IF_ERROR(rioWriteBulkLongLong(rio, ttl));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd->payload, sdslen(cmd->payload)));
+        if (cmd->replace) {
+            RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "REPLACE", 7));
+        }
+        sdsclear(cmd->payload);
+    } else {
+        const char *cmd_name = server.cluster_enabled ? "RESTORE-ASYNC-ASKING" : "RESTORE-ASYNC";
+        RIO_GOTO_IF_ERROR(rioWriteBulkCount(rio, '*', cmd->replace ? 5 : 4));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd_name, strlen(cmd_name)));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "RESTORE", 7));
+        RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, key->ptr, sdslen(key->ptr)));
+        RIO_GOTO_IF_ERROR(rioWriteBulkLongLong(rio, ttl));
+        if (cmd->replace) {
+            RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "REPLACE", 7));
+        }
+    }
+
+    cmd->seq_num++;
+    cmd->io.buffer = rio->io.buffer.ptr;
+
+    if (sdslen(cmd->io.buffer) < RIO_MAX_IOBUF_LEN) {
+        return 1;
+    }
+    return rioMigrateCommandFlushIOBuffer(cmd);
+
+rio_failed_cleanup:
+    cmd->io.buffer = rio->io.buffer.ptr;
+    return 0;
+}
+
 static const rio _rioMigrateObjectIO = {
     .read = _rioMigrateObjectRead,
     .tell = _rioMigrateObjectTell,
     .write = _rioMigrateObjectWrite,
-    // .flush = _rioMigrateObjectFlush,
+    .flush = _rioMigrateObjectFlush,
     .update_cksum = rioGenericUpdateChecksum,
 };
 
