@@ -11,7 +11,7 @@ fi
 echo make clean
 make distclean
 mkdir $Package
-ls -a | egrep -v "Debug|^\.|$Package" | xargs -J %  cp -r %  $Package
+ls -a | egrep -v "Debug|^\.|$APP" | xargs -J %  cp -r %  $Package
 echo create $Package.tar.gz...
 tar -czf $Package.tar.gz $Package
 rm -rf $Package
