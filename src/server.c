@@ -2565,8 +2565,8 @@ int processCommand(client *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
+        call(c,CMD_CALL_FULL);
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
     }
