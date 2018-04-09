@@ -636,8 +636,8 @@ REDIS_STATIC void __quicklistDelNodeA(quicklist *quicklist,
  *
  * Returns 1 if the entire node was deleted, 0 if node still exists.
  * Also updates in/out param 'p' with the next offset in the ziplist. */
-int quicklistDelIndexA(quicklist *quicklist, quicklistNode *node,
-                                   unsigned char **p, alloc a) {
+REDIS_STATIC int quicklistDelIndexA(quicklist *quicklist, quicklistNode *node,
+                              unsigned char **p, alloc a) {
 // +
     int gone = 0;
 

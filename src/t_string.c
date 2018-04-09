@@ -44,7 +44,7 @@ static int checkStringLength(client *c, long long size) {
 
 static robj *moveSdsToMemkind(robj *o) {
     if(o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_RAW) {
-        sds *copy = sdsdupM(o->ptr);
+        sds copy = sdsdupM(o->ptr);
         sdsfree (o->ptr);
         o->ptr = copy;
         o->a = m_alloc;
