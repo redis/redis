@@ -678,9 +678,7 @@ dictType clusterNodesBlackListDictType = {
     NULL                        /* val destructor */
 };
 
-/* Cluster re-addition blacklist. This maps node IDs to the time
- * we can re-add this node. The goal is to avoid readding a removed
- * node for some time. */
+/* Modules dict type. */
 dictType modulesDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
@@ -1337,7 +1335,7 @@ void createSharedObjects(void) {
     shared.oomerr = createObject(OBJ_STRING,sdsnew(
         "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(OBJ_STRING,sdsnew(
-        "-EXECABORT Transaction discarded because of previous errors.\r\n"));
+        "-EXECABORT Transaction discarded because of previous errors or queued modules unloaded.\r\n"));
     shared.noreplicaserr = createObject(OBJ_STRING,sdsnew(
         "-NOREPLICAS Not enough good slaves to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
@@ -1934,6 +1932,7 @@ void initServer(void) {
         server.db[j].defrag_later = listCreate();
     }
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    server.watched_modules = dictCreate(&keylistDictType,NULL);
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);

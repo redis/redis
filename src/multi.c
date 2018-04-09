@@ -67,6 +67,14 @@ void queueMultiCommand(client *c) {
     for (j = 0; j < c->argc; j++)
         incrRefCount(mc->argv[j]);
     c->mstate.count++;
+
+    if (c->cmd->flags & CMD_MODULE) {
+        sds name = getModuleNameByCommand(c->cmd);
+        serverAssert(name != NULL);
+        robj *module = createStringObject(sdsdup(name), sdslen(name));
+        watchForModule(c, module);
+        decrRefCount(module);
+    }
 }
 
 void discardTransaction(client *c) {
@@ -74,6 +82,7 @@ void discardTransaction(client *c) {
     initClientMultiState(c);
     c->flags &= ~(CLIENT_MULTI|CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC);
     unwatchAllKeys(c);
+    unwatchAllModules(c);
 }
 
 /* Flag the transacation as DIRTY_EXEC so that EXEC will fail.
@@ -139,6 +148,7 @@ void execCommand(client *c) {
 
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
+    unwatchAllModules(c);
     orig_argv = c->argv;
     orig_argc = c->argc;
     orig_cmd = c->cmd;
@@ -335,4 +345,80 @@ void unwatchCommand(client *c) {
     unwatchAllKeys(c);
     c->flags &= (~CLIENT_DIRTY_CAS);
     addReply(c,shared.ok);
+}
+
+/* ================ WATCH modules unloaded for MULTI/EXEC, just like WATCH keys ============== */
+
+/* Watch for the specified module */
+void watchForModule(client *c, robj *module) {
+    list *clients = NULL;
+    listIter li;
+    listNode *ln;
+    robj *wm;
+
+    /* Check if we are already watching for this module */
+    listRewind(c->watched_modules,&li);
+    while((ln = listNext(&li))) {
+        wm = listNodeValue(ln);
+        if (equalStringObjects(wm,module))
+            return; /* Module already watched */
+    }
+    /* This module is not already watched. Let's add it */
+    clients = dictFetchValue(server.watched_modules,module);
+    if (!clients) {
+        clients = listCreate();
+        dictAdd(server.watched_modules,module,clients);
+        incrRefCount(module);
+    }
+    listAddNodeTail(clients,c);
+    /* Add the new module to the list of modules watched by this client */
+    listAddNodeTail(c->watched_modules,module);
+    incrRefCount(module);
+}
+
+/* Unwatch all the modules watched by this client. To clean the EXEC dirty
+ * flag is up to the caller. */
+void unwatchAllModules(client *c) {
+    listIter li;
+    listNode *ln;
+
+    if (listLength(c->watched_modules) == 0) return;
+    listRewind(c->watched_modules,&li);
+    while((ln = listNext(&li))) {
+        list *clients;
+        robj *wm;
+
+        /* Lookup the watched module -> clients list and remove the client
+         * from the list */
+        wm = listNodeValue(ln);
+        clients = dictFetchValue(server.watched_modules, wm);
+        serverAssertWithInfo(c,NULL,clients != NULL);
+        listDelNode(clients,listSearchKey(clients,c));
+        /* Kill the entry at all if this was the only client */
+        if (listLength(clients) == 0)
+            dictDelete(server.watched_modules, wm);
+        /* Remove this watched module from the client->watched list */
+        listDelNode(c->watched_modules,ln);
+        decrRefCount(wm);
+    }
+}
+
+/* "Touch" a module, so that if this module is being WATCHed by some client the
+ * next EXEC will fail. */
+void touchWatchedModule(robj *module) {
+    list *clients;
+    listIter li;
+    listNode *ln;
+
+    if (dictSize(server.watched_modules) == 0) return;
+    clients = dictFetchValue(server.watched_modules, module);
+    if (!clients) return;
+
+    /* Mark all the clients watching this module as CLIENT_DIRTY_MODULE */
+    /* Check if we are already watching for this key */
+    listRewind(clients,&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        c->flags |= CLIENT_DIRTY_EXEC;
+    }
 }

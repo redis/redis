@@ -644,6 +644,7 @@ struct client *createFakeClient(void) {
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
+    c->watched_modules = listCreate();
     c->peerid = NULL;
     listSetFreeMethod(c->reply,decrRefCountVoid);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -663,6 +664,7 @@ void freeFakeClient(struct client *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
     listRelease(c->watched_keys);
+    listRelease(c->watched_modules);
     freeClientMultiState(c);
     zfree(c);
 }

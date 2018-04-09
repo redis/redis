@@ -43,7 +43,7 @@
 /* This structure represents a module inside the system. */
 struct RedisModule {
     void *handle;   /* Module dlopen() handle. */
-    char *name;     /* Module name. */
+    sds name;       /* Module name. */
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
@@ -4029,9 +4029,10 @@ void moduleCommand(client *c) {
             addReplyError(c,
                 "Error loading the extension. Please check the server logs.");
     } else if (!strcasecmp(subcmd,"unload") && c->argc == 3) {
-        if (moduleUnload(c->argv[2]->ptr) == C_OK)
+        if (moduleUnload(c->argv[2]->ptr) == C_OK) {
+            touchWatchedModule(c->argv[2]);
             addReply(c,shared.ok);
-        else {
+        } else {
             char *errmsg;
             switch(errno) {
             case ENOENT:
@@ -4069,6 +4070,16 @@ void moduleCommand(client *c) {
 /* Return the number of registered modules. */
 size_t moduleCount(void) {
     return dictSize(modules);
+}
+
+/* Return the module's name which the given command belongs to. */
+sds getModuleNameByCommand(struct redisCommand *cmd) {
+    sds name = NULL;
+    if (cmd->flags & CMD_MODULE) {
+        RedisModuleCommandProxy *cp = (void*)(unsigned long)cmd->getkeys_proc;
+        name = cp->module->name;
+    }
+    return name;
 }
 
 /* Register all the APIs we export. Keep this function at the end of the
