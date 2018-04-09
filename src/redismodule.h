@@ -268,6 +268,21 @@ long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
 void REDISMODULE_API_FUNC(RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele);
 void REDISMODULE_API_FUNC(RedisModule_DigestEndSequence)(RedisModuleDigest *md);
+
+/* Experimental APIs */
+#ifdef REDISMODULE_EXPERIMENTAL_API
+RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms);
+int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
+int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx);
+void *REDISMODULE_API_FUNC(RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_AbortBlock)(RedisModuleBlockedClient *bc);
+RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc);
+void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
+void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
+void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb);
+int REDISMODULE_API_FUNC(RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx);
 void REDISMODULE_API_FUNC(RedisModule_RegisterClusterMessageReceiver)(RedisModuleCtx *ctx, uint8_t type, RedisModuleClusterMessageReceiver callback);
 int REDISMODULE_API_FUNC(RedisModule_SendClusterMessage)(RedisModuleCtx *ctx, char *target_id, uint8_t type, unsigned char *msg, uint32_t len);
 int REDISMODULE_API_FUNC(RedisModule_GetClusterNodeInfo)(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags);
@@ -280,21 +295,6 @@ const char *REDISMODULE_API_FUNC(RedisModule_GetMyClusterID)(void);
 size_t REDISMODULE_API_FUNC(RedisModule_GetClusterSize)(void);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomBytes)(unsigned char *dst, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomHexChars)(char *dst, size_t len);
-
-
-/* Experimental APIs */
-#ifdef REDISMODULE_EXPERIMENTAL_API
-RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms);
-int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
-int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
-int REDISMODULE_API_FUNC(RedisModule_IsBlockedTimeoutRequest)(RedisModuleCtx *ctx);
-void *REDISMODULE_API_FUNC(RedisModule_GetBlockedClientPrivateData)(RedisModuleCtx *ctx);
-int REDISMODULE_API_FUNC(RedisModule_AbortBlock)(RedisModuleBlockedClient *bc);
-RedisModuleCtx *REDISMODULE_API_FUNC(RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc);
-void REDISMODULE_API_FUNC(RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx);
-void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx);
-void REDISMODULE_API_FUNC(RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx);
-int REDISMODULE_API_FUNC(RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -404,18 +404,6 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);
-    REDISMODULE_GET_API(RegisterClusterMessageReceiver);
-    REDISMODULE_GET_API(SendClusterMessage);
-    REDISMODULE_GET_API(GetClusterNodeInfo);
-    REDISMODULE_GET_API(GetClusterNodesList);
-    REDISMODULE_GET_API(FreeClusterNodesList);
-    REDISMODULE_GET_API(CreateTimer);
-    REDISMODULE_GET_API(StopTimer);
-    REDISMODULE_GET_API(GetTimerInfo);
-    REDISMODULE_GET_API(GetMyClusterID);
-    REDISMODULE_GET_API(GetClusterSize);
-    REDISMODULE_GET_API(GetRandomBytes);
-    REDISMODULE_GET_API(GetRandomHexChars);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
@@ -429,6 +417,19 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
+    REDISMODULE_GET_API(BlockedClientDisconnected);
+    REDISMODULE_GET_API(RegisterClusterMessageReceiver);
+    REDISMODULE_GET_API(SendClusterMessage);
+    REDISMODULE_GET_API(GetClusterNodeInfo);
+    REDISMODULE_GET_API(GetClusterNodesList);
+    REDISMODULE_GET_API(FreeClusterNodesList);
+    REDISMODULE_GET_API(CreateTimer);
+    REDISMODULE_GET_API(StopTimer);
+    REDISMODULE_GET_API(GetTimerInfo);
+    REDISMODULE_GET_API(GetMyClusterID);
+    REDISMODULE_GET_API(GetClusterSize);
+    REDISMODULE_GET_API(GetRandomBytes);
+    REDISMODULE_GET_API(GetRandomHexChars);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

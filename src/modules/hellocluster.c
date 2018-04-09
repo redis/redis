@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>

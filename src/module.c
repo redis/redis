@@ -127,6 +127,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 #define REDISMODULE_CTX_BLOCKED_REPLY (1<<3)
 #define REDISMODULE_CTX_BLOCKED_TIMEOUT (1<<4)
 #define REDISMODULE_CTX_THREAD_SAFE (1<<5)
+#define REDISMODULE_CTX_BLOCKED_DISCONNECTED (1<<6)
 
 /* This represents a Redis key opened with RM_OpenKey(). */
 struct RedisModuleKey {
@@ -200,7 +201,7 @@ typedef struct RedisModuleBlockedClient {
     RedisModule *module;    /* Module blocking the client. */
     RedisModuleCmdFunc reply_callback; /* Reply callback on normal completion.*/
     RedisModuleCmdFunc timeout_callback; /* Reply callback on timeout. */
-    void (*free_privdata)(void *);       /* privdata cleanup callback. */
+    void (*free_privdata)(RedisModuleCtx*,void*);/* privdata cleanup callback.*/
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
                            RedisModule_UnblockClient() API. */
@@ -3449,7 +3450,7 @@ void unblockClientFromModule(client *c) {
  *     free_privdata:   called in order to free the privata data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
-RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(void*), long long timeout_ms) {
+RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
     client *c = ctx->client;
     int islua = c->flags & CLIENT_LUA;
     int ismulti = c->flags & CLIENT_MULTI;
@@ -3553,8 +3554,16 @@ void moduleHandleBlockedClients(void) {
         }
 
         /* Free privdata if any. */
-        if (bc->privdata && bc->free_privdata)
-            bc->free_privdata(bc->privdata);
+        if (bc->privdata && bc->free_privdata) {
+            RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+            if (c == NULL)
+                ctx.flags |= REDISMODULE_CTX_BLOCKED_DISCONNECTED;
+            ctx.blocked_privdata = bc->privdata;
+            ctx.module = bc->module;
+            ctx.client = bc->client;
+            bc->free_privdata(&ctx,bc->privdata);
+            moduleFreeContext(&ctx);
+        }
 
         /* It is possible that this blocked client object accumulated
          * replies to send to the client in a thread safe context.
@@ -3623,6 +3632,13 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
 /* Get the privata data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
+}
+
+/* Return true if when the free callback of a blocked client is called,
+ * the reason for the client to be unblocked is that it disconnected
+ * while it was blocked. */
+int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
+    return (ctx->flags & REDISMODULE_CTX_BLOCKED_DISCONNECTED) != 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -4596,4 +4612,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetClusterSize);
     REGISTER_API(GetRandomBytes);
     REGISTER_API(GetRandomHexChars);
+    REGISTER_API(BlockedClientDisconnected);
 }
