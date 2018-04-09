@@ -368,7 +368,7 @@ proc colorstr {color str} {
 # of seconds to the specified Redis instance.
 proc start_write_load {host port seconds} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::ssl &
 }
 
 # Stop a process generating write load executed with start_write_load.

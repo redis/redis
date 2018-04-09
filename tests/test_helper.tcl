@@ -68,6 +68,7 @@ set ::host 127.0.0.1
 set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
+set ::ssl 0
 set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
@@ -135,7 +136,7 @@ proc reconnect {args} {
     set host [dict get $srv "host"]
     set port [dict get $srv "port"]
     set config [dict get $srv "config"]
-    set client [redis $host $port]
+    set client [redis $host $port 0 $::ssl]
     dict set srv "client" $client
 
     # select the right db when we don't have to authenticate
@@ -155,7 +156,7 @@ proc redis_deferring_client {args} {
     }
 
     # create client that defers reading reply
-    set client [redis [srv $level "host"] [srv $level "port"] 1]
+    set client [redis [srv $level "host"] [srv $level "port"] 1 $::ssl]
 
     # select the right db and read the response (OK)
     $client select 9
@@ -190,7 +191,7 @@ proc test_server_main {} {
     if {!$::quiet} {
         puts "Starting test server at port $port"
     }
-    socket -server accept_test_clients -myaddr 127.0.0.1 $port
+    socket -server accept_test_clients  -myaddr 127.0.0.1 $port
 
     # Start the client instances
     set ::clients_pids {}
@@ -378,6 +379,7 @@ proc the_end {} {
 proc test_client_main server_port {
     set ::test_server_fd [socket localhost $server_port]
     fconfigure $::test_server_fd -encoding binary
+
     send_data_packet $::test_server_fd ready [pid]
     while 1 {
         set bytes [gets $::test_server_fd]
@@ -434,6 +436,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         }
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
+    } elseif {$opt eq {--ssl}} {
+        package require tls 1.6
+        set ::ssl 1
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -475,7 +480,11 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
 }
 
 proc attach_to_replication_stream {} {
-    set s [socket [srv 0 "host"] [srv 0 "port"]]
+    if {$::ssl} {
+        set s [::tls::socket [srv 0 "host"] [srv 0 "port"]]
+    } else {
+        set s [socket [srv 0 "host"] [srv 0 "port"]]
+    }
     fconfigure $s -translation binary
     puts -nonewline $s "SYNC\r\n"
     flush $s

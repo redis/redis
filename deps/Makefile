@@ -37,6 +37,8 @@ distclean:
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
+	-([ "yes" == "$(BUILD_SSL)" ] && cd s2n && $(MAKE) clean) > /dev/null || true	
+	-([ "yes" == "$(BUILD_SSL)" ] && cd openssl && $(MAKE) clean) > /dev/null || true	
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -81,3 +83,26 @@ jemalloc: .make-prerequisites
 	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
 
 .PHONY: jemalloc
+
+SSL_CONFIG= ./config
+
+ifeq ($(uname_S),Darwin)
+	# Make isinf() available
+	SSL_CONFIG= ./Configure
+endif
+
+openssl: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd openssl && $(SSL_CONFIG)
+	cd openssl && $(MAKE) depend
+	cd openssl && $(MAKE)
+
+.PHONY: openssl
+
+ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+
+s2n: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd s2n && LIBCRYPTO_ROOT=$(ROOT_DIR)/openssl $(MAKE) libs
+
+.PHONY: s2n

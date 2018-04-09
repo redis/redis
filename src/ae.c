@@ -513,3 +513,27 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep) {
     eventLoop->aftersleep = aftersleep;
 }
+
+/* Return the file proc for a file descriptor and given event
+ * (AE_READABLE or AE_WRITABLE) or null if one does not exist. */
+aeFileProc* aeGetFileProc(aeEventLoop *eventLoop, int fd, int event) {
+    if (fd >= eventLoop->setsize) return NULL;
+    aeFileEvent *fe = &eventLoop->events[fd];
+ 
+    if (event == AE_READABLE) {
+        return fe->rfileProc;
+    } else if (event == AE_WRITABLE) {
+        return fe->wfileProc;
+    }
+ 
+    return NULL;
+}
+ 
+/* Return the client data associated with a file descriptor,
+ * or null if it does not exist. */
+void* aeGetClientData(aeEventLoop *eventLoop, int fd) {
+    if (fd >= eventLoop->setsize) return NULL;
+    aeFileEvent *fe = &eventLoop->events[fd];
+ 
+    return fe->clientData;
+}

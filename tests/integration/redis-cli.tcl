@@ -1,7 +1,11 @@
 start_server {tags {"cli"}} {
     proc open_cli {} {
         set ::env(TERM) dumb
-        set fd [open [format "|src/redis-cli -p %d -n 9" [srv port]] "r+"]
+        if {$::ssl} {
+            set fd [open [format "|src/redis-cli --ssl -p %d -n 9" [srv port]] "r+"]
+        } else {
+            set fd [open [format "|src/redis-cli -p %d -n 9" [srv port]] "r+"]
+        }
         fconfigure $fd -buffering none
         fconfigure $fd -blocking false
         fconfigure $fd -translation binary
@@ -54,7 +58,11 @@ start_server {tags {"cli"}} {
     }
 
     proc _run_cli {opts args} {
-        set cmd [format "src/redis-cli -p %d -n 9 $args" [srv port]]
+        if {$::ssl} {
+            set cmd [format "src/redis-cli -p %d -n 9 $args" [srv port]]
+        } else {
+            set cmd [format "src/redis-cli --ssl -p %d -n 9 $args" [srv port]]
+        }
         foreach {key value} $opts {
             if {$key eq "pipe"} {
                 set cmd "sh -c \"$value | $cmd\""

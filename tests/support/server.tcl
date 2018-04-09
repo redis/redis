@@ -92,7 +92,11 @@ proc is_alive config {
 proc ping_server {host port} {
     set retval 0
     if {[catch {
-        set fd [socket $host $port]
+        if {$::ssl} {
+           set fd [::tls::socket $host $port] 
+        } else {
+            set fd [socket $host $port]
+        }
         fconfigure $fd -translation binary
         puts $fd "PING\r\n"
         flush $fd
@@ -136,7 +140,6 @@ proc tags {tags code} {
     uplevel 1 $code
     set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
-
 proc start_server {options {code undefined}} {
     # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
@@ -145,7 +148,7 @@ proc start_server {options {code undefined}} {
             set srv {}
             dict set srv "host" $::host
             dict set srv "port" $::port
-            set client [redis $::host $::port]
+            set client [redis $::host $::port 0 $::ssl]
             dict set srv "client" $client
             $client select 9
 
@@ -178,6 +181,14 @@ proc start_server {options {code undefined}} {
 
     set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
+    if {$::ssl} {
+        dict set config "enable-ssl" "yes"
+        dict set config "certificate-file" [format "%s/tests/ssl/redis.crt" [pwd]]
+        dict set config "private-key-file" [format "%s/tests/ssl/redis.key" [pwd]]
+        dict set config "dh-params-file" [format "%s/tests/ssl/redis.dh" [pwd]]
+        dict set config "root-ca-certs-path" [format "%s/tests/ssl/ca-bundle.crt" [pwd]]
+        dict set config "loglevel" "debug"
+    }
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
             set elements [split $line " "]

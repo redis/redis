@@ -119,6 +119,9 @@ static struct config {
     int eval_ldb_end;   /* Lua debugging session ended. */
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
+#ifdef BUILD_SSL
+    int ssl_mode;
+#endif
 } config;
 
 /* User preferences. */
@@ -603,7 +606,19 @@ static int cliConnect(int force) {
         }
 
         if (config.hostsocket == NULL) {
-            context = redisConnect(config.hostip,config.hostport);
+#ifdef BUILD_SSL
+            if (config.ssl_mode == true) {
+                if(hiredisInitSsl() != REDIS_OK) {
+                    fprintf(stderr, "Could not initialize SSL for hiredis client");
+                    return REDIS_ERR;
+                }
+                context = redisSslConnect(config.hostip, config.hostport);
+            } else {
+                context = redisConnect(config.hostip, config.hostport); 
+            }
+#else
+            context = redisConnect(config.hostip, config.hostport);
+#endif
         } else {
             context = redisConnectUnix(config.hostsocket);
         }
@@ -1146,6 +1161,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
+#ifdef BUILD_SSL
+        } else if (!strcmp(argv[i],"--ssl")){
+            config.ssl_mode = 1;
+#endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
             printf("redis-cli %s\n", version);
@@ -1243,6 +1262,9 @@ static void usage(void) {
 "  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
 "                     this mode the server is blocked and script changes are\n"
 "                     are not rolled back from the server memory.\n"
+#ifdef BUILD_SSL
+"  --ssl              Use TLS for connecting to Redis\n"
+#endif 
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
 "\n"
@@ -1253,6 +1275,9 @@ static void usage(void) {
 "  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "  redis-cli --eval myscript.lua key1 key2 , arg1 arg2 arg3\n"
 "  redis-cli --scan --pattern '*:12345*'\n"
+#ifdef BUILD_SSL
+"  redis-cli --ssl -h 127.0.0.1 -p 6379\n"
+#endif
 "\n"
 "  (Note: when using --eval the comma separates KEYS[] from ARGV[] items)\n"
 "\n"
@@ -1795,7 +1820,7 @@ static void latencyDistMode(void) {
 
 /* Sends SYNC and reads the number of bytes in the payload. Used both by
  * slaveMode() and getRDB(). */
-unsigned long long sendSync(int fd) {
+unsigned long long sendSync(struct redisContext* context) {
     /* To start we need to send the SYNC command and return the payload.
      * The hiredis client lib does not understand this part of the protocol
      * and we don't want to mess with its buffers, so everything is performed
@@ -1804,7 +1829,7 @@ unsigned long long sendSync(int fd) {
     ssize_t nread;
 
     /* Send the SYNC command. */
-    if (write(fd,"SYNC\r\n",6) != 6) {
+    if (hwrite(context,"SYNC\r\n",6) != 6) {
         fprintf(stderr,"Error writing to master\n");
         exit(1);
     }
@@ -1812,7 +1837,7 @@ unsigned long long sendSync(int fd) {
     /* Read $<payload>\r\n, making sure to read just up to "\n" */
     p = buf;
     while(1) {
-        nread = read(fd,p,1);
+        nread = hread(context,p,1);
         if (nread <= 0) {
             fprintf(stderr,"Error reading bulk length while SYNCing\n");
             exit(1);
@@ -1829,8 +1854,7 @@ unsigned long long sendSync(int fd) {
 }
 
 static void slaveMode(void) {
-    int fd = context->fd;
-    unsigned long long payload = sendSync(fd);
+    unsigned long long payload = sendSync(context);
     char buf[1024];
     int original_output = config.output;
 
@@ -1841,7 +1865,7 @@ static void slaveMode(void) {
     while(payload) {
         ssize_t nread;
 
-        nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+        nread = hread(context,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"Error reading RDB payload while SYNCing\n");
             exit(1);
@@ -1865,7 +1889,7 @@ static void slaveMode(void) {
 static void getRDB(void) {
     int s = context->fd;
     int fd;
-    unsigned long long payload = sendSync(s);
+    unsigned long long payload = sendSync(context);
     char buf[4096];
 
     fprintf(stderr,"SYNC sent to master, writing %llu bytes to '%s'\n",
@@ -1886,12 +1910,12 @@ static void getRDB(void) {
     while(payload) {
         ssize_t nread, nwritten;
 
-        nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+        nread = hread(context,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);
         }
-        nwritten = write(fd, buf, nread);
+        nwritten = hwrite(context, buf, nread);
         if (nwritten != nread) {
             fprintf(stderr,"Error writing data to file: %s\n",
                 strerror(errno));
@@ -1946,7 +1970,7 @@ static void pipeMode(void) {
 
             /* Read from socket and feed the hiredis reader. */
             do {
-                nread = read(fd,ibuf,sizeof(ibuf));
+                nread = hread(context,ibuf,sizeof(ibuf));
                 if (nread == -1 && errno != EAGAIN && errno != EINTR) {
                     fprintf(stderr, "Error reading from the server: %s\n",
                         strerror(errno));
@@ -1992,7 +2016,7 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
-                    ssize_t nwritten = write(fd,obuf+obuf_pos,obuf_len);
+                    ssize_t nwritten = hwrite(context,obuf+obuf_pos,obuf_len);
 
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
@@ -2862,7 +2886,9 @@ int main(int argc, char **argv) {
     config.eval_ldb_sync = 0;
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
-
+#ifdef BUILD_SSL
+    config.ssl_mode = 0;
+#endif
     pref.hints = 1;
 
     spectrum_palette = spectrum_palette_color;

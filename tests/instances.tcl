@@ -17,6 +17,7 @@ source ../support/test.tcl
 
 set ::verbose 0
 set ::valgrind 0
+set ::ssl 0
 set ::pause_on_error 0
 set ::simulate_error 0
 set ::failed 0
@@ -72,6 +73,14 @@ proc spawn_instance {type base_port count {conf {}}} {
         puts $cfg "port $port"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
+        if {$::ssl} {
+            puts $cfg "enable-ssl yes"
+            puts $cfg [format "certificate-file %s/../../ssl/redis.crt" [pwd]]
+            puts $cfg [format "private-key-file %s/../../ssl/redis.key" [pwd]]
+            puts $cfg [format "dh-params-file %s/../../ssl/redis.dh" [pwd]]
+            puts $cfg [format "root-ca-certs-path %s/../../ssl/ca-bundle.crt" [pwd]]
+            puts $cfg "loglevel debug"
+        }
         # Add additional config files
         foreach directive $conf {
             puts $cfg $directive
@@ -88,7 +97,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         }
 
         # Push the instance into the right list
-        set link [redis 127.0.0.1 $port]
+        set link [redis 127.0.0.1 $port 0 $::ssl]
         $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
@@ -148,6 +157,9 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
+        } elseif {$opt eq {--ssl}} {
+            package require tls 1.6
+            set ::ssl 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
@@ -492,7 +504,7 @@ proc restart_instance {type id} {
     }
 
     # Connect with it with a fresh link
-    set link [redis 127.0.0.1 $port]
+    set link [redis 127.0.0.1 $port 0 $::ssl]
     $link reconnect 1
     set_instance_attrib $type $id link $link
 

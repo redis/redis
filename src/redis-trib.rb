@@ -30,6 +30,7 @@ MigrateDefaultPipeline = 10
 RebalanceDefaultThreshold = 2
 
 $verbose = false
+$ssl = false
 
 def xputs(s)
     case s[0..2]
@@ -96,7 +97,7 @@ class ClusterNode
         print "Connecting to node #{self}: " if $verbose
         STDOUT.flush
         begin
-            @r = Redis.new(:host => @info[:host], :port => @info[:port], :timeout => 60)
+            @r = Redis.new(:host => @info[:host], :port => @info[:port], :timeout => 60, :ssl => $ssl)
             @r.ping
         rescue
             xputs "[ERR] Sorry, can't connect to node #{self}"
@@ -1583,7 +1584,7 @@ class RedisTrib
         # Connect to the source node.
         xputs ">>> Connecting to the source Redis instance"
         src_host,src_port = source_addr.split(":")
-        source = Redis.new(:host =>src_host, :port =>src_port)
+        source = Redis.new(:host =>src_host, :port =>src_port, :ssl => $ssl)
         if source.info['cluster_enabled'].to_i == 1
             xputs "[ERR] The source node should not be a cluster node."
         end
@@ -1642,6 +1643,12 @@ class RedisTrib
                 # --verbose is a global option
                 if option == "verbose"
                     $verbose = true
+                    next
+                end
+
+                # --ssl is a global option
+                if option == "ssl"
+                    $ssl = true
                     next
                 end
 

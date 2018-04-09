@@ -48,7 +48,9 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
 static void *createArrayObject(const redisReadTask *task, int elements);
 static void *createIntegerObject(const redisReadTask *task, long long value);
 static void *createNilObject(const redisReadTask *task);
-
+#ifdef BUILD_SSL
+static int initSslClientConnection(redisContext *context, const char *masterhost);
+#endif
 /* Default set of functions to build the reply. Keep in mind that such a
  * function returning NULL is interpreted as OOM. */
 static redisReplyObjectFunctions defaultFunctions = {
@@ -609,11 +611,21 @@ static redisContext *redisContextInit(void) {
         redisFree(c);
         return NULL;
     }
-
+#ifdef BUILD_SSL
+    c->ssl_connection = NULL;
+#endif
     return c;
 }
 
 void redisFree(redisContext *c) {
+#ifdef BUILD_SSL
+    if(c->ssl_connection != NULL){
+        s2n_blocked_status blocked;
+        s2n_shutdown(c->ssl_connection, &blocked);
+        s2n_connection_wipe(c->ssl_connection);
+        s2n_connection_free(c->ssl_connection);
+    }
+#endif
     if (c == NULL)
         return;
     if (c->fd > 0)
@@ -799,7 +811,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    nread = read(c->fd,buf,sizeof(buf));
+    nread = hread(c,buf,sizeof(buf));
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -836,7 +848,7 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-        nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
+        nwritten = hwrite(c,c->obuf,sdslen(c->obuf));
         if (nwritten == -1) {
             if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
                 /* Try again later */
@@ -1019,3 +1031,165 @@ void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_
         return NULL;
     return __redisBlockForReply(c);
 }
+
+#ifdef BUILD_SSL
+/**
+ * Perform SSL initialization. If you want to connect to SSL enabled Redis with hiredis client,
+ * then this method should be invoked once before any *connect* methods can be used
+ *
+ * @returns REDIS_OK if initialization was successful, REDIS_ERR otherwise
+ */
+int hiredisInitSsl(void) {
+    setenv("S2N_ENABLE_CLIENT_MODE", "1", 1);
+    setenv("S2N_DONT_MLOCK", "1", 1);
+    if (s2n_init() < 0) return REDIS_ERR;
+
+    hiredis_ssl_config = s2n_config_new();
+    if (!hiredis_ssl_config) return REDIS_ERR;
+
+    if (s2n_config_set_cipher_preferences(hiredis_ssl_config, SSL_CIPHER_PREFERENCES_DEFAULT) < 0) {
+        goto error;
+    }
+    
+    /**
+     * Disable x509 verification will accept any request sent by the server. This should be extended
+     * to allow a certificate, ca path, and hostname to be provided.
+     */
+    if(s2n_config_disable_x509_verification(hiredis_ssl_config) < 0){
+        goto error;       
+    }
+    return REDIS_OK;
+error:
+    s2n_config_free(hiredis_ssl_config);
+    hiredis_ssl_config = NULL;
+    s2n_cleanup();
+    return REDIS_ERR;
+}
+
+/**
+ * Connect to SSL enabled redis on (ip,port). This is a
+ * blocking method and will block until connection is
+ * established and SSL handshake is complete
+ */
+redisContext *redisSslConnect(const char *ip, int port) {
+    redisContext *c = redisConnect(ip, port);
+    if (initSslClientConnection(c, ip) < 0) return c;
+    if (sslHandshake(c) < 0) return c;
+    return c;
+}
+
+/**
+ * Connect to SSL enabled redis on (ip,port). This is a
+ * non-blocking method and will return immediately after
+ * initiating the socket connection. Caller is expected to
+ * do SSL handshake separately.
+ */
+redisContext *redisSslConnectNonBlock(const char *ip, int port) {
+    redisContext *c = redisConnectNonBlock(ip, port);
+    if (c == NULL) return NULL;
+    initSslClientConnection(c, ip);
+    return c;
+}
+
+
+/**
+ * SSL handshake method. This is expected to be used if redisSslConnectNonBlock
+ * is used to connect to Redis. After socket establishment, callers can use
+ * this method for SSL negotiation in a non-blocking way
+ */
+SslHandshakeStatus sslHandshake(redisContext *context) {
+    s2n_blocked_status blocked;
+    if (s2n_negotiate(context->ssl_connection, &blocked) < 0) {
+        switch (s2n_error_get_type(s2n_errno)) {
+            case S2N_ERR_T_BLOCKED:
+                return blocked == S2N_BLOCKED_ON_READ? HANDSHAKE_RETRY_READ_BLOCKED: HANDSHAKE_RETRY_WRITE_BLOCKED;
+            default:
+                __redisSetError(context, REDIS_ERR_SSL, s2n_strerror(s2n_errno, "EN"));
+                return HANDSHAKE_FAILED;
+        }
+    }
+    return HANDSHAKE_DONE;
+}
+
+/**
+ *  SSL compatable read method. This can be used to read from both SSL and
+ *  non SSL redis
+ */
+ssize_t hiredisSslRead(redisContext *c, void *buffer, size_t nbytes) {
+    ssize_t bytesRead;
+    if (c->ssl_connection == NULL) {
+        bytesRead = read(c->fd, buffer, nbytes);
+    } else {
+        s2n_blocked_status blocked;
+        bytesRead = s2n_recv(c->ssl_connection, buffer, nbytes, &blocked);
+        //set errno as well in case IO blocked. This is so that calling code treats
+        //it like regular blocking IO and does not has to do any special logic for SSL based IO
+        if (bytesRead < 0 && s2n_error_get_type(s2n_errno) == S2N_ERR_T_BLOCKED){
+            errno = EAGAIN;
+        } else if (bytesRead < 0) {
+            __redisSetError(c, REDIS_ERR_SSL, s2n_strerror(s2n_errno, "EN"));            
+        }
+    }
+    return bytesRead;
+}
+
+/**
+ *  SSL compatable write method. This can be used to read from both SSL and
+ *  non SSL redis
+ */
+ssize_t hiredisSslWrite(redisContext *c, const void *buffer, size_t nbytes) {
+    ssize_t bytesWritten;
+    if (c->ssl_connection == NULL) {
+        bytesWritten = write(c->fd, buffer, nbytes);
+    } else {
+        s2n_blocked_status blocked;
+        bytesWritten = s2n_send(c->ssl_connection, buffer, nbytes, &blocked);
+        //set errno as well in case IO blocked. This is so that calling code treats
+        //it like regular blocking IO and does not has to do any special logic for SSL based IO
+        if (bytesWritten < 0 && s2n_error_get_type(s2n_errno) == S2N_ERR_T_BLOCKED){
+            errno = EAGAIN;
+        } else if (bytesWritten < 0) {
+            __redisSetError(c, REDIS_ERR_SSL, s2n_strerror(s2n_errno, "EN"));            
+        }
+    }
+    return bytesWritten;
+}
+
+static int initSslClientConnection(redisContext *context, const char *masterhost) {
+    if (hiredis_ssl_config == NULL) {
+        __redisSetError(context, REDIS_ERR_SSL, "hiredisInitSsl is not invoked");
+        return REDIS_ERR;
+    }
+    // create a new connection in Server or Client mode
+    context->ssl_connection = s2n_connection_new(S2N_CLIENT);
+    if (!context->ssl_connection) {
+        __redisSetError(context, REDIS_ERR_SSL, s2n_strerror(s2n_errno, "EN"));
+        return REDIS_ERR;
+    }
+
+    // Associates appropriate configuration with the connection
+    if (s2n_connection_set_config(context->ssl_connection, hiredis_ssl_config) < 0) goto error;
+    // Associates appropriate socket file descriptor with the connection
+    if (s2n_connection_set_fd(context->ssl_connection, context->fd) < 0) goto error;
+    // Set a performance mode on the connection
+    // SSL_PERFORMANCE_MODE_DEFAULT is defined in hiredis.h, the switch is used in case the default is updated 
+    switch (SSL_PERFORMANCE_MODE_DEFAULT) {
+        case SSL_PERFORMANCE_MODE_HIGH_THROUGHPUT:
+            if (s2n_connection_prefer_throughput(context->ssl_connection) < 0) goto error;
+            break;
+        case SSL_PERFORMANCE_MODE_LOW_LATENCY:
+            if (s2n_connection_prefer_low_latency(context->ssl_connection) < 0) goto error;
+            break;
+        default:
+            goto error;
+    }
+    if (s2n_set_server_name(context->ssl_connection, masterhost) < 0) goto error;
+    return REDIS_OK;
+
+error:
+    __redisSetError(context, REDIS_ERR_SSL, s2n_strerror(s2n_errno, "EN"));
+    s2n_connection_free(context->ssl_connection);
+    context->ssl_connection = NULL;
+    return REDIS_ERR;
+}
+#endif

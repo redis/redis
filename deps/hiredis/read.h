@@ -46,7 +46,7 @@
 #define REDIS_ERR_PROTOCOL 4 /* Protocol error */
 #define REDIS_ERR_OOM 5 /* Out of memory */
 #define REDIS_ERR_OTHER 2 /* Everything else... */
-
+#define REDIS_ERR_SSL 6 /* SSL related errors */
 #define REDIS_REPLY_STRING 1
 #define REDIS_REPLY_ARRAY 2
 #define REDIS_REPLY_INTEGER 3

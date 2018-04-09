@@ -38,6 +38,14 @@
 #include <sys/time.h> /* for struct timeval */
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
+#ifdef BUILD_SSL
+#include <s2n.h> /* for ssl */
+
+#define SSL_PERFORMANCE_MODE_LOW_LATENCY 0
+#define SSL_PERFORMANCE_MODE_HIGH_THROUGHPUT 1
+#define SSL_PERFORMANCE_MODE_DEFAULT SSL_PERFORMANCE_MODE_LOW_LATENCY
+#define SSL_CIPHER_PREFERENCES_DEFAULT "default"
+#endif
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 13
@@ -157,8 +165,16 @@ typedef struct redisContext {
     struct {
         char *path;
     } unix_sock;
-
+#ifdef BUILD_SSL
+    struct s2n_connection *ssl_connection; /* SSL connection */
+#endif
 } redisContext;
+
+#ifdef BUILD_SSL
+typedef enum {
+    HANDSHAKE_FAILED = -1, HANDSHAKE_RETRY_READ_BLOCKED, HANDSHAKE_RETRY_WRITE_BLOCKED, HANDSHAKE_DONE
+} SslHandshakeStatus;
+#endif
 
 redisContext *redisConnect(const char *ip, int port);
 redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv);
@@ -171,6 +187,15 @@ redisContext *redisConnectUnix(const char *path);
 redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv);
 redisContext *redisConnectUnixNonBlock(const char *path);
 redisContext *redisConnectFd(int fd);
+
+#ifdef BUILD_SSL
+int hiredisInitSsl(void);
+redisContext *redisSslConnect(const char *ip, int port);
+redisContext *redisSslConnectNonBlock(const char *ip, int port);
+SslHandshakeStatus sslHandshake(redisContext *context);
+ssize_t hiredisSslRead(redisContext *c, void *buffer, size_t nbytes);
+ssize_t hiredisSslWrite(redisContext *c, const void *buffer, size_t nbytes);
+#endif
 
 /**
  * Reconnect the given context using the saved information.
@@ -215,6 +240,16 @@ int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const s
 void *redisvCommand(redisContext *c, const char *format, va_list ap);
 void *redisCommand(redisContext *c, const char *format, ...);
 void *redisCommandArgv(redisContext *c, int argc, const char **argv, const size_t *argvlen);
+
+#ifdef BUILD_SSL
+struct s2n_config * hiredis_ssl_config;
+
+#define hread hiredisSslRead
+#define hwrite hiredisSslWrite
+#else
+#define hread(context, buffer, bytes) read((context)->fd, (buffer), (bytes))
+#define hwrite(context, buffer, bytes) write((context)->fd, (buffer), (bytes))
+#endif
 
 #ifdef __cplusplus
 }

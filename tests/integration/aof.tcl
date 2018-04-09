@@ -52,7 +52,7 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port]]
+        set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
 
         test "Truncated AOF loaded: we expect foo to be equal to 5" {
             assert {[$client get foo] eq "5"}
@@ -69,7 +69,7 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port]]
+        set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
 
         test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
             assert {[$client get foo] eq "6"}
@@ -170,7 +170,7 @@ tags {"aof"} {
         }
 
         test "Fixed AOF: Keyspace should contain values that were parseable" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -194,7 +194,7 @@ tags {"aof"} {
         }
 
         test "AOF+SPOP: Set should have 1 member" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -218,7 +218,7 @@ tags {"aof"} {
         }
 
         test "AOF+SPOP: Set should have 1 member" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {
@@ -241,7 +241,7 @@ tags {"aof"} {
         }
 
         test "AOF+EXPIRE: List should be empty" {
-            set client [redis [dict get $srv host] [dict get $srv port]]
+            set client [redis [dict get $srv host] [dict get $srv port] 0 $::ssl]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0
             } else {

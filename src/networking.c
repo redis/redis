@@ -1374,7 +1374,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (errno == EAGAIN) {
             return;
         } else {
-            serverLog(LL_VERBOSE, "Reading from client: %s",strerror(errno));
+            serverLog(LL_VERBOSE, "Reading from client: %s", strerror(errno));
             freeClient(c);
             return;
         }

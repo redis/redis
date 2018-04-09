@@ -33,6 +33,7 @@
 #include "bio.h"
 #include "latency.h"
 #include "atomicvar.h"
+#include "ssl_proxy.h"
 
 #include <time.h>
 #include <signal.h>
@@ -55,6 +56,7 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+
 
 /* Our shared "common" objects */
 
@@ -1497,6 +1499,12 @@ void initServerConfig(void) {
     server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
+    server.client_cluster_interface_type = CLUSTER_INTERFACE_TYPE_IP;
+    server.cluster_announce_endpoint = NULL;
+    server.master_replication_rdb_save_info = NULL;
+#ifdef BUILD_SSL
+    initSslConfigDefaults(&server.ssl_config);;
+#endif
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -1900,9 +1908,17 @@ void initServer(void) {
     }
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
+#ifdef BUILD_SSL
+    initSsl(&server.ssl_config);
+#endif
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
+        exit(1);
+
+    /* Open the TCP listening socket for ssl proxy. */
+    if (server.ssl_port != 0 &&
+        listenToPort(server.ssl_port,server.ssl_ipfd,&server.ssl_ipfd_count) == C_ERR)
         exit(1);
 
     /* Open the listening Unix domain socket. */
@@ -1992,6 +2008,8 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
+    server.ssl_proxy = createSslProxy(server.unixsocket, server.ssl_ipfd, server.ssl_ipfd_count, &(server.ssl_config), server.maxclients);
+    sslProxyStart(server.ssl_proxy);
 
     /* Register a readable event for the pipe used to awake the event loop
      * when a blocked client in a module needs attention. */
@@ -2658,6 +2676,13 @@ int prepareForShutdown(int flags) {
 
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
+#ifdef BUILD_SSL
+    /* Clean up any resources used for SSL */
+    cleanupSsl(&server.ssl_config);
+#endif
+    sslProxyStop(server.ssl_proxy);
+    releaseSslProxy(server.ssl_proxy);
+
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");
     return C_OK;
@@ -3399,6 +3424,52 @@ sds genRedisInfoString(char *section) {
         }
         dictReleaseIterator(di);
     }
+
+#ifdef BUILD_SSL
+    /* SSL Statistics */
+    if (allsections || defsections || (!strcasecmp(section,"ssl"))) {
+        if (sections++) info = sdscat(info,"\r\n");
+        if (server.ssl_config.enable_ssl == true) {
+            info = sdscatprintf(info,
+                "# SSL\r\n"
+                    "ssl_enabled:%s\r\n"
+                    "ssl_connections_to_previous_certificate:%d\r\n"
+                    "ssl_connections_to_current_certificate:%d\r\n"
+                    "ssl_current_certificate_not_before_date:%s\r\n"
+                    "ssl_current_certificate_not_after_date:%s\r\n"
+                    "ssl_current_certificate_serial:%lx\r\n"
+                    "ssl_certificate_file:%s\r\n"
+                    "ssl_certificate_private_key_file:%s\r\n"
+                    "ssl_certificate_usage_start_time:%ld\r\n"
+                    "ssl_dh_params_file:%s\r\n"
+                    "ssl_root_ca_certs_path:%s\r\n"
+                    "ssl_cipher_prefs:%s\r\n"
+                    "ssl_performance_mode:%s\r\n"
+                    "ssl_total_repeated_reads:%"PRIu64"\r\n"
+                    "ssl_cur_repeated_reads:%lu\r\n"
+                    "ssl_max_simultaneous_repeated_reads:%lu\r\n",
+                server.ssl_config.enable_ssl == true? "yes": "no",
+                server.ssl_config.connections_to_previous_certificate,
+                server.ssl_config.connections_to_current_certificate,
+                server.ssl_config.certificate_not_before_date,
+                server.ssl_config.certificate_not_after_date,
+                server.ssl_config.certificate_serial,
+                server.ssl_config.ssl_certificate_file,
+                server.ssl_config.ssl_certificate_private_key_file,
+                server.ssl_config.server_ssl_config_creation_time,
+                server.ssl_config.ssl_dh_params_file,
+                server.ssl_config.root_ca_certs_path,
+                server.ssl_config.ssl_cipher_prefs,
+                getSslPerformanceModeStr(server.ssl_config.ssl_performance_mode),
+                server.ssl_config.total_repeated_reads,
+                server.ssl_config.sslconn_with_cached_data != NULL ? listLength(server.ssl_config.sslconn_with_cached_data) : 0,
+                server.ssl_config.max_repeated_read_list_length
+            );
+        } else {
+            info = sdscatprintf(info, "# SSL\r\nssl_enabled:no\r\n");
+        }
+    }
+#endif
 
     /* Cluster */
     if (allsections || defsections || !strcasecmp(section,"cluster")) {

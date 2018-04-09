@@ -1,6 +1,6 @@
 proc start_bg_complex_data {host port db ops} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops $::ssl &
 }
 
 proc stop_bg_complex_data {handle} {
@@ -41,6 +41,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                     [lindex [r role] 0] eq {slave} &&
                     [lindex [r role] 3] eq {connected}
                 } else {
+                    puts $master_port
                     fail "Replication not started."
                 }
             }

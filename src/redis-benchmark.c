@@ -79,6 +79,9 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+#ifdef BUILD_SSL
+    int enable_ssl;
+#endif
 } config;
 
 typedef struct _client {
@@ -100,7 +103,10 @@ typedef struct _client {
 /* Prototypes */
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
-
+#ifdef BUILD_SSL
+static void sslNegotiationHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+static int updateEventHandlerForSslHandshake(SslHandshakeStatus blockedStatus, aeEventLoop *el, int fd, void *privdata);
+#endif
 /* Implementation */
 static long long ustime(void) {
     struct timeval tv;
@@ -277,7 +283,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-        ssize_t nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
+        ssize_t nwritten = hwrite(c->context,ptr,sdslen(c->obuf)-c->written);
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -292,6 +298,58 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+#ifdef BUILD_SSL
+static int
+updateEventHandlerForSslHandshake(SslHandshakeStatus blockedStatus, aeEventLoop *el, int fd, void *privdata) {
+    int deleteEvent;
+    int listenEvent;
+    switch (blockedStatus) {
+        case HANDSHAKE_RETRY_READ_BLOCKED:
+            deleteEvent = AE_WRITABLE;
+            listenEvent = AE_READABLE;
+            break;
+        case HANDSHAKE_RETRY_WRITE_BLOCKED:
+            deleteEvent = AE_READABLE;
+            listenEvent = AE_WRITABLE;
+            break;
+        default:
+            fprintf(stderr, "Unexpected blocked status: %d \n", blockedStatus);
+            return REDIS_ERR;
+    }
+    aeDeleteFileEvent(el, fd, deleteEvent);
+    if (aeGetFileEvents(el, fd) == AE_NONE) {
+        if (aeCreateFileEvent(el, fd, listenEvent, sslNegotiationHandler, privdata) == AE_ERR) {
+            return REDIS_ERR;
+        }
+    }
+    return REDIS_OK;
+}
+
+static void sslNegotiationHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    client c = (client) privdata;
+    UNUSED(mask);
+
+    SslHandshakeStatus handshakeStatus;
+    switch ((handshakeStatus = sslHandshake(c->context))) {
+        case HANDSHAKE_FAILED:
+            aeDeleteFileEvent(el, fd, AE_READABLE | AE_WRITABLE);
+            freeClient(c);
+            break;
+        case HANDSHAKE_RETRY_READ_BLOCKED:
+        case HANDSHAKE_RETRY_WRITE_BLOCKED:
+            if (updateEventHandlerForSslHandshake(handshakeStatus, el, fd, privdata) != REDIS_OK) {
+                fprintf(stderr, "Error updating event handler for SSL handshake. Freeing client.\n");
+                aeDeleteFileEvent(el, fd, AE_READABLE | AE_WRITABLE);
+                freeClient(c);
+            }
+            break;
+        case HANDSHAKE_DONE:
+            aeDeleteFileEvent(el, fd, AE_READABLE | AE_WRITABLE);
+            aeCreateFileEvent(el, fd, AE_WRITABLE, writeHandler, privdata);
+    }
+    return;
+}
+#endif
 /* Create a benchmark client, configured to send the command passed as 'cmd' of
  * 'len' bytes.
  *
@@ -318,7 +376,15 @@ static client createClient(char *cmd, size_t len, client from) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
+#ifdef BUILD_SSL
+        if (config.enable_ssl == true){
+            c->context = redisSslConnectNonBlock(config.hostip,config.hostport);
+        } else {
+            c->context = redisConnectNonBlock(config.hostip,config.hostport);
+        }
+#else
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
+#endif
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
@@ -403,8 +469,13 @@ static client createClient(char *cmd, size_t len, client from) {
             }
         }
     }
-    if (config.idlemode == 0)
+    if (config.idlemode == 0) {
+#ifdef BUILD_SSL
+        aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,config.enable_ssl == true ? sslNegotiationHandler : writeHandler, c);
+#else
         aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
+#endif   
+    }
     listAddNodeTail(config.clients,c);
     config.liveclients++;
     return c;
@@ -546,6 +617,10 @@ int parseOptions(int argc, const char **argv) {
             if (lastarg) goto invalid;
             config.dbnum = atoi(argv[++i]);
             config.dbnumstr = sdsfromlonglong(config.dbnum);
+#ifdef BUILD_SSL
+        } else if (!strcmp(argv[i],"--ssl")) {
+            config.enable_ssl = 1;
+#endif
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -577,6 +652,9 @@ usage:
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
 "  Using this option the benchmark will expand the string __rand_int__\n"
+#ifdef BUILD_SSL
+" --ssl              Use TLS for connecting to Redis\n\n"
+#endif
 "  inside an argument with a 12 digits number in the specified range\n"
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
 "  is executed. Default tests use this to hit random keys in the\n"
@@ -593,6 +671,11 @@ usage:
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
+#ifdef BUILD_SSL
+" Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
+" and use TLS to connect to Redis\n"
+"   $ redis-benchmark --ssl\n\n"
+#endif
 " Use 20 parallel clients, for a total of 100k requests, against 192.168.1.1:\n"
 "   $ redis-benchmark -h 192.168.1.1 -p 6379 -n 100000 -c 20\n\n"
 " Fill 127.0.0.1:6379 with about 1 million keys only using the SET test:\n"
@@ -679,7 +762,9 @@ int main(int argc, const char **argv) {
     config.tests = NULL;
     config.dbnum = 0;
     config.auth = NULL;
-
+#ifdef BUILD_SSL
+    config.enable_ssl = 0;
+#endif
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
@@ -689,6 +774,16 @@ int main(int argc, const char **argv) {
     if (config.keepalive == 0) {
         printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
     }
+
+#ifdef BUILD_SSL
+    if(config.enable_ssl == 1) {
+        printf("Doing SSL Initialization\n");
+        if(hiredisInitSsl() != REDIS_OK){
+            printf("SSL Initialization failed, exiting.");
+            return 0;
+        }
+    }
+#endif
 
     if (config.idlemode) {
         printf("Creating %d idle connections and waiting forever (Ctrl+C when done)\n", config.numclients);

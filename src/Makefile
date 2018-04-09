@@ -68,6 +68,20 @@ FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
+# SSL Build configuration
+ifeq ($(BUILD_SSL),yes)
+	S2N_INCLUDE_DIR ?= ../deps/s2n/api
+	S2N_LIB_DIR ?= ../deps/s2n/lib
+	OPENSSL_INCLUDE_DIR ?= ../deps/openssl/include
+	OPENSSL_LIB_DIR ?= ../deps/openssl
+
+	SSL_TARGETS = openssl s2n
+
+	FINAL_CFLAGS += $(addprefix -I,$(S2N_INCLUDE_DIR)) $(addprefix -I,$(OPENSSL_INCLUDE_DIR)) $(addprefix -D,BUILD_SSL) 
+	FINAL_LDFLAGS += $(addprefix -L,$(S2N_LIB_DIR)) $(addprefix -L,$(OPENSSL_LIB_DIR))
+	FINAL_LIBS += $(S2N_LIB_DIR)/libs2n.a -lrt $(OPENSSL_LIB_DIR)/libssl.a $(OPENSSL_LIB_DIR)/libcrypto.a
+endif
+
 ifeq ($(uname_S),SunOS)
 	# SunOS
         ifneq ($(@@),32bit)
@@ -125,6 +139,8 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a
 endif
 
+FINAL_TARGETS = $(SSL_TARGETS) $(DEPENDENCY_TARGETS)
+
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
@@ -144,13 +160,18 @@ endif
 
 REDIS_SERVER_NAME=redis-server
 REDIS_SENTINEL_NAME=redis-sentinel
-REDIS_SERVER_OBJ=adlist.o quicklist.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o
+REDIS_SERVER_OBJ=adlist.o quicklist.o ssl_proxy.o ae.o anet.o dict.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o
 REDIS_CLI_NAME=redis-cli
 REDIS_CLI_OBJ=anet.o adlist.o redis-cli.o zmalloc.o release.o anet.o ae.o crc64.o
 REDIS_BENCHMARK_NAME=redis-benchmark
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o zmalloc.o redis-benchmark.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
+
+# Add SSL objects to final build
+ifeq ($(BUILD_SSL),yes)
+	REDIS_SERVER_OBJ+=ssl.o
+endif
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -177,7 +198,7 @@ persist-settings: distclean
 	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+	-(cd ../deps && $(MAKE) $(FINAL_TARGETS))
 
 .PHONY: persist-settings
 
@@ -240,6 +261,12 @@ distclean: clean
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
+
+test-ssl: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
+	@(cd ..; ./runtest --ssl)
+
+test-cluster-ssl: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
+	@(cd ..; ./runtest-cluster --ssl)
 
 test-sentinel: $(REDIS_SENTINEL_NAME)
 	@(cd ..; ./runtest-sentinel)

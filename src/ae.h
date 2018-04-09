@@ -128,5 +128,6 @@ void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep
 void aeSetAfterSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *aftersleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);
-
+aeFileProc* aeGetFileProc(aeEventLoop *eventLoop, int fd, int event);
+void* aeGetClientData(aeEventLoop *eventLoop, int fd);
 #endif

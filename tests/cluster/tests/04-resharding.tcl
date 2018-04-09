@@ -72,16 +72,30 @@ test "Cluster consistency during live resharding" {
             puts -nonewline "...Starting resharding..."
             flush stdout
             set target [dict get [get_myself [randomInt 5]] id]
-            set tribpid [lindex [exec \
-                ../../../src/redis-trib.rb reshard \
-                --from all \
-                --to $target \
-                --slots 100 \
-                --yes \
-                127.0.0.1:[get_instance_attrib redis 0 port] \
-                | [info nameofexecutable] \
-                ../tests/helpers/onlydots.tcl \
-                &] 0]
+            if ($::ssl) {
+                set tribpid [lindex [exec \
+                    ../../../src/redis-trib.rb reshard \
+                    --from all \
+                    --to $target \
+                    --slots 100 \
+                    --yes \
+                    127.0.0.1:[get_instance_attrib redis 0 port] \
+                    | [info nameofexecutable] \
+                    ../tests/helpers/onlydots.tcl \
+                    --ssl \
+                    &] 0]
+            } else {
+                set tribpid [lindex [exec \
+                    ../../../src/redis-trib.rb reshard \
+                    --from all \
+                    --to $target \
+                    --slots 100 \
+                    --yes \
+                    127.0.0.1:[get_instance_attrib redis 0 port] \
+                    | [info nameofexecutable] \
+                    ../tests/helpers/onlydots.tcl \
+                    &] 0]
+            }
         }
 
         # Write random data to random list.

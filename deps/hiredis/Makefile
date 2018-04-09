@@ -44,6 +44,17 @@ DEBUG_FLAGS?= -g -ggdb
 REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS) $(ARCH)
 REAL_LDFLAGS=$(LDFLAGS) $(ARCH)
 
+# Include SSL libraries if compile flag exists
+ifeq ($(BUILD_SSL),yes)
+	S2N_INCLUDE_DIR ?= ../s2n/api
+	S2N_LIB_DIR ?= ../s2n/lib
+	OPENSSL_LIB_DIR ?= ../openssl
+	OPENSSL_INCLUDE_DIR ?= ../openssl
+
+	REAL_CFLAGS += $(addprefix -I,$(S2N_INCLUDE_DIR)) $(addprefix -D,BUILD_SSL) 
+	REAL_LDFLAGS += $(S2N_LIB_DIR)/libs2n.a $(CRYPTO_LIB_DIR)/libssl.a $(CRYPTO_LIB_DIR)/libcrypto.a
+endif
+
 DYLIBSUFFIX=so
 STLIBSUFFIX=a
 DYLIB_MINOR_NAME=$(LIBNAME).$(DYLIBSUFFIX).$(HIREDIS_SONAME)
@@ -56,14 +67,14 @@ STLIB_MAKE_CMD=ar rcs $(STLIBNAME)
 # Platform-specific overrides
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(uname_S),SunOS)
-  REAL_LDFLAGS+= -ldl -lnsl -lsocket
-  DYLIB_MAKE_CMD=$(CC) -G -o $(DYLIBNAME) -h $(DYLIB_MINOR_NAME) $(LDFLAGS)
-  INSTALL= cp -r
+	REAL_LDFLAGS+= -ldl -lnsl -lsocket
+	DYLIB_MAKE_CMD=$(CC) -G -o $(DYLIBNAME) -h $(DYLIB_MINOR_NAME) $(LDFLAGS)
+	INSTALL= cp -r
 endif
 ifeq ($(uname_S),Darwin)
-  DYLIBSUFFIX=dylib
-  DYLIB_MINOR_NAME=$(LIBNAME).$(HIREDIS_SONAME).$(DYLIBSUFFIX)
-  DYLIB_MAKE_CMD=$(CC) -shared -Wl,-install_name,$(DYLIB_MINOR_NAME) -o $(DYLIBNAME) $(LDFLAGS)
+	DYLIBSUFFIX=dylib
+	DYLIB_MINOR_NAME=$(LIBNAME).$(HIREDIS_SONAME).$(DYLIBSUFFIX)
+	DYLIB_MAKE_CMD=$(CC) -shared -Wl,-install_name,$(DYLIB_MINOR_NAME) -o $(DYLIBNAME) $(LDFLAGS)
 endif
 
 all: $(DYLIBNAME) $(STLIBNAME) hiredis-test $(PKGCONFNAME)
