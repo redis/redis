@@ -46,6 +46,14 @@ start_server {tags {"multi"}} {
         set _ $err
     } {*ERR WATCH*}
 
+    test {MODULE inside MULTI is not allowed} {
+        set err {}
+        r multi
+        catch {[r module unload x]} err
+        r exec
+        set _ $err
+    } {*ERR MODULE*}
+
     test {EXEC fails if there are errors while queueing commands #1} {
         r del foo1 foo2
         r multi

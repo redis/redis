@@ -4014,6 +4014,10 @@ int moduleUnload(sds name) {
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
 
+    if (c->flags & CLIENT_MULTI) {
+        addReplyError(c,"MODULE inside MULTI is not allowed");
+        return;
+    }
     if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
