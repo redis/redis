@@ -1301,51 +1301,51 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
 }
 
 
-/* Return the current context's flags. The flags provide information on the 
+/* Return the current context's flags. The flags provide information on the
  * current request context (whether the client is a Lua script or in a MULTI),
- * and about the Redis instance in general, i.e replication and persistence. 
- * 
+ * and about the Redis instance in general, i.e replication and persistence.
+ *
  * The available flags are:
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_LUA: The command is running in a Lua script
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_MULTI: The command is running inside a transaction
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_READONLY: The Redis instance is read-only
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_CLUSTER: The Redis instance is in cluster mode
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_AOF: The Redis instance has AOF enabled
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_RDB: The instance has RDB enabled
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_MAXMEMORY:  The instance has Maxmemory set
- * 
+ *
  *  * REDISMODULE_CTX_FLAGS_EVICT:  Maxmemory is set and has an eviction
  *    policy that may delete keys
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
-    
+
     int flags = 0;
     /* Client specific flags */
     if (ctx->client) {
-        if (ctx->client->flags & CLIENT_LUA) 
+        if (ctx->client->flags & CLIENT_LUA)
          flags |= REDISMODULE_CTX_FLAGS_LUA;
-        if (ctx->client->flags & CLIENT_MULTI) 
+        if (ctx->client->flags & CLIENT_MULTI)
          flags |= REDISMODULE_CTX_FLAGS_MULTI;
     }
 
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
-    
+
     /* Maxmemory and eviction policy */
     if (server.maxmemory > 0) {
         flags |= REDISMODULE_CTX_FLAGS_MAXMEMORY;
-        
+
         if (server.maxmemory_policy != MAXMEMORY_NO_EVICTION)
             flags |= REDISMODULE_CTX_FLAGS_EVICT;
     }
@@ -1364,7 +1364,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         if (server.repl_slave_ro)
             flags |= REDISMODULE_CTX_FLAGS_READONLY;
     }
-    
+
     return flags;
 }
 
