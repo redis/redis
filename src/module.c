@@ -1327,6 +1327,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_EVICT:  Maxmemory is set and has an eviction
  *    policy that may delete keys
+ *
+ *  * REDISMODULE_CTX_FLAGS_OOM: Redis is out of memory according to the
+ *    maxmemory setting.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
@@ -1363,6 +1366,11 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         flags |= REDISMODULE_CTX_FLAGS_SLAVE;
         if (server.repl_slave_ro)
             flags |= REDISMODULE_CTX_FLAGS_READONLY;
+    }
+
+    /* OOM flag. */
+    if (getMaxmemoryState(NULL,NULL,NULL) == C_ERR) {
+        flags |= REDISMODULE_CTX_FLAGS_OOM;
     }
 
     return flags;

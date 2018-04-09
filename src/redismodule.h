@@ -58,29 +58,31 @@
 #define REDISMODULE_HASH_CFIELDS    (1<<2)
 #define REDISMODULE_HASH_EXISTS     (1<<3)
 
-/* Context Flags: Info about the current context returned by RM_GetContextFlags */
+/* Context Flags: Info about the current context returned by
+ * RM_GetContextFlags(). */
 
 /* The command is running in the context of a Lua script */
-#define REDISMODULE_CTX_FLAGS_LUA 0x0001
+#define REDISMODULE_CTX_FLAGS_LUA (1<<0)
 /* The command is running inside a Redis transaction */
-#define REDISMODULE_CTX_FLAGS_MULTI 0x0002
+#define REDISMODULE_CTX_FLAGS_MULTI (1<<1)
 /* The instance is a master */
-#define REDISMODULE_CTX_FLAGS_MASTER 0x0004
+#define REDISMODULE_CTX_FLAGS_MASTER (1<<2)
 /* The instance is a slave */
-#define REDISMODULE_CTX_FLAGS_SLAVE 0x0008
+#define REDISMODULE_CTX_FLAGS_SLAVE (1<<3)
 /* The instance is read-only (usually meaning it's a slave as well) */
-#define REDISMODULE_CTX_FLAGS_READONLY 0x0010
+#define REDISMODULE_CTX_FLAGS_READONLY (1<<4)
 /* The instance is running in cluster mode */
-#define REDISMODULE_CTX_FLAGS_CLUSTER 0x0020
+#define REDISMODULE_CTX_FLAGS_CLUSTER (1<<5)
 /* The instance has AOF enabled */
-#define REDISMODULE_CTX_FLAGS_AOF 0x0040 //
+#define REDISMODULE_CTX_FLAGS_AOF (1<<6)
 /* The instance has RDB enabled */
-#define REDISMODULE_CTX_FLAGS_RDB 0x0080 //
+#define REDISMODULE_CTX_FLAGS_RDB (1<<7)
 /* The instance has Maxmemory set */
-#define REDISMODULE_CTX_FLAGS_MAXMEMORY 0x0100
+#define REDISMODULE_CTX_FLAGS_MAXMEMORY (1<<8)
 /* Maxmemory is set and has an eviction policy that may delete keys */
-#define REDISMODULE_CTX_FLAGS_EVICT 0x0200
-
+#define REDISMODULE_CTX_FLAGS_EVICT (1<<9)
+/* Redis is out of memory according to the maxmemory flag. */
+#define REDISMODULE_CTX_FLAGS_OOM (1<<10)
 
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
 #define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */

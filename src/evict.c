@@ -369,25 +369,22 @@ size_t freeMemoryGetNotCountedMemory(void) {
     return overhead;
 }
 
-/* This function is periodically called to see if there is memory to free
- * according to the current "maxmemory" settings. In case we are over the
- * memory limit, the function will try to free some memory to return back
- * under the limit.
+/* Get the memory status from the point of view of the maxmemory directive:
+ * if the memory used is under the maxmemory setting then C_OK is returned
+ * and the 'total', 'lgoical', and 'tofree' values are not populated at all.
+ * Otherwise, if we are over the memory limit, the function returns
+ * C_ERR and populates (if not NULL) the arguments by reference with the
+ * following meaning:
  *
- * The function returns C_OK if we are under the memory limit or if we
- * were over the limit, but the attempt to free memory was successful.
- * Otehrwise if we are over the memory limit, but not enough memory
- * was freed to return back under the limit, the function returns C_ERR. */
-int freeMemoryIfNeeded(void) {
-    size_t mem_reported, mem_used, mem_tofree, mem_freed;
-    mstime_t latency, eviction_latency;
-    long long delta;
-    int slaves = listLength(server.slaves);
-
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (clientsArePaused()) return C_OK;
+ *  'total'     total amount of bytes used.
+ *
+ *  'logical'   the amount of memory used minus the slaves/AOF buffers.
+ *
+ *  'tofree'    the amount of memory that should be released
+ *              in order to return back into the memory limits.
+ */
+int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree) {
+    size_t mem_reported, mem_used, mem_tofree;
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
@@ -405,6 +402,35 @@ int freeMemoryIfNeeded(void) {
 
     /* Compute how much memory we need to free. */
     mem_tofree = mem_used - server.maxmemory;
+
+    if (*total) *total = mem_reported;
+    if (*logical) *logical = mem_used;
+    if (*tofree) *tofree = mem_tofree;
+
+    return C_ERR;
+}
+
+/* This function is periodically called to see if there is memory to free
+ * according to the current "maxmemory" settings. In case we are over the
+ * memory limit, the function will try to free some memory to return back
+ * under the limit.
+ *
+ * The function returns C_OK if we are under the memory limit or if we
+ * were over the limit, but the attempt to free memory was successful.
+ * Otehrwise if we are over the memory limit, but not enough memory
+ * was freed to return back under the limit, the function returns C_ERR. */
+int freeMemoryIfNeeded(void) {
+    size_t mem_reported, mem_tofree, mem_freed;
+    mstime_t latency, eviction_latency;
+    long long delta;
+    int slaves = listLength(server.slaves);
+
+    /* When clients are paused the dataset should be static not just from the
+     * POV of clients not being able to write, but also from the POV of
+     * expires and evictions of keys not being performed. */
+    if (clientsArePaused()) return C_OK;
+    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree) == C_OK) return C_OK;
+
     mem_freed = 0;
 
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
@@ -538,10 +564,8 @@ int freeMemoryIfNeeded(void) {
              * across the dbAsyncDelete() call, while the thread can
              * release the memory all the time. */
             if (server.lazyfree_lazy_eviction && !(keys_freed % 16)) {
-                overhead = freeMemoryGetNotCountedMemory();
-                mem_used = zmalloc_used_memory();
-                mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
-                if (mem_used <= server.maxmemory) {
+                if (getMaxmemoryState(NULL,NULL,NULL) == C_OK) {
+                    /* Let's satisfy our stop condition. */
                     mem_freed = mem_tofree;
                 }
             }

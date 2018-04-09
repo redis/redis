@@ -1643,6 +1643,7 @@ int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Core functions */
+int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree);
 int freeMemoryIfNeeded(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
