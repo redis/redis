@@ -60,6 +60,7 @@ print_help() {
 	echo "  --tag=WORD                     add WORD as a tag to output log file names"
 	echo "  --pm                           use pmfiles on DIR/redis[port].pm"
 	echo "	--aof						   use AOF mode"
+	echo "	--mk						   use memkind mode"
 	echo "  --dir=PATH				   	   use working directory DIR for pmfile or AOF"
 	echo "Each use of --ca option adds a client node to the test."
 	echo "If N client nodes are defined, also the options --si has to be used N times."
@@ -134,6 +135,9 @@ getOptions() {
 			;;
 			--aof)
 			USE_AOF=1
+			;;
+			--mk)
+			USE_MK=1
 			;;
 			--dir=*)
 			DIR+=("${arg#*=}")
@@ -233,6 +237,7 @@ printConfiguration() {
 	echo "# Use unix sockets: $USE_UNIX_SOCKETS"
 	echo "# Use pmfile: $USE_PMFILE"
 	echo "# Use AOF: $USE_AOF"
+	echo "# Use memkind: $USE_MK"
 	echo "# Use working dir: ${DIR[@]}"
 	echo "# Server NUMA node(s): ${SERVER_NUMA[@]}"
 	echo "# Client NUMA node(s): ${CLIENT_NUMA[@]}"
@@ -271,13 +276,19 @@ startRedisServers() {
 		local out_file_base="redis_server_${TAG}_${SERVERS}_${i}_${node}"
 		local cmd=""
 		#if [ -n "$SERVER_NUMA" ]; then
-			cmd+="numactl -N ${SERVER_NUMA[$node]}"
+#			cmd+="numactl -N ${SERVER_NUMA[$node]}"
 		#fi
 		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG "
 		if [ "$USE_PMFILE" == "1" ]; then
 			cmd+=" --pmfile ${DIR[$node]}/redis${port}.pm 300mb"
 			SERVER_LD_LIBRARY_PATH+=":${SERVER_PMDK_DIR}/src/nondebug/"
 		fi
+
+		if [ "$USE_MK" == "1" ]; then
+			cmd+=" --pmdir ${DIR[$node]} 300mb"
+			SERVER_LD_LIBRARY_PATH+=":/usr/local/lib/"			
+		fi
+
 		if [ "$USE_AOF" == "1" ]; then
 			cmd+=" --appendonly yes --appendfsync no --dir ${DIR[$node]}/redis${port}/"
 			ssh $USER@$SERVER_ADDR "mkdir ${DIR[$node]}/redis${port}/"
