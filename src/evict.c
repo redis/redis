@@ -369,6 +369,15 @@ size_t freeMemoryGetNotCountedMemory(void) {
     return overhead;
 }
 
+/* This function is periodically called to see if there is memory to free
+ * according to the current "maxmemory" settings. In case we are over the
+ * memory limit, the function will try to free some memory to return back
+ * under the limit.
+ *
+ * The function returns C_OK if we are under the memory limit or if we
+ * were over the limit, but the attempt to free memory was successful.
+ * Otehrwise if we are over the memory limit, but not enough memory
+ * was freed to return back under the limit, the function returns C_ERR. */
 int freeMemoryIfNeeded(void) {
     size_t mem_reported, mem_used, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency;
