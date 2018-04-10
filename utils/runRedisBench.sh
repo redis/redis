@@ -275,9 +275,9 @@ startRedisServers() {
 		local port=$((SERVER_PORT + i - 1 + node * SERVERS))
 		local out_file_base="redis_server_${TAG}_${SERVERS}_${i}_${node}"
 		local cmd=""
-		#if [ -n "$SERVER_NUMA" ]; then
-#			cmd+="numactl -N ${SERVER_NUMA[$node]}"
-		#fi
+		if [ -n "$SERVER_NUMA" ]; then
+			cmd+="numactl -N ${SERVER_NUMA[$node]}"
+		fi
 		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG "
 		if [ "$USE_PMFILE" == "1" ]; then
 			cmd+=" --pmfile ${DIR[$node]}/redis${port}.pm 300mb"
