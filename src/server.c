@@ -349,7 +349,7 @@ void serverLogRaw(int level, const char *msg) {
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
-        } else if (pid != server.pid) {
+        } else if (server.pid != 0 && pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
