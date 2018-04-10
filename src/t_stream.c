@@ -917,8 +917,10 @@ int string2ull(const char *s, unsigned long long *value) {
         return 1;
     }
     errno = 0;
-    *value = strtoull(s,NULL,10);
-    if (errno == EINVAL || errno == ERANGE) return 0; /* strtoull() failed. */
+    char *endptr = NULL;
+    *value = strtoull(s,&endptr,10);
+    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
+        return 0; /* strtoull() failed. */
     return 1; /* Conversion done! */
 }
 
