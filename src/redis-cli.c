@@ -4698,6 +4698,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
 
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
     if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerCheckCluster(0)) return 0;
     char *reply_err = NULL;
     redisReply *src_reply = NULL;
     // Connect to the source node.
