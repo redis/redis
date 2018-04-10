@@ -1,0 +1,3 @@
+[submodule "deps/memkind"]
+	path = deps/memkind
+	url = https://github.com/memkind/memkind.git

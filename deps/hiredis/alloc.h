@@ -33,13 +33,13 @@
 
 /* Typedefs for user data allocator */
 typedef void *(*ualloc)(size_t size);
-typedef void *(*ucalloc)(size_t size);
+typedef void *(*ucalloc)(size_t num, size_t size);
 typedef void *(*ufree)(void *ptr);
 typedef void *(*urealloc)(void *ptr, size_t size);
 
 struct __alloc {
 	void *(*alloc)(size_t size);
-	void *(*calloc)(size_t size);
+	void *(*calloc)(size_t num, size_t size);
 	void *(*realloc)(void *ptr, size_t size);
 	void (*free)(void *ptr);
 };

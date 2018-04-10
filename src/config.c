@@ -439,6 +439,14 @@ void loadServerConfigFromString(char *config) {
             server.hz = atoi(argv[1]);
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+        } else if (!strcasecmp(argv[0],"pmdir") && (argc == 3)) {
+			server.pm_dir_path = zstrdup(argv[1]);
+			long long size = memtoll(argv[2],NULL);
+			if (size < MEMKIND_PMEM_MIN_SIZE) {
+				err = "Invalid pmfile size"; goto loaderr;
+			}
+			server.pm_file_size = size;
+			server.use_volatile = true;
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -735,7 +743,11 @@ void loadServerConfigFromString(char *config) {
         }
         sdsfreesplitres(argv,argc);
     }
-
+    /* Disabling AOF and RDB */
+	if (server.use_volatile) {
+		server.aof_state = AOF_OFF;
+		resetServerSaveParams();
+    }
     /* Sanity checks. */
     if (server.cluster_enabled && server.masterhost) {
         linenum = slaveof_linenum;

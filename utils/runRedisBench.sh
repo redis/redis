@@ -24,9 +24,15 @@ SPINNER_POS=0
 ################################################################################
 
 cleanup() {
-	if [ "USE_PMFILE" == "1" ]; do
-		ssh $USER@$SERVER_ADDR "rm -f /mnt/pmem/*"
-	done
+	if [ "$USE_PMFILE" == "1" ]; then
+		ssh $USER@$SERVER_ADDR "rm -f /mnt/pmem1/*"
+		ssh $USER@$SERVER_ADDR "rm -f /mnt/pmem2/*"
+	fi
+	if [ "$USE_AOF" == "1" ]; then
+		ssh $USER@$SERVER_ADDR "rm -rf /mnt/nvme0/*"
+		ssh $USER@$SERVER_ADDR "rm -rf /mnt/nvme1/*"
+	fi
+
 }
 
 get_timestamp() {
@@ -52,7 +58,9 @@ print_help() {
 	echo "  --sc=|--server-config=FILE     use FILE as redis config file (the path is on the server host)"
 	echo "  --wr=|--wr-ratio=RATIO         use RATIO for write:read ratio"
 	echo "  --tag=WORD                     add WORD as a tag to output log file names"
-	echo "  --pm                           use pmfiles on /mnt/pmem/redis[port].pm"
+	echo "  --pm                           use pmfiles on DIR/redis[port].pm"
+	echo "	--aof						   use AOF mode"
+	echo "  --dir=PATH				   	   use working directory DIR for pmfile or AOF"
 	echo "Each use of --ca option adds a client node to the test."
 	echo "If N client nodes are defined, also the options --si has to be used N times."
 	echo "The --cn option also can be used several times (for each client node)."
@@ -113,7 +121,7 @@ getOptions() {
 			SERVER_CONFIG="${arg#*=}"
 			;;
 			--sn=*|--server-numa=*)
-			SERVER_NUMA="${arg#*=}"
+			SERVER_NUMA+=("${arg#*=}")
 			;;
 			--cn=*|--client-numa=*)
 			CLIENT_NUMA+=("${arg#*=}")
@@ -123,6 +131,12 @@ getOptions() {
 			;;
 			--pm)
 			USE_PMFILE=1
+			;;
+			--aof)
+			USE_AOF=1
+			;;
+			--dir=*)
+			DIR+=("${arg#*=}")
 			;;
 			--tag=*)
 			TAG="${arg#*=}"
@@ -218,7 +232,9 @@ printConfiguration() {
 	echo "# Server interface(s): ${SERVER_IFC[@]}"
 	echo "# Use unix sockets: $USE_UNIX_SOCKETS"
 	echo "# Use pmfile: $USE_PMFILE"
-	echo "# Server NUMA node: $SERVER_NUMA"
+	echo "# Use AOF: $USE_AOF"
+	echo "# Use working dir: ${DIR[@]}"
+	echo "# Server NUMA node(s): ${SERVER_NUMA[@]}"
 	echo "# Client NUMA node(s): ${CLIENT_NUMA[@]}"
 	echo "# Server redis dir: $SERVER_REDIS_DIR"
 	echo "# Server pmdk dir: $SERVER_PMDK_DIR"
@@ -254,14 +270,21 @@ startRedisServers() {
 		local port=$((SERVER_PORT + i - 1 + node * SERVERS))
 		local out_file_base="redis_server_${TAG}_${SERVERS}_${i}_${node}"
 		local cmd=""
-		if [ -n "$SERVER_NUMA" ]; then
-			cmd+="numactl -N $SERVER_NUMA"
-		fi
-		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG --appendonly no"
+		#if [ -n "$SERVER_NUMA" ]; then
+			cmd+="numactl -N ${SERVER_NUMA[$node]}"
+		#fi
+		cmd+=" $SERVER_REDIS_DIR/src/redis-server $SERVER_CONFIG "
 		if [ "$USE_PMFILE" == "1" ]; then
-			cmd+=" --pmfile /mnt/pmem/redis${port}.pm 300mb"
+			cmd+=" --pmfile ${DIR[$node]}/redis${port}.pm 300mb"
 			SERVER_LD_LIBRARY_PATH+=":${SERVER_PMDK_DIR}/src/nondebug/"
 		fi
+		if [ "$USE_AOF" == "1" ]; then
+			cmd+=" --appendonly yes --appendfsync no --dir ${DIR[$node]}/redis${port}/"
+			ssh $USER@$SERVER_ADDR "mkdir ${DIR[$node]}/redis${port}/"
+		else
+			cmd+=" --appendonly no"
+		fi
+
 		if [ "$USE_UNIX_SOCKETS" == "1" ]; then 
 			cmd+=" --unixsocket /tmp/redis${port}.sock"
 		else
@@ -389,6 +412,19 @@ waitForBenchmarksToFinish() {
 	echo "Done.                                      "
 }
 
+enableAOFalways() {
+	local i
+	for (( i=0; i<${#CLIENT_ADDR[@]}; i++ )); do
+		local j
+		for j in $(seq $SERVERS); do
+			local port=$((SERVER_PORT + j - 1 + i * SERVERS))
+			local cmd=""
+			cmd+=" $SERVER_REDIS_DIR/src/redis-cli -p $port CONFIG SET appendfsync always"
+			ssh $USER@$SERVER_ADDR "$cmd"
+		done
+	done
+
+}
 
 
 ################################################################################
@@ -421,6 +457,10 @@ getUniqueClients
 startAllRedisServers
 sleep 3
 fillAllDatabases
+sleep 3
+if [ "$USE_AOF" == "1" ]; then
+	enableAOFalways
+fi
 sleep 3
 runAllBenchmarks
 waitForBenchmarksToFinish

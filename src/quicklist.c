@@ -400,20 +400,20 @@ REDIS_STATIC void __quicklistInsertNodeA(quicklist *quicklist,
 
 /* Wrappers for node inserting around existing node. */
 REDIS_STATIC void _quicklistInsertNodeBeforeA(quicklist *quicklist,
-                                             quicklistNode *old_node,
-                                             quicklistNode *new_node, alloc a) {
+                                              quicklistNode *old_node,
+                                              quicklistNode *new_node, alloc a) {
 // +
     __quicklistInsertNodeA(quicklist, old_node, new_node, 0, a);
 }
 
-REDIS_STATIC void _quicklistInsertNodeAfterA(quicklist *quicklist,
-                                            quicklistNode *old_node,
-                                            quicklistNode *new_node, alloc a) {
+REDIS_STATIC inline void _quicklistInsertNodeAfterA(quicklist *quicklist,
+                                quicklistNode *old_node,
+                                quicklistNode *new_node, alloc a) {
 // +
     __quicklistInsertNodeA(quicklist, old_node, new_node, 1, a);
 }
 
-REDIS_STATIC inline void _quicklistInsertNodeAfter(quicklist *quicklist,
+void _quicklistInsertNodeAfter(quicklist *quicklist,
                                             quicklistNode *old_node,
                                             quicklistNode *new_node) {
 	_quicklistInsertNodeAfterA(quicklist, old_node, new_node, z_alloc);
@@ -637,7 +637,7 @@ REDIS_STATIC void __quicklistDelNodeA(quicklist *quicklist,
  * Returns 1 if the entire node was deleted, 0 if node still exists.
  * Also updates in/out param 'p' with the next offset in the ziplist. */
 REDIS_STATIC int quicklistDelIndexA(quicklist *quicklist, quicklistNode *node,
-                                   unsigned char **p, alloc a) {
+                              unsigned char **p, alloc a) {
 // +
     int gone = 0;
 
@@ -654,7 +654,7 @@ REDIS_STATIC int quicklistDelIndexA(quicklist *quicklist, quicklistNode *node,
     return gone ? 1 : 0;
 }
 
-REDIS_STATIC inline int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
+static inline int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
 	return quicklistDelIndexA(quicklist, node, p, z_alloc);
 }
