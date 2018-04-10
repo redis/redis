@@ -2892,6 +2892,12 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
  * * **digest**: A callback function pointer that is used for `DEBUG DIGEST`.
  * * **free**: A callback function pointer that can free a type value.
  *
+ * Attention: **rdb_save** and **aof_rewrite** methods should be fork-safe,
+ * since they will be called by child process. So do not call any fork-unsafe
+ * functions or use global locks in the two methods, or child may deadlock.
+ * If you really need locks to make the methods thread-safe, please register
+ * fork handlers by pthread_atfork().
+ *
  * The **digest* and **mem_usage** methods should currently be omitted since
  * they are not yet implemented inside the Redis modules core.
  *
