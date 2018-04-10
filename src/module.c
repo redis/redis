@@ -2931,6 +2931,11 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
         moduleTypeFreeFunc free;
     } *tms = (struct typemethods*) typemethods_ptr;
 
+    if (tms->rdb_load == NULL || tms->rdb_save == NULL ||
+        tms->aof_rewrite == NULL || tms->mem_usage == NULL ||
+        tms->digest == NULL || tms->free == NULL)
+        return NULL;
+
     moduleType *mt = zcalloc(sizeof(*mt));
     mt->id = id;
     mt->module = ctx->module;
