@@ -999,11 +999,10 @@ void xaddCommand(client *c) {
             maxlen_arg_idx = i;
         } else {
             /* If we are here is a syntax error or a valid ID. */
-            if (streamParseIDOrReply(NULL,c->argv[i],&id,0) == C_OK) {
+            if (streamParseIDOrReply(c,c->argv[i],&id,0) == C_OK) {
                 id_given = 1;
                 break;
             } else {
-                addReply(c,shared.syntaxerr);
                 return;
             }
         }
