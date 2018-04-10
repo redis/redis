@@ -302,7 +302,7 @@ struct redisCommand redisCommandTable[] = {
     {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
-    {"xadd",xaddCommand,-5,"wmF",0,NULL,1,1,1,0,0},
+    {"xadd",xaddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
     {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
