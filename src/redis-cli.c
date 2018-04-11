@@ -1884,6 +1884,7 @@ static void clusterManagerNodeArrayAdd(clusterManagerNodeArray *array,
 
 static int clusterManagerCommandCreate(int argc, char **argv);
 static int clusterManagerCommandAddNode(int argc, char **argv);
+static int clusterManagerCommandDeleteNode(int argc, char **argv);
 static int clusterManagerCommandInfo(int argc, char **argv);
 static int clusterManagerCommandCheck(int argc, char **argv);
 static int clusterManagerCommandFix(int argc, char **argv);
@@ -1906,6 +1907,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "replicas <arg>"},
     {"add-node", clusterManagerCommandAddNode, 2, 
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
+    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"check", clusterManagerCommandCheck, -1, "host:port", NULL},
     {"fix", clusterManagerCommandFix, -1, "host:port", NULL},
     {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
@@ -3335,7 +3337,7 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
     listRewind(cluster_manager.nodes, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
-        if (node->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
         if (node == NULL || n->replicas_count < lowest_count) {
             node = n;
             lowest_count = n->replicas_count;
@@ -4404,6 +4406,73 @@ invalid_args:
     return 0;
 }
 
+static int clusterManagerCommandDeleteNode(int argc, char **argv) {
+    UNUSED(argc);
+    int success = 1;
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    char *node_id = argv[1];
+    clusterManagerLogInfo(">>> Removing node %s from cluster %s:%d\n", 
+                          node_id, ip, port);
+    clusterManagerNode *ref_node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = NULL;
+    
+    // Load cluster information
+    if (!clusterManagerLoadInfoFromNode(ref_node, 0)) return 0;
+    
+    // Check if the node exists and is not empty
+    node = clusterManagerNodeByName(node_id);
+    if (node == NULL) {
+        clusterManagerLogErr("[ERR] No such node ID %s\n", node_id);
+        return 0;
+    }
+    if (node->slots_count != 0) {
+        clusterManagerLogErr("[ERR] Node %s:%d is not empty! Reshard data "
+                             "away and try again.\n", node->ip, node->port);
+        return 0;
+    }
+    
+    // Send CLUSTER FORGET to all the nodes but the node to remove
+    clusterManagerLogInfo(">>> Sending CLUSTER FORGET messages to the "
+                          "cluster...\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n == node) continue;
+        if (n->replicate && !strcasecmp(n->replicate, node_id)) {
+            // Reconfigure the slave to replicate with some other node
+            clusterManagerNode *master = clusterManagerNodeWithLeastReplicas();
+            //TODO: check whether master could be the same as node 
+            assert(master != NULL);
+            clusterManagerLogInfo(">>> %s:%d as replica of %s:%d\n", 
+                                  n->ip, n->port, master->ip, master->port);
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER REPLICATE %s", 
+                                                    master->name);
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (r) freeReplyObject(r);
+            if (!success) return 0;
+        }
+        redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER FORGET %s", 
+                                                node_id); 
+        success = clusterManagerCheckRedisReply(n, r, NULL);
+        if (r) freeReplyObject(r);
+        if (!success) return 0;
+    }
+
+    // Finally shutdown the node
+    clusterManagerLogInfo(">>> SHUTDOWN the node.\n");
+    redisReply *r = redisCommand(node->context, "SHUTDOWN");
+    success = clusterManagerCheckRedisReply(node, r, NULL);
+    if (r) freeReplyObject(r);
+    return success;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
 static int clusterManagerCommandInfo(int argc, char **argv) {
     int port = 0;
     char *ip = NULL;
@@ -5026,6 +5095,9 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
             }
         }
     }
+    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
+                    "can specify the host and port of any working node in "
+                    "the cluster.\n\n");
     return 0;
 }
 
