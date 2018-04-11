@@ -403,9 +403,9 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree) {
     /* Compute how much memory we need to free. */
     mem_tofree = mem_used - server.maxmemory;
 
-    if (*total) *total = mem_reported;
-    if (*logical) *logical = mem_used;
-    if (*tofree) *tofree = mem_tofree;
+    if (total) *total = mem_reported;
+    if (logical) *logical = mem_used;
+    if (tofree) *tofree = mem_tofree;
 
     return C_ERR;
 }
