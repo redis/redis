@@ -370,26 +370,40 @@ size_t freeMemoryGetNotCountedMemory(void) {
 }
 
 /* Get the memory status from the point of view of the maxmemory directive:
- * if the memory used is under the maxmemory setting then C_OK is returned
- * and the 'total', 'lgoical', and 'tofree' values are not populated at all.
+ * if the memory used is under the maxmemory setting then C_OK is returned.
  * Otherwise, if we are over the memory limit, the function returns
- * C_ERR and populates (if not NULL) the arguments by reference with the
- * following meaning:
+ * C_ERR.
+ *
+ * The function may return additional info via reference, only if the
+ * pointers to the respective arguments is not NULL. Certain fields are
+ * populated only when C_ERR is returned:
  *
  *  'total'     total amount of bytes used.
+ *              (Populated both for C_ERR and C_OK)
  *
  *  'logical'   the amount of memory used minus the slaves/AOF buffers.
+ *              (Populated when C_ERR is returned)
  *
  *  'tofree'    the amount of memory that should be released
  *              in order to return back into the memory limits.
+ *              (Populated when C_ERR is returned)
+ *
+ *  'level'     this usually ranges from 0 to 1, and reports the amount of
+ *              memory currently used. May be > 1 if we are over the memory
+ *              limit.
+ *              (Populated both for C_ERR and C_OK)
  */
-int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree) {
+int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level) {
     size_t mem_reported, mem_used, mem_tofree;
 
     /* Check if we are over the memory usage limit. If we are not, no need
      * to subtract the slaves output buffers. We can just return ASAP. */
     mem_reported = zmalloc_used_memory();
-    if (mem_reported <= server.maxmemory) return C_OK;
+    if (total) *total = mem_reported;
+
+    /* We may return ASAP if there is no need to compute the level. */
+    int return_ok_asap = !server.maxmemory || mem_reported <= server.maxmemory;
+    if (return_ok_asap && !level) return C_OK;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -397,15 +411,25 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree) {
     size_t overhead = freeMemoryGetNotCountedMemory();
     mem_used = (mem_used > overhead) ? mem_used-overhead : 0;
 
+    /* Compute the ratio of memory usage. */
+    if (level) {
+        if (!server.maxmemory) {
+            *level = 0;
+        } else {
+            *level = (float)mem_used / (float)server.maxmemory;
+        }
+    }
+
+    if (return_ok_asap) return C_OK;
+
     /* Check if we are still over the memory limit. */
     if (mem_used <= server.maxmemory) return C_OK;
 
     /* Compute how much memory we need to free. */
     mem_tofree = mem_used - server.maxmemory;
 
-    if (*total) *total = mem_reported;
-    if (*logical) *logical = mem_used;
-    if (*tofree) *tofree = mem_tofree;
+    if (logical) *logical = mem_used;
+    if (tofree) *tofree = mem_tofree;
 
     return C_ERR;
 }
@@ -429,7 +453,8 @@ int freeMemoryIfNeeded(void) {
      * POV of clients not being able to write, but also from the POV of
      * expires and evictions of keys not being performed. */
     if (clientsArePaused()) return C_OK;
-    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree) == C_OK) return C_OK;
+    if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK)
+        return C_OK;
 
     mem_freed = 0;
 
@@ -564,7 +589,7 @@ int freeMemoryIfNeeded(void) {
              * across the dbAsyncDelete() call, while the thread can
              * release the memory all the time. */
             if (server.lazyfree_lazy_eviction && !(keys_freed % 16)) {
-                if (getMaxmemoryState(NULL,NULL,NULL) == C_OK) {
+                if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_OK) {
                     /* Let's satisfy our stop condition. */
                     mem_freed = mem_tofree;
                 }
