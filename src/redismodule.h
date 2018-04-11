@@ -83,6 +83,8 @@
 #define REDISMODULE_CTX_FLAGS_EVICT (1<<9)
 /* Redis is out of memory according to the maxmemory flag. */
 #define REDISMODULE_CTX_FLAGS_OOM (1<<10)
+/* Less than 25% of memory available according to maxmemory. */
+#define REDISMODULE_CTX_FLAGS_OOM_WARNING (1<<11)
 
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
 #define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */

@@ -1330,6 +1330,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_OOM: Redis is out of memory according to the
  *    maxmemory setting.
+ *
+ *  * REDISMODULE_CTX_FLAGS_OOM_WARNING: Less than 25% of memory remains before
+ *                                       reaching the maxmemory level.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
@@ -1369,8 +1372,10 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     }
 
     /* OOM flag. */
-    if (getMaxmemoryState(NULL,NULL,NULL,NULL) == C_ERR) {
+    float level;
+    if (getMaxmemoryState(NULL,NULL,NULL,&level) == C_ERR) {
         flags |= REDISMODULE_CTX_FLAGS_OOM;
+        if (level > 0.75) flags |= REDISMODULE_CTX_FLAGS_OOM_WARNING;
     }
 
     return flags;
