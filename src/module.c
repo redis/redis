@@ -1373,10 +1373,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
 
     /* OOM flag. */
     float level;
-    if (getMaxmemoryState(NULL,NULL,NULL,&level) == C_ERR) {
-        flags |= REDISMODULE_CTX_FLAGS_OOM;
-        if (level > 0.75) flags |= REDISMODULE_CTX_FLAGS_OOM_WARNING;
-    }
+    int retval = getMaxmemoryState(NULL,NULL,NULL,&level);
+    if (retval == C_ERR) flags |= REDISMODULE_CTX_FLAGS_OOM;
+    if (level > 0.75) flags |= REDISMODULE_CTX_FLAGS_OOM_WARNING;
 
     return flags;
 }
