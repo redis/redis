@@ -701,7 +701,12 @@ class RedisTrib
 
         masters.each{|m| puts m}
 
-        # Alloc slots on masters
+        # Rotating the list sometimes helps to get better initial
+        # anti-affinity before the optimizer runs.
+        interleaved.push interleaved.shift
+
+        # Alloc slots on masters. After interleaving to get just the first N
+        # should be optimal. With slaves is more complex, see later...
         slots_per_node = ClusterHashSlots.to_f / masters_count
         first = 0
         cursor = 0.0
@@ -769,6 +774,131 @@ class RedisTrib
                 end
             end
         end
+
+        optimize_anti_affinity
+    end
+
+    def optimize_anti_affinity
+        score,aux = get_anti_affinity_score
+        return if score == 0
+
+        xputs ">>> Trying to optimize slaves allocation for anti-affinity"
+
+        maxiter = 500*@nodes.length # Effort is proportional to cluster size...
+        while maxiter > 0
+            score,offenders = get_anti_affinity_score
+            break if score == 0 # Optimal anti affinity reached
+
+            # We'll try to randomly swap a slave's assigned master causing
+            # an affinity problem with another random slave, to see if we
+            # can improve the affinity.
+            first = offenders.shuffle.first
+            nodes = @nodes.select{|n| n != first && n.info[:replicate]}
+            break if nodes.length == 0
+            second = nodes.shuffle.first
+
+            first_master = first.info[:replicate]
+            second_master = second.info[:replicate]
+            first.set_as_replica(second_master)
+            second.set_as_replica(first_master)
+
+            new_score,aux = get_anti_affinity_score
+            # If the change actually makes thing worse, revert. Otherwise
+            # leave as it is becuase the best solution may need a few
+            # combined swaps.
+            if new_score > score
+                first.set_as_replica(first_master)
+                second.set_as_replica(second_master)
+            end
+
+            maxiter -= 1
+        end
+
+        score,aux = get_anti_affinity_score
+        if score == 0
+            xputs "[OK] Perfect anti-affinity obtained!"
+        elsif score >= 10000
+            puts "[WARNING] Some slaves are in the same host as their master"
+        else
+            puts "[WARNING] Some slaves of the same master are in the same host"
+        end
+    end
+
+    # Return the anti-affinity score, which is a measure of the amount of
+    # violations of anti-affinity in the current cluster layout, that is, how
+    # badly the masters and slaves are distributed in the different IP
+    # addresses so that slaves of the same master are not in the master
+    # host and are also in different hosts.
+    #
+    # The score is calculated as follows:
+    #
+    # SAME_AS_MASTER = 10000 * each slave in the same IP of its master.
+    # SAME_AS_SLAVE  = 1 * each slave having the same IP as another slave
+    #                      of the same master.
+    # FINAL_SCORE = SAME_AS_MASTER + SAME_AS_SLAVE
+    #
+    # So a greater score means a worse anti-affinity level, while zero
+    # means perfect anti-affinity.
+    #
+    # The anti affinity optimizator will try to get a score as low as
+    # possible. Since we do not want to sacrifice the fact that slaves should
+    # not be in the same host as the master, we assign 10000 times the score
+    # to this violation, so that we'll optimize for the second factor only
+    # if it does not impact the first one.
+    #
+    # The function returns two things: the above score, and the list of
+    # offending slaves, so that the optimizer can try changing the
+    # configuration of the slaves violating the anti-affinity goals.
+    def get_anti_affinity_score
+        score = 0
+        offending = [] # List of offending slaves to return to the caller
+
+        # First, split nodes by host
+        host_to_node = {}
+        @nodes.each{|n|
+            host = n.info[:host]
+            host_to_node[host] = [] if host_to_node[host] == nil
+            host_to_node[host] << n
+        }
+
+        # Then, for each set of nodes in the same host, split by
+        # related nodes (masters and slaves which are involved in
+        # replication of each other)
+        host_to_node.each{|host,nodes|
+            related = {}
+            nodes.each{|n|
+                if !n.info[:replicate]
+                    name = n.info[:name]
+                    related[name] = [] if related[name] == nil
+                    related[name] << :m
+                else
+                    name = n.info[:replicate]
+                    related[name] = [] if related[name] == nil
+                    related[name] << :s
+                end
+            }
+
+            # Now it's trivial to check, for each related group having the
+            # same host, what is their local score.
+            related.each{|id,types|
+                next if types.length < 2
+                types.sort! # Make sure :m if the first if any
+                if types[0] == :m
+                    score += 10000 * (types.length-1)
+                else
+                    score += 1 * types.length
+                end
+
+                # Populate the list of offending nodes
+                @nodes.each{|n|
+                    if n.info[:replicate] == id &&
+                       n.info[:host] == host
+                       offending << n
+                    end
+                }
+            }
+        }
+        return score,offending
     end
 
     def flush_nodes_config

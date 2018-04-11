@@ -38,7 +38,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define RDB_VERSION 8
+#define RDB_VERSION 9
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -97,12 +97,15 @@
 #define rdbIsObjectType(t) ((t >= 0 && t <= 7) || (t >= 9 && t <= 15))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
-#define RDB_OPCODE_AUX        250
-#define RDB_OPCODE_RESIZEDB   251
-#define RDB_OPCODE_EXPIRETIME_MS 252
-#define RDB_OPCODE_EXPIRETIME 253
-#define RDB_OPCODE_SELECTDB   254
-#define RDB_OPCODE_EOF        255
+#define RDB_OPCODE_MODULE_AUX 247   /* Module auxiliary data. */
+#define RDB_OPCODE_IDLE       248   /* LRU idle time. */
+#define RDB_OPCODE_FREQ       249   /* LFU frequency. */
+#define RDB_OPCODE_AUX        250   /* RDB aux field. */
+#define RDB_OPCODE_RESIZEDB   251   /* Hash table resize hint. */
+#define RDB_OPCODE_EXPIRETIME_MS 252    /* Expire time in milliseconds. */
+#define RDB_OPCODE_EXPIRETIME 253       /* Old expire time in seconds. */
+#define RDB_OPCODE_SELECTDB   254   /* DB number of the following keys. */
+#define RDB_OPCODE_EOF        255   /* End of the RDB file. */
 
 /* Module serialized values sub opcodes */
 #define RDB_MODULE_OPCODE_EOF   0   /* End of module value. */
@@ -141,7 +144,7 @@ robj *rdbLoadObject(int type, rio *rdb);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
 robj *rdbLoadStringObject(rio *rdb);
-int rdbSaveStringObject(rio *rdb, robj *obj);
+ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
 int rdbSaveBinaryDoubleValue(rio *rdb, double val);

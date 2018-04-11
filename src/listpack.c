@@ -560,7 +560,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     /* Return the string representation of the integer or the value itself
      * depending on intbuf being NULL or not. */
     if (intbuf) {
-        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",val);
+        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",(long long)val);
         return intbuf;
     } else {
         *count = val;

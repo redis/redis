@@ -1626,8 +1626,8 @@ int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key
     int eq = 0, lt = 0, gt = 0;
 
     if (op[0] == '=' || op[1] == '=') eq = 1;
-    if (op[1] == '>') gt = 1;
-    else if (op[1] == '<') lt = 1;
+    if (op[0] == '>') gt = 1;
+    else if (op[0] == '<') lt = 1;
     else if (op[1] != '=') return 0; /* Syntax error. */
 
     size_t minlen = key_len < iter->key_len ? key_len : iter->key_len;

@@ -27,6 +27,7 @@ set ::all_tests {
     unit/type/zset
     unit/type/hash
     unit/type/stream
+    unit/type/stream-cgroups
     unit/sort
     unit/expire
     unit/other
@@ -452,6 +453,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             puts $t
         }
         exit 0
+    } elseif {$opt eq {--verbose}} {
+        set ::verbose 1
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg

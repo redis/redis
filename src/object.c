@@ -98,7 +98,9 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
-    if (ptr) {
+    if (ptr == SDS_NOINIT)
+        sh->buf[len] = '\0';
+    else if (ptr) {
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
@@ -111,7 +113,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
  *
- * The current limit of 39 is chosen so that the biggest string object
+ * The current limit of 44 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
@@ -145,7 +147,7 @@ robj *createStringObjectFromLongLong(long long value) {
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,humanfriendly);
     return createStringObject(buf,len);
 }
@@ -706,7 +708,31 @@ char *strEncoding(int encoding) {
     }
 }
 
-/* =========================== Memory introspection ========================== */
+/* =========================== Memory introspection ========================= */
+
+
+/* This is an helper function with the goal of estimating the memory
+ * size of a radix tree that is used to store Stream IDs.
+ *
+ * Note: to guess the size of the radix tree is not trivial, so we
+ * approximate it considering 128 bytes of data overhead for each
+ * key (the ID), and then adding the number of bare nodes, plus some
+ * overhead due by the data and child pointers. This secret recipe
+ * was obtained by checking the average radix tree created by real
+ * workloads, and then adjusting the constants to get numbers that
+ * more or less match the real memory usage.
+ *
+ * Actually the number of nodes and keys may be different depending
+ * on the insertion speed and thus the ability of the radix tree
+ * to compress prefixes. */
+size_t streamRadixTreeMemoryUsage(rax *rax) {
+    size_t size;
+    size = rax->numele * sizeof(streamID);
+    size += rax->numnodes * sizeof(raxNode);
+    /* Add a fixed overhead due to the aux data pointer, children, ... */
+    size += rax->numnodes * sizeof(long)*30;
+    return size;
+}
 
 /* Returns the size in bytes consumed by the key's value in RAM.
  * Note that the returned value is just an approximation, especially in the
@@ -739,7 +765,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                 elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*listTypeLength(o);
+            asize += (double)elesize/samples*ql->len;
         } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
             asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
@@ -802,21 +828,8 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         }
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
-        /* Note: to guess the size of the radix tree is not trivial, so we
-         * approximate it considering 64 bytes of data overhead for each
-         * key (the ID), and then adding the number of bare nodes, plus some
-         * overhead due by the data and child pointers. This secret recipe
-         * was obtained by checking the average radix tree created by real
-         * workloads, and then adjusting the constants to get numbers that
-         * more or less match the real memory usage.
-         *
-         * Actually the number of nodes and keys may be different depending
-         * on the insertion speed and thus the ability of the radix tree
-         * to compress prefixes. */
         asize = sizeof(*o);
-        asize += s->rax->numele * 64;
-        asize += s->rax->numnodes * sizeof(raxNode);
-        asize += s->rax->numnodes * 32*7; /* Add a few child pointers... */
+        asize += streamRadixTreeMemoryUsage(s->rax);
 
         /* Now we have to add the listpacks. The last listpack is often non
          * complete, so we estimate the size of the first N listpacks, and
@@ -843,6 +856,36 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize += lpBytes(ri.data);
         }
         raxStop(&ri);
+
+        /* Consumer groups also have a non trivial memory overhead if there
+         * are many consumers and many groups, let's count at least the
+         * overhead of the pending entries in the groups and consumers
+         * PELs. */
+        if (s->cgroups) {
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            while(raxNext(&ri)) {
+                streamCG *cg = ri.data;
+                asize += sizeof(*cg);
+                asize += streamRadixTreeMemoryUsage(cg->pel);
+                asize += sizeof(streamNACK)*raxSize(cg->pel);
+
+                /* For each consumer we also need to add the basic data
+                 * structures and the PEL memory usage. */
+                raxIterator cri;
+                raxStart(&cri,cg->consumers);
+                while(raxNext(&cri)) {
+                    streamConsumer *consumer = cri.data;
+                    asize += sizeof(*consumer);
+                    asize += sdslen(consumer->name);
+                    asize += streamRadixTreeMemoryUsage(consumer->pel);
+                    /* Don't count NACKs again, they are shared with the
+                     * consumer group PEL. */
+                }
+                raxStop(&cri);
+            }
+            raxStop(&ri);
+        }
     } else if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
@@ -876,8 +919,23 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->total_allocated = zmalloc_used;
     mh->startup_allocated = server.initial_memory_usage;
     mh->peak_allocated = server.stat_peak_memory;
-    mh->fragmentation =
-        zmalloc_get_fragmentation_ratio(server.resident_set_size);
+    mh->total_frag =
+        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
+    mh->total_frag_bytes =
+        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
+    mh->allocator_frag =
+        (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_frag_bytes =
+        server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
+    mh->allocator_rss =
+        (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
+    mh->allocator_rss_bytes =
+        server.cron_malloc_stats.allocator_resident - server.cron_malloc_stats.allocator_active;
+    mh->rss_extra =
+        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.allocator_resident;
+    mh->rss_extra_bytes =
+        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.allocator_resident;
+
     mem_total += server.initial_memory_usage;
 
     mem = 0;
@@ -980,6 +1038,9 @@ sds getMemoryDoctorReport(void) {
     int empty = 0;          /* Instance is empty or almost empty. */
     int big_peak = 0;       /* Memory peak is much larger than used mem. */
     int high_frag = 0;      /* High fragmentation. */
+    int high_alloc_frag = 0;/* High allocator fragmentation. */
+    int high_proc_rss = 0;  /* High process rss overhead. */
+    int high_alloc_rss = 0; /* High rss overhead. */
     int big_slave_buf = 0;  /* Slave buffers are too big. */
     int big_client_buf = 0; /* Client buffers are too big. */
     int num_reports = 0;
@@ -995,9 +1056,27 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Fragmentation is higher than 1.4? */
-        if (mh->fragmentation > 1.4) {
+        /* Fragmentation is higher than 1.4 and 10MB ?*/
+        if (mh->total_frag > 1.4 && mh->total_frag_bytes > 10<<20) {
             high_frag = 1;
+            num_reports++;
+        }
+
+        /* External fragmentation is higher than 1.1 and 10MB? */
+        if (mh->allocator_frag > 1.1 && mh->allocator_frag_bytes > 10<<20) {
+            high_alloc_frag = 1;
+            num_reports++;
+        }
+
+        /* Allocator fss is higher than 1.1 and 10MB ? */
+        if (mh->allocator_rss > 1.1 && mh->allocator_rss_bytes > 10<<20) {
+            high_alloc_rss = 1;
+            num_reports++;
+        }
+
+        /* Non-Allocator fss is higher than 1.1 and 10MB ? */
+        if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
+            high_proc_rss = 1;
             num_reports++;
         }
 
@@ -1034,7 +1113,16 @@ sds getMemoryDoctorReport(void) {
             s = sdscat(s," * Peak memory: In the past this instance used more than 150% the memory that is currently using. The allocator is normally not able to release memory after a peak, so you can expect to see a big fragmentation ratio, however this is actually harmless and is only due to the memory peak, and if the Redis instance Resident Set Size (RSS) is currently bigger than expected, the memory will be used as soon as you fill the Redis instance with more data. If the memory peak was only occasional and you want to try to reclaim memory, please try the MEMORY PURGE command, otherwise the only other option is to shutdown and restart the instance.\n\n");
         }
         if (high_frag) {
-            s = sdscatprintf(s," * High fragmentation: This instance has a memory fragmentation greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is \"%s\".\n\n", ZMALLOC_LIB);
+            s = sdscatprintf(s," * High total RSS: This instance has a memory fragmentation and RSS overhead greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is \"%s\".\n\n", ZMALLOC_LIB);
+        }
+        if (high_alloc_frag) {
+            s = sdscatprintf(s," * High allocator fragmentation: This instance has an allocator external fragmentation greater than 1.1. This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. You can try enabling 'activedefrag' config option.\n\n");
+        }
+        if (high_alloc_rss) {
+            s = sdscatprintf(s," * High allocator RSS overhead: This instance has an RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the allocator is much larger than the sum what the allocator actually holds). This problem is usually due to a large peak memory (check if there is a peak memory entry above in the report), you can try the MEMORY PURGE command to reclaim it.\n\n");
+        }
+        if (high_proc_rss) {
+            s = sdscatprintf(s," * High process RSS overhead: This instance has non-allocator RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the Redis process is much larger than the RSS the allocator holds). This problem may be due to LUA scripts or Modules.\n\n");
         }
         if (big_slave_buf) {
             s = sdscat(s," * Big slave buffers: The slave output buffers in this instance are greater than 10MB for each slave (on average). This likely means that there is some slave instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what slave is not receiving data correctly and why. You can use the INFO output in order to check the slaves delays and the CLIENT LIST command to check the output buffers of each slave.\n\n");
@@ -1148,7 +1236,7 @@ void memoryCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(14+mh->num_dbs)*2);
+        addReplyMultiBulkLen(c,(24+mh->num_dbs)*2);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1202,8 +1290,38 @@ void memoryCommand(client *c) {
         addReplyBulkCString(c,"peak.percentage");
         addReplyDouble(c,mh->peak_perc);
 
-        addReplyBulkCString(c,"fragmentation");
-        addReplyDouble(c,mh->fragmentation);
+        addReplyBulkCString(c,"allocator.allocated");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
+
+        addReplyBulkCString(c,"allocator.active");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
+
+        addReplyBulkCString(c,"allocator.resident");
+        addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
+
+        addReplyBulkCString(c,"allocator-fragmentation.ratio");
+        addReplyDouble(c,mh->allocator_frag);
+
+        addReplyBulkCString(c,"allocator-fragmentation.bytes");
+        addReplyLongLong(c,mh->allocator_frag_bytes);
+
+        addReplyBulkCString(c,"allocator-rss.ratio");
+        addReplyDouble(c,mh->allocator_rss);
+
+        addReplyBulkCString(c,"allocator-rss.bytes");
+        addReplyLongLong(c,mh->allocator_rss_bytes);
+
+        addReplyBulkCString(c,"rss-overhead.ratio");
+        addReplyDouble(c,mh->rss_extra);
+
+        addReplyBulkCString(c,"rss-overhead.bytes");
+        addReplyLongLong(c,mh->rss_extra_bytes);
+
+        addReplyBulkCString(c,"fragmentation"); /* this is the total RSS overhead, including fragmentation */
+        addReplyDouble(c,mh->total_frag); /* it is kept here for backwards compatibility */
+
+        addReplyBulkCString(c,"fragmentation.bytes");
+        addReplyLongLong(c,mh->total_frag_bytes);
 
         freeMemoryOverheadData(mh);
     } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {

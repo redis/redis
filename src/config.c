@@ -328,6 +328,10 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
+        } else if ((!strcasecmp(argv[0],"proto-max-bulk-len")) && argc == 2) {
+            server.proto_max_bulk_len = memtoll(argv[1],NULL);
+        } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
+            server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
             server.lfu_log_factor = atoi(argv[1]);
             if (server.lfu_log_factor < 0) {
@@ -533,6 +537,12 @@ void loadServerConfigFromString(char *config) {
                 err = "active-defrag-cycle-max must be between 1 and 99";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"active-defrag-max-scan-fields") && argc == 2) {
+            server.active_defrag_max_scan_fields = strtoll(argv[1],NULL,10);
+            if (server.active_defrag_max_scan_fields < 1) {
+                err = "active-defrag-max-scan-fields must be positive";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -629,6 +639,14 @@ void loadServerConfigFromString(char *config) {
             server.cluster_slave_validity_factor = atoi(argv[1]);
             if (server.cluster_slave_validity_factor < 0) {
                 err = "cluster slave validity factor must be zero or positive";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"cluster-slave-no-failover") &&
+                   argc == 2)
+        {
+            server.cluster_slave_no_failover = yesnotoi(argv[1]);
+            if (server.cluster_slave_no_failover == -1) {
+                err = "argument must be 'yes' or 'no'";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
@@ -994,6 +1012,8 @@ void configSetCommand(client *c) {
     } config_set_bool_field(
       "cluster-require-full-coverage",server.cluster_require_full_coverage) {
     } config_set_bool_field(
+      "cluster-slave-no-failover",server.cluster_slave_no_failover) {
+    } config_set_bool_field(
       "aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync) {
     } config_set_bool_field(
       "aof-load-truncated",server.aof_load_truncated) {
@@ -1054,6 +1074,8 @@ void configSetCommand(client *c) {
       "active-defrag-cycle-min",server.active_defrag_cycle_min,1,99) {
     } config_set_numerical_field(
       "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
+    } config_set_numerical_field(
+      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LLONG_MAX) {
     } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
     } config_set_numerical_field(
@@ -1132,6 +1154,10 @@ void configSetCommand(client *c) {
             }
             freeMemoryIfNeeded();
         }
+    } config_set_memory_field(
+      "proto-max-bulk-len",server.proto_max_bulk_len) {
+    } config_set_memory_field(
+      "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
         resizeReplicationBacklog(ll);
     } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
@@ -1220,6 +1246,8 @@ void configGetCommand(client *c) {
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
+    config_get_numerical_field("proto-max-bulk-len",server.proto_max_bulk_len);
+    config_get_numerical_field("client-query-buffer-limit",server.client_max_querybuf_len);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("lfu-log-factor",server.lfu_log_factor);
     config_get_numerical_field("lfu-decay-time",server.lfu_decay_time);
@@ -1229,6 +1257,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("active-defrag-ignore-bytes",server.active_defrag_ignore_bytes);
     config_get_numerical_field("active-defrag-cycle-min",server.active_defrag_cycle_min);
     config_get_numerical_field("active-defrag-cycle-max",server.active_defrag_cycle_max);
+    config_get_numerical_field("active-defrag-max-scan-fields",server.active_defrag_max_scan_fields);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
@@ -1281,6 +1310,8 @@ void configGetCommand(client *c) {
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
             server.cluster_require_full_coverage);
+    config_get_bool_field("cluster-slave-no-failover",
+            server.cluster_slave_no_failover);
     config_get_bool_field("no-appendfsync-on-rewrite",
             server.aof_no_fsync_on_rewrite);
     config_get_bool_field("slave-serve-stale-data",
@@ -1992,6 +2023,8 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
+    rewriteConfigBytesOption(state,"proto-max-bulk-len",server.proto_max_bulk_len,CONFIG_DEFAULT_PROTO_MAX_BULK_LEN);
+    rewriteConfigBytesOption(state,"client-query-buffer-limit",server.client_max_querybuf_len,PROTO_MAX_QUERYBUF_LEN);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum,CONFIG_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,CONFIG_DEFAULT_MAXMEMORY_SAMPLES);
     rewriteConfigNumericalOption(state,"lfu-log-factor",server.lfu_log_factor,CONFIG_DEFAULT_LFU_LOG_FACTOR);
@@ -2001,6 +2034,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-min",server.active_defrag_cycle_min,CONFIG_DEFAULT_DEFRAG_CYCLE_MIN);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-max",server.active_defrag_cycle_max,CONFIG_DEFAULT_DEFRAG_CYCLE_MAX);
+    rewriteConfigNumericalOption(state,"active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
@@ -2011,6 +2045,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"cluster-enabled",server.cluster_enabled,0);
     rewriteConfigStringOption(state,"cluster-config-file",server.cluster_configfile,CONFIG_DEFAULT_CLUSTER_CONFIG_FILE);
     rewriteConfigYesNoOption(state,"cluster-require-full-coverage",server.cluster_require_full_coverage,CLUSTER_DEFAULT_REQUIRE_FULL_COVERAGE);
+    rewriteConfigYesNoOption(state,"cluster-slave-no-failover",server.cluster_slave_no_failover,CLUSTER_DEFAULT_SLAVE_NO_FAILOVER);
     rewriteConfigNumericalOption(state,"cluster-node-timeout",server.cluster_node_timeout,CLUSTER_DEFAULT_NODE_TIMEOUT);
     rewriteConfigNumericalOption(state,"cluster-migration-barrier",server.cluster_migration_barrier,CLUSTER_DEFAULT_MIGRATION_BARRIER);
     rewriteConfigNumericalOption(state,"cluster-slave-validity-factor",server.cluster_slave_validity_factor,CLUSTER_DEFAULT_SLAVE_VALIDITY);

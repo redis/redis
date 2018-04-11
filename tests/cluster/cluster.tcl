@@ -42,6 +42,16 @@ proc get_myself id {
     return {}
 }
 
+# Get a specific node by ID by parsing the CLUSTER NODES output
+# of the instance Number 'instance_id'
+proc get_node_by_id {instance_id node_id} {
+    set nodes [get_cluster_nodes $instance_id]
+    foreach n $nodes {
+        if {[dict get $n id] eq $node_id} {return $n}
+    }
+    return {}
+}
+
 # Return the value of the specified CLUSTER INFO field.
 proc CI {n field} {
     get_info_field [R $n cluster info] $field

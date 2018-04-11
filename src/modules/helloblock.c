@@ -54,7 +54,8 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 /* Private data freeing callback for HELLO.BLOCK command. */
-void HelloBlock_FreeData(void *privdata) {
+void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
+    REDISMODULE_NOT_USED(ctx);
     RedisModule_Free(privdata);
 }
 

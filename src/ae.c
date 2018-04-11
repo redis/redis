@@ -159,6 +159,10 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeFileEvent *fe = &eventLoop->events[fd];
     if (fe->mask == AE_NONE) return;
 
+    /* We want to always remove AE_BARRIER if set when AE_WRITABLE
+     * is removed. */
+    if (mask & AE_WRITABLE) mask |= AE_BARRIER;
+
     aeApiDelEvent(eventLoop, fd, mask);
     fe->mask = fe->mask & (~mask);
     if (fd == eventLoop->maxfd && fe->mask == AE_NONE) {
@@ -215,7 +219,10 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
+    te->prev = NULL;
     te->next = eventLoop->timeEventHead;
+    if (te->next)
+        te->next->prev = te;
     eventLoop->timeEventHead = te;
     return id;
 }
@@ -262,7 +269,7 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 /* Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
-    aeTimeEvent *te, *prev;
+    aeTimeEvent *te;
     long long maxId;
     time_t now = time(NULL);
 
@@ -283,7 +290,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     }
     eventLoop->lastTime = now;
 
-    prev = NULL;
     te = eventLoop->timeEventHead;
     maxId = eventLoop->timeEventNextId-1;
     while(te) {
@@ -293,10 +299,12 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         /* Remove events scheduled for deletion. */
         if (te->id == AE_DELETED_EVENT_ID) {
             aeTimeEvent *next = te->next;
-            if (prev == NULL)
-                eventLoop->timeEventHead = te->next;
+            if (te->prev)
+                te->prev->next = te->next;
             else
-                prev->next = te->next;
+                eventLoop->timeEventHead = te->next;
+            if (te->next)
+                te->next->prev = te->prev;
             if (te->finalizerProc)
                 te->finalizerProc(eventLoop, te->clientData);
             zfree(te);
@@ -328,7 +336,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
                 te->id = AE_DELETED_EVENT_ID;
             }
         }
-        prev = te;
         te = te->next;
     }
     return processed;
@@ -411,19 +418,49 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
-            int rfired = 0;
+            int fired = 0; /* Number of events fired for current fd. */
 
-	    /* note the fe->mask & mask & ... code: maybe an already processed
-             * event removed an element that fired and we still didn't
-             * processed, so we check if the event is still valid. */
-            if (fe->mask & mask & AE_READABLE) {
-                rfired = 1;
+            /* Normally we execute the readable event first, and the writable
+             * event laster. This is useful as sometimes we may be able
+             * to serve the reply of a query immediately after processing the
+             * query.
+             *
+             * However if AE_BARRIER is set in the mask, our application is
+             * asking us to do the reverse: never fire the writable event
+             * after the readable. In such a case, we invert the calls.
+             * This is useful when, for instance, we want to do things
+             * in the beforeSleep() hook, like fsynching a file to disk,
+             * before replying to a client. */
+            int invert = fe->mask & AE_BARRIER;
+
+	    /* Note the "fe->mask & mask & ..." code: maybe an already
+             * processed event removed an element that fired and we still
+             * didn't processed, so we check if the event is still valid.
+             *
+             * Fire the readable event if the call sequence is not
+             * inverted. */
+            if (!invert && fe->mask & mask & AE_READABLE) {
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                fired++;
             }
+
+            /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
-                if (!rfired || fe->wfileProc != fe->rfileProc)
+                if (!fired || fe->wfileProc != fe->rfileProc) {
                     fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fired++;
+                }
             }
+
+            /* If we have to invert the call, fire the readable event now
+             * after the writable one. */
+            if (invert && fe->mask & mask & AE_READABLE) {
+                if (!fired || fe->wfileProc != fe->rfileProc) {
+                    fe->rfileProc(eventLoop,fd,fe->clientData,mask);
+                    fired++;
+                }
+            }
+
             processed++;
         }
     }
