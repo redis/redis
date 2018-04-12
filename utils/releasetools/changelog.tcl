@@ -21,7 +21,7 @@ append template "\n\n"
 set date [clock format [clock seconds]]
 set template [string map [list %ver% $ver %date% $date] $template]
 
-append template [exec git log $branch~30..$branch "--format=format:%an in commit %h:%n %s" --shortstat]
+append template [exec git log $branch~100..$branch "--format=format:%an in commit %h:%n %s" --shortstat]
 
 #Older, more verbose version.
 #

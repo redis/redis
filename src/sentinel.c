@@ -379,7 +379,7 @@ void sentinelSimFailureCrash(void);
 
 /* ========================= Dictionary types =============================== */
 
-unsigned int dictSdsHash(const void *key);
+uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
@@ -3640,15 +3640,15 @@ struct sentinelLeader {
 /* Helper function for sentinelGetLeader, increment the counter
  * relative to the specified runid. */
 int sentinelLeaderIncr(dict *counters, char *runid) {
-    dictEntry *de = dictFind(counters,runid);
+    dictEntry *existing, *de;
     uint64_t oldval;
 
-    if (de) {
-        oldval = dictGetUnsignedIntegerVal(de);
-        dictSetUnsignedIntegerVal(de,oldval+1);
+    de = dictAddRaw(counters,runid,&existing);
+    if (existing) {
+        oldval = dictGetUnsignedIntegerVal(existing);
+        dictSetUnsignedIntegerVal(existing,oldval+1);
         return oldval+1;
     } else {
-        de = dictAddRaw(counters,runid);
         serverAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
         return 1;
@@ -3674,7 +3674,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     serverAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
+    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);

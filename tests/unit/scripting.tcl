@@ -397,6 +397,7 @@ start_server {tags {"scripting"}} {
     test {EVAL processes writes from AOF in read-only slaves} {
         r flushall
         r config set appendonly yes
+        r config set aof-use-rdb-preamble no
         r eval {redis.call("set",KEYS[1],"100")} 1 foo
         r eval {redis.call("incr",KEYS[1])} 1 foo
         r eval {redis.call("incr",KEYS[1])} 1 foo
@@ -629,7 +630,7 @@ foreach cmdrepl {0 1} {
 }
 
 start_server {tags {"scripting repl"}} {
-    start_server {overrides {appendonly yes}} {
+    start_server {overrides {appendonly yes aof-use-rdb-preamble no}} {
         test "Connect a slave to the master instance" {
             r -1 slaveof [srv 0 host] [srv 0 port]
             wait_for_condition 50 100 {

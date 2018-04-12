@@ -47,7 +47,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
 
             # Check that the background clients are actually writing.
             test {Detect write load to master} {
-                wait_for_condition 50 100 {
+                wait_for_condition 50 1000 {
                     [$master dbsize] > 100
                 } else {
                     fail "Can't detect write load from background clients."
@@ -110,7 +110,7 @@ foreach diskless {no yes} {
     test_psync {no reconnection, just sync} 6 1000000 3600 0 {
     } $diskless 0
 
-    test_psync {ok psync} 6 1000000 3600 0 {
+    test_psync {ok psync} 6 100000000 3600 0 {
         assert {[s -1 sync_partial_ok] > 0}
     } $diskless 1
 

@@ -45,7 +45,7 @@
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
-slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
+slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration) {
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
@@ -72,15 +72,24 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
-            } else {
+            } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
-                incrRefCount(argv[j]);
+            } else {
+                /* Here we need to dupliacate the string objects composing the
+                 * argument vector of the command, because those may otherwise
+                 * end shared with string objects stored into keys. Having
+                 * shared objects between any part of Redis, and the data
+                 * structure holding the data, is a problem: FLUSHALL ASYNC
+                 * may release the shared string object and create a race. */
+                se->argv[j] = dupStringObject(argv[j]);
             }
         }
     }
     se->time = time(NULL);
     se->duration = duration;
     se->id = server.slowlog_entry_id++;
+    se->peerid = sdsnew(getClientPeerId(c));
+    se->cname = c->name ? sdsnew(c->name->ptr) : sdsempty();
     return se;
 }
 
@@ -95,6 +104,8 @@ void slowlogFreeEntry(void *septr) {
     for (j = 0; j < se->argc; j++)
         decrRefCount(se->argv[j]);
     zfree(se->argv);
+    sdsfree(se->peerid);
+    sdsfree(se->cname);
     zfree(se);
 }
 
@@ -109,10 +120,11 @@ void slowlogInit(void) {
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length. */
-void slowlogPushEntryIfNeeded(robj **argv, int argc, long long duration) {
+void slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
     if (server.slowlog_log_slower_than < 0) return; /* Slowlog disabled */
     if (duration >= server.slowlog_log_slower_than)
-        listAddNodeHead(server.slowlog,slowlogCreateEntry(argv,argc,duration));
+        listAddNodeHead(server.slowlog,
+                        slowlogCreateEntry(c,argv,argc,duration));
 
     /* Remove old entries if needed. */
     while (listLength(server.slowlog) > server.slowlog_max_len)
@@ -128,7 +140,17 @@ void slowlogReset(void) {
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"get [count] -- Return top entries from the slowlog (default: 10)."
+"    Entries are made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
+"len -- Return the length of the slowlog.",
+"reset -- Reset the slowlog.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
         slowlogReset();
         addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"len")) {
@@ -152,18 +174,19 @@ void slowlogCommand(client *c) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,4);
+            addReplyMultiBulkLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
             addReplyMultiBulkLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
+            addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
+            addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
         setDeferredMultiBulkLength(c,totentries,sent);
     } else {
-        addReplyError(c,
-            "Unknown SLOWLOG subcommand or wrong # of args. Try GET, RESET, LEN.");
+         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SLOWLOG HELP", (char*)c->argv[1]->ptr);
     }
 }

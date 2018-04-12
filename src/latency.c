@@ -41,7 +41,7 @@ int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
 
-unsigned int dictStringHash(const void *key) {
+uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+    return zmalloc_get_smap_bytes_by_field("AnonHugePages:",-1);
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -109,6 +109,8 @@ void latencyAddSample(char *event, mstime_t latency) {
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
+    if (latency > ts->max) ts->max = latency;
+
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
@@ -120,7 +122,6 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     ts->samples[ts->idx].time = time(NULL);
     ts->samples[ts->idx].latency = latency;
-    if (latency > ts->max) ts->max = latency;
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
