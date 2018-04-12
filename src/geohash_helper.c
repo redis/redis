@@ -82,32 +82,30 @@ uint8_t geohashEstimateStepsByRadius(double range_meters, double lat) {
     return step;
 }
 
-/* Return the bounding box of the search area centered at latitude,longitude
- * having a radius of radius_meter. bounds[0] - bounds[2] is the minimum
- * and maxium longitude, while bounds[1] - bounds[3] is the minimum and
- * maximum latitude.
- *
- * This function does not behave correctly with very large radius values, for
- * instance for the coordinates 81.634948934258375 30.561509253718668 and a
- * radius of 7083 kilometers, it reports as bounding boxes:
- *
- * min_lon 7.680495, min_lat -33.119473, max_lon 155.589402, max_lat 94.242491
- *
- * However, for instance, a min_lon of 7.680495 is not correct, because the
- * point -1.27579540014266968 61.33421815228281559 is at less than 7000
- * kilometers away.
- *
- * Since this function is currently only used as an optimization, the
- * optimization is not used for very big radiuses, however the function
- * should be fixed. */
 int geohashBoundingBox(double longitude, double latitude, double radius_meters,
                        double *bounds) {
     if (!bounds) return 0;
 
-    bounds[0] = longitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
-    bounds[2] = longitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS/cos(deg_rad(latitude)));
-    bounds[1] = latitude - rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
-    bounds[3] = latitude + rad_deg(radius_meters/EARTH_RADIUS_IN_METERS);
+    double lonr, latr;
+    lonr = deg_rad(longitude);
+    latr = deg_rad(latitude);
+
+    if (radius_meters > EARTH_RADIUS_IN_METERS)
+        radius_meters = EARTH_RADIUS_IN_METERS;
+    double distance = radius_meters / EARTH_RADIUS_IN_METERS;
+    double min_latitude = latr - distance;
+    double max_latitude = latr + distance;
+
+    /* Note: we're being lazy and not accounting for coordinates near poles */
+    double min_longitude, max_longitude;
+    double difference_longitude = asin(sin(distance) / cos(latr));
+    min_longitude = lonr - difference_longitude;
+    max_longitude = lonr + difference_longitude;
+
+    bounds[0] = rad_deg(min_longitude);
+    bounds[1] = rad_deg(min_latitude);
+    bounds[2] = rad_deg(max_longitude);
+    bounds[3] = rad_deg(max_latitude);
     return 1;
 }
 
@@ -160,35 +158,55 @@ GeoHashRadius geohashGetAreasByRadius(double longitude, double latitude, double 
             < radius_meters) decrease_step = 1;
     }
 
-    if (steps > 1 && decrease_step) {
+    if (decrease_step) {
         steps--;
         geohashEncode(&long_range,&lat_range,longitude,latitude,steps,&hash);
         geohashNeighbors(&hash,&neighbors);
         geohashDecode(long_range,lat_range,hash,&area);
     }
 
+    /* Example debug info. This turns to be very useful every time there is
+     * to investigate radius search potential bugs. So better to leave it
+     * here. */
+    if (0) {
+        GeoHashArea myarea = {{0}};
+        geohashDecode(long_range, lat_range, neighbors.west, &myarea);
+
+        /* Dump West. */
+        D("Neighbors");
+        D("area.longitude.min: %f\n", myarea.longitude.min);
+        D("area.longitude.max: %f\n", myarea.longitude.max);
+        D("area.latitude.min: %f\n", myarea.latitude.min);
+        D("area.latitude.max: %f\n", myarea.latitude.max);
+
+        /* Dump center square. */
+        D("Area");
+        D("area.longitude.min: %f\n", area.longitude.min);
+        D("area.longitude.max: %f\n", area.longitude.max);
+        D("area.latitude.min: %f\n", area.latitude.min);
+        D("area.latitude.max: %f\n", area.latitude.max);
+    }
+
     /* Exclude the search areas that are useless. */
-    if (steps >= 2) {
-        if (area.latitude.min < min_lat) {
-            GZERO(neighbors.south);
-            GZERO(neighbors.south_west);
-            GZERO(neighbors.south_east);
-        }
-        if (area.latitude.max > max_lat) {
-            GZERO(neighbors.north);
-            GZERO(neighbors.north_east);
-            GZERO(neighbors.north_west);
-        }
-        if (area.longitude.min < min_lon) {
-            GZERO(neighbors.west);
-            GZERO(neighbors.south_west);
-            GZERO(neighbors.north_west);
-        }
-        if (area.longitude.max > max_lon) {
-            GZERO(neighbors.east);
-            GZERO(neighbors.south_east);
-            GZERO(neighbors.north_east);
-        }
+    if (area.latitude.min < min_lat) {
+        GZERO(neighbors.south);
+        GZERO(neighbors.south_west);
+        GZERO(neighbors.south_east);
+    }
+    if (area.latitude.max > max_lat) {
+        GZERO(neighbors.north);
+        GZERO(neighbors.north_east);
+        GZERO(neighbors.north_west);
+    }
+    if (area.longitude.min < min_lon) {
+        GZERO(neighbors.west);
+        GZERO(neighbors.south_west);
+        GZERO(neighbors.north_west);
+    }
+    if (area.longitude.max > max_lon) {
+        GZERO(neighbors.east);
+        GZERO(neighbors.south_east);
+        GZERO(neighbors.north_east);
     }
     radius.hash = hash;
     radius.neighbors = neighbors;

@@ -1387,7 +1387,7 @@ int zsetDel(robj *zobj, sds ele) {
         dictEntry *de;
         double score;
 
-        de = dictUnlink(zs->dict,ele);
+        de = dictFind(zs->dict,ele);
         if (de != NULL) {
             /* Get the score in order to delete from the skiplist later. */
             score = *(double*)dictGetVal(de);
@@ -1397,11 +1397,12 @@ int zsetDel(robj *zobj, sds ele) {
              * actually releases the SDS string representing the element,
              * which is shared between the skiplist and the hash table, so
              * we need to delete from the skiplist as the final step. */
-            dictFreeUnlinkedEntry(zs->dict,de);
+            int retval1 = dictDelete(zs->dict,ele);
 
             /* Delete from skiplist. */
-            int retval = zslDelete(zs->zsl,score,ele,NULL);
-            serverAssert(retval);
+            int retval2 = zslDelete(zs->zsl,score,ele,NULL);
+
+            serverAssert(retval1 == DICT_OK && retval2);
 
             if (htNeedsResize(zs->dict)) dictResize(zs->dict);
             return 1;
@@ -1521,7 +1522,7 @@ void zaddGenericCommand(client *c, int flags) {
     /* After the options, we expect to have an even number of args, since
      * we expect any number of score-element pairs. */
     elements = c->argc-scoreidx;
-    if (elements % 2 || !elements) {
+    if (elements % 2) {
         addReply(c,shared.syntaxerr);
         return;
     }
@@ -2110,7 +2111,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-uint64_t dictSdsHash(const void *key);
+unsigned int dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 dictType setAccumulatorDictType = {
@@ -2261,7 +2262,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     } else if (op == SET_OP_UNION) {
         dict *accumulator = dictCreate(&setAccumulatorDictType,NULL);
         dictIterator *di;
-        dictEntry *de, *existing;
+        dictEntry *de;
         double score;
 
         if (setnum) {
@@ -2282,16 +2283,16 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the accumulating dictionary. */
-                de = dictAddRaw(accumulator,zuiSdsFromValue(&zval),&existing);
+                de = dictFind(accumulator,zuiSdsFromValue(&zval));
                 /* If we don't have it, we need to create a new entry. */
-                if (!existing) {
+                if (de == NULL) {
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Remember the longest single element encountered,
                      * to understand if it's possible to convert to ziplist
                      * at the end. */
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                    /* Update the element with its initial score. */
-                    dictSetKey(accumulator, de, tmp);
+                    /* Add the element with its initial score. */
+                    de = dictAddRaw(accumulator,tmp);
                     dictSetDoubleVal(de,score);
                 } else {
                     /* Update the score with the score of the new instance
@@ -2300,7 +2301,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                      * Here we access directly the dictEntry double
                      * value inside the union as it is a big speedup
                      * compared to using the getDouble/setDouble API. */
-                    zunionInterAggregate(&existing->v.d,score,aggregate);
+                    zunionInterAggregate(&de->v.d,score,aggregate);
                 }
             }
             zuiClearIterator(&src[i]);

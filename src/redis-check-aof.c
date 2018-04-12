@@ -28,8 +28,13 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "server.h"
+#include "fmacros.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/stat.h>
+#include "config.h"
 
 #define ERROR(...) { \
     char __buf[1024]; \
@@ -55,7 +60,7 @@ int readLong(FILE *fp, char prefix, long *target) {
         return 0;
     }
     if (buf[0] != prefix) {
-        ERROR("Expected prefix '%c', got: '%c'",prefix,buf[0]);
+        ERROR("Expected prefix '%c', got: '%c'",buf[0],prefix);
         return 0;
     }
     *target = strtol(buf+1,&eptr,10);
@@ -82,7 +87,7 @@ int readString(FILE *fp, char** target) {
 
     /* Increase length to also consume \r\n */
     len += 2;
-    *target = (char*)zmalloc(len);
+    *target = (char*)malloc(len);
     if (!readBytes(fp,*target,len)) {
         return 0;
     }
@@ -122,12 +127,12 @@ off_t process(FILE *fp) {
                     }
                 }
             }
-            zfree(str);
+            free(str);
         }
 
         /* Stop if the loop did not finish */
         if (i < argc) {
-            if (str) zfree(str);
+            if (str) free(str);
             break;
         }
     }
@@ -141,7 +146,7 @@ off_t process(FILE *fp) {
     return pos;
 }
 
-int redis_check_aof_main(int argc, char **argv) {
+int main(int argc, char **argv) {
     char *filename;
     int fix = 0;
 
@@ -180,25 +185,6 @@ int redis_check_aof_main(int argc, char **argv) {
         exit(1);
     }
 
-    /* This AOF file may have an RDB preamble. Check this to start, and if this
-     * is the case, start processing the RDB part. */
-    if (size >= 8) {    /* There must be at least room for the RDB header. */
-        char sig[5];
-        int has_preamble = fread(sig,sizeof(sig),1,fp) == 1 &&
-                            memcmp(sig,"REDIS",sizeof(sig)) == 0;
-        rewind(fp);
-        if (has_preamble) {
-            printf("The AOF appears to start with an RDB preamble.\n"
-                   "Checking the RDB preamble to start:\n");
-            if (redis_check_rdb_main(argc,argv,fp) == C_ERR) {
-                printf("RDB preamble of AOF file is not sane, aborting.\n");
-                exit(1);
-            } else {
-                printf("RDB preamble is OK, proceeding with AOF tail...\n");
-            }
-        }
-    }
-
     off_t pos = process(fp);
     off_t diff = size-pos;
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
@@ -220,8 +206,7 @@ int redis_check_aof_main(int argc, char **argv) {
                 printf("Successfully truncated AOF\n");
             }
         } else {
-            printf("AOF is not valid. "
-                   "Use the --fix option to try fixing it.\n");
+            printf("AOF is not valid\n");
             exit(1);
         }
     } else {
@@ -229,5 +214,5 @@ int redis_check_aof_main(int argc, char **argv) {
     }
 
     fclose(fp);
-    exit(0);
+    return 0;
 }

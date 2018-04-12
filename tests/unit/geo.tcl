@@ -49,9 +49,6 @@ proc compare_lists {List1 List2} {
 #
 # The format is: seed km lon lat
 set regression_vectors {
-    {1482225976969 7083 81.634948934258375 30.561509253718668}
-    {1482340074151 5416 -70.863281847379767 -46.347003465679947}
-    {1499014685896 6064 -89.818768962202014 -40.463868561416803}
     {1412 156 149.29737817929004 15.95807862745508}
     {441574 143 59.235461856813856 66.269555127373678}
     {160645 187 -101.88575239939883 49.061997951502917}
@@ -224,26 +221,18 @@ start_server {tags {"geo"}} {
     }
 
     test {GEOADD + GEORANGE randomized test} {
-        set attempt 30
+        set attempt 20
         while {[incr attempt -1]} {
             set rv [lindex $regression_vectors $rv_idx]
             incr rv_idx
 
             unset -nocomplain debuginfo
-            set srand_seed [clock milliseconds]
+            set srand_seed [randomInt 1000000]
             if {$rv ne {}} {set srand_seed [lindex $rv 0]}
             lappend debuginfo "srand_seed is $srand_seed"
             expr {srand($srand_seed)} ; # If you need a reproducible run
             r del mypoints
-
-            if {[randomInt 10] == 0} {
-                # From time to time use very big radiuses
-                set radius_km [expr {[randomInt 50000]+10}]
-            } else {
-                # Normally use a few - ~200km radiuses to stress
-                # test the code the most in edge cases.
-                set radius_km [expr {[randomInt 200]+10}]
-            }
+            set radius_km [expr {[randomInt 200]+10}]
             if {$rv ne {}} {set radius_km [lindex $rv 1]}
             set radius_m [expr {$radius_km*1000}]
             geo_random_point search_lon search_lat
@@ -257,11 +246,10 @@ start_server {tags {"geo"}} {
             for {set j 0} {$j < 20000} {incr j} {
                 geo_random_point lon lat
                 lappend argv $lon $lat "place:$j"
-                set distance [geo_distance $lon $lat $search_lon $search_lat]
-                if {$distance < $radius_m} {
+                if {[geo_distance $lon $lat $search_lon $search_lat] < $radius_m} {
                     lappend tcl_result "place:$j"
+                    lappend debuginfo "place:$j $lon $lat [expr {[geo_distance $lon $lat $search_lon $search_lat]/1000}] km"
                 }
-                lappend debuginfo "place:$j $lon $lat [expr {$distance/1000}] km"
             }
             r geoadd mypoints {*}$argv
             set res [lsort [r georadius mypoints $search_lon $search_lat $radius_km km]]
