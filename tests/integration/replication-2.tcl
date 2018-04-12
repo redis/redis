@@ -2,12 +2,9 @@ start_server {tags {"repl"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            wait_for_condition 50 100 {
-                [s -1 master_link_status] eq {up}
-            } else {
-                fail "Replication not started."
-            }
-        }
+            after 1000
+            s -1 role
+        } {slave}
 
         test {If min-slaves-to-write is honored, write is accepted} {
             r config set min-slaves-to-write 1

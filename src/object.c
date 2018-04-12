@@ -36,8 +36,6 @@
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
-/* ===================== Creation and parsing of objects ==================== */
-
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
@@ -75,7 +73,7 @@ robj *makeObjectShared(robj *o) {
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
 robj *createRawStringObject(const char *ptr, size_t len) {
-    return createObject(OBJ_STRING, sdsnewlen(ptr,len));
+    return createObject(OBJ_STRING,sdsnewlen(ptr,len));
 }
 
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
@@ -98,9 +96,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     sh->len = len;
     sh->alloc = len;
     sh->flags = SDS_TYPE_8;
-    if (ptr == SDS_NOINIT)
-        sh->buf[len] = '\0';
-    else if (ptr) {
+    if (ptr) {
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
@@ -113,7 +109,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
  * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used.
  *
- * The current limit of 44 is chosen so that the biggest string object
+ * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
@@ -147,7 +143,7 @@ robj *createStringObjectFromLongLong(long long value) {
  *
  * The 'humanfriendly' option is used for INCRBYFLOAT and HINCRBYFLOAT. */
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
-    char buf[MAX_LONG_DOUBLE_CHARS];
+    char buf[256];
     int len = ld2string(buf,sizeof(buf),value,humanfriendly);
     return createStringObject(buf,len);
 }
@@ -234,13 +230,6 @@ robj *createZsetZiplistObject(void) {
     return o;
 }
 
-robj *createStreamObject(void) {
-    stream *s = streamNew();
-    robj *o = createObject(OBJ_STREAM,s);
-    o->encoding = OBJ_ENCODING_STREAM;
-    return o;
-}
-
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
@@ -255,9 +244,11 @@ void freeStringObject(robj *o) {
 }
 
 void freeListObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+    switch (o->encoding) {
+    case OBJ_ENCODING_QUICKLIST:
         quicklistRelease(o->ptr);
-    } else {
+        break;
+    default:
         serverPanic("Unknown list encoding type");
     }
 }
@@ -312,10 +303,6 @@ void freeModuleObject(robj *o) {
     zfree(mv);
 }
 
-void freeStreamObject(robj *o) {
-    freeStream(o->ptr);
-}
-
 void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
@@ -329,7 +316,6 @@ void decrRefCount(robj *o) {
         case OBJ_ZSET: freeZsetObject(o); break;
         case OBJ_HASH: freeHashObject(o); break;
         case OBJ_MODULE: freeModuleObject(o); break;
-        case OBJ_STREAM: freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
         zfree(o);
@@ -572,11 +558,11 @@ int getDoubleFromObject(const robj *o, double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
-                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
+            if (isspace(((const char*)o->ptr)[0]) ||
+                eptr[0] != '\0' ||
                 (errno == ERANGE &&
                     (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                errno == EINVAL ||
                 isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
@@ -614,12 +600,8 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         if (sdsEncodedObject(o)) {
             errno = 0;
             value = strtold(o->ptr, &eptr);
-            if (sdslen(o->ptr) == 0 ||
-                isspace(((const char*)o->ptr)[0]) ||
-                (size_t)(eptr-(char*)o->ptr) != sdslen(o->ptr) ||
-                (errno == ERANGE &&
-                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
-                isnan(value))
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE || isnan(value))
                 return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
@@ -708,436 +690,6 @@ char *strEncoding(int encoding) {
     }
 }
 
-/* =========================== Memory introspection ========================= */
-
-
-/* This is an helper function with the goal of estimating the memory
- * size of a radix tree that is used to store Stream IDs.
- *
- * Note: to guess the size of the radix tree is not trivial, so we
- * approximate it considering 128 bytes of data overhead for each
- * key (the ID), and then adding the number of bare nodes, plus some
- * overhead due by the data and child pointers. This secret recipe
- * was obtained by checking the average radix tree created by real
- * workloads, and then adjusting the constants to get numbers that
- * more or less match the real memory usage.
- *
- * Actually the number of nodes and keys may be different depending
- * on the insertion speed and thus the ability of the radix tree
- * to compress prefixes. */
-size_t streamRadixTreeMemoryUsage(rax *rax) {
-    size_t size;
-    size = rax->numele * sizeof(streamID);
-    size += rax->numnodes * sizeof(raxNode);
-    /* Add a fixed overhead due to the aux data pointer, children, ... */
-    size += rax->numnodes * sizeof(long)*30;
-    return size;
-}
-
-/* Returns the size in bytes consumed by the key's value in RAM.
- * Note that the returned value is just an approximation, especially in the
- * case of aggregated data types where only "sample_size" elements
- * are checked and averaged to estimate the total size. */
-#define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
-size_t objectComputeSize(robj *o, size_t sample_size) {
-    sds ele, ele2;
-    dict *d;
-    dictIterator *di;
-    struct dictEntry *de;
-    size_t asize = 0, elesize = 0, samples = 0;
-
-    if (o->type == OBJ_STRING) {
-        if(o->encoding == OBJ_ENCODING_INT) {
-            asize = sizeof(*o);
-        } else if(o->encoding == OBJ_ENCODING_RAW) {
-            asize = sdsAllocSize(o->ptr)+sizeof(*o);
-        } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
-            asize = sdslen(o->ptr)+2+sizeof(*o);
-        } else {
-            serverPanic("Unknown string encoding");
-        }
-    } else if (o->type == OBJ_LIST) {
-        if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            quicklist *ql = o->ptr;
-            quicklistNode *node = ql->head;
-            asize = sizeof(*o)+sizeof(quicklist);
-            do {
-                elesize += sizeof(quicklistNode)+ziplistBlobLen(node->zl);
-                samples++;
-            } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*ql->len;
-        } else if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+ziplistBlobLen(o->ptr);
-        } else {
-            serverPanic("Unknown list encoding");
-        }
-    } else if (o->type == OBJ_SET) {
-        if (o->encoding == OBJ_ENCODING_HT) {
-            d = o->ptr;
-            di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
-                ele = dictGetKey(de);
-                elesize += sizeof(struct dictEntry) + sdsAllocSize(ele);
-                samples++;
-            }
-            dictReleaseIterator(di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
-        } else if (o->encoding == OBJ_ENCODING_INTSET) {
-            intset *is = o->ptr;
-            asize = sizeof(*o)+sizeof(*is)+is->encoding*is->length;
-        } else {
-            serverPanic("Unknown set encoding");
-        }
-    } else if (o->type == OBJ_ZSET) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-            d = ((zset*)o->ptr)->dict;
-            zskiplist *zsl = ((zset*)o->ptr)->zsl;
-            zskiplistNode *znode = zsl->header->level[0].forward;
-            asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while(znode != NULL && samples < sample_size) {
-                elesize += sdsAllocSize(znode->ele);
-                elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
-                samples++;
-                znode = znode->level[0].forward;
-            }
-            if (samples) asize += (double)elesize/samples*dictSize(d);
-        } else {
-            serverPanic("Unknown sorted set encoding");
-        }
-    } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistBlobLen(o->ptr));
-        } else if (o->encoding == OBJ_ENCODING_HT) {
-            d = o->ptr;
-            di = dictGetIterator(d);
-            asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
-                ele = dictGetKey(de);
-                ele2 = dictGetVal(de);
-                elesize += sdsAllocSize(ele) + sdsAllocSize(ele2);
-                elesize += sizeof(struct dictEntry);
-                samples++;
-            }
-            dictReleaseIterator(di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
-        } else {
-            serverPanic("Unknown hash encoding");
-        }
-    } else if (o->type == OBJ_STREAM) {
-        stream *s = o->ptr;
-        asize = sizeof(*o);
-        asize += streamRadixTreeMemoryUsage(s->rax);
-
-        /* Now we have to add the listpacks. The last listpack is often non
-         * complete, so we estimate the size of the first N listpacks, and
-         * use the average to compute the size of the first N-1 listpacks, and
-         * finally add the real size of the last node. */
-        raxIterator ri;
-        raxStart(&ri,s->rax);
-        raxSeek(&ri,"^",NULL,0);
-        size_t lpsize = 0, samples = 0;
-        while(samples < sample_size && raxNext(&ri)) {
-            unsigned char *lp = ri.data;
-            lpsize += lpBytes(lp);
-            samples++;
-        }
-        if (s->rax->numele <= samples) {
-            asize += lpsize;
-        } else {
-            if (samples) lpsize /= samples; /* Compute the average. */
-            asize += lpsize * (s->rax->numele-1);
-            /* No need to check if seek succeeded, we enter this branch only
-             * if there are a few elements in the radix tree. */
-            raxSeek(&ri,"$",NULL,0);
-            raxNext(&ri);
-            asize += lpBytes(ri.data);
-        }
-        raxStop(&ri);
-
-        /* Consumer groups also have a non trivial memory overhead if there
-         * are many consumers and many groups, let's count at least the
-         * overhead of the pending entries in the groups and consumers
-         * PELs. */
-        if (s->cgroups) {
-            raxStart(&ri,s->cgroups);
-            raxSeek(&ri,"^",NULL,0);
-            while(raxNext(&ri)) {
-                streamCG *cg = ri.data;
-                asize += sizeof(*cg);
-                asize += streamRadixTreeMemoryUsage(cg->pel);
-                asize += sizeof(streamNACK)*raxSize(cg->pel);
-
-                /* For each consumer we also need to add the basic data
-                 * structures and the PEL memory usage. */
-                raxIterator cri;
-                raxStart(&cri,cg->consumers);
-                while(raxNext(&cri)) {
-                    streamConsumer *consumer = cri.data;
-                    asize += sizeof(*consumer);
-                    asize += sdslen(consumer->name);
-                    asize += streamRadixTreeMemoryUsage(consumer->pel);
-                    /* Don't count NACKs again, they are shared with the
-                     * consumer group PEL. */
-                }
-                raxStop(&cri);
-            }
-            raxStop(&ri);
-        }
-    } else if (o->type == OBJ_MODULE) {
-        moduleValue *mv = o->ptr;
-        moduleType *mt = mv->type;
-        if (mt->mem_usage != NULL) {
-            asize = mt->mem_usage(mv->value);
-        } else {
-            asize = 0;
-        }
-    } else {
-        serverPanic("Unknown object type");
-    }
-    return asize;
-}
-
-/* Release data obtained with getMemoryOverheadData(). */
-void freeMemoryOverheadData(struct redisMemOverhead *mh) {
-    zfree(mh->db);
-    zfree(mh);
-}
-
-/* Return a struct redisMemOverhead filled with memory overhead
- * information used for the MEMORY OVERHEAD and INFO command. The returned
- * structure pointer should be freed calling freeMemoryOverheadData(). */
-struct redisMemOverhead *getMemoryOverheadData(void) {
-    int j;
-    size_t mem_total = 0;
-    size_t mem = 0;
-    size_t zmalloc_used = zmalloc_used_memory();
-    struct redisMemOverhead *mh = zcalloc(sizeof(*mh));
-
-    mh->total_allocated = zmalloc_used;
-    mh->startup_allocated = server.initial_memory_usage;
-    mh->peak_allocated = server.stat_peak_memory;
-    mh->total_frag =
-        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.zmalloc_used;
-    mh->total_frag_bytes =
-        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.zmalloc_used;
-    mh->allocator_frag =
-        (float)server.cron_malloc_stats.allocator_active / server.cron_malloc_stats.allocator_allocated;
-    mh->allocator_frag_bytes =
-        server.cron_malloc_stats.allocator_active - server.cron_malloc_stats.allocator_allocated;
-    mh->allocator_rss =
-        (float)server.cron_malloc_stats.allocator_resident / server.cron_malloc_stats.allocator_active;
-    mh->allocator_rss_bytes =
-        server.cron_malloc_stats.allocator_resident - server.cron_malloc_stats.allocator_active;
-    mh->rss_extra =
-        (float)server.cron_malloc_stats.process_rss / server.cron_malloc_stats.allocator_resident;
-    mh->rss_extra_bytes =
-        server.cron_malloc_stats.process_rss - server.cron_malloc_stats.allocator_resident;
-
-    mem_total += server.initial_memory_usage;
-
-    mem = 0;
-    if (server.repl_backlog)
-        mem += zmalloc_size(server.repl_backlog);
-    mh->repl_backlog = mem;
-    mem_total += mem;
-
-    mem = 0;
-    if (listLength(server.slaves)) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
-        }
-    }
-    mh->clients_slaves = mem;
-    mem_total+=mem;
-
-    mem = 0;
-    if (listLength(server.clients)) {
-        listIter li;
-        listNode *ln;
-
-        listRewind(server.clients,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
-            if (c->flags & CLIENT_SLAVE)
-                continue;
-            mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
-            mem += sizeof(client);
-        }
-    }
-    mh->clients_normal = mem;
-    mem_total+=mem;
-
-    mem = 0;
-    if (server.aof_state != AOF_OFF) {
-        mem += sdslen(server.aof_buf);
-        mem += aofRewriteBufferSize();
-    }
-    mh->aof_buffer = mem;
-    mem_total+=mem;
-
-    for (j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db+j;
-        long long keyscount = dictSize(db->dict);
-        if (keyscount==0) continue;
-
-        mh->total_keys += keyscount;
-        mh->db = zrealloc(mh->db,sizeof(mh->db[0])*(mh->num_dbs+1));
-        mh->db[mh->num_dbs].dbid = j;
-
-        mem = dictSize(db->dict) * sizeof(dictEntry) +
-              dictSlots(db->dict) * sizeof(dictEntry*) +
-              dictSize(db->dict) * sizeof(robj);
-        mh->db[mh->num_dbs].overhead_ht_main = mem;
-        mem_total+=mem;
-
-        mem = dictSize(db->expires) * sizeof(dictEntry) +
-              dictSlots(db->expires) * sizeof(dictEntry*);
-        mh->db[mh->num_dbs].overhead_ht_expires = mem;
-        mem_total+=mem;
-
-        mh->num_dbs++;
-    }
-
-    mh->overhead_total = mem_total;
-    mh->dataset = zmalloc_used - mem_total;
-    mh->peak_perc = (float)zmalloc_used*100/mh->peak_allocated;
-
-    /* Metrics computed after subtracting the startup memory from
-     * the total memory. */
-    size_t net_usage = 1;
-    if (zmalloc_used > mh->startup_allocated)
-        net_usage = zmalloc_used - mh->startup_allocated;
-    mh->dataset_perc = (float)mh->dataset*100/net_usage;
-    mh->bytes_per_key = mh->total_keys ? (net_usage / mh->total_keys) : 0;
-
-    return mh;
-}
-
-/* Helper for "MEMORY allocator-stats", used as a callback for the jemalloc
- * stats output. */
-void inputCatSds(void *result, const char *str) {
-    /* result is actually a (sds *), so re-cast it here */
-    sds *info = (sds *)result;
-    *info = sdscat(*info, str);
-}
-
-/* This implements MEMORY DOCTOR. An human readable analysis of the Redis
- * memory condition. */
-sds getMemoryDoctorReport(void) {
-    int empty = 0;          /* Instance is empty or almost empty. */
-    int big_peak = 0;       /* Memory peak is much larger than used mem. */
-    int high_frag = 0;      /* High fragmentation. */
-    int high_alloc_frag = 0;/* High allocator fragmentation. */
-    int high_proc_rss = 0;  /* High process rss overhead. */
-    int high_alloc_rss = 0; /* High rss overhead. */
-    int big_slave_buf = 0;  /* Slave buffers are too big. */
-    int big_client_buf = 0; /* Client buffers are too big. */
-    int num_reports = 0;
-    struct redisMemOverhead *mh = getMemoryOverheadData();
-
-    if (mh->total_allocated < (1024*1024*5)) {
-        empty = 1;
-        num_reports++;
-    } else {
-        /* Peak is > 150% of current used memory? */
-        if (((float)mh->peak_allocated / mh->total_allocated) > 1.5) {
-            big_peak = 1;
-            num_reports++;
-        }
-
-        /* Fragmentation is higher than 1.4 and 10MB ?*/
-        if (mh->total_frag > 1.4 && mh->total_frag_bytes > 10<<20) {
-            high_frag = 1;
-            num_reports++;
-        }
-
-        /* External fragmentation is higher than 1.1 and 10MB? */
-        if (mh->allocator_frag > 1.1 && mh->allocator_frag_bytes > 10<<20) {
-            high_alloc_frag = 1;
-            num_reports++;
-        }
-
-        /* Allocator fss is higher than 1.1 and 10MB ? */
-        if (mh->allocator_rss > 1.1 && mh->allocator_rss_bytes > 10<<20) {
-            high_alloc_rss = 1;
-            num_reports++;
-        }
-
-        /* Non-Allocator fss is higher than 1.1 and 10MB ? */
-        if (mh->rss_extra > 1.1 && mh->rss_extra_bytes > 10<<20) {
-            high_proc_rss = 1;
-            num_reports++;
-        }
-
-        /* Clients using more than 200k each average? */
-        long numslaves = listLength(server.slaves);
-        long numclients = listLength(server.clients)-numslaves;
-        if (mh->clients_normal / numclients > (1024*200)) {
-            big_client_buf = 1;
-            num_reports++;
-        }
-
-        /* Slaves using more than 10 MB each? */
-        if (numslaves > 0 && mh->clients_slaves / numslaves > (1024*1024*10)) {
-            big_slave_buf = 1;
-            num_reports++;
-        }
-    }
-
-    sds s;
-    if (num_reports == 0) {
-        s = sdsnew(
-        "Hi Sam, I can't find any memory issue in your instance. "
-        "I can only account for what occurs on this base.\n");
-    } else if (empty == 1) {
-        s = sdsnew(
-        "Hi Sam, this instance is empty or is using very little memory, "
-        "my issues detector can't be used in these conditions. "
-        "Please, leave for your mission on Earth and fill it with some data. "
-        "The new Sam and I will be back to our programming as soon as I "
-        "finished rebooting.\n");
-    } else {
-        s = sdsnew("Sam, I detected a few issues in this Redis instance memory implants:\n\n");
-        if (big_peak) {
-            s = sdscat(s," * Peak memory: In the past this instance used more than 150% the memory that is currently using. The allocator is normally not able to release memory after a peak, so you can expect to see a big fragmentation ratio, however this is actually harmless and is only due to the memory peak, and if the Redis instance Resident Set Size (RSS) is currently bigger than expected, the memory will be used as soon as you fill the Redis instance with more data. If the memory peak was only occasional and you want to try to reclaim memory, please try the MEMORY PURGE command, otherwise the only other option is to shutdown and restart the instance.\n\n");
-        }
-        if (high_frag) {
-            s = sdscatprintf(s," * High total RSS: This instance has a memory fragmentation and RSS overhead greater than 1.4 (this means that the Resident Set Size of the Redis process is much larger than the sum of the logical allocations Redis performed). This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. If the problem is a large peak memory, then there is no issue. Otherwise, make sure you are using the Jemalloc allocator and not the default libc malloc. Note: The currently used allocator is \"%s\".\n\n", ZMALLOC_LIB);
-        }
-        if (high_alloc_frag) {
-            s = sdscatprintf(s," * High allocator fragmentation: This instance has an allocator external fragmentation greater than 1.1. This problem is usually due either to a large peak memory (check if there is a peak memory entry above in the report) or may result from a workload that causes the allocator to fragment memory a lot. You can try enabling 'activedefrag' config option.\n\n");
-        }
-        if (high_alloc_rss) {
-            s = sdscatprintf(s," * High allocator RSS overhead: This instance has an RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the allocator is much larger than the sum what the allocator actually holds). This problem is usually due to a large peak memory (check if there is a peak memory entry above in the report), you can try the MEMORY PURGE command to reclaim it.\n\n");
-        }
-        if (high_proc_rss) {
-            s = sdscatprintf(s," * High process RSS overhead: This instance has non-allocator RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the Redis process is much larger than the RSS the allocator holds). This problem may be due to LUA scripts or Modules.\n\n");
-        }
-        if (big_slave_buf) {
-            s = sdscat(s," * Big slave buffers: The slave output buffers in this instance are greater than 10MB for each slave (on average). This likely means that there is some slave instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what slave is not receiving data correctly and why. You can use the INFO output in order to check the slaves delays and the CLIENT LIST command to check the output buffers of each slave.\n\n");
-        }
-        if (big_client_buf) {
-            s = sdscat(s," * Big client buffers: The clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like Pub/Sub clients subscribed to channels bot not receiving data fast enough, so that data piles on the Redis instance output buffer, or clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
-        }
-        s = sdscat(s,"I'm here to keep you safe, Sam. I want to help you.\n");
-    }
-    freeMemoryOverheadData(mh);
-    return s;
-}
-
-/* ======================= The OBJECT and MEMORY commands =================== */
-
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
 robj *objectCommandLookup(client *c, robj *key) {
@@ -1155,20 +707,11 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
- * Usage: OBJECT <refcount|encoding|idletime|freq> <key> */
+ * Usage: OBJECT <refcount|encoding|idletime> <key> */
 void objectCommand(client *c) {
     robj *o;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-"freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-"idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-"refcount <key> -- Return the number of references of the value associated with the specified key.",
-NULL
-        };
-        addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
+    if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
@@ -1187,184 +730,13 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
-        if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU)) {
-            addReplyError(c,"An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
+        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
+            addReplyError(c,"An LRU maxmemory policy is selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
             return;
         }
-        /* LFUDecrAndReturn should be called
-         * in case of the key has not been accessed for a long time,
-         * because we update the access time only
-         * when the key is read or overwritten. */
-        addReplyLongLong(c,LFUDecrAndReturn(o));
+        addReplyLongLong(c,o->lru&255);
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help", (char *)c->argv[1]->ptr);
+        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|freq)");
     }
 }
 
-/* The memory command will eventually be a complete interface for the
- * memory introspection capabilities of Redis.
- *
- * Usage: MEMORY usage <key> */
-void memoryCommand(client *c) {
-    robj *o;
-
-    if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
-        long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
-        for (int j = 3; j < c->argc; j++) {
-            if (!strcasecmp(c->argv[j]->ptr,"samples") &&
-                j+1 < c->argc)
-            {
-                if (getLongLongFromObjectOrReply(c,c->argv[j+1],&samples,NULL)
-                     == C_ERR) return;
-                if (samples < 0) {
-                    addReply(c,shared.syntaxerr);
-                    return;
-                }
-                if (samples == 0) samples = LLONG_MAX;;
-                j++; /* skip option argument. */
-            } else {
-                addReply(c,shared.syntaxerr);
-                return;
-            }
-        }
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
-                == NULL) return;
-        size_t usage = objectComputeSize(o,samples);
-        usage += sdsAllocSize(c->argv[2]->ptr);
-        usage += sizeof(dictEntry);
-        addReplyLongLong(c,usage);
-    } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
-        struct redisMemOverhead *mh = getMemoryOverheadData();
-
-        addReplyMultiBulkLen(c,(24+mh->num_dbs)*2);
-
-        addReplyBulkCString(c,"peak.allocated");
-        addReplyLongLong(c,mh->peak_allocated);
-
-        addReplyBulkCString(c,"total.allocated");
-        addReplyLongLong(c,mh->total_allocated);
-
-        addReplyBulkCString(c,"startup.allocated");
-        addReplyLongLong(c,mh->startup_allocated);
-
-        addReplyBulkCString(c,"replication.backlog");
-        addReplyLongLong(c,mh->repl_backlog);
-
-        addReplyBulkCString(c,"clients.slaves");
-        addReplyLongLong(c,mh->clients_slaves);
-
-        addReplyBulkCString(c,"clients.normal");
-        addReplyLongLong(c,mh->clients_normal);
-
-        addReplyBulkCString(c,"aof.buffer");
-        addReplyLongLong(c,mh->aof_buffer);
-
-        for (size_t j = 0; j < mh->num_dbs; j++) {
-            char dbname[32];
-            snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
-            addReplyBulkCString(c,dbname);
-            addReplyMultiBulkLen(c,4);
-
-            addReplyBulkCString(c,"overhead.hashtable.main");
-            addReplyLongLong(c,mh->db[j].overhead_ht_main);
-
-            addReplyBulkCString(c,"overhead.hashtable.expires");
-            addReplyLongLong(c,mh->db[j].overhead_ht_expires);
-        }
-
-        addReplyBulkCString(c,"overhead.total");
-        addReplyLongLong(c,mh->overhead_total);
-
-        addReplyBulkCString(c,"keys.count");
-        addReplyLongLong(c,mh->total_keys);
-
-        addReplyBulkCString(c,"keys.bytes-per-key");
-        addReplyLongLong(c,mh->bytes_per_key);
-
-        addReplyBulkCString(c,"dataset.bytes");
-        addReplyLongLong(c,mh->dataset);
-
-        addReplyBulkCString(c,"dataset.percentage");
-        addReplyDouble(c,mh->dataset_perc);
-
-        addReplyBulkCString(c,"peak.percentage");
-        addReplyDouble(c,mh->peak_perc);
-
-        addReplyBulkCString(c,"allocator.allocated");
-        addReplyLongLong(c,server.cron_malloc_stats.allocator_allocated);
-
-        addReplyBulkCString(c,"allocator.active");
-        addReplyLongLong(c,server.cron_malloc_stats.allocator_active);
-
-        addReplyBulkCString(c,"allocator.resident");
-        addReplyLongLong(c,server.cron_malloc_stats.allocator_resident);
-
-        addReplyBulkCString(c,"allocator-fragmentation.ratio");
-        addReplyDouble(c,mh->allocator_frag);
-
-        addReplyBulkCString(c,"allocator-fragmentation.bytes");
-        addReplyLongLong(c,mh->allocator_frag_bytes);
-
-        addReplyBulkCString(c,"allocator-rss.ratio");
-        addReplyDouble(c,mh->allocator_rss);
-
-        addReplyBulkCString(c,"allocator-rss.bytes");
-        addReplyLongLong(c,mh->allocator_rss_bytes);
-
-        addReplyBulkCString(c,"rss-overhead.ratio");
-        addReplyDouble(c,mh->rss_extra);
-
-        addReplyBulkCString(c,"rss-overhead.bytes");
-        addReplyLongLong(c,mh->rss_extra_bytes);
-
-        addReplyBulkCString(c,"fragmentation"); /* this is the total RSS overhead, including fragmentation */
-        addReplyDouble(c,mh->total_frag); /* it is kept here for backwards compatibility */
-
-        addReplyBulkCString(c,"fragmentation.bytes");
-        addReplyLongLong(c,mh->total_frag_bytes);
-
-        freeMemoryOverheadData(mh);
-    } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
-#if defined(USE_JEMALLOC)
-        sds info = sdsempty();
-        je_malloc_stats_print(inputCatSds, &info, NULL);
-        addReplyBulkSds(c, info);
-#else
-        addReplyBulkCString(c,"Stats not supported for the current allocator");
-#endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"doctor") && c->argc == 2) {
-        sds report = getMemoryDoctorReport();
-        addReplyBulkSds(c,report);
-    } else if (!strcasecmp(c->argv[1]->ptr,"purge") && c->argc == 2) {
-#if defined(USE_JEMALLOC)
-        char tmp[32];
-        unsigned narenas = 0;
-        size_t sz = sizeof(unsigned);
-        if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
-            sprintf(tmp, "arena.%d.purge", narenas);
-            if (!je_mallctl(tmp, NULL, 0, NULL, 0)) {
-                addReply(c, shared.ok);
-                return;
-            }
-        }
-        addReplyError(c, "Error purging dirty pages");
-#else
-        addReply(c, shared.ok);
-        /* Nothing to do for other allocators. */
-#endif
-    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        addReplyMultiBulkLen(c,5);
-        addReplyBulkCString(c,
-"MEMORY DOCTOR                        - Outputs memory problems report");
-        addReplyBulkCString(c,
-"MEMORY USAGE <key> [SAMPLES <count>] - Estimate memory usage of key");
-        addReplyBulkCString(c,
-"MEMORY STATS                         - Show memory usage details");
-        addReplyBulkCString(c,
-"MEMORY PURGE                         - Ask the allocator to release memory");
-        addReplyBulkCString(c,
-"MEMORY MALLOC-STATS                  - Show allocator internal stats");
-    } else {
-        addReplyError(c,"Syntax error. Try MEMORY HELP");
-    }
-}

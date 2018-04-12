@@ -92,7 +92,7 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
  *
  * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
  * executed, where the time limit is a percentage of the REDIS_HZ period
- * as specified by the ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC define. */
+ * as specified by the REDIS_EXPIRELOOKUPS_TIME_PERC define. */
 
 void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
@@ -103,15 +103,10 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
-    long long start = ustime(), timelimit, elapsed;
-
-    /* When clients are paused the dataset should be static not just from the
-     * POV of clients not being able to write, but also from the POV of
-     * expires and evictions of keys not being performed. */
-    if (clientsArePaused()) return;
+    long long start = ustime(), timelimit;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
-        /* Don't start a fast cycle if the previous cycle did not exit
+        /* Don't start a fast cycle if the previous cycle did not exited
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
@@ -140,13 +135,7 @@ void activeExpireCycle(int type) {
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
         timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
 
-    /* Accumulate some global stats as we expire keys, to have some idea
-     * about the number of keys that are already logically expired, but still
-     * existing inside the database. */
-    long total_sampled = 0;
-    long total_expired = 0;
-
-    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
+    for (j = 0; j < dbs_per_call; j++) {
         int expired;
         redisDb *db = server.db+(current_db % server.dbnum);
 
@@ -161,7 +150,6 @@ void activeExpireCycle(int type) {
             unsigned long num, slots;
             long long now, ttl_sum;
             int ttl_samples;
-            iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = dictSize(db->expires)) == 0) {
@@ -198,9 +186,7 @@ void activeExpireCycle(int type) {
                     ttl_sum += ttl;
                     ttl_samples++;
                 }
-                total_sampled++;
             }
-            total_expired += expired;
 
             /* Update the average TTL stats for this database. */
             if (ttl_samples) {
@@ -216,178 +202,17 @@ void activeExpireCycle(int type) {
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
+            iteration++;
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                elapsed = ustime()-start;
-                if (elapsed > timelimit) {
-                    timelimit_exit = 1;
-                    server.stat_expired_time_cap_reached_count++;
-                    break;
-                }
+                long long elapsed = ustime()-start;
+
+                latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
+                if (elapsed > timelimit) timelimit_exit = 1;
             }
+            if (timelimit_exit) return;
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
-    }
-
-    elapsed = ustime()-start;
-    latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
-
-    /* Update our estimate of keys existing but yet to be expired.
-     * Running average with this sample accounting for 5%. */
-    double current_perc;
-    if (total_sampled) {
-        current_perc = (double)total_expired/total_sampled;
-    } else
-        current_perc = 0;
-    server.stat_expired_stale_perc = (current_perc*0.05)+
-                                     (server.stat_expired_stale_perc*0.95);
-}
-
-/*-----------------------------------------------------------------------------
- * Expires of keys created in writable slaves
- *
- * Normally slaves do not process expires: they wait the masters to synthesize
- * DEL operations in order to retain consistency. However writable slaves are
- * an exception: if a key is created in the slave and an expire is assigned
- * to it, we need a way to expire such a key, since the master does not know
- * anything about such a key.
- *
- * In order to do so, we track keys created in the slave side with an expire
- * set, and call the expireSlaveKeys() function from time to time in order to
- * reclaim the keys if they already expired.
- *
- * Note that the use case we are trying to cover here, is a popular one where
- * slaves are put in writable mode in order to compute slow operations in
- * the slave side that are mostly useful to actually read data in a more
- * processed way. Think at sets intersections in a tmp key, with an expire so
- * that it is also used as a cache to avoid intersecting every time.
- *
- * This implementation is currently not perfect but a lot better than leaking
- * the keys as implemented in 3.2.
- *----------------------------------------------------------------------------*/
-
-/* The dictionary where we remember key names and database ID of keys we may
- * want to expire from the slave. Since this function is not often used we
- * don't even care to initialize the database at startup. We'll do it once
- * the feature is used the first time, that is, when rememberSlaveKeyWithExpire()
- * is called.
- *
- * The dictionary has an SDS string representing the key as the hash table
- * key, while the value is a 64 bit unsigned integer with the bits corresponding
- * to the DB where the keys may exist set to 1. Currently the keys created
- * with a DB id > 63 are not expired, but a trivial fix is to set the bitmap
- * to the max 64 bit unsigned value when we know there is a key with a DB
- * ID greater than 63, and check all the configured DBs in such a case. */
-dict *slaveKeysWithExpire = NULL;
-
-/* Check the set of keys created by the master with an expire set in order to
- * check if they should be evicted. */
-void expireSlaveKeys(void) {
-    if (slaveKeysWithExpire == NULL ||
-        dictSize(slaveKeysWithExpire) == 0) return;
-
-    int cycles = 0, noexpire = 0;
-    mstime_t start = mstime();
-    while(1) {
-        dictEntry *de = dictGetRandomKey(slaveKeysWithExpire);
-        sds keyname = dictGetKey(de);
-        uint64_t dbids = dictGetUnsignedIntegerVal(de);
-        uint64_t new_dbids = 0;
-
-        /* Check the key against every database corresponding to the
-         * bits set in the value bitmap. */
-        int dbid = 0;
-        while(dbids && dbid < server.dbnum) {
-            if ((dbids & 1) != 0) {
-                redisDb *db = server.db+dbid;
-                dictEntry *expire = dictFind(db->expires,keyname);
-                int expired = 0;
-
-                if (expire &&
-                    activeExpireCycleTryExpire(server.db+dbid,expire,start))
-                {
-                    expired = 1;
-                }
-
-                /* If the key was not expired in this DB, we need to set the
-                 * corresponding bit in the new bitmap we set as value.
-                 * At the end of the loop if the bitmap is zero, it means we
-                 * no longer need to keep track of this key. */
-                if (expire && !expired) {
-                    noexpire++;
-                    new_dbids |= (uint64_t)1 << dbid;
-                }
-            }
-            dbid++;
-            dbids >>= 1;
-        }
-
-        /* Set the new bitmap as value of the key, in the dictionary
-         * of keys with an expire set directly in the writable slave. Otherwise
-         * if the bitmap is zero, we no longer need to keep track of it. */
-        if (new_dbids)
-            dictSetUnsignedIntegerVal(de,new_dbids);
-        else
-            dictDelete(slaveKeysWithExpire,keyname);
-
-        /* Stop conditions: found 3 keys we cna't expire in a row or
-         * time limit was reached. */
-        cycles++;
-        if (noexpire > 3) break;
-        if ((cycles % 64) == 0 && mstime()-start > 1) break;
-        if (dictSize(slaveKeysWithExpire) == 0) break;
-    }
-}
-
-/* Track keys that received an EXPIRE or similar command in the context
- * of a writable slave. */
-void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
-    if (slaveKeysWithExpire == NULL) {
-        static dictType dt = {
-            dictSdsHash,                /* hash function */
-            NULL,                       /* key dup */
-            NULL,                       /* val dup */
-            dictSdsKeyCompare,          /* key compare */
-            dictSdsDestructor,          /* key destructor */
-            NULL                        /* val destructor */
-        };
-        slaveKeysWithExpire = dictCreate(&dt,NULL);
-    }
-    if (db->id > 63) return;
-
-    dictEntry *de = dictAddOrFind(slaveKeysWithExpire,key->ptr);
-    /* If the entry was just created, set it to a copy of the SDS string
-     * representing the key: we don't want to need to take those keys
-     * in sync with the main DB. The keys will be removed by expireSlaveKeys()
-     * as it scans to find keys to remove. */
-    if (de->key == key->ptr) {
-        de->key = sdsdup(key->ptr);
-        dictSetUnsignedIntegerVal(de,0);
-    }
-
-    uint64_t dbids = dictGetUnsignedIntegerVal(de);
-    dbids |= (uint64_t)1 << db->id;
-    dictSetUnsignedIntegerVal(de,dbids);
-}
-
-/* Return the number of keys we are tracking. */
-size_t getSlaveKeyWithExpireCount(void) {
-    if (slaveKeysWithExpire == NULL) return 0;
-    return dictSize(slaveKeysWithExpire);
-}
-
-/* Remove the keys in the hash table. We need to do that when data is
- * flushed from the server. We may receive new keys from the master with
- * the same name/db and it is no longer a good idea to expire them.
- *
- * Note: technically we should handle the case of a single DB being flushed
- * but it is not worth it since anyway race conditions using the same set
- * of key names in a wriatable slave and in its master will lead to
- * inconsistencies. This is just a best-effort thing we do. */
-void flushSlaveKeysWithExpireList(void) {
-    if (slaveKeysWithExpire) {
-        dictRelease(slaveKeysWithExpire);
-        slaveKeysWithExpire = NULL;
     }
 }
 
@@ -440,7 +265,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        setExpire(c,c->db,key,when);
+        setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -504,15 +329,18 @@ void pttlCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    if (lookupKeyWrite(c->db,c->argv[1])) {
+    dictEntry *de;
+
+    de = dictFind(c->db->dict,c->argv[1]->ptr);
+    if (de == NULL) {
+        addReply(c,shared.czero);
+    } else {
         if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
             addReply(c,shared.czero);
         }
-    } else {
-        addReply(c,shared.czero);
     }
 }
 

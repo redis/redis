@@ -18,7 +18,7 @@ while true do
             elements << ele
             i += 1
         }
-        r.pfadd('hll',elements)
+        r.pfadd('hll',*elements)
     }
     approx = r.pfcount('hll')
     abs_err = (approx-i).abs
