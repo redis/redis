@@ -142,8 +142,9 @@ typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
 typedef struct RedisModuleClusterInfo RedisModuleClusterInfo;
 
-typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-typedef int (*RedisModuleNotificationFunc) (RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
+typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
+typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString *key, void *value);
@@ -275,7 +276,7 @@ void REDISMODULE_API_FUNC(RedisModule_DigestEndSequence)(RedisModuleDigest *md);
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
-#define REDISMODULE_EXPERIMENTAL_API_VERSION 2
+#define REDISMODULE_EXPERIMENTAL_API_VERSION 3
 RedisModuleBlockedClient *REDISMODULE_API_FUNC(RedisModule_BlockClient)(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms);
 int REDISMODULE_API_FUNC(RedisModule_UnblockClient)(RedisModuleBlockedClient *bc, void *privdata);
 int REDISMODULE_API_FUNC(RedisModule_IsBlockedReplyRequest)(RedisModuleCtx *ctx);
@@ -300,6 +301,7 @@ const char *REDISMODULE_API_FUNC(RedisModule_GetMyClusterID)(void);
 size_t REDISMODULE_API_FUNC(RedisModule_GetClusterSize)(void);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomBytes)(unsigned char *dst, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomHexChars)(char *dst, size_t len);
+void REDISMODULE_API_FUNC(RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -421,6 +423,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsBlockedTimeoutRequest);
     REDISMODULE_GET_API(GetBlockedClientPrivateData);
     REDISMODULE_GET_API(AbortBlock);
+    REDISMODULE_GET_API(SetDisconnectCallback);
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(BlockedClientDisconnected);
     REDISMODULE_GET_API(RegisterClusterMessageReceiver);

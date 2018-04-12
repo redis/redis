@@ -158,7 +158,9 @@ typedef struct RedisModuleKey RedisModuleKey;
 
 /* Function pointer type of a function representing a command inside
  * a Redis module. */
+struct RedisModuleBlockedClient;
 typedef int (*RedisModuleCmdFunc) (RedisModuleCtx *ctx, void **argv, int argc);
+typedef void (*RedisModuleDisconnectFunc) (RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc);
 
 /* This struct holds the information about a command registered by a module.*/
 struct RedisModuleCommandProxy {
@@ -201,6 +203,7 @@ typedef struct RedisModuleBlockedClient {
     RedisModule *module;    /* Module blocking the client. */
     RedisModuleCmdFunc reply_callback; /* Reply callback on normal completion.*/
     RedisModuleCmdFunc timeout_callback; /* Reply callback on timeout. */
+    RedisModuleDisconnectFunc disconnect_callback; /* Called on disconnection.*/
     void (*free_privdata)(RedisModuleCtx*,void*);/* privdata cleanup callback.*/
     void *privdata;     /* Module private data that may be used by the reply
                            or timeout callback. It is set via the
@@ -3438,6 +3441,17 @@ void moduleBlockedClientPipeReadable(aeEventLoop *el, int fd, void *privdata, in
  * running the list of clients blocked by a module that need to be unblocked. */
 void unblockClientFromModule(client *c) {
     RedisModuleBlockedClient *bc = c->bpop.module_blocked_handle;
+
+    /* Call the disconnection callback if any. */
+    if (bc->disconnect_callback) {
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.blocked_privdata = bc->privdata;
+        ctx.module = bc->module;
+        ctx.client = bc->client;
+        bc->disconnect_callback(&ctx,bc);
+        moduleFreeContext(&ctx);
+    }
+
     bc->client = NULL;
     /* Reset the client for a new query since, for blocking commands implemented
      * into modules, we do not it immediately after the command returns (and
@@ -3478,6 +3492,7 @@ RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc
     bc->module = ctx->module;
     bc->reply_callback = reply_callback;
     bc->timeout_callback = timeout_callback;
+    bc->disconnect_callback = NULL; /* Set by RM_SetDisconnectCallback() */
     bc->free_privdata = free_privdata;
     bc->privdata = NULL;
     bc->reply_client = createClient(-1);
@@ -3523,6 +3538,26 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
 int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
     return RM_UnblockClient(bc,NULL);
+}
+
+/* Set a callback that will be called if a blocked client disconnects
+ * before the module has a chance to call RedisModule_UnblockClient()
+ *
+ * Usually what you want to do there, is to cleanup your module state
+ * so that you can call RedisModule_UnblockClient() safely, otherwise
+ * the client will remain blocked forever if the timeout is large.
+ *
+ * Notes:
+ *
+ * 1. It is not safe to call Reply* family functions here, it is also
+ *    useless since the client is gone.
+ *
+ * 2. This callback is not called if the client disconnects because of
+ *    a timeout. In such a case, the client is unblocked automatically
+ *    and the timeout callback is called.
+ */
+void RM_SetDisconnectCallback(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback) {
+    bc->disconnect_callback = callback;
 }
 
 /* This function will check the moduleUnblockedClients queue in order to
@@ -3592,6 +3627,10 @@ void moduleHandleBlockedClients(void) {
         freeClient(bc->reply_client);
 
         if (c != NULL) {
+            /* Before unblocking the client, set the disconnect callback
+             * to NULL, because if we reached this point, the client was
+             * properly unblocked by the module. */
+            bc->disconnect_callback = NULL;
             unblockClient(c);
             /* Put the client in the list of clients that need to write
              * if there are pending replies here. This is needed since
@@ -3627,6 +3666,10 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.client = bc->client;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
+    /* For timeout events, we do not want to call the disconnect callback,
+     * because the blocekd client will be automatically disconnected in
+     * this case, and the user can still hook using the timeout callback. */
+    bc->disconnect_callback = NULL;
 }
 
 /* Return non-zero if a module command was called in order to fill the
@@ -4625,4 +4668,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetRandomBytes);
     REGISTER_API(GetRandomHexChars);
     REGISTER_API(BlockedClientDisconnected);
+    REGISTER_API(SetDisconnectCallback);
 }
