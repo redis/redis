@@ -1003,13 +1003,21 @@ int RM_WrongArity(RedisModuleCtx *ctx) {
  * The function returns the client pointer depending on the context, or
  * NULL if there is no potential client. This happens when we are in the
  * context of a thread safe context that was not initialized with a blocked
- * client object. */
+ * client object. Other contexts without associated clients are the ones
+ * initialized to run the timers callbacks. */
 client *moduleGetReplyClient(RedisModuleCtx *ctx) {
-    if (!(ctx->flags & REDISMODULE_CTX_THREAD_SAFE) && ctx->client)
+    if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
+        if (ctx->blocked_client)
+            return ctx->blocked_client->reply_client;
+        else
+            return NULL;
+    } else {
+        /* If this is a non thread safe context, just return the client
+         * that is running the command if any. This may be NULL as well
+         * in the case of contexts that are not executed with associated
+         * clients, like timer contexts. */
         return ctx->client;
-    if (ctx->blocked_client)
-        return ctx->blocked_client->reply_client;
-    return NULL;
+    }
 }
 
 /* Send an integer reply to the client, with the specified long long value.
