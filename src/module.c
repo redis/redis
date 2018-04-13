@@ -4206,9 +4206,8 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 
     while(1) {
         key = htonu64(expiretime);
-        int retval = raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
-        if (retval) {
-            expiretime = key;
+        if (raxFind(Timers, (unsigned char*)&key,sizeof(key)) == raxNotFound) {
+            raxInsert(Timers,(unsigned char*)&key,sizeof(key),timer,NULL);
             break;
         } else {
             expiretime++;
