@@ -142,12 +142,12 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     }
 
     switch (left) {
-    case 7: b |= ((uint64_t)in[6]) << 48;
-    case 6: b |= ((uint64_t)in[5]) << 40;
-    case 5: b |= ((uint64_t)in[4]) << 32;
-    case 4: b |= ((uint64_t)in[3]) << 24;
-    case 3: b |= ((uint64_t)in[2]) << 16;
-    case 2: b |= ((uint64_t)in[1]) << 8;
+    case 7: b |= ((uint64_t)in[6]) << 48; /*FALLTHROUGH*/
+    case 6: b |= ((uint64_t)in[5]) << 40; /*FALLTHROUGH*/
+    case 5: b |= ((uint64_t)in[4]) << 32; /*FALLTHROUGH*/
+    case 4: b |= ((uint64_t)in[3]) << 24; /*FALLTHROUGH*/
+    case 3: b |= ((uint64_t)in[2]) << 16; /*FALLTHROUGH*/
+    case 2: b |= ((uint64_t)in[1]) << 8;  /*FALLTHROUGH*/
     case 1: b |= ((uint64_t)in[0]); break;
     case 0: break;
     }
@@ -202,12 +202,12 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
     }
 
     switch (left) {
-    case 7: b |= ((uint64_t)siptlw(in[6])) << 48;
-    case 6: b |= ((uint64_t)siptlw(in[5])) << 40;
-    case 5: b |= ((uint64_t)siptlw(in[4])) << 32;
-    case 4: b |= ((uint64_t)siptlw(in[3])) << 24;
-    case 3: b |= ((uint64_t)siptlw(in[2])) << 16;
-    case 2: b |= ((uint64_t)siptlw(in[1])) << 8;
+    case 7: b |= ((uint64_t)siptlw(in[6])) << 48; /*FALLTHROUGH*/
+    case 6: b |= ((uint64_t)siptlw(in[5])) << 40; /*FALLTHROUGH*/
+    case 5: b |= ((uint64_t)siptlw(in[4])) << 32; /*FALLTHROUGH*/
+    case 4: b |= ((uint64_t)siptlw(in[3])) << 24; /*FALLTHROUGH*/
+    case 3: b |= ((uint64_t)siptlw(in[2])) << 16; /*FALLTHROUGH*/
+    case 2: b |= ((uint64_t)siptlw(in[1])) << 8;  /*FALLTHROUGH*/
     case 1: b |= ((uint64_t)siptlw(in[0])); break;
     case 0: break;
     }
