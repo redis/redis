@@ -1890,6 +1890,7 @@ static int clusterManagerCommandCheck(int argc, char **argv);
 static int clusterManagerCommandFix(int argc, char **argv);
 static int clusterManagerCommandReshard(int argc, char **argv);
 static int clusterManagerCommandRebalance(int argc, char **argv);
+static int clusterManagerCommandSetTimeout(int argc, char **argv);
 static int clusterManagerCommandImport(int argc, char **argv);
 static int clusterManagerCommandCall(int argc, char **argv);
 static int clusterManagerCommandHelp(int argc, char **argv);
@@ -1905,21 +1906,23 @@ typedef struct clusterManagerCommandDef {
 clusterManagerCommandDef clusterManagerCommands[] = {
     {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN", 
      "replicas <arg>"},
-    {"add-node", clusterManagerCommandAddNode, 2, 
-     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
-    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"check", clusterManagerCommandCheck, -1, "host:port", NULL},
-    {"fix", clusterManagerCommandFix, -1, "host:port", NULL},
     {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
+    {"fix", clusterManagerCommandFix, -1, "host:port", NULL},
     {"reshard", clusterManagerCommandReshard, -1, "host:port", 
      "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>"},
     {"rebalance", clusterManagerCommandRebalance, -1, "host:port", 
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
      "timeout <arg>,simulate,pipeline <arg>,threshold <arg>"}, 
-    {"import", clusterManagerCommandImport, 1, "host:port", 
-     "from <arg>,copy,replace"},
+    {"add-node", clusterManagerCommandAddNode, 2, 
+     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
+    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2, 
         "host:port command arg arg .. arg", NULL},
+    {"set-timeout", clusterManagerCommandSetTimeout, 2, 
+     "host:port milliseconds", NULL},
+    {"import", clusterManagerCommandImport, 1, "host:port", 
+     "from <arg>,copy,replace"},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
@@ -4877,6 +4880,61 @@ cleanup:
     if (involved != NULL) listRelease(involved);
     if (weightedNodes != NULL) zfree(weightedNodes);
     return result;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandSetTimeout(int argc, char **argv) {
+    UNUSED(argc);
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    int timeout = atoi(argv[1]);
+    if (timeout < 100) {
+        fprintf(stderr, "Setting a node timeout of less than 100 "
+                "milliseconds is a bad idea.\n");
+        return 0;
+    }
+    // Load cluster information
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    int ok_count = 0, err_count = 0;
+
+    clusterManagerLogInfo(">>> Reconfiguring node timeout in every "
+                          "cluster node...\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        char *err = NULL;
+        redisReply *reply = CLUSTER_MANAGER_COMMAND(n, "CONFIG %s %s %d", 
+                                                    "SET", 
+                                                    "cluster-node-timeout",
+                                                    timeout);
+        if (reply == NULL) goto reply_err;
+        int ok = clusterManagerCheckRedisReply(n, reply, &err);
+        freeReplyObject(reply);
+        if (!ok) goto reply_err;
+        reply = CLUSTER_MANAGER_COMMAND(n, "CONFIG %s", "REWRITE");
+        if (reply == NULL) goto reply_err;
+        ok = clusterManagerCheckRedisReply(n, reply, &err);
+        freeReplyObject(reply);
+        if (!ok) goto reply_err;
+        clusterManagerLogWarn("*** New timeout set for %s:%d\n", n->ip, 
+                              n->port);
+        ok_count++;
+        continue;
+reply_err:
+        if (err == NULL) err = "";
+        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip, 
+                             n->port, err);
+        err_count++;
+    }
+    clusterManagerLogInfo(">>> New node timeout set. %d OK, %d ERR.\n", 
+                          ok_count, err_count);
+    return 1;
 invalid_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
