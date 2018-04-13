@@ -3542,9 +3542,10 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
 }
 
 /* Abort a blocked client blocking operation: the client will be unblocked
- * without firing the reply callback. */
+ * without firing any callback. */
 int RM_AbortBlock(RedisModuleBlockedClient *bc) {
     bc->reply_callback = NULL;
+    bc->disconnect_callback = NULL;
     return RM_UnblockClient(bc,NULL);
 }
 
@@ -3603,6 +3604,7 @@ void moduleHandleBlockedClients(void) {
             ctx.blocked_privdata = bc->privdata;
             ctx.module = bc->module;
             ctx.client = bc->client;
+            ctx.blocked_client = bc;
             bc->reply_callback(&ctx,(void**)c->argv,c->argc);
             moduleHandlePropagationAfterCommandCallback(&ctx);
             moduleFreeContext(&ctx);
@@ -3672,6 +3674,7 @@ void moduleBlockedClientTimedOut(client *c) {
     ctx.flags |= REDISMODULE_CTX_BLOCKED_TIMEOUT;
     ctx.module = bc->module;
     ctx.client = bc->client;
+    ctx.blocked_client = bc;
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     /* For timeout events, we do not want to call the disconnect callback,
@@ -3695,6 +3698,14 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
 /* Get the privata data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
+}
+
+/* Get the blocked client associated with a given context.
+ * This is useful in the reply and timeout callbacks of blocked clients,
+ * before sometimes the module has the blocked client handle references
+ * around, and wants to cleanup it. */
+RedisModuleBlockedClient *RM_GetBlockedClientHandle(RedisModuleCtx *ctx) {
+    return ctx->blocked_client;
 }
 
 /* Return true if when the free callback of a blocked client is called,
@@ -4677,4 +4688,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetRandomHexChars);
     REGISTER_API(BlockedClientDisconnected);
     REGISTER_API(SetDisconnectCallback);
+    REGISTER_API(GetBlockedClientHandle);
 }
