@@ -125,10 +125,13 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         }
     }
     val = lookupKey(db,key,flags);
-    if (val == NULL)
+    if (val == NULL) {
+        notifyKeyspaceEvent(NOTIFY_KEYMISS, "key-miss", key, db->id);
         server.stat_keyspace_misses++;
-    else
+    } else {
+        notifyKeyspaceEvent(NOTIFY_KEYHIT, "key-hit", key, db->id);
         server.stat_keyspace_hits++;
+    }
     return val;
 }
 
