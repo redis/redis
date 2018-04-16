@@ -684,9 +684,6 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
 /* Remove the part of the string from left and from right composed just of
  * contiguous characters found in 'cset', that is a null terminted C string.
  *
- * After the call, the modified sds string is no longer valid and all the
- * references must be substituted with the new pointer returned by the call.
- *
  * Example:
  *
  * s = sdsnew("AA...AA.a.aa.aHelloWorld     :::");
@@ -695,7 +692,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Output will be just "Hello World".
  */
-sds sdstrim(sds s, const char *cset) {
+sds sdstrim(sds const s, const char *cset) {
     char *start, *end, *sp, *ep;
     size_t len;
 
