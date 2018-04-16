@@ -8491,6 +8491,13 @@ void moduleLoadFromQueue(void) {
                 loadmod->path);
             exit(1);
         }
+        sdsfree(loadmod->path);
+        for (int i = 0; i < loadmod->argc; i++) {
+            decrRefCount(loadmod->argv[i]);
+        }
+        zfree(loadmod->argv);
+        zfree(loadmod);
+        listDelNode(server.loadmodule_queue, ln);
     }
 }
 
