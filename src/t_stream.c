@@ -713,6 +713,21 @@ void streamIteratorStop(streamIterator *si) {
     raxStop(&si->ri);
 }
 
+/* Delete the specified item ID from the stream, returning 1 if the item
+ * was deleted 0 otherwise (if it does not exist). */
+int streamDeleteItem(stream *s, streamID id) {
+    int deleted = 0;
+    streamIterator si;
+    streamIteratorStart(&si,s,&id,&id,0);
+    streamID myid;
+    int64_t numfields;
+    if (streamIteratorGetID(&si,&myid,&numfields)) {
+        streamIteratorRemoveEntry(&si,&myid);
+        deleted = 1;
+    }
+    return deleted;
+}
+
 /* Emit a reply in the client output buffer by formatting a Stream ID
  * in the standard <ms>-<seq> format, using the simple string protocol
  * of REPL. */
