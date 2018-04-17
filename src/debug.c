@@ -688,6 +688,8 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.sc_ip;
     #elif defined(__arm__) /* Linux ARM */
     return (void*) uc->uc_mcontext.arm_pc;
+    #elif defined(__aarch64__) /* Linux AArch64 */
+    return (void*) uc->uc_mcontext.pc;
     #endif
 #else
     return NULL;
