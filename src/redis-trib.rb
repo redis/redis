@@ -23,6 +23,8 @@
 
 require 'rubygems'
 require 'redis'
+require 'io/console'
+require 'optparse'
 
 ClusterHashSlots = 16384
 MigrateDefaultTimeout = 60000
@@ -1707,6 +1709,23 @@ end
 # Parse options
 cmd_options,first_non_option = rt.parse_options(ARGV[0].downcase)
 rt.check_arity(cmd_spec[1],ARGV.length-(first_non_option-1))
+
+options = {}
+OptionParser.new do |opts|
+    opts.on("-p", "--password [password]", "For password argument, all cluster nodes need to have the same password.") do |password|
+        options["password"] = password
+    end
+end.parse!
+
+if options.key?("password")
+    password = options["password"]
+    if password == nil
+        print "Enter with password: "
+        password = STDIN.noecho(&:gets).chomp
+    end
+    ARGV.insert(1, "--password")
+    ARGV.insert(2, password)
+end
 
 # Dispatch
 rt.send(cmd_spec[0],ARGV[first_non_option..-1],cmd_options)
