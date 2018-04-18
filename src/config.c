@@ -983,8 +983,8 @@ void configSetCommand(client *c) {
             int soft_seconds;
 
             class = getClientTypeByName(v[j]);
-            hard = strtoll(v[j+1],NULL,10);
-            soft = strtoll(v[j+2],NULL,10);
+            hard = memtoll(v[j+1],NULL);
+            soft = memtoll(v[j+2],NULL);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
