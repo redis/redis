@@ -715,10 +715,10 @@ void streamIteratorStop(streamIterator *si) {
 
 /* Delete the specified item ID from the stream, returning 1 if the item
  * was deleted 0 otherwise (if it does not exist). */
-int streamDeleteItem(stream *s, streamID id) {
+int streamDeleteItem(stream *s, streamID *id) {
     int deleted = 0;
     streamIterator si;
-    streamIteratorStart(&si,s,&id,&id,0);
+    streamIteratorStart(&si,s,id,id,0);
     streamID myid;
     int64_t numfields;
     if (streamIteratorGetID(&si,&myid,&numfields)) {
@@ -1992,6 +1992,35 @@ void xclaimCommand(client *c) {
     preventCommandPropagation(c);
 }
 
+
+/* XDEL <key> [<ID1> <ID2> ... <IDN>]
+ *
+ * Removes the specified entries from the stream. Returns the number
+ * of items actaully deleted, that may be different from the number
+ * of IDs passed in case certain IDs do not exist. */
+void xdelCommand(client *c) {
+    robj *o;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL
+        || checkType(c,o,OBJ_STREAM)) return;
+    stream *s = o->ptr;
+
+    /* We need to sanity check the IDs passed to start. Even if not
+     * a big issue, it is not great that the command is only partially
+     * executed becuase at some point an invalid ID is parsed. */
+    streamID id;
+    for (int j = 2; j < c->argc; j++) {
+        if (streamParseIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+    }
+
+    /* Actaully apply the command. */
+    int deleted = 0;
+    for (int j = 2; j < c->argc; j++) {
+        streamParseIDOrReply(c,c->argv[j],&id,0); /* Retval already checked. */
+        deleted += streamDeleteItem(s,&id);
+    }
+    addReplyLongLong(c,deleted);
+}
 /* XINFO CONSUMERS key group
  * XINFO GROUPS <key>
  * XINFO STREAM <key>
