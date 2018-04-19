@@ -2054,6 +2054,7 @@ void xpendingCommand(client *c);
 void xclaimCommand(client *c);
 void xinfoCommand(client *c);
 void xdelCommand(client *c);
+void xtrimCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

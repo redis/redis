@@ -314,6 +314,7 @@ struct redisCommand redisCommandTable[] = {
     {"xclaim",xclaimCommand,-5,"wF",0,NULL,1,1,1,0,0},
     {"xinfo",xinfoCommand,-2,"r",0,NULL,2,2,1,0,0},
     {"xdel",xdelCommand,-2,"wF",0,NULL,1,1,1,0,0},
+    {"xtrim",xtrimCommand,-2,"wF",0,NULL,1,1,1,0,0},
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0}
