@@ -339,11 +339,12 @@ void unwatchAllKeys(client *c) {
          * from the list */
         wk = listNodeValue(ln);
         clients = dictFetchValue(wk->db->watched_keys, wk->key);
-        serverAssertWithInfo(c,NULL,clients != NULL);
-        listDelNode(clients,listSearchKey(clients,c));
-        /* Kill the entry at all if this was the only client */
-        if (listLength(clients) == 0)
-            dictDelete(wk->db->watched_keys, wk->key);
+        if (clients) {
+            listDelNode(clients,listSearchKey(clients,c));
+            /* Kill the entry at all if this was the only client */
+            if (listLength(clients) == 0)
+                dictDelete(wk->db->watched_keys, wk->key);
+        }
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
         decrRefCount(wk->key);
@@ -383,9 +384,10 @@ void touchWatchedKey(redisDb *db, robj *key) {
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-
+        listDelNode(clients, ln);
         c->flags |= CLIENT_DIRTY_CAS;
     }
+    dictDelete(db->watched_keys, key);
 }
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
@@ -396,8 +398,6 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * the key exists in either of them, and skipped only if it
  * doesn't exist in both. */
 void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
-    listIter li;
-    listNode *ln;
     dictEntry *de;
 
     if (dictSize(emptied->watched_keys) == 0) return;
@@ -408,13 +408,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
         if (dictFind(emptied->dict, key->ptr) ||
             (replaced_with && dictFind(replaced_with->dict, key->ptr)))
         {
-            list *clients = dictGetVal(de);
-            if (!clients) continue;
-            listRewind(clients,&li);
-            while((ln = listNext(&li))) {
-                client *c = listNodeValue(ln);
-                c->flags |= CLIENT_DIRTY_CAS;
-            }
+            touchWatchedKey(emptied, key);
         }
     }
     dictReleaseIterator(di);
@@ -427,8 +421,12 @@ void watchCommand(client *c) {
         addReplyError(c,"WATCH inside MULTI is not allowed");
         return;
     }
-    for (j = 1; j < c->argc; j++)
-        watchForKey(c,c->argv[j]);
+
+    /* If the client is dirty, we don't need watch more keys */
+    if (!(c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
+        for (j = 1; j < c->argc; j++)
+            watchForKey(c,c->argv[j]);
+    }
     addReply(c,shared.ok);
 }
 
