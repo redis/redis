@@ -16,7 +16,7 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 OPTIMIZATION?=-O0
-DEPENDENCY_TARGETS=hiredis linenoise lua
+DEPENDENCY_TARGETS=hiredis linenoise lua memkind
 NODEPS:=clean distclean
 
 # Default settings
@@ -124,9 +124,10 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(JEMALLOC_PATH)/jemalloc/include
 	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
 	FINAL_CFLAGS+= -DJE_PREFIX=je_
+	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/include
 	FINAL_LIBS+= $(JEMALLOC_PATH)/jemalloc/obj/lib/libjemalloc.a
 	FINAL_LIBS+= -ldl
-	FINAL_LIBS+= -L$(JEMALLOC_PATH)/libs -lmemkind
+	FINAL_LIBS+= -L$(JEMALLOC_PATH)/.libs -lmemkind
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
