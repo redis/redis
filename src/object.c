@@ -39,7 +39,7 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObjectA(int type, void *ptr, alloc a) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = a->alloc(sizeof(robj));
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -76,7 +76,9 @@ robj *makeObjectShared(robj *o) {
 /* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
 robj *createRawStringObjectA(const char *ptr, size_t len, alloc a) {
-    return createObjectA(OBJ_STRING, sdsnewlenA(ptr,len, a), a);
+    robj *o = createObject(OBJ_STRING, sdsnewlenA(ptr,len, a));
+    o->a = a;
+    return o;
 }
 
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
@@ -116,11 +118,11 @@ robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a) {
  * The current limit of 36 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 36
-robj *createStringObject(const char *ptr, size_t len) {
+robj *createStringObjectA(const char *ptr, size_t len, alloc a) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
-        return createEmbeddedStringObject(ptr,len);
+        return createEmbeddedStringObjectA(ptr,len,a);
     else
-        return createRawStringObject(ptr,len);
+        return createRawStringObjectA(ptr,len,a);
 }
 
 robj *createStringObjectFromLongLongA(long long value, alloc a) {
@@ -134,7 +136,8 @@ robj *createStringObjectFromLongLongA(long long value, alloc a) {
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*)((long)value);
         } else {
-            o = createObjectA(OBJ_STRING,sdsfromlonglongA(value, a), a);
+            o = createObject(OBJ_STRING,sdsfromlonglongA(value, a));
+            o->a = a;
         }
     }
     return o;
@@ -149,7 +152,7 @@ robj *createStringObjectFromLongLongA(long long value, alloc a) {
 robj *createStringObjectFromLongDoubleA(long double value, int humanfriendly, alloc a) {
     char buf[256];
     int len = ld2string(buf,sizeof(buf),value,humanfriendly);
-    return createStringObject(buf,len);
+    return createStringObjectA(buf,len,a);
 }
 
 /* Duplicate a string object, with the guarantee that the returned object
@@ -321,7 +324,7 @@ void decrRefCount(robj *o) {
         case OBJ_MODULE: freeModuleObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        if(o->encoding == OBJ_ENCODING_EMBSTR)
+        if(o->encoding == OBJ_ENCODING_EMBSTR || o->encoding == OBJ_ENCODING_INT)
             o->a->free(o);
         else
             zfree(o);
@@ -378,7 +381,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 }
 
 /* Try to encode a string object in order to save space */
-robj *tryObjectEncoding(robj *o) {
+robj *tryObjectEncodingA(robj *o, alloc a) {
     long value;
     sds s = o->ptr;
     size_t len;
@@ -418,6 +421,11 @@ robj *tryObjectEncoding(robj *o) {
             return shared.integers[value];
         } else {
             if (o->encoding == OBJ_ENCODING_RAW) sdsfree(o->ptr);
+            if (o->a != a) {
+                robj *newobj = createObjectA(OBJ_STRING,NULL,a);
+                o->a->free(o);
+                o = newobj;
+            }
             o->encoding = OBJ_ENCODING_INT;
             o->ptr = (void*) value;
             return o;
@@ -431,8 +439,8 @@ robj *tryObjectEncoding(robj *o) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT) {
         robj *emb;
 
-        if (o->encoding == OBJ_ENCODING_EMBSTR) return o;
-        emb = createEmbeddedStringObject(s,sdslen(s));
+        if (o->encoding == OBJ_ENCODING_EMBSTR && o->a == a) return o;
+        emb = createEmbeddedStringObjectA(s,sdslen(s),a);
         decrRefCount(o);
         return emb;
     }
@@ -447,9 +455,16 @@ robj *tryObjectEncoding(robj *o) {
      * is only entered if the length of the string is greater than
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
     if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(s) > len/10)
+        sdsavail(s) > len/10 &&
+        o->a == a)
     {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
+        o->ptr = sdsRemoveFreeSpaceA(o->ptr,a);
+    }
+    else {
+        sds copy = sdsdupA(o->ptr,a);
+        sdsfreeA (o->ptr,o->a);
+        o->ptr = copy;
+        o->a = a;
     }
 
     /* Return the original object. */
@@ -458,7 +473,7 @@ robj *tryObjectEncoding(robj *o) {
 
 /* Get a decoded version of an encoded object (returned as a new object).
  * If the object is already raw-encoded just increment the ref count. */
-robj *getDecodedObject(robj *o) {
+robj *getDecodedObjectA(robj *o, alloc a) {
     robj *dec;
 
     if (sdsEncodedObject(o)) {
@@ -469,7 +484,7 @@ robj *getDecodedObject(robj *o) {
         char buf[32];
 
         ll2string(buf,32,(long)o->ptr);
-        dec = createStringObject(buf,strlen(buf));
+        dec = createStringObjectA(buf,strlen(buf),a);
         return dec;
     } else {
         serverPanic("Unknown encoding type");

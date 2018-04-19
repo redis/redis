@@ -1477,7 +1477,8 @@ void freeHashObject(robj *o);
 robj *createObjectA(int type, void *ptr, alloc a);
 static inline robj *createObject(int type, void *ptr) { return createObjectA(type, ptr, z_alloc); }
 static inline robj *createObjectM(int type, void *ptr) { return createObjectA(type, ptr, m_alloc); }
-robj *createStringObject(const char *ptr, size_t len);
+robj *createStringObjectA(const char *ptr, size_t len, alloc a);
+static inline robj *createStringObject(const char *ptr, size_t len) { return createStringObjectA(ptr, len, z_alloc); }
 robj *createRawStringObjectA(const char *ptr, size_t len, alloc a);
 static inline robj *createRawStringObject(const char *ptr, size_t len) { return createRawStringObjectA(ptr, len, z_alloc); }
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a);
@@ -1486,8 +1487,11 @@ static inline robj *createEmbeddedStringObject(const char *ptr, size_t len) { re
 robj *dupStringObject(const robj *o);
 int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
-robj *tryObjectEncoding(robj *o);
-robj *getDecodedObject(robj *o);
+robj *tryObjectEncodingA(robj *o, alloc a);
+static inline robj *tryObjectEncoding(robj *o) { return tryObjectEncodingA(o, z_alloc); }
+static inline robj *tryObjectEncodingM(robj *o) { return tryObjectEncodingA(o, m_alloc); }
+robj *getDecodedObjectA(robj *o, alloc a);
+static inline robj *getDecodedObject(robj *o) { return getDecodedObjectA(o, z_alloc); }
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLongA(long long value, alloc a);
 static inline robj *createStringObjectFromLongLong(long long value) { return createStringObjectFromLongLongA(value, s_alloc); }

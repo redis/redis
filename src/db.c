@@ -303,7 +303,7 @@ int dbDelete(redisDb *db, robj *key) {
 robj *dbUnshareStringValueA(redisDb *db, robj *key, robj *o, alloc a) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        robj *decoded = getDecodedObject(o);
+        robj *decoded = getDecodedObjectA(o,a);
         o = createRawStringObjectA(decoded->ptr, sdslen(decoded->ptr), a);
         decrRefCount(decoded);
         dbOverwrite(db,key,o);
