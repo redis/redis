@@ -39,7 +39,6 @@ set ::all_tests {
     integration/replication-psync
     integration/aof
     integration/rdb
-    integration/convert-zipmap-hash-on-load
     integration/logging
     integration/psync2
     integration/psync2-reg
