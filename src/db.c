@@ -1224,7 +1224,7 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     num = atoi(argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
-    if (num > (argc-3)) {
+    if (num < 1 || num > (argc-3)) {
         *numkeys = 0;
         return NULL;
     }
@@ -1253,7 +1253,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     num = atoi(argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
-    if (num > (argc-3)) {
+    if (num <= 0 || num > (argc-3)) {
         *numkeys = 0;
         return NULL;
     }
@@ -1398,7 +1398,7 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
     if (streams_pos != -1) num = argc - streams_pos - 1;
 
     /* Syntax error. */
-    if (streams_pos == -1 || num % 2 != 0) {
+    if (streams_pos == -1 || num == 0 || num % 2 != 0) {
         *numkeys = 0;
         return NULL;
     }
