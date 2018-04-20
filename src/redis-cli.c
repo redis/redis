@@ -1318,6 +1318,7 @@ static int parseOptions(int argc, char **argv) {
             if (wargc > 0) {
                 config.cluster_manager_command.weight = weight;  
                 config.cluster_manager_command.weight_argc = wargc;
+                i += wargc;
             }
         } else if (!strcmp(argv[i],"--cluster-slots") && !lastarg) {
             config.cluster_manager_command.slots = atoi(argv[++i]);  
@@ -4724,7 +4725,6 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     int nodes_involved = 0;
     int use_empty = config.cluster_manager_command.flags & 
                     CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
-
     involved = listCreate(); 
     listIter li;
     listNode *ln;
@@ -4762,15 +4762,15 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
         weightedNodes[i++] = n;
-        int expected = (((float)CLUSTER_MANAGER_SLOTS / total_weight) *
-                        (int) n->weight);
+        int expected = (int) (((float)CLUSTER_MANAGER_SLOTS / total_weight) *
+                        n->weight);
         n->balance = n->slots_count - expected;
         total_balance += n->balance;
 	/* Compute the percentage of difference between the
 	 * expected number of slots and the real one, to see
 	 * if it's over the threshold specified by the user. */
         int over_threshold = 0;
-        if (config.cluster_manager_command.threshold > 0) {
+        if (threshold > 0) {
             if (n->slots_count > 0) {
                 float err_perc = fabs((100-(100.0*expected/n->slots_count)));
                 if (err_perc > threshold) over_threshold = 1;
@@ -4784,7 +4784,6 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
         clusterManagerLogWarn("*** No rebalancing needed! "
                              "All nodes are within the %.2f%% threshold.\n",
                              config.cluster_manager_command.threshold);
-        result = 0;
         goto cleanup;
     }
     /* Because of rounding, it is possible that the balance of all nodes
