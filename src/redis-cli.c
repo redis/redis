@@ -2922,6 +2922,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                         line = p + 1;
                         remaining--;
                     } else line = p;
+                    char *dash = NULL;
                     if (slotsdef[0] == '[') {
                         slotsdef++;
                         if ((p = strstr(slotsdef, "->-"))) { // Migrating
@@ -2953,7 +2954,8 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                             node->importing[node->importing_count - 1] = 
                                 src;
                         } 
-                    } else if ((p = strchr(slotsdef, '-')) != NULL) {
+                    } else if ((dash = strchr(slotsdef, '-')) != NULL) {
+                        p = dash;
                         int start, stop;
                         *p = '\0';
                         start = atoi(slotsdef);
@@ -5078,7 +5080,7 @@ invalid_args:
 static int clusterManagerCommandCall(int argc, char **argv) {
     int port = 0, i;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
     if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
     argc--;
