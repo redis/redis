@@ -220,7 +220,8 @@ typedef struct {
         }                            \
     } while (0)
 
-#define RIO_MAX_IOBUF_LEN (64LL * 1024 * 1024)
+#define RIO_IOBUF_MAX_LEN (64LL * 1024 * 1024)
+#define RIO_IOBUF_AUTO_FLUSH_THRESHOLD (RIO_IOBUF_MAX_LEN - 1024)
 
 static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
     if (sdslen(cmd->io.buffer) != 0) {
@@ -277,7 +278,7 @@ rio_fragment_payload:
     cmd->io.buffer = rio->io.buffer.ptr;
     sdsclear(cmd->payload);
 
-    if (sdslen(cmd->io.buffer) < RIO_MAX_IOBUF_LEN) {
+    if (sdslen(cmd->io.buffer) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
@@ -295,7 +296,7 @@ static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
     if (!cmd->non_blocking) {
         return 1;
     }
-    if (sdslen(cmd->payload) < RIO_MAX_IOBUF_LEN) {
+    if (sdslen(cmd->io.buffer) + sdslen(cmd->payload) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return _rioMigrateObjectFlushNonBlockingFragment(cmd);
@@ -341,11 +342,12 @@ static int _rioMigrateObjectFlush(rio *r) {
             RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "REPLACE", 7));
         }
     }
+    serverAssert(sdslen(cmd->payload) == 0);
 
     cmd->seq_num++;
     cmd->io.buffer = rio->io.buffer.ptr;
 
-    if (sdslen(cmd->io.buffer) < RIO_MAX_IOBUF_LEN) {
+    if (sdslen(cmd->io.buffer) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
@@ -464,7 +466,6 @@ static migrateCommandArgs *initMigrateCommandArgsOrReply(client *c) {
     int first_key = 3;
     int num_keys = 1;
     for (int j = 6; j < c->argc; j++) {
-        int moreargs = (j != c->argc - 1);
         if (strcasecmp(c->argv[j]->ptr, "copy") == 0) {
             args->copy = 1;
         } else if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
@@ -472,7 +473,7 @@ static migrateCommandArgs *initMigrateCommandArgsOrReply(client *c) {
         } else if (strcasecmp(c->argv[j]->ptr, "async") == 0) {
             args->non_blocking = 1;
         } else if (strcasecmp(c->argv[j]->ptr, "auth") == 0) {
-            if (!moreargs) {
+            if (j == c->argc - 1) {
                 addReply(c, shared.syntaxerr);
                 goto failed_cleanup;
             }
@@ -575,7 +576,7 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
 
     rioMigrateCommand _cmd = {
         .rio = _rioMigrateObjectIO,
-        .payload = sdsMakeRoomFor(sdsempty(), RIO_MAX_IOBUF_LEN),
+        .payload = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
         .seq_num = 0,
         .timeout = args->timeout,
         .replace = args->replace,
@@ -583,7 +584,7 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
         .io =
             {
                 .fd = cs->fd,
-                .buffer = sdsMakeRoomFor(sdsempty(), RIO_MAX_IOBUF_LEN),
+                .buffer = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
             },
     };
     rioMigrateCommand *cmd = &_cmd;
