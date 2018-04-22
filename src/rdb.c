@@ -1427,6 +1427,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         o = createZsetObject();
         zs = o->ptr;
 
+        if (zsetlen > DICT_HT_INITIAL_SIZE)
+            dictExpand(zs->dict,zsetlen);
+
         /* Load every single element of the sorted set. */
         while(zsetlen--) {
             sds sdsele;
@@ -1494,6 +1497,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             sdsfree(field);
             sdsfree(value);
         }
+
+        if (o->encoding == OBJ_ENCODING_HT && len > DICT_HT_INITIAL_SIZE)
+            dictExpand(o->ptr,len);
 
         /* Load remaining fields and values into the hash table */
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
