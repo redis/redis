@@ -171,7 +171,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
- }
+}
 
 void dbAddZ(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
@@ -180,16 +180,7 @@ void dbAddZ(redisDb *db, robj *key, robj *val) {
     serverAssertWithInfo(NULL,key,retval == DICT_OK);
     if (val->type == OBJ_LIST) signalListAsReady(db, key);
     if (server.cluster_enabled) slotToKeyAdd(key);
- }
-
-void dbAddM(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdupM(key->ptr);
-    int retval = dictAdd(db->dict, copy, val); // TODO
-
-    serverAssertWithInfo(NULL,key,retval == DICT_OK);
-    if (val->type == OBJ_LIST) signalListAsReady(db, key);
-    if (server.cluster_enabled) slotToKeyAdd(key);
- }
+}
 
 /* Overwrite an existing key with a new value. Incrementing the reference
  * count of the new value is up to the caller.
@@ -224,17 +215,6 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
 void setKey(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
-    } else {
-        dbOverwrite(db,key,val); // TODO
-    }
-    incrRefCount(val);
-    removeExpire(db,key);
-    signalModifiedKey(db,key);
-}
-
-void setKeyM(redisDb *db, robj *key, robj *val) {
-    if (lookupKeyWrite(db,key) == NULL) {
-        dbAddM(db,key,val);
     } else {
         dbOverwrite(db,key,val); // TODO
     }

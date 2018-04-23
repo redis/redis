@@ -624,7 +624,7 @@ dictType hashDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructorM,          /* key destructor */
     dictSdsDestructorM          /* val destructor */
 };
 

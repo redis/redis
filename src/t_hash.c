@@ -199,7 +199,8 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
-int hashTypeSet(robj *o, sds field, sds value, int flags) {
+
+int hashTypeSetA(robj *o, sds field, sds value, int flags, alloc a) {
     int update = 0;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -216,35 +217,35 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 update = 1;
 
                 /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
+                zl = ziplistDeleteA(zl, &vptr, a);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
+                zl = ziplistInsertA(zl, vptr, (unsigned char*)value,
+                        sdslen(value), a);
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, (unsigned char*)field, sdslen(field),
-                    ZIPLIST_TAIL);
-            zl = ziplistPush(zl, (unsigned char*)value, sdslen(value),
-                    ZIPLIST_TAIL);
+            zl = ziplistPushA(zl, (unsigned char*)field, sdslen(field),
+                    ZIPLIST_TAIL, a);
+            zl = ziplistPushA(zl, (unsigned char*)value, sdslen(value),
+                    ZIPLIST_TAIL, a);
         }
         o->ptr = zl;
 
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT);
+            hashTypeConvertA(o, OBJ_ENCODING_HT, a);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
-            sdsfree(dictGetVal(de));
+            sdsfreeA(dictGetVal(de), a);
             if (flags & HASH_SET_TAKE_VALUE) {
                 dictGetVal(de) = value;
                 value = NULL;
             } else {
-                dictGetVal(de) = sdsdup(value);
+                dictGetVal(de) = sdsdupA(value, a);
             }
             update = 1;
         } else {
@@ -253,89 +254,13 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 f = field;
                 field = NULL;
             } else {
-                f = sdsdup(field);
+                f = sdsdupA(field, a);
             }
             if (flags & HASH_SET_TAKE_VALUE) {
                 v = value;
                 value = NULL;
             } else {
-                v = sdsdup(value);
-            }
-            dictAdd(o->ptr,f,v);
-        }
-    } else {
-        serverPanic("Unknown hash encoding");
-    }
-
-    /* Free SDS strings we did not referenced elsewhere if the flags
-     * want this function to be responsible. */
-    if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
-    if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
-    return update;
-}
-
-int hashTypeSetM(robj *o, sds field, sds value, int flags) {
-    int update = 0;
-
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        unsigned char *zl, *fptr, *vptr;
-
-        zl = o->ptr;
-        fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        if (fptr != NULL) {
-            fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
-            if (fptr != NULL) {
-                /* Grab pointer to the value (fptr points to the field) */
-                vptr = ziplistNext(zl, fptr);
-                serverAssert(vptr != NULL);
-                update = 1;
-
-                /* Delete value */
-                zl = ziplistDeleteM(zl, &vptr);
-
-                /* Insert new value */
-                zl = ziplistInsertM(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
-            }
-        }
-
-        if (!update) {
-            /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPushM(zl, (unsigned char*)field, sdslen(field),
-                    ZIPLIST_TAIL);
-            zl = ziplistPushM(zl, (unsigned char*)value, sdslen(value),
-                    ZIPLIST_TAIL);
-        }
-        o->ptr = zl;
-
-        /* Check if the ziplist needs to be converted to a hash table */
-        size_t hashSize = server.hash_max_ziplist_entries;
-        if (hashTypeLength(o) > hashSize)
-            hashTypeConvertM(o, OBJ_ENCODING_HT);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictFind(o->ptr,field);
-        if (de) {
-            sdsfreeA(dictGetVal(de), m_alloc);
-            if (flags & HASH_SET_TAKE_VALUE) {
-                dictGetVal(de) = value;
-                value = NULL;
-            } else {
-                dictGetVal(de) = sdsdupM(value);
-            }
-            update = 1;
-        } else {
-            sds f,v;
-            if (flags & HASH_SET_TAKE_FIELD) {
-                f = field;
-                field = NULL;
-            } else {
-                f = sdsdup(field); // TODO
-            }
-            if (flags & HASH_SET_TAKE_VALUE) {
-                v = value;
-                value = NULL;
-            } else {
-                v = sdsdupM(value);
+                v = sdsdupA(value, a);
             }
             dictAdd(o->ptr,f,v);
         }
@@ -528,13 +453,8 @@ sds hashTypeCurrentObjectNewSdsA(hashTypeIterator *hi, int what, alloc a) {
 robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
-        if (a == m_alloc) {
-            o = createHashObjectM();
-            dbAdd(c->db,key,o);
-        } else {
-            o = createHashObject();
-            dbAdd(c->db,key,o);
-        }
+        o = createHashObjectA(a);
+        dbAdd(c->db,key,o);
     } else {
         if (o->type != OBJ_HASH) {
             addReply(c,shared.wrongtypeerr);
@@ -560,9 +480,7 @@ void hashTypeConvertZiplist(robj *o, int enc, alloc a) {
 
         while (hashTypeNext(hi) != C_ERR) {
             sds key, value;
-
-            //key = hashTypeCurrentObjectNewSdsA(hi,OBJ_HASH_KEY, a);
-            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            key = hashTypeCurrentObjectNewSdsA(hi,OBJ_HASH_KEY,a);
             value = hashTypeCurrentObjectNewSdsA(hi,OBJ_HASH_VALUE,a);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
@@ -572,7 +490,6 @@ void hashTypeConvertZiplist(robj *o, int enc, alloc a) {
             }
         }
         hashTypeReleaseIterator(hi);
-        //zfree(o->ptr);
         o->a->free(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;

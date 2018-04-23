@@ -1502,8 +1502,10 @@ static inline robj *createQuicklistObjectM(void) { return createQuicklistObjectA
 robj *createZiplistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
-robj *createHashObject(void);
-robj *createHashObjectM(void);
+robj *createHashObjectA(alloc a);
+static inline robj *createHashObject(void) {
+    return createHashObjectA(z_alloc);
+}
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
@@ -1750,7 +1752,13 @@ static inline robj *hashTypeLookupWriteOrCreateM(client *c, robj *key) {
 }
 
 robj *hashTypeGetValueObject(robj *o, sds field);
-int hashTypeSet(robj *o, sds field, sds value, int flags);
+int hashTypeSetA(robj *o, sds field, sds value, int flags, alloc a);
+static inline int hashTypeSet(robj *o, sds field, sds value, int flags) {
+    return hashTypeSetA(o, field, value, flags, z_alloc);
+}
+static inline int hashTypeSetM(robj *o, sds field, sds value, int flags) {
+    return hashTypeSetA(o, field, value, flags, m_alloc);
+}
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -1793,7 +1801,6 @@ void dbAddZ(redisDb *db, robj *key, robj *val);
 void dbAddM(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
-void setKeyM(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);

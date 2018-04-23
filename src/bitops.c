@@ -475,34 +475,24 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client. */
-robj *lookupStringForBitCommand(client *c, size_t maxbit) {
+robj *lookupStringForBitCommandA(client *c, size_t maxbit, alloc a) {
     size_t byte = maxbit >> 3;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
 
     if (o == NULL) {
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
+        o = createObject(OBJ_STRING,sdsnewlenA(NULL,byte+1,a));
+        o->a = m_alloc;
         dbAdd(c->db,c->argv[1],o);
     } else {
         if (checkType(c,o,OBJ_STRING)) return NULL;
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
-        o->ptr = sdsgrowzero(o->ptr,byte+1);
+        o = dbUnshareStringValueA(c->db,c->argv[1],o,a);
+        o->ptr = sdsgrowzeroA(o->ptr,byte+1,a);
     }
     return o;
 }
 
-robj *lookupStringForBitCommandM(client *c, size_t maxbit) {
-    size_t byte = maxbit >> 3;
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
-//    serverPanic("NOT IMPLEMENTED"); // TODO
-    if (o == NULL) {
-        o = createObject(OBJ_STRING,sdsnewlenM(NULL, byte+1));
-        dbAddM(c->db,c->argv[1],o);
-    } else {
-        if (checkType(c,o,OBJ_STRING)) return NULL;
-        o = dbUnshareStringValueM(c->db,c->argv[1],o);
-        o->ptr = sdsgrowzeroM(o->ptr,byte+1);
-    }
-    return o;
+robj *lookupStringForBitCommand(client *c, size_t maxbit) {
+    return lookupStringForBitCommandA(c, maxbit, z_alloc); // TODO(kfilipek): change in separate PR
 }
 
 /* Return a pointer to the string object content, and stores its length

@@ -52,7 +52,7 @@
 #include <assert.h>
 #endif
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to
+/* Using dictEnableResize() / dictDisableResie() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
@@ -264,15 +264,6 @@ static void _dictRehashStep(dict *d) {
 
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
-{
-    dictEntry *entry = dictAddRaw(d,key,NULL);
-
-    if (!entry) return DICT_ERR;
-    dictSetVal(d, entry, val);
-    return DICT_OK;
-}
-
-int dictAddM(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
