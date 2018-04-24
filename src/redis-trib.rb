@@ -1668,14 +1668,14 @@ COMMANDS={
 ALLOWED_OPTIONS={
     "info" => {"password" => true},
     "check" => {"password" => true},
-    "create" => {"replicas" => true, "password" => true},
-    "add-node" => {"slave" => false, "master-id" => true, "password" => true},
+    "create" => {"password" => true, "replicas" => true},
+    "add-node" => {"password" => true, "slave" => false, "master-id" => true},
     "del-node" => {"password" => true},
     "set-timeout" => {"password" => true},
     "import" => {"from" => :required, "copy" => false, "replace" => false},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true, "password" => true},
-    "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true, "password" => true},
-    "fix" => {"timeout" => MigrateDefaultTimeout, "password" => true},
+    "reshard" => {"password" => true, "from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
+    "rebalance" => {"password" => true, "weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
+    "fix" => {"password" => true, "timeout" => MigrateDefaultTimeout},
     "call" => {"password" => true},
 }
 
