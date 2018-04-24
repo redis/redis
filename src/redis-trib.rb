@@ -1689,8 +1689,7 @@ def show_help
             }
         end
     }
-    puts "\nFor check, fix, reshard, del-node, set-timeout you can specify the host and port of any working node in the cluster."
-    puts "For password argument, all cluster nodes need to have the same password.\n"
+    puts "\nFor check, fix, reshard, del-node, set-timeout you can specify the host and port of any working node in the cluster.\n"
 end
 
 # Sanity check
