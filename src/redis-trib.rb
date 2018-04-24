@@ -1672,7 +1672,7 @@ ALLOWED_OPTIONS={
     "add-node" => {"password" => true, "slave" => false, "master-id" => true},
     "del-node" => {"password" => true},
     "set-timeout" => {"password" => true},
-    "import" => {"from" => :required, "copy" => false, "replace" => false},
+    "import" => {"password" => true, "from" => :required, "copy" => false, "replace" => false},
     "reshard" => {"password" => true, "from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
     "rebalance" => {"password" => true, "weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
     "fix" => {"password" => true, "timeout" => MigrateDefaultTimeout},
@@ -1715,6 +1715,21 @@ OptionParser.new do |opts|
     opts.on("-p", "--password [password]", "For password argument, all cluster nodes need to have the same password.") do |password|
         options["password"] = password
     end
+    opts.on("--replicas [replicas]")
+    opts.on("--slave [slave]")
+    opts.on("--master-id [master-id]")
+    opts.on("--from [from]")
+    opts.on("--copy [copy]")
+    opts.on("--replace [replace]")
+    opts.on("--to [to]")
+    opts.on("--slots [slots]")
+    opts.on("--yes [yes]")
+    opts.on("--timeout [timeout]")
+    opts.on("--pipeline [pipeline]")
+    opts.on("--weight [weight]")
+    opts.on("--auto-weights [auto-weights]")
+    opts.on("--use-empty-masters [use-empty-masters]")
+    opts.on("--simulate [simulate]")
 end.parse!
 
 if options.key?("password")
