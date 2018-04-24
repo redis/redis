@@ -1398,7 +1398,11 @@ static void repl(void) {
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = cliSplitArgs(line,&argc);
-            if (history && strcasecmp(argv[0], "auth")) linenoiseHistoryAdd(line);
+            if (history &&
+                strcasecmp(argv[0], "auth"))
+            {
+                linenoiseHistoryAdd(line);
+            }
             if (historyfile) linenoiseHistorySave(historyfile);
 
             if (argv == NULL) {
