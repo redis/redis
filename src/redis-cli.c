@@ -1398,8 +1398,14 @@ static void repl(void) {
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = cliSplitArgs(line,&argc);
+           
             if (history) linenoiseHistoryAdd(line);
-            if (historyfile) linenoiseHistorySave(historyfile);
+            
+            //Don't log auth commands to the history file!
+            //we are checking argv since it's already been sanitzed by `cliSplitArgs` 
+            if((argv == NULL || strcasecmp(argv[0], "auth") != 0) && historyfile){
+                linenoiseHistorySave(historyfile);
+            }
 
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
