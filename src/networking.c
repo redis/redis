@@ -2023,6 +2023,7 @@ int processEventsWhileBlocked(void) {
     int count = 0;
     while (iterations--) {
         int events = 0;
+        if (!server.loading && server.aof_fsync == AOF_FSYNC_ALWAYS) flushAppendOnlyFile(0);
         events += aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
         events += handleClientsWithPendingWrites();
         if (!events) break;
