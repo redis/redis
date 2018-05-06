@@ -419,7 +419,7 @@ size_t zmalloc_get_memory_size(void) {
     mib[0] = CTL_HW;
 #if defined(HW_REALMEM)
     mib[1] = HW_REALMEM;        /* FreeBSD. ----------------- */
-#elif defined(HW_PYSMEM)
+#elif defined(HW_PHYSMEM)
     mib[1] = HW_PHYSMEM;        /* Others. ------------------ */
 #endif
     unsigned int size = 0;      /* 32-bit */
