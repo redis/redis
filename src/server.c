@@ -1428,6 +1428,7 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    server.logfp = stdout;
     server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
