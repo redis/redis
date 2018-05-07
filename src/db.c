@@ -90,7 +90,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *  LOOKUP_NONE (or zero): no special flags are passed.
  *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
  *
- * Note: this function also returns NULL is the key is logically expired
+ * Note: this function also returns NULL if the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
