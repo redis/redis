@@ -1870,6 +1870,8 @@ void resetServerStats(void) {
     server.stat_net_input_bytes = 0;
     server.stat_net_output_bytes = 0;
     server.aof_delayed_fsync = 0;
+    server.stat_password_matches = 0;
+    server.stat_alt_password_matches = 0;
 }
 
 void initServer(void) {
@@ -2720,11 +2722,15 @@ int time_independent_strcmp(char *a, char *b) {
 void authCommand(client *c) {
     if (!server.requirepass) {
         addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass) ||
-               /* If client is using alternative password. */
-               (server.requirepass_alt && !time_independent_strcmp(c->argv[1]->ptr, server.requirepass_alt))) {
-      c->authenticated = 1;
-      addReply(c,shared.ok);
+    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
+        server.stat_password_matches++;
+        c->authenticated = 1;
+        addReply(c,shared.ok);
+    } else if (server.requirepass_alt &&
+               !time_independent_strcmp(c->argv[1]->ptr, server.requirepass_alt)) {
+        server.stat_alt_password_matches++;
+        c->authenticated = 1;
+        addReply(c,shared.ok);
     } else {
       c->authenticated = 0;
       addReplyError(c,"invalid password");
@@ -3220,7 +3226,9 @@ sds genRedisInfoString(char *section) {
             "active_defrag_hits:%lld\r\n"
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
-            "active_defrag_key_misses:%lld\r\n",
+            "active_defrag_key_misses:%lld\r\n"
+            "password_matches:%lld\r\n"
+            "alt_password_matches:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
             getInstantaneousMetric(STATS_METRIC_COMMAND),
@@ -3246,7 +3254,9 @@ sds genRedisInfoString(char *section) {
             server.stat_active_defrag_hits,
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
-            server.stat_active_defrag_key_misses);
+            server.stat_active_defrag_key_misses,
+            server.stat_password_matches,
+            server.stat_alt_password_matches);
     }
 
     /* Replication */

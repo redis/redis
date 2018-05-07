@@ -998,6 +998,8 @@ struct redisServer {
     long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
+    long long stat_password_matches;      /* Number of password matches */
+    long long stat_alt_password_matches;  /* Number of alternative password matches */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
