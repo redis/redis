@@ -1293,8 +1293,8 @@ static int parseOptions(int argc, char **argv) {
             if (CLUSTER_MANAGER_MODE()) usage();
             char *cmd = argv[++i];
             int j = i;
-            for (; j < argc; j++) if (argv[j][0] == '-') break;
-            j--;
+            while (j < argc && argv[j][0] != '-') j++;
+            if (j > i) j--;
             createClusterManagerCommand(cmd, j - i, argv + i + 1);
             i = j;
         } else if (!strcmp(argv[i],"--cluster") && lastarg) {
@@ -1351,6 +1351,15 @@ static int parseOptions(int argc, char **argv) {
             printf("redis-cli %s\n", version);
             sdsfree(version);
             exit(0);
+        } else if (CLUSTER_MANAGER_MODE() && argv[i][0] != '-') {
+            if (config.cluster_manager_command.argc == 0) {
+                int j = i + 1;
+                while (j < argc && argv[j][0] != '-') j++;
+                int cmd_argc = j - i;
+                config.cluster_manager_command.argc = cmd_argc;
+                config.cluster_manager_command.argv = argv + i;
+                if (cmd_argc > 1) i = j - 1;
+            }
         } else {
             if (argv[i][0] == '-') {
                 fprintf(stderr,
