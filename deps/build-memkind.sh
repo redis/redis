@@ -24,17 +24,18 @@
 
 set -e
 
-export JE_PREFIX=je_
+export JE_PREFIX=jemk_
 
 cd memkind
 EXTRA_CONF=$@
-
 if [ ! -f ./jemalloc/obj/lib/libjemalloc_pic.a ]; then
         cd jemalloc
-	test -e configure || autoconf
-	test -e obj || mkdir obj
+	if [ ! -f configure ]; then
+		autoconf
+	fi
+	mkdir -p obj
 	cd obj
-	../configure --with-jemalloc-prefix=$JE_PREFIX --with-version=4.5.0-0-g0
+	../configure --with-jemalloc-prefix=$JE_PREFIX --enable-autogen --with-version=4.5.0-0-g0
 
 	make -j`nproc`
 	cd ../..
@@ -44,10 +45,13 @@ if [ ! -f VERSION ]; then
 	./autogen.sh
 fi
 
+if [ ! -f ./configure ]; then
+	./autogen.sh
+fi
+
 if [ ! -f ./Makefile ]; then
         ./configure $EXTRA_CONF
 fi
-
 #use V=1 for full cmdlines of build
 make all -j $EXTRA_CONF
 

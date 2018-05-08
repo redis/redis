@@ -1,0 +1,393 @@
+.\"
+.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "HBWMALLOC" 3 "2015-03-31" "Intel Corporation" "HBWMALLOC" \" -*- nroff -*-
+.SH "NAME"
+hbwmalloc \- The high bandwidth memory interface
+.br
+Note: hbwmalloc.h functionality is considered as stable API (STANDARD API).
+.SH "SYNOPSIS"
+.nf
+.B #include <hbwmalloc.h>
+.sp
+.B Link with -lmemkind
+.sp
+.B int hbw_check_available(void);
+.br
+.BI "void* hbw_malloc(size_t " "size" );
+.br
+.BI "void* hbw_calloc(size_t " "nmemb" ", size_t " "size" );
+.br
+.BI "void* hbw_realloc (void " "*ptr" ", size_t " "size" );
+.br
+.BI "void hbw_free(void " "*ptr" );
+.br
+.BI "int hbw_posix_memalign(void " "**memptr" ", size_t " "alignment" ", size_t " "size" );
+.br
+.BI "int hbw_posix_memalign_psize(void " "**memptr" ", size_t " "alignment" ", size_t " "size" ", hbw_pagesize_t " "pagesize" );
+.br
+.B hbw_policy_t hbw_get_policy(void);
+.br
+.BI "int hbw_set_policy(hbw_policy_t " "mode" );
+.br
+.BI "int hbw_verify_memory_region(void " "*addr" ", size_t " "size" ", int " "flags" );
+.fi
+.SH "DESCRIPTION"
+.BR hbw_check_available ()
+returns 0 if high bandwidth memory is available and an error code
+described in the
+.B ERRORS
+section if not.
+.PP
+.BR hbw_malloc ()
+allocates
+.I size
+bytes of uninitialized high bandwidth memory. The allocated space is
+suitably aligned (after possible pointer coercion) for storage of any
+type of object. If
+.I size
+is zero then
+.BR hbw_malloc ()
+returns NULL.
+.PP
+.BR hbw_calloc ()
+allocates space for
+.I nmemb
+objects in high bandwidth memory, each
+.I size
+bytes in length. The result is identical to calling
+.BR hbw_malloc ()
+with an argument of
+.IR nmemb * size
+, with the exception that the allocated memory is explicitly
+initialized to zero bytes.  If
+.I nmemb
+or
+.I size
+is 0, then
+.BR hbw_calloc ()
+returns NULL.
+.PP
+.BR hbw_realloc ()
+changes the size of the previously allocated high bandwidth memory
+referenced by
+.I ptr
+to
+.I size
+bytes. The contents of the memory are unchanged up to the lesser of
+the new and old sizes. If the new size is larger, the contents of the
+newly allocated portion of the memory are undefined. Upon success, the
+memory referenced by
+.I ptr
+is freed and a pointer to the newly allocated high bandwidth memory is
+returned.
+
+.B Note:
+.BR hbw_realloc ()
+may move the memory allocation, resulting in a different return value
+than
+.IR "ptr" .
+
+If
+.I ptr
+is NULL, the
+.BR hbw_realloc ()
+function behaves identically to
+.BR hbw_malloc ()
+for the specified size.
+The address
+.IR "ptr" ,
+if not NULL, was returned by a previous call to
+.BR hbw_malloc (),
+.BR hbw_calloc (),
+.BR hbw_realloc (),
+or
+.BR hbw_posix_memalign ().
+Otherwise, or if
+.I hbw_free(ptr)
+was called before, undefined behavior occurs.
+
+
+.B Note:
+.BR hbw_realloc ()
+cannot be used with a pointer returned by
+.BR hbw_posix_memalign_psize ().
+
+.PP
+.BR hbw_free ()
+causes the allocated memory referenced by
+.I ptr
+to be made available for future allocations. If
+.I ptr
+is NULL, no action occurs.
+The address
+.IR "ptr" ,
+if not NULL, must have been returned by a previous call to
+.BR hbw_malloc (),
+.BR hbw_calloc (),
+.BR hbw_realloc (),
+.BR hbw_posix_memalign (),
+or
+.BR hbw_posix_memalign_psize ().
+Otherwise, if
+.I hbw_free(ptr)
+was called before, undefined behavior occurs.
+.PP
+.BR hbw_posix_memalign ()
+allocates
+.I size
+bytes of high bandwidth memory such that the allocation's base address
+is an even multiple of
+.IR "alignment" ,
+and returns the allocation in the value pointed to by
+.IR "memptr" .
+The requested
+.I alignment
+must be a power of 2 at least as large as
+.IR "sizeof(void *)" .
+.PP
+.BR hbw_posix_memalign_psize ()
+allocates
+.I size
+bytes of high bandwidth memory such that the allocation's base address
+is an even multiple of
+.IR "alignment" ,
+and returns the allocation in the value pointed to by
+.IR "memptr" .
+The requested
+.I alignment
+must be a power of 2 at least as large as
+.IR "sizeof(void *)" .
+The memory will be allocated using pages determined by the
+.IR "pagesize"
+variable which may be one of the following enumerated values:
+.TP
+.B HBW_PAGESIZE_4KB
+The four kilobyte page size option. Note that with transparent huge
+pages enabled these allocations may be promoted by the operating
+system to two megabyte pages.
+.TP
+.B HBW_PAGESIZE_2MB
+The two megabyte page size option. Note: This page size requires
+huge pages configuration described in SYSTEM CONFIGURATION section.
+.TP
+.B HBW_PAGESIZE_1GB
+This option allows the user to specify arbitrary sizes backed by
+one gigabytes pages. Gigabyte pages are allocated even if the
+size is not a modulo of 1GB. A good example of using this feature
+with realloc is shown in gb_realloc_example.c. Note: This page size requires
+gigabyte pages configuration described in SYSTEM CONFIGURATION section.
+.TP
+.B HBW_PAGESIZE_1GB_STRICT
+The one gigabyte page size option. The total size of the allocation
+must be a multiple of 1GB with this option, otherwise the allocation
+will fail. Note: This page size requires gigabyte pages configuration
+described in SYSTEM CONFIGURATION section.
+.PP
+.BR hbw_get_policy ()
+returns the current fallback policy when insufficient high bandwith
+memory is available.
+.PP
+.BR hbw_set_policy ()
+sets the current fallback policy. The policy can be modified only once in the lifetime  of  an  application and before calling hbw_*alloc() or hbw_posix_memalign*() function.
+.br
+Note: If the policy is not set, than HBW_POLICY_PREFERRED will be used by default.
+.TP
+.B HBW_POLICY_BIND
+If insufficient high bandwidth memory from the nearest NUMA node is
+available to satisfy a request, the allocated pointer is set to NULL
+and
+.I errno
+is set to ENOMEM.  If insufficient high bandwidth memory pages are
+available at fault time the Out Of Memory (OOM) killer is triggered.
+Note that pages are faulted exclusively from the high bandwidth NUMA
+node nearest at time of allocation, not at time of fault.
+.TP
+.B HBW_POLICY_PREFERRED
+If insufficient memory is available from the high bandwidth NUMA node
+closest at allocation time, fall back to standard memory (default)
+with the smallest NUMA distance.
+.TP
+.B HBW_POLICY_INTERLEAVE
+Interleave faulted pages from across all high bandwidth NUMA nodes
+using standard size pages (the Transparent Huge Page feature is
+disabled).
+.PP
+.BR hbw_verify_memory_region ()
+verifies if memory region fully fall into high bandwidth memory. Returns:
+0 if memory in address range from
+.IR "addr"
+to
+.IR "addr"
++
+.IR "size"
+is allocated in high bandwidth memory,
+-1 if any fragment of memory was not backed by high bandwidth memory [e.g. when memory is not initalized]
+or one of error codes described in ERRORS section.
+
+Using this function in production code may result in serious performance penalty.
+
+.IR Flags
+argument may include optional flags that modifies function behaviour:
+.TP
+.B HBW_TOUCH_PAGES
+Before checking pages, function will touch first byte of all pages in address range starting from
+.IR "addr"
+to
+.IR "addr"
++
+.IR "size"
+by read and write (so the content will be overwitten by the same data as it was read).
+Using this option may trigger Out Of Memory killer.
+.SH "RETURN VALUE"
+.BR hbw_get_policy ()
+returns
+.B HBW_POLICY_BIND
+or
+.B HBW_POLICY_PREFERRED
+which represents the current high bandwidth policy.
+.BR hbw_free ()
+do not have return value.
+.BR hbw_malloc ()
+.BR hbw_calloc (),
+and
+.BR hbw_realloc ()
+return the pointer to the allocated memory, or NULL if the request
+fails.
+.BR hbw_posix_memalign (),
+.BR hbw_posix_memalign_psize ()
+and
+.BR hbw_set_policy ()
+return zero on success and return an error code
+as described in the
+.B ERRORS
+section below on failure.
+.SH ERRORS
+.TP
+Error codes described here are the POSIX standard error codes as defined in <errno.h>
+.TP
+.BR hbw_check_available ()
+returns
+.BR ENODEV
+if high-bandwidth memory is unavailable.
+.TP
+.BR "hbw_posix_memalign" "() and " "hbw_posix_memalign_psize" "()"
+If the
+.I alignment
+parameter is not a power of two, or was not a multiple of
+.IR "sizoeof(void *)" ,
+then
+.B EINVAL
+is returned. If there was insufficient memory to satisfy the request then
+.B ENOMEM
+is returned.
+.TP
+.BR hbw_set_policy ()
+returns
+.B EPERM
+if hbw_set_policy () was called more than once, or
+.B EINVAL if
+.I mode
+argument was neither
+.B HBW_POLICY_PREFERRED,
+.B HBW_POLICY_BIND
+nor
+.B HBW_POLICY_INTERLEAVE.
+.TP
+.BR hbw_verify_memory_region ()
+returns
+.B EINVAL
+if
+.IR "addr"
+is NULL,
+.IR "size"
+equals 0 or
+.IR "flags"
+contained unsupported bit set. If memory pointed by
+.IR "addr"
+could not be verified then
+.B EFAULT
+is returned.
+.SH "NOTES"
+The
+.I hbwmalloc.h
+file defines the external functions and enumerations for the hbwmalloc
+library. These interfaces define a heap manager that targets high
+bandwidth memory numa nodes.
+.SH "FILES"
+.TP
+.I /usr/bin/memkind-hbw-nodes
+Prints a comma separated list of high bandwidth nodes.
+.SH "ENVIRONMENT"
+.TP
+.B MEMKIND_HBW_NODES
+This environment variable is a comma separated list of NUMA nodes that
+are treated as high bandwidth. Uses the
+.I libnuma
+routine
+.BR numa_parse_nodestring ()
+for parsing, so the syntax described in the
+.BR numa (3)
+man page for this routine applies for example: 1-3,5 is a valid setting.
+.TP
+.B MEMKIND_ARENA_NUM_PER_KIND
+This environment variable allows leveraging internal mechanism of
+the library for setting number of arenas per kind. Value should be
+a positive integer (not greater than INT_MAX defined in limits.h).
+The user should set the value based on the characteristics
+of application that is using the library. Higher value can
+provide better performance in extremely multithreaded applications at
+the cost of memory overhead. See section "IMPLEMENTATION NOTES" of
+.BR jemalloc (3)
+for more details about arenas.
+.SH "SYSTEM CONFIGURATION"
+Interfaces for obtaining 2MB and 1GB pages (HUGETLB and GBTLB) need allocated
+huge pages in the kernel's huge page pool.
+.TP
+.B HUGETLB (huge pages)
+Current number of "persistent" huge pages can be read from /proc/sys/vm/nr_hugepages file.
+Proposed way of setting hugepages is: "sudo sysctl vm.nr_hugepages=<number_of_hugepages>".
+More informations can be found here:
+https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt
+.TP
+.B GBTLB (gigabyte pages)
+Number of preallocated gigabyte pages can be read from /proc/cmdline
+(hugepagesz=1G nr_hugepages=N). Setting gigabyte hugepages is available
+by kernel commandline. From 3.16 and later kernels, users can allocate
+gigabyte pages like its done for 2MB pages.
+.SH "KNOWN ISSUES"
+.TP
+.B HUGETLB (huge pages)
+There might be some overhead in huge pages consumption caused by heap management.
+If your allocation fails because of OOM, please try to allocate extra huge pages (e.g. 8 huge pages).
+.SH "COPYRIGHT"
+Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR malloc (3),
+.BR numa (3),
+.BR numactl (8),
+.BR mbind (2),
+.BR mmap (2),
+.BR move_pages (2)
+.BR jemalloc (3)
+.BR memkind (3)

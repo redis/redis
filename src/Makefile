@@ -123,7 +123,7 @@ endif
 ifeq ($(MALLOC),jemalloc)
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(JEMALLOC_PATH)/jemalloc/include
 	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
-	FINAL_CFLAGS+= -DJE_PREFIX=je_
+	FINAL_CFLAGS+= -DJE_PREFIX=jemk_
 	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/include
 	FINAL_LIBS+= $(JEMALLOC_PATH)/jemalloc/obj/lib/libjemalloc.a
 	FINAL_LIBS+= -ldl

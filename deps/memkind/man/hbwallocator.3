@@ -1,0 +1,111 @@
+.\"
+.\" Copyright (C) 2015 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "HBWALLOCATOR" 3 "2015-11-02" "Intel Corporation" "HBWALLOCATOR" \" -*- nroff -*-
+.SH "NAME"
+hbw::allocator<T> \- The C++ allocator compatible with the C++ standard library allocator concepts
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <hbw_allocator.h>
+.sp
+.B Link with -lmemkind
+.sp
+.B hbw::allocator()
+.br
+.B template <class U>hbw::allocator<T>::allocator(const hbw::allocator<U>&)
+.br
+.B hbw::allocator<T>::~allocator()
+.br
+.B hbw::allocator<T>::pointer hbw::allocator<T>::address(hbw::allocator<T>::reference x)
+.br
+.B hbw::allocator<T>::const_pointer hbw::allocator<T>::address(hbw::allocator<T>::const_reference x)
+.br
+.B hbw::allocator<T>::pointer hbw::allocator<T>::allocate(hbw::allocator<T>::size_type n, const void * = 0)
+.br
+.B void hbw::allocator<T>::deallocate(hbw::allocator<T>::pointer p, hbw::allocator<T>::size_type n)
+.br
+.B hbw::allocator<T>::size_type  hbw::allocator<T>::max_size()
+.br
+.B void hbw::allocator<T>::construct(hbw::allocator<T>::pointer p, const hbw::allocator<T>::value_type& val)
+.br
+.B void hbw::allocator<T>::destroy(hbw::allocator<T>::pointer p)
+.fi
+.SH "DESCRIPTION"
+The hbw::allocator<T> is intended to be used with STL containers to allocate high bandwidth memory. Memory management is based on hbwmalloc (memkind library), enabling users to gain performance in multithreaded applications. Refer hbwmalloc(3) and memkind(3) man page for more details.
+.PP
+All public member types and functions corresponds to standard library allocator concepts and definitions. The current implementation supports C++03 standard.
+.PP
+Template arguments:
+.br
+T is an object type aliased by value_type.
+.br
+U is an object type.
+.PP
+Note:
+.br
+hbw::allocator<T>::pointer hbw::allocator<T>::allocate(hbw::allocator<T>::size_type n, const void * = 0)
+allocates high bandwidth memory using
+.IR "hbw_malloc()".
+Throw
+.I std::bad_alloc
+when:
+.br
+.IR		n " = 0,"
+.br
+.IR		n " > "max_size() ","
+.br
+	or there is not enough memory to satisfy the request.
+
+.PP
+void hbw::allocator<T>::deallocate(hbw::allocator<T>::pointer p, hbw::allocator<T>::size_type n) deallocates memory associated with pointer returned by
+.I allocate()
+using
+.IR "hbw_free()".
+.PP
+To find out more about
+.I hbw_malloc()
+and
+.I hbw_free()
+read hbwmalloc(3) man page.
+
+
+.SH ERRORS
+.TP
+The same as described in ERRORS section of hbwmalloc(3) man page.
+.SH "NOTES"
+The
+.I hbw::allocator<T>
+behavior depends on hbwmalloc heap management policy. To get and set the policy please use
+.I hbw_get_policy()
+and
+.I hbw_set_policy()
+respectively.
+.SH "COPYRIGHT"
+Copyright (C) 2015 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR hbwmalloc(3),
+.BR numa (3),
+.BR numactl (8),
+.BR memkind (3)

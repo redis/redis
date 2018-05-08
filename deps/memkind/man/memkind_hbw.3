@@ -1,0 +1,148 @@
+.\"
+.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "MEMKIND_HBW" 3 "2016-06-13" "Intel Corporation" "MEMKIND_HBW" \" -*- nroff -*-
+.SH "NAME"
+memkind_hbw.h \- high bandwidth memory memkind operations.
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <memkind/internal/memkind_hbw.h>
+.sp
+.B Link with -lmemkind
+.sp
+.BI "int memkind_hbw_check_available(struct memkind " "*kind" );
+.br
+.BI "int memkind_hbw_hugetlb_check_available(struct memkind " "*kind" );
+.br
+.BI "int memkind_hbw_gbtlb_check_available(struct memkind " "*kind" );
+.br
+.BI "int memkind_hbw_get_mbind_nodemask(struct memkind " "*kind" ", unsigned long " "*nodemask" ", unsigned long " "maxnode" );
+.br
+.BI "int memkind_hbw_all_get_mbind_nodemask(struct memkind " "*kind" ", unsigned long " "*nodemask" ", unsigned long " "maxnode" );
+.br
+.BI "void memkind_hbw_init_once(void);"
+.br
+.BI "void memkind_hbw_hugetlb_init_once(void);"
+.br
+.BI "void memkind_hbw_preferred_init_once(void);"
+.br
+.BI "void memkind_hbw_preferred_hugetlb_init_once(void);"
+.br
+.BI "void memkind_hbw_interleave_init_once(void);"
+.br
+.SH DESCRIPTION
+.PP
+High bandwidth memory memkind operations.
+.PP
+.BR memkind_hbw_check_available ()
+returns zero if library was able to detect heterogeneous NUMA node
+bandwidths.   Returns
+.B MEMKIND_UNAVAILABLE
+if the detection mechanism failed.
+Detection mechanism can be also overridden by the
+environment variable
+.B MEMKIND_HBW_NODES
+as described in the
+.BR memkind (3)
+man page.
+.PP
+.BR memkind_hbw_hugetlb_check_available ()
+In addition to checking for high bandwidth memory as is done by
+memkind_hbw_check_available (), this also checks for 2MB huge pages as
+is done by memkind_hugetlb_check_available_2mb().
+.PP
+.BR memkind_hbw_gbtlb_check_available ()
+In addition to checking for high bandwidth memory as is done by
+memkind_hbw_check_available (), this also checks for 1GB huge pages as
+is done by memkind_hugetlb_check_available_1gb().
+.PP
+.BR memkind_hbw_get_mbind_nodemask ()
+sets the
+.I nodemask
+bit to one that corresponds to the high bandwidth NUMA node that has
+the closest NUMA distance to the CPU of the calling process.
+All other bits up to
+.I maxnode
+are set to zero.
+The
+.I nodemask
+can be used in conjuction with the
+.BR mbind (2)
+system call.
+.PP
+.BR memkind_hbw_all_get_mbind_nodemask ()
+sets the
+.I nodemask
+bits to one that correspond to the all high bandwidth NUMA nodes in
+the system. All other bits up to
+.I maxnode
+are set to zero.
+The
+.I nodemask
+can be used in conjuction with the
+.BR mbind (2)
+system call.
+.PP
+.BR memkind_hbw_init_once ()
+This function initializes MEMKIND_HBW kind and it should not be called more than once.
+Note:
+.BR memkind_hbw_init_once ()
+may reserve some extra memory.
+.PP
+.BR memkind_hbw_hugetlb_init_once ()
+This function initializes MEMKIND_HBW_HUGETLB kind and it should not be called more than once.
+Note:
+.BR memkind_hbw_hugetlb_init_once ()
+may reserve some extra memory.
+.PP
+.BR memkind_hbw_preferred_init_once ()
+This function initializes MEMKIND_HBW_PREFERRED kind and it should not be called more than once.
+Note:
+.BR memkind_hbw_preferred_init_once ()
+may reserve some extra memory.
+.PP
+.BR memkind_hbw_preferred_hugetlb_init_once ()
+This function initializes MEMKIND_HBW_PREFERRED_HUGETLB kind and it should not be called more than once.
+Note:
+.BR memkind_hbw_preferred_hugetlb_init_once ()
+may reserve some extra memory.
+.PP
+.BR memkind_hbw_interleave_init_once ()
+This function initializes MEMKIND_HBW_INTERLEAVE kind and it should not be called more than once.
+Note:
+.BR memkind_hbw_interleave_init_once ()
+may reserve some extra memory.
+.SH "COPYRIGHT"
+Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR memkind (3),
+.BR memkind_arena (3),
+.BR memkind_default (3),
+.BR memkind_gbtlb (3),
+.BR memkind_hugetlb (3),
+.BR memkind_pmem (3),
+.BR jemalloc (3),
+.BR mbind (2),
+.BR mmap (2)
