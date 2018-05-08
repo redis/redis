@@ -1,0 +1,72 @@
+MEMKIND TESTS
+=============
+
+
+DISCLAIMER
+==========
+SEE COPYING FILE FOR LICENSE INFORMATION.
+
+THIS SOFTWARE IS PROVIDED AS A DEVELOPMENT SNAPSHOT TO AID
+COLLABORATION AND WAS NOT ISSUED AS A RELEASED PRODUCT BY INTEL.
+
+LAST UPDATE
+===========
+Agata Wozniak <agata.wozniak@intel.com>
+Wednesday May 11 2016
+
+TESTS SCENARIOS
+===============
+
+memkind-afts
+------------
+This is scenario for basic functional tests. Maximum number of allocations per numa node:
+- 512 x 4KB pages (summary: 2GB)
+- 16 x 2MB pages
+- 1 x GB pages
+
+memkind-afts-ext
+----------------
+The same tests as in memkind-afts, however this tests are more ravenous and needs more memory
+available. Special test cases prepared only for this scenario are described as ravenous
+and needs at least:
+- 512 x 4KB pages (summary: 2GB)
+- 16 x 2MB pages
+- 3 x GB pages
+memory available per numa node.
+
+memkind-perf
+------------
+This is scenario for performance tests, excluding tests that allocate more than:
+- 512 x 4KB pages (summary: 2GB)
+- 16 x 2MB pages
+- 1 x GB pages
+
+memkind-perf-ext
+----------------
+This test scenario extend memkind-perf for tests that allocate more than:
+- 512 x 4KB pages (summary: 2GB)
+- 16 x 2MB pages
+- 1 x GB pages
+AllocPerformanceTest is a group of performance tests for *alloc() execution. TC properties:
+- 5 kinds (MEMKIND_DEFAULT, MEMKIND_HBW, MEMKIND_INTERLEAVE, MEMKIND_HBW_INTERLEAVE, MEMKIND_HBW_PREFERRED)
+- 3 calls (malloc, calloc, realloc)
+- 5 allocation sizes (100bytes, 4096bytes, 1000bytes, 1001bytes, 1.5MB - 1572864bytes)
+- single thread and multithreaded (10threads and 72threads)
+All tests record three values:
+- total_time_spend_on_alloc (total time spend on *alloc() call during the test - less is better)
+- alloc_operations_per_thread (number of done allocations per thread - this value is constant)
+- ref_delta_time_percent (percent delta between standard allocator and current tested kind - less is better)
+
+memkind-slts
+------------
+This is scenario for all stress and longevity tests.
+
+
+MANUAL TESTING
+==============
+In order to run tests on local machine, check.sh or test.sh should be executed.
+While running tests with check.sh, script is determining if 2MB pages and 1GB pages are enabled
+on the machine as well as whether it contains MCDRAM nodes. Based on this information test.sh
+is executed with parameters that skip tests that would fail because of machine configuration.
+When test.sh is run, all tests are executed as long as -d (skip MCDRAM nodes detection), -m (skip
+tests that require 2MB pages) or -g (skip tests that require 1GB pages) parameters are not used.

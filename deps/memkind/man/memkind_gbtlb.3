@@ -1,0 +1,182 @@
+.\"
+.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "MEMKIND_GBTLB" 3 "2015-04-21" "Intel Corporation" "MEMKIND_GBTLB" \" -*- nroff -*-
+.SH "NAME"
+memkind_gbtlb.h \- gigabyte TLB memkind operations.
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <memkind/internal/memkind_gbtlb.h>
+.sp
+.B Link with -lmemkind
+.sp
+.BI "void *memkind_gbtlb_malloc(struct memkind " "*kind" ", size_t " "size" );
+.BI "void *memkind_gbtlb_calloc(struct memkind " "*kind" ", size_t " "num" ", size_t " "size" );
+.BI "int memkind_gbtlb_posix_memalign(struct memkind " "*kind" ", void " "**memptr" ", size_t " "alignment" ", size_t " "size" );
+.BI "void *memkind_gbtlb_realloc(struct memkind " "*kind" ", void " "*ptr" ", size_t " "size" );
+.BI "void memkind_gbtlb_free(struct memkind " "*kind" ", void " "*ptr" );
+.BI "int memkind_gbtlb_get_mmap_flags(struct memkind " "*kind" ", int " "*flags" );
+.BI "int memkind_gbtlb_check_addr(struct memkind " "*kind" ", void " "*addr" );
+.SH DESCRIPTION
+Gigabyte TLB implementations for memkind operations.  These are
+implemented without using the jemalloc library. The implementation is
+a wrapper around
+.BR mmap (2)
+with a hash table for storing the address and extent of the mapped
+memory. The hash table is queried when freeing memory in order to
+determine the extent that should be passed to
+.BR munmap (2)
+The reason for using such a simplified implementation instead of using
+a heap is that a heap manager is intended to mitigate the overhead of
+the
+.BR mmap (2)
+system call by calling it less frequently than the allocation requests
+that is services.  Since there is a large amount of memory being
+allocated with each call in the case where there are gigabyte pages
+backing the allocation, the frequency of requests is assumed to be
+low.  For this reason the traditional requirements of a heap manager
+to be faster than directly mapping memory from the operating system is
+relaxed.
+.PP
+.BR memkind_gbtlb_malloc ()
+calls
+.BR mmap (2)
+with
+.BR MAP_HUGE_1GB
+mmap flag for allocating gigabyte pages for
+.I size
+bytes and
+.I kind
+can take
+.BI MEMKIND_GBTLB,
+.BI MEMKIND_HBW_GBTLB,
+.BI MEMKIND_HBW_GBTLB_PREFERRED
+and stores the returned address
+in the internal hash table which can be queried to support the
+.BR memkind_gbtlb_free ()
+operation. If kind does not support GBTLB undefined behaviour occurs.
+.PP
+.BR memkind_gbtlb_calloc ()
+is exactly the same implementation and supports the same
+.I kind
+as
+.BR memkind_gbtlb_malloc ()
+since the
+.BR mmap (2)
+system call is guaranteed to return memory of
+.IR size
+bytes which has been zeroed.
+.PP
+.BR memkind_gbtlb_posix_memalign ()
+is a similar implementation to
+.BR memkind_gbtlb_malloc ()
+except that the returned address will be aligned as requested, and the
+error code returned will reflect the POSIX standard defined in
+.IR errno.h.
+.BR memkind_gbtlb_posix_memalign
+the return pointer for the allocated memory
+.PP
+.BR memkind_gbtlb_realloc ()
+can be used to extend or shrink an allocation previously created by
+one of the other interfaces defined here. Implementation reuses
+.BR memkind_gbtlb_malloc ()
+for allocating the new size of memory if needed.
+There is an optimization in place so that if a partial page was previously allocated then it can be extended to the end of the page transparently. (Details in NOTE)
+.PP
+.BR memkind_gbtlb_free ()
+queries the hash table to find the extent of the memory associated
+with the address passed by the user. It then calls
+.BR munmap (2)
+on that extent.
+.PP
+.BR memkind_gbtlb_get_mmap_flags ()
+Sets the
+.I flags
+appropriately for requesting anonymous gigabyte pages.
+.PP
+.BR memkind_gbtlb_check_addr ()
+queries the hash table to determine if the address reflects an
+extent previously allocated with one of the interfaces defined
+here, and returned 03 exact kind associated with the address.
+.SH INTERNAL STATIC FUNCTIONS
+.BR memkind_store ()
+implements a hash table with a hash value calculated using the
+.BI crc32
+SIMD instruction which returns
+.BI crc + CRC-32C(v)
+where v is the virtual address pointer. This hash table is used to
+store the virtual address for retrieval and freeing. The table,
+stores the requested size, allocated size, the virtual address pointer
+and the mmap'ed address pointer information.
+.PP
+.BR memkind_gbtlb_ceil_size ()
+differentiates between STRICT and REGULAR gbtlb implementations by
+getting the ceil of the size if the requested size is not a modulo
+of a gigabyte.
+.PP
+.BR memkind_gbtlb_check_addr ()
+function looks in the gbtlb hash table to see if the virtual address
+was allocated with GB pages. This feature is used in determining the
+kind for realloc'ing in the hbw_realloc implementation.
+
+.SH NOTES
+.BR memkind_gbtlb_realloc ()
+is special, as it allows to use the same
+page that was fetched. Since this implementation of gigabyte pages
+is not backed by an actual heap manager like other kinds (which
+use jemalloc), each allocation request would fetch a gigabyte page.
+So when a realloc is called on a virtual address pointer backed by
+a GB page which has not been completely used, and if the current
+request including previous request does not exceed a GB, no more
+pages are allocated. To summarize, realloc implementation of MEMKIND_GBTLB
+guarantees that gigabyte pages get allocated when its actually needed.
+.PP
+.BR memkind_gbtlb_free ()
+is a little different from the free of the other kinds. Since the other
+kinds are backed by jemalloc, a free will recycle the pages in recycle
+pools maintained by jemalloc, in the case of the gbtlb, the pages are actually
+returned to the operating system.
+.SH REQUIREMENTS
+To allocated gigabyte pages from the operating system. This can be done
+by specifying
+.BI "hugepagesz=1G nr_hugepages=N"
+on  the kernel commandline. From
+.BR 3.16
+and later kernels, users can allocate gigabyte pages like its done for
+2MB pages. i.e
+.BI "echo no_pages > /proc/sys/vm/nr_hugepages"
+
+.SH "COPYRIGHT"
+Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR memkind (3),
+.BR memkind_arena (3),
+.BR memkind_default (3),
+.BR memkind_hbw (3),
+.BR memkind_hugetlb (3),
+.BR memkind_pmem (3),
+.BR jemalloc (3),
+.BR mbind (2),
+.BR mmap (2)

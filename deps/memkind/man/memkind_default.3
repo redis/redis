@@ -1,0 +1,218 @@
+.\"
+.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "MEMKIND_DEFAULT" 3 "2015-04-21" "Intel Corporation" "MEMKIND_DEFAULT" \" -*- nroff -*-
+.SH "NAME"
+memkind_default.h \- default implementations for memkind operations.
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <memkind/internal/memkind_default.h>
+.sp
+.B Link with -lmemkind
+.sp
+.BI "int memkind_default_create(struct memkind " "*kind" ", const struct memkind_ops " "*ops" ", const char " "*name" );
+.br
+.BI "int memkind_default_destroy(struct memkind " "*kind" );
+.br
+.BI "void *memkind_default_malloc(struct memkind " "*kind" ", size_t " "size" );
+.br
+.BI "void *memkind_default_calloc(struct memkind " "*kind" ", size_t " "num" ", size_t " "size" );
+.br
+.BI "int memkind_default_posix_memalign(struct memkind " "*kind" ", void " "**memptr" ", size_t " "alignment" ", size_t " "size" );
+.br
+.BI "void *memkind_default_realloc(struct memkind " "*kind" ", void " "*ptr" ", size_t " "size" );
+.br
+.BI "void memkind_default_free(struct memkind " "*kind" ", void " "*ptr" );
+.br
+.BI "void *memkind_default_mmap(struct memkind " "*kind" ", void " "*addr" ", size_t " "size" );
+.br
+.BI "int memkind_default_mbind(struct memkind " "*kind" ", void " "*ptr" ", size_t " "len" );
+.br
+.BI "int memkind_default_get_mmap_flags(struct memkind " "*kind" ", int " "*flags" );
+.br
+.BI "int memkind_default_get_mbind_mode(struct memkind " "*kind" ", int " "*mode" );
+.br
+.BI "int memkind_preferred_get_mbind_mode(struct memkind " "*kind" ", int " "*mode" );
+.br
+.BI "int memkind_interleave_get_mbind_mode(struct memkind " "*kind" ", int " "*mode" );
+.br
+.BI "int memkind_nohugepage_madvise(struct memkind " "*kind" ", void " "*addr" ", size_t " "size" );
+.br
+.BI "int memkind_default_get_size(struct memkind " "*kind" ", size_t " "*total" ", size_t " "*free" );
+.br
+.BI "int memkind_posix_check_alignment(struct memkind " "*kind" ", size_t " "alignment" );
+.br
+.SH DESCRIPTION
+.PP
+Default implementations for memkind operations which include a several
+useful methods that are not part of the
+.B MEMKIND_DEFAULT
+kind which is a fall through to the jemalloc implementation.
+.PP
+.BR memkind_default_create ()
+implements the required start up for every kind.  If a kind does not
+point to this function directly for its
+.BR ops.create ()
+operation, then the function that it points to must call
+.BR memkind_default_create ()
+at its start.
+.PP
+.BR memkind_default_destroy ()
+implements the required shutdown for every kind.  If a kind does not
+point to this function directly for its
+.BR ops.destroy ()
+operation, then the function that it points to must call
+.BR memkind_default_destroy ()
+at its end.
+.PP
+.BR memkind_default_malloc ()
+is a direct call through to
+.BR jemk_malloc ().
+.PP
+.BR memkind_default_calloc ()
+is a direct call through to
+.BR jemk_calloc ().
+.PP
+.BR memkind_default_posix_memalign ()
+is a direct call through to
+.BR jemk_posix_memalign ().
+.PP
+.BR memkind_default_realloc ()
+is a direct call through to
+.BR jemk_realloc ().
+.PP
+.BR memkind_default_free ().
+is a direct call through to
+.BR jemk_free ().
+Note that this method can be called on any pointer returned by a
+jemalloc allocation, and in particular, all of the arena
+allocations described in
+.BR memkind_arena (3)
+can use this function for freeing.
+.PP
+.BR memkind_default_mmap ()
+This calls the ops->get_mmap_flags()
+operations for the kind, or falls back on the default implementations
+if the function pointers are NULL.  The results of these calls are
+passed to the
+.BR mmap (2)
+call to allocate pages from the operating system.  The
+.I addr
+is the hint passed through to
+.BR mmap (2)
+and
+.I size
+is the size of the buffer to be allocated.  The return value is the
+allocated buffer or
+.B MAP_FAILED
+in the case of an error.
+.PP
+.BR memkind_default_mbind ()
+makes calls the kind's
+.BR ops.get_mbind_nodemask ()
+and
+.BR ops.get_mbind_mode ()
+operations to gather inputs and then calls the
+.BR mbind (2)
+system call using the results along with and user input
+.I ptr
+and
+.IR len .
+.PP
+.BR memkind_default_get_mmap_flags ()
+sets
+.I flags
+to
+.BR "MAP_PRIVATE | MAP_ANONYMOUS" .
+See
+.BR mmap (2)
+for more information about these flags.
+.PP
+.BR memkind_default_get_mbind_mode ()
+sets
+.I mode
+to
+.BR MPOL_BIND .
+See
+.BR mbind (2)
+for more information about this flag.
+.PP
+.BR memkind_preferred_get_mbind_mode ()
+sets
+.I mode
+to
+.BR MPOL_PREFERRED .
+See
+.BR mbind (2)
+for more information about this flag.
+.PP
+.BR memkind_interleave_get_mbind_mode ()
+sets
+.I mode
+to
+.BR MPOL_INTERLEAVE .
+See
+.BR mbind (2)
+for more information about this flag.
+.PP
+.BR memkind_nohugepage_madvise ()
+calls
+.BR madvise (2)
+with the
+.B MADV_NOHUGEPAGE
+advice.
+See
+.BR madvise (2)
+for more information about this option.
+.PP
+.BR memkind_default_get_size ()
+sums the values returned by
+.BR numa_node_size64 ()
+function for every NUMA node set by the
+.BR .get_node_mask ()
+operation.  If the
+.I .get_node_mask
+pointer is
+.B NULL
+then the values are summed for all NUMA nodes.
+.PP
+.BR memkind_posix_check_alignment ()
+can be used to check the alignment value for
+.BR memkind_posix_memalign ()
+to ensure that is abides by the POSIX requirements:
+alignment must be a power of 2 at least as large as
+.RB sizeof( "void *" ).
+.SH "COPYRIGHT"
+Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR memkind (3),
+.BR memkind_arena (3),
+.BR memkind_hbw (3),
+.BR memkind_hugetlb (3),
+.BR memkind_gbtlb (3),
+.BR memkind_pmem (3),
+.BR jemalloc (3),
+.BR mbind (2),
+.BR mmap (2)

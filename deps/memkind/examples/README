@@ -1,0 +1,28 @@
+Christopher Cantalupo <christopher.m.cantalupo@intel.com>
+2014 July 29
+
+The example directory contains some example codes that use the memkind
+interface.  The simplest is the hello_example.c which is a hello world
+variant.  The filter_example.c shows how you would use high bandwidth
+memory to store a reduction of a larger data set stored in DDR. There is
+also an example of how to create user defined kinds.  This example
+creates kinds which isolate allocations to a single NUMA node each
+backed by a single arena.
+
+The pmem_example.c demonstrates how to create a file-backed memkind.
+
+The memkind_allocated example is simple usage of memkind in C++11 which
+shows how memkind can be used to allocate objects, and consists of two files:
+memkind_allocated.hpp - which is definition of template class that should be
+inherited and parametrized by derived type (curiously recurring template
+pattern), to let deriving class allocate their objects using specified kind.
+memkind_allocated_example.cpp - which is example usage of this approach.
+Logic of memkind_allocated is based on overriding operator new() in template,
+and allocating memory on kind specified in new() parameter, or by overridable
+static method getClassKind(). This implementation also supports aligment
+specifier's (alignas() - new feature in C++11).
+The downside of this approach is that it will work properly only if
+memkind_allocated template is inherited once in inheritance chain (which
+probably makes that not very usefull for most scenarios). Other thing is that it
+overriding class new() operator which can cause various problems if used
+unwisely.
