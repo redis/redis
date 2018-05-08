@@ -858,6 +858,15 @@ unsigned long dictScan(dict *d,
             de = next;
         }
 
+        /* Set unmasked bits so incrementing the reversed cursor
+         * operates on the masked bits */
+        v |= ~m0;
+
+        /* Increment the reverse cursor */
+        v = rev(v);
+        v++;
+        v = rev(v);
+
     } else {
         t0 = &d->ht[0];
         t1 = &d->ht[1];
@@ -892,21 +901,15 @@ unsigned long dictScan(dict *d,
                 de = next;
             }
 
-            /* Increment bits not covered by the smaller mask */
-            v = (((v | m0) + 1) & ~m0) | (v & m0);
+            /* Increment the reverse cursor not covered by the smaller mask.*/
+            v |= ~m1;
+            v = rev(v);
+            v++;
+            v = rev(v);
 
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
-
-    /* Set unmasked bits so incrementing the reversed cursor
-     * operates on the masked bits of the smaller table */
-    v |= ~m0;
-
-    /* Increment the reverse cursor */
-    v = rev(v);
-    v++;
-    v = rev(v);
 
     return v;
 }
