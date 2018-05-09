@@ -1,0 +1,92 @@
+README for auothbw library
+Ruchira Sasanka (ruchira DOT sasanka AT intel DOT com)
+2015 April 8
+
+PURPOSE
+-------
+The autohbw library is used to automatically allocate high-bandwidth (HBW)
+memory without any modifications to source code of your application.
+This library intercepts the standard heap allocations (e.g., malloc, calloc)
+in your program so that it can serve those allocations out of HBW memory.
+
+There are two libraries installed at the same location as memkind library:
+  1) libautohbw.so -- dynamic library
+  2) libautohbw.a  -- static library (provided for static linking)
+
+USAGE
+-----
+To use the dynamic library, insert LD_PRELOAD=libautohbw.so and libmekind.so
+before your commandline. For instance,
+
+   LD_PRELOAD=libautohbw.so /bin/ls
+
+executes Unix ls utility with autohbw library. You can execute the
+above command on the prompt or put it in a shell script. An example of
+the latter approach is given in ./autohbw_test.sh. Make sure that
+LD_LIBRARY_PATH enviornment variable contains the path to libautohbw.so
+and libmekind.so before you exeute the above command.
+
+To use the statically linked library, insert -lautohbw -lmemkind
+on your link line. You will have to provide the library path with -L to
+point to the above libraries. If you are linking your program statically
+(e.g., with -static or -fast flags in ifort/icc), you must use the static
+version of autohbw library (libautohbw.a).
+
+It is possible to temporarily disable/enable automatic HBM allocations by
+calling disableAutoHBW() and enableAutoHBW() in your source code. To call
+these routines, please include autohbw_api.h header file and link with
+-lautohbw.
+
+
+Usage with MPI programs
+-----------------------
+To use with MPI programs, you need to create a shell script to do the
+LD_PRELOAD. E.g.,
+   mpirun -n 2 ./autohbw_test.sh
+
+ENVIORNMENT VARIABLES
+---------------------
+The following enviornment variables control the behavior of the autohbw
+library:
+
+  AUTO_HBW_SIZE=x[:y]
+  Indicates that any allocation larger than x and smaller than y should be
+  allocated in HBW memory. x and y can be followed by a K, M, or G to
+  indicate the size in Kilo/Memga/Giga bytes (e.g., 4K, 3M, 2G).
+  Examples:
+    AUTO_HBW_SIZE=4K     # all allocation larger than 4K allocated in HBW
+    AUTO_HBW_SIZE=1M:5M  # allocations betwen 1M and 5M allocated in HBW
+
+
+  AUTO_HBW_LOG=level
+  Sets the value of logging (printing) level. If level is:
+   -1 = no messages are printed
+    0 = no log messages for allocations are printed but INFO messages
+        are printed
+    1 = a log message is printed for each allocation (Default)
+    2 = a log message is printed for each allocation with a backtrace
+        Redirect this output and use autohbw_get_src_lines.pl to find
+        source lines for each allocation. Your application must be compiled
+        with -g to see source lines.
+  Notes:
+    1. Logging adds extra overhead. Therefore, performance critical runs,
+       logging level should be 0
+    2. The amount of free memory printed with log messages is only
+       approximate -- e.g. pages that are not touched yet are excluded
+  Examples:
+    AUTO_HBW_LOG=1
+
+
+  AUTO_HBW_MEM_TYPE=memory_type
+  Sets the type of memory type that should be automatically allocated. By
+  default, this type is MEMKIND_HBW_PREFERRED, if MCDRAM is found in your
+  system; otherwise, the default is MEMKIND_DEFAULT. The names of memory
+  types are definedin memkind(3) man page. If you are requesting any huge
+  TLB pages, pleasemake sure that the requested type is currently enabled
+  in your OS.
+  Examples:
+    AUTO_HBW_MEM_TYPE=MEMKIND_HBW_PREFERRED   (default, if MCDRAM present)
+    AUTO_HBW_MEM_TYPE=MEMKIND_DEFAULT         (default, if MCDRAM absent)
+    AUTO_HBW_MEM_TYPE=MEMKIND_HBW_HUGETLB
+    AUTO_HBW_MEM_TYPE=MEMKIND_HUGETLB
+

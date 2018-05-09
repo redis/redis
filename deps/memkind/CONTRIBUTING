@@ -1,0 +1,200 @@
+CONTRIBUTING
+============
+
+This file is intended to help those interested in contributing to the
+memkind library.
+
+
+COMMUNICATION
+=============
+
+Please participate in the memkind mailing list:
+
+    https://lists.01.org/mailman/listinfo/memkind
+
+There is also the option of opening an issue through github:
+
+    https://github.com/memkind/memkind/issues
+
+The mailing list is intended for discussion and the issues are useful
+for tracking progress on tasks.  The TODO file lists out a number of
+topics, and in order to prioritize one of them please open a github
+issue with a related subject.
+
+
+BUILDING
+========
+
+Building and installing memkind can be as simple as typing the following while
+in the root directory of the source tree:
+
+    ./build_jemalloc.sh
+    ./autogen.sh
+    ./configure --prefix=$HOME/memkind_build
+    make
+    make install
+
+Then you can list installed files usign "find $HOME/memkind_build".
+
+The memkind library uses the GNU autotools (Autoconf, Automake,
+Libtool and m4) for configuration and build.  The configure scripts
+and gtest source code are distributed with the source tarball included
+in the source RPM, and this tarball is created with the memkind "make
+dist" target.  In contrast to the distributed source tarball, the git
+repository does not include any generated files nor the gtest source
+code.  For this reason some additional steps are required when
+building from a checkout of the git repo.  Those steps include running
+the bash script called "autogen.sh" prior to configure.  This script
+will populate a VERSION file based on "git describe", and use
+autoreconf to generate a configure script.  The gtest library is
+required for building the test content.  This is downloaded
+automatically prior to building the test content from the googlecode
+website based on a target describe in memkind/test/Makefile.mk.
+
+a) Building jemalloc
+
+The memkind library has a dependency on a related fork of jemalloc.
+Since there is little hope of cleanly rebasing against the head of
+jemalloc's public development branch (primarily due to the upstream
+modifications to how "huge" allocations are done), we have included
+this source in the memkind repository with the intention of removing
+it when upstream jemalloc supports our requirements. In the mean time,
+the developer must configure and build jemalloc prior to configuring
+and building memkind. You can do that using included shell script:
+
+    ./build_jemalloc.sh
+
+Alternatively you can follow this step-by-step instruction:
+
+    cd jemalloc
+    autoconf
+    mkdir obj
+    cd obj
+    ../configure --enable-autogen --with-jemalloc-prefix=jemk_ --without-export \
+                 --disable-stats --disable-fill --disable-valgrind \
+                 --with-malloc-conf="lg_chunk:22"
+    make
+    cd ../..
+
+b) Building memkind
+
+Briefly, the shell commands `./autogen.sh ./configure; make; make install'
+should configure, build, and install this package.
+
+See the output of:
+
+    ./configure --help
+
+for more information about either the memkind or the jemalloc
+configuration options.  Some useful information about building with autotools
+can also be found in the INSTALL file.
+
+
+TESTING
+=======
+
+The tests require a Linux kernel newer than 3.11 (the details are
+documented in the memkind README), and the reservation of 3000 huge
+pages.  The huge pages can be reserved with the following command:
+
+    $ sudo echo 3000 > /proc/sys/vm/nr_hugepages
+
+Only in the case where gigabyte pages have been reserved will the
+tests associated with gigabyte pages be executed.  Reserving gigabyte
+pages may require a modification to the kernel command line unless the
+kernel is quite recent.
+
+To test memkind simply execute the "make check" target after building.
+This target calls memkind/test/check.sh which in turn calls
+memkind/test/test.sh with parameters depending on the environment.
+
+Most of the tests are written within the gtest framework, however, as
+part of testing the example programs are also executed and the return
+code of the executable determines pass or fail.  The autotools test
+infrastructure is used as a high level executor, but it does not track
+individual tests.  The consequence of this is that the autotools
+output records only one high level test which passes in the case where
+every underlying test was successful and fails if any underlying test
+fails.  The individual test results are recorded in the directory
+called "gtest_output." Here you will find the log of the tests in
+gtest_output/test.out and a set of junit style xml results: one for
+each test.  Note that a side effect of having only one autotools test
+is that autotools parallel testing is disabled.  We have
+multi-threaded tests that use the OpenMP run-time which enables more
+purposeful and deterministic testing of threading issues.  Note that
+the OpenMP run-time is only required for testing, it is not used by
+the memkind library internally.
+
+
+CODING STYLE
+============
+
+Before submitting a patch for inclusion, please run the modified
+source code files through astyle with the following options
+
+    $ astyle --style=linux --indent=spaces=4 -y -S
+
+More information about astyle can be found here:
+
+    http://astyle.sourceforge.net/
+
+In C, source code constants are in all caps and everything else is in
+all lower case.  Underscores are used to separate words within a
+symbol name. No camel case shall be used in C code.  The test code is
+largely written in C++.  Here camel-case should be used for class
+names and should always have a capitalized first letter.  Other
+symbols in C++ should generally follow the C style.
+
+Most symbols with global scope shall be prefixed with "memkind_" or
+"hbw_" depending on which interface they are a part of.
+
+Any global variable shall have _g appended to the variable name and in
+most cases shall be statically scoped within a single compilation
+unit.  The exception to that rule are static memory kinds that are
+declared as extern within the associated interface header and are
+constant after initialization.  Global variables should be used in a
+very narrow set of circumstances and in most cases modifications
+should be guarded with pthread_once(3).
+
+Functions not used outside of the compilation unit shall be declared
+as static.  All functions which are not declared as static shall be
+documented in a man page and have an associated interface header file.
+
+Preprocessor mark-up is discouraged when other options are possible.
+Please use enum in place of #define when value control at configure or
+build time is not required.
+
+
+TESTS
+=====
+
+The current state of the tests is not nearly as well organized as it
+could be.  That being said, it is quite simple to add a new test.
+Most C++ files in the test directory are associated with a single
+gtest testing::Test class.  These classes usually have several
+associated test fixtures in the same file.  If a new test can be added
+as a fixture to an existing class, simply add the fixture to the file
+and the test will be incorporated into the test infrastructure.
+If a new class is required, create a new file and add it to the list
+of "test_all_tests_SOURCES" in memkind/test/Makfile.mk and it will
+be incorporated into the test infrastructure.
+
+There are a few files which define classes which are not google test
+classes.  These are check.cpp, trial_generator.cpp and main.cpp.  The
+check.cpp file defines a class Check that can be used to validate
+fundamental memkind features like NUMA node location, and page size.
+The trial_generator.cpp file is used to abstract a sequence of
+allocation and deallocation calls while performing checks on the
+results of each call; this can be used to apply similar tests to all
+of the different allocation APIs.  The main.cpp file is a simple
+wrapper around testing::InitGoogleTest and RUN_ALL_TESTS().
+
+
+SUBMITTING A PATCH
+==================
+
+Please be sure that all tests pass before submission and that the
+style conforms to the specifications given here.  If a new feature is
+implemented in the patch, please also include unit tests and an
+example which exercises this feature.  Once these requirements have
+been met, please submit a pull request through github.

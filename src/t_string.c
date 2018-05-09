@@ -42,18 +42,6 @@ static int checkStringLength(client *c, long long size) {
     return C_OK;
 }
 
-static robj *moveSdsToMemkind(robj *o) {
-    if(o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_RAW) {
-        sds copy = sdsdupM(o->ptr);
-        sdsfree (o->ptr);
-        o->ptr = copy;
-        o->a = m_alloc;
-        return o;
-	}
-    return o;
-    /*TODO: OBJ_ENCODING_EMBSTR case */
-}
-
 /* The setGenericCommand() function implements the SET operation with different
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
@@ -95,7 +83,6 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
-    val = moveSdsToMemkind(val);
     setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
@@ -148,22 +135,22 @@ void setCommand(client *c) {
         }
     }
 
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    c->argv[2] = tryObjectEncodingM(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
 
 void setnxCommand(client *c) {
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    c->argv[2] = tryObjectEncodingM(c->argv[2]);
     setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
 }
 
 void setexCommand(client *c) {
-    c->argv[3] = tryObjectEncoding(c->argv[3]);
+    c->argv[3] = tryObjectEncodingM(c->argv[3]);
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
 void psetexCommand(client *c) {
-    c->argv[3] = tryObjectEncoding(c->argv[3]);
+    c->argv[3] = tryObjectEncodingM(c->argv[3]);
     setGenericCommand(c,OBJ_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
 }
 
@@ -187,11 +174,9 @@ void getCommand(client *c) {
 }
 
 void getsetCommand(client *c) {
-	robj *o;
     if (getGenericCommand(c) == C_ERR) return;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    o = moveSdsToMemkind(c->argv[2]);
-    setKey(c->db,c->argv[1],o);
+    c->argv[2] = tryObjectEncodingM(c->argv[2]);
+    setKey(c->db,c->argv[1],c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -221,7 +206,8 @@ void setrangeCommand(client *c) {
         if (checkStringLength(c,offset+sdslen(value)) != C_OK)
             return;
 
-        o = createObjectM(OBJ_STRING,sdsnewlenM(NULL, offset+sdslen(value)));
+        o = createObject(OBJ_STRING,sdsnewlenM(NULL, offset+sdslen(value)));
+        o->a = m_alloc;
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
@@ -317,7 +303,6 @@ void mgetCommand(client *c) {
 
 void msetGenericCommand(client *c, int nx) {
     int j, busykeys = 0;
-    robj *o;
 
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
@@ -338,9 +323,8 @@ void msetGenericCommand(client *c, int nx) {
     }
 
     for (j = 1; j < c->argc; j += 2) {
-        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        o = moveSdsToMemkind(c->argv[j+1]);
-        setKey(c->db,c->argv[j],o);
+        c->argv[j+1] = tryObjectEncodingM(c->argv[j+1]);
+        setKey(c->db,c->argv[j],c->argv[j+1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
     server.dirty += (c->argc-1)/2;
@@ -456,11 +440,10 @@ void appendCommand(client *c) {
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
         /* Create the key */
-        c->argv[2] = tryObjectEncoding(c->argv[2]);
-        append = moveSdsToMemkind(c->argv[2]);
-        dbAdd(c->db,c->argv[1],append);
-        incrRefCount(append);
-        totlen = stringObjectLen(append);
+        c->argv[2] = tryObjectEncodingM(c->argv[2]);
+        dbAdd(c->db,c->argv[1],c->argv[2]);
+        incrRefCount(c->argv[2]);
+        totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))

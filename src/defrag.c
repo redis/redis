@@ -447,16 +447,16 @@ void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t epoch = 1, allocated = 0, resident = 0, active = 0, sz = sizeof(size_t);
     /* Update the statistics cached by mallctl. */
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    jemk_mallctl("epoch", &epoch, &sz, &epoch, sz);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
      * heap mappings. */
-    je_mallctl("stats.resident", &resident, &sz, NULL, 0);
+    jemk_mallctl("stats.resident", &resident, &sz, NULL, 0);
     /* Unlike resident, this doesn't not include the pages jemalloc reserves
      * for re-use (purge will clean that). */
-    je_mallctl("stats.active", &active, &sz, NULL, 0);
+    jemk_mallctl("stats.active", &active, &sz, NULL, 0);
     /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
      * into account all allocations done by this process (not only zmalloc). */
-    je_mallctl("stats.allocated", &allocated, &sz, NULL, 0);
+    jemk_mallctl("stats.allocated", &allocated, &sz, NULL, 0);
     float frag_pct = ((float)active / allocated)*100 - 100;
     size_t frag_bytes = active - allocated;
     float rss_pct = ((float)resident / allocated)*100 - 100;

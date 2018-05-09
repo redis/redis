@@ -1,0 +1,160 @@
+* Thu Nov 17 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.4.0
+- Introduced hbw_verify_memory_region() for verifying if provided memory
+  region fully falls into high-bandwidth memory (for details please take a look
+  at man/hbwmalloc.3).
+- New API for creating kinds using set of predefined attributes:
+  memkind_create_kind(), memkind_destroy_kind() (for details please take a look
+  at man/memkind.3).
+- Fixed issue in autohbw where it was reporting limit error regardless of
+  value provided.
+- Added logging on error paths.
+- Test base fixes and improvements.
+
+* Tue Sep 27 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.3.0
+- Introduced logging mechanism (for details please take a look at
+  man/memkind.3).
+- Deprecated symbols: memkind_finalize(), memkind_get_num_kind(),
+  memkind_get_kind_by_partition(), memkind_get_kind_by_name(),
+  memkind_partition_mmap(), memkind_get_size(), MEMKIND_ERROR_MEMALIGN,
+  MEMKIND_ERROR_MALLCTL,  MEMKIND_ERROR_GETCPU, MEMKIND_ERROR_PMTT,
+  MEMKIND_ERROR_TIEDISTANCE, MEMKIND_ERROR_ALIGNMENT, MEMKIND_ERROR_MALLOCX,
+  MEMKIND_ERROR_REPNAME, MEMKIND_ERROR_PTHREAD, MEMKIND_ERROR_BADPOLICY,
+  MEMKIND_ERROR_REPPOLICY.
+- Added integration with hwloc (turned on with --with-hwloc).
+- Cleanup of symbols exposed by libmemkind.so (e.g. no longer exposing libnuma
+  and jemalloc symbols).
+- AutoHBW files have been moved to "memkind/autohbw" directory, code has
+  been refactored and tests have been added to appropriate scenarios.
+- Library is now built with flags improving security (can be turned off
+  with --disable-secure configure time option).
+- Changed configuration of jemalloc to turn off unused features.
+
+* Thu Aug 18 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.2.0
+- memkind_create() and memkind_ops have been deprecated (moved to
+  memkind_deprecated.h).
+- Deprecated the headers from memkind/internal and added compile-time
+  warnings to them (plan is to remove those from rpm packages).
+- autohbw files have been moved to memkind/autohbw directory.
+- API decorators (memkind_malloc_pre, memkind_malloc_post etc.) now
+  need to be enabled with configure-time option --enable-decorators.
+- Allocation time optimizations with up to 20% improvement.
+
+* Wed Jul 13 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.1.1
+- Performance improvement for memkind_free() in scenario where NULL
+  was passed as kind (reduced by 60%).
+- Introduced integration with Travis CI.
+- Fixed issue where memory returned from calloc was not filled with zeroes
+  when using memkind_pmem kinds.
+- Fixed issue where interleave kinds was failing on systems without
+  Transparent Huge Pages module configured.
+- Resolved several issues that was causing compilation errors on some systems.
+- test/test.sh is now able to detect system configuration, and run only those
+  tests which requirements are meet.
+- Added gtest to repo to avoid downloading it during build proecess.
+
+* Mon May 23 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.1.0
+- Implemented algorithm for detecting high-bandwidth memory on Intel Xeon Phi X200
+  without parsing PMTT.
+- PMTT-parsing service has been removed.
+- memkind struct definition from memkind.h has been replaced by forward
+  declaration. Definition has been moved to /internal/memkind_private.h and
+  shouldn't be considered as part of library interface anymore.
+- Performance improvment for hugetlb kinds (check_available() is no longer
+  parsing sysfs every time).
+- Performance fix by removing --enable-safe from jemmaloc build flags.
+- New tests for validating high-bandwidth memory detection has been added.
+- AFTS has been split into two groups: memkind-afts.ts and memkind-afts-ext.ts,
+  based on amount of required memory (for details view test/README).
+
+* Thu Mar 03 2016 Artur Koziej <artur.koziej@intel.com> v1.0.0
+- hbwmalloc.h released as stable API.
+- Introduce API standards: STANDARD API, NON-STANDARD API, EXPERIMENTAL API.
+- Introduce memkind versioning API.
+- Fix type names in hbwmalloc API.
+- Change error codes to POSIX standard ones in hbwmalloc API.
+- Move API headers to include directory.
+- Move NON-STANDARD API, or EXPERIMENTAL API to include/memkind/internal directory.
+- New man page (memkind_interleave.3) describing interleave kind.
+- Significant documentation improvement.
+- Performance fix for jemalloc - significantly decrease of library initialization time.
+- Enforce 2MB alignment in jemalloc due to the Linux kernel bug (munmap() fails for
+  huge pages, when the size is not aligned).
+- Move to systemd defined service (memkind.service), drop init.d script.
+- New rpm layout (memkind and memkind-devel).
+- Remove false dependency on OpenMP.
+- Extend test base for stress, longevity and initialization performance tests.
+- Fix memory leak in ctl_growk().
+- Rename namespace: hbwmalloc -> hbw.
+- Rename class: hbwmalloc_allocator -> allocator.
+
+* Thu Oct 15 2015 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v0.3.0
+- Added two new kinds: MEMKIND_INTERLEAVE and MEMKIND_HBW_INTERLEAVE
+  (for details please take a look at man/memkind.3)
+- Added support for file-backed memory heaps
+  (for details please take a look at man/memkind_pmem.3)
+- Added autohbw library, that intercepts the standard heap allocations,
+  which let use high-bandwidth memory without modifying existing codebase
+  (for details please take a look at examples/autohbw_README)
+- jemalloc is now, staticly linked, internal component of memkind RPM
+  instead of rpm dependency.
+- Added memkind_allocated example which demonstrates usage of memkind
+  with alignas() alignment specifier introduced in C++11
+  (for details please take a look at examples/README)
+- Added support for using thread local storage to improve performance in
+  multithreaded applications (enabled by configure time option: --enable-tls)
+- Added posibility to set number of jemalloc arenas per kind by
+  configure time parameter or enviromental variable
+  (for details please take a look at MEMKIND_ARENA_NUM_PER_KIND section
+  of man/memkind.3).
+- Added decorators to the memkind allocation APIs.
+  These are weak symbols (pre and post for each API) which can modify
+  the input and output of each of the calls.
+- Significantly extended test base (new groups of tests: performance,
+  multithreaded, PMTT, nagtive, stress).
+
+* Fri Jan 9 2015 Christopher Cantalupo <christopher.m.cantalupo@intel.com> v0.2.0
+- Bumped memkind ABI version to 0:1:0.
+- Removed memkind_get_kind_for_free() from externally facing API's.  Instead if
+  memkind_free() is called with zero passed for the kind then
+  memkind_get_kind_for_free() is called internally.
+- Moved to single callback memkind_partition_mmap() to simplify
+  jemalloc modifications.
+- Added hooks for setting file descriptor and offset for mmap enabling
+  file-backed memory kinds.
+- Added a void pointer called "priv" to memkind structure for storing data for
+  user-defined kinds.
+- Removed call to sched_getcpu(), now thread id is hashed to determine the arena
+  index.
+- Added weak symbol hooks for decorating the heap management functions.
+- Fixed several issues with init.d/memkind script and spec file scriptlets that
+  are exposed by SLES-12.
+- Introduced an example library called numakind.
+  The numakind library will allocate from the closest NUMA node to a thread as
+  measured when that thread makes its first allocation call.
+- Fixed error handling in memkind_gbtlb_mmap() that could cause a segfault when
+  gigabyte pages are not available.
+- Added tests for PMTT parser.
+- Removed binary mock PMTT table from source code, replaced it with a hexdump.
+- Fixed a number of issues in test scripts which were suppressing errors.
+- Removed unnecessary includes from header files.
+- Better error checking in example code.
+- Documentation update and clean up.
+
+* Thu Nov 13 2014 Christopher Cantalupo <christopher.m.cantalupo@intel.com> v0.1.0
+- Increased test code coverage significantly.
+- Fixed bug in memkind_error_message() for MEMKIND_ERROR_TOOMANY.
+- Removed memkind_arena_free() API since it was redundant with memkind_default_free().
+- Static memkind structs are now declared as extern in the headers and defined in the
+  source files files rather than being statically defined in the headers.
+
+* Thu Oct 30 2014 Christopher Cantalupo <christopher.m.cantalupo@intel.com> v0.0.9
+- Now building with autotools.
+- Updated documentation.
+- Fixed typo in copyright.
+- Fixed test scripts to properly handle return code of each test.
+- Added C++03 standard allocator that uses hbw_malloc and hbw_free.
+* Tue Sep 30 2014 Christopher Cantalupo <christopher.m.cantalupo@intel.com> v0.0.8
+- Added GBTLB functionality, code clean up, documentation updates,
+  examples directory.  Examples includes stream modified to use
+  memkind interface.  Code coverage still lacking, and documentation
+  incomplete.

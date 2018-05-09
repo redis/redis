@@ -1,0 +1,40 @@
+OPEN DEVELOPMENT
+================
+
+We are moving to a more open development model with memkind.
+
+- The memkind github organization:
+  https://github.com/memkind
+
+- Rather than posting bulk patches at time of tag, we are posting more
+  incremental patches with finer grain commit details.
+
+- There is now a "dev" branch in the memkind repository and a
+  "memkind-dev" branch in the memkind fork of the jemalloc repository.
+  These will be used for open development work.
+
+- There is a memkind web page here:
+  http://memkind.github.io/memkind
+
+- We have posted an architecture document here:
+  http://memkind.github.io/memkind/memkind_arch_20150318.pdf
+
+- We invite you to join the memkind mailing list:
+  https://lists.01.org/mailman/listinfo/memkind
+
+- Feel free to open a github issue, especially if there is a TODO item
+  that you would like to prioritize.
+
+- We have posted source and binary RPMs for several distributions here:
+  http://download.opensuse.org/repositories/home:/cmcantalupo/
+
+- memkind is also avaiable in Fedora package repository (devel, EPEL7):
+  https://admin.fedoraproject.org/pkgdb/package/memkind/
+
+- Pull requests are welcome.
+
+- White space formatting generally conforms to
+  $ astyle --style=linux --indent=spaces=4 -y -S
+
+- For more information about astyle:
+  http://astyle.sourceforge.net/

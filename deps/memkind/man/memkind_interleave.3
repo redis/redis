@@ -1,0 +1,55 @@
+.\"
+.\" Copyright (C) 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "MEMKIND_INTERLEAVE" 3 "2016-02-19" "Intel Corporation" "MEMKIND_INTERLEAVE" \" -*- nroff -*-
+.SH "NAME"
+memkind_interleave.h \- interleave memory memkind operations.
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <memkind/internal/memkind_interleave.h>
+.sp
+.B Link with -lmemkind
+.sp
+.BI "void memkind_interleave_init_once(void);"
+.br
+.SH DESCRIPTION
+.PP
+memkind_interleave_init_once()
+This function initializes MEMKIND_INTERLEAVE kind and it should not be called more than once.
+.BR Note:
+.BR memkind_interleave_init_once ()
+may reserve some extra memory.
+.SH "COPYRIGHT"
+Copyright (C) 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR memkind (3),
+.BR memkind_arena (3),
+.BR memkind_default (3),
+.BR memkind_gbtlb (3),
+.BR memkind_hbw (3),
+.BR memkind_pmem (3),
+.BR jemalloc (3),
+.BR mbind (2),
+.BR mmap (2)
