@@ -88,14 +88,38 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 #else
           switch (ctrl)
             {
-              case 32: *op++ = *ip++; case 31: *op++ = *ip++; case 30: *op++ = *ip++; case 29: *op++ = *ip++;
-              case 28: *op++ = *ip++; case 27: *op++ = *ip++; case 26: *op++ = *ip++; case 25: *op++ = *ip++;
-              case 24: *op++ = *ip++; case 23: *op++ = *ip++; case 22: *op++ = *ip++; case 21: *op++ = *ip++;
-              case 20: *op++ = *ip++; case 19: *op++ = *ip++; case 18: *op++ = *ip++; case 17: *op++ = *ip++;
-              case 16: *op++ = *ip++; case 15: *op++ = *ip++; case 14: *op++ = *ip++; case 13: *op++ = *ip++;
-              case 12: *op++ = *ip++; case 11: *op++ = *ip++; case 10: *op++ = *ip++; case  9: *op++ = *ip++;
-              case  8: *op++ = *ip++; case  7: *op++ = *ip++; case  6: *op++ = *ip++; case  5: *op++ = *ip++;
-              case  4: *op++ = *ip++; case  3: *op++ = *ip++; case  2: *op++ = *ip++; case  1: *op++ = *ip++;
+              case 32: *op++ = *ip++; // -fallthrough
+              case 31: *op++ = *ip++; // -fallthrough
+              case 30: *op++ = *ip++; // -fallthrough
+              case 29: *op++ = *ip++; // -fallthrough
+              case 28: *op++ = *ip++; // -fallthrough
+              case 27: *op++ = *ip++; // -fallthrough
+              case 26: *op++ = *ip++; // -fallthrough
+              case 25: *op++ = *ip++; // -fallthrough
+              case 24: *op++ = *ip++; // -fallthrough
+              case 23: *op++ = *ip++; // -fallthrough
+              case 22: *op++ = *ip++; // -fallthrough
+              case 21: *op++ = *ip++; // -fallthrough
+              case 20: *op++ = *ip++; // -fallthrough
+              case 19: *op++ = *ip++; // -fallthrough
+              case 18: *op++ = *ip++; // -fallthrough
+              case 17: *op++ = *ip++; // -fallthrough
+              case 16: *op++ = *ip++; // -fallthrough
+              case 15: *op++ = *ip++; // -fallthrough
+              case 14: *op++ = *ip++; // -fallthrough
+              case 13: *op++ = *ip++; // -fallthrough
+              case 12: *op++ = *ip++; // -fallthrough
+              case 11: *op++ = *ip++; // -fallthrough
+              case 10: *op++ = *ip++; // -fallthrough
+              case  9: *op++ = *ip++; // -fallthrough
+              case  8: *op++ = *ip++; // -fallthrough
+              case  7: *op++ = *ip++; // -fallthrough
+              case  6: *op++ = *ip++; // -fallthrough
+              case  5: *op++ = *ip++; // -fallthrough
+              case  4: *op++ = *ip++; // -fallthrough
+              case  3: *op++ = *ip++; // -fallthrough
+              case  2: *op++ = *ip++; // -fallthrough
+              case  1: *op++ = *ip++;
             }
 #endif
         }
@@ -163,15 +187,15 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 
                 break;
 
-              case 9: *op++ = *ref++;
-              case 8: *op++ = *ref++;
-              case 7: *op++ = *ref++;
-              case 6: *op++ = *ref++;
-              case 5: *op++ = *ref++;
-              case 4: *op++ = *ref++;
-              case 3: *op++ = *ref++;
-              case 2: *op++ = *ref++;
-              case 1: *op++ = *ref++;
+              case 9: *op++ = *ref++; // -fallthrough
+              case 8: *op++ = *ref++; // -fallthrough
+              case 7: *op++ = *ref++; // -fallthrough
+              case 6: *op++ = *ref++; // -fallthrough
+              case 5: *op++ = *ref++; // -fallthrough
+              case 4: *op++ = *ref++; // -fallthrough
+              case 3: *op++ = *ref++; // -fallthrough
+              case 2: *op++ = *ref++; // -fallthrough
+              case 1: *op++ = *ref++; // -fallthrough
               case 0: *op++ = *ref++; /* two octets more */
                       *op++ = *ref++;
             }
