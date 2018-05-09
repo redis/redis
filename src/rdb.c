@@ -772,7 +772,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(set);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) {
+                dictReleaseIterator(di);
+                return -1;
+            }
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -842,7 +845,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
+                dictReleaseIterator(di);
+                return -1;
+            }
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
