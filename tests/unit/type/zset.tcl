@@ -653,28 +653,24 @@ start_server {tags {"zset"}} {
             r del zset
             assert_equal {} [r zpopmin zset]
             create_zset zset {-1 a 1 b 2 c 3 d 4 e}
-            assert_equal {zset -1 a} [r zpopmin zset]
-            assert_equal {zset 1 b} [r zpopmin zset]
-            assert_equal {zset 4 e} [r zpopmax zset]
-            assert_equal {zset 3 d} [r zpopmax zset]
-            assert_equal {zset 2 c} [r zpopmin zset]
+            assert_equal {-1 a} [r zpopmin zset]
+            assert_equal {1 b} [r zpopmin zset]
+            assert_equal {4 e} [r zpopmax zset]
+            assert_equal {3 d} [r zpopmax zset]
+            assert_equal {2 c} [r zpopmin zset]
             assert_equal 0 [r exists zset]
             r set foo bar
             assert_error "*WRONGTYPE*" {r zpopmin foo}
         }
 
-        test "ZPOP with multiple keys - $encoding" {
+        test "ZPOP with count - $encoding" {
             r del z1 z2 z3 foo
             r set foo bar
-            assert_equal {} [r zpopmin z1 z2 z3]
-            assert_error "*WRONGTYPE*" {r zpopmin z1 foo}
-            create_zset z1 {0 a 1 b 2 c}
-            assert_equal {z1 0 a} [r zpopmin z1 z2 z3]
-            assert_equal {z1 1 b} [r zpopmin z3 z2 z1]
-            create_zset z3 {0 a 1 b 2 c}
-            assert_equal {z3 2 c} [r zpopmax z3 z2 z1]
-            assert_equal 1 [r exists z1]
-            assert_equal 1 [r exists z3]
+            assert_equal {} [r zpopmin z1 2]
+            assert_error "*WRONGTYPE*" {r zpopmin foo 2}
+            create_zset z1 {0 a 1 b 2 c 3 d}
+            assert_equal {0 a 1 b} [r zpopmin z1 2]
+            assert_equal {3 d 2 c} [r zpopmax z1 2]
         }
 
         test "BZPOP with a single existing sorted set - $encoding" {
