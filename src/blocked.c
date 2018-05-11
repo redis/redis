@@ -331,7 +331,7 @@ void handleClientsBlockedOnKeys(void) {
                                      receiver->lastcmd->proc == bzpopminCommand)
                                      ? ZSET_MIN : ZSET_MAX;
                         unblockClient(receiver);
-                        genericZpopCommand(receiver,&rl->key,1,where);
+                        genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
 
                         propagate(where == ZSET_MIN ?
                             server.zpopminCommand : server.zpopmaxCommand,
