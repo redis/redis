@@ -3316,7 +3316,7 @@ static clusterManagerNode * clusterManagerGetNodeWithMostKeysInSlot(list *nodes,
         if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE || n->replicate)
             continue;
         redisReply *r = 
-            CLUSTER_MANAGER_COMMAND(n, "CLUSTER COUNTKEYSINSLOTi %d", slot); 
+            CLUSTER_MANAGER_COMMAND(n, "CLUSTER COUNTKEYSINSLOT %d", slot); 
         int success = clusterManagerCheckRedisReply(n, r, err);
         if (success) {
             if (r->integer > numkeys || node == NULL) {
@@ -3446,6 +3446,9 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                n->slots[atoi(slot)] = 1;
                 fixed++;
             }
         }
@@ -3474,6 +3477,9 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                n->slots[atoi(slot)] = 1;
                 fixed++;
             }
         }
@@ -3513,6 +3519,9 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(target, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                target->slots[atoi(slot)] = 1;
                 listIter nli;
                 listNode *nln;
                 listRewind(nodes, &nli);
@@ -3633,6 +3642,9 @@ static int clusterManagerFixOpenSlot(int slot) {
         success = clusterManagerCheckRedisReply(owner, reply, NULL);
         if (reply) freeReplyObject(reply);
         if (!success) goto cleanup;
+        /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+         * info into the node struct, in order to keep it synced */
+        owner->slots[slot] = 1;
         /* Make sure this information will propagate. Not strictly needed
          * since there is no past owner, so all the other nodes will accept
          * whatever epoch this node will claim the slot with. */
