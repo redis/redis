@@ -649,74 +649,74 @@ start_server {tags {"zset"}} {
             }
         }
 
-        test "Basic Z\[REV\]POP with a single key - $encoding" {
+        test "Basic ZPOP with a single key - $encoding" {
             r del zset
-            assert_equal {} [r zpop zset]
+            assert_equal {} [r zpopmin zset]
             create_zset zset {-1 a 1 b 2 c 3 d 4 e}
-            assert_equal {zset -1 a} [r zpop zset]
-            assert_equal {zset 1 b} [r zpop zset]
-            assert_equal {zset 4 e} [r zrevpop zset]
-            assert_equal {zset 3 d} [r zrevpop zset]
-            assert_equal {zset 2 c} [r zpop zset]
+            assert_equal {zset -1 a} [r zpopmin zset]
+            assert_equal {zset 1 b} [r zpopmin zset]
+            assert_equal {zset 4 e} [r zpopmax zset]
+            assert_equal {zset 3 d} [r zpopmax zset]
+            assert_equal {zset 2 c} [r zpopmin zset]
             assert_equal 0 [r exists zset]
             r set foo bar
-            assert_error "*WRONGTYPE*" {r zpop foo}
+            assert_error "*WRONGTYPE*" {r zpopmin foo}
         }
 
-        test "Z\[REV\]POP with multiple keys - $encoding" {
+        test "ZPOP with multiple keys - $encoding" {
             r del z1 z2 z3 foo
             r set foo bar
-            assert_equal {} [r zpop z1 z2 z3]
-            assert_error "*WRONGTYPE*" {r zpop z1 foo}
+            assert_equal {} [r zpopmin z1 z2 z3]
+            assert_error "*WRONGTYPE*" {r zpopmin z1 foo}
             create_zset z1 {0 a 1 b 2 c}
-            assert_equal {z1 0 a} [r zpop z1 z2 z3]
-            assert_equal {z1 1 b} [r zpop z3 z2 z1]
+            assert_equal {z1 0 a} [r zpopmin z1 z2 z3]
+            assert_equal {z1 1 b} [r zpopmin z3 z2 z1]
             create_zset z3 {0 a 1 b 2 c}
-            assert_equal {z3 2 c} [r zrevpop z3 z2 z1]
+            assert_equal {z3 2 c} [r zpopmax z3 z2 z1]
             assert_equal 1 [r exists z1]
             assert_equal 1 [r exists z3]
         }
 
-        test "BZ\[REV\]POP with a single existing sorted set - $encoding" {
+        test "BZPOP with a single existing sorted set - $encoding" {
             set rd [redis_deferring_client]
             create_zset zset {0 a 1 b 2 c}
 
-            $rd bzpop zset 5
+            $rd bzpopmin zset 5
             assert_equal {zset 0 a} [$rd read]
-            $rd bzpop zset 5
+            $rd bzpopmin zset 5
             assert_equal {zset 1 b} [$rd read]
-            $rd bzrevpop zset 5
+            $rd bzpopmax zset 5
             assert_equal {zset 2 c} [$rd read]
             assert_equal 0 [r exists zset]
         }
 
-        test "BZ\[REV\]POP with multiple existing sorted sets - $encoding" {
+        test "BZPOP with multiple existing sorted sets - $encoding" {
             set rd [redis_deferring_client]
             create_zset z1 {0 a 1 b 2 c}
             create_zset z2 {3 d 4 e 5 f}
 
-            $rd bzpop z1 z2 5
+            $rd bzpopmin z1 z2 5
             assert_equal {z1 0 a} [$rd read]
-            $rd bzrevpop z1 z2 5
+            $rd bzpopmax z1 z2 5
             assert_equal {z1 2 c} [$rd read]
             assert_equal 1 [r zcard z1]
             assert_equal 3 [r zcard z2]
 
-            $rd bzrevpop z2 z1 5
+            $rd bzpopmax z2 z1 5
             assert_equal {z2 5 f} [$rd read]
-            $rd bzpop z2 z1 5
+            $rd bzpopmin z2 z1 5
             assert_equal {z2 3 d} [$rd read]
             assert_equal 1 [r zcard z1]
             assert_equal 1 [r zcard z2]
         }
 
-        test "BZ\[REV\]POP second sorted set has members - $encoding" {
+        test "BZPOP second sorted set has members - $encoding" {
             set rd [redis_deferring_client]
             r del z1
             create_zset z2 {3 d 4 e 5 f}
-            $rd bzrevpop z1 z2 5
+            $rd bzpopmax z1 z2 5
             assert_equal {z2 5 f} [$rd read]
-            $rd bzpop z2 z1 5
+            $rd bzpopmin z2 z1 5
             assert_equal {z2 3 d} [$rd read]
             assert_equal 0 [r zcard z1]
             assert_equal 1 [r zcard z2]
@@ -1099,11 +1099,11 @@ start_server {tags {"zset"}} {
             assert_equal {} $err
         }
 
-        test "BZPOP, ZADD + DEL should not awake blocked client" {
+        test "BZPOPMIN, ZADD + DEL should not awake blocked client" {
             set rd [redis_deferring_client]
             r del zset
 
-            $rd bzpop zset 0
+            $rd bzpopmin zset 0
             r multi
             r zadd zset 0 foo
             r del zset
@@ -1113,13 +1113,13 @@ start_server {tags {"zset"}} {
             $rd read
         } {zset 1 bar}
 
-        test "BZPOP, ZADD + DEL + SET should not awake blocked client" {
+        test "BZPOPMIN, ZADD + DEL + SET should not awake blocked client" {
             set rd [redis_deferring_client]
             r del list
 
             r del zset
 
-            $rd bzpop zset 0
+            $rd bzpopmin zset 0
             r multi
             r zadd zset 0 foo
             r del zset
@@ -1130,31 +1130,31 @@ start_server {tags {"zset"}} {
             $rd read
         } {zset 1 bar}
 
-        test "BZPOP with same key multiple times should work" {
+        test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]
             r del z1 z2
 
-            # Data arriving after the BZPOP.
-            $rd bzpop z1 z2 z2 z1 0
+            # Data arriving after the BZPOPMIN.
+            $rd bzpopmin z1 z2 z2 z1 0
             r zadd z1 0 a
             assert_equal [$rd read] {z1 0 a}
-            $rd bzpop z1 z2 z2 z1 0
+            $rd bzpopmin z1 z2 z2 z1 0
             r zadd z2 1 b
             assert_equal [$rd read] {z2 1 b}
 
             # Data already there.
             r zadd z1 0 a
             r zadd z2 1 b
-            $rd bzpop z1 z2 z2 z1 0
+            $rd bzpopmin z1 z2 z2 z1 0
             assert_equal [$rd read] {z1 0 a}
-            $rd bzpop z1 z2 z2 z1 0
+            $rd bzpopmin z1 z2 z2 z1 0
             assert_equal [$rd read] {z2 1 b}
         }
 
-        test "MULTI/EXEC is isolated from the point of view of BZPOP" {
+        test "MULTI/EXEC is isolated from the point of view of BZPOPMIN" {
             set rd [redis_deferring_client]
             r del zset
-            $rd bzpop zset 0
+            $rd bzpopmin zset 0
             r multi
             r zadd zset 0 a
             r zadd zset 1 b
@@ -1163,11 +1163,11 @@ start_server {tags {"zset"}} {
             $rd read
         } {zset 0 a}
 
-        test "BZPOP with variadic ZADD" {
+        test "BZPOPMIN with variadic ZADD" {
             set rd [redis_deferring_client]
             r del zset
             if {$::valgrind} {after 100}
-            $rd bzpop zset 0
+            $rd bzpopmin zset 0
             if {$::valgrind} {after 100}
             assert_equal 2 [r zadd zset -1 foo 1 bar]
             if {$::valgrind} {after 100}
@@ -1175,10 +1175,10 @@ start_server {tags {"zset"}} {
             assert_equal {bar} [r zrange zset 0 -1]
         }
 
-        test "BZPOP with zero timeout should block indefinitely" {
+        test "BZPOPMIN with zero timeout should block indefinitely" {
             set rd [redis_deferring_client]
             r del zset
-            $rd bzpop zset 0
+            $rd bzpopmin zset 0
             after 1000
             r zadd zset 0 foo
             assert_equal {zset 0 foo} [$rd read]

@@ -204,14 +204,25 @@ void disconnectAllBlockedClients(void) {
 
 /* This function should be called by Redis every time a single command,
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
- * being called by a client.
+ * being called by a client. It handles serving clients blocked in
+ * lists, streams, and sorted sets, via a blocking commands.
  *
  * All the keys with at least one client blocked that received at least
- * one new element via some PUSH/XADD operation are accumulated into
+ * one new element via some write operation are accumulated into
  * the server.ready_keys list. This function will run the list and will
  * serve clients accordingly. Note that the function will iterate again and
  * again as a result of serving BRPOPLPUSH we can have new blocking clients
- * to serve because of the PUSH side of BRPOPLPUSH. */
+ * to serve because of the PUSH side of BRPOPLPUSH.
+ *
+ * This function is normally "fair", that is, it will server clients
+ * using a FIFO behavior. However this fairness is violated in certain
+ * edge cases, that is, when we have clients blocked at the same time
+ * in a sorted set and in a list, for the same key (a very odd thing to
+ * do client side, indeed!). Because mismatching clients (blocking for
+ * a different type compared to the current key type) are moved in the
+ * other side of the linked list. However as long as the key starts to
+ * be used only for a single type, like virtually any Redis application will
+ * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -316,14 +327,14 @@ void handleClientsBlockedOnKeys(void) {
                             continue;
                         }
 
-                        int reverse =   (receiver->lastcmd &&
-                                        receiver->lastcmd->proc == bzpopCommand) ?
-                                        0 : 1;
+                        int where = (receiver->lastcmd &&
+                                     receiver->lastcmd->proc == bzpopminCommand)
+                                     ? ZSET_MIN : ZSET_MAX;
                         unblockClient(receiver);
-                        genericZpopCommand(receiver,&rl->key,1,reverse);
+                        genericZpopCommand(receiver,&rl->key,1,where);
 
-                        propagate(reverse ?
-                            server.zrevpopCommand : server.zpopCommand,
+                        propagate(where == ZSET_MIN ?
+                            server.zpopminCommand : server.zpopmaxCommand,
                             receiver->db->id,receiver->argv,receiver->argc,
                             PROPAGATE_AOF|PROPAGATE_REPL);
                     }

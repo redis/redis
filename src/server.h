@@ -316,6 +316,8 @@ typedef long long mstime_t; /* millisecond time type. */
 /* List related stuff */
 #define LIST_HEAD 0
 #define LIST_TAIL 1
+#define ZSET_MIN 0
+#define ZSET_MAX 1
 
 /* Sort operations */
 #define SORT_OP_GET 0
@@ -763,7 +765,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
-    *rpop, *lpop, *lpush, *zpop, *zrevpop, *emptyscan,
+    *rpop, *lpop, *lpush, *zpopmin, *zpopmax, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -960,9 +962,10 @@ struct redisServer {
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
-                        *rpopCommand, *zpopCommand, *zrevpopCommand, *sremCommand,
-                        *execCommand, *expireCommand, *pexpireCommand, *xclaimCommand;
+    struct redisCommand *delCommand, *multiCommand, *lpushCommand,
+                        *lpopCommand, *rpopCommand, *zpopminCommand,
+                        *zpopmaxCommand, *sremCommand, *execCommand,
+                        *expireCommand, *pexpireCommand, *xclaimCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1970,10 +1973,10 @@ void zremCommand(client *c);
 void zscoreCommand(client *c);
 void zremrangebyscoreCommand(client *c);
 void zremrangebylexCommand(client *c);
-void zpopCommand(client *c);
-void zrevpopCommand(client *c);
-void bzpopCommand(client *c);
-void bzrevpopCommand(client *c);
+void zpopminCommand(client *c);
+void zpopmaxCommand(client *c);
+void bzpopminCommand(client *c);
+void bzpopmaxCommand(client *c);
 void multiCommand(client *c);
 void execCommand(client *c);
 void discardCommand(client *c);

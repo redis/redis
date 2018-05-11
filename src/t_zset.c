@@ -3070,16 +3070,15 @@ void zscanCommand(client *c) {
 }
 
 /* This command implements the generic zpop operation, used by:
- * ZPOP, ZREVPOP, BZPOP and BZREVPOP */
-void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
+ * ZPOPMIN, ZPOPMAX, BZPOPMIN and BZPOPMAX */
+void genericZpopCommand(client *c, robj **keyv, int keyc, int where) {
     int idx;
     robj *key;
     robj *zobj;
     sds ele;
     double score;
-    char *events[2] = {"zpop","zrevpop"};
 
-    // Check type and break on the first error, otherwise identify candidate
+    /* Check type and break on the first error, otherwise identify candidate. */
     idx = 0;
     while (idx < keyc) {
         key = keyv[idx++];
@@ -3089,7 +3088,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
         break;
     }
 
-    // No candidate for zpopping, return empty
+    /* No candidate for zpopping, return empty. */
     if (!zobj) {
         addReply(c,shared.emptymultibulk);
         return;
@@ -3102,11 +3101,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
         unsigned int vlen;
         long long vlong;
 
-        // Get the first or last element in the sorted set
-        eptr = ziplistIndex(zl,reverse ? -2 : 0);
-        serverAssertWithInfo(c,zobj,eptr != NULL);
-        
-        // There must be an element in the sorted set
+        /* Get the first or last element in the sorted set. */
+        eptr = ziplistIndex(zl,where == ZSET_MAX ? -2 : 0);
         serverAssertWithInfo(c,zobj,eptr != NULL);
         serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
         if (vstr == NULL)
@@ -3114,22 +3110,22 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
         else
             ele = sdsnewlen(vstr,vlen);
 
-        // Get the score
+        /* Get the score. */
         sptr = ziplistNext(zl,eptr);
         serverAssertWithInfo(c,zobj,sptr != NULL);
         score = zzlGetScore(sptr);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
+        zskiplistNode *zln;
 
         // Get the first or last element in the sorted set
-        ln = (reverse ? zsl->tail : zsl->header->level[0].forward);
+        zln = (where == ZSET_MAX ? zsl->tail : zsl->header->level[0].forward);
 
         // There must be an element in the sorted set
-        serverAssertWithInfo(c,zobj,ln != NULL);
-        ele = sdsdup(ln->ele);
-        score = ln->score;
+        serverAssertWithInfo(c,zobj,zln != NULL);
+        ele = sdsdup(zln->ele);
+        score = zln->score;
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -3138,7 +3134,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
     serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
     server.dirty++;
     signalModifiedKey(c->db,key);
-    notifyKeyspaceEvent(NOTIFY_ZSET,events[reverse],key,c->db->id);
+    char *events[2] = {"zpopmin","zpopmax"};
+    notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
 
     // Remove the key, if indeed needed
     if (zsetLength(zobj) == 0) {
@@ -3153,18 +3150,18 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int reverse) {
     sdsfree(ele);
 }
 
-// ZPOP key [key ...]
-void zpopCommand(client *c) {
-    genericZpopCommand(c,&c->argv[1],c->argc-1,0);
+// ZPOPMIN key [key ...]
+void zpopminCommand(client *c) {
+    genericZpopCommand(c,&c->argv[1],c->argc-1,ZSET_MIN);
 }
 
-// ZREVPOP key [key ...]
-void zrevpopCommand(client *c) {
-    genericZpopCommand(c,&c->argv[1],c->argc-1,1);
+// ZMAXPOP key [key ...]
+void zpopmaxCommand(client *c) {
+    genericZpopCommand(c,&c->argv[1],c->argc-1,ZSET_MAX);
 }
 
-/* Blocking Z[REV]POP */
-void blockingGenericZpopCommand(client *c, int reverse) {
+/* BZPOPMIN / BZPOPMAX actual implementation. */
+void blockingGenericZpopCommand(client *c, int where) {
     robj *o;
     mstime_t timeout;
     int j;
@@ -3181,10 +3178,10 @@ void blockingGenericZpopCommand(client *c, int reverse) {
             } else {
                 if (zsetLength(o) != 0) {
                     /* Non empty zset, this is like a normal Z[REV]POP. */
-                    genericZpopCommand(c,&c->argv[j],1,reverse);
+                    genericZpopCommand(c,&c->argv[j],1,where);
                     /* Replicate it as an Z[REV]POP instead of BZ[REV]POP. */
                     rewriteClientCommandVector(c,2,
-                        reverse ? shared.zrevpop : shared.zpop,
+                        where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
                         c->argv[j]);
                     return;
                 }
@@ -3203,12 +3200,12 @@ void blockingGenericZpopCommand(client *c, int reverse) {
     blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
 
-// BZPOP key [key ...] timeout
-void bzpopCommand(client *c) {
-    blockingGenericZpopCommand(c,0);
+// BZPOPMIN key [key ...] timeout
+void bzpopminCommand(client *c) {
+    blockingGenericZpopCommand(c,ZSET_MIN);
 }
 
-// BZREVPOP key [key ...] timeout
-void bzrevpopCommand(client *c) {
-    blockingGenericZpopCommand(c,1);
+// BZPOPMAX key [key ...] timeout
+void bzpopmaxCommand(client *c) {
+    blockingGenericZpopCommand(c,ZSET_MAX);
 }

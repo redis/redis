@@ -198,10 +198,10 @@ struct redisCommand redisCommandTable[] = {
     {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"zpop",zpopCommand,-2,"wF",0,NULL,1,-1,1,0,0},
-    {"zrevpop",zrevpopCommand,-2,"wF",0,NULL,1,-1,1,0,0},
-    {"bzpop",bzpopCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
-    {"bzrevpop",bzrevpopCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
+    {"zpopmin",zpopminCommand,-2,"wF",0,NULL,1,-1,1,0,0},
+    {"zpopmax",zpopmaxCommand,-2,"wF",0,NULL,1,-1,1,0,0},
+    {"bzpopmin",bzpopminCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
+    {"bzpopmax",bzpopmaxCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
     {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
@@ -1373,8 +1373,8 @@ void createSharedObjects(void) {
     shared.rpop = createStringObject("RPOP",4);
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
-    shared.zpop = createStringObject("ZPOP",4);
-    shared.zrevpop = createStringObject("ZREVPOP",7);
+    shared.zpopmin = createStringObject("ZPOPMIN",7);
+    shared.zpopmax = createStringObject("ZPOPMAX",7);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
@@ -1568,8 +1568,8 @@ void initServerConfig(void) {
     server.lpushCommand = lookupCommandByCString("lpush");
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
-    server.zpopCommand = lookupCommandByCString("zpop");
-    server.zrevpopCommand = lookupCommandByCString("zrevpop");
+    server.zpopminCommand = lookupCommandByCString("zpopmin");
+    server.zpopmaxCommand = lookupCommandByCString("zpopmax");
     server.sremCommand = lookupCommandByCString("srem");
     server.execCommand = lookupCommandByCString("exec");
     server.expireCommand = lookupCommandByCString("expire");
