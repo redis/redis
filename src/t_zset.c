@@ -3239,12 +3239,12 @@ void blockingGenericZpopCommand(client *c, int where) {
     blockForKeys(c,BLOCKED_ZSET,c->argv + 1,c->argc - 2,timeout,NULL,NULL);
 }
 
-// BZPOPMIN key [key ...] timeout
+/* BZPOPMIN key [key ...] timeout */
 void bzpopminCommand(client *c) {
     blockingGenericZpopCommand(c,ZSET_MIN);
 }
 
-// BZPOPMAX key [key ...] timeout
+/* BZPOPMAX key [key ...] timeout */
 void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c,ZSET_MAX);
 }
