@@ -3189,7 +3189,7 @@ void zpopminCommand(client *c) {
         c->argc == 3 ? c->argv[2] : NULL);
 }
 
-/* ZMAXPOP key [<count>] */
+/* ZPOPMAX key [<count>] */
 void zpopmaxCommand(client *c) {
     if (c->argc > 3) {
         addReply(c,shared.syntaxerr);
