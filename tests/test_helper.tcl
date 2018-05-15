@@ -34,6 +34,7 @@ set ::all_tests {
     unit/multi
     unit/quit
     unit/aofrw
+    integration/block-repl
     integration/replication
     integration/replication-2
     integration/replication-3
