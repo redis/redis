@@ -333,10 +333,18 @@ void handleClientsBlockedOnKeys(void) {
                         unblockClient(receiver);
                         genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
 
-                        propagate(where == ZSET_MIN ?
-                            server.zpopminCommand : server.zpopmaxCommand,
-                            receiver->db->id,receiver->argv,receiver->argc,
-                            PROPAGATE_AOF|PROPAGATE_REPL);
+                        /* Replicate the command. */
+                        robj *argv[2];
+                        struct redisCommand *cmd = where == ZSET_MIN ?
+                                                   server.zpopminCommand :
+                                                   server.zpopmaxCommand;
+                        argv[0] = createStringObject(cmd->name,strlen(cmd->name));
+                        argv[1] = rl->key;
+                        incrRefCount(rl->key);
+                        propagate(cmd,receiver->db->id,
+                                  argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+                        decrRefCount(argv[0]);
+                        decrRefCount(argv[1]);
                     }
                 }
             }
