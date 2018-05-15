@@ -260,6 +260,23 @@ void loadServerConfigFromString(char *config) {
                     argv[1], strerror(errno));
                 exit(1);
             }
+        } else if (!strcasecmp(argv[0],"users-file") && argc == 2) {
+            FILE *fp;
+
+            zfree(server.requirepass);
+            zfree(server.acl_filename);
+            server.acl_filename = zstrdup(argv[1]);
+            if (server.acl_filename[0] != '\0') {
+                fp = fopen(server.acl_filename,"r");
+                if (fp == NULL) {
+                    err = sdscatprintf(sdsempty(),
+                        "Can't open the users-file: %s", strerror(errno));
+                    goto loaderr;
+                }
+                fclose(fp);
+            }
+            server.requirepass = NULL;
+            server.use_cmd_acls = 1;
         } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
             server.verbosity = configEnumGetValue(loglevel_enum,argv[1]);
             if (server.verbosity == INT_MIN) {
@@ -388,6 +405,9 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"masteruser") && argc == 2) {
+            zfree(server.masteruser);
+            server.masteruser = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
             zfree(server.masterauth);
             server.masterauth = zstrdup(argv[1]);
@@ -492,11 +512,13 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
-                err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
-                goto loaderr;
+            if (server.use_cmd_acls == 0) {
+                if (strlen(argv[1]) > CONFIG_AUTHPASS_MAX_LEN) {
+                    err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
+                    goto loaderr;
+                }
+                server.requirepass = zstrdup(argv[1]);
             }
-            server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -859,6 +881,11 @@ void configSetCommand(client *c) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
+        if (server.use_cmd_acls) {
+            addReplyError(c, "can't set requirepass when using cmd acls");
+            return;
+        }
+
         if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -2131,6 +2158,19 @@ NULL
             addReplyErrorFormat(c,"Rewriting config file: %s", strerror(errno));
         } else {
             serverLog(LL_WARNING,"CONFIG REWRITE executed with success.");
+            addReply(c,shared.ok);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"reload-users") && c->argc == 2) {
+        if (server.acl_filename== NULL) {
+            addReplyError(c,"The server is running without users-files for acls");
+            return;
+        }
+
+        if (loadACLs(server.acl_filename) == -1) {
+            serverLog(LL_WARNING,"CONFIG RELOAD-USERS failed: %s", strerror(errno));
+            addReplyErrorFormat(c,"users-files: %s", strerror(errno));
+        } else {
+            serverLog(LL_WARNING,"CONFIG RELOAD-USERS executed with success.");
             addReply(c,shared.ok);
         }
     } else {

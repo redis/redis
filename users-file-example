@@ -1,0 +1,7 @@
+antirez "my password" +#all
+charsyam "passwd" +#all -#zset -#set -ping
+slowtest "test" +#slow
+zset "zset" +#zset +#hash
+dup1 "dup1" +ping
+dup1 "dup1" +#all
+default "" +ping +info

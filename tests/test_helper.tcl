@@ -15,6 +15,7 @@ set ::all_tests {
     unit/printver
     unit/dump
     unit/auth
+    unit/acls
     unit/protocol
     unit/keyspace
     unit/scan

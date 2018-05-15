@@ -50,6 +50,7 @@
 #include <signal.h>
 
 typedef long long mstime_t; /* millisecond time type. */
+typedef unsigned long long acl_t; /* ACLPermission type */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
@@ -76,6 +77,9 @@ typedef long long mstime_t; /* millisecond time type. */
 /* Error codes */
 #define C_OK                    0
 #define C_ERR                   -1
+
+#define ACL_ARRAY_NUM 4
+typedef acl_t ACLPermission[ACL_ARRAY_NUM];
 
 /* Static server configuration */
 #define CONFIG_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
@@ -212,6 +216,21 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_FAST (1<<13)            /* "F" flag */
 #define CMD_MODULE_GETKEYS (1<<14)  /* Use the modules getkeys interface. */
 #define CMD_MODULE_NO_CLUSTER (1<<15) /* Deny on Redis Cluster. */
+
+#define CMD_TYPE_NONE 0
+#define CMD_TYPE_STRING (1<<2)
+#define CMD_TYPE_LIST (1<<3)
+#define CMD_TYPE_SET (1<<4)
+#define CMD_TYPE_ZSET (1<<5)
+#define CMD_TYPE_HASH (1<<6)
+#define CMD_TYPE_HYPERLOGLOG (1<<7)
+#define CMD_TYPE_SCAN (1<<8)
+#define CMD_TYPE_PUBSUB (1<<9)
+#define CMD_TYPE_SCRIPTING (1<<10)
+#define CMD_TYPE_TRANSACTION (1<<11)
+#define CMD_TYPE_GEO (1<<12)
+#define CMD_TYPE_STREAM (1<<13)
+
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -744,6 +763,9 @@ typedef struct client {
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
+
+    /* ACL */
+    ACLPermission acls;
 } client;
 
 struct saveparam {
@@ -765,7 +787,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
-    *rpop, *lpop, *lpush, *zpopmin, *zpopmax, *emptyscan,
+    *rpop, *lpop, *lpush, *zpopmin, *zpopmax, *emptyscan, *notallowedacl,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
     *mbulkhdr[OBJ_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1116,6 +1138,7 @@ struct redisServer {
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
+    char *masteruser;               /* AUTH with this user with master */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
     int masterport;                 /* Port of master */
@@ -1236,6 +1259,12 @@ struct redisServer {
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
 
+    /* ACLs */
+    dict *acls;
+    ACLPermission default_acls;
+    char *acl_filename;
+    int use_cmd_acls;
+
     /* Mutexes used to protect atomic variables when atomic builtins are
      * not available. */
     pthread_mutex_t lruclock_mutex;
@@ -1264,6 +1293,8 @@ struct redisCommand {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
+    int types;
+    int aclid;
 };
 
 struct redisFunctionSym {
@@ -1334,6 +1365,7 @@ extern struct sharedObjectsStruct shared;
 extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType userACLDictType;
 extern dictType zsetDictType;
 extern dictType clusterNodesDictType;
 extern dictType clusterNodesBlackListDictType;
@@ -1582,6 +1614,34 @@ void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
 void sendChildInfo(int process_type);
 void receiveChildInfo(void);
+
+/* ACLs */
+#define CMD_ACL_BITS ((sizeof(acl_t) * 8))
+#define CMD_ACL_VALUE(x) (((acl_t)1) << (x % CMD_ACL_BITS))
+#define CMD_ACL_INDEX(x) ((x) / CMD_ACL_BITS)
+#define ACL_DEFAULT_USER_NAME "default"
+
+typedef struct ACLGroup {
+    char *name;
+    int flags;              /* any one is matched : true */
+    int rflags;             /* any one is matched : true */
+    int type;
+    ACLPermission acls;
+} ACLGroup;
+
+typedef struct userACL {
+    char *name;
+    char *passwd;
+    ACLPermission acls;
+} userACL;
+
+extern ACLGroup aclGroups[];
+
+int loadACLs(const char *filename);
+int getNumberOfACLGroups();
+userACL *getUserACL(char *username);
+void initACLs(ACLPermission acls);
+void setACLs(ACLPermission src, ACLPermission tar);
 
 /* Sorted sets data type */
 
@@ -1864,6 +1924,8 @@ unsigned long LFUDecrAndReturn(robj *o);
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
+uint64_t dictSdsCaseHash(const void *key);
+int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 
 /* Git SHA1 */

@@ -1,0 +1,8 @@
+alltest "alltest" +#all
+allnotping "allnotping" +#all -ping
+allnotzset "allnotzset" +#all -#zset
+zsethash "zsethash" +#zset +#hash
+zsethashping "zsethashping" +#zset +#hash +ping
+slowtest "slowtest" +#slow
+pinginfo "pinginfo" +ping +info
+default "" +select
