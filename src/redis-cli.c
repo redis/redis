@@ -1815,6 +1815,7 @@ typedef struct clusterManagerNode {
     time_t ping_sent;
     time_t ping_recv;
     int flags;
+    list *flags_str; /* Flags string representations */
     sds replicate;  /* Master ID if node is a slave */
     list replicas;
     int dirty;      /* Node has changes that can be flushed */
@@ -2001,6 +2002,17 @@ static int getClusterHostFromCmdArgs(int argc, char **argv,
     return 1;
 }
 
+static void freeClusterManagerNodeFlags(list *flags) {
+    listIter li;
+    listNode *ln;
+    listRewind(flags, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        sds flag = ln->value;
+        sdsfree(flag);
+    }
+    listRelease(flags);
+}
+
 static void freeClusterManagerNode(clusterManagerNode *node) {
     if (node->context != NULL) redisFree(node->context); 
     if (node->friends != NULL) {
@@ -2026,6 +2038,10 @@ static void freeClusterManagerNode(clusterManagerNode *node) {
     if (node->importing != NULL) {
         for (i = 0; i < node->importing_count; i++) sdsfree(node->importing[i]);
         zfree(node->importing);
+    }
+    if (node->flags_str != NULL) {
+        freeClusterManagerNodeFlags(node->flags_str);
+        node->flags_str = NULL;
     }
     zfree(node);
 }
@@ -2065,6 +2081,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
     node->ping_sent = 0;
     node->ping_recv = 0;
     node->flags = 0;
+    node->flags_str = NULL;
     node->replicate = NULL;
     node->dirty = 0;
     node->friends = NULL;
@@ -2391,6 +2408,24 @@ cleanup:
     zfree(offenders);
 }
 
+/* Return a representable string of the node's flags */
+static sds clusterManagerNodeFlagString(clusterManagerNode *node) {
+    sds flags = sdsempty();
+    if (!node->flags_str) return flags;
+    int empty = 1;
+    listIter li;
+    listNode *ln;
+    listRewind(node->flags_str, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        sds flag = ln->value;
+        if (strcmp(flag, "myself") == 0) continue;
+        if (!empty) flags = sdscat(flags, ",");
+        flags = sdscatfmt(flags, "%S", flag);
+        empty = 0;
+    }
+    return flags;
+}
+
 /* Return a representable string of the node's slots */
 static sds clusterManagerNodeSlotsString(clusterManagerNode *node) {
     sds slots = sdsempty();
@@ -2466,12 +2501,14 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
         info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
     else {
         slots = clusterManagerNodeSlotsString(node);
+        sds flags = clusterManagerNodeFlagString(node);
         info = sdscatfmt(info, "%s: %S %s:%u\n"
                                "%s   slots:%S (%u slots) "
-                               "", //TODO: flags string
+                               "%S", 
                                role, node->name, node->ip, node->port, spaces, 
-                               slots, node->slots_count);
+                               slots, node->slots_count, flags);
         sdsfree(slots);
+        sdsfree(flags);
     }
     if (node->replicate != NULL) 
         info = sdscatfmt(info, "\n%s   replicates %S", spaces, node->replicate);
@@ -3008,18 +3045,35 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             if (currentNode->name) sdsfree(currentNode->name);
             currentNode->name = sdsnew(name);
         }
-        if (strstr(flags, "noaddr") != NULL)
-            currentNode->flags |= CLUSTER_MANAGER_FLAG_NOADDR;
-        if (strstr(flags, "disconnected") != NULL)
-            currentNode->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
-        if (strstr(flags, "fail") != NULL)
-            currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
-        if (strstr(flags, "slave") != NULL) {
-            currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
-            if (master_id != NULL) {
-                if (currentNode->replicate) sdsfree(currentNode->replicate);
-                currentNode->replicate = sdsnew(master_id);
+        if (currentNode->flags_str != NULL)
+            freeClusterManagerNodeFlags(currentNode->flags_str);
+        currentNode->flags_str = listCreate();
+        int flag_len;
+        while ((flag_len = strlen(flags)) > 0) {
+            sds flag = NULL;
+            char *fp = strchr(flags, ',');
+            if (fp) {
+                *fp = '\0'; 
+                flag = sdsnew(flags);
+                flags = fp + 1;
+            } else {
+                flag = sdsnew(flags);
+                flags += flag_len;
             }
+            if (strcmp(flag, "noaddr") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_NOADDR;
+            else if (strcmp(flag, "disconnected") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
+            else if (strcmp(flag, "fail") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
+            else if (strcmp(flag, "slave") == 0) {
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
+                if (master_id == 0) {
+                    if (currentNode->replicate) sdsfree(currentNode->replicate);
+                    currentNode->replicate = sdsnew(master_id);
+                }
+            }
+            listAddNodeTail(currentNode->flags_str, flag);
         }
         if (config_epoch != NULL) 
             currentNode->current_epoch = atoll(config_epoch);
@@ -4283,12 +4337,12 @@ assign_replicas:
                 goto cleanup;
             }
         }
-        // Give one second for the join to start, in order to avoid that
-        // waiting for cluster join will find all the nodes agree about 
-        // the config as they are still empty with unassigned slots.
+        /* Give one second for the join to start, in order to avoid that
+         * waiting for cluster join will find all the nodes agree about 
+         * the config as they are still empty with unassigned slots. */
         sleep(1);
         clusterManagerWaitForClusterJoin();
-        // Useful for the replicas //TODO: create a function for this?
+        /* Useful for the replicas */
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *node = ln->value;
@@ -4315,7 +4369,7 @@ assign_replicas:
         listEmpty(cluster_manager.nodes);
         if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
             success = 0;
-            goto cleanup; //TODO: msg?
+            goto cleanup; 
         }
         clusterManagerCheckCluster(0);
     }
