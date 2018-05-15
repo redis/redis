@@ -19,8 +19,8 @@ start_server {tags {"repl"}} {
         set slave [srv 0 client]
 
         set load_handle0 [start_bg_block_op $master_host $master_port 9 100000]
-        set load_handle1 [start_bg_block_op $master_host $master_port 11 100000]
-        set load_handle2 [start_bg_block_op $master_host $master_port 12 100000]
+        set load_handle1 [start_bg_block_op $master_host $master_port 9 100000]
+        set load_handle2 [start_bg_block_op $master_host $master_port 9 100000]
 
         test {First server should have role slave after SLAVEOF} {
             $slave slaveof $master_host $master_port
@@ -28,7 +28,7 @@ start_server {tags {"repl"}} {
             s 0 role
         } {slave}
 
-        test {Test replication with parallel clients writing in differnet DBs} {
+        test {Test replication with blocking lists and sorted sets operations} {
             after 25000
             stop_bg_block_op $load_handle0
             stop_bg_block_op $load_handle1

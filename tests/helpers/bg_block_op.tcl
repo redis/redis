@@ -34,12 +34,13 @@ proc bg_block_op {host port db ops} {
         # Zset side
         set k zset_[randomInt 10]
         set k2 zset_[randomInt 10]
+        set v1 [randomValue]
+        set v2 [randomValue]
 
         randpath {
             $r zadd $k [randomInt 10000] $v
         } {
-            # Duplicate to balance the probability to push data
-            $r zadd $k [randomInt 10000] $v
+            $r zadd $k [randomInt 10000] $v [randomInt 10000] $v2
         } {
             $r bzpopmin $k 2
         } {
