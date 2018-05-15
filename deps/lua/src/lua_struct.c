@@ -293,14 +293,18 @@ static int b_unpack (lua_State *L) {
   const char *fmt = luaL_checkstring(L, 1);
   size_t ld;
   const char *data = luaL_checklstring(L, 2, &ld);
-  size_t pos = luaL_optinteger(L, 3, 1) - 1;
+  size_t pos = luaL_optinteger(L, 3, 1);
+  luaL_argcheck(L, pos > 0, 3, "offset must be 1 or greater");
+  pos--; /* Lua indexes are 1-based, but here we want 0-based for C
+          * pointer math. */
   int n = 0;  /* number of results */
   defaultoptions(&h);
   while (*fmt) {
     int opt = *fmt++;
     size_t size = optsize(L, opt, &fmt);
     pos += gettoalign(pos, &h, opt, size);
-    luaL_argcheck(L, pos+size <= ld, 2, "data string too short");
+    luaL_argcheck(L, size <= ld && pos <= ld - size,
+                   2, "data string too short");
     /* stack space for item + next position */
     luaL_checkstack(L, 2, "too many results");
     switch (opt) {
