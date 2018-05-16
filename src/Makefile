@@ -125,7 +125,6 @@ ifeq ($(MALLOC),jemalloc)
 	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
 	FINAL_CFLAGS+= -DJE_PREFIX=jemk_
 	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/include
-	FINAL_LIBS+= $(JEMALLOC_PATH)/jemalloc/obj/lib/libjemalloc.a
 	FINAL_LIBS+= -ldl
 	FINAL_LIBS+= -L$(JEMALLOC_PATH)/.libs -lmemkind
 endif
