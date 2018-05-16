@@ -2773,7 +2773,8 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                         strcpy(*err, migrate_reply->str); 
                     }
                     printf("\n");
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, err);
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, 
+                                                      migrate_reply->str);
                 }
                 goto next;
             }
@@ -3021,7 +3022,6 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
             else break;
         } else {
             if (addr == NULL) {
-                // TODO: find a better err message
                 fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
                 success = 0;
                 goto cleanup;
@@ -4602,7 +4602,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             fflush(stdout);
             char buf[6];
             int nread = read(fileno(stdin),buf,6);
-            if (!nread) continue; //TODO: nread < 0
+            if (nread <= 0) continue;
             int last_idx = nread - 1;
             if (buf[last_idx] != '\n') {
                 int ch; 
@@ -4619,7 +4619,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
         printf("What is the receiving node ID? "); 
         fflush(stdout);
         int nread = read(fileno(stdin),buf,255);
-        if (!nread) continue; //TODO: nread < 0
+        if (nread <= 0) continue;
         int last_idx = nread - 1;
         if (buf[last_idx] != '\n') {
             int ch; 
@@ -4643,7 +4643,7 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             printf("Source node #%lu: ", listLength(sources) + 1); 
             fflush(stdout);
             int nread = read(fileno(stdin),buf,255);
-            if (!nread) continue; //TODO: nread < 0
+            if (nread <= 0) continue;
             int last_idx = nread - 1;
             if (buf[last_idx] != '\n') {
                 int ch; 
@@ -5176,7 +5176,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
         redisAppendCommandArgv(n->context, argc, (const char **) argv, argvlen);
         int status = redisGetReply(n->context, (void **)(&reply));
         if (status != REDIS_OK || reply == NULL ) 
-            printf("%s:%d: Failed!\n", n->ip, n->port); //TODO: better message?
+            printf("%s:%d: Failed!\n", n->ip, n->port); 
         else {
             sds formatted_reply = cliFormatReplyTTY(reply, "");
             printf("%s:%d: %s\n", n->ip, n->port, (char *) formatted_reply);
