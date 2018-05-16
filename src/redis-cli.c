@@ -4522,7 +4522,6 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
         if (n->replicate && !strcasecmp(n->replicate, node_id)) {
             // Reconfigure the slave to replicate with some other node
             clusterManagerNode *master = clusterManagerNodeWithLeastReplicas();
-            //TODO: check whether master could be the same as node 
             assert(master != NULL);
             clusterManagerLogInfo(">>> %s:%d as replica of %s:%d\n", 
                                   n->ip, n->port, master->ip, master->port);
