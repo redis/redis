@@ -1399,8 +1399,10 @@ static void repl(void) {
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = cliSplitArgs(line,&argc);
-            if (history) linenoiseHistoryAdd(line);
-            if (historyfile) linenoiseHistorySave(historyfile);
+            if (strcasecmp(argv[0], "auth")) {
+                if (history) linenoiseHistoryAdd(line);
+                if (historyfile) linenoiseHistorySave(historyfile);
+            }
 
             if (argv == NULL) {
                 printf("Invalid argument(s)\n");
