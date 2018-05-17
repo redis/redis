@@ -301,10 +301,13 @@ size_t zmalloc_get_rss(void) {
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
                                size_t *resident) {
-    size_t epoch = 1, sz = sizeof(size_t);
+    uint64_t epoch = 1;
+    size_t sz;
     *allocated = *resident = *active = 0;
     /* Update the statistics cached by mallctl. */
+    sz = sizeof(epoch);
     je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    sz = sizeof(size_t);
     /* Unlike RSS, this does not include RSS from shared libraries and other non
      * heap mappings. */
     je_mallctl("stats.resident", resident, &sz, NULL, 0);
