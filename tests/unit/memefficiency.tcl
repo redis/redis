@@ -48,7 +48,8 @@ start_server {tags {"defrag"}} {
             r config set maxmemory-policy allkeys-lru
             r debug populate 700000 asdf 150
             r debug populate 170000 asdf 300
-            after 20 ;# serverCron only updates the info once in 10ms
+            r ping ;# trigger eviction following the previous population
+            after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {
                 puts "frag $frag"
@@ -68,11 +69,12 @@ start_server {tags {"defrag"}} {
                 [s active_defrag_running] eq 0
             } else {
                 puts [r info memory]
+                puts [r memory malloc-stats]
                 fail "defrag didn't stop."
             }
 
             # test the the fragmentation is lower
-            after 20 ;# serverCron only updates the info once in 10ms
+            after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {
                 puts "frag $frag"
@@ -140,7 +142,7 @@ start_server {tags {"defrag"}} {
             assert {[r dbsize] == 250008}
 
             # start defrag
-            after 20 ;# serverCron only updates the info once in 10ms
+            after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             if {$::verbose} {
                 puts "frag $frag"
@@ -167,7 +169,7 @@ start_server {tags {"defrag"}} {
             }
 
             # test the the fragmentation is lower
-            after 20 ;# serverCron only updates the info once in 10ms
+            after 120 ;# serverCron only updates the info once in 100ms
             set frag [s allocator_frag_ratio]
             set max_latency 0
             foreach event [r latency latest] {
