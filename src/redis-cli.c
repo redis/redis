@@ -41,13 +41,15 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <assert.h>
+#include <assert.h> 
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
 
 #include <hiredis.h>
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
+#include "dict.h" 
+#include "adlist.h"
 #include "zmalloc.h"
 #include "linenoise.h"
 #include "help.h"
@@ -66,6 +68,74 @@
 #define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
 
+#define CLUSTER_MANAGER_SLOTS               16384
+#define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
+#define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
+#define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
+
+#define CLUSTER_MANAGER_INVALID_HOST_ARG \
+    "[ERR] Invalid arguments: you need to pass either a valid " \
+    "address (ie. 120.0.0.1:7000) or space separated IP " \
+    "and port (ie. 120.0.0.1 7000)\n"
+#define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
+#define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) (nodes/(replicas + 1))
+#define CLUSTER_MANAGER_NODE_CONNECT(n) \
+    (n->context = redisConnect(n->ip, n->port));
+#define CLUSTER_MANAGER_COMMAND(n,...) \
+        (reconnectingRedisCommand(n->context, __VA_ARGS__))
+
+#define CLUSTER_MANAGER_NODE_ARRAY_FREE(array) zfree(array->alloc)
+
+#define CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err) \
+    clusterManagerLogErr("Node %s:%d replied with error:\n%s\n", \
+                         n->ip, n->port, err);
+
+#define clusterManagerLogInfo(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_INFO,__VA_ARGS__)
+
+#define clusterManagerLogErr(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_ERR,__VA_ARGS__)
+
+#define clusterManagerLogWarn(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_WARN,__VA_ARGS__)
+
+#define clusterManagerLogOk(...) \
+    clusterManagerLog(CLUSTER_MANAGER_LOG_LVL_SUCCESS,__VA_ARGS__)
+
+#define CLUSTER_MANAGER_FLAG_MYSELF     1 << 0
+#define CLUSTER_MANAGER_FLAG_SLAVE      1 << 1
+#define CLUSTER_MANAGER_FLAG_FRIEND     1 << 2
+#define CLUSTER_MANAGER_FLAG_NOADDR     1 << 3
+#define CLUSTER_MANAGER_FLAG_DISCONNECT 1 << 4
+#define CLUSTER_MANAGER_FLAG_FAIL       1 << 5
+
+#define CLUSTER_MANAGER_CMD_FLAG_FIX            1 << 0
+#define CLUSTER_MANAGER_CMD_FLAG_SLAVE          1 << 1
+#define CLUSTER_MANAGER_CMD_FLAG_YES            1 << 2
+#define CLUSTER_MANAGER_CMD_FLAG_AUTOWEIGHTS    1 << 3
+#define CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER    1 << 4
+#define CLUSTER_MANAGER_CMD_FLAG_SIMULATE       1 << 5
+#define CLUSTER_MANAGER_CMD_FLAG_REPLACE        1 << 6
+#define CLUSTER_MANAGER_CMD_FLAG_COPY           1 << 7
+#define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
+
+#define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
+#define CLUSTER_MANAGER_OPT_COLD        1 << 1
+#define CLUSTER_MANAGER_OPT_UPDATE      1 << 2
+#define CLUSTER_MANAGER_OPT_QUIET       1 << 6
+#define CLUSTER_MANAGER_OPT_VERBOSE     1 << 7
+
+#define CLUSTER_MANAGER_LOG_LVL_INFO    1 
+#define CLUSTER_MANAGER_LOG_LVL_WARN    2
+#define CLUSTER_MANAGER_LOG_LVL_ERR     3
+#define CLUSTER_MANAGER_LOG_LVL_SUCCESS 4
+
+#define LOG_COLOR_BOLD      "29;1m"
+#define LOG_COLOR_RED       "31;1m"
+#define LOG_COLOR_GREEN     "32;1m"
+#define LOG_COLOR_YELLOW    "33;1m"
+#define LOG_COLOR_RESET     "0m"
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -76,6 +146,35 @@ int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253
 /* The actual palette in use. */
 int *spectrum_palette;
 int spectrum_palette_size;
+
+/* Dict Helpers */
+
+static uint64_t dictSdsHash(const void *key);
+static int dictSdsKeyCompare(void *privdata, const void *key1, 
+    const void *key2);
+static void dictSdsDestructor(void *privdata, void *val);
+static void dictListDestructor(void *privdata, void *val);
+
+/* Cluster Manager Command Info */
+typedef struct clusterManagerCommand {
+    char *name;
+    int argc;
+    char **argv;
+    int flags;
+    int replicas;
+    char *from;
+    char *to;
+    char **weight;
+    char *master_id;
+    int weight_argc;
+    int slots;
+    int timeout;
+    int pipeline;
+    float threshold;
+} clusterManagerCommand;
+
+static void createClusterManagerCommand(char *cmdname, int argc, char **argv);
+
 
 static redisContext *context;
 static struct config {
@@ -119,6 +218,8 @@ static struct config {
     int eval_ldb_end;   /* Lua debugging session ended. */
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
+    int verbose;
+    clusterManagerCommand cluster_manager_command;
 } config;
 
 /* User preferences. */
@@ -133,9 +234,14 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 static int cliConnect(int force);
 
+static char *getInfoField(char *info, char *field);
+static long getLongInfoField(char *info, char *field);
+
 /*------------------------------------------------------------------------------
  * Utility functions
  *--------------------------------------------------------------------------- */
+
+uint16_t crc16(const char *buf, int len);
 
 static long long ustime(void) {
     struct timeval tv;
@@ -283,6 +389,41 @@ static void parseRedisUri(const char *uri) {
 
     /* Extract database number. */
     config.dbnum = atoi(curr);
+}
+
+static uint64_t dictSdsHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
+}
+
+static int dictSdsKeyCompare(void *privdata, const void *key1,
+        const void *key2)
+{
+    int l1,l2;
+    DICT_NOTUSED(privdata);
+
+    l1 = sdslen((sds)key1);
+    l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
+}
+
+static void dictSdsDestructor(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+    sdsfree(val);
+}
+
+void dictListDestructor(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+    listRelease((list*)val);
+}
+
+/* _serverAssert is needed by dict */
+void _serverAssert(const char *estr, const char *file, int line) {
+    fprintf(stderr, "=== ASSERTION FAILED ===");
+    fprintf(stderr, "==> %s:%d '%s' is not true",file,line,estr);
+    *((char*)-1) = 'x';
 }
 
 /*------------------------------------------------------------------------------
@@ -1146,11 +1287,79 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
             config.mb_delim = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--verbose")) {
+            config.verbose = 1;
+        } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
+            if (CLUSTER_MANAGER_MODE()) usage();
+            char *cmd = argv[++i];
+            int j = i;
+            while (j < argc && argv[j][0] != '-') j++;
+            if (j > i) j--;
+            createClusterManagerCommand(cmd, j - i, argv + i + 1);
+            i = j;
+        } else if (!strcmp(argv[i],"--cluster") && lastarg) {
+            usage();
+        } else if (!strcmp(argv[i],"--cluster-replicas") && !lastarg) {
+            config.cluster_manager_command.replicas = atoi(argv[++i]);  
+        } else if (!strcmp(argv[i],"--cluster-master-id") && !lastarg) {
+            config.cluster_manager_command.master_id = argv[++i];  
+        } else if (!strcmp(argv[i],"--cluster-from") && !lastarg) {
+            config.cluster_manager_command.from = argv[++i];  
+        } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
+            config.cluster_manager_command.to = argv[++i];  
+        } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
+            int widx = i + 1;
+            char **weight = argv + widx;
+            int wargc = 0;
+            for (; widx < argc; widx++) {
+                if (strstr(argv[widx], "--") == argv[widx]) break;
+                wargc++;
+            }
+            if (wargc > 0) {
+                config.cluster_manager_command.weight = weight;  
+                config.cluster_manager_command.weight_argc = wargc;
+                i += wargc;
+            }
+        } else if (!strcmp(argv[i],"--cluster-slots") && !lastarg) {
+            config.cluster_manager_command.slots = atoi(argv[++i]);  
+        } else if (!strcmp(argv[i],"--cluster-timeout") && !lastarg) {
+            config.cluster_manager_command.timeout = atoi(argv[++i]);  
+        } else if (!strcmp(argv[i],"--cluster-pipeline") && !lastarg) {
+            config.cluster_manager_command.pipeline = atoi(argv[++i]);  
+        } else if (!strcmp(argv[i],"--cluster-threshold") && !lastarg) {
+            config.cluster_manager_command.threshold = atof(argv[++i]);  
+        } else if (!strcmp(argv[i],"--cluster-yes")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_YES;  
+        } else if (!strcmp(argv[i],"--cluster-simulate")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_SIMULATE;  
+        } else if (!strcmp(argv[i],"--cluster-replace")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_REPLACE;  
+        } else if (!strcmp(argv[i],"--cluster-copy")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_COPY;  
+        } else if (!strcmp(argv[i],"--cluster-slave")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_SLAVE;  
+        } else if (!strcmp(argv[i],"--cluster-use-empty-masters")) {
+            config.cluster_manager_command.flags |= 
+                CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;  
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
             printf("redis-cli %s\n", version);
             sdsfree(version);
             exit(0);
+        } else if (CLUSTER_MANAGER_MODE() && argv[i][0] != '-') {
+            if (config.cluster_manager_command.argc == 0) {
+                int j = i + 1;
+                while (j < argc && argv[j][0] != '-') j++;
+                int cmd_argc = j - i;
+                config.cluster_manager_command.argc = cmd_argc;
+                config.cluster_manager_command.argv = argv + i;
+                if (cmd_argc > 1) i = j - 1;
+            }
         } else {
             if (argv[i][0] == '-') {
                 fprintf(stderr,
@@ -1243,8 +1452,14 @@ static void usage(void) {
 "  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
 "                     this mode the server is blocked and script changes are\n"
 "                     are not rolled back from the server memory.\n"
+"  --cluster <command> [args...] [opts...]\n"
+"                     Cluster Manager command and arguments (see below).\n"
+"  --verbose          Verbose mode.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
+"\n"
+"Cluster Manager Commands:\n"
+"  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
@@ -1263,6 +1478,15 @@ static void usage(void) {
         version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
     sdsfree(version);
     exit(1);
+}
+
+static int confirmWithYes(char *msg) {
+    printf("%s (type 'yes' to accept): ", msg);
+    fflush(stdout);
+    char buf[4];
+    int nread = read(fileno(stdin),buf,4);
+    buf[3] = '\0';
+    return (nread != 0 && !strcmp("yes", buf));
 }
 
 /* Turn the plain C strings into Sds strings */
@@ -1567,6 +1791,3443 @@ static int evalMode(int argc, char **argv) {
         }
     }
     return retval;
+}
+
+/*------------------------------------------------------------------------------
+ * Cluster Manager
+ *--------------------------------------------------------------------------- */
+
+/* The Cluster Manager global structure */
+static struct clusterManager {
+    list *nodes;    /* List of nodes in the configuration. */
+    list *errors;
+} cluster_manager;
+
+/* Used by clusterManagerFixSlotsCoverage */
+dict *clusterManagerUncoveredSlots = NULL;
+
+typedef struct clusterManagerNode {
+    redisContext *context;
+    sds name;
+    char *ip;
+    int port;
+    uint64_t current_epoch;
+    time_t ping_sent;
+    time_t ping_recv;
+    int flags;
+    list *flags_str; /* Flags string representations */
+    sds replicate;  /* Master ID if node is a slave */
+    list replicas;
+    int dirty;      /* Node has changes that can be flushed */
+    uint8_t slots[CLUSTER_MANAGER_SLOTS];
+    int slots_count;
+    int replicas_count;
+    list *friends;
+    sds *migrating; /* An array of sds where even strings are slots and odd
+                     * strings are the destination node IDs. */
+    sds *importing; /* An array of sds where even strings are slots and odd
+                     * strings are the source node IDs. */
+    int migrating_count; /* Length of the migrating array (migrating slots*2) */
+    int importing_count; /* Length of the importing array (importing slots*2) */
+    float weight;   /* Weight used by rebalance */
+    int balance;    /* Used by rebalance */
+} clusterManagerNode;
+
+/* Data structure used to represent a sequence of cluster nodes. */
+typedef struct clusterManagerNodeArray {
+    clusterManagerNode **nodes; /* Actual nodes array */
+    clusterManagerNode **alloc; /* Pointer to the allocated memory */
+    int len;                    /* Actual length of the array */
+    int count;                  /* Non-NULL nodes count */
+} clusterManagerNodeArray;
+
+/* Used for the reshard table. */
+typedef struct clusterManagerReshardTableItem {
+    clusterManagerNode *source;
+    int slot;
+} clusterManagerReshardTableItem;
+
+static dictType clusterManagerDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    NULL,                      /* key destructor */
+    dictSdsDestructor          /* val destructor */
+};
+
+typedef int clusterManagerCommandProc(int argc, char **argv);
+
+/* Cluster Manager helper functions */
+
+static clusterManagerNode *clusterManagerNewNode(char *ip, int port);
+static clusterManagerNode *clusterManagerNodeByName(const char *name);
+static clusterManagerNode *clusterManagerNodeByAbbreviatedName(const char *n);
+static void clusterManagerNodeResetSlots(clusterManagerNode *node);
+static int clusterManagerNodeIsCluster(clusterManagerNode *node, char **err);
+static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node,
+                                                   char *err); 
+static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
+                                      char **err);
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts);
+static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err);
+static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
+    int ip_count, clusterManagerNode ***offending, int *offending_len);
+static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
+    int ip_count);
+static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent);
+static void clusterManagerShowNodes(void);
+static void clusterManagerShowClusterInfo(void);
+static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err);
+static void clusterManagerWaitForClusterJoin(void);
+static int clusterManagerCheckCluster(int quiet);
+static void clusterManagerLog(int level, const char* fmt, ...);
+static int clusterManagerIsConfigConsistent(void);
+static void clusterManagerOnError(sds err);
+static void clusterManagerNodeArrayInit(clusterManagerNodeArray *array, 
+                                        int len);
+static void clusterManagerNodeArrayReset(clusterManagerNodeArray *array);
+static void clusterManagerNodeArrayShift(clusterManagerNodeArray *array, 
+                                         clusterManagerNode **nodeptr);
+static void clusterManagerNodeArrayAdd(clusterManagerNodeArray *array, 
+                                       clusterManagerNode *node);
+
+/* Cluster Manager commands. */
+
+static int clusterManagerCommandCreate(int argc, char **argv);
+static int clusterManagerCommandAddNode(int argc, char **argv);
+static int clusterManagerCommandDeleteNode(int argc, char **argv);
+static int clusterManagerCommandInfo(int argc, char **argv);
+static int clusterManagerCommandCheck(int argc, char **argv);
+static int clusterManagerCommandFix(int argc, char **argv);
+static int clusterManagerCommandReshard(int argc, char **argv);
+static int clusterManagerCommandRebalance(int argc, char **argv);
+static int clusterManagerCommandSetTimeout(int argc, char **argv);
+static int clusterManagerCommandImport(int argc, char **argv);
+static int clusterManagerCommandCall(int argc, char **argv);
+static int clusterManagerCommandHelp(int argc, char **argv);
+
+typedef struct clusterManagerCommandDef {
+    char *name;
+    clusterManagerCommandProc *proc;
+    int arity;
+    char *args;
+    char *options;
+} clusterManagerCommandDef;
+
+clusterManagerCommandDef clusterManagerCommands[] = {
+    {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN", 
+     "replicas <arg>"},
+    {"check", clusterManagerCommandCheck, -1, "host:port", NULL},
+    {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
+    {"fix", clusterManagerCommandFix, -1, "host:port", NULL},
+    {"reshard", clusterManagerCommandReshard, -1, "host:port", 
+     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>"},
+    {"rebalance", clusterManagerCommandRebalance, -1, "host:port", 
+     "weight <node1=w1...nodeN=wN>,use-empty-masters,"
+     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>"}, 
+    {"add-node", clusterManagerCommandAddNode, 2, 
+     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
+    {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
+    {"call", clusterManagerCommandCall, -2, 
+        "host:port command arg arg .. arg", NULL},
+    {"set-timeout", clusterManagerCommandSetTimeout, 2, 
+     "host:port milliseconds", NULL},
+    {"import", clusterManagerCommandImport, 1, "host:port", 
+     "from <arg>,copy,replace"},
+    {"help", clusterManagerCommandHelp, 0, NULL, NULL}
+};
+
+
+static void createClusterManagerCommand(char *cmdname, int argc, char **argv) {
+    clusterManagerCommand *cmd = &config.cluster_manager_command;
+    cmd->name = cmdname;
+    cmd->argc = argc;
+    cmd->argv = argc ? argv : NULL;
+    if (isColorTerm()) cmd->flags |= CLUSTER_MANAGER_CMD_FLAG_COLOR;
+}
+
+
+static clusterManagerCommandProc *validateClusterManagerCommand(void) {
+    int i, commands_count = sizeof(clusterManagerCommands) / 
+                            sizeof(clusterManagerCommandDef);
+    clusterManagerCommandProc *proc = NULL;
+    char *cmdname = config.cluster_manager_command.name;
+    int argc = config.cluster_manager_command.argc;
+    for (i = 0; i < commands_count; i++) {
+        clusterManagerCommandDef cmddef = clusterManagerCommands[i]; 
+        if (!strcmp(cmddef.name, cmdname)) {
+            if ((cmddef.arity > 0 && argc != cmddef.arity) || 
+                (cmddef.arity < 0 && argc < (cmddef.arity * -1))) {
+                fprintf(stderr, "[ERR] Wrong number of arguments for "
+                                "specified --cluster sub command\n");
+                return NULL;    
+            }
+            proc = cmddef.proc;
+        }
+    }
+    if (!proc) fprintf(stderr, "Unknown --cluster subcommand\n");
+    return proc;
+}
+
+/* Get host ip and port from command arguments. If only one argument has 
+ * been provided it must be in the form of 'ip:port', elsewhere 
+ * the first argument must be the ip and the second one the port.
+ * If host and port can be detected, it returns 1 and it stores host and 
+ * port into variables referenced by'ip_ptr' and 'port_ptr' pointers, 
+ * elsewhere it returns 0. */
+static int getClusterHostFromCmdArgs(int argc, char **argv, 
+                                     char **ip_ptr, int *port_ptr) {
+    int port = 0;
+    char *ip = NULL;
+    if (argc == 1) {
+        char *addr = argv[0];
+        char *c = strrchr(addr, '@');
+        if (c != NULL) *c = '\0';
+        c = strrchr(addr, ':');
+        if (c != NULL) {
+            *c = '\0';
+            ip = addr;
+            port = atoi(++c);
+        } else return 0;
+    } else {
+        ip = argv[0];
+        port = atoi(argv[1]);
+    }
+    if (!ip || !port) return 0;
+    else {
+        *ip_ptr = ip;
+        *port_ptr = port;
+    }
+    return 1;
+}
+
+static void freeClusterManagerNodeFlags(list *flags) {
+    listIter li;
+    listNode *ln;
+    listRewind(flags, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        sds flag = ln->value;
+        sdsfree(flag);
+    }
+    listRelease(flags);
+}
+
+static void freeClusterManagerNode(clusterManagerNode *node) {
+    if (node->context != NULL) redisFree(node->context); 
+    if (node->friends != NULL) {
+        listIter li; 
+        listNode *ln;
+        listRewind(node->friends,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *fn = ln->value; 
+            freeClusterManagerNode(fn);
+        }
+        listRelease(node->friends);
+        node->friends = NULL;
+    }
+    if (node->name != NULL) sdsfree(node->name);
+    if (node->replicate != NULL) sdsfree(node->replicate);
+    if ((node->flags & CLUSTER_MANAGER_FLAG_FRIEND) && node->ip)
+        sdsfree(node->ip);
+    int i;
+    if (node->migrating != NULL) {
+        for (i = 0; i < node->migrating_count; i++) sdsfree(node->migrating[i]);
+        zfree(node->migrating);
+    }
+    if (node->importing != NULL) {
+        for (i = 0; i < node->importing_count; i++) sdsfree(node->importing[i]);
+        zfree(node->importing);
+    }
+    if (node->flags_str != NULL) {
+        freeClusterManagerNodeFlags(node->flags_str);
+        node->flags_str = NULL;
+    }
+    zfree(node);
+}
+
+static void freeClusterManager(void) {
+    listIter li; 
+    listNode *ln;
+    if (cluster_manager.nodes != NULL) {
+        listRewind(cluster_manager.nodes,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value; 
+            freeClusterManagerNode(n);
+        }
+        listRelease(cluster_manager.nodes);
+        cluster_manager.nodes = NULL;
+    }
+    if (cluster_manager.errors != NULL) {
+        listRewind(cluster_manager.errors,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            sds err = ln->value; 
+            sdsfree(err);
+        }
+        listRelease(cluster_manager.errors);
+        cluster_manager.errors = NULL;
+    }
+    if (clusterManagerUncoveredSlots != NULL) 
+        dictRelease(clusterManagerUncoveredSlots);
+}
+
+static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
+    clusterManagerNode *node = zmalloc(sizeof(*node));
+    node->context = NULL;
+    node->name = NULL;
+    node->ip = ip;
+    node->port = port;
+    node->current_epoch = 0;
+    node->ping_sent = 0;
+    node->ping_recv = 0;
+    node->flags = 0;
+    node->flags_str = NULL;
+    node->replicate = NULL;
+    node->dirty = 0;
+    node->friends = NULL;
+    node->migrating = NULL;
+    node->importing = NULL;
+    node->migrating_count = 0;
+    node->importing_count = 0;
+    node->replicas_count = 0;
+    node->weight = 1.0f;
+    node->balance = 0;
+    clusterManagerNodeResetSlots(node);
+    return node;
+}
+
+/* Check whether reply is NULL or its type is REDIS_REPLY_ERROR. In the 
+ * latest case, if the 'err' arg is not NULL, it gets allocated with a copy 
+ * of reply error (it's up to the caller function to free it), elsewhere 
+ * the error is directly printed. */
+static int clusterManagerCheckRedisReply(clusterManagerNode *n, 
+                                         redisReply *r, char **err) 
+{
+    int is_err = 0;
+    if (!r || (is_err = (r->type == REDIS_REPLY_ERROR))) {
+        if (is_err) {
+            if (err != NULL) {
+                *err = zmalloc((r->len + 1) * sizeof(char));  
+                strcpy(*err, r->str); 
+            } else CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, r->str); 
+        }
+        return 0;
+    }
+    return 1; 
+} 
+
+static void clusterManagerRemoveNodeFromList(list *nodelist, 
+                                             clusterManagerNode *node) {
+    listIter li;
+    listNode *ln;
+    listRewind(nodelist, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        if (node == ln->value) {
+            listDelNode(nodelist, ln);
+            break;
+        }
+    }
+}
+
+/* Return the node with the specified name (ID) or NULL. */
+static clusterManagerNode *clusterManagerNodeByName(const char *name) {
+    if (cluster_manager.nodes == NULL) return NULL;
+    clusterManagerNode *found = NULL;
+    sds lcname = sdsempty();
+    lcname = sdscpy(lcname, name);
+    sdstolower(lcname);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (n->name && !sdscmp(n->name, lcname)) {
+            found = n;
+            break;
+        }
+    }
+    sdsfree(lcname);
+    return found;
+}
+
+/* Like clusterManagerNodeByName but the specified name can be just the first
+ * part of the node ID as long as the prefix in unique across the
+ * cluster.
+ */
+static clusterManagerNode *clusterManagerNodeByAbbreviatedName(const char*name)
+{
+    if (cluster_manager.nodes == NULL) return NULL;
+    clusterManagerNode *found = NULL;
+    sds lcname = sdsempty();
+    lcname = sdscpy(lcname, name);
+    sdstolower(lcname);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (n->name && 
+            strstr(n->name, lcname) == n->name) {
+            found = n;
+            break;
+        }
+    }
+    sdsfree(lcname);
+    return found;
+}
+
+static void clusterManagerNodeResetSlots(clusterManagerNode *node) {
+    memset(node->slots, 0, sizeof(node->slots));
+    node->slots_count = 0;
+}
+
+/* Call "INFO" redis command on the specified node and return the reply. */
+static redisReply *clusterManagerGetNodeRedisInfo(clusterManagerNode *node, 
+                                                  char **err) 
+{
+    redisReply *info = CLUSTER_MANAGER_COMMAND(node, "INFO");
+    if (err != NULL) *err = NULL;
+    if (info == NULL) return NULL;
+    if (info->type == REDIS_REPLY_ERROR) {
+        if (err != NULL) {
+            *err = zmalloc((info->len + 1) * sizeof(char));  
+            strcpy(*err, info->str); 
+        } 
+        freeReplyObject(info);
+        return  NULL;
+    }
+    return info;
+}
+
+static int clusterManagerNodeIsCluster(clusterManagerNode *node, char **err) {
+    redisReply *info = clusterManagerGetNodeRedisInfo(node, err);
+    if (info == NULL) return 0;
+    int is_cluster = (int) getLongInfoField(info->str, "cluster_enabled");
+    freeReplyObject(info);
+    return is_cluster;
+}
+
+/* Checks whether the node is empty. Node is considered not-empty if it has 
+ * some key or if it already knows other nodes */
+static int clusterManagerNodeIsEmpty(clusterManagerNode *node, char **err) {
+    redisReply *info = clusterManagerGetNodeRedisInfo(node, err);
+    int is_empty = 1;
+    if (info == NULL) return 0;
+    if (strstr(info->str, "db0:") != NULL) {
+        is_empty = 0;
+        goto result;
+    }
+    freeReplyObject(info);
+    info = CLUSTER_MANAGER_COMMAND(node, "CLUSTER INFO");
+    if (err != NULL) *err = NULL;
+    if (!clusterManagerCheckRedisReply(node, info, err)) {
+        is_empty = 0;
+        goto result;
+    }
+    long known_nodes = getLongInfoField(info->str, "cluster_known_nodes");
+    is_empty = (known_nodes == 1);
+result:
+    freeReplyObject(info);
+    return is_empty;
+}
+
+/* Return the anti-affinity score, which is a measure of the amount of
+ * violations of anti-affinity in the current cluster layout, that is, how
+ * badly the masters and slaves are distributed in the different IP
+ * addresses so that slaves of the same master are not in the master
+ * host and are also in different hosts.
+ *
+ * The score is calculated as follows:
+ *
+ * SAME_AS_MASTER = 10000 * each slave in the same IP of its master.
+ * SAME_AS_SLAVE  = 1 * each slave having the same IP as another slave
+                      of the same master.
+ * FINAL_SCORE = SAME_AS_MASTER + SAME_AS_SLAVE
+ *
+ * So a greater score means a worse anti-affinity level, while zero
+ * means perfect anti-affinity.
+ *
+ * The anti affinity optimizator will try to get a score as low as
+ * possible. Since we do not want to sacrifice the fact that slaves should
+ * not be in the same host as the master, we assign 10000 times the score
+ * to this violation, so that we'll optimize for the second factor only
+ * if it does not impact the first one.
+ *
+ * The ipnodes argument is an array of clusterManagerNodeArray, one for 
+ * each IP, while ip_count is the total number of IPs in the configuration.
+ *
+ * The function returns the above score, and the list of
+ * offending slaves can be stored into the 'offending' argument, 
+ * so that the optimizer can try changing the configuration of the 
+ * slaves violating the anti-affinity goals. */
+static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
+    int ip_count, clusterManagerNode ***offending, int *offending_len)
+{
+    int score = 0, i, j;
+    int node_len = cluster_manager.nodes->len;
+    clusterManagerNode **offending_p = NULL;
+    if (offending != NULL) {
+        *offending = zcalloc(node_len * sizeof(clusterManagerNode*));
+        offending_p = *offending;
+    }
+    /* For each set of nodes in the same host, split by 
+     * related nodes (masters and slaves which are involved in
+     * replication of each other) */
+    for (i = 0; i < ip_count; i++) {
+        clusterManagerNodeArray *node_array = &(ipnodes[i]);
+        dict *related = dictCreate(&clusterManagerDictType, NULL);
+        char *ip = NULL;
+        for (j = 0; j < node_array->len; j++) {
+            clusterManagerNode *node = node_array->nodes[j];
+            if (node == NULL) continue;
+            if (!ip) ip = node->ip;
+            sds types, otypes;
+            // We always use the Master ID as key
+            sds key = (!node->replicate ? node->name : node->replicate);
+            assert(key != NULL);
+            dictEntry *entry = dictFind(related, key);
+            if (entry) otypes = (sds) dictGetVal(entry);
+            else {
+                otypes = sdsempty();
+                dictAdd(related, key, otypes);
+            }
+            // Master type 'm' is always set as the first character of the 
+            // types string.
+            if (!node->replicate) types = sdscatprintf(otypes, "m%s", otypes);
+            else types = sdscat(otypes, "s"); 
+            if (types != otypes) dictReplace(related, key, types);
+        }
+        /* Now it's trivial to check, for each related group having the 
+         * same host, what is their local score. */
+        dictIterator *iter = dictGetIterator(related);
+        dictEntry *entry;
+        while ((entry = dictNext(iter)) != NULL) {
+            sds types = (sds) dictGetVal(entry);
+            sds name = (sds) dictGetKey(entry);
+            int typeslen = sdslen(types);
+            if (typeslen < 2) continue;
+            if (types[0] == 'm') score += (10000 * (typeslen - 1));
+            else score += (1 * typeslen);
+            if (offending == NULL) continue;
+            /* Populate the list of offending nodes. */
+            listIter li;
+            listNode *ln;
+            listRewind(cluster_manager.nodes, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                clusterManagerNode *n = ln->value;
+                if (n->replicate == NULL) continue;
+                if (!strcmp(n->replicate, name) && !strcmp(n->ip, ip)) {
+                    *(offending_p++) = n;               
+                    if (offending_len != NULL) (*offending_len)++;
+                    break;
+                }
+            }
+        }
+        //if (offending_len != NULL) *offending_len = offending_p - *offending;
+        dictReleaseIterator(iter);
+        dictRelease(related);
+    }
+    return score;
+}
+
+static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
+    int ip_count)
+{
+    clusterManagerNode **offenders = NULL;
+    int score = clusterManagerGetAntiAffinityScore(ipnodes, ip_count, 
+                                                   NULL, NULL);
+    if (score == 0) goto cleanup;
+    clusterManagerLogInfo(">>> Trying to optimize slaves allocation "
+                          "for anti-affinity\n");
+    int node_len = cluster_manager.nodes->len;
+    int maxiter = 500 * node_len; // Effort is proportional to cluster size...
+    srand(time(NULL));
+    while (maxiter > 0) {
+        int offending_len = 0;
+        if (offenders != NULL) {
+            zfree(offenders);
+            offenders = NULL;
+        }
+        score = clusterManagerGetAntiAffinityScore(ipnodes, 
+                                                   ip_count, 
+                                                   &offenders, 
+                                                   &offending_len);
+        if (score == 0) break; // Optimal anti affinity reached
+        /* We'll try to randomly swap a slave's assigned master causing
+         * an affinity problem with another random slave, to see if we
+         * can improve the affinity. */
+        int rand_idx = rand() % offending_len;
+        clusterManagerNode *first = offenders[rand_idx], 
+                           *second = NULL;
+        clusterManagerNode **other_replicas = zcalloc((node_len - 1) * 
+                                                      sizeof(*other_replicas));
+        int other_replicas_count = 0;
+        listIter li;
+        listNode *ln;
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n != first && n->replicate != NULL)
+                other_replicas[other_replicas_count++] = n;
+        }
+        if (other_replicas_count == 0) {
+            zfree(other_replicas);
+            break;
+        }
+        rand_idx = rand() % other_replicas_count;
+        second = other_replicas[rand_idx];
+        char *first_master = first->replicate, 
+             *second_master = second->replicate;
+        first->replicate = second_master, first->dirty = 1;
+        second->replicate = first_master, second->dirty = 1;
+        int new_score = clusterManagerGetAntiAffinityScore(ipnodes, 
+                                                           ip_count, 
+                                                           NULL, NULL);
+        /* If the change actually makes thing worse, revert. Otherwise
+         * leave as it is becuase the best solution may need a few
+         * combined swaps. */
+        if (new_score > score) {
+            first->replicate = first_master;
+            second->replicate = second_master;
+        }
+        zfree(other_replicas);
+        maxiter--;
+    }
+    score = clusterManagerGetAntiAffinityScore(ipnodes, ip_count, NULL, NULL);
+    char *msg;
+    int perfect = (score == 0);
+    int log_level = (perfect ? CLUSTER_MANAGER_LOG_LVL_SUCCESS : 
+                               CLUSTER_MANAGER_LOG_LVL_WARN);
+    if (perfect) msg = "[OK] Perfect anti-affinity obtained!"; 
+    else if (score >= 10000) 
+        msg = ("[WARNING] Some slaves are in the same host as their master");
+    else
+        msg=("[WARNING] Some slaves of the same master are in the same host");
+    clusterManagerLog(log_level, "%s\n", msg);
+cleanup:
+    zfree(offenders);
+}
+
+/* Return a representable string of the node's flags */
+static sds clusterManagerNodeFlagString(clusterManagerNode *node) {
+    sds flags = sdsempty();
+    if (!node->flags_str) return flags;
+    int empty = 1;
+    listIter li;
+    listNode *ln;
+    listRewind(node->flags_str, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        sds flag = ln->value;
+        if (strcmp(flag, "myself") == 0) continue;
+        if (!empty) flags = sdscat(flags, ",");
+        flags = sdscatfmt(flags, "%S", flag);
+        empty = 0;
+    }
+    return flags;
+}
+
+/* Return a representable string of the node's slots */
+static sds clusterManagerNodeSlotsString(clusterManagerNode *node) {
+    sds slots = sdsempty();
+    int first_range_idx = -1, last_slot_idx = -1, i;
+    for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+        int has_slot = node->slots[i];
+        if (has_slot) {
+            if (first_range_idx == -1) {
+                if (sdslen(slots)) slots = sdscat(slots, ",");
+                first_range_idx = i;
+                slots = sdscatfmt(slots, "[%u", i);
+            }
+            last_slot_idx = i;
+        } else {
+            if (last_slot_idx >= 0) {
+                if (first_range_idx == last_slot_idx) 
+                    slots = sdscat(slots, "]");
+                else slots = sdscatfmt(slots, "-%u]", last_slot_idx);
+            } 
+            last_slot_idx = -1;
+            first_range_idx = -1;
+        }
+    }
+    if (last_slot_idx >= 0) {
+        if (first_range_idx == last_slot_idx) slots = sdscat(slots, "]");
+        else slots = sdscatfmt(slots, "-%u]", last_slot_idx);
+    }
+    return slots;
+}
+
+/* -----------------------------------------------------------------------------
+ * Key space handling
+ * -------------------------------------------------------------------------- */
+
+/* We have 16384 hash slots. The hash slot of a given key is obtained
+ * as the least significant 14 bits of the crc16 of the key.
+ *
+ * However if the key contains the {...} pattern, only the part between
+ * { and } is hashed. This may be useful in the future to force certain
+ * keys to be in the same node (assuming no resharding is in progress). */
+static unsigned int clusterManagerKeyHashSlot(char *key, int keylen) {
+    int s, e; /* start-end indexes of { and } */
+
+    for (s = 0; s < keylen; s++)
+        if (key[s] == '{') break;
+
+    /* No '{' ? Hash the whole key. This is the base case. */
+    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
+
+    /* '{' found? Check if we have the corresponding '}'. */
+    for (e = s+1; e < keylen; e++)
+        if (key[e] == '}') break;
+
+    /* No '}' or nothing between {} ? Hash the whole key. */
+    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
+
+    /* If we are here there is both a { and a } on its right. Hash
+     * what is in the middle between { and }. */
+    return crc16(key+s+1,e-s-1) & 0x3FFF;
+}
+
+/* Return a string representation of the cluster node. */
+static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent) {
+    sds info = sdsempty();
+    sds spaces = sdsempty();
+    int i;
+    for (i = 0; i < indent; i++) spaces = sdscat(spaces, " ");
+    if (indent) info = sdscat(info, spaces);
+    int is_master = !(node->flags & CLUSTER_MANAGER_FLAG_SLAVE);
+    char *role = (is_master ? "M" : "S");
+    sds slots = NULL;
+    if (node->dirty && node->replicate != NULL)
+        info = sdscatfmt(info, "S: %S %s:%u", node->name, node->ip, node->port);
+    else {
+        slots = clusterManagerNodeSlotsString(node);
+        sds flags = clusterManagerNodeFlagString(node);
+        info = sdscatfmt(info, "%s: %S %s:%u\n"
+                               "%s   slots:%S (%u slots) "
+                               "%S", 
+                               role, node->name, node->ip, node->port, spaces, 
+                               slots, node->slots_count, flags);
+        sdsfree(slots);
+        sdsfree(flags);
+    }
+    if (node->replicate != NULL) 
+        info = sdscatfmt(info, "\n%s   replicates %S", spaces, node->replicate);
+    else if (node->replicas_count)
+        info = sdscatfmt(info, "\n%s   %U additional replica(s)", 
+                         spaces, node->replicas_count);
+    sdsfree(spaces);
+    return info;
+}
+
+static void clusterManagerShowNodes(void) {
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        sds info = clusterManagerNodeInfo(node, 0);
+        printf("%s\n", (char *) info);
+        sdsfree(info);
+    }
+}
+
+static void clusterManagerShowClusterInfo(void) {
+    int masters = 0;
+    int keys = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        if (!(node->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
+            if (!node->name) continue;
+            int replicas = 0;
+            int dbsize = -1;
+            char name[9];
+            memcpy(name, node->name, 8);
+            name[8] = '\0';
+            listIter ri;
+            listNode *rn;
+            listRewind(cluster_manager.nodes, &ri);
+            while ((rn = listNext(&ri)) != NULL) {
+                clusterManagerNode *n = rn->value;
+                if (n == node || !(n->flags & CLUSTER_MANAGER_FLAG_SLAVE))
+                    continue;
+                if (n->replicate && !strcmp(n->replicate, node->name))
+                    replicas++;
+            }
+            redisReply *reply = CLUSTER_MANAGER_COMMAND(node, "DBSIZE");
+            if (reply != NULL || reply->type == REDIS_REPLY_INTEGER)
+                dbsize = reply->integer;
+            if (dbsize < 0) {
+                char *err = "";
+                if (reply != NULL && reply->type == REDIS_REPLY_ERROR)
+                    err = reply->str;
+                CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+                if (reply != NULL) freeReplyObject(reply);
+                return;
+            };
+            if (reply != NULL) freeReplyObject(reply);
+            printf("%s:%d (%s...) -> %d keys | %d slots | %d slaves.\n", 
+                   node->ip, node->port, name, dbsize, 
+                   node->slots_count, replicas);
+            masters++;
+            keys += dbsize;
+        }
+    }
+    clusterManagerLogOk("[OK] %d keys in %d masters.\n", keys, masters);
+    float keys_per_slot = keys / (float) CLUSTER_MANAGER_SLOTS;
+    printf("%.2f keys per slot on average.\n", keys_per_slot);
+}
+
+/* Flush dirty slots configuration of the node by calling CLUSTER ADDSLOTS */
+static int clusterManagerAddSlots(clusterManagerNode *node, char**err)
+{
+    redisReply *reply = NULL;
+    void *_reply = NULL;
+    int success = 1;
+    /* First two args are used for the command itself. */
+    int argc = node->slots_count + 2; 
+    sds *argv = zmalloc(argc * sizeof(*argv));
+    size_t *argvlen = zmalloc(argc * sizeof(*argvlen));
+    argv[0] = "CLUSTER";
+    argv[1] = "ADDSLOTS";
+    argvlen[0] = 7;
+    argvlen[1] = 8;
+    *err = NULL;
+    int i, argv_idx = 2;
+    for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+        if (argv_idx >= argc) break;
+        if (node->slots[i]) {
+            argv[argv_idx] = sdsfromlonglong((long long) i);
+            argvlen[argv_idx] = sdslen(argv[argv_idx]);
+            argv_idx++;
+        }
+    }
+    if (!argv_idx) {
+        success = 0;
+        goto cleanup;
+    }
+    redisAppendCommandArgv(node->context,argc,(const char**)argv,argvlen);
+    if (redisGetReply(node->context, &_reply) != REDIS_OK) {
+        success = 0;
+        goto cleanup;
+    }
+    reply = (redisReply*) _reply;
+    success = clusterManagerCheckRedisReply(node, reply, err);
+cleanup:
+    zfree(argvlen);
+    if (argv != NULL) {
+        for (i = 2; i < argc; i++) sdsfree(argv[i]);
+        zfree(argv);
+    }
+    if (reply != NULL) freeReplyObject(reply);
+    return success;
+}
+
+/* Set slot status to "importing" or "migrating" */
+static int clusterManagerSetSlot(clusterManagerNode *node1, 
+                                 clusterManagerNode *node2, 
+                                 int slot, const char *status, char **err) {
+    redisReply *reply = CLUSTER_MANAGER_COMMAND(node1, "CLUSTER "
+                                                "SETSLOT %d %s %s", 
+                                                slot, status, 
+                                                (char *) node2->name);
+    if (err != NULL) *err = NULL;
+    if (!reply) return 0;
+    int success = 1;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        success = 0;
+        if (err != NULL) {
+            *err = zmalloc((reply->len + 1) * sizeof(char));  
+            strcpy(*err, reply->str); 
+            CLUSTER_MANAGER_PRINT_REPLY_ERROR(node1, err);
+        }
+        goto cleanup;
+    }
+cleanup:
+    freeReplyObject(reply);
+    return success;
+}
+
+/* Migrate keys taken from reply->elements. It returns the reply from the 
+ * MIGRATE command, or NULL if something goes wrong. If the argument 'dots' 
+ * is not NULL, a dot will be printed for every migrated key. */
+static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source, 
+                                                    clusterManagerNode *target, 
+                                                    redisReply *reply, 
+                                                    int replace, int timeout, 
+                                                    char *dots) 
+{
+    redisReply *migrate_reply = NULL;
+    char **argv = NULL;
+    size_t *argv_len = NULL;
+    int c = (replace ? 8 : 7);
+    size_t argc = c + reply->elements;
+    size_t i, offset = 6; // Keys Offset
+    argv = zcalloc(argc * sizeof(char *));
+    argv_len = zcalloc(argc * sizeof(size_t));
+    char portstr[255];
+    char timeoutstr[255];
+    snprintf(portstr, 10, "%d", target->port);
+    snprintf(timeoutstr, 10, "%d", timeout);
+    argv[0] = "MIGRATE";
+    argv_len[0] = 7;
+    argv[1] = target->ip;
+    argv_len[1] = strlen(target->ip);
+    argv[2] = portstr;
+    argv_len[2] = strlen(portstr);
+    argv[3] = "";
+    argv_len[3] = 0;
+    argv[4] = "0";
+    argv_len[4] = 1;
+    argv[5] = timeoutstr;
+    argv_len[5] = strlen(timeoutstr);
+    if (replace) {
+        argv[offset] = "REPLACE";
+        argv_len[offset] = 7;
+        offset++;
+    }
+    argv[offset] = "KEYS";
+    argv_len[offset] = 4;
+    offset++;
+    for (i = 0; i < reply->elements; i++) {
+        redisReply *entry = reply->element[i];
+        size_t idx = i + offset;
+        assert(entry->type == REDIS_REPLY_STRING);
+        argv[idx] = (char *) sdsnew(entry->str);
+        argv_len[idx] = entry->len;
+        if (dots) dots[i] = '.';
+    }
+    if (dots) dots[reply->elements] = '\0';
+    void *_reply = NULL;
+    redisAppendCommandArgv(source->context,argc,
+                           (const char**)argv,argv_len);
+    int success = (redisGetReply(source->context, &_reply) == REDIS_OK);
+    for (i = 0; i < reply->elements; i++) sdsfree(argv[i + offset]);
+    if (!success) goto cleanup;
+    migrate_reply = (redisReply *) _reply;
+cleanup:
+    zfree(argv);
+    zfree(argv_len);
+    return migrate_reply;
+}
+
+/* Migrate all keys in the given slot from source to target.*/
+static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source, 
+                                           clusterManagerNode *target, 
+                                           int slot, int timeout, 
+                                           int pipeline, int verbose,
+                                           char **err) 
+{
+    int success = 1;
+    int do_fix = (config.cluster_manager_command.flags & 
+                  CLUSTER_MANAGER_CMD_FLAG_FIX);
+    while (1) {
+        char *dots = NULL;
+        redisReply *reply = NULL, *migrate_reply = NULL;
+        reply = CLUSTER_MANAGER_COMMAND(source, "CLUSTER "
+                                        "GETKEYSINSLOT %d %d", slot, 
+                                        pipeline);
+        success = (reply != NULL);
+        if (!success) return 0;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            success = 0;
+            if (err != NULL) {
+                *err = zmalloc((reply->len + 1) * sizeof(char));  
+                strcpy(*err, reply->str); 
+                CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, err);
+            }
+            goto next;
+        }
+        assert(reply->type == REDIS_REPLY_ARRAY);
+        size_t count = reply->elements;
+        if (count == 0) {
+            freeReplyObject(reply);
+            break;
+        }
+        if (verbose) dots = zmalloc((count+1) * sizeof(char));
+        /* Calling MIGRATE command. */
+        migrate_reply = clusterManagerMigrateKeysInReply(source, target, 
+                                                         reply, 0, timeout, 
+                                                         dots);
+        if (migrate_reply == NULL) goto next;
+        if (migrate_reply->type == REDIS_REPLY_ERROR) {
+            if (do_fix && strstr(migrate_reply->str, "BUSYKEY")) {
+                clusterManagerLogWarn("*** Target key exists. "
+                                      "Replacing it for FIX.\n");
+                freeReplyObject(migrate_reply);
+                /* Try to migrate keys adding REPLACE option. */
+                migrate_reply = clusterManagerMigrateKeysInReply(source, 
+                                                                 target, 
+                                                                 reply, 
+                                                                 1, timeout,
+                                                                 NULL);
+                success = (migrate_reply != NULL && 
+                           migrate_reply->type != REDIS_REPLY_ERROR);
+            } else success = 0;
+            if (!success) {
+                if (migrate_reply != NULL) {
+                    if (err) {
+                        *err = zmalloc((migrate_reply->len + 1) * sizeof(char));
+                        strcpy(*err, migrate_reply->str); 
+                    }
+                    printf("\n");
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, 
+                                                      migrate_reply->str);
+                }
+                goto next;
+            }
+        }
+        if (verbose) {
+            printf("%s", dots);
+            fflush(stdout);
+        }
+next:
+        if (reply != NULL) freeReplyObject(reply);
+        if (migrate_reply != NULL) freeReplyObject(migrate_reply);
+        if (dots) zfree(dots);
+        if (!success) break;
+    }
+    return success;
+}
+
+/* Move slots between source and target nodes using MIGRATE.
+ * 
+ * Options:
+ * CLUSTER_MANAGER_OPT_VERBOSE -- Print a dot for every moved key.
+ * CLUSTER_MANAGER_OPT_COLD    -- Move keys without opening slots / 
+ *                                reconfiguring the nodes.
+ * CLUSTER_MANAGER_OPT_UPDATE  -- Update node->slots for source/target nodes.
+ * CLUSTER_MANAGER_OPT_QUIET   -- Don't print info messages.
+*/
+static int clusterManagerMoveSlot(clusterManagerNode *source, 
+                                  clusterManagerNode *target, 
+                                  int slot, int opts,  char**err) 
+{
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
+        printf("Moving slot %d from %s:%d to %s:%d: ", slot, source->ip, 
+               source->port, target->ip, target->port);
+        fflush(stdout);
+    }
+    if (err != NULL) *err = NULL;
+    int pipeline = config.cluster_manager_command.pipeline, 
+        timeout = config.cluster_manager_command.timeout,
+        print_dots = (opts & CLUSTER_MANAGER_OPT_VERBOSE),
+        option_cold = (opts & CLUSTER_MANAGER_OPT_COLD),
+        success = 1;
+    if (!option_cold) {
+        success = clusterManagerSetSlot(target, source, slot, 
+                                        "importing", err);
+        if (!success) return 0;
+        success = clusterManagerSetSlot(source, target, slot, 
+                                        "migrating", err);
+        if (!success) return 0;
+    }
+    success = clusterManagerMigrateKeysInSlot(source, target, slot, timeout,
+                                              pipeline, print_dots, err);
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
+    if (!success) return 0;
+    /* Set the new node as the owner of the slot in all the known nodes. */
+    if (!option_cold) {
+        listIter li;
+        listNode *ln;
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER "
+                                                    "SETSLOT %d %s %s", 
+                                                    slot, "node", 
+                                                    target->name);  
+            success = (r != NULL);
+            if (!success) return 0;
+            if (r->type == REDIS_REPLY_ERROR) {
+                success = 0;
+                if (err != NULL) {
+                    *err = zmalloc((r->len + 1) * sizeof(char));  
+                    strcpy(*err, r->str); 
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err);
+                }
+            }
+            freeReplyObject(r);
+            if (!success) return 0;
+        }
+    }
+    /* Update the node logical config */
+    if (opts & CLUSTER_MANAGER_OPT_UPDATE) {
+        source->slots[slot] = 0;
+        target->slots[slot] = 1;
+    }
+    return 1;
+}
+
+/* Flush the dirty node configuration by calling replicate for slaves or 
+ * adding the slots defined in the masters. */
+static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err) {
+    if (!node->dirty) return 0;
+    redisReply *reply = NULL;
+    int is_err = 0, success = 1;
+    if (err != NULL) *err = NULL;
+    if (node->replicate != NULL) {
+        reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER REPLICATE %s", 
+                                        node->replicate); 
+        if (reply == NULL || (is_err = (reply->type == REDIS_REPLY_ERROR))) {
+            if (is_err && err != NULL) {
+                *err = zmalloc((reply->len + 1) * sizeof(char));  
+                strcpy(*err, reply->str); 
+            } 
+            success = 0;
+            /* If the cluster did not already joined it is possible that
+             * the slave does not know the master node yet. So on errors
+             * we return ASAP leaving the dirty flag set, to flush the
+             * config later. */
+            goto cleanup;
+        }
+    } else {
+        int added = clusterManagerAddSlots(node, err);
+        if (!added || *err != NULL) success = 0;
+    }
+    node->dirty = 0;
+cleanup:
+    if (reply != NULL) freeReplyObject(reply);
+    return success;
+}
+
+/* Wait until the cluster configuration is consistent. */
+static void clusterManagerWaitForClusterJoin(void) {
+    printf("Waiting for the cluster to join\n");
+    while(!clusterManagerIsConfigConsistent()) {
+        printf(".");
+        fflush(stdout);
+        sleep(1);
+    }
+    printf("\n");
+}
+
+/* Load node's cluster configuration by calling "CLUSTER NODES" command.
+ * Node's configuration (name, replicate, slots, ...) is then updated.
+ * If CLUSTER_MANAGER_OPT_GETFRIENDS flag is set into 'opts' argument,
+ * and node already knows other nodes, the node's friends list is populated 
+ * with the other nodes info. */
+static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts, 
+                                      char **err) 
+{
+    redisReply *reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER NODES"); 
+    int success = 1;
+    *err = NULL;
+    if (!clusterManagerCheckRedisReply(node, reply, err)) {
+        success = 0;
+        goto cleanup;
+    }
+    int getfriends = (opts & CLUSTER_MANAGER_OPT_GETFRIENDS);
+    char *lines = reply->str, *p, *line;
+    while ((p = strstr(lines, "\n")) != NULL) {
+        *p = '\0'; 
+        line = lines;
+        lines = p + 1;
+        char *name = NULL, *addr = NULL, *flags = NULL, *master_id = NULL, 
+             *ping_sent = NULL, *ping_recv = NULL, *config_epoch = NULL, 
+             *link_status = NULL;
+        UNUSED(link_status);
+        int i = 0;
+        while ((p = strchr(line, ' ')) != NULL) {
+            *p = '\0'; 
+            char *token = line;
+            line = p + 1;
+            switch(i++){
+            case 0: name = token; break;
+            case 1: addr = token; break;
+            case 2: flags = token; break;
+            case 3: master_id = token; break;
+            case 4: ping_sent = token; break;
+            case 5: ping_recv = token; break;
+            case 6: config_epoch = token; break;
+            case 7: link_status = token; break;
+            }
+            if (i == 8) break; // Slots
+        }         
+        if (!flags) {
+            success = 0;
+            goto cleanup;
+        }
+        int myself = (strstr(flags, "myself") != NULL);
+        clusterManagerNode *currentNode = NULL;
+        if (myself) {
+            node->flags |= CLUSTER_MANAGER_FLAG_MYSELF;
+            currentNode = node;
+            clusterManagerNodeResetSlots(node);
+            if (i == 8) {
+                int remaining = strlen(line);
+                while (remaining > 0) {
+                    p = strchr(line, ' ');
+                    if (p == NULL) p = line + remaining;
+                    remaining -= (p - line);
+
+                    char *slotsdef = line;
+                    *p = '\0'; 
+                    if (remaining) {
+                        line = p + 1;
+                        remaining--;
+                    } else line = p;
+                    char *dash = NULL;
+                    if (slotsdef[0] == '[') {
+                        slotsdef++;
+                        if ((p = strstr(slotsdef, "->-"))) { // Migrating
+                            *p = '\0';
+                            p += 3;
+                            char *closing_bracket = strchr(p, ']');
+                            if (closing_bracket) *closing_bracket = '\0';
+                            sds slot = sdsnew(slotsdef);
+                            sds dst = sdsnew(p);
+                            node->migrating_count += 2;
+                            node->migrating = zrealloc(node->migrating, 
+                                (node->migrating_count * sizeof(sds)));
+                            node->migrating[node->migrating_count - 2] = 
+                                slot;
+                            node->migrating[node->migrating_count - 1] = 
+                                dst;
+                        }  else if ((p = strstr(slotsdef, "-<-"))) {//Importing
+                            *p = '\0';
+                            p += 3;
+                            char *closing_bracket = strchr(p, ']');
+                            if (closing_bracket) *closing_bracket = '\0';
+                            sds slot = sdsnew(slotsdef);
+                            sds src = sdsnew(p);
+                            node->importing_count += 2;
+                            node->importing = zrealloc(node->importing, 
+                                (node->importing_count * sizeof(sds)));
+                            node->importing[node->importing_count - 2] = 
+                                slot;
+                            node->importing[node->importing_count - 1] = 
+                                src;
+                        } 
+                    } else if ((dash = strchr(slotsdef, '-')) != NULL) {
+                        p = dash;
+                        int start, stop;
+                        *p = '\0';
+                        start = atoi(slotsdef);
+                        stop = atoi(p + 1);
+                        node->slots_count += (stop - (start - 1));
+                        while (start <= stop) node->slots[start++] = 1;
+                    } else if (p > slotsdef) {
+                        node->slots[atoi(slotsdef)] = 1;
+                        node->slots_count++;
+                    }
+                }
+            }
+            node->dirty = 0;
+        } else if (!getfriends) {
+            if (!(node->flags & CLUSTER_MANAGER_FLAG_MYSELF)) continue;
+            else break;
+        } else {
+            if (addr == NULL) {
+                fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
+                success = 0;
+                goto cleanup;
+            }
+            char *c = strrchr(addr, '@');
+            if (c != NULL) *c = '\0';
+            c = strrchr(addr, ':');
+            if (c == NULL) {
+                fprintf(stderr, "Error: invalid CLUSTER NODES reply\n");
+                success = 0;
+                goto cleanup;
+            }
+            *c = '\0';
+            int port = atoi(++c);
+            currentNode = clusterManagerNewNode(sdsnew(addr), port);
+            currentNode->flags |= CLUSTER_MANAGER_FLAG_FRIEND;
+            if (node->friends == NULL) node->friends = listCreate();
+            listAddNodeTail(node->friends, currentNode);
+        }
+        if (name != NULL) {
+            if (currentNode->name) sdsfree(currentNode->name);
+            currentNode->name = sdsnew(name);
+        }
+        if (currentNode->flags_str != NULL)
+            freeClusterManagerNodeFlags(currentNode->flags_str);
+        currentNode->flags_str = listCreate();
+        int flag_len;
+        while ((flag_len = strlen(flags)) > 0) {
+            sds flag = NULL;
+            char *fp = strchr(flags, ',');
+            if (fp) {
+                *fp = '\0'; 
+                flag = sdsnew(flags);
+                flags = fp + 1;
+            } else {
+                flag = sdsnew(flags);
+                flags += flag_len;
+            }
+            if (strcmp(flag, "noaddr") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_NOADDR;
+            else if (strcmp(flag, "disconnected") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_DISCONNECT;
+            else if (strcmp(flag, "fail") == 0)
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
+            else if (strcmp(flag, "slave") == 0) {
+                currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
+                if (master_id == 0) {
+                    if (currentNode->replicate) sdsfree(currentNode->replicate);
+                    currentNode->replicate = sdsnew(master_id);
+                }
+            }
+            listAddNodeTail(currentNode->flags_str, flag);
+        }
+        if (config_epoch != NULL) 
+            currentNode->current_epoch = atoll(config_epoch);
+        if (ping_sent != NULL) currentNode->ping_sent = atoll(ping_sent);
+        if (ping_recv != NULL) currentNode->ping_recv = atoll(ping_recv);
+        if (!getfriends && myself) break;
+    }
+cleanup:
+    if (reply) freeReplyObject(reply);
+    return success;
+}
+
+/* Retrieves info about the cluster using argument 'node' as the starting 
+ * point. All nodes will be loaded inside the cluster_manager.nodes list.
+ * Warning: if something goes wrong, it will free the starting node before 
+ * returning 0. */
+static int clusterManagerLoadInfoFromNode(clusterManagerNode *node, int opts) {
+    if (node->context == NULL) 
+        CLUSTER_MANAGER_NODE_CONNECT(node);
+    if (node->context->err) {
+        fprintf(stderr,"Could not connect to Redis at ");
+        fprintf(stderr,"%s:%d: %s\n", node->ip, node->port, 
+                node->context->errstr);
+        freeClusterManagerNode(node);
+        return 0;
+    }
+    opts |= CLUSTER_MANAGER_OPT_GETFRIENDS;
+    char *e = NULL;
+    if (!clusterManagerNodeIsCluster(node, &e)) {
+        clusterManagerPrintNotClusterNodeError(node, e);
+        if (e) zfree(e);
+        freeClusterManagerNode(node);
+        return 0;
+    }
+    e = NULL;
+    if (!clusterManagerNodeLoadInfo(node, opts, &e)) {
+        if (e) {
+            CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, e);
+            zfree(e);
+        }
+        freeClusterManagerNode(node);
+        return 0;
+    }
+    listIter li;
+    listNode *ln;
+    if (cluster_manager.nodes != NULL) {
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) 
+            freeClusterManagerNode((clusterManagerNode *) ln->value);
+        listRelease(cluster_manager.nodes);
+    }
+    cluster_manager.nodes = listCreate();
+    listAddNodeTail(cluster_manager.nodes, node);
+    if (node->friends != NULL) {
+        listRewind(node->friends, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *friend = ln->value;
+            if (!friend->ip || !friend->port) goto invalid_friend;
+            if (!friend->context)
+                CLUSTER_MANAGER_NODE_CONNECT(friend);
+            if (friend->context->err) goto invalid_friend;
+            e = NULL;
+            if (clusterManagerNodeLoadInfo(friend, 0, &e)) {
+                if (friend->flags & (CLUSTER_MANAGER_FLAG_NOADDR | 
+                                     CLUSTER_MANAGER_FLAG_DISCONNECT | 
+                                     CLUSTER_MANAGER_FLAG_FAIL))
+                    goto invalid_friend;
+                listAddNodeTail(cluster_manager.nodes, friend);
+            } else {
+                clusterManagerLogErr("[ERR] Unable to load info for "
+                                     "node %s:%d\n",
+                                     friend->ip, friend->port);
+                goto invalid_friend;
+            }
+            continue;
+invalid_friend:
+            freeClusterManagerNode(friend);
+        }
+        listRelease(node->friends);
+        node->friends = NULL;
+    }
+    // Count replicas for each node
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (n->replicate != NULL) {
+            clusterManagerNode *master = clusterManagerNodeByName(n->replicate);
+            if (master == NULL) {
+                clusterManagerLogWarn("*** WARNING: %s:%d claims to be "
+                                      "slave of unknown node ID %s.\n", 
+                                      n->ip, n->port, n->replicate);
+            } else master->replicas_count++;
+        }
+    }
+    return 1;                                          
+}
+
+/* Compare functions used by various sorting operations. */
+int clusterManagerSlotCompare(const void *slot1, const void *slot2) { 
+    const char **i1 = (const char **)slot1;
+    const char **i2 = (const char **)slot2;
+    return strcmp(*i1, *i2);
+} 
+
+int clusterManagerSlotCountCompareDesc(const void *n1, const void *n2) {
+    clusterManagerNode *node1 = *((clusterManagerNode **) n1);
+    clusterManagerNode *node2 = *((clusterManagerNode **) n2);
+    return node2->slots_count - node1->slots_count;
+}
+
+int clusterManagerCompareNodeBalance(const void *n1, const void *n2) {
+    clusterManagerNode *node1 = *((clusterManagerNode **) n1);
+    clusterManagerNode *node2 = *((clusterManagerNode **) n2);
+    return node1->balance - node2->balance;
+}
+
+static sds clusterManagerGetConfigSignature(clusterManagerNode *node) {
+    sds signature = NULL;
+    int node_count = 0, i = 0, name_len = 0;
+    char **node_configs = NULL;
+    redisReply *reply = CLUSTER_MANAGER_COMMAND(node, "CLUSTER NODES"); 
+    if (reply == NULL || reply->type == REDIS_REPLY_ERROR)
+        goto cleanup;
+    char *lines = reply->str, *p, *line;
+    while ((p = strstr(lines, "\n")) != NULL) {
+        i = 0;
+        *p = '\0'; 
+        line = lines;
+        lines = p + 1;
+        char *nodename = NULL;
+        int tot_size = 0;
+        while ((p = strchr(line, ' ')) != NULL) {
+            *p = '\0'; 
+            char *token = line;
+            line = p + 1;
+            if (i == 0) {
+                nodename = token;
+                tot_size = (p - token);
+                name_len = tot_size++; // Make room for ':' in tot_size
+            } else if (i == 8) break;
+            i++;
+        }
+        if (i != 8) continue;
+        if (nodename == NULL) continue;
+        int remaining = strlen(line);
+        if (remaining == 0) continue;
+        char **slots = NULL;
+        int c = 0;
+        while (remaining > 0) {
+            p = strchr(line, ' ');
+            if (p == NULL) p = line + remaining;
+            int size = (p - line);
+            remaining -= size;
+            tot_size += size;
+            char *slotsdef = line;
+            *p = '\0'; 
+            if (remaining) {
+                line = p + 1;
+                remaining--;
+            } else line = p;
+            if (slotsdef[0] != '[') {
+                c++;
+                slots = zrealloc(slots, (c * sizeof(char *)));
+                slots[c - 1] = slotsdef;
+            }
+        }
+        if (c > 0) {
+            if (c > 1)
+                qsort(slots, c, sizeof(char *), clusterManagerSlotCompare); 
+            node_count++;
+            node_configs = 
+                zrealloc(node_configs, (node_count * sizeof(char *)));
+            /* Make room for '|' separators. */
+            tot_size += (sizeof(char) * (c - 1));
+            char *cfg = zmalloc((sizeof(char) * tot_size) + 1);
+            memcpy(cfg, nodename, name_len);
+            char *sp = cfg + name_len;
+            *(sp++) = ':';
+            for (i = 0; i < c; i++) {
+                if (i > 0) *(sp++) = '|';
+                int slen = strlen(slots[i]);
+                memcpy(sp, slots[i], slen);
+                sp += slen;
+            }
+            *(sp++) = '\0';
+            node_configs[node_count - 1] = cfg;
+        }
+        zfree(slots);
+    }
+    if (node_count > 0) {
+        if (node_count > 1) {
+            qsort(node_configs, node_count, sizeof(char *), 
+                  clusterManagerSlotCompare);
+        }
+        signature = sdsempty();
+        for (i = 0; i < node_count; i++) {
+            if (i > 0) signature = sdscatprintf(signature, "%c", '|'); 
+            signature = sdscatfmt(signature, "%s", node_configs[i]);
+        }
+    }
+cleanup:
+    if (reply != NULL) freeReplyObject(reply);
+    if (node_configs != NULL) {
+        for (i = 0; i < node_count; i++) zfree(node_configs[i]);
+        zfree(node_configs);
+    }
+    return signature;
+}
+
+static int clusterManagerIsConfigConsistent(void) {
+    if (cluster_manager.nodes == NULL) return 0;
+    int consistent = (listLength(cluster_manager.nodes) <= 1);
+    // If the Cluster has only one node, it's always consistent
+    if (consistent) return 1;
+    sds first_cfg = NULL;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        sds cfg = clusterManagerGetConfigSignature(node);
+        if (cfg == NULL) {
+            consistent = 0;
+            break;
+        }
+        if (first_cfg == NULL) first_cfg = cfg;
+        else {
+            consistent = !sdscmp(first_cfg, cfg);
+            sdsfree(cfg);
+            if (!consistent) break;
+        }
+    }
+    if (first_cfg != NULL) sdsfree(first_cfg);
+    return consistent;
+}
+
+/* Add the error string to cluster_manager.errors and print it. */
+static void clusterManagerOnError(sds err) {
+    if (cluster_manager.errors == NULL)
+        cluster_manager.errors = listCreate();
+    listAddNodeTail(cluster_manager.errors, err);
+    clusterManagerLogErr("%s\n", (char *) err);
+}
+
+/* Check the slots coverage of the cluster. The 'all_slots' argument must be 
+ * and array of 16384 bytes. Every covered slot will be set to 1 in the 
+ * 'all_slots' array. The function returns the total number if covered slots.*/
+static int clusterManagerGetCoveredSlots(char *all_slots) {
+    if (cluster_manager.nodes == NULL) return 0;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    int totslots = 0, i;
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+            if (node->slots[i] && !all_slots[i]) {
+                all_slots[i] = 1;
+                totslots++;
+            }
+        }
+    }
+    return totslots;
+}
+
+static void clusterManagerPrintSlotsList(list *slots) {
+    listIter li;
+    listNode *ln;
+    listRewind(slots, &li);
+    sds first = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        sds slot = ln->value; 
+        if (!first) first = slot;
+        else printf(", ");
+        printf("%s", slot);
+    }
+    printf("\n");
+}
+
+/* Return the node, among 'nodes' with the greatest number of keys
+ * in the specified slot. */
+static clusterManagerNode * clusterManagerGetNodeWithMostKeysInSlot(list *nodes,
+                                                                    int slot, 
+                                                                    char **err) 
+{
+    clusterManagerNode *node = NULL;
+    int numkeys = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(nodes, &li);
+    if (err) *err = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE || n->replicate)
+            continue;
+        redisReply *r = 
+            CLUSTER_MANAGER_COMMAND(n, "CLUSTER COUNTKEYSINSLOT %d", slot); 
+        int success = clusterManagerCheckRedisReply(n, r, err);
+        if (success) {
+            if (r->integer > numkeys || node == NULL) {
+                numkeys = r->integer;
+                node = n;
+            } 
+        }
+        if (r != NULL) freeReplyObject(r);
+        /* If the reply contains errors */
+        if (!success) {
+            if (err != NULL && *err != NULL) 
+                CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err);
+            node = NULL;
+            break;
+        }
+    }
+    return node;
+}
+
+/* This function returns the master that has the least number of replicas
+ * in the cluster. If there are multiple masters with the same smaller
+ * number of replicas, one at random is returned. */
+
+static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
+    clusterManagerNode *node = NULL;
+    int lowest_count = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        if (node == NULL || n->replicas_count < lowest_count) {
+            node = n;
+            lowest_count = n->replicas_count;
+        }
+    }
+    return node;
+}
+
+static int clusterManagerFixSlotsCoverage(char *all_slots) {
+    int i, fixed = 0;
+    list *none = NULL, *single = NULL, *multi = NULL;
+    clusterManagerLogInfo(">>> Fixing slots coverage...\n");
+    printf("List of not covered slots: \n");
+    int uncovered_count = 0;
+    sds log = sdsempty();
+    for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+        int covered = all_slots[i]; 
+        if (!covered) {
+            sds key = sdsfromlonglong((long long) i);
+            if (uncovered_count++ > 0) printf(",");
+            printf("%s", (char *) key);
+            list *slot_nodes = listCreate();
+            sds slot_nodes_str = sdsempty();
+            listIter li;
+            listNode *ln;
+            listRewind(cluster_manager.nodes, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                clusterManagerNode *n = ln->value; 
+                if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE || n->replicate)
+                    continue;
+                redisReply *reply = CLUSTER_MANAGER_COMMAND(n, 
+                    "CLUSTER GETKEYSINSLOT %d %d", i, 1);
+                if (!clusterManagerCheckRedisReply(n, reply, NULL)) {
+                    fixed = -1;
+                    if (reply) freeReplyObject(reply);
+                    goto cleanup;
+                }
+                assert(reply->type == REDIS_REPLY_ARRAY);
+                if (reply->elements > 0) {
+                    listAddNodeTail(slot_nodes, n);
+                    if (listLength(slot_nodes) > 1)
+                        slot_nodes_str = sdscat(slot_nodes_str, ", ");
+                    slot_nodes_str = sdscatfmt(slot_nodes_str, 
+                                               "%s:%u", n->ip, n->port);
+                }
+                freeReplyObject(reply);
+            }
+            log = sdscatfmt(log, "\nSlot %S has keys in %u nodes: %S", 
+                            key, listLength(slot_nodes), slot_nodes_str);
+            sdsfree(slot_nodes_str);
+            dictAdd(clusterManagerUncoveredSlots, key, slot_nodes);
+        }
+    }
+    printf("\n%s\n", log);
+    /* For every slot, take action depending on the actual condition:
+     * 1) No node has keys for this slot.
+     * 2) A single node has keys for this slot.
+     * 3) Multiple nodes have keys for this slot. */
+    none = listCreate();
+    single = listCreate();
+    multi = listCreate();
+    dictIterator *iter = dictGetIterator(clusterManagerUncoveredSlots);
+    dictEntry *entry;
+    while ((entry = dictNext(iter)) != NULL) {
+        sds slot = (sds) dictGetKey(entry);
+        list *nodes = (list *) dictGetVal(entry);
+        switch (listLength(nodes)){
+        case 0: listAddNodeTail(none, slot); break;
+        case 1: listAddNodeTail(single, slot); break;
+        default: listAddNodeTail(multi, slot); break;
+        } 
+    }
+    dictReleaseIterator(iter);
+
+    /*  Handle case "1": keys in no node. */
+    if (listLength(none) > 0) {
+        printf("The following uncovered slots have no keys "
+               "across the cluster:\n");
+        clusterManagerPrintSlotsList(none);
+        if (confirmWithYes("Fix these slots by covering with a random node?")){
+            srand(time(NULL));
+            listIter li;
+            listNode *ln;
+            listRewind(none, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                sds slot = ln->value; 
+                long idx = (long) (rand() % listLength(cluster_manager.nodes));
+                listNode *node_n = listIndex(cluster_manager.nodes, idx);
+                assert(node_n != NULL);
+                clusterManagerNode *n = node_n->value;
+                clusterManagerLogInfo(">>> Covering slot %s with %s:%d\n", 
+                                      slot, n->ip, n->port);
+                redisReply *r = CLUSTER_MANAGER_COMMAND(n, 
+                    "CLUSTER ADDSLOTS %s", slot);
+                if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
+                if (r) freeReplyObject(r);
+                if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                n->slots[atoi(slot)] = 1;
+                fixed++;
+            }
+        }
+    }
+
+    /*  Handle case "2": keys only in one node. */
+    if (listLength(single) > 0) {
+        printf("The following uncovered slots  have keys in just one node:\n");
+        clusterManagerPrintSlotsList(single);
+        if (confirmWithYes("Fix these slots by covering with those nodes?")){
+            listIter li;
+            listNode *ln;
+            listRewind(single, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                sds slot = ln->value; 
+                dictEntry *entry = dictFind(clusterManagerUncoveredSlots, slot);
+                assert(entry != NULL);
+                list *nodes = (list *) dictGetVal(entry);
+                listNode *fn = listFirst(nodes);
+                assert(fn != NULL);
+                clusterManagerNode *n = fn->value;
+                clusterManagerLogInfo(">>> Covering slot %s with %s:%d\n", 
+                                      slot, n->ip, n->port);
+                redisReply *r = CLUSTER_MANAGER_COMMAND(n, 
+                    "CLUSTER ADDSLOTS %s", slot);
+                if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
+                if (r) freeReplyObject(r);
+                if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                n->slots[atoi(slot)] = 1;
+                fixed++;
+            }
+        }
+    }
+
+    /* Handle case "3": keys in multiple nodes. */
+    if (listLength(multi) > 0) {
+        printf("The folowing uncovered slots have keys in multiple nodes:\n");
+        clusterManagerPrintSlotsList(multi);
+        if (confirmWithYes("Fix these slots by moving keys "
+                           "into a single node?")) {
+            listIter li;
+            listNode *ln;
+            listRewind(multi, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                sds slot = ln->value; 
+                dictEntry *entry = dictFind(clusterManagerUncoveredSlots, slot);
+                assert(entry != NULL);
+                list *nodes = (list *) dictGetVal(entry);
+                int s = atoi(slot);
+                clusterManagerNode *target = 
+                    clusterManagerGetNodeWithMostKeysInSlot(nodes, s, NULL);
+                if (target == NULL) {
+                    fixed = -1;
+                    goto cleanup;
+                }
+                clusterManagerLogInfo(">>> Covering slot %s moving keys "
+                                      "to %s:%d\n", slot, 
+                                      target->ip, target->port);
+                redisReply *r = CLUSTER_MANAGER_COMMAND(target, 
+                    "CLUSTER ADDSLOTS %s", slot);
+                if (!clusterManagerCheckRedisReply(target, r, NULL)) fixed = -1;
+                if (r) freeReplyObject(r);
+                if (fixed < 0) goto cleanup;
+                r = CLUSTER_MANAGER_COMMAND(target,
+                    "CLUSTER SETSLOT %s %s", slot, "STABLE");
+                if (!clusterManagerCheckRedisReply(target, r, NULL)) fixed = -1;
+                if (r) freeReplyObject(r);
+                if (fixed < 0) goto cleanup;
+                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                 * info into the node struct, in order to keep it synced */
+                target->slots[atoi(slot)] = 1;
+                listIter nli;
+                listNode *nln;
+                listRewind(nodes, &nli);
+                while ((nln = listNext(&nli)) != NULL) {
+                    clusterManagerNode *src = nln->value;
+                    if (src == target) continue;
+                    /* Set the source node in 'importing' state 
+                     * (even if we will actually migrate keys away) 
+                     * in order to avoid receiving redirections 
+                     * for MIGRATE. */
+                    redisReply *r = CLUSTER_MANAGER_COMMAND(src, 
+                        "CLUSTER SETSLOT %s %s %s", slot, 
+                        "IMPORTING", target->name);
+                    if (!clusterManagerCheckRedisReply(target, r, NULL)) 
+                        fixed = -1;
+                    if (r) freeReplyObject(r);
+                    if (fixed < 0) goto cleanup;
+                    int opts = CLUSTER_MANAGER_OPT_VERBOSE | 
+                               CLUSTER_MANAGER_OPT_COLD;
+                    if (!clusterManagerMoveSlot(src, target, s, opts, NULL)) {
+                        fixed = -1;
+                        goto cleanup;
+                    }
+                }
+                fixed++;
+            }
+        }
+    }
+cleanup:
+    sdsfree(log);
+    if (none) listRelease(none);
+    if (single) listRelease(single);
+    if (multi) listRelease(multi);
+    return fixed;
+}
+
+/* Slot 'slot' was found to be in importing or migrating state in one or
+ * more nodes. This function fixes this condition by migrating keys where
+ * it seems more sensible. */
+static int clusterManagerFixOpenSlot(int slot) {
+    clusterManagerLogInfo(">>> Fixing open slot %d\n", slot);
+    /* Try to obtain the current slot owner, according to the current
+     * nodes configuration. */
+    int success = 1;
+    list *owners = listCreate();
+    list *migrating = listCreate();
+    list *importing = listCreate();
+    sds migrating_str = sdsempty();
+    sds importing_str = sdsempty();
+    clusterManagerNode *owner = NULL;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        if (n->slots[slot]) {
+            if (owner == NULL) owner = n;
+            listAddNodeTail(owners, n); 
+        }
+    }
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        if (n->migrating) {
+            for (int i = 0; i < n->migrating_count; i += 2) {
+                sds migrating_slot = n->migrating[i]; 
+                if (atoi(migrating_slot) == slot) {
+                    char *sep = (listLength(migrating) == 0 ? "" : ",");
+                    migrating_str = sdscatfmt(migrating_str, "%s%S:%u", 
+                                              sep, n->ip, n->port);
+                    listAddNodeTail(migrating, n);
+                    break;
+                }
+            }
+        }
+        if (n->importing) {
+            for (int i = 0; i < n->importing_count; i += 2) {
+                sds importing_slot = n->importing[i]; 
+                if (atoi(importing_slot) == slot) {
+                    char *sep = (listLength(importing) == 0 ? "" : ",");
+                    importing_str = sdscatfmt(importing_str, "%s%S:%u", 
+                                              sep, n->ip, n->port);
+                    listAddNodeTail(importing, n);
+                    break;
+                }
+            }
+        }
+    }
+    printf("Set as migrating in: %s\n", migrating_str);
+    printf("Set as importing in: %s\n", importing_str);
+    /* If there is no slot owner, set as owner the slot with the biggest
+     * number of keys, among the set of migrating / importing nodes. */
+    if (owner == NULL) {
+        clusterManagerLogInfo(">>> Nobody claims ownership, "
+                              "selecting an owner...\n");
+        owner = clusterManagerGetNodeWithMostKeysInSlot(cluster_manager.nodes, 
+                                                        slot, NULL);
+        // If we still don't have an owner, we can't fix it.
+        if (owner == NULL) {
+            clusterManagerLogErr("[ERR] Can't select a slot owner. "
+                                 "Impossible to fix.\n");
+            success = 0;
+            goto cleanup;
+        }
+
+        // Use ADDSLOTS to assign the slot.
+        clusterManagerLogWarn("*** Configuring %s:%d as the slot owner\n", 
+                              owner->ip, owner->port);
+        redisReply *reply = CLUSTER_MANAGER_COMMAND(owner, "CLUSTER "
+                                                    "SETSLOT %d %s", 
+                                                    slot, "STABLE");
+        success = clusterManagerCheckRedisReply(owner, reply, NULL);
+        if (reply) freeReplyObject(reply);
+        if (!success) goto cleanup;
+        reply = CLUSTER_MANAGER_COMMAND(owner, "CLUSTER ADDSLOTS %d", slot);
+        success = clusterManagerCheckRedisReply(owner, reply, NULL);
+        if (reply) freeReplyObject(reply);
+        if (!success) goto cleanup;
+        /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+         * info into the node struct, in order to keep it synced */
+        owner->slots[slot] = 1;
+        /* Make sure this information will propagate. Not strictly needed
+         * since there is no past owner, so all the other nodes will accept
+         * whatever epoch this node will claim the slot with. */
+        reply = CLUSTER_MANAGER_COMMAND(owner, "CLUSTER BUMPEPOCH");
+        success = clusterManagerCheckRedisReply(owner, reply, NULL);
+        if (reply) freeReplyObject(reply);
+        if (!success) goto cleanup;
+        /* Remove the owner from the list of migrating/importing
+         * nodes. */
+        clusterManagerRemoveNodeFromList(migrating, owner);
+        clusterManagerRemoveNodeFromList(importing, owner);
+    }
+    /* If there are multiple owners of the slot, we need to fix it
+     * so that a single node is the owner and all the other nodes
+     * are in importing state. Later the fix can be handled by one
+     * of the base cases above.
+     *
+     * Note that this case also covers multiple nodes having the slot
+     * in migrating state, since migrating is a valid state only for
+     * slot owners. */
+    if (listLength(owners) > 1) {
+        owner = clusterManagerGetNodeWithMostKeysInSlot(owners, slot, NULL);
+        listRewind(owners, &li);
+        redisReply *reply = NULL;
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n == owner) continue;
+            reply = CLUSTER_MANAGER_COMMAND(n, "CLUSTER DELSLOT %d", slot);
+            success = clusterManagerCheckRedisReply(n, reply, NULL);
+            if (reply) freeReplyObject(reply);
+            if (!success) goto cleanup;
+            success = clusterManagerSetSlot(n, owner, slot, "importing", NULL); 
+            if (!success) goto cleanup;
+            clusterManagerRemoveNodeFromList(importing, n); //Avoid duplicates
+            listAddNodeTail(importing, n);
+        }
+        reply = CLUSTER_MANAGER_COMMAND(owner, "CLUSTER BUMPEPOCH");
+        success = clusterManagerCheckRedisReply(owner, reply, NULL);
+        if (reply) freeReplyObject(reply);
+        if (!success) goto cleanup;
+    }
+    int move_opts = CLUSTER_MANAGER_OPT_VERBOSE;
+    /* Case 1: The slot is in migrating state in one slot, and in
+     *         importing state in 1 slot. That's trivial to address. */
+    if (listLength(migrating) == 1 && listLength(importing) == 1) {
+        clusterManagerNode *src = listFirst(migrating)->value;
+        clusterManagerNode *dst = listFirst(importing)->value;
+        success = clusterManagerMoveSlot(src, dst, slot, move_opts, NULL);
+    } 
+    /* Case 2: There are multiple nodes that claim the slot as importing,
+     * they probably got keys about the slot after a restart so opened
+     * the slot. In this case we just move all the keys to the owner
+     * according to the configuration. */
+    else if (listLength(migrating) == 0 && listLength(importing) > 0) {
+        clusterManagerLogInfo(">>> Moving all the %d slot keys to its "
+                              "owner %s:%d\n", slot, owner->ip, owner->port);
+        move_opts |= CLUSTER_MANAGER_OPT_COLD;
+        listRewind(importing, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n == owner) continue;
+            success = clusterManagerMoveSlot(n, owner, slot, move_opts, NULL);
+            if (!success) goto cleanup;
+            clusterManagerLogInfo(">>> Setting %d as STABLE in "
+                                  "%s:%d\n", slot, n->ip, n->port);
+
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER SETSLOT %d %s", 
+                                                    slot, "STABLE");
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (r) freeReplyObject(r);
+            if (!success) goto cleanup;
+        }
+    } else {
+        int try_to_close_slot = (listLength(importing) == 0 && 
+                                 listLength(migrating) == 1); 
+        if (try_to_close_slot) {
+            clusterManagerNode *n = listFirst(migrating)->value;
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, 
+                "CLUSTER GETKEYSINSLOT %d %d", slot, 10);
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (r) {
+                if (success) try_to_close_slot = (r->elements == 0);
+                freeReplyObject(r);
+            }
+            if (!success) goto cleanup;
+        }
+    /* Case 3: There are no slots claiming to be in importing state, but
+     * there is a migrating node that actually don't have any key. We
+     * can just close the slot, probably a reshard interrupted in the middle. */
+        if (try_to_close_slot) {
+            clusterManagerNode *n = listFirst(migrating)->value;
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER SETSLOT %d %s", 
+                                                    slot, "STABLE");
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (r) freeReplyObject(r);
+            if (!success) goto cleanup;
+        } else {
+            success = 0;
+            clusterManagerLogErr("[ERR] Sorry, redis-cli can't fix this slot "
+                                 "yet (work in progress). Slot is set as "
+                                 "migrating in %s, as importing in %s, "
+                                 "owner is %s:%d\n", migrating_str, 
+                                 importing_str, owner->ip, owner->port);
+        }
+    }
+cleanup:
+    listRelease(owners);
+    listRelease(migrating);
+    listRelease(importing);
+    sdsfree(migrating_str);
+    sdsfree(importing_str);
+    return success;
+}
+
+static int clusterManagerCheckCluster(int quiet) {
+    listNode *ln = listFirst(cluster_manager.nodes);
+    if (!ln) return 0;
+    int result = 1;
+    int do_fix = config.cluster_manager_command.flags & 
+                 CLUSTER_MANAGER_CMD_FLAG_FIX;
+    clusterManagerNode *node = ln->value;
+    clusterManagerLogInfo(">>> Performing Cluster Check (using node %s:%d)\n", 
+                          node->ip, node->port);
+    if (!quiet) clusterManagerShowNodes();
+    if (!clusterManagerIsConfigConsistent()) {
+        sds err = sdsnew("[ERR] Nodes don't agree about configuration!");
+        clusterManagerOnError(err);
+        result = 0;
+    } else {
+        clusterManagerLogOk("[OK] All nodes agree about slots "
+                            "configuration.\n");
+    }
+    // Check open slots
+    clusterManagerLogInfo(">>> Check for open slots...\n");
+    listIter li;
+    listRewind(cluster_manager.nodes, &li);
+    int i;
+    dict *open_slots = NULL;
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (n->migrating != NULL) {
+            if (open_slots == NULL) 
+                open_slots = dictCreate(&clusterManagerDictType, NULL);
+            sds errstr = sdsempty();
+            errstr = sdscatprintf(errstr, 
+                                "[WARNING] Node %s:%d has slots in "
+                                "migrating state ",
+                                n->ip,
+                                n->port);
+            for (i = 0; i < n->migrating_count; i += 2) {
+                sds slot = n->migrating[i];
+                dictAdd(open_slots, slot, sdsdup(n->migrating[i + 1]));
+                char *fmt = (i > 0 ? ",%S" : "%S");
+                errstr = sdscatfmt(errstr, fmt, slot);
+            } 
+            errstr = sdscat(errstr, ".");
+            clusterManagerOnError(errstr);
+        }
+        if (n->importing != NULL) {
+            if (open_slots == NULL) 
+                open_slots = dictCreate(&clusterManagerDictType, NULL);
+            sds errstr = sdsempty();
+            errstr = sdscatprintf(errstr, 
+                                "[WARNING] Node %s:%d has slots in "
+                                "importing state ",
+                                n->ip,
+                                n->port);
+            for (i = 0; i < n->importing_count; i += 2) {
+                sds slot = n->importing[i];
+                dictAdd(open_slots, slot, sdsdup(n->importing[i + 1]));
+                char *fmt = (i > 0 ? ",%S" : "%S");
+                errstr = sdscatfmt(errstr, fmt, slot);
+            } 
+            errstr = sdscat(errstr, ".");
+            clusterManagerOnError(errstr);
+        }
+    }
+    if (open_slots != NULL) {
+        result = 0;
+        dictIterator *iter = dictGetIterator(open_slots);
+        dictEntry *entry;
+        sds errstr = sdsnew("[WARNING] The following slots are open: ");
+        i = 0;
+        while ((entry = dictNext(iter)) != NULL) {
+            sds slot = (sds) dictGetKey(entry);
+            char *fmt = (i++ > 0 ? ",%S" : "%S");
+            errstr = sdscatfmt(errstr, fmt, slot);
+        }
+        clusterManagerLogErr("%s.\n", (char *) errstr);
+        sdsfree(errstr);
+        if (do_fix) {
+            // Fix open slots.
+            dictReleaseIterator(iter);
+            iter = dictGetIterator(open_slots);
+            while ((entry = dictNext(iter)) != NULL) {
+                sds slot = (sds) dictGetKey(entry);
+                result = clusterManagerFixOpenSlot(atoi(slot));
+                if (!result) break;
+            }
+        }
+        dictReleaseIterator(iter);
+        dictRelease(open_slots);
+    }
+    clusterManagerLogInfo(">>> Check slots coverage...\n");
+    char slots[CLUSTER_MANAGER_SLOTS];
+    memset(slots, 0, CLUSTER_MANAGER_SLOTS);
+    int coverage = clusterManagerGetCoveredSlots(slots);
+    if (coverage == CLUSTER_MANAGER_SLOTS) {
+        clusterManagerLogOk("[OK] All %d slots covered.\n", 
+                            CLUSTER_MANAGER_SLOTS);
+    } else {
+        sds err = sdsempty();
+        err = sdscatprintf(err, "[ERR] Not all %d slots are "
+                                "covered by nodes.\n", 
+                                CLUSTER_MANAGER_SLOTS);
+        clusterManagerOnError(err);
+        result = 0;
+        if (do_fix/* && result*/) {
+            dictType dtype = clusterManagerDictType;
+            dtype.valDestructor = dictListDestructor;
+            clusterManagerUncoveredSlots = dictCreate(&dtype, NULL);
+            int fixed = clusterManagerFixSlotsCoverage(slots);
+            if (fixed > 0) result = 1;
+        }
+    }
+    return result;
+}
+
+static clusterManagerNode *clusterNodeForResharding(char *id, 
+                                                    clusterManagerNode *target,
+                                                    int *raise_err) 
+{
+    clusterManagerNode *node = NULL; 
+    const char *invalid_node_msg = "*** The specified node (%s) is not known "
+                                   "or not a master, please retry.\n";
+    node = clusterManagerNodeByName(id);
+    *raise_err = 0;
+    if (!node || node->flags & CLUSTER_MANAGER_FLAG_SLAVE) {
+        clusterManagerLogErr(invalid_node_msg, id);
+        *raise_err = 1;
+        return NULL;
+    } else if (node != NULL && target != NULL) {
+        if (!strcmp(node->name, target->name)) {
+            clusterManagerLogErr( "*** It is not possible to use "
+                                  "the target node as "
+                                  "source node.\n");
+            return NULL;
+        } 
+    }
+    return node;
+}
+
+static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
+    list *moved = listCreate();
+    int src_count = listLength(sources), i = 0, tot_slots = 0, j;
+    clusterManagerNode **sorted = zmalloc(src_count * sizeof(**sorted));
+    listIter li;
+    listNode *ln;
+    listRewind(sources, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *node = ln->value;
+        tot_slots += node->slots_count;
+        sorted[i++] = node;
+    }
+    qsort(sorted, src_count, sizeof(clusterManagerNode *), 
+          clusterManagerSlotCountCompareDesc);
+    for (i = 0; i < src_count; i++) {
+        clusterManagerNode *node = sorted[i]; 
+        float n = ((float) numslots / tot_slots * node->slots_count);
+        if (i == 0) n = ceil(n);
+        else n = floor(n);
+        int max = (int) n, count = 0;
+        for (j = 0; j < CLUSTER_MANAGER_SLOTS; j++) {
+            int slot = node->slots[j];
+            if (!slot) continue;
+            if (count >= max || (int)listLength(moved) >= numslots) break;
+            clusterManagerReshardTableItem *item = zmalloc(sizeof(*item));
+            item->source = node;
+            item->slot = j;
+            listAddNodeTail(moved, item);
+            count++;
+        }
+    }
+    zfree(sorted);
+    return moved;
+}
+
+static void clusterManagerShowReshardTable(list *table) {
+    listIter li;
+    listNode *ln;
+    listRewind(table, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerReshardTableItem *item = ln->value;
+        clusterManagerNode *n = item->source;
+        printf("    Moving slot %d from %s\n", item->slot, (char *) n->name);
+    }
+}
+
+static void clusterManagerReleaseReshardTable(list *table) {
+    if (table != NULL) {
+        listIter li;
+        listNode *ln;
+        listRewind(table, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerReshardTableItem *item = ln->value;
+            zfree(item);
+        }
+        listRelease(table);
+    }
+}
+
+static void clusterManagerLog(int level, const char* fmt, ...) {
+    int use_colors = 
+        (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COLOR);
+    if (use_colors) {
+        printf("\033["); 
+        switch (level) {
+        case CLUSTER_MANAGER_LOG_LVL_INFO: printf(LOG_COLOR_BOLD); break;
+        case CLUSTER_MANAGER_LOG_LVL_WARN: printf(LOG_COLOR_YELLOW); break;
+        case CLUSTER_MANAGER_LOG_LVL_ERR: printf(LOG_COLOR_RED); break;
+        case CLUSTER_MANAGER_LOG_LVL_SUCCESS: printf(LOG_COLOR_GREEN); break;
+        default: printf(LOG_COLOR_RESET); break;
+        }
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+    if (use_colors) printf("\033[" LOG_COLOR_RESET);
+}
+
+static void clusterManagerNodeArrayInit(clusterManagerNodeArray *array, 
+                                        int alloc_len) 
+{
+    array->nodes = zcalloc(alloc_len * sizeof(clusterManagerNode*));
+    array->alloc = array->nodes;
+    array->len = alloc_len;
+    array->count = 0;
+}
+
+/* Reset array->nodes to the original array allocation and re-count non-NULL
+ * nodes. */
+static void clusterManagerNodeArrayReset(clusterManagerNodeArray *array) {
+    if (array->nodes > array->alloc) {
+        array->len = array->nodes - array->alloc;
+        array->nodes = array->alloc;
+        array->count = 0;
+        int i = 0;
+        for(; i < array->len; i++) {
+            if (array->nodes[i] != NULL) array->count++;
+        }
+    }
+}
+
+/* Shift array->nodes and store the shifted node into 'nodeptr'. */
+static void clusterManagerNodeArrayShift(clusterManagerNodeArray *array, 
+                                         clusterManagerNode **nodeptr) 
+{
+    assert(array->nodes < (array->nodes + array->len));
+    /* If the first node to be shifted is not NULL, decrement count. */
+    if (*array->nodes != NULL) array->count--;
+    /* Store the first node to be shifted into 'nodeptr'. */
+    *nodeptr = *array->nodes;
+    /* Shift the nodes array and decrement length. */
+    array->nodes++;
+    array->len--;
+}
+
+static void clusterManagerNodeArrayAdd(clusterManagerNodeArray *array,
+                                       clusterManagerNode *node) 
+{
+    assert(array->nodes < (array->nodes + array->len));
+    assert(node != NULL);
+    assert(array->count < array->len);
+    array->nodes[array->count++] = node;
+}
+
+static void clusterManagerPrintNotEmptyNodeError(clusterManagerNode *node, 
+                                                 char *err) 
+{
+    char *msg; 
+    if (err) msg = err;
+    else {
+        msg = "is not empty. Either the node already knows other "
+              "nodes (check with CLUSTER NODES) or contains some "
+              "key in database 0.";
+    }
+    clusterManagerLogErr("[ERR] Node %s:%d %s\n", node->ip, node->port, msg);
+}
+
+static void clusterManagerPrintNotClusterNodeError(clusterManagerNode *node, 
+                                                   char *err) 
+{
+    char *msg = (err ? err : "is not configured as a cluster node.");
+    clusterManagerLogErr("[ERR] Node %s:%d %s\n", node->ip, node->port, msg);
+}
+
+/* Execute redis-cli in Cluster Manager mode */
+static void clusterManagerMode(clusterManagerCommandProc *proc) {
+    int argc = config.cluster_manager_command.argc;
+    char **argv = config.cluster_manager_command.argv;
+    cluster_manager.nodes = NULL;
+    if (!proc(argc, argv)) goto cluster_manager_err;
+    freeClusterManager();
+    exit(0);
+cluster_manager_err:
+    freeClusterManager();
+    sdsfree(config.hostip);
+    sdsfree(config.mb_delim);
+    exit(1);
+}
+
+/* Cluster Manager Commands */
+
+static int clusterManagerCommandCreate(int argc, char **argv) {
+    int i, j, success = 1;
+    cluster_manager.nodes = listCreate();
+    for (i = 0; i < argc; i++) {
+        char *addr = argv[i];
+        char *c = strrchr(addr, '@');
+        if (c != NULL) *c = '\0';
+        c = strrchr(addr, ':');
+        if (c == NULL) {
+            fprintf(stderr, "Invalid address format: %s\n", addr);
+            return 0;
+        }
+        *c = '\0';
+        char *ip = addr;
+        int port = atoi(++c);
+        clusterManagerNode *node = clusterManagerNewNode(ip, port);
+        CLUSTER_MANAGER_NODE_CONNECT(node);
+        if (node->context->err) {
+            fprintf(stderr,"Could not connect to Redis at ");
+            fprintf(stderr,"%s:%d: %s\n", ip, port, node->context->errstr);
+            freeClusterManagerNode(node);
+            return 0;
+        }
+        char *err = NULL;
+        if (!clusterManagerNodeIsCluster(node, &err)) {
+            clusterManagerPrintNotClusterNodeError(node, err);
+            if (err) zfree(err);
+            freeClusterManagerNode(node);
+            return 0;
+        }
+        err = NULL;
+        if (!clusterManagerNodeLoadInfo(node, 0, &err)) {
+            if (err) {
+                CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+                zfree(err);
+            }
+            freeClusterManagerNode(node);
+            return 0;
+        }
+        err = NULL;
+        if (!clusterManagerNodeIsEmpty(node, &err)) {
+            clusterManagerPrintNotEmptyNodeError(node, err);
+            if (err) zfree(err);
+            freeClusterManagerNode(node);
+            return 0;
+        }
+        listAddNodeTail(cluster_manager.nodes, node);
+    }
+    int node_len = cluster_manager.nodes->len;
+    int replicas = config.cluster_manager_command.replicas;
+    int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
+    if (masters_count < 3) {
+        clusterManagerLogErr(
+            "*** ERROR: Invalid configuration for cluster creation.\n"
+            "*** Redis Cluster requires at least 3 master nodes.\n" 
+            "*** This is not possible with %d nodes and %d replicas per node.", 
+            node_len, replicas);
+        clusterManagerLogErr("\n*** At least %d nodes are required.\n", 
+                             3 * (replicas + 1));
+        return 0;
+    }
+    clusterManagerLogInfo(">>> Performing hash slots allocation "
+                          "on %d nodes...\n", node_len);
+    int interleaved_len = 0, ip_count = 0;
+    clusterManagerNode **interleaved = zcalloc(node_len*sizeof(**interleaved)); 
+    char **ips = zcalloc(node_len * sizeof(char*));
+    clusterManagerNodeArray *ip_nodes = zcalloc(node_len * sizeof(*ip_nodes));
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        int found = 0;
+        for (i = 0; i < ip_count; i++) {
+            char *ip = ips[i];
+            if (!strcmp(ip, n->ip)) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            ips[ip_count++] = n->ip;
+        }
+        clusterManagerNodeArray *node_array = &(ip_nodes[i]);
+        if (node_array->nodes == NULL)
+            clusterManagerNodeArrayInit(node_array, node_len);
+        clusterManagerNodeArrayAdd(node_array, n);
+    }
+    while (interleaved_len < node_len) {
+        for (i = 0; i < ip_count; i++) {
+            clusterManagerNodeArray *node_array = &(ip_nodes[i]);
+            if (node_array->count > 0) {
+                clusterManagerNode *n = NULL;
+                clusterManagerNodeArrayShift(node_array, &n);
+                interleaved[interleaved_len++] = n;
+            }
+        }    
+    }
+    clusterManagerNode **masters = interleaved;
+    interleaved += masters_count;
+    interleaved_len -= masters_count;
+    float slots_per_node = CLUSTER_MANAGER_SLOTS / (float) masters_count;
+    long first = 0;
+    float cursor = 0.0f;
+    for (i = 0; i < masters_count; i++) {
+        clusterManagerNode *master = masters[i];
+        long last = lround(cursor + slots_per_node - 1); 
+        if (last > CLUSTER_MANAGER_SLOTS || i == (masters_count - 1))
+            last = CLUSTER_MANAGER_SLOTS - 1;
+        if (last < first) last = first;
+        printf("Master[%d] -> Slots %lu - %lu\n", i, first, last);
+        master->slots_count = 0;
+        for (j = first; j <= last; j++) {
+            master->slots[j] = 1;
+            master->slots_count++;
+        }
+        master->dirty = 1;
+        first = last + 1;
+        cursor += slots_per_node;
+    }
+
+    int assign_unused = 0, available_count = interleaved_len;
+assign_replicas:
+    for (i = 0; i < masters_count; i++) {
+        clusterManagerNode *master = masters[i];
+        int assigned_replicas = 0;
+        while (assigned_replicas < replicas) {
+            if (available_count == 0) break; 
+            clusterManagerNode *found = NULL, *slave = NULL;
+            int firstNodeIdx = -1;
+            for (j = 0; j < interleaved_len; j++) {
+                clusterManagerNode *n = interleaved[j];
+                if (n == NULL) continue;
+                if (strcmp(n->ip, master->ip)) {
+                    found = n;
+                    interleaved[j] = NULL;
+                    break;
+                }
+                if (firstNodeIdx < 0) firstNodeIdx = j;
+            }
+            if (found) slave = found;
+            else if (firstNodeIdx >= 0) {
+                slave = interleaved[firstNodeIdx]; 
+                interleaved_len -= (interleaved - (interleaved + firstNodeIdx));
+                interleaved += (firstNodeIdx + 1);
+            }
+            if (slave != NULL) {
+                assigned_replicas++;
+                available_count--;
+                if (slave->replicate) sdsfree(slave->replicate);
+                slave->replicate = sdsnew(master->name); 
+                slave->dirty = 1;
+            } else break;
+            printf("Adding replica %s:%d to %s:%d\n", slave->ip, slave->port, 
+                   master->ip, master->port);
+            if (assign_unused) break;
+        }
+    }
+    if (!assign_unused && available_count > 0) {
+        assign_unused = 1;
+        printf("Adding extra replicas...\n");
+        goto assign_replicas;
+    }
+    for (i = 0; i < ip_count; i++) {
+        clusterManagerNodeArray *node_array = ip_nodes + i;
+        clusterManagerNodeArrayReset(node_array);
+    }
+    clusterManagerOptimizeAntiAffinity(ip_nodes, ip_count);
+    clusterManagerShowNodes();
+    if (confirmWithYes("Can I set the above configuration?")) {
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *node = ln->value;
+            char *err = NULL;
+            int flushed = clusterManagerFlushNodeConfig(node, &err);
+            if (!flushed && node->dirty && !node->replicate) {
+                if (err != NULL) {
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+                    zfree(err);
+                }
+                success = 0;
+                goto cleanup;
+            } else if (err != NULL) zfree(err);
+        }
+        clusterManagerLogInfo(">>> Nodes configuration updated\n");
+        clusterManagerLogInfo(">>> Assign a different config epoch to "
+                              "each node\n");
+        int config_epoch = 1;
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *node = ln->value;
+            redisReply *reply = NULL;
+            reply = CLUSTER_MANAGER_COMMAND(node, 
+                                            "cluster set-config-epoch %d", 
+                                            config_epoch++);
+            if (reply != NULL) freeReplyObject(reply);
+        }
+        clusterManagerLogInfo(">>> Sending CLUSTER MEET messages to join "
+                              "the cluster\n");
+        clusterManagerNode *first = NULL;
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *node = ln->value;
+            if (first == NULL) {
+                first = node;
+                continue;
+            }
+            redisReply *reply = NULL;
+            reply = CLUSTER_MANAGER_COMMAND(node, "cluster meet %s %d", 
+                                            first->ip, first->port);
+            int is_err = 0;
+            if (reply != NULL) {
+                if ((is_err = reply->type == REDIS_REPLY_ERROR))
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, reply->str);
+                freeReplyObject(reply);
+            } else {
+                is_err = 1;
+                fprintf(stderr, "Failed to send CLUSTER MEET command.\n");
+            }
+            if (is_err) {
+                success = 0;
+                goto cleanup;
+            }
+        }
+        /* Give one second for the join to start, in order to avoid that
+         * waiting for cluster join will find all the nodes agree about 
+         * the config as they are still empty with unassigned slots. */
+        sleep(1);
+        clusterManagerWaitForClusterJoin();
+        /* Useful for the replicas */
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *node = ln->value;
+            if (!node->dirty) continue;
+            char *err = NULL;
+            int flushed = clusterManagerFlushNodeConfig(node, &err);
+            if (!flushed && !node->replicate) {
+                if (err != NULL) {
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+                    zfree(err);
+                }
+                success = 0;
+                goto cleanup;
+            }
+        }
+        // Reset Nodes
+        listRewind(cluster_manager.nodes, &li);
+        clusterManagerNode *first_node = NULL;
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *node = ln->value;
+            if (!first_node) first_node = node;
+            else freeClusterManagerNode(node);
+        }
+        listEmpty(cluster_manager.nodes);
+        if (!clusterManagerLoadInfoFromNode(first_node, 0)) {
+            success = 0;
+            goto cleanup; 
+        }
+        clusterManagerCheckCluster(0);
+    }
+cleanup:
+    /* Free everything */
+    zfree(masters);
+    zfree(ips);
+    for (i = 0; i < node_len; i++) {
+        clusterManagerNodeArray *node_array = ip_nodes + i;
+        CLUSTER_MANAGER_NODE_ARRAY_FREE(node_array);
+    }
+    zfree(ip_nodes);
+    return success;
+}
+
+static int clusterManagerCommandAddNode(int argc, char **argv) {
+    int success = 1;
+    redisReply *reply = NULL;
+    char *ref_ip = NULL, *ip = NULL;
+    int ref_port = 0, port = 0;
+    if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port)) 
+        goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port))
+        goto invalid_args;
+    clusterManagerLogInfo(">>> Adding node %s:%d to cluster %s:%d\n", ip, port, 
+                          ref_ip, ref_port);
+    // Check the existing cluster
+    clusterManagerNode *refnode = clusterManagerNewNode(ref_ip, ref_port);
+    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerCheckCluster(0)) return 0;
+
+    /* If --cluster-master-id was specified, try to resolve it now so that we
+     * abort before starting with the node configuration. */
+    clusterManagerNode *master_node = NULL;
+    if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_SLAVE) {
+        char *master_id = config.cluster_manager_command.master_id;
+        if (master_id != NULL) {
+            master_node = clusterManagerNodeByName(master_id);
+            if (master_node == NULL) {
+                clusterManagerLogErr("[ERR] No such master ID %s\n", master_id);
+                return 0;
+            }
+        } else {
+            master_node = clusterManagerNodeWithLeastReplicas();
+            assert(master_node != NULL);
+            printf("Automatically selected master %s:%d\n", master_node->ip, 
+                   master_node->port);
+        } 
+    } 
+
+    // Add the new node
+    clusterManagerNode *new_node = clusterManagerNewNode(ip, port);
+    int added = 0;
+    CLUSTER_MANAGER_NODE_CONNECT(new_node);
+    if (new_node->context->err) {
+        clusterManagerLogErr("[ERR] Sorry, can't connect to node %s:%d\n", 
+                             ip, port);
+        success = 0;
+        goto cleanup;
+    }
+    char *err = NULL;
+    if (!(success = clusterManagerNodeIsCluster(new_node, &err))) {
+        clusterManagerPrintNotClusterNodeError(new_node, err);
+        if (err) zfree(err);
+        goto cleanup;
+    }
+    if (!clusterManagerNodeLoadInfo(new_node, 0, &err)) {
+        if (err) {
+            CLUSTER_MANAGER_PRINT_REPLY_ERROR(new_node, err);
+            zfree(err);
+        }
+        success = 0;
+        goto cleanup;
+    }
+    if (!(success = clusterManagerNodeIsEmpty(new_node, &err))) {
+        clusterManagerPrintNotEmptyNodeError(new_node, err);
+        if (err) zfree(err);
+        goto cleanup;
+    }
+    clusterManagerNode *first = listFirst(cluster_manager.nodes)->value;
+    listAddNodeTail(cluster_manager.nodes, new_node);
+    added = 1;
+
+    // Send CLUSTER MEET command to the new node
+    clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
+                          "join the cluster.\n", ip, port);
+    reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER MEET %s %d", 
+                                    first->ip, first->port);
+    if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
+        goto cleanup;
+    
+    /* Additional configuration is needed if the node is added as a slave. */
+    if (master_node) {
+        sleep(1);
+        clusterManagerWaitForClusterJoin();
+        clusterManagerLogInfo(">>> Configure node as replica of %s:%d.\n", 
+                              master_node->ip, master_node->port);
+        freeReplyObject(reply);
+        reply = CLUSTER_MANAGER_COMMAND(new_node, "CLUSTER REPLICATE %s", 
+                                        master_node->name);
+        if (!(success = clusterManagerCheckRedisReply(new_node, reply, NULL)))
+            goto cleanup;
+    } 
+    clusterManagerLogOk("[OK] New node added correctly.\n");
+cleanup:
+    if (!added && new_node) freeClusterManagerNode(new_node);
+    if (reply) freeReplyObject(reply);
+    return success;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandDeleteNode(int argc, char **argv) {
+    UNUSED(argc);
+    int success = 1;
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    char *node_id = argv[1];
+    clusterManagerLogInfo(">>> Removing node %s from cluster %s:%d\n", 
+                          node_id, ip, port);
+    clusterManagerNode *ref_node = clusterManagerNewNode(ip, port);
+    clusterManagerNode *node = NULL;
+    
+    // Load cluster information
+    if (!clusterManagerLoadInfoFromNode(ref_node, 0)) return 0;
+    
+    // Check if the node exists and is not empty
+    node = clusterManagerNodeByName(node_id);
+    if (node == NULL) {
+        clusterManagerLogErr("[ERR] No such node ID %s\n", node_id);
+        return 0;
+    }
+    if (node->slots_count != 0) {
+        clusterManagerLogErr("[ERR] Node %s:%d is not empty! Reshard data "
+                             "away and try again.\n", node->ip, node->port);
+        return 0;
+    }
+    
+    // Send CLUSTER FORGET to all the nodes but the node to remove
+    clusterManagerLogInfo(">>> Sending CLUSTER FORGET messages to the "
+                          "cluster...\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n == node) continue;
+        if (n->replicate && !strcasecmp(n->replicate, node_id)) {
+            // Reconfigure the slave to replicate with some other node
+            clusterManagerNode *master = clusterManagerNodeWithLeastReplicas();
+            assert(master != NULL);
+            clusterManagerLogInfo(">>> %s:%d as replica of %s:%d\n", 
+                                  n->ip, n->port, master->ip, master->port);
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER REPLICATE %s", 
+                                                    master->name);
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (r) freeReplyObject(r);
+            if (!success) return 0;
+        }
+        redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER FORGET %s", 
+                                                node_id); 
+        success = clusterManagerCheckRedisReply(n, r, NULL);
+        if (r) freeReplyObject(r);
+        if (!success) return 0;
+    }
+
+    // Finally shutdown the node
+    clusterManagerLogInfo(">>> SHUTDOWN the node.\n");
+    redisReply *r = redisCommand(node->context, "SHUTDOWN");
+    success = clusterManagerCheckRedisReply(node, r, NULL);
+    if (r) freeReplyObject(r);
+    return success;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandInfo(int argc, char **argv) {
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    clusterManagerShowClusterInfo();
+    return 1;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandCheck(int argc, char **argv) {
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    clusterManagerShowClusterInfo();
+    return clusterManagerCheckCluster(0);
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandFix(int argc, char **argv) {
+    config.cluster_manager_command.flags |= CLUSTER_MANAGER_CMD_FLAG_FIX;
+    return clusterManagerCommandCheck(argc, argv);
+}
+
+static int clusterManagerCommandReshard(int argc, char **argv) {
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    clusterManagerCheckCluster(0);
+    if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
+        fflush(stdout);
+        fprintf(stderr, 
+                "*** Please fix your cluster problems before resharding\n");
+        return 0;
+    }
+    int slots = config.cluster_manager_command.slots;
+    if (!slots) {
+        while (slots <= 0 || slots > CLUSTER_MANAGER_SLOTS) {
+            printf("How many slots do you want to move (from 1 to %d)? ", 
+                   CLUSTER_MANAGER_SLOTS);
+            fflush(stdout);
+            char buf[6];
+            int nread = read(fileno(stdin),buf,6);
+            if (nread <= 0) continue;
+            int last_idx = nread - 1;
+            if (buf[last_idx] != '\n') {
+                int ch; 
+                while ((ch = getchar()) != '\n' && ch != EOF) {}
+            }
+            buf[last_idx] = '\0';
+            slots = atoi(buf);
+        }
+    }
+    char buf[255];
+    char *to = config.cluster_manager_command.to, 
+         *from = config.cluster_manager_command.from;
+    while (to == NULL) {
+        printf("What is the receiving node ID? "); 
+        fflush(stdout);
+        int nread = read(fileno(stdin),buf,255);
+        if (nread <= 0) continue;
+        int last_idx = nread - 1;
+        if (buf[last_idx] != '\n') {
+            int ch; 
+            while ((ch = getchar()) != '\n' && ch != EOF) {}
+        }
+        buf[last_idx] = '\0';
+        if (strlen(buf) > 0) to = buf;
+    }
+    int raise_err = 0;
+    clusterManagerNode *target = clusterNodeForResharding(to, NULL, &raise_err);
+    if (target == NULL) return 0;
+    list *sources = listCreate();
+    list *table = NULL;
+    int all = 0, result = 1;
+    if (from == NULL) {
+        printf("Please enter all the source node IDs.\n");
+        printf("  Type 'all' to use all the nodes as source nodes for "
+               "the hash slots.\n");
+        printf("  Type 'done' once you entered all the source nodes IDs.\n");
+        while (1) {
+            printf("Source node #%lu: ", listLength(sources) + 1); 
+            fflush(stdout);
+            int nread = read(fileno(stdin),buf,255);
+            if (nread <= 0) continue;
+            int last_idx = nread - 1;
+            if (buf[last_idx] != '\n') {
+                int ch; 
+                while ((ch = getchar()) != '\n' && ch != EOF) {}
+            }
+            buf[last_idx] = '\0';
+            if (!strcmp(buf, "done")) break;
+            else if (!strcmp(buf, "all")) {
+                all = 1;
+                break;
+            } else {
+                clusterManagerNode *src = 
+                    clusterNodeForResharding(buf, target, &raise_err);
+                if (src != NULL) listAddNodeTail(sources, src);
+                else if (raise_err) {
+                    result = 0;
+                    goto cleanup;
+                }
+            }
+        }
+    } else {
+        char *p; 
+        while((p = strchr(from, ',')) != NULL) {
+            *p = '\0';
+            if (!strcmp(from, "all")) {
+                all = 1;
+                break;
+            } else {
+                clusterManagerNode *src = 
+                    clusterNodeForResharding(from, target, &raise_err);
+                if (src != NULL) listAddNodeTail(sources, src);
+                else if (raise_err) {
+                    result = 0;
+                    goto cleanup;
+                }
+            }
+            from = p + 1;
+        }
+        /* Check if there's still another source to process. */
+        if (!all && strlen(from) > 0) {
+            if (!strcmp(from, "all")) all = 1;
+            if (!all) {
+                clusterManagerNode *src = 
+                    clusterNodeForResharding(from, target, &raise_err);
+                if (src != NULL) listAddNodeTail(sources, src);
+                else if (raise_err) {
+                    result = 0;
+                    goto cleanup;
+                }
+            }
+        }
+    }
+    listIter li;
+    listNode *ln;
+    if (all) {
+        listEmpty(sources); 
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE || n->replicate)
+                continue;
+            if (!sdscmp(n->name, target->name)) continue;
+            listAddNodeTail(sources, n);
+        }
+    }
+    if (listLength(sources) == 0) {
+        fprintf(stderr, "*** No source nodes given, operation aborted.\n");
+        result = 0;
+        goto cleanup;
+    }
+    printf("\nReady to move %d slots.\n", slots);
+    printf("  Source nodes:\n");
+    listRewind(sources, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *src = ln->value;
+        sds info = clusterManagerNodeInfo(src, 4);
+        printf("%s\n", info);
+        sdsfree(info);
+    }
+    printf("  Destination node:\n");
+    sds info = clusterManagerNodeInfo(target, 4);
+    printf("%s\n", info);
+    sdsfree(info);
+    table = clusterManagerComputeReshardTable(sources, slots);
+    printf("  Resharding plan:\n");
+    clusterManagerShowReshardTable(table);
+    if (!(config.cluster_manager_command.flags & 
+          CLUSTER_MANAGER_CMD_FLAG_YES)) 
+    {
+        printf("Do you want to proceed with the proposed "
+               "reshard plan (yes/no)? ");
+        fflush(stdout);
+        char buf[4];
+        int nread = read(fileno(stdin),buf,4);
+        buf[3] = '\0';
+        if (nread <= 0 || strcmp("yes", buf) != 0) {
+            result = 0;
+            goto cleanup;
+        }
+    }
+    int opts = CLUSTER_MANAGER_OPT_VERBOSE;
+    listRewind(table, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerReshardTableItem *item = ln->value;
+        char *err = NULL;
+        result = clusterManagerMoveSlot(item->source, target, item->slot, 
+                                        opts, &err);
+        if (!result) {
+            if (err != NULL) {
+                //clusterManagerLogErr("\n%s\n", err);
+                zfree(err);
+            }
+            goto cleanup;
+        }
+    }
+cleanup:
+    listRelease(sources);
+    clusterManagerReleaseReshardTable(table);
+    return result;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandRebalance(int argc, char **argv) {
+    int port = 0;
+    char *ip = NULL;
+    clusterManagerNode **weightedNodes = NULL;
+    list *involved = NULL;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) goto invalid_args;
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    int result = 1, i;
+    if (config.cluster_manager_command.weight != NULL) {
+        for (i = 0; i < config.cluster_manager_command.weight_argc; i++) {
+            char *name = config.cluster_manager_command.weight[i];
+            char *p = strchr(name, '=');
+            if (p == NULL) {
+                result = 0;
+                goto cleanup;
+            }
+            *p = '\0';
+            float w = atof(++p);
+            clusterManagerNode *n = clusterManagerNodeByAbbreviatedName(name);
+            if (n == NULL) {
+                clusterManagerLogErr("*** No such master node %s\n", name); 
+                result = 0;
+                goto cleanup;
+            }
+            n->weight = w;
+        } 
+    }
+    float total_weight = 0; 
+    int nodes_involved = 0;
+    int use_empty = config.cluster_manager_command.flags & 
+                    CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
+    involved = listCreate(); 
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    /* Compute the total cluster weight. */
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE || n->replicate)
+            continue;
+        if (!use_empty && n->slots_count == 0) {
+            n->weight = 0;
+            continue;
+        }
+        total_weight += n->weight; 
+        nodes_involved++;
+        listAddNodeTail(involved, n);
+    }
+    weightedNodes = zmalloc(nodes_involved * sizeof(clusterManagerNode *));
+    if (weightedNodes == NULL) goto cleanup;
+    /* Check cluster, only proceed if it looks sane. */
+    clusterManagerCheckCluster(1);
+    if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
+        clusterManagerLogErr("*** Please fix your cluster problems "
+                             "before rebalancing" );
+        result = 0;
+        goto cleanup;
+    }
+    /* Calculate the slots balance for each node. It's the number of
+     * slots the node should lose (if positive) or gain (if negative)
+     * in order to be balanced. */	
+    int threshold_reached = 0, total_balance = 0;
+    float threshold = config.cluster_manager_command.threshold;
+    i = 0;
+    listRewind(involved, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        weightedNodes[i++] = n;
+        int expected = (int) (((float)CLUSTER_MANAGER_SLOTS / total_weight) *
+                        n->weight);
+        n->balance = n->slots_count - expected;
+        total_balance += n->balance;
+	/* Compute the percentage of difference between the
+	 * expected number of slots and the real one, to see
+	 * if it's over the threshold specified by the user. */
+        int over_threshold = 0;
+        if (threshold > 0) {
+            if (n->slots_count > 0) {
+                float err_perc = fabs((100-(100.0*expected/n->slots_count)));
+                if (err_perc > threshold) over_threshold = 1;
+            } else if (expected > 1) {
+                over_threshold = 1;
+            }
+        }
+        if (over_threshold) threshold_reached = 1;
+    }
+    if (!threshold_reached) {
+        clusterManagerLogWarn("*** No rebalancing needed! "
+                             "All nodes are within the %.2f%% threshold.\n",
+                             config.cluster_manager_command.threshold);
+        goto cleanup;
+    }
+    /* Because of rounding, it is possible that the balance of all nodes
+     * summed does not give 0. Make sure that nodes that have to provide
+     * slots are always matched by nodes receiving slots. */
+    while (total_balance > 0) {
+        listRewind(involved, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n->balance < 0 && total_balance > 0) {
+                n->balance--;
+                total_balance--;
+            }
+        }
+    }
+    /* Sort nodes by their slots balance. */
+    qsort(weightedNodes, nodes_involved, sizeof(clusterManagerNode *), 
+          clusterManagerCompareNodeBalance);
+    clusterManagerLogInfo(">>> Rebalancing across %d nodes. "
+                          "Total weight = %.2f\n", 
+                          nodes_involved, total_weight);
+    if (config.verbose) {
+        for (i = 0; i < nodes_involved; i++) {
+            clusterManagerNode *n = weightedNodes[i];
+            printf("%s:%d balance is %d slots\n", n->ip, n->port, n->balance);
+        }
+    }
+    /* Now we have at the start of the 'sn' array nodes that should get
+     * slots, at the end nodes that must give slots.
+     * We take two indexes, one at the start, and one at the end,
+     * incrementing or decrementing the indexes accordingly til we
+     * find nodes that need to get/provide slots. */
+    int dst_idx = 0;
+    int src_idx = nodes_involved - 1;
+    int simulate = config.cluster_manager_command.flags & 
+                   CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
+    while (dst_idx < src_idx) {
+        clusterManagerNode *dst = weightedNodes[dst_idx];
+        clusterManagerNode *src = weightedNodes[src_idx];
+        int db = abs(dst->balance);
+        int sb = abs(src->balance);
+        int numslots = (db < sb ? db : sb);
+        if (numslots > 0) {
+            printf("Moving %d slots from %s:%d to %s:%d\n", numslots, 
+                                                            src->ip, 
+                                                            src->port, 
+                                                            dst->ip, 
+                                                            dst->port);
+            /* Actaully move the slots. */
+            list *lsrc = listCreate(), *table = NULL;
+            listAddNodeTail(lsrc, src); 
+            table = clusterManagerComputeReshardTable(lsrc, numslots);
+            listRelease(lsrc);
+            int table_len = (int) listLength(table);
+            if (!table || table_len != numslots) {
+                clusterManagerLogErr("*** Assertion failed: Reshard table "
+                                     "!= number of slots");
+                result = 0;
+                goto end_move;
+            }
+            if (simulate) {
+                for (i = 0; i < table_len; i++) printf("#");
+            } else {
+                int opts = CLUSTER_MANAGER_OPT_QUIET | 
+                           CLUSTER_MANAGER_OPT_UPDATE;
+                listRewind(table, &li);
+                while ((ln = listNext(&li)) != NULL) {
+                    clusterManagerReshardTableItem *item = ln->value; 
+                    result = clusterManagerMoveSlot(item->source, 
+                                                    dst, 
+                                                    item->slot, 
+                                                    opts, NULL);
+                    if (!result) goto end_move;
+                    printf("#");
+                    fflush(stdout);
+                }
+
+            }
+            printf("\n");
+end_move:
+            clusterManagerReleaseReshardTable(table);
+            if (!result) goto cleanup;
+        }
+        /* Update nodes balance. */
+        dst->balance += numslots;
+        src->balance -= numslots;
+        if (dst->balance == 0) dst_idx++;
+        if (src->balance == 0) src_idx --;
+    }
+cleanup:
+    if (involved != NULL) listRelease(involved);
+    if (weightedNodes != NULL) zfree(weightedNodes);
+    return result;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandSetTimeout(int argc, char **argv) {
+    UNUSED(argc);
+    int port = 0;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    int timeout = atoi(argv[1]);
+    if (timeout < 100) {
+        fprintf(stderr, "Setting a node timeout of less than 100 "
+                "milliseconds is a bad idea.\n");
+        return 0;
+    }
+    // Load cluster information
+    clusterManagerNode *node = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(node, 0)) return 0;
+    int ok_count = 0, err_count = 0;
+
+    clusterManagerLogInfo(">>> Reconfiguring node timeout in every "
+                          "cluster node...\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        char *err = NULL;
+        redisReply *reply = CLUSTER_MANAGER_COMMAND(n, "CONFIG %s %s %d", 
+                                                    "SET", 
+                                                    "cluster-node-timeout",
+                                                    timeout);
+        if (reply == NULL) goto reply_err;
+        int ok = clusterManagerCheckRedisReply(n, reply, &err);
+        freeReplyObject(reply);
+        if (!ok) goto reply_err;
+        reply = CLUSTER_MANAGER_COMMAND(n, "CONFIG %s", "REWRITE");
+        if (reply == NULL) goto reply_err;
+        ok = clusterManagerCheckRedisReply(n, reply, &err);
+        freeReplyObject(reply);
+        if (!ok) goto reply_err;
+        clusterManagerLogWarn("*** New timeout set for %s:%d\n", n->ip, 
+                              n->port);
+        ok_count++;
+        continue;
+reply_err:
+        if (err == NULL) err = "";
+        clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip, 
+                             n->port, err);
+        err_count++;
+    }
+    clusterManagerLogInfo(">>> New node timeout set. %d OK, %d ERR.\n", 
+                          ok_count, err_count);
+    return 1;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandImport(int argc, char **argv) {
+    int success = 1;
+    int port = 0, src_port = 0;
+    char *ip = NULL, *src_ip = NULL;
+    char *invalid_args_msg = NULL;
+    if (!getClusterHostFromCmdArgs(argc, argv, &ip, &port)) {
+        invalid_args_msg = CLUSTER_MANAGER_INVALID_HOST_ARG;
+        goto invalid_args;
+    }
+    if (config.cluster_manager_command.from == NULL) {
+        invalid_args_msg = "[ERR] Option '--cluster-from' is required for "
+                           "subcommand 'import'.\n";
+        goto invalid_args;
+    }
+    char *src_host[] = {config.cluster_manager_command.from};
+    if (!getClusterHostFromCmdArgs(1, src_host, &src_ip, &src_port)) {
+        invalid_args_msg = "[ERR] Invalid --cluster-from host. You need to "
+                           "pass a valid address (ie. 120.0.0.1:7000).\n";
+        goto invalid_args;
+    }
+    clusterManagerLogInfo(">>> Importing data from %s:%d to cluster %s:%d\n", 
+                          src_ip, src_port, ip, port);
+
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    if (!clusterManagerCheckCluster(0)) return 0;
+    char *reply_err = NULL;
+    redisReply *src_reply = NULL;
+    // Connect to the source node.
+    redisContext *src_ctx = redisConnect(src_ip, src_port);
+    if (src_ctx->err) {
+        success = 0;
+        fprintf(stderr,"Could not connect to Redis at %s:%d: %s.\n", src_ip, 
+                src_port, src_ctx->errstr);
+        goto cleanup;
+    }
+    src_reply = reconnectingRedisCommand(src_ctx, "INFO");
+    if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
+        if (src_reply && src_reply->str) reply_err = src_reply->str;
+        success = 0;
+        goto cleanup;
+    }
+    if (getLongInfoField(src_reply->str, "cluster_enabled")) {
+        clusterManagerLogErr("[ERR] The source node should not be a "
+                             "cluster node.\n"); 
+        success = 0;
+        goto cleanup;
+    }
+    freeReplyObject(src_reply);
+    src_reply = reconnectingRedisCommand(src_ctx, "DBSIZE");
+    if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
+        if (src_reply && src_reply->str) reply_err = src_reply->str;
+        success = 0;
+        goto cleanup;
+    }
+    int size = src_reply->integer, i;
+    clusterManagerLogWarn("*** Importing %d keys from DB 0\n", size);
+
+    // Build a slot -> node map
+    clusterManagerNode  *slots_map[CLUSTER_MANAGER_SLOTS];
+    memset(slots_map, 0, sizeof(slots_map) / sizeof(clusterManagerNode *));
+    listIter li;
+    listNode *ln;
+    for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
+        listRewind(cluster_manager.nodes, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+            if (n->slots_count == 0) continue;
+            if (n->slots[i]) {
+                slots_map[i] = n;
+                break;
+            }
+        } 
+    }
+
+    char cmdfmt[50] = "MIGRATE %s %d %s %d %d";
+    if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
+        strcat(cmdfmt, " %s");
+    if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
+        strcat(cmdfmt, " %s");
+
+    /* Use SCAN to iterate over the keys, migrating to the
+     * right node as needed. */
+    int cursor = -999, timeout = config.cluster_manager_command.timeout;
+    while (cursor != 0) {
+        if (cursor < 0) cursor = 0;
+        freeReplyObject(src_reply);
+        src_reply = reconnectingRedisCommand(src_ctx, "SCAN %d COUNT %d", 
+                                             cursor, 1000);
+        if (!src_reply || src_reply->type == REDIS_REPLY_ERROR) {
+            if (src_reply && src_reply->str) reply_err = src_reply->str;
+            success = 0;
+            goto cleanup;
+        }
+        assert(src_reply->type == REDIS_REPLY_ARRAY);
+        assert(src_reply->elements >= 2);
+        assert(src_reply->element[1]->type == REDIS_REPLY_ARRAY);
+        if (src_reply->element[0]->type == REDIS_REPLY_STRING) 
+            cursor = atoi(src_reply->element[0]->str);
+        else if (src_reply->element[0]->type == REDIS_REPLY_INTEGER)
+            cursor = src_reply->element[0]->integer;
+        int keycount = src_reply->element[1]->elements;
+        for (i = 0; i < keycount; i++) {
+            redisReply *kr = src_reply->element[1]->element[i];
+            assert(kr->type == REDIS_REPLY_STRING);
+            char *key = kr->str;
+            uint16_t slot = clusterManagerKeyHashSlot(key, kr->len);
+            clusterManagerNode *target = slots_map[slot];
+            printf("Migrating %s to %s:%d: ", key, target->ip, target->port);
+            redisReply *r = reconnectingRedisCommand(src_ctx, cmdfmt, 
+                                                     target->ip, target->port, 
+                                                     key, 0, timeout, 
+                                                     "COPY", "REPLACE");
+            if (!r || r->type == REDIS_REPLY_ERROR) {
+                if (r && r->str) {
+                    clusterManagerLogErr("Source %s:%d replied with "
+                                         "error:\n%s\n", src_ip, src_port, 
+                                         r->str);
+                }
+                success = 0;
+            }
+            freeReplyObject(r);
+            if (!success) goto cleanup;
+            clusterManagerLogOk("OK\n");
+        }
+    }
+cleanup:
+    if (reply_err) 
+        clusterManagerLogErr("Source %s:%d replied with error:\n%s\n", 
+                             src_ip, src_port, reply_err);
+    if (src_ctx) redisFree(src_ctx);
+    if (src_reply) freeReplyObject(src_reply);
+    return success;
+invalid_args:
+    fprintf(stderr, "%s", invalid_args_msg);
+    return 0;
+}
+
+static int clusterManagerCommandCall(int argc, char **argv) {
+    int port = 0, i;
+    char *ip = NULL;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
+    if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    argc--;
+    argv++;
+    size_t *argvlen = zmalloc(argc*sizeof(size_t));
+    clusterManagerLogInfo(">>> Calling");
+    for (i = 0; i < argc; i++) {
+        argvlen[i] = strlen(argv[i]);
+        printf(" %s", argv[i]);
+    }
+    printf("\n");
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value; 
+        if (!n->context) CLUSTER_MANAGER_NODE_CONNECT(n);
+        redisReply *reply = NULL;
+        redisAppendCommandArgv(n->context, argc, (const char **) argv, argvlen);
+        int status = redisGetReply(n->context, (void **)(&reply));
+        if (status != REDIS_OK || reply == NULL ) 
+            printf("%s:%d: Failed!\n", n->ip, n->port); 
+        else {
+            sds formatted_reply = cliFormatReplyTTY(reply, "");
+            printf("%s:%d: %s\n", n->ip, n->port, (char *) formatted_reply);
+            sdsfree(formatted_reply);
+        }
+        if (reply != NULL) freeReplyObject(reply);
+    }
+    zfree(argvlen);
+    return 1;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandHelp(int argc, char **argv) {
+    UNUSED(argc);
+    UNUSED(argv);
+    int commands_count = sizeof(clusterManagerCommands) / 
+                         sizeof(clusterManagerCommandDef);
+    int i = 0, j;
+    fprintf(stderr, "Cluster Manager Commands:\n");
+    int padding = 15;
+    for (; i < commands_count; i++) {
+        clusterManagerCommandDef *def = &(clusterManagerCommands[i]);
+        int namelen = strlen(def->name), padlen = padding - namelen;
+        fprintf(stderr, "  %s", def->name);
+        for (j = 0; j < padlen; j++) fprintf(stderr, " ");
+        fprintf(stderr, "%s\n", (def->args ? def->args : ""));
+        if (def->options != NULL) {
+            int optslen = strlen(def->options);
+            char *p = def->options, *eos = p + optslen;
+            char *comma = NULL;
+            while ((comma = strchr(p, ',')) != NULL) {
+                int deflen = (int)(comma - p);
+                char buf[255];
+                memcpy(buf, p, deflen);
+                buf[deflen] = '\0';
+                for (j = 0; j < padding; j++) fprintf(stderr, " ");
+                fprintf(stderr, "  --cluster-%s\n", buf);
+                p = comma + 1;
+                if (p >= eos) break;
+            }
+            if (p < eos) {
+                for (j = 0; j < padding; j++) fprintf(stderr, " ");
+                fprintf(stderr, "  --cluster-%s\n", p);
+            }
+        }
+    }
+    fprintf(stderr, "\nFor check, fix, reshard, del-node, set-timeout you "
+                    "can specify the host and port of any working node in "
+                    "the cluster.\n\n");
+    return 0;
 }
 
 /*------------------------------------------------------------------------------
@@ -2862,7 +6523,20 @@ int main(int argc, char **argv) {
     config.eval_ldb_sync = 0;
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
-
+    config.verbose = 0;
+    config.cluster_manager_command.name = NULL;
+    config.cluster_manager_command.argc = 0;
+    config.cluster_manager_command.argv = NULL;
+    config.cluster_manager_command.flags = 0;
+    config.cluster_manager_command.replicas = 0;
+    config.cluster_manager_command.from = NULL;
+    config.cluster_manager_command.to = NULL;
+    config.cluster_manager_command.weight = NULL;
+    config.cluster_manager_command.slots = 0;
+    config.cluster_manager_command.timeout = CLUSTER_MANAGER_MIGRATE_TIMEOUT;
+    config.cluster_manager_command.pipeline = CLUSTER_MANAGER_MIGRATE_PIPELINE;
+    config.cluster_manager_command.threshold = 
+        CLUSTER_MANAGER_REBALANCE_THRESHOLD;
     pref.hints = 1;
 
     spectrum_palette = spectrum_palette_color;
@@ -2877,6 +6551,17 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    /* Cluster Manager mode */
+    if (CLUSTER_MANAGER_MODE()) {
+        clusterManagerCommandProc *proc = validateClusterManagerCommand();
+        if (!proc) {
+            sdsfree(config.hostip);
+            sdsfree(config.mb_delim);
+            exit(1);
+        }
+        clusterManagerMode(proc);
+    }
 
     /* Latency mode */
     if (config.latency_mode) {
