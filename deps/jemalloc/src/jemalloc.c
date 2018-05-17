@@ -2614,8 +2614,8 @@ je_get_defrag_hint(void* ptr, int *bin_util, int *run_util) {
             if (chunk != (arena_chunk_t *)CHUNK_ADDR2BASE(bin->runcur)) {
                 arena_bin_info_t *bin_info = &arena_bin_info[run->binind];
                 size_t availregs = bin_info->nregs * bin->stats.curruns;
-                *bin_util = (bin->stats.curregs<<16) / availregs;
-                *run_util = ((bin_info->nregs - run->nfree)<<16) / bin_info->nregs;
+                *bin_util = ((long long)bin->stats.curregs<<16) / availregs;
+                *run_util = ((long long)(bin_info->nregs - run->nfree)<<16) / bin_info->nregs;
                 defrag = 1;
             }
             malloc_mutex_unlock(&bin->lock);
