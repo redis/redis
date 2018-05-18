@@ -1,0 +1,156 @@
+.\"
+.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "MEMKIND_ARENA" 3 "2015-04-21" "Intel Corporation" "MEMKIND_ARENA" \" -*- nroff -*-
+.SH "NAME"
+memkind_arena.h \- jemalloc arena allocation memkind operations.
+.br
+Note: This is EXEPRIMENTAL API. The functionality and the header file itself can be changed (including non-backward compatible changes), or remove.
+.SH "SYNOPSIS"
+.nf
+.B #include <memkind/internal/memkind_arena.h>
+.sp
+.B Link with -lmemkind
+.sp
+.BI "int memkind_arena_create(struct memkind " "*kind" ", const struct memkind_ops " "*ops" ", const char " "*name" );
+.BI "int memkind_arena_create_map(struct memkind " "*kind" );
+.BI "int memkind_arena_destroy(struct memkind " "*kind" );
+.BI "void *memkind_arena_malloc(struct memkind " "*kind" ", size_t " "size" );
+.BI "void *memkind_arena_calloc(struct memkind " "*kind" ", size_t " "num" ", size_t " "size" );
+.BI "int memkind_arena_posix_memalign(struct memkind " "*kind" ", void " "**memptr" ", size_t " "alignment" ", size_t " "size" );
+.BI "void *memkind_arena_realloc(struct memkind " "*kind" ", void " "*ptr" ", size_t " "size" );
+.BI "int memkind_thread_get_arena(struct memkind " "*kind" ", unsigned int " "*arena", size_t " "size" );
+.BI "int memkind_bijective_get_arena(struct memkind " "*kind" ", unsigned int " "*arena", size_t " "size" );
+.br
+.SH DESCRIPTION
+This header file is a collection of functions can be used to populate
+the memkind operations structure for memory kinds that use jemalloc.
+.PP
+.BR memkind_arena_create ()
+is an implementation of the memkind "create" operation for memory
+kinds that use jemalloc.  This calls
+.BR memkind_default_create ()
+(see
+.BR memkind_default.h (3))
+followed by
+.BR memkind_arena_create_map ()
+described below.
+.PP
+.BR memkind_arena_create_map ()
+creates the
+.I arena_map
+array for the memkind structure pointed to by
+.IR kind
+which can be indexed by the
+.BR ops.get_arena ()
+function from the kind's operations.  If get_arena points
+.BR memkind_thread_get_arena ()
+then there will be four arenas created for each processor,
+and if get_arena points to
+.BR memkind_bijective_get_arena ()
+then just one arena is created.
+.PP
+.BR memkind_arena_destroy ()
+is an implementation of the memkind "destroy" operation for memory
+kinds that use jemalloc.  This releases all of the resources
+allocated by
+.BR memkind_arena_create ().
+.PP
+.BR memkind_arena_malloc ()
+is an implementation of the memkind "malloc" operation for memory
+kinds that use jemalloc.  This allocates memory using the arenas
+created by
+.BR memkind_arena_create ()
+though the jemalloc
+.BR jemk_mallocx ()
+interface.  It uses the memkind "get_arena" operation to select the
+arena.
+.PP
+.BR memkind_arena_calloc ()
+is an implementation of the memkind "calloc" operation for memory
+kinds that use jemalloc.  This allocates memory using the arenas
+created by
+.BR memkind_arena_create ()
+though the jemalloc
+.BR jemk_mallocx ()
+interface.  It uses the memkind "get_arena" operation to select the
+arena.
+.PP
+.BR memkind_arena_posix_memalign ()
+is an implementation of the memkind "posix_memalign" operation for memory
+kinds that use jemalloc.  This allocates memory using the arenas
+created by
+.BR memkind_arena_create ()
+though the jemalloc
+.BR jemk_mallocx ()
+interface.  It uses the memkind "get_arena" operation to select the
+arena.  The POSIX standard requires that
+.BR posix_memalign (3)
+may not set
+.I errno
+however the
+.BR jemk_mallocx ()
+routine may.  In an attempt to abide by the standard
+.I errno
+is recorded before calling
+.BR jemk_mallocx ()
+and then reset after the call.
+.PP
+.BR memkind_arena_realloc ()
+is an implementation of the memkind "realloc" operation for memory
+kinds that use jemalloc.  This allocates memory using the arenas
+created by
+.BR memkind_arena_create ()
+though the jemalloc
+.BR jemk_mallocx ()
+interface.  It uses the memkind "get_arena" operation to select the
+arena.
+.PP
+.BR memkind_thread_get_arena ()
+Retrieves the
+.I arena
+index that is bound to to the calling thread based on a hash of its
+thread ID.  The
+.I arena
+index can be used with the MALLOCX_ARENA macro to set flags for
+.BR jemk_mallocx ().
+.PP
+.BR memkind_bijective_arena_get_arena ()
+Retrieves the
+.I arena
+index to be used with the MALLOCX_ARENA macro to set flags for
+.BR jemk_mallocx ().
+Use of this operation implies that only one arena is used for the
+.IR kind .
+.SH "COPYRIGHT"
+Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+.SH "SEE ALSO"
+.BR memkind (3),
+.BR memkind_default (3),
+.BR memkind_hbw (3),
+.BR memkind_hugetlb (3),
+.BR memkind_gbtlb (3),
+.BR memkind_pmem (3),
+.BR jemalloc (3),
+.BR mbind (2),
+.BR mmap (2)

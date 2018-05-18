@@ -1,0 +1,30 @@
+sudo: false
+language: cpp python
+before_install:
+        - ./autogen.sh
+        - ./build_jemalloc.sh
+install:
+        - CXX="g++-4.8" CC="gcc-4.8" ./configure --enable-cxx11
+script:
+        - make
+        - make test
+after_failure:
+  - echo "Sad memking"
+  - find . -name config.log -exec cat {} ";"
+  - find . -name test-suite.log -exec cat {} ";"
+addons:
+  apt:
+    sources:
+    - ubuntu-toolchain-r-test
+    packages:
+    - gcc-4.8
+    - g++-4.8
+    - libnuma-dev
+    - numactl
+notifications:
+  email:
+    recipients:
+      - krzysztof.kulakowski@intel.com
+      - lukasz.anaczkowski@intel.com
+    on_success: [change]
+    on_failure: [always]

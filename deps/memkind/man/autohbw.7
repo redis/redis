@@ -1,0 +1,195 @@
+.\"
+.\" Copyright (C) 2014-2016 Intel Corporation.
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions are met:
+.\" 1. Redistributions of source code must retain the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright notice(s),
+.\"    this list of conditions and the following disclaimer in the documentation
+.\"    and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+.\" OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+.\" MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+.\" EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+.\" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+.\" PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+.\" LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+.\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+.\" ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.TH "AUTOHBW" 7 "2016-07-28" "Intel Corporation" "AUTOHBW" \" -*- nroff -*-
+.SH "NAME"
+libautohbw.so \- An interposer library for redirecting heap allocations
+.SH "SYNOPSIS"
+.BR LD_PRELOAD=libautohbw.so
+command {arguments ...}
+.SH "DESCRIPTION"
+.B AutoHBW
+library
+.BR (libautohbw.so)
+is an interposer library for redirecting heap allocations
+.B (malloc, calloc, realloc, valloc, posix_memalign, memlign)
+to high-bandwidth
+.B (HBW)
+memory. Consequently, AutoHBW library can be used to
+automatically allocate high-bandwidth memory without any modification to
+source code of an application.
+
+.br
+For instance, the following command-line runs existing binary /bin/ls with
+AutoHBW library, automatically redirecting heap allocations (larger than a given
+threshold) to high-bandwidth memory.
+.IP
+.B LD_PRELOAD=libautohbw.so
+/bin/ls
+
+.SH "ENVIRONMENT"
+
+The behavior of AutoHBW library is controlled by the following environment
+variables.
+
+.PP
+.B AUTO_HBW_SIZE=x:[y]
+.br
+Indicates that any allocation larger than
+.I x
+and smaller than
+.I y
+should be
+allocated in HBW memory.
+.I x
+and
+.I y
+can be followed by a K, M, or G to indicate
+the size in Kilo/Memga/Giga bytes (e.g., 4K, 3M, 2G).
+.br
+
+Examples:
+.IP AUTO_HBW_SIZE=4K
+# allocations larger than 4K allocated in HBW
+.IP AUTO_HBW_SIZE=1M:5M
+# allocations between 1M and 5M allocated in HBW
+
+.PP
+.B AUTO_HBW_LOG=level
+.br
+Sets the value of logging (printing)
+.I level.
+If
+.I level
+is:
+.br
+.IP -1
+no messages are printed
+.br
+.IP 0
+no allocations messages are printed but INFO messages are printed
+.br
+.IP 1
+a log message is printed for each allocation (Default)
+.br
+.IP 2
+a log message is printed for each allocation with a backtrace.
+Redirect this output and use
+.B autohbw_get_src_lines.pl
+to find source lines for each allocation. Your application must
+be compiled with
+.B -g
+to see source lines.
+.PP
+Notes:
+.IP
+1. Logging adds extra overhead. Therefore, for performance
+critical runs, logging level should be 0
+.IP
+2. The amount of free memory printed with log messages is only
+approximate -- e.g. pages that are not touched yet are excluded
+.PP
+Examples:
+.IP AUTO_HBW_LOG=1
+
+.PP
+.B AUTO_HBW_MEM_TYPE=memory_type
+.br
+Sets the type of memory type that should be automatically allocated. By
+default, this type is MEMKIND_HBW_PREFERRED, if MCDRAM is found in your
+system; otherwise, the default is MEMKIND_DEFAULT. The names of memory
+types are defined in
+.B memkind(3)
+man page.
+.B memory_type
+has to be one of
+.B MEMKIND_DEFAULT, MEMKIND_HUGETLB, MEMKIND_INTERLEAVE, MEMKIND_HBW,
+.B MEMKIND_HBW_PREFERRED, MEMKIND_HBW_HUGETLB, MEMKIND_HBW_PREFERRED_HUGETLB,
+.B MEMKIND_HBW_GBTLB, MEMKIND_HBW_PREFERRED_GBTLB, MEMKIND_GBTLB,
+.B MEMKIND_HBW_INTERLEAVE
+
+If you are requesting any huge
+TLB pages, please make sure that the requested type is currently enabled
+in your OS.
+
+Examples:
+.IP AUTO_HBW_MEM_TYPE=MEMKIND_HBW_PREFERRED
+# (default, if MCDRAM present)
+.IP AUTO_HBW_MEM_TYPE=MEMKIND_DEFAULT
+# (default, if MCDRAM absent)
+.IP AUTO_HBW_MEM_TYPE=MEMKIND_HBW_HUGETLB
+.IP AUTO_HBW_MEM_TYPE=MEMKIND_HUGETLB
+
+.PP
+.B AUTO_HBW_DEBUG=0|1|2
+.br
+Set the debug message printing level. Default is 0. This is mainly for
+development.
+
+.SH "NOTES"
+It is possible to temporarily disable/enable automatic HBW allocations by
+calling disableAutoHBW() and enableAutoHBW() in source code. To call
+these routines, please include
+.B autohbw_api.h
+header file and link with -lautohbw.
+
+
+.br
+If high-bandwidth memory is not physically present in your system,
+the environment variable
+.B MEMKIND_HBW_NODES
+must be set to indicate the high-bandwidth node as indicated in
+.B memkind(3).
+
+
+.SH "EXAMPLES"
+.br
+The following will run /bin/ls with AutoHBW library. Make sure that paths to
+both libautohbw.so and libmemkind.so are included in
+.B LD_LIBRARY_PATH.
+.IP
+.B LD_PRELOAD=libautohbw.so
+/bin/ls -l
+.PP
+To run with MPI, a shell script must be created, with the correct LD_PRELOAD
+command for each rank. For example, if we put
+.B LD_PRELOAD=libautohbw.so /bin/ls
+in a shell script named autohbw_test.sh, it can be executed with 2 MPI ranks as:
+.br
+.IP
+.B mpirun -n 2 ./autohbw_test.sh
+
+.SH "COPYRIGHT"
+Copyright (C) 2014, 2015, 2016 Intel Corporation. All rights reserved.
+
+.SH "SEE ALSO"
+.BR memkind(3)
+.BR malloc (3),
+.BR numactl (8),
+
+
+
+
+
+
+

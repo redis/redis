@@ -2,6 +2,7 @@ void *memkind_alloc_wrapper(size_t size);
 void *memkind_calloc_wrapper(size_t size);
 void *memkind_realloc_wrapper(void *ptr, size_t size);
 void memkind_free_wrapper(void *ptr);
+size_t memkind_malloc_used_memory(void);
 
 #define mmalloc memkind_alloc_wrapper
 #define mcalloc memkind_calloc_wrapper

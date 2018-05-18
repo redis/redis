@@ -150,6 +150,9 @@ quicklist *quicklistCreateFromZiplist(int fill, int compress,
                                       unsigned char *zl);
 void quicklistInsertAfterA(quicklist *quicklist, quicklistEntry *node,
                           void *value, const size_t sz, alloc a);
+void _quicklistInsertNodeAfterA(quicklist *quicklist,
+                                quicklistNode *old_node,
+                                quicklistNode *new_node, alloc a);
 //static inline void quicklistInsertAfter(quicklist *quicklist, quicklistEntry *node,
 //                          void *value, const size_t sz) {
 //	quicklistInsertAfterA(quicklist, node, value, sz, z_alloc);

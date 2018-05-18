@@ -406,6 +406,12 @@ REDIS_STATIC void _quicklistInsertNodeBeforeA(quicklist *quicklist,
     __quicklistInsertNodeA(quicklist, old_node, new_node, 0, a);
 }
 
+void _quicklistInsertNodeAfter(quicklist *quicklist,
+                                            quicklistNode *old_node,
+                                            quicklistNode *new_node) {
+    _quicklistInsertNodeAfterA(quicklist, old_node, new_node, z_alloc);
+}
+
 REDIS_STATIC inline void _quicklistInsertNodeAfterA(quicklist *quicklist,
                                 quicklistNode *old_node,
                                 quicklistNode *new_node, alloc a) {
@@ -413,11 +419,6 @@ REDIS_STATIC inline void _quicklistInsertNodeAfterA(quicklist *quicklist,
     __quicklistInsertNodeA(quicklist, old_node, new_node, 1, a);
 }
 
-void _quicklistInsertNodeAfter(quicklist *quicklist,
-                                            quicklistNode *old_node,
-                                            quicklistNode *new_node) {
-	_quicklistInsertNodeAfterA(quicklist, old_node, new_node, z_alloc);
-}
 
 REDIS_STATIC int
 _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
