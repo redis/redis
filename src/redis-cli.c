@@ -1088,7 +1088,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
-            fputs("Warning: Using a password on the command line interface can be insecure.\n", stderr);
+            fputs("Warning: Using a password with '-a' option on the command line interface may not be safe.\n", stderr);
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
