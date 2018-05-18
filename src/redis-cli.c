@@ -1398,8 +1398,24 @@ static void repl(void) {
     cliRefreshPrompt();
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
+            int repeat = 1, skipargs = 0;
+            char *endptr;
+
             argv = cliSplitArgs(line,&argc);
-            if (strcasecmp(argv[0], "auth")) {
+
+            /* check if we have a repeat command option and
+             * need to skip the first arg */
+            if (argv && argc > 0) {
+                repeat = strtol(argv[0], &endptr, 10);
+                if (argc > 1 && *endptr == '\0' && repeat) {
+                    skipargs = 1;
+                } else {
+                    repeat = 1;
+                }
+            }
+
+            /* Won't save auth command in history file */
+            if (!(argv && argc > 0 && !strcasecmp(argv[0+skipargs], "auth"))) {
                 if (history) linenoiseHistoryAdd(line);
                 if (historyfile) linenoiseHistorySave(historyfile);
             }
@@ -1434,15 +1450,6 @@ static void repl(void) {
                     linenoiseClearScreen();
                 } else {
                     long long start_time = mstime(), elapsed;
-                    int repeat, skipargs = 0;
-                    char *endptr;
-
-                    repeat = strtol(argv[0], &endptr, 10);
-                    if (argc > 1 && *endptr == '\0' && repeat) {
-                        skipargs = 1;
-                    } else {
-                        repeat = 1;
-                    }
 
                     issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
