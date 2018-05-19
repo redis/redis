@@ -1398,16 +1398,24 @@ static void repl(void) {
     cliRefreshPrompt();
     while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
-            int repeat = 1, skipargs = 0;
-            char *endptr;
+            long repeat = 1;
+            int skipargs = 0;
+            char *endptr = NULL;
 
             argv = cliSplitArgs(line,&argc);
 
             /* check if we have a repeat command option and
              * need to skip the first arg */
             if (argv && argc > 0) {
+                errno = 0;
                 repeat = strtol(argv[0], &endptr, 10);
-                if (argc > 1 && *endptr == '\0' && repeat) {
+                if (argc > 1 && *endptr == '\0') {
+                    if (errno == ERANGE || errno == EINVAL || repeat <= 0) {
+                        fputs("Invalid redis-cli repeat command option value.\n", stdout);
+                        sdsfreesplitres(argv, argc);
+                        linenoiseFree(line);
+                        continue;
+                    }
                     skipargs = 1;
                 } else {
                     repeat = 1;
