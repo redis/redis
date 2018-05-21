@@ -917,7 +917,7 @@ static int cliReadReply(int output_raw_strings) {
     return REDIS_OK;
 }
 
-static int cliSendCommand(int argc, char **argv, int repeat) {
+static int cliSendCommand(int argc, char **argv, long repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
