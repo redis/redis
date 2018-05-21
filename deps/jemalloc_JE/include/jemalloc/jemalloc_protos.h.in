@@ -1,0 +1,66 @@
+/*
+ * The @je_@ prefix on the following public symbol declarations is an artifact
+ * of namespace management, and should be omitted in application code unless
+ * JEMALLOC_NO_DEMANGLE is defined (see jemalloc_mangle@install_suffix@.h).
+ */
+extern JEMALLOC_EXPORT const char	*@je_@malloc_conf;
+extern JEMALLOC_EXPORT void		(*@je_@malloc_message)(void *cbopaque,
+    const char *s);
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@malloc(size_t size)
+    JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1);
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@calloc(size_t num, size_t size)
+    JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2);
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@posix_memalign(void **memptr,
+    size_t alignment, size_t size) JEMALLOC_CXX_THROW JEMALLOC_ATTR(nonnull(1));
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@aligned_alloc(size_t alignment,
+    size_t size) JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc)
+    JEMALLOC_ALLOC_SIZE(2);
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@realloc(void *ptr, size_t size)
+    JEMALLOC_CXX_THROW JEMALLOC_ALLOC_SIZE(2);
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@free(void *ptr)
+    JEMALLOC_CXX_THROW;
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@mallocx(size_t size, int flags)
+    JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1);
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@rallocx(void *ptr, size_t size,
+    int flags) JEMALLOC_ALLOC_SIZE(2);
+JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@xallocx(void *ptr, size_t size,
+    size_t extra, int flags);
+JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@sallocx(const void *ptr,
+    int flags) JEMALLOC_ATTR(pure);
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@dallocx(void *ptr, int flags);
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@sdallocx(void *ptr, size_t size,
+    int flags);
+JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@nallocx(size_t size, int flags)
+    JEMALLOC_ATTR(pure);
+
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@mallctl(const char *name,
+    void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@mallctlnametomib(const char *name,
+    size_t *mibp, size_t *miblenp);
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@mallctlbymib(const size_t *mib,
+    size_t miblen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@malloc_stats_print(
+    void (*write_cb)(void *, const char *), void *@je_@cbopaque,
+    const char *opts);
+JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@malloc_usable_size(
+    JEMALLOC_USABLE_SIZE_CONST void *ptr) JEMALLOC_CXX_THROW;
+
+#ifdef JEMALLOC_OVERRIDE_MEMALIGN
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@memalign(size_t alignment, size_t size)
+    JEMALLOC_CXX_THROW JEMALLOC_ATTR(malloc);
+#endif
+
+#ifdef JEMALLOC_OVERRIDE_VALLOC
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+    void JEMALLOC_NOTHROW	*@je_@valloc(size_t size) JEMALLOC_CXX_THROW
+    JEMALLOC_ATTR(malloc);
+#endif
