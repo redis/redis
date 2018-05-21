@@ -1412,6 +1412,8 @@ static void repl(void) {
                     exit(0);
                 } else if (argv[0][0] == ':') {
                     cliSetPreferences(argv,argc,1);
+                    sdsfreesplitres(argv,argc);
+                    linenoiseFree(line);
                     continue;
                 } else if (strcasecmp(argv[0],"restart") == 0) {
                     if (config.eval) {
