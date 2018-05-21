@@ -980,7 +980,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
-    while(repeat--) {
+    while(repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
