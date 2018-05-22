@@ -3080,8 +3080,8 @@ void zscanCommand(client *c) {
  * use the 'count' argument to return multiple items if available. */
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, robj *countarg) {
     int idx;
-    robj *key;
-    robj *zobj;
+    robj *key = NULL;
+    robj *zobj = NULL;
     sds ele;
     double score;
     long count = 1;
@@ -3185,7 +3185,7 @@ void zpopminCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    genericZpopCommand(c,&c->argv[1],c->argc-1,ZSET_MIN,0,
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MIN,0,
         c->argc == 3 ? c->argv[2] : NULL);
 }
 
@@ -3195,7 +3195,7 @@ void zpopmaxCommand(client *c) {
         addReply(c,shared.syntaxerr);
         return;
     }
-    genericZpopCommand(c,&c->argv[1],c->argc-1,ZSET_MAX,0,
+    genericZpopCommand(c,&c->argv[1],1,ZSET_MAX,0,
         c->argc == 3 ? c->argv[2] : NULL);
 }
 
