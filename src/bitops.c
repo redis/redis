@@ -481,7 +481,7 @@ robj *lookupStringForBitCommandA(client *c, size_t maxbit, alloc a) {
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlenA(NULL,byte+1,a));
-        o->a = m_alloc;
+        o->a = a;
         dbAdd(c->db,c->argv[1],o);
     } else {
         if (checkType(c,o,OBJ_STRING)) return NULL;
