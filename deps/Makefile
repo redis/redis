@@ -83,6 +83,7 @@ jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 #	cd jemalloc_JE/ && ./autogen.sh
 #	mkdir -p jemalloc_JE/obj
+	cd jemalloc_JE && ./autogen.sh
 	cd jemalloc_JE && ./configure --with-jemalloc-prefix=je_ --with-private-namespace= --without-_export
 	cd jemalloc_JE && make -j $(nproc)
 	
