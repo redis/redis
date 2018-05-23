@@ -2599,20 +2599,24 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     ping_period = ri->down_after_period;
     if (ping_period > SENTINEL_PING_PERIOD) ping_period = SENTINEL_PING_PERIOD;
 
+    /* Send INFO to masters and slaves, not sentinels. */
     if ((ri->flags & SRI_SENTINEL) == 0 &&
         (ri->info_refresh == 0 ||
         (now - ri->info_refresh) > info_period))
     {
-        /* Send INFO to masters and slaves, not sentinels. */
         retval = redisAsyncCommand(ri->link->cc,
             sentinelInfoReplyCallback, ri, "INFO");
         if (retval == C_OK) ri->link->pending_commands++;
-    } else if ((now - ri->link->last_pong_time) > ping_period &&
+    }
+
+    /* Send PING to all the three kinds of instances. */
+    if ((now - ri->link->last_pong_time) > ping_period &&
                (now - ri->link->last_ping_time) > ping_period/2) {
-        /* Send PING to all the three kinds of instances. */
         sentinelSendPing(ri);
-    } else if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
-        /* PUBLISH hello messages to all the three kinds of instances. */
+    }
+
+    /* PUBLISH hello messages to all the three kinds of instances. */
+    if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         sentinelSendHello(ri);
     }
 }
