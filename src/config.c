@@ -1031,9 +1031,10 @@ void configSetCommand(client *c) {
         if (server.active_defrag_enabled) {
             server.active_defrag_enabled = 0;
             addReplyError(c,
-                "Active defragmentation cannot be enabled: it requires a "
-                "Redis server compiled with a modified Jemalloc like the "
-                "one shipped by default with the Redis source distribution");
+                "-DISABLED Active defragmentation cannot be enabled: it "
+                "requires a Redis server compiled with a modified Jemalloc "
+                "like the one shipped by default with the Redis source "
+                "distribution");
             return;
         }
 #endif
