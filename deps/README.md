@@ -22,16 +22,21 @@ just following tose steps:
 
 1. Remove the jemalloc directory.
 2. Substitute it with the new jemalloc source tree.
+3. Edit the Makefile localted in the same directoy as the README you are
+   reading, and change the --with-version in the Jemalloc configure script
+   options with the version you are using. This is required because otherwise
+   Jemalloc configuration script is broken and will not work nested in another
+   git repository.
 
 However note that we change Jemalloc settings via the `configure` script of Jemalloc using the `--with-lg-quantum` option, setting it to the value of 3 instead of 4. This provides us with more size classes that better suit the Redis data structures, in order to gain memory efficiency.
 
-Instead if you want to upgrade Jemalloc while also providing support for
-defragmentation, you have to replace it with a newer version, and make
-the following changes:
+If you want to upgrade Jemalloc while also providing support for
+active defragmentation, in addition to the above steps you need to perform
+the following additional steps:
 
-1. In Jemalloc three, file `include/jemalloc/jemalloc_macros.h.in`, make sure
+5. In Jemalloc three, file `include/jemalloc/jemalloc_macros.h.in`, make sure
    to add `#define JEMALLOC_FRAG_HINT`.
-2. Implement the function `je_get_defrag_hint()` inside `src/jemalloc.c`. You
+6. Implement the function `je_get_defrag_hint()` inside `src/jemalloc.c`. You
    can see how it is implemented in the current Jemalloc source tree shipped
    with Redis, and rewrite it according to the new Jemalloc internals, if they
    changed, otherwise you could just copy the old implementation if you are
