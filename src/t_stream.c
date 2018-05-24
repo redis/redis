@@ -265,7 +265,7 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
         /* Update count and skip the deleted fields. */
         int64_t count = lpGetInteger(lp_ele);
         lp = lpReplaceInteger(lp,&lp_ele,count+1);
-        lp_ele = lpNext(lp,lp_ele); /* seek delted. */
+        lp_ele = lpNext(lp,lp_ele); /* seek deleted. */
         lp_ele = lpNext(lp,lp_ele); /* seek master entry num fields. */
 
         /* Check if the entry we are adding, have the same fields
@@ -505,6 +505,7 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
             raxSeek(&si->ri,"$",NULL,0);
         }
     }
+    si->stream = s;
     si->lp = NULL; /* There is no current listpack right now. */
     si->lp_ele = NULL; /* Current listpack cursor. */
     si->rev = rev;  /* Direction, if non-zero reversed, from end to start. */
@@ -573,6 +574,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             }
 
             /* Get the flags entry. */
+            si->lp_flags = si->lp_ele;
             int flags = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek ID. */
 
@@ -657,11 +659,73 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
     si->lp_ele = lpNext(si->lp,si->lp_ele);
 }
 
+/* Remove the current entry from the stream: can be called after the
+ * GetID() API or after any GetField() call, however we need to iterate
+ * a valid entry while calling this function. Moreover the function
+ * requires the entry ID we are currently iterating, that was previously
+ * returned by GetID().
+ *
+ * Note that after calling this function, next calls to GetField() can't
+ * be performed: the entry is now deleted. Instead the iterator will
+ * automatically re-seek to the next entry, so the caller should continue
+ * with GetID(). */
+void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
+    unsigned char *lp = si->lp;
+    int64_t aux;
+
+    /* We do not really delete the entry here. Instead we mark it as
+     * deleted flagging it, and also incrementing the count of the
+     * deleted entries in the listpack header.
+     *
+     * We start flagging: */
+    int flags = lpGetInteger(si->lp_flags);
+    flags |= STREAM_ITEM_FLAG_DELETED;
+    lp = lpReplaceInteger(lp,&si->lp_flags,flags);
+
+    /* Change the valid/deleted entries count in the master entry. */
+    unsigned char *p = lpFirst(lp);
+    aux = lpGetInteger(p);
+    lp = lpReplaceInteger(lp,&p,aux-1);
+    p = lpNext(lp,p); /* Seek deleted field. */
+    aux = lpGetInteger(p);
+    lp = lpReplaceInteger(lp,&p,aux+1);
+
+    /* Re-seek the iterator to fix the now messed up state. */
+    streamID start, end;
+    if (si->rev) {
+        streamDecodeID(si->start_key,&start);
+        end = *current;
+    } else {
+        start = *current;
+        streamDecodeID(si->end_key,&end);
+    }
+    streamIteratorStop(si);
+    streamIteratorStart(si,si->stream,&start,&end,si->rev);
+
+    /* TODO: perform a garbage collection here if the ration between
+     * deleted and valid goes over a certain limit. */
+}
+
 /* Stop the stream iterator. The only cleanup we need is to free the rax
  * itereator, since the stream iterator itself is supposed to be stack
  * allocated. */
 void streamIteratorStop(streamIterator *si) {
     raxStop(&si->ri);
+}
+
+/* Delete the specified item ID from the stream, returning 1 if the item
+ * was deleted 0 otherwise (if it does not exist). */
+int streamDeleteItem(stream *s, streamID *id) {
+    int deleted = 0;
+    streamIterator si;
+    streamIteratorStart(&si,s,id,id,0);
+    streamID myid;
+    int64_t numfields;
+    if (streamIteratorGetID(&si,&myid,&numfields)) {
+        streamIteratorRemoveEntry(&si,&myid);
+        deleted = 1;
+    }
+    return deleted;
 }
 
 /* Emit a reply in the client output buffer by formatting a Stream ID
@@ -686,8 +750,11 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     /* We need to generate an XCLAIM that will work in a idempotent fashion:
      *
      * XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
-     *        RETRYCOUNT <count> [FORCE]. */
-    robj *argv[11];
+     *        RETRYCOUNT <count> FORCE JUSTID.
+     *
+     * Note that JUSTID is useful in order to avoid that XCLAIM will do
+     * useless work in the slave side, trying to fetch the stream item. */
+    robj *argv[12];
     argv[0] = createStringObject("XCLAIM",6);
     argv[1] = key;
     argv[2] = group;
@@ -699,7 +766,8 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     argv[8] = createStringObject("RETRYCOUNT",10);
     argv[9] = createStringObjectFromLongLong(nack->delivery_count);
     argv[10] = createStringObject("FORCE",5);
-    propagate(server.xclaimCommand,c->db->id,argv,10,PROPAGATE_AOF|PROPAGATE_REPL);
+    argv[11] = createStringObject("JUSTID",6);
+    propagate(server.xclaimCommand,c->db->id,argv,12,PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
     decrRefCount(argv[3]);
     decrRefCount(argv[4]);
@@ -708,6 +776,7 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
     decrRefCount(argv[8]);
     decrRefCount(argv[9]);
     decrRefCount(argv[10]);
+    decrRefCount(argv[11]);
 }
 
 /* Send the specified range to the client 'c'. The range the client will
@@ -1496,6 +1565,7 @@ NULL
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id);
         if (cg) {
             addReply(c,shared.ok);
+            server.dirty++;
         } else {
             addReplySds(c,
                 sdsnew("-BUSYGROUP Consumer Group name already exists\r\n"));
@@ -1507,6 +1577,7 @@ NULL
          * that were yet associated with such a consumer. */
         long long pending = streamDelConsumer(cg,c->argv[4]->ptr);
         addReplyLongLong(c,pending);
+        server.dirty++;
     } else if (!strcasecmp(opt,"HELP")) {
         addReplyHelp(c, help);
     } else {
@@ -1553,6 +1624,7 @@ void xackCommand(client *c) {
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamFreeNACK(nack);
             acknowledged++;
+            server.dirty++;
         }
     }
     addReplyLongLong(c,acknowledged);
@@ -1920,34 +1992,152 @@ void xclaimCommand(client *c) {
     preventCommandPropagation(c);
 }
 
-/* XINFO <key> [CONSUMERS group|GROUPS|STREAM]. STREAM is the default */
+
+/* XDEL <key> [<ID1> <ID2> ... <IDN>]
+ *
+ * Removes the specified entries from the stream. Returns the number
+ * of items actaully deleted, that may be different from the number
+ * of IDs passed in case certain IDs do not exist. */
+void xdelCommand(client *c) {
+    robj *o;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL
+        || checkType(c,o,OBJ_STREAM)) return;
+    stream *s = o->ptr;
+
+    /* We need to sanity check the IDs passed to start. Even if not
+     * a big issue, it is not great that the command is only partially
+     * executed becuase at some point an invalid ID is parsed. */
+    streamID id;
+    for (int j = 2; j < c->argc; j++) {
+        if (streamParseIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+    }
+
+    /* Actaully apply the command. */
+    int deleted = 0;
+    for (int j = 2; j < c->argc; j++) {
+        streamParseIDOrReply(c,c->argv[j],&id,0); /* Retval already checked. */
+        deleted += streamDeleteItem(s,&id);
+    }
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+    server.dirty += deleted;
+    addReplyLongLong(c,deleted);
+}
+
+/* General form: XTRIM <key> [... options ...]
+ *
+ * List of options:
+ *
+ * MAXLEN [~] <count>       -- Trim so that the stream will be capped at
+ *                             the specified length. Use ~ before the
+ *                             count in order to demand approximated trimming
+ *                             (like XADD MAXLEN option).
+ */
+
+#define TRIM_STRATEGY_NONE 0
+#define TRIM_STRATEGY_MAXLEN 1
+void xtrimCommand(client *c) {
+    robj *o;
+
+    /* If the key does not exist, we are ok returning zero, that is, the
+     * number of elements removed from the stream. */
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL
+        || checkType(c,o,OBJ_STREAM)) return;
+    stream *s = o->ptr;
+
+    /* Argument parsing. */
+    int trim_strategy = TRIM_STRATEGY_NONE;
+    long long maxlen = 0;   /* 0 means no maximum length. */
+    int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
+                               the maxium length is not applied verbatim. */
+
+    /* Parse options. */
+    int i = 2; /* Start of options. */
+    for (; i < c->argc; i++) {
+        int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
+        char *opt = c->argv[i]->ptr;
+        if (!strcasecmp(opt,"maxlen") && moreargs) {
+            trim_strategy = TRIM_STRATEGY_MAXLEN;
+            char *next = c->argv[i+1]->ptr;
+            /* Check for the form MAXLEN ~ <count>. */
+            if (moreargs >= 2 && next[0] == '~' && next[1] == '\0') {
+                approx_maxlen = 1;
+                i++;
+            }
+            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&maxlen,NULL)
+                != C_OK) return;
+            i++;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Perform the trimming. */
+    int64_t deleted = 0;
+    if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        deleted = streamTrimByLength(s,maxlen,approx_maxlen);
+    } else {
+        addReplyError(c,"XTRIM called without an option to trim the stream");
+        return;
+    }
+
+    /* Propagate the write if needed. */
+    if (deleted) {
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
+}
+
+/* XINFO CONSUMERS key group
+ * XINFO GROUPS <key>
+ * XINFO STREAM <key>
+ * XINFO <key> (alias of XINFO STREAM key)
+ * XINFO HELP. */
 void xinfoCommand(client *c) {
     const char *help[] = {
-"<key> CONSUMERS <groupname>  -- Show consumer groups of group <groupname>.",
-"<key> GROUPS                 -- Show the stream consumer groups.",
-"<key> STREAM                 -- Show information about the stream.",
-"<key> (without subcommand)   -- Alias for <key> STREAM.",
-"<key> HELP                   -- Prints this help.",
+"CONSUMERS <key> <groupname>  -- Show consumer groups of group <groupname>.",
+"GROUPS <key>                 -- Show the stream consumer groups.",
+"STREAM <key>                 -- Show information about the stream.",
+"<key>                        -- Alias for STREAM <key>.",
+"HELP                         -- Print this help.",
 NULL
     };
     stream *s = NULL;
-    char *opt = c->argc > 2 ? c->argv[2]->ptr : "STREAM"; /* Subcommand. */
+    char *opt;
+    robj *key;
+
+    /* HELP is special. Handle it ASAP. */
+    if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
+        addReplyHelp(c, help);
+        return;
+    }
+
+    /* Handle the fact that no subcommand means "STREAM". */
+    if (c->argc == 2) {
+        opt = "STREAM";
+        key = c->argv[1];
+    } else {
+        opt = c->argv[1]->ptr;
+        key = c->argv[2];
+    }
 
     /* Lookup the key now, this is common for all the subcommands but HELP. */
-    if (c->argc >= 2 && strcasecmp(opt,"HELP")) {
-        robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
-        if (o == NULL) return;
-        s = o->ptr;
-    }
+    robj *o = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
+    if (o == NULL) return;
+    s = o->ptr;
 
     /* Dispatch the different subcommands. */
     if (!strcasecmp(opt,"CONSUMERS") && c->argc == 4) {
-        /* XINFO <key> CONSUMERS <group>. */
+        /* XINFO CONSUMERS <key> <group>. */
         streamCG *cg = streamLookupCG(s,c->argv[3]->ptr);
         if (cg == NULL) {
             addReplyErrorFormat(c, "-NOGROUP No such consumer group '%s' "
                                    "for key name '%s'",
-                                   c->argv[3]->ptr, c->argv[1]->ptr);
+                                   c->argv[3]->ptr, key->ptr);
             return;
         }
 
@@ -1971,7 +2161,7 @@ NULL
         }
         raxStop(&ri);
     } else if (!strcasecmp(opt,"GROUPS") && c->argc == 3) {
-        /* XINFO <key> GROUPS. */
+        /* XINFO GROUPS <key>. */
         if (s->cgroups == NULL) {
             addReplyMultiBulkLen(c,0);
             return;
@@ -1995,7 +2185,7 @@ NULL
     } else if (c->argc == 2 ||
                (!strcasecmp(opt,"STREAM") && c->argc == 3))
     {
-        /* XINFO <key> STREAM (or the alias XINFO <key>). */
+        /* XINFO STREAM <key> (or the alias XINFO <key>). */
         addReplyMultiBulkLen(c,12);
         addReplyStatus(c,"length");
         addReplyLongLong(c,s->length);
@@ -2020,10 +2210,8 @@ NULL
         count = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
                                      STREAM_RWR_RAWENTRIES,NULL);
         if (!count) addReply(c,shared.nullbulk);
-    } else if (!strcasecmp(opt,"HELP")) {
-        addReplyHelp(c, help);
     } else {
-        addReplyError(c,"syntax error, try 'XINFO anykey HELP'");
+        addReplyError(c,"syntax error, try 'XINFO HELP'");
     }
 }
 

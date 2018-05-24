@@ -97,7 +97,8 @@ typedef struct clusterLink {
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 #define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
-#define CLUSTERMSG_TYPE_COUNT 9         /* Total number of message types. */
+#define CLUSTERMSG_TYPE_MODULE 9        /* Module cluster API message. */
+#define CLUSTERMSG_TYPE_COUNT 10        /* Total number of message types. */
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
@@ -195,10 +196,7 @@ typedef struct {
 typedef struct {
     uint32_t channel_len;
     uint32_t message_len;
-    /* We can't reclare bulk_data as bulk_data[] since this structure is
-     * nested. The 8 bytes are removed from the count during the message
-     * length computation. */
-    unsigned char bulk_data[8];
+    unsigned char bulk_data[8]; /* 8 bytes just as placeholder. */
 } clusterMsgDataPublish;
 
 typedef struct {
@@ -206,6 +204,13 @@ typedef struct {
     char nodename[CLUSTER_NAMELEN]; /* Name of the slots owner. */
     unsigned char slots[CLUSTER_SLOTS/8]; /* Slots bitmap. */
 } clusterMsgDataUpdate;
+
+typedef struct {
+    uint64_t module_id;     /* ID of the sender module. */
+    uint32_t len;           /* ID of the sender module. */
+    uint8_t type;           /* Type from 0 to 255. */
+    unsigned char bulk_data[3]; /* 3 bytes just as placeholder. */
+} clusterMsgModule;
 
 union clusterMsgData {
     /* PING, MEET and PONG */
@@ -228,6 +233,11 @@ union clusterMsgData {
     struct {
         clusterMsgDataUpdate nodecfg;
     } update;
+
+    /* MODULE */
+    struct {
+        clusterMsgModule msg;
+    } module;
 };
 
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */

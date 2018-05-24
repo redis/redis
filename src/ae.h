@@ -83,6 +83,7 @@ typedef struct aeTimeEvent {
     aeTimeProc *timeProc;
     aeEventFinalizerProc *finalizerProc;
     void *clientData;
+    struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
 } aeTimeEvent;
 

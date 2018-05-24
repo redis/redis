@@ -34,6 +34,7 @@ set ::all_tests {
     unit/multi
     unit/quit
     unit/aofrw
+    integration/block-repl
     integration/replication
     integration/replication-2
     integration/replication-3
@@ -453,6 +454,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             puts $t
         }
         exit 0
+    } elseif {$opt eq {--verbose}} {
+        set ::verbose 1
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg

@@ -27,6 +27,7 @@ typedef struct stream {
  * rewriting code that also needs to iterate the stream to emit the XADD
  * commands. */
 typedef struct streamIterator {
+    stream *stream;         /* The stream we are iterating. */
     streamID master_id;     /* ID of the master entry at listpack head. */
     uint64_t master_fields_count;       /* Master entries # of fields. */
     unsigned char *master_fields_start; /* Master entries start in listpack. */
@@ -38,6 +39,7 @@ typedef struct streamIterator {
     raxIterator ri;         /* Rax iterator. */
     unsigned char *lp;      /* Current listpack. */
     unsigned char *lp_ele;  /* Current listpack cursor. */
+    unsigned char *lp_flags; /* Current entry flags pointer. */
     /* Buffers used to hold the string of lpGet() when the element is
      * integer encoded, so that there is no string representation of the
      * element inside the listpack itself. */
@@ -105,5 +107,6 @@ streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name, int create);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id);
 streamNACK *streamCreateNACK(streamConsumer *consumer);
+void streamDecodeID(void *buf, streamID *id);
 
 #endif
