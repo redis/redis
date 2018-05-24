@@ -1505,11 +1505,13 @@ static inline robj *createQuicklistObject(void) { return createQuicklistObjectA(
 static inline robj *createQuicklistObjectM(void) { return createQuicklistObjectA(m_alloc); }
 robj *createZiplistObject(void);
 robj *createSetObject(void);
-robj *createIntsetObject(void);
 robj *createHashObjectA(alloc a);
 static inline robj *createHashObject(void) {
     return createHashObjectA(z_alloc);
 }
+robj *createIntsetObjectA(alloc a);
+static inline robj *createIntsetObject(void) { return createIntsetObjectA(z_alloc);}
+static inline robj *createIntsetObjectM(void) { return createIntsetObjectA(m_alloc);}
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
@@ -1699,9 +1701,15 @@ void freeMemoryOverheadData(struct redisMemOverhead *mh);
 int restartServer(int flags, mstime_t delay);
 
 /* Set data type */
-robj *setTypeCreate(sds value);
-int setTypeAdd(robj *subject, sds value);
-int setTypeRemove(robj *subject, sds value);
+robj *setTypeCreateA(sds value, alloc a);
+static inline robj *setTypeCreate(sds value) { return setTypeCreateA(value, z_alloc);}
+static inline robj *setTypeCreateM(sds value) { return setTypeCreateA(value, m_alloc);}
+int setTypeAddA(robj *subject, sds value, alloc a);
+static inline int setTypeAdd(robj *subject, sds value) { return setTypeAddA(subject, value, z_alloc); }
+static inline int setTypeAddM(robj *subject, sds value) { return setTypeAddA(subject, value, m_alloc); }
+int setTypeRemoveA(robj *subject, sds value, alloc a);
+static inline int setTypeRemove(robj *subject, sds value) { return setTypeRemoveA(subject, value, z_alloc); }
+static inline int setTypeRemoveM(robj *subject, sds value) { return setTypeRemoveA(subject, value, m_alloc); }
 int setTypeIsMember(robj *subject, sds value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
