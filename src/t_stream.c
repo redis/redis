@@ -1073,7 +1073,7 @@ void xaddCommand(client *c) {
     int field_pos = i+1;
 
     /* Check arity. */
-    if ((c->argc - field_pos) < 2 || (c->argc-field_pos % 2) == 1) {
+    if ((c->argc - field_pos) < 2 || ((c->argc-field_pos) % 2) == 1) {
         addReplyError(c,"wrong number of arguments for XADD");
         return;
     }
