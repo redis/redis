@@ -160,13 +160,12 @@ int getGenericCommand(client *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL)
         return C_OK;
 
-    if (o->type != OBJ_STRING) {
-        addReply(c,shared.wrongtypeerr);
+    if (checkType(c, o, OBJ_STRING)) {
         return C_ERR;
-    } else {
-        addReplyBulk(c,o);
-        return C_OK;
     }
+
+    addReplyBulk(c,o);
+    return C_OK;
 }
 
 void getCommand(client *c) {

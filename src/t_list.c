@@ -198,8 +198,7 @@ void pushGenericCommand(client *c, int where) {
     int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
-    if (lobj && lobj->type != OBJ_LIST) {
-        addReply(c,shared.wrongtypeerr);
+    if (lobj && checkType(c, lobj, OBJ_LIST)) {
         return;
     }
 
@@ -691,36 +690,35 @@ void blockingPopGenericCommand(client *c, int where) {
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
         if (o != NULL) {
-            if (o->type != OBJ_LIST) {
-                addReply(c,shared.wrongtypeerr);
+            if (checkType(c, o, OBJ_LIST)) {
                 return;
-            } else {
-                if (listTypeLength(o) != 0) {
-                    /* Non empty list, this is like a non normal [LR]POP. */
-                    char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
-                    robj *value = listTypePop(o,where);
-                    serverAssert(value != NULL);
+            }
 
-                    addReplyMultiBulkLen(c,2);
-                    addReplyBulk(c,c->argv[j]);
-                    addReplyBulk(c,value);
-                    decrRefCount(value);
-                    notifyKeyspaceEvent(NOTIFY_LIST,event,
-                                        c->argv[j],c->db->id);
-                    if (listTypeLength(o) == 0) {
-                        dbDelete(c->db,c->argv[j]);
-                        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
-                                            c->argv[j],c->db->id);
-                    }
-                    signalModifiedKey(c->db,c->argv[j]);
-                    server.dirty++;
+            if (listTypeLength(o) != 0) {
+                /* Non empty list, this is like a non normal [LR]POP. */
+                char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
+                robj *value = listTypePop(o,where);
+                serverAssert(value != NULL);
 
-                    /* Replicate it as an [LR]POP instead of B[LR]POP. */
-                    rewriteClientCommandVector(c,2,
+                addReplyMultiBulkLen(c,2);
+                addReplyBulk(c,c->argv[j]);
+                addReplyBulk(c,value);
+                decrRefCount(value);
+                notifyKeyspaceEvent(NOTIFY_LIST,event,
+                        c->argv[j],c->db->id);
+                if (listTypeLength(o) == 0) {
+                    dbDelete(c->db,c->argv[j]);
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",
+                            c->argv[j],c->db->id);
+                }
+                signalModifiedKey(c->db,c->argv[j]);
+                server.dirty++;
+
+                /* Replicate it as an [LR]POP instead of B[LR]POP. */
+                rewriteClientCommandVector(c,2,
                         (where == LIST_HEAD) ? shared.lpop : shared.rpop,
                         c->argv[j]);
-                    return;
-                }
+                return;
             }
         }
     }
@@ -762,13 +760,13 @@ void brpoplpushCommand(client *c) {
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,c->argv[2],NULL);
         }
     } else {
-        if (key->type != OBJ_LIST) {
-            addReply(c, shared.wrongtypeerr);
-        } else {
-            /* The list exists and has elements, so
-             * the regular rpoplpushCommand is executed. */
-            serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-            rpoplpushCommand(c);
+        if (checkType(c, key, OBJ_LIST)) {
+            return;
         }
+
+        /* The list exists and has elements, so
+         * the regular rpoplpushCommand is executed. */
+        serverAssertWithInfo(c,key,listTypeLength(key) > 0);
+        rpoplpushCommand(c);
     }
 }
