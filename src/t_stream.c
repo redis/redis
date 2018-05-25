@@ -981,8 +981,10 @@ int string2ull(const char *s, unsigned long long *value) {
         return 1;
     }
     errno = 0;
-    *value = strtoull(s,NULL,10);
-    if (errno == EINVAL || errno == ERANGE) return 0; /* strtoull() failed. */
+    char *endptr = NULL;
+    *value = strtoull(s,&endptr,10);
+    if (errno == EINVAL || errno == ERANGE || !(*s != '\0' && *endptr == '\0'))
+        return 0; /* strtoull() failed. */
     return 1; /* Conversion done! */
 }
 
@@ -1061,11 +1063,10 @@ void xaddCommand(client *c) {
             maxlen_arg_idx = i;
         } else {
             /* If we are here is a syntax error or a valid ID. */
-            if (streamParseIDOrReply(NULL,c->argv[i],&id,0) == C_OK) {
+            if (streamParseIDOrReply(c,c->argv[i],&id,0) == C_OK) {
                 id_given = 1;
                 break;
             } else {
-                addReply(c,shared.syntaxerr);
                 return;
             }
         }
