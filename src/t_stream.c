@@ -1285,7 +1285,7 @@ void xreadCommand(client *c) {
                 addReplyErrorFormat(c, "-NOGROUP No such key '%s' or consumer "
                                        "group '%s' in XREADGROUP with GROUP "
                                        "option",
-                                    key->ptr,groupname->ptr);
+                                    (char*)key->ptr,(char*)groupname->ptr);
                 goto cleanup;
             }
             groups[id_idx] = group;
@@ -1549,7 +1549,7 @@ NULL
         {
             addReplyErrorFormat(c, "-NOGROUP No such consumer group '%s' "
                                    "for key name '%s'",
-                                   grpname, c->argv[2]->ptr);
+                                   (char*)grpname, (char*)c->argv[2]->ptr);
             return;
         }
     }
@@ -1675,7 +1675,7 @@ void xpendingCommand(client *c) {
     {
         addReplyErrorFormat(c, "-NOGROUP No such key '%s' or consumer "
                                "group '%s'",
-                               key->ptr,groupname->ptr);
+                               (char*)key->ptr,(char*)groupname->ptr);
         return;
     }
 
@@ -1851,8 +1851,8 @@ void xclaimCommand(client *c) {
      * is mandatory. */
     if (o == NULL || group == NULL) {
         addReplyErrorFormat(c,"-NOGROUP No such key '%s' or "
-                              "consumer group '%s'", c->argv[1]->ptr,
-                              c->argv[2]->ptr);
+                              "consumer group '%s'", (char*)c->argv[1]->ptr,
+                              (char*)c->argv[2]->ptr);
         return;
     }
 
@@ -2137,7 +2137,7 @@ NULL
         if (cg == NULL) {
             addReplyErrorFormat(c, "-NOGROUP No such consumer group '%s' "
                                    "for key name '%s'",
-                                   c->argv[3]->ptr, key->ptr);
+                                   (char*)c->argv[3]->ptr, (char*)key->ptr);
             return;
         }
 
