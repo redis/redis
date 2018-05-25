@@ -13,7 +13,7 @@
 #if defined(__sun__)
 #define _POSIX_C_SOURCE 200112L
 #else
-#if !(defined(__APPLE__) && defined(__MACH__))
+#if !(defined(__APPLE__) && defined(__MACH__)) && !(defined(__FreeBSD__))
 #define _XOPEN_SOURCE 600
 #endif
 #endif
