@@ -1593,7 +1593,7 @@ NULL
  * acknowledged, that is, the IDs we were actually able to resolve in the PEL.
  */
 void xackCommand(client *c) {
-    streamCG *group;
+    streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     if (o) {
         if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
@@ -1832,7 +1832,7 @@ void xpendingCommand(client *c) {
  * successfully claimed, so that the caller is able to understand
  * what messages it is now in charge of. */
 void xclaimCommand(client *c) {
-    streamCG *group;
+    streamCG *group = NULL;
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument. */
     long long retrycount = -1;   /* -1 means RETRYCOUNT option not given. */
