@@ -585,7 +585,7 @@ dictType dbDictType = {
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructorM,         /* key destructor */
-    dictObjectDestructor   /* val destructor */
+    dictObjectDestructor        /* val destructor */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
@@ -624,8 +624,8 @@ dictType hashDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor           /* val destructor */
+    dictSdsDestructorM,          /* key destructor */
+    dictSdsDestructorM          /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and

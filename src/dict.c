@@ -45,13 +45,14 @@
 
 #include "dict.h"
 #include "zmalloc.h"
+#include "alloc.h"
 #ifndef DICT_BENCHMARK_MAIN
 #include "redisassert.h"
 #else
 #include <assert.h>
 #endif
 
-/* Using dictEnableResize() / dictDisableResize() we make possible to
+/* Using dictEnableResize() / dictDisableResie() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
