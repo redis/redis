@@ -989,7 +989,7 @@ int string2ull(const char *s, unsigned long long *value) {
 }
 
 /* Parse a stream ID in the format given by clients to Redis, that is
- * <ms>.<seq>, and converts it into a streamID structure. If
+ * <ms>-<seq>, and converts it into a streamID structure. If
  * the specified ID is invalid C_ERR is returned and an error is reported
  * to the client, otherwise C_OK is returned. The ID may be in incomplete
  * form, just stating the milliseconds time part of the stream. In such a case
@@ -1014,7 +1014,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
         return C_OK;
     }
 
-    /* Parse <ms>.<seq> form. */
+    /* Parse <ms>-<seq> form. */
     char *dot = strchr(buf,'-');
     if (dot) *dot = '\0';
     unsigned long long ms, seq;
