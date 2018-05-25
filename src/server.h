@@ -1504,7 +1504,6 @@ robj *createQuicklistObjectA(alloc a);
 static inline robj *createQuicklistObject(void) { return createQuicklistObjectA(z_alloc); }
 static inline robj *createQuicklistObjectM(void) { return createQuicklistObjectA(m_alloc); }
 robj *createZiplistObject(void);
-robj *createSetObject(void);
 robj *createHashObjectA(alloc a);
 static inline robj *createHashObject(void) {
     return createHashObjectA(z_alloc);
@@ -1512,6 +1511,9 @@ static inline robj *createHashObject(void) {
 robj *createIntsetObjectA(alloc a);
 static inline robj *createIntsetObject(void) { return createIntsetObjectA(z_alloc); }
 static inline robj *createIntsetObjectM(void) { return createIntsetObjectA(m_alloc); }
+robj *createSetObjectA(alloc a);
+static inline robj *createSetObject(void){return createSetObjectA(z_alloc);}
+static inline robj *createSetObjectM(void){return createSetObjectA(m_alloc);}
 robj *createZsetObjectA(alloc a);
 static inline robj *createZsetObject(void){ return createZsetObjectA(z_alloc); }
 static inline robj *createZsetObjectM(void){ return createZsetObjectA(m_alloc); }
@@ -1725,7 +1727,9 @@ sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, sds *sdsele, int64_t *llele);
 unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set);
 unsigned long setTypeSize(const robj *subject);
-void setTypeConvert(robj *subject, int enc);
+void setTypeConvertA(robj *subject, int enc, alloc a);
+static inline void setTypeConvert(robj *subject, int enc){setTypeConvertA(subject, enc, z_alloc);}
+static inline void setTypeConvertM(robj *subject, int enc){setTypeConvertA(subject, enc, m_alloc);}
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)

@@ -85,7 +85,6 @@ robj *createRawStringObjectA(const char *ptr, size_t len, alloc a) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a) {
-    //robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
@@ -201,9 +200,10 @@ robj *createZiplistObject(void) {
     return o;
 }
 
-robj *createSetObject(void) {
+robj *createSetObjectA(alloc a) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
+    o->a = a;
     o->encoding = OBJ_ENCODING_HT;
     return o;
 }
