@@ -100,7 +100,7 @@ ifeq ($(uname_S),FreeBSD)
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
-	FINAL_LIBS+=-ldl -pthread
+	FINAL_LIBS+=-ldl -pthread -lrt
 endif
 endif
 endif
