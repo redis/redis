@@ -1063,12 +1063,9 @@ void xaddCommand(client *c) {
             maxlen_arg_idx = i;
         } else {
             /* If we are here is a syntax error or a valid ID. */
-            if (streamParseIDOrReply(c,c->argv[i],&id,0) == C_OK) {
-                id_given = 1;
-                break;
-            } else {
-                return;
-            }
+            if (streamParseIDOrReply(c,c->argv[i],&id,0) != C_OK) return;
+            id_given = 1;
+            break;
         }
     }
     int field_pos = i+1;
