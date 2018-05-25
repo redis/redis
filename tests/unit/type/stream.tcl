@@ -145,17 +145,17 @@ start_server {
     }
 
     test {XREAD with non empty stream} {
-        set res [r XREAD COUNT 1 STREAMS mystream 0.0]
+        set res [r XREAD COUNT 1 STREAMS mystream 0-0]
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
 
     test {Non blocking XREAD with empty streams} {
-        set res [r XREAD STREAMS s1 s2 0.0 0.0]
+        set res [r XREAD STREAMS s1 s2 0-0 0-0]
         assert {$res eq {}}
     }
 
     test {XREAD with non empty second stream} {
-        set res [r XREAD COUNT 1 STREAMS nostream mystream 0.0 0.0]
+        set res [r XREAD COUNT 1 STREAMS nostream mystream 0-0 0-0]
         assert {[lindex $res 0 0] eq {mystream}}
         assert {[lrange [lindex $res 0 1 0 1] 0 1] eq {item 0}}
     }
@@ -172,7 +172,7 @@ start_server {
 
     test {Blocking XREAD waiting old data} {
         set rd [redis_deferring_client]
-        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ 0.0 $
+        $rd XREAD BLOCK 20000 STREAMS s1 s2 s3 $ 0-0 $
         r XADD s2 * foo abcd1234
         set res [$rd read]
         assert {[lindex $res 0 0] eq {s2}}
