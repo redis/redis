@@ -1272,7 +1272,7 @@ void xreadCommand(client *c) {
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
         robj *o;
-        streamCG *group;
+        streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
          * key and group actually exist. */
