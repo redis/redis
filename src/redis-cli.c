@@ -5832,8 +5832,12 @@ static void getKeyTypes(redisReply *keys, int *types) {
     unsigned int i;
 
     /* Pipeline TYPE commands */
+    static const char *type_buf[2] = {"TYPE", ""};
+    static size_t type_len[2] = {4, 0};
     for(i=0;i<keys->elements;i++) {
-        redisAppendCommand(context, "TYPE %s", keys->element[i]->str);
+        type_buf[1] = keys->element[i]->str;
+        type_len[1] = keys->element[i]->len;
+        redisAppendCommandArgv(context, 2, type_buf, type_len);
     }
 
     /* Retrieve types */
@@ -5866,13 +5870,18 @@ static void getKeySizes(redisReply *keys, int *types,
     unsigned int i;
 
     /* Pipeline size commands */
+    const char *type_buf[2];
+    size_t type_len[2];
     for(i=0;i<keys->elements;i++) {
         /* Skip keys that were deleted */
         if(types[i]==TYPE_NONE)
             continue;
 
-        redisAppendCommand(context, "%s %s", sizecmds[types[i]],
-            keys->element[i]->str);
+        type_buf[0] = sizecmds[types[i]];
+        type_buf[1] = keys->element[i]->str;
+        type_len[0] = strlen(type_buf[0]);
+        type_len[1] = keys->element[i]->len;
+        redisAppendCommandArgv(context, 2, type_buf, type_len);
     }
 
     /* Retreive sizes */
