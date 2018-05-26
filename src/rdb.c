@@ -988,16 +988,13 @@ size_t rdbSavedObjectLen(robj *o) {
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
-                        long long expiretime, long long now)
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime)
 {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
     /* Save the expire time */
     if (expiretime != -1) {
-        /* If this key is already expired skip it */
-        if (expiretime < now) return 0;
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
         if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
     }
@@ -1091,7 +1088,6 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
     dictEntry *de;
     char magic[10];
     int j;
-    long long now = mstime();
     uint64_t cksum;
     size_t processed = 0;
 
@@ -1134,7 +1130,7 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
 
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
