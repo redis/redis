@@ -458,6 +458,10 @@ int freeMemoryIfNeeded(void) {
 
     mem_freed = 0;
 
+    /* Eviction can only happen on master, or it may cause inconsistency. */
+    if (server.masterhost)
+        goto cant_free;
+
     if (server.maxmemory_policy == MAXMEMORY_NO_EVICTION)
         goto cant_free; /* We need to free memory, but policy forbids. */
 
