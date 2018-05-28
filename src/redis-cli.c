@@ -4887,7 +4887,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
         listRewind(involved, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
-            if (n->balance < 0 && total_balance > 0) {
+            if (n->balance <= 0 && total_balance > 0) {
                 n->balance--;
                 total_balance--;
             }
