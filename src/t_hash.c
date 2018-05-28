@@ -46,7 +46,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
         if (sdsEncodedObject(argv[i]) &&
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
         {
-            hashTypeConvert(o, OBJ_ENCODING_HT);
+            hashTypeConvertM(o, OBJ_ENCODING_HT);
             break;
         }
     }
@@ -199,7 +199,8 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
-int hashTypeSet(robj *o, sds field, sds value, int flags) {
+
+int hashTypeSetA(robj *o, sds field, sds value, int flags, alloc a) {
     int update = 0;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -216,35 +217,35 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 update = 1;
 
                 /* Delete value */
-                zl = ziplistDelete(zl, &vptr);
+                zl = ziplistDeleteA(zl, &vptr, a);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
+                zl = ziplistInsertA(zl, vptr, (unsigned char*)value,
+                        sdslen(value), a);
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, (unsigned char*)field, sdslen(field),
-                    ZIPLIST_TAIL);
-            zl = ziplistPush(zl, (unsigned char*)value, sdslen(value),
-                    ZIPLIST_TAIL);
+            zl = ziplistPushA(zl, (unsigned char*)field, sdslen(field),
+                    ZIPLIST_TAIL, a);
+            zl = ziplistPushA(zl, (unsigned char*)value, sdslen(value),
+                    ZIPLIST_TAIL, a);
         }
         o->ptr = zl;
 
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT);
+            hashTypeConvertA(o, OBJ_ENCODING_HT, a);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
-            sdsfree(dictGetVal(de));
+            sdsfreeA(dictGetVal(de), a);
             if (flags & HASH_SET_TAKE_VALUE) {
                 dictGetVal(de) = value;
                 value = NULL;
             } else {
-                dictGetVal(de) = sdsdup(value);
+                dictGetVal(de) = sdsdupA(value, a);
             }
             update = 1;
         } else {
@@ -253,13 +254,13 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 f = field;
                 field = NULL;
             } else {
-                f = sdsdup(field);
+                f = sdsdupA(field, a);
             }
             if (flags & HASH_SET_TAKE_VALUE) {
                 v = value;
                 value = NULL;
             } else {
-                v = sdsdup(value);
+                v = sdsdupA(value, a);
             }
             dictAdd(o->ptr,f,v);
         }
@@ -269,14 +270,14 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
     /* Free SDS strings we did not referenced elsewhere if the flags
      * want this function to be responsible. */
-    if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
-    if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
+    if (flags & HASH_SET_TAKE_FIELD && field) sdsfreeA(field, m_alloc);
+    if (flags & HASH_SET_TAKE_VALUE && value) sdsfreeA(value, m_alloc);
     return update;
 }
 
 /* Delete an element from a hash.
  * Return 1 on deleted and 0 on not found. */
-int hashTypeDelete(robj *o, sds field) {
+int hashTypeDeleteA(robj *o, sds field, alloc a) {
     int deleted = 0;
 
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -287,8 +288,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr); /* Delete the key. */
-                zl = ziplistDelete(zl,&fptr); /* Delete the value. */
+                zl = ziplistDeleteA(zl,&fptr, a); /* Delete the key. */
+                zl = ziplistDeleteA(zl,&fptr, a); /* Delete the value. */
                 o->ptr = zl;
                 deleted = 1;
             }
@@ -438,20 +439,21 @@ void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
 
 /* Return the key or value at the current iterator position as a new
  * SDS string. */
-sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
+sds hashTypeCurrentObjectNewSdsA(hashTypeIterator *hi, int what, alloc a) {
     unsigned char *vstr;
     unsigned int vlen;
     long long vll;
 
     hashTypeCurrentObject(hi,what,&vstr,&vlen,&vll);
-    if (vstr) return sdsnewlen(vstr,vlen);
-    return sdsfromlonglong(vll);
+    if (vstr) return sdsnewlenA(vstr,vlen,a);
+    return sdsfromlonglongA(vll,a);
 }
 
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
+
+robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
-        o = createHashObject();
+        o = createHashObjectA(a);
         dbAdd(c->db,key,o);
     } else {
         if (o->type != OBJ_HASH) {
@@ -462,7 +464,7 @@ robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
     return o;
 }
 
-void hashTypeConvertZiplist(robj *o, int enc) {
+void hashTypeConvertZiplist(robj *o, int enc, alloc a) {
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
 
     if (enc == OBJ_ENCODING_ZIPLIST) {
@@ -478,9 +480,8 @@ void hashTypeConvertZiplist(robj *o, int enc) {
 
         while (hashTypeNext(hi) != C_ERR) {
             sds key, value;
-
-            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-            value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            key = hashTypeCurrentObjectNewSdsA(hi,OBJ_HASH_KEY,a);
+            value = hashTypeCurrentObjectNewSdsA(hi,OBJ_HASH_VALUE,a);
             ret = dictAdd(dict, key, value);
             if (ret != DICT_OK) {
                 serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
@@ -489,7 +490,7 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             }
         }
         hashTypeReleaseIterator(hi);
-        zfree(o->ptr);
+        o->a->free(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;
     } else {
@@ -497,9 +498,9 @@ void hashTypeConvertZiplist(robj *o, int enc) {
     }
 }
 
-void hashTypeConvert(robj *o, int enc) {
+void hashTypeConvertA(robj *o, int enc, alloc a) {
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-        hashTypeConvertZiplist(o, enc);
+        hashTypeConvertZiplist(o, enc, a); // convert to ALLOC
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
     } else {
@@ -513,13 +514,13 @@ void hashTypeConvert(robj *o, int enc) {
 
 void hsetnxCommand(client *c) {
     robj *o;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreateA(c,c->argv[1], m_alloc)) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2]->ptr)) {
         addReply(c, shared.czero);
     } else {
-        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+        hashTypeSetM(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
@@ -536,11 +537,11 @@ void hsetCommand(client *c) {
         return;
     }
 
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreateA(c,c->argv[1], m_alloc)) == NULL) return;
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
 
     for (i = 2; i < c->argc; i += 2)
-        created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
+        created += !hashTypeSetM(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
 
     /* HMSET (deprecated) and HSET return value is different. */
     char *cmdname = c->argv[0]->ptr;
@@ -564,7 +565,7 @@ void hincrbyCommand(client *c) {
     unsigned int vlen;
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreateM(c,c->argv[1])) == NULL) return;
     if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
@@ -583,8 +584,8 @@ void hincrbyCommand(client *c) {
         return;
     }
     value += incr;
-    new = sdsfromlonglong(value);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
+    new = sdsfromlonglongA(value, m_alloc);
+    hashTypeSetM(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyLongLong(c,value);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
@@ -600,7 +601,7 @@ void hincrbyfloatCommand(client *c) {
     unsigned int vlen;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    if ((o = hashTypeLookupWriteOrCreateM(c,c->argv[1])) == NULL) return;
     if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
         if (vstr) {
             if (string2ld((char*)vstr,vlen,&value) == 0) {
@@ -618,8 +619,8 @@ void hincrbyfloatCommand(client *c) {
 
     char buf[256];
     int len = ld2string(buf,sizeof(buf),value,1);
-    new = sdsnewlen(buf,len);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
+    new = sdsnewlenM(buf,len);
+    hashTypeSetM(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
     addReplyBulkCBuffer(c,buf,len);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
@@ -707,7 +708,7 @@ void hdelCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
+        if (hashTypeDeleteA(o,c->argv[j]->ptr, m_alloc)) {
             deleted++;
             if (hashTypeLength(o) == 0) {
                 dbDelete(c->db,c->argv[1]);

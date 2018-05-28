@@ -84,7 +84,7 @@ jemalloc: .make-prerequisites
 #	cd jemalloc_JE/ && ./autogen.sh
 #	mkdir -p jemalloc_JE/obj
 	cd jemalloc_JE && ./autogen.sh
-	cd jemalloc_JE && ./configure --with-jemalloc-prefix=je_ --with-private-namespace= --without-_export
+	cd jemalloc_JE && ./configure --with-jemalloc-prefix=je_ --with-private-namespace=
 	cd jemalloc_JE && make -j $(nproc)
 	
 .PHONY: jemalloc

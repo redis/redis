@@ -1308,6 +1308,7 @@ extern dictType dbDictType;
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
+extern dictType hashDictTypeM;
 extern dictType replScriptCacheDictType;
 extern dictType keyptrDictType;
 extern dictType modulesDictType;
@@ -1505,7 +1506,10 @@ static inline robj *createQuicklistObjectM(void) { return createQuicklistObjectA
 robj *createZiplistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
-robj *createHashObject(void);
+robj *createHashObjectA(alloc a);
+static inline robj *createHashObject(void) {
+    return createHashObjectA(z_alloc);
+}
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
@@ -1713,11 +1717,18 @@ void setTypeConvert(robj *subject, int enc);
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
 
-void hashTypeConvert(robj *o, int enc);
+void hashTypeConvertA(robj *o, int enc, alloc a);
+static inline void hashTypeConvert(robj *o, int enc) { hashTypeConvertA(o,enc,z_alloc); }
+static inline void hashTypeConvertM(robj *o, int enc) { hashTypeConvertA(o,enc,m_alloc); }
+
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
 int hashTypeExists(robj *o, sds key);
-int hashTypeDelete(robj *o, sds key);
+int hashTypeDeleteA(robj *o, sds key, alloc a);
+static inline int hashTypeDelete(robj *o, sds key) {
+    return hashTypeDeleteA(o, key, z_alloc);
+}
+
 unsigned long hashTypeLength(const robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
@@ -1728,10 +1739,30 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
                                 long long *vll);
 sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what);
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll);
-sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key);
+sds hashTypeCurrentObjectNewSdsA(hashTypeIterator *hi, int what, alloc a);
+static inline sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
+    return hashTypeCurrentObjectNewSdsA(hi, what, z_alloc);
+}
+static inline sds hashTypeCurrentObjectNewSdsM(hashTypeIterator *hi, int what) {
+    return hashTypeCurrentObjectNewSdsA(hi, what, m_alloc);
+}
+
+robj *hashTypeLookupWriteOrCreateA(client *c, robj *key, alloc a);
+static inline robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
+    return hashTypeLookupWriteOrCreateA(c, key, z_alloc);
+}
+static inline robj *hashTypeLookupWriteOrCreateM(client *c, robj *key) {
+    return hashTypeLookupWriteOrCreateA(c, key, m_alloc);
+}
+
 robj *hashTypeGetValueObject(robj *o, sds field);
-int hashTypeSet(robj *o, sds field, sds value, int flags);
+int hashTypeSetA(robj *o, sds field, sds value, int flags, alloc a);
+static inline int hashTypeSet(robj *o, sds field, sds value, int flags) {
+    return hashTypeSetA(o, field, value, flags, z_alloc);
+}
+static inline int hashTypeSetM(robj *o, sds field, sds value, int flags) {
+    return hashTypeSetA(o, field, value, flags, m_alloc);
+}
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -1771,6 +1802,7 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
 void dbAddZ(redisDb *db, robj *key, robj *val);
+void dbAddM(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
 void setKey(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
