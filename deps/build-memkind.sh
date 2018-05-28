@@ -35,7 +35,7 @@ if [ ! -f ./jemalloc/obj/lib/libjemalloc_pic.a ]; then
 	fi
 	mkdir -p obj
 	cd obj
-	../configure --with-jemalloc-prefix=$JE_PREFIX --enable-autogen --with-version=4.5.0-0-g0
+	../configure --with-jemalloc-prefix=$JE_PREFIX --enable-autogen --with-version=4.5.0-0-g0 --with-private-namespace=mk_
 
 	make -j`nproc`
 	cd ../..

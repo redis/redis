@@ -38,6 +38,7 @@ distclean:
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd memkind/jemalloc/obj && $(MAKE) distclean) > /dev/null || true
 	-(cd memkind && $(MAKE) distclean) > /dev/null || true
+	-(cd jemalloc_JE && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -51,7 +52,6 @@ hiredis: .make-prerequisites
 linenoise: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	cd linenoise && $(MAKE)
-
 .PHONY: linenoise
 
 ifeq ($(uname_S),SunOS)
@@ -78,3 +78,13 @@ memkind: .make-prerequisites
 	./build-memkind.sh
 
 .PHONY: memkind
+
+jemalloc: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+#	cd jemalloc_JE/ && ./autogen.sh
+#	mkdir -p jemalloc_JE/obj
+	cd jemalloc_JE && ./autogen.sh
+	cd jemalloc_JE && ./configure --with-jemalloc-prefix=je_ --with-private-namespace=
+	cd jemalloc_JE && make -j $(nproc)
+	
+.PHONY: jemalloc

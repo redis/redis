@@ -16,14 +16,15 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
-DEPENDENCY_TARGETS=hiredis linenoise lua memkind
+DEPENDENCY_TARGETS=hiredis linenoise lua jemalloc memkind
 NODEPS:=clean distclean
 
 # Default settings
 STD=-std=c99 -pedantic -DREDIS_STATIC=''
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
-JEMALLOC_PATH=../deps/memkind
+JEMALLOC_PATH=../deps/jemalloc_JE/
+MEMKIND_PATH=../deps/memkind
 PREFIX?=/usr/local
 INSTALL_BIN=$(PREFIX)/bin
 INSTALL=install
@@ -121,13 +122,13 @@ ifeq ($(MALLOC),tcmalloc_minimal)
 endif
 
 ifeq ($(MALLOC),jemalloc)
-	FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(JEMALLOC_PATH)/jemalloc/include
-	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
-	FINAL_CFLAGS+= -DJE_PREFIX=jemk_
-	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/include
-	FINAL_LIBS+= $(JEMALLOC_PATH)/jemalloc/obj/lib/libjemalloc.a
+	FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(JEMALLOC_PATH)/include
+#	FINAL_CFLAGS+= -I$(JEMALLOC_PATH)/jemalloc/obj/include
+	FINAL_CFLAGS+= -DJE_PREFIX=je_
+	FINAL_CFLAGS+= -I$(MEMKIND_PATH)/include
 	FINAL_LIBS+= -ldl
-	FINAL_LIBS+= -L$(JEMALLOC_PATH)/.libs -lmemkind
+	FINAL_LIBS+= -L$(MEMKIND_PATH)/.libs -lmemkind
+	FINAL_LIBS+= -L$(JEMALLOC_PATH)/lib/ -ljemalloc
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)

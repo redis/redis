@@ -1184,7 +1184,7 @@ void memoryCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"malloc-stats") && c->argc == 2) {
 #if defined(USE_JEMALLOC)
         sds info = sdsempty();
-        jemk_malloc_stats_print(inputCatSds, &info, NULL);
+        je_malloc_stats_print(inputCatSds, &info, NULL);
         addReplyBulkSds(c, info);
 #else
         addReplyBulkCString(c,"Stats not supported for the current allocator");
@@ -1197,9 +1197,9 @@ void memoryCommand(client *c) {
         char tmp[32];
         unsigned narenas = 0;
         size_t sz = sizeof(unsigned);
-        if (!jemk_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
+        if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
             sprintf(tmp, "arena.%d.purge", narenas);
-            if (!jemk_mallctl(tmp, NULL, 0, NULL, 0)) {
+            if (!je_mallctl(tmp, NULL, 0, NULL, 0)) {
                 addReply(c, shared.ok);
                 return;
             }

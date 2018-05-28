@@ -27,6 +27,6 @@ test -e configure || autoconf
 test -e obj || mkdir obj
 cd obj
 ../configure --enable-autogen --with-jemalloc-prefix=jemk_ --without-export \
-             --disable-stats --disable-fill --disable-valgrind \
+             --disable-stats --disable-fill --disable-valgrind --with-private-namespace=mk_ \
              --with-malloc-conf="lg_chunk:22" #4MB chunksize
 make -j`nproc`
