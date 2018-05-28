@@ -48,6 +48,7 @@ int memkind_pmem_destroy(struct memkind *kind);
 void *memkind_pmem_mmap(struct memkind *kind, void *addr, size_t size);
 int memkind_pmem_get_mmap_flags(struct memkind *kind, int *flags);
 int memkind_pmem_get_size(struct memkind *kind, size_t *total, size_t *free);
+size_t jemk_malloc_usable_size(void *ptr);
 
 struct memkind_pmem {
     int fd;
