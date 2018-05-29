@@ -1,16 +1,87 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis 5.0 release notes
+=======================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
 
-    http://download.redis.io/releases/redis-stable.tar.gz
+Redis 5.0 RC1   Released Tue May 29 14:14:11 CEST 2018
+================================================================================
 
-More information is available at http://redis.io
+Upgrade urgency LOW: This is the first RC of Redis 5.
 
-Happy hacking!
+Introduction to the Redis 5 release
+===================================
+
+Redis 5 is a release focused on a few important features. While Redis 4
+was very very focused on operations, Redis 5 changes are mostly user-facing,
+with the implementation of new data types and operations on top of existing
+types. The following are the major features of this release:
+
+1. The new Stream data type. https://redis.io/topics/streams-intro
+2. New Redis modules APIs: Timers and Cluster API.
+3. RDB now store LFU and LRU information.
+4. The cluster manager was ported from Ruby (redis-trib.rb) to C code
+   inside redis-cli. Check `redis-cli --cluster help` for more info.
+5. New sorted set commands: ZPOPMIN/MAX and blocking variants.
+6. Active defragmentation version 2.
+7. Improvemenets in HyperLogLog implementations.
+8. Better memory reporting capabilities.
+9. Many commands with sub-commands now have an HELP subcommand.
+10. Better performances when clients connect and disconnect often.
+11. Many bug fixes and other random improvements.
+12. Jemalloc was upgraded to version 5.1
+
+Thanks to all the users and developers who made this release possible.
+We'll follow up with more RC releases, until the code looks production ready
+and we don't get reports of serious issues for a while.
+
+A special thank you for the amount of work put into this release
+(in decreasing number of commits) by:
+
+Fabio Nicotra, <artix2@gmail.com>
+Soloestoy <zhaozhao.zz@alibaba-inc.com>
+Itamar Haber <itamar@redislabs.com>
+Oran Agra <oran@redislabs.com>
+Dvir Volk <dvirsky@gmail.com>
+dejun.xdj <dejun.xdj@alibaba-inc.com>
+Guy Benoish <guy.benoish@redislabs.com>
+Charsyam <charsyam@gmail.com>
+Otmar Ertl <otmar.ertl@gmail.com>
+Jan-Erik Rediger <janerik@fnordig.de>
+Spinlock <wnzheng@gmail.com>
+
+Migrating from 4.0 to 5.0
+=========================
+
+Redis 4.0 is mostly a strict subset of 5.0, you should not have any problem
+upgrading your application from 4.0 to 5.0. However this is a list of small
+non-backward compatible changes introduced in the 5.0 release:
+
+* redis-cli now implements the cluster management tool. We still ship the
+  old redis-trib, but new fixes will be implemented only in redis-cli.
+  See `redis-cli --cluster help` for more info.
+
+* The RDB format changed. Redis 5.0 is still able to read 4.0 (and all the
+  past versions) files, but not the other way around.
+
+* Certain log formats and sentences are different in Redis 5.0.
+
+--------------------------------------------------------------------------------
+
+Credits: For each release, a list of changes with the relative author is
+provided. Where not specified the implementation and design is done by
+Salvatore Sanfilippo. Thanks to Redis Labs for making all this possible.
+Also many thanks to all the other contributors and the amazing community
+we have.
+
+Commit messages may contain additional credits.
+
+Enjoy,
+Salvatore
