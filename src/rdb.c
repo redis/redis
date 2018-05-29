@@ -1845,7 +1845,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
     }
 
     /* Key-specific attributes, set by opcodes before the key type. */
-    long long expiretime = -1, now = mstime();
+    long long expiretime = -1;
     long long lru_clock = LRU_CLOCK();
     uint64_t lru_idle = -1;
     int lfu_freq = -1;
@@ -1987,34 +1987,30 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi) {
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
-            decrRefCount(key);
-            decrRefCount(val);
+
+        /* Add the new object in the hash table */
+        dbAdd(db,key,val);
+
+        /* Set the expire time if needed */
+        if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+        if (lfu_freq != -1) {
+            val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
         } else {
-            /* Add the new object in the hash table */
-            dbAdd(db,key,val);
-
-            /* Set the expire time if needed */
-            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-            if (lfu_freq != -1) {
-                val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
-            } else {
-                /* LRU idle time loaded from RDB is in seconds. Scale
-                 * according to the LRU clock resolution this Redis
-                 * instance was compiled with (normaly 1000 ms, so the
-                 * below statement will expand to lru_idle*1000/1000. */
-                lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
-                val->lru = lru_clock - lru_idle;
-                /* If the lru field overflows (since LRU it is a wrapping
-                 * clock), the best we can do is to provide the maxium
-                 * representable idle time. */
-                if (val->lru < 0) val->lru = lru_clock+1;
-            }
-
-            /* Decrement the key refcount since dbAdd() will take its
-             * own reference. */
-            decrRefCount(key);
+            /* LRU idle time loaded from RDB is in seconds. Scale
+             * according to the LRU clock resolution this Redis
+             * instance was compiled with (normaly 1000 ms, so the
+             * below statement will expand to lru_idle*1000/1000. */
+            lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
+            val->lru = lru_clock - lru_idle;
+            /* If the lru field overflows (since LRU it is a wrapping
+             * clock), the best we can do is to provide the maxium
+             * representable idle time. */
+            if (val->lru < 0) val->lru = lru_clock+1;
         }
+
+        /* Decrement the key refcount since dbAdd() will take its
+         * own reference. */
+        decrRefCount(key);
 
         /* Reset the state that is key-specified and is populated by
          * opcodes before the key, so that we start from scratch again. */
