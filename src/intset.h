@@ -31,16 +31,19 @@
 #ifndef __INTSET_H
 #define __INTSET_H
 #include <stdint.h>
-
+#include "alloc.h"
 typedef struct intset {
     uint32_t encoding;
     uint32_t length;
     int8_t contents[];
 } intset;
 
-intset *intsetNew(void);
-intset *intsetAdd(intset *is, int64_t value, uint8_t *success);
-intset *intsetRemove(intset *is, int64_t value, int *success);
+intset *intsetNewA(alloc a);
+static inline intset *intsetNewM(void) { return intsetNewA(m_alloc); }
+intset *intsetAddA(intset *is, int64_t value, uint8_t *success, alloc a);
+static inline intset *intsetAdd(intset *is, int64_t value, uint8_t *success) { return intsetAddA(is, value, success, z_alloc); }
+intset *intsetRemoveA(intset *is, int64_t value, int *success, alloc a);
+static inline intset *intsetRemoveM(intset *is, int64_t value, int *success) { return intsetRemoveA(is, value, success, m_alloc); }
 uint8_t intsetFind(intset *is, int64_t value);
 int64_t intsetRandom(intset *is);
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);

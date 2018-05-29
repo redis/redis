@@ -94,19 +94,21 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
 }
 
 /* Create an empty intset. */
-intset *intsetNew(void) {
-    intset *is = zmalloc(sizeof(intset));
+intset *intsetNewA(alloc a) {
+    intset *is = a->alloc(sizeof(intset));
     is->encoding = intrev32ifbe(INTSET_ENC_INT16);
     is->length = 0;
     return is;
 }
 
 /* Resize the intset */
-static intset *intsetResize(intset *is, uint32_t len) {
+static intset *intsetResizeA(intset *is, uint32_t len, alloc a) {
     uint32_t size = len*intrev32ifbe(is->encoding);
-    is = zrealloc(is,sizeof(intset)+size);
+    is = a->realloc(is,sizeof(intset)+size);
     return is;
 }
+
+static inline intset *intsetResizeM(intset *is, uint32_t len) { return intsetResizeA(is, len, m_alloc); }
 
 /* Search for the position of "value". Return 1 when the value was found and
  * sets "pos" to the position of the value within the intset. Return 0 when
@@ -162,7 +164,7 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
 
     /* First set new encoding and resize */
     is->encoding = intrev32ifbe(newenc);
-    is = intsetResize(is,intrev32ifbe(is->length)+1);
+    is = intsetResizeM(is,intrev32ifbe(is->length)+1);
 
     /* Upgrade back-to-front so we don't overwrite values.
      * Note that the "prepend" variable is used to make sure we have an empty
@@ -201,7 +203,7 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
 }
 
 /* Insert an integer in the intset */
-intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
+intset *intsetAddA(intset *is, int64_t value, uint8_t *success, alloc a) {
     uint8_t valenc = _intsetValueEncoding(value);
     uint32_t pos;
     if (success) *success = 1;
@@ -221,7 +223,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
             return is;
         }
 
-        is = intsetResize(is,intrev32ifbe(is->length)+1);
+        is = intsetResizeA(is,intrev32ifbe(is->length)+1, a);
         if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
     }
 
@@ -231,7 +233,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
 }
 
 /* Delete integer from intset */
-intset *intsetRemove(intset *is, int64_t value, int *success) {
+intset *intsetRemoveA(intset *is, int64_t value, int *success, alloc a) {
     uint8_t valenc = _intsetValueEncoding(value);
     uint32_t pos;
     if (success) *success = 0;
@@ -244,7 +246,7 @@ intset *intsetRemove(intset *is, int64_t value, int *success) {
 
         /* Overwrite value with tail and update length */
         if (pos < (len-1)) intsetMoveTail(is,pos+1,pos);
-        is = intsetResize(is,len-1);
+        is = intsetResizeA(is,len-1, a);
         is->length = intrev32ifbe(len-1);
     }
     return is;

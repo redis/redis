@@ -208,10 +208,11 @@ robj *createSetObject(void) {
     return o;
 }
 
-robj *createIntsetObject(void) {
-    intset *is = intsetNew();
+robj *createIntsetObjectA(alloc a) {
+    intset *is = intsetNewA(a);
     robj *o = createObject(OBJ_SET,is);
     o->encoding = OBJ_ENCODING_INTSET;
+    o->a = a;
     return o;
 }
 
@@ -268,7 +269,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:
-        zfree(o->ptr);
+        o->a->free(o->ptr);
         break;
     default:
         serverPanic("Unknown set encoding type");

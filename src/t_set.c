@@ -39,9 +39,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
-robj *setTypeCreate(sds value) {
+robj *setTypeCreateA(sds value, alloc a) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
-        return createIntsetObject();
+        return createIntsetObjectA(a);
     return createSetObject();
 }
 
@@ -49,7 +49,7 @@ robj *setTypeCreate(sds value) {
  *
  * If the value was already member of the set, nothing is done and 0 is
  * returned, otherwise the new element is added and 1 is returned. */
-int setTypeAdd(robj *subject, sds value) {
+int setTypeAddA(robj *subject, sds value, alloc a) {
     long long llval;
     if (subject->encoding == OBJ_ENCODING_HT) {
         dict *ht = subject->ptr;
@@ -62,7 +62,7 @@ int setTypeAdd(robj *subject, sds value) {
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
-            subject->ptr = intsetAdd(subject->ptr,llval,&success);
+            subject->ptr = intsetAddA(subject->ptr,llval,&success, a);
             if (success) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
@@ -85,7 +85,7 @@ int setTypeAdd(robj *subject, sds value) {
     return 0;
 }
 
-int setTypeRemove(robj *setobj, sds value) {
+int setTypeRemoveA(robj *setobj, sds value, alloc a) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
@@ -95,7 +95,7 @@ int setTypeRemove(robj *setobj, sds value) {
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
+            setobj->ptr = intsetRemoveA(setobj->ptr,llval,&success, a);
             if (success) return 1;
         }
     } else {
@@ -254,8 +254,9 @@ void setTypeConvert(robj *setobj, int enc) {
         setTypeReleaseIterator(si);
 
         setobj->encoding = OBJ_ENCODING_HT;
-        zfree(setobj->ptr);
+        setobj->a->free(setobj->ptr);
         setobj->ptr = d;
+        setobj->a = z_alloc;
     } else {
         serverPanic("Unsupported set conversion");
     }
@@ -267,7 +268,7 @@ void saddCommand(client *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
-        set = setTypeCreate(c->argv[2]->ptr);
+        set = setTypeCreateM(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != OBJ_SET) {
@@ -277,7 +278,7 @@ void saddCommand(client *c) {
     }
 
     for (j = 2; j < c->argc; j++) {
-        if (setTypeAdd(set,c->argv[j]->ptr)) added++;
+        if (setTypeAddM(set,c->argv[j]->ptr)) added++;
     }
     if (added) {
         signalModifiedKey(c->db,c->argv[1]);
@@ -295,7 +296,7 @@ void sremCommand(client *c) {
         checkType(c,set,OBJ_SET)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (setTypeRemove(set,c->argv[j]->ptr)) {
+        if (setTypeRemoveM(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
                 dbDelete(c->db,c->argv[1]);
@@ -340,7 +341,7 @@ void smoveCommand(client *c) {
     }
 
     /* If the element cannot be removed from the src set, return 0. */
-    if (!setTypeRemove(srcset,ele->ptr)) {
+    if (!setTypeRemoveM(srcset,ele->ptr)) {
         addReply(c,shared.czero);
         return;
     }
@@ -354,7 +355,7 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr);
+        dstset = setTypeCreateM(ele->ptr);
         dbAdd(c->db,c->argv[2],dstset);
     }
 
@@ -363,7 +364,7 @@ void smoveCommand(client *c) {
     server.dirty++;
 
     /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele->ptr)) {
+    if (setTypeAddM(dstset,ele->ptr)) {
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
@@ -478,7 +479,7 @@ void spopWithCountCommand(client *c) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
                 objele = createStringObjectFromLongLong(llele);
-                set->ptr = intsetRemove(set->ptr,llele,NULL);
+                set->ptr = intsetRemoveM(set->ptr,llele,NULL);
             } else {
                 addReplyBulkCBuffer(c,sdsele,sdslen(sdsele));
                 objele = createStringObject(sdsele,sdslen(sdsele));
@@ -510,9 +511,9 @@ void spopWithCountCommand(client *c) {
             } else {
                 sdsele = sdsdup(sdsele);
             }
-            if (!newset) newset = setTypeCreate(sdsele);
-            setTypeAdd(newset,sdsele);
-            setTypeRemove(set,sdsele);
+            if (!newset) newset = setTypeCreateM(sdsele);
+            setTypeAddM(newset,sdsele);
+            setTypeRemoveM(set,sdsele);
             sdsfree(sdsele);
         }
 
@@ -577,7 +578,7 @@ void spopCommand(client *c) {
     /* Remove the element from the set */
     if (encoding == OBJ_ENCODING_INTSET) {
         ele = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
+        set->ptr = intsetRemoveM(set->ptr,llele,NULL);
     } else {
         ele = createStringObject(sdsele,sdslen(sdsele));
         setTypeRemove(set,ele->ptr);
@@ -836,10 +837,6 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * right length */
     if (!dstkey) {
         replylen = addDeferredMultiBulkLength(c);
-    } else {
-        /* If we have a target key where to store the resulting set
-         * create this key with an empty set inside */
-        dstset = createIntsetObject();
     }
 
     /* Iterate all the elements of the first (smallest) set, and test
@@ -883,10 +880,16 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 cardinality++;
             } else {
                 if (encoding == OBJ_ENCODING_INTSET) {
+                    if (!dstset) {
+                        dstset = createIntsetObjectM();
+                    }
                     elesds = sdsfromlonglong(intobj);
-                    setTypeAdd(dstset,elesds);
+                    setTypeAddM(dstset,elesds);
                     sdsfree(elesds);
                 } else {
+                    if (!dstset) {
+                        dstset = createIntsetObject();
+                    }
                     setTypeAdd(dstset,elesds);
                 }
             }
@@ -990,7 +993,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     /* We need a temp set object to store our union. If the dstkey
      * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
+    if(!dstkey) {
+        dstset = createIntsetObject();
+    } else {
+        dstset = createIntsetObjectM();
+    }
+
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
@@ -1000,7 +1008,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             si = setTypeInitIterator(sets[j]);
             while((ele = setTypeNextObject(si)) != NULL) {
-                if (setTypeAdd(dstset,ele)) cardinality++;
+                if (!dstkey && setTypeAdd(dstset,ele)) cardinality++;
+                else if (dstkey && setTypeAddM(dstset,ele)) cardinality++;
                 sdsfree(ele);
             }
             setTypeReleaseIterator(si);
@@ -1023,7 +1032,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
-                setTypeAdd(dstset,ele);
+                if(!dstkey) {
+                    setTypeAdd(dstset,ele);
+                } else {
+                    setTypeAddM(dstset,ele);
+                }
                 cardinality++;
             }
             sdsfree(ele);
@@ -1042,10 +1055,18 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
             si = setTypeInitIterator(sets[j]);
             while((ele = setTypeNextObject(si)) != NULL) {
-                if (j == 0) {
-                    if (setTypeAdd(dstset,ele)) cardinality++;
+                if (!dstkey) {
+                    if (j == 0) {
+                        if (setTypeAdd(dstset,ele)) cardinality++;
+                    } else {
+                        if (setTypeRemove(dstset,ele)) cardinality--;
+                    }
                 } else {
-                    if (setTypeRemove(dstset,ele)) cardinality--;
+                    if (j == 0) {
+                        if (setTypeAddM(dstset,ele)) cardinality++;
+                    } else {
+                        if (setTypeRemoveM(dstset,ele)) cardinality--;
+                    }
                 }
                 sdsfree(ele);
             }
