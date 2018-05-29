@@ -1289,6 +1289,18 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         dictReleaseIterator(di);
         di = NULL;
     }
+
+    if (dictSize(server.lua_scripts)) {
+        char scriptcmd[]="*3\r\n$6\r\nSCRIPT\r\n$4\r\nLOAD\r\n";
+        di = dictGetIterator(server.lua_scripts);
+        while((de = dictNext(di)) != NULL) {
+            if (rioWrite(aof,scriptcmd,sizeof(scriptcmd)-1) == 0) goto werr;
+            robj *body = dictGetVal(de);
+            if (rioWriteBulkObject(aof,body) == 0) goto werr;
+        }
+        dictReleaseIterator(di);
+    }
+
     return C_OK;
 
 werr:
@@ -1545,7 +1557,6 @@ int rewriteAppendOnlyFileBackground(void) {
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
         server.aof_selected_db = -1;
-        replicationScriptCacheFlush();
         return C_OK;
     }
     return C_OK; /* unreached */
