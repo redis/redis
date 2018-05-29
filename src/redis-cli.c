@@ -5977,13 +5977,16 @@ static void findBigKeys(void) {
             sampled++;
 
             if(biggest[type]<sizes[i]) {
+                /* Keep track of biggest key name for this type */
+                sdsfree(maxkeys[type]);
+                maxkeys[type] = sdscatrepr(sdsempty(), keys->element[i]->str, keys->element[i]->len);
+                sdstrim(maxkeys[type], "\"");
+
                 printf(
                    "[%05.2f%%] Biggest %-6s found so far '%s' with %llu %s\n",
-                   pct, typename[type], keys->element[i]->str, sizes[i],
+                   pct, typename[type], maxkeys[type], sizes[i],
                    typeunit[type]);
 
-                /* Keep track of biggest key name for this type */
-                maxkeys[type] = sdscpy(maxkeys[type], keys->element[i]->str);
                 if(!maxkeys[type]) {
                     fprintf(stderr, "Failed to allocate memory for key!\n");
                     exit(1);
