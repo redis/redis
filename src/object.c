@@ -205,6 +205,7 @@ robj *createSetObjectA(alloc a) {
     robj *o = createObject(OBJ_SET,d);
     o->a = a;
     o->encoding = OBJ_ENCODING_HT;
+    o->a = a;
     return o;
 }
 
