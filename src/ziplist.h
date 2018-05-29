@@ -38,7 +38,7 @@
 
 unsigned char *ziplistNewA(alloc a);
 static inline unsigned char *ziplistNew(void) { return ziplistNewA(z_alloc); }
-//static inline unsigned char *ziplistNewM(void) { return ziplistNewA(m_alloc); }
+static inline unsigned char *ziplistNewM(void) { return ziplistNewA(m_alloc); }
 unsigned char *ziplistMergeA(unsigned char **first, unsigned char **second, alloc a);
 static inline unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
 	return ziplistMergeA(first, second, z_alloc);
