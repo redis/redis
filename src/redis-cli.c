@@ -5983,7 +5983,7 @@ static void findBigKeys(void) {
                    typeunit[type]);
 
                 /* Keep track of biggest key name for this type */
-                maxkeys[type] = sdscatrepr(maxkeys[type], keys->element[i]->str, keys->element[i]->len);
+                maxkeys[type] = sdscpy(maxkeys[type], keys->element[i]->str);
                 if(!maxkeys[type]) {
                     fprintf(stderr, "Failed to allocate memory for key!\n");
                     exit(1);
