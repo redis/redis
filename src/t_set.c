@@ -85,7 +85,7 @@ int setTypeAddA(robj *subject, sds value, alloc a) {
     return 0;
 }
 
-int setTypeRemoveA(robj *setobj, sds value, alloc a) { // XXX uzywane również przez UNION DIFF GENERIC
+int setTypeRemoveA(robj *setobj, sds value, alloc a) {
     long long llval;
     if (setobj->encoding == OBJ_ENCODING_HT) {
         if (dictDelete(setobj->ptr,value) == DICT_OK) {
@@ -254,8 +254,9 @@ void setTypeConvert(robj *setobj, int enc) {
         setTypeReleaseIterator(si);
 
         setobj->encoding = OBJ_ENCODING_HT;
-        zfree(setobj->ptr);
+        setobj->a->free(setobj->ptr);
         setobj->ptr = d;
+        setobj->a = z_alloc;
     } else {
         serverPanic("Unsupported set conversion");
     }
@@ -836,10 +837,6 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * right length */
     if (!dstkey) {
         replylen = addDeferredMultiBulkLength(c);
-    } else {
-        /* If we have a target key where to store the resulting set
-         * create this key with an empty set inside */
-        dstset = createIntsetObjectM();
     }
 
     /* Iterate all the elements of the first (smallest) set, and test
@@ -883,10 +880,16 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 cardinality++;
             } else {
                 if (encoding == OBJ_ENCODING_INTSET) {
+                    if (!dstset) {
+                        dstset = createIntsetObjectM();
+                    }
                     elesds = sdsfromlonglong(intobj);
                     setTypeAddM(dstset,elesds);
                     sdsfree(elesds);
                 } else {
+                    if (!dstset) {
+                        dstset = createIntsetObject();
+                    }
                     setTypeAdd(dstset,elesds);
                 }
             }
@@ -932,7 +935,7 @@ void sinterstoreCommand(client *c) {
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
-robj **sets = zmalloc(sizeof(robj*)*setnum);
+    robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
     sds ele;
@@ -990,7 +993,12 @@ robj **sets = zmalloc(sizeof(robj*)*setnum);
     /* We need a temp set object to store our union. If the dstkey
      * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
+    if(!dstkey) {
+        dstset = createIntsetObject();
+    } else {
+        dstset = createIntsetObjectM();
+    }
+
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the
@@ -1000,7 +1008,8 @@ robj **sets = zmalloc(sizeof(robj*)*setnum);
 
             si = setTypeInitIterator(sets[j]);
             while((ele = setTypeNextObject(si)) != NULL) {
-                if (setTypeAdd(dstset,ele)) cardinality++;
+                if (!dstkey && setTypeAdd(dstset,ele)) cardinality++;
+                else if (dstkey && setTypeAddM(dstset,ele)) cardinality++;
                 sdsfree(ele);
             }
             setTypeReleaseIterator(si);
@@ -1023,7 +1032,11 @@ robj **sets = zmalloc(sizeof(robj*)*setnum);
             }
             if (j == setnum) {
                 /* There is no other set with this element. Add it. */
-                setTypeAdd(dstset,ele);
+                if(!dstkey) {
+                    setTypeAdd(dstset,ele);
+                } else {
+                    setTypeAddM(dstset,ele);
+                }
                 cardinality++;
             }
             sdsfree(ele);
@@ -1042,10 +1055,18 @@ robj **sets = zmalloc(sizeof(robj*)*setnum);
 
             si = setTypeInitIterator(sets[j]);
             while((ele = setTypeNextObject(si)) != NULL) {
-                if (j == 0) {
-                    if (setTypeAdd(dstset,ele)) cardinality++;
+                if (!dstkey) {
+                    if (j == 0) {
+                        if (setTypeAdd(dstset,ele)) cardinality++;
+                    } else {
+                        if (setTypeRemove(dstset,ele)) cardinality--;
+                    }
                 } else {
-                    if (setTypeRemove(dstset,ele)) cardinality--;
+                    if (j == 0) {
+                        if (setTypeAddM(dstset,ele)) cardinality++;
+                    } else {
+                        if (setTypeRemoveM(dstset,ele)) cardinality--;
+                    }
                 }
                 sdsfree(ele);
             }

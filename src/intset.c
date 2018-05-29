@@ -108,7 +108,6 @@ static intset *intsetResizeA(intset *is, uint32_t len, alloc a) {
     return is;
 }
 
-static inline intset *intsetResize(intset *is, uint32_t len) { return intsetResizeA(is, len, z_alloc); }
 static inline intset *intsetResizeM(intset *is, uint32_t len) { return intsetResizeA(is, len, m_alloc); }
 
 /* Search for the position of "value". Return 1 when the value was found and
@@ -224,7 +223,7 @@ intset *intsetAddA(intset *is, int64_t value, uint8_t *success, alloc a) {
             return is;
         }
 
-        is = intsetResizeA(is,intrev32ifbe(is->length)+1, a); //XXX tu wchodzi przez diff
+        is = intsetResizeA(is,intrev32ifbe(is->length)+1, a);
         if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
     }
 

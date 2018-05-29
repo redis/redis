@@ -1702,7 +1702,6 @@ int restartServer(int flags, mstime_t delay);
 
 /* Set data type */
 robj *setTypeCreateA(sds value, alloc a);
-static inline robj *setTypeCreate(sds value) { return setTypeCreateA(value, z_alloc);}
 static inline robj *setTypeCreateM(sds value) { return setTypeCreateA(value, m_alloc);}
 int setTypeAddA(robj *subject, sds value, alloc a);
 static inline int setTypeAdd(robj *subject, sds value) { return setTypeAddA(subject, value, z_alloc); }

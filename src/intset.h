@@ -39,13 +39,10 @@ typedef struct intset {
 } intset;
 
 intset *intsetNewA(alloc a);
-static inline intset *intsetNew(void) { return intsetNewA(z_alloc); }
 static inline intset *intsetNewM(void) { return intsetNewA(m_alloc); }
 intset *intsetAddA(intset *is, int64_t value, uint8_t *success, alloc a);
 static inline intset *intsetAdd(intset *is, int64_t value, uint8_t *success) { return intsetAddA(is, value, success, z_alloc); }
-static inline intset *intsetAddM(intset *is, int64_t value, uint8_t *success) { return intsetAddA(is, value, success, m_alloc); }
 intset *intsetRemoveA(intset *is, int64_t value, int *success, alloc a);
-static inline intset *intsetRemove(intset *is, int64_t value, int *success) { return intsetRemoveA(is, value, success, z_alloc); }
 static inline intset *intsetRemoveM(intset *is, int64_t value, int *success) { return intsetRemoveA(is, value, success, m_alloc); }
 uint8_t intsetFind(intset *is, int64_t value);
 int64_t intsetRandom(intset *is);
