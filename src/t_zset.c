@@ -1986,12 +1986,12 @@ int zuiLongLongFromValue(zsetopval *val) {
     return val->flags & OPVAL_VALID_LL;
 }
 
-sds zuiSdsFromValue(zsetopval *val) {
+sds zuiSdsFromValue(zsetopval *val, alloc a) {
     if (val->ele == NULL) {
         if (val->estr != NULL) {
-            val->ele = sdsnewlen((char*)val->estr,val->elen);
+            val->ele = sdsnewlenA((char*)val->estr,val->elen, a);
         } else {
-            val->ele = sdsfromlonglong(val->ell);
+            val->ele = sdsfromlonglongA(val->ell, a);
         }
         val->flags |= OPVAL_DIRTY_SDS;
     }
@@ -2008,7 +2008,7 @@ sds zuiNewSdsFromValue(zsetopval *val, alloc a) {
         val->ele = NULL;
         return ele;
     } else if (val->ele) {
-        return sdsdup(val->ele);
+        return sdsdupA(val->ele, a);
     } else if (val->estr) {
         return sdsnewlenA((char*)val->estr,val->elen, a);
     } else {
@@ -2031,7 +2031,7 @@ int zuiBufferFromValue(zsetopval *val) {
 
 /* Find value pointed to by val in the source pointer to by op. When found,
  * return 1 and store its score in target. Return 0 otherwise. */
-int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
+int zuiFind(zsetopsrc *op, zsetopval *val, double *score, alloc a) {
     if (op->subject == NULL)
         return 0;
 
@@ -2047,7 +2047,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             }
         } else if (op->encoding == OBJ_ENCODING_HT) {
             dict *ht = op->subject->ptr;
-            zuiSdsFromValue(val);
+            zuiSdsFromValue(val, a);
             if (dictFind(ht,val->ele) != NULL) {
                 *score = 1.0;
                 return 1;
@@ -2058,7 +2058,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             serverPanic("Unknown set encoding");
         }
     } else if (op->type == OBJ_ZSET) {
-        zuiSdsFromValue(val);
+        zuiSdsFromValue(val, a);
 
         if (op->encoding == OBJ_ENCODING_ZIPLIST) {
             if (zzlFind(op->subject->ptr,val->ele,score) != NULL) {
@@ -2240,7 +2240,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                     if (src[j].subject == src[0].subject) {
                         value = zval.score*src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
-                    } else if (zuiFind(&src[j],&zval,&value)) {
+                    } else if (zuiFind(&src[j],&zval,&value, dstkey->a)) {
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
@@ -2282,7 +2282,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the accumulating dictionary. */
-                de = dictAddRaw(accumulator,zuiSdsFromValue(&zval),&existing);
+                de = dictAddRaw(accumulator,zuiSdsFromValue(&zval, dstkey->a),&existing);
                 /* If we don't have it, we need to create a new entry. */
                 if (!existing) {
                     tmp = zuiNewSdsFromValue(&zval, dstkey->a);

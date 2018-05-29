@@ -1512,8 +1512,8 @@ robj *createIntsetObjectA(alloc a);
 static inline robj *createIntsetObject(void) { return createIntsetObjectA(z_alloc); }
 static inline robj *createIntsetObjectM(void) { return createIntsetObjectA(m_alloc); }
 robj *createSetObjectA(alloc a);
-static inline robj *createSetObject(void){return createSetObjectA(z_alloc);}
-static inline robj *createSetObjectM(void){return createSetObjectA(m_alloc);}
+static inline robj *createSetObject(void){ return createSetObjectA(z_alloc); }
+static inline robj *createSetObjectM(void){ return createSetObjectA(m_alloc); }
 robj *createZsetObjectA(alloc a);
 static inline robj *createZsetObject(void){ return createZsetObjectA(z_alloc); }
 static inline robj *createZsetObjectM(void){ return createZsetObjectA(m_alloc); }
