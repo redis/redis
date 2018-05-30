@@ -890,7 +890,6 @@ long defragOtherGlobals() {
      * but we assume most of these are short lived, we only need to defrag allocations
      * that remain static for a long time */
     defragged += activeDefragSdsDict(server.lua_scripts, DEFRAG_SDS_DICT_VAL_IS_STROB);
-    defragged += activeDefragSdsListAndDict(server.repl_scriptcache_fifo, server.repl_scriptcache_dict, DEFRAG_SDS_DICT_NO_VAL);
     return defragged;
 }
 
