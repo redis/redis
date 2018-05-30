@@ -888,9 +888,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
                     sdsfree(elesds);
                 } else {
                     if (!dstset) {
-                        dstset = createIntsetObject();
+                        dstset = createIntsetObjectM();
                     }
-                    setTypeAdd(dstset,elesds);
+                    setTypeAddM(dstset,elesds);
                 }
             }
         }
