@@ -2625,11 +2625,13 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Don't accept write commands if this is a read only slave. But
-     * accept write commands if this is our master. */
+    /* Don't accept write commands and script flush if this is a read only slave.
+     * But accept write commands and script flush if this is our master. */
     if (server.masterhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) &&
-        c->cmd->flags & CMD_WRITE)
+        (c->cmd->flags & CMD_WRITE ||
+         (c->cmd->proc == scriptCommand &&
+          (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")))))
     {
         addReply(c, shared.roslaveerr);
         return C_OK;
