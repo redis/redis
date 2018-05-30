@@ -617,9 +617,6 @@ int startBgsaveForReplication(int mincapa) {
         }
     }
 
-    /* Flush the script cache, since we need that slave differences are
-     * accumulated without requiring slaves to match our cached scripts. */
-    if (retval == C_OK) replicationScriptCacheFlush();
     return retval;
 }
 
@@ -1259,6 +1256,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             -1,
             server.repl_slave_lazy_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS,
             replicationEmptyDbCallback);
+        /* Note that after PSYNC2, lua scripts are regarded as a part of state,
+         * so if slave receive FULL RESYNC, it should reset scripting state,
+         * in case slave contains more lua scripts than master. */
+        scriptingReset();
         /* Before loading the DB into memory we need to delete the readable
          * handler, otherwise it will get called recursively since
          * rdbLoad() will call the event loop to process events from time to
@@ -2653,16 +2654,6 @@ void replicationCron(void) {
                 "without connected slaves.",
                 (int) server.repl_backlog_time_limit);
         }
-    }
-
-    /* If AOF is disabled and we no longer have attached slaves, we can
-     * free our Replication Script Cache as there is no need to propagate
-     * EVALSHA at all. */
-    if (listLength(server.slaves) == 0 &&
-        server.aof_state == AOF_OFF &&
-        listLength(server.repl_scriptcache_fifo) != 0)
-    {
-        replicationScriptCacheFlush();
     }
 
     /* Start a BGSAVE good for replication if we have slaves in
