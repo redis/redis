@@ -30,6 +30,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
