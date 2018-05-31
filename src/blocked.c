@@ -314,8 +314,9 @@ void handleClientsBlockedOnKeys(void) {
                 if (de) {
                     list *clients = dictGetVal(de);
                     int numclients = listLength(clients);
+                    unsigned long zcard = zsetLength(o);
 
-                    while(numclients--) {
+                    while(numclients-- && zcard) {
                         listNode *clientnode = listFirst(clients);
                         client *receiver = clientnode->value;
 
@@ -332,6 +333,7 @@ void handleClientsBlockedOnKeys(void) {
                                      ? ZSET_MIN : ZSET_MAX;
                         unblockClient(receiver);
                         genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+                        zcard--;
 
                         /* Replicate the command. */
                         robj *argv[2];
