@@ -3216,9 +3216,9 @@ void blockingGenericZpopCommand(client *c, int where) {
                 return;
             } else {
                 if (zsetLength(o) != 0) {
-                    /* Non empty zset, this is like a normal Z[REV]POP. */
+                    /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
                     genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
-                    /* Replicate it as an Z[REV]POP instead of BZ[REV]POP. */
+                    /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
                     rewriteClientCommandVector(c,2,
                         where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
                         c->argv[j]);
