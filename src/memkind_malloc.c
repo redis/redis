@@ -21,6 +21,7 @@ static size_t used_memory = 0;
 void *memkind_alloc_wrapper(size_t size) {
     void *ptr = memkind_malloc(server.pmem_kind1, size);
     if (ptr==NULL) return NULL;
+    size = jemk_malloc_usable_size(ptr);
     update_memkind_malloc_stat_alloc(size);
     return (char*)ptr;
 }
@@ -28,6 +29,7 @@ void *memkind_alloc_wrapper(size_t size) {
 void *memkind_calloc_wrapper(size_t size) {
     void *ptr = memkind_calloc(server.pmem_kind1, 1, size);
     if (ptr==NULL) return NULL;
+    size = jemk_malloc_usable_size(ptr);
     update_memkind_malloc_stat_alloc(size);
     return (char*)ptr;
 }
@@ -40,6 +42,7 @@ void *memkind_realloc_wrapper(void *ptr, size_t size) {
     if (newptr==NULL) return NULL;
 
     update_memkind_malloc_stat_free(oldsize);
+    size = jemk_malloc_usable_size(newptr);
     update_memkind_malloc_stat_alloc(size);
     return (char*)newptr;
 }
