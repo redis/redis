@@ -3088,7 +3088,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
             else if (strcmp(flag, "slave") == 0) {
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
-                if (master_id == 0) {
+                if (master_id != NULL) {
                     if (currentNode->replicate) sdsfree(currentNode->replicate);
                     currentNode->replicate = sdsnew(master_id);
                 }
