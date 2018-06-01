@@ -1998,7 +1998,8 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
             if (lfu_freq != -1) {
                 val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
-            } else {
+            } 
+            if (lru_idle != -1) {
                 /* LRU idle time loaded from RDB is in seconds. Scale
                  * according to the LRU clock resolution this Redis
                  * instance was compiled with (normaly 1000 ms, so the
