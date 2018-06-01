@@ -487,12 +487,13 @@ robj *lookupStringForBitCommandA(client *c, size_t maxbit, alloc a) {
         if (checkType(c,o,OBJ_STRING)) return NULL;
         o = dbUnshareStringValueA(c->db,c->argv[1],o,a);
         o->ptr = sdsgrowzeroA(o->ptr,byte+1,a);
+        o->a = m_alloc;
     }
     return o;
 }
 
 robj *lookupStringForBitCommand(client *c, size_t maxbit) {
-    return lookupStringForBitCommandA(c, maxbit, z_alloc); // TODO(kfilipek): change in separate PR
+    return lookupStringForBitCommandA(c, maxbit, m_alloc);
 }
 
 /* Return a pointer to the string object content, and stores its length
@@ -660,7 +661,7 @@ void bitopCommand(client *c) {
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
+        res = (unsigned char*) sdsnewlenA(NULL,maxlen,m_alloc);
         unsigned char output, byte;
         unsigned long i;
 
@@ -759,6 +760,7 @@ void bitopCommand(client *c) {
     /* Store the computed value into the target key */
     if (maxlen) {
         o = createObject(OBJ_STRING,res);
+        o->a = m_alloc;
         setKey(c->db,targetkey,o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
