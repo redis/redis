@@ -1728,8 +1728,10 @@ void xpendingCommand(client *c) {
 
         /* If a consumer name was mentioned but it does not exist, we can
          * just return an empty array. */
-        if (consumername && consumer == NULL)
+        if (consumername && consumer == NULL) {
             addReplyMultiBulkLen(c,0);
+            return;
+        }
 
         rax *pel = consumer ? consumer->pel : group->pel;
         unsigned char startkey[sizeof(streamID)];
