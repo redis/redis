@@ -1295,7 +1295,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
  * the different events callbacks. */
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
-    if (moduleCount()) moduleAcquireGIL();
+    if (moduleCount()) {
+        moduleAcquireGIL();
+        if (server.also_propagate.numops) {
+            handleAlsoPropagate(CMD_CALL_PROPAGATE);
+        }
+    }
 }
 
 /* =========================== Server initialization ======================== */
@@ -2209,6 +2214,24 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argvcopy,argc,target);
 }
 
+void handleAlsoPropagate(int flags)
+{
+    int j;
+    redisOp *rop;
+
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        int target = rop->target;
+        /* Whatever the command wish is, we honor the call() flags. */
+        if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
+        if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
+        if (target)
+            propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
+    }
+    redisOpArrayFree(&server.also_propagate);
+    redisOpArrayInit(&server.also_propagate);
+}
+
 /* It is possible to call the function forceCommandPropagation() inside a
  * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
@@ -2367,23 +2390,8 @@ void call(client *c, int flags) {
     /* Handle the alsoPropagate() API to handle commands that want to propagate
      * multiple separated commands. Note that alsoPropagate() is not affected
      * by CLIENT_PREVENT_PROP flag. */
-    if (server.also_propagate.numops) {
-        int j;
-        redisOp *rop;
-
-        if (flags & CMD_CALL_PROPAGATE) {
-            for (j = 0; j < server.also_propagate.numops; j++) {
-                rop = &server.also_propagate.ops[j];
-                int target = rop->target;
-                /* Whatever the command wish is, we honor the call() flags. */
-                if (!(flags&CMD_CALL_PROPAGATE_AOF)) target &= ~PROPAGATE_AOF;
-                if (!(flags&CMD_CALL_PROPAGATE_REPL)) target &= ~PROPAGATE_REPL;
-                if (target)
-                    propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,target);
-            }
-        }
-        redisOpArrayFree(&server.also_propagate);
-    }
+    if (server.also_propagate.numops && (flags & CMD_CALL_PROPAGATE))
+        handleAlsoPropagate(flags);
     server.also_propagate = prev_also_propagate;
     server.stat_numcommands++;
 }
