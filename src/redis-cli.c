@@ -5575,7 +5575,7 @@ static void getRDB(void) {
         nwritten = write(fd, buf, nread);
         if (nwritten != nread) {
             fprintf(stderr,"Error writing data to file: %s\n",
-                strerror(errno));
+                (nwritten == -1) ? strerror(errno) : "short write");
             exit(1);
         }
         payload -= nread;
