@@ -1542,7 +1542,6 @@ NULL
         /* Certain subcommands require the group to exist. */
         if ((cg = streamLookupCG(s,grpname)) == NULL &&
             (!strcasecmp(opt,"SETID") ||
-             !strcasecmp(opt,"DELGROUP") ||
              !strcasecmp(opt,"DELCONSUMER")))
         {
             addReplyErrorFormat(c, "-NOGROUP No such consumer group '%s' "
@@ -1569,7 +1568,14 @@ NULL
                 sdsnew("-BUSYGROUP Consumer Group name already exists\r\n"));
         }
     } else if (!strcasecmp(opt,"SETID") && c->argc == 5) {
-    } else if (!strcasecmp(opt,"DELGROUP") && c->argc == 4) {
+    } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
+        if (cg) {
+            raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
+            streamFreeCG(cg);
+            addReply(c,shared.cone);
+        } else {
+            addReply(c,shared.czero);
+        }
     } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
         /* Delete the consumer and returns the number of pending messages
          * that were yet associated with such a consumer. */
