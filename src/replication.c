@@ -1105,7 +1105,7 @@ void restartAOF() {
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
-    ssize_t nread, readlen;
+    ssize_t nread, readlen, nwritten;
     off_t left;
     UNUSED(el);
     UNUSED(privdata);
@@ -1206,8 +1206,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     server.repl_transfer_lastio = server.unixtime;
-    if (write(server.repl_transfer_fd,buf,nread) != nread) {
-        serverLog(LL_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchronization: %s", strerror(errno));
+    if ((nwritten = write(server.repl_transfer_fd,buf,nread)) != nread) {
+        serverLog(LL_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchronization: %s", 
+            (nwritten == -1) ? strerror(errno) : "short write");
         goto error;
     }
     server.repl_transfer_read += nread;
