@@ -5091,7 +5091,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
 
     // Build a slot -> node map
     clusterManagerNode  *slots_map[CLUSTER_MANAGER_SLOTS];
-    memset(slots_map, 0, sizeof(slots_map) / sizeof(clusterManagerNode *));
+    memset(slots_map, 0, sizeof(slots_map));
     listIter li;
     listNode *ln;
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
