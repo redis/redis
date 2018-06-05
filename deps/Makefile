@@ -36,9 +36,12 @@ distclean:
 	-(cd hiredis && $(MAKE) clean) > /dev/null || true
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
 	-(cd lua && $(MAKE) clean) > /dev/null || true
+	-(cd jemalloc && rm configure) > /dev/null || true
 	-(cd memkind/jemalloc/obj && $(MAKE) distclean) > /dev/null || true
-	-(cd memkind && $(MAKE) distclean) > /dev/null || true
+	-(cd memkind && $(MAKE) distclean ) > /dev/null || true
+	-(rm memkind/configure) > /dev/null || true
 	-(cd jemalloc_JE && $(MAKE) clean) > /dev/null || true
+	-(cd jemalloc_JE && rm configure) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
