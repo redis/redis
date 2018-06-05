@@ -2131,14 +2131,12 @@ void xtrimCommand(client *c) {
 /* XINFO CONSUMERS key group
  * XINFO GROUPS <key>
  * XINFO STREAM <key>
- * XINFO <key> (alias of XINFO STREAM key)
  * XINFO HELP. */
 void xinfoCommand(client *c) {
     const char *help[] = {
 "CONSUMERS <key> <groupname>  -- Show consumer groups of group <groupname>.",
 "GROUPS <key>                 -- Show the stream consumer groups.",
 "STREAM <key>                 -- Show information about the stream.",
-"<key>                        -- Alias for STREAM <key>.",
 "HELP                         -- Print this help.",
 NULL
     };
@@ -2150,16 +2148,15 @@ NULL
     if (!strcasecmp(c->argv[1]->ptr,"HELP")) {
         addReplyHelp(c, help);
         return;
+    } else if (c->argc < 3) {
+        addReplyError(c,"syntax error, try 'XINFO HELP'");
+        return;
     }
 
-    /* Handle the fact that no subcommand means "STREAM". */
-    if (c->argc == 2) {
-        opt = "STREAM";
-        key = c->argv[1];
-    } else {
-        opt = c->argv[1]->ptr;
-        key = c->argv[2];
-    }
+    /* With the exception of HELP handled before any other sub commands, all
+     * the ones are in the form of "<subcommand> <key>". */
+    opt = c->argv[1]->ptr;
+    key = c->argv[2];
 
     /* Lookup the key now, this is common for all the subcommands but HELP. */
     robj *o = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
@@ -2218,9 +2215,7 @@ NULL
             addReplyLongLong(c,raxSize(cg->pel));
         }
         raxStop(&ri);
-    } else if (c->argc == 2 ||
-               (!strcasecmp(opt,"STREAM") && c->argc == 3))
-    {
+    } else if (!strcasecmp(opt,"STREAM") && c->argc == 3) {
         /* XINFO STREAM <key> (or the alias XINFO <key>). */
         addReplyMultiBulkLen(c,12);
         addReplyStatus(c,"length");
