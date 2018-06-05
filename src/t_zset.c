@@ -3163,8 +3163,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             signalModifiedKey(c->db,key);
         }
 
-        addReplyDouble(c,score);
         addReplyBulkCBuffer(c,ele,sdslen(ele));
+        addReplyDouble(c,score);
         sdsfree(ele);
         arraylen += 2;
 
