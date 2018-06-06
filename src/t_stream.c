@@ -691,6 +691,9 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     aux = lpGetInteger(p);
     lp = lpReplaceInteger(lp,&p,aux+1);
 
+    /* Update the number of entries counter. */
+    si->stream->length--;
+
     /* Re-seek the iterator to fix the now messed up state. */
     streamID start, end;
     if (si->rev) {
