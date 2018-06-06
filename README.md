@@ -105,12 +105,13 @@ If you want to see a more verbose output use the following:
 Running Redis
 -------------
 
-To run Redis with the default configuration just type:
+To run Redis with the default configuration, you have to provide specific location
+for memkind allocations with given size using an additonal parameter (pmdir):
 
     % cd src
-    % ./redis-server
+    % ./redis-server --pmdir /path/to/pmdir size
 
-If you want to provide your redis.conf, you have to run it using an additional
+To run Redis you have to provide your configuration file and run it using an additional
 parameter (the path of the configuration file):
 
     % cd src
@@ -119,7 +120,7 @@ parameter (the path of the configuration file):
 It is possible to alter the Redis configuration by passing parameters directly
 as options using the command line. Examples:
 
-    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
+    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379 --pmdir /mnt/pmem/ 1g
     % ./redis-server /etc/redis/6379.conf --loglevel debug
 
 All the options in redis.conf are also supported as options using the command

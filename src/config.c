@@ -33,6 +33,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -440,13 +441,16 @@ void loadServerConfigFromString(char *config) {
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
         } else if (!strcasecmp(argv[0],"pmdir") && (argc == 3)) {
-			server.pm_dir_path = zstrdup(argv[1]);
-			long long size = memtoll(argv[2],NULL);
-			if (size < MEMKIND_PMEM_MIN_SIZE) {
-				err = "Invalid pmfile size"; goto loaderr;
-			}
-			server.pm_file_size = size;
-			server.use_volatile = true;
+            server.pm_dir_path = zstrdup(argv[1]);
+            if (access(server.pm_dir_path, X_OK|W_OK) == -1) {
+                err = "unable to write to pmem directory"; goto loaderr;
+            }
+            long long size = memtoll(argv[2],NULL);
+            if (size < MEMKIND_PMEM_MIN_SIZE) {
+                err = "Invalid pmfile size"; goto loaderr;
+            }
+            server.pm_file_size = size;
+            server.use_volatile = true;
         } else if (!strcasecmp(argv[0],"keys-on-pm") && (argc == 2)) {
             int yes;
             if ((yes = yesnotoi(argv[1])) == -1) {
