@@ -3413,11 +3413,12 @@ static void clusterManagerWaitForClusterJoin(void) {
         sleep(1);
         if (++counter > check_after) {
             dict *status = clusterManagerGetLinkStatus();
+            dictIterator *iter = NULL;
             if (status != NULL && dictSize(status) > 0) {
                 printf("\n");
                 clusterManagerLogErr("Warning: %d node(s) may "
                                      "be unreachable\n", dictSize(status));
-                dictIterator *iter = dictGetIterator(status);
+                iter = dictGetIterator(status);
                 dictEntry *entry;
                 while ((entry = dictNext(iter)) != NULL) {
                     sds nodeaddr = (sds) dictGetKey(entry);
@@ -3447,11 +3448,11 @@ static void clusterManagerWaitForClusterJoin(void) {
                                          "from standard instance port.\n");
                     listEmpty(from);
                 }
-                dictReleaseIterator(iter);
-                dictRelease(status);
             }
+            if (iter != NULL) dictReleaseIterator(iter);
+            if (status != NULL) dictRelease(status);
             counter = 0;
-        } 
+        }
     }
     printf("\n");
 }
