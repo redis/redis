@@ -130,6 +130,8 @@
 #define CLUSTER_MANAGER_LOG_LVL_ERR     3
 #define CLUSTER_MANAGER_LOG_LVL_SUCCESS 4
 
+#define CLUSTER_JOIN_CHECK_AFTER        20
+
 #define LOG_COLOR_BOLD      "29;1m"
 #define LOG_COLOR_RED       "31;1m"
 #define LOG_COLOR_GREEN     "32;1m"
@@ -2112,6 +2114,24 @@ static clusterManagerCommandProc *validateClusterManagerCommand(void) {
     return proc;
 }
 
+static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
+                                   int *bus_port_ptr)
+{
+    char *c = strrchr(addr, '@');
+    if (c != NULL) {
+        *c = '\0';
+        if (bus_port_ptr != NULL)
+            *bus_port_ptr = atoi(c + 1);
+    }
+    c = strrchr(addr, ':');
+    if (c != NULL) {
+        *c = '\0';
+        *ip_ptr = addr;
+        *port_ptr = atoi(++c);
+    } else return 0;
+    return 1;
+}
+
 /* Get host ip and port from command arguments. If only one argument has
  * been provided it must be in the form of 'ip:port', elsewhere
  * the first argument must be the ip and the second one the port.
@@ -2124,14 +2144,7 @@ static int getClusterHostFromCmdArgs(int argc, char **argv,
     char *ip = NULL;
     if (argc == 1) {
         char *addr = argv[0];
-        char *c = strrchr(addr, '@');
-        if (c != NULL) *c = '\0';
-        c = strrchr(addr, ':');
-        if (c != NULL) {
-            *c = '\0';
-            ip = addr;
-            port = atoi(++c);
-        } else return 0;
+        if (!parseClusterNodeAddress(addr, &ip, &port, NULL)) return 0;
     } else {
         ip = argv[0];
         port = atoi(argv[1]);
@@ -3391,7 +3404,9 @@ cleanup:
 /* Wait until the cluster configuration is consistent. */
 static void clusterManagerWaitForClusterJoin(void) {
     printf("Waiting for the cluster to join\n");
-    int counter = 0, check_after = listLength(cluster_manager.nodes) * 2;
+    int counter = 0, 
+        check_after = CLUSTER_JOIN_CHECK_AFTER + 
+                      (int)(listLength(cluster_manager.nodes) * 0.15f);
     while(!clusterManagerIsConfigConsistent()) {
         printf(".");
         fflush(stdout);
@@ -3400,15 +3415,24 @@ static void clusterManagerWaitForClusterJoin(void) {
             dict *status = clusterManagerGetLinkStatus();
             if (status != NULL && dictSize(status) > 0) {
                 printf("\n");
-                clusterManagerLogErr("Warning: %d nodes may "
+                clusterManagerLogErr("Warning: %d node(s) may "
                                      "be unreachable\n", dictSize(status));
                 dictIterator *iter = dictGetIterator(status);
                 dictEntry *entry;
                 while ((entry = dictNext(iter)) != NULL) {
-                    sds nodename = (sds) dictGetKey(entry);
+                    sds nodeaddr = (sds) dictGetKey(entry);
+                    char *node_ip = NULL;
+                    int node_port = 0, node_bus_port = 0;
                     list *from = (list *) dictGetVal(entry);
-                    clusterManagerLogErr(" - Node %s may be unreachable "
-                                         "from:\n", nodename);
+                    if (parseClusterNodeAddress(nodeaddr, &node_ip, 
+                        &node_port, &node_bus_port) && node_bus_port) {
+                        clusterManagerLogErr(" - The port %d of node %s may "
+                                             "be unreachable from:\n", 
+                                             node_bus_port, node_ip); 
+                    } else {
+                        clusterManagerLogErr(" - Node %s may be unreachable "
+                                             "from:\n", nodeaddr);
+                    }
                     listIter li;
                     listNode *ln;
                     listRewind(from, &li);
@@ -3862,12 +3886,13 @@ static list *clusterManagerGetDisconnectedLinks(clusterManagerNode *node) {
         if (strstr(flags, "myself") != NULL) continue;
         int disconnected = ((strstr(flags, "disconnected") != NULL) || 
                             (strstr(link_status, "disconnected")));
-        if (disconnected) {
+        int handshaking = (strstr(flags, "handshake") != NULL);
+        if (disconnected || handshaking) {
             clusterManagerLink *link = malloc(sizeof(*link)); 
             link->node_name = sdsnew(nodename);
             link->node_addr = sdsnew(addr);
             link->connected = 0;
-            link->handshaking = (strstr(flags, "handshaking") != NULL);
+            link->handshaking = handshaking;
             listAddNodeTail(links, link);
         }
     }
