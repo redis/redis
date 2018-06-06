@@ -1164,17 +1164,13 @@ void xrangeGenericCommand(client *c, int rev) {
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {
-        for (int j = 4; j < c->argc; j++) {
-            int additional = c->argc-j-1;
-            if (strcasecmp(c->argv[j]->ptr,"COUNT") == 0 && additional >= 1) {
-                if (getLongLongFromObjectOrReply(c,c->argv[j+1],&count,NULL)
-                    != C_OK) return;
-                if (count < 0) count = 0;
-                j++; /* Consume additional arg. */
-            } else {
-                addReply(c,shared.syntaxerr);
-                return;
-            }
+        if (c->argc == 6 && strcasecmp(c->argv[4]->ptr,"COUNT") == 0) {
+            if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL)
+                != C_OK) return;
+            if (count < 0) count = 0;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
         }
     }
 
