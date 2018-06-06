@@ -85,7 +85,6 @@ robj *createRawStringObjectA(const char *ptr, size_t len, alloc a) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a) {
-    //robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     robj *o = a->alloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
     struct sdshdr8 *sh = (void*)(o+1);
 
@@ -201,10 +200,12 @@ robj *createZiplistObject(void) {
     return o;
 }
 
-robj *createSetObject(void) {
+robj *createSetObjectA(alloc a) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(OBJ_SET,d);
+    o->a = a;
     o->encoding = OBJ_ENCODING_HT;
+    o->a = a;
     return o;
 }
 
@@ -224,21 +225,23 @@ robj *createHashObjectA(alloc a) {
     return o;
 }
 
-robj *createZsetObject(void) {
+robj *createZsetObjectA(alloc a) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
 
-    zs->dict = dictCreate(&zsetDictType,NULL);
+    zs->dict = dictCreate(&zsetDictType, NULL);
     zs->zsl = zslCreate();
-    o = createObject(OBJ_ZSET,zs);
+    o = createObject(OBJ_ZSET, zs);
+    o->a = a;
     o->encoding = OBJ_ENCODING_SKIPLIST;
     return o;
 }
 
-robj *createZsetZiplistObject(void) {
-    unsigned char *zl = ziplistNew();
+robj *createZsetZiplistObjectA(alloc a) {
+    unsigned char *zl = ziplistNewA(a);
     robj *o = createObject(OBJ_ZSET,zl);
     o->encoding = OBJ_ENCODING_ZIPLIST;
+    o->a = a;
     return o;
 }
 
@@ -282,11 +285,11 @@ void freeZsetObject(robj *o) {
     case OBJ_ENCODING_SKIPLIST:
         zs = o->ptr;
         dictRelease(zs->dict);
-        zslFree(zs->zsl);
+        zslFree(zs->zsl, o->a);
         zfree(zs);
         break;
     case OBJ_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+        o->a->free(o->ptr);
         break;
     default:
         serverPanic("Unknown sorted set encoding");

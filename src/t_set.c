@@ -42,7 +42,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 robj *setTypeCreateA(sds value, alloc a) {
     if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)
         return createIntsetObjectA(a);
-    return createSetObject();
+    return createSetObjectA(a);
 }
 
 /* Add the specified value into a set.
@@ -55,7 +55,7 @@ int setTypeAddA(robj *subject, sds value, alloc a) {
         dict *ht = subject->ptr;
         dictEntry *de = dictAddRaw(ht,value,NULL);
         if (de) {
-            dictSetKey(ht,de,sdsdup(value));
+            dictSetKey(ht,de,sdsdupA(value,a));
             dictSetVal(ht,de,NULL);
             return 1;
         }
@@ -67,16 +67,16 @@ int setTypeAddA(robj *subject, sds value, alloc a) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
                 if (intsetLen(subject->ptr) > server.set_max_intset_entries)
-                    setTypeConvert(subject,OBJ_ENCODING_HT);
+                    setTypeConvertA(subject,OBJ_ENCODING_HT,a);
                 return 1;
             }
         } else {
             /* Failed to get integer from object, convert to regular set. */
-            setTypeConvert(subject,OBJ_ENCODING_HT);
+            setTypeConvertA(subject,OBJ_ENCODING_HT,a);
 
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
-            serverAssert(dictAdd(subject->ptr,sdsdup(value),NULL) == DICT_OK);
+            serverAssert(dictAdd(subject->ptr,sdsdupA(value,a),NULL) == DICT_OK);
             return 1;
         }
     } else {
@@ -232,7 +232,7 @@ unsigned long setTypeSize(const robj *subject) {
 /* Convert the set to specified encoding. The resulting dict (when converting
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
-void setTypeConvert(robj *setobj, int enc) {
+void setTypeConvertA(robj *setobj, int enc, alloc a) {
     setTypeIterator *si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding == OBJ_ENCODING_INTSET);
@@ -248,7 +248,7 @@ void setTypeConvert(robj *setobj, int enc) {
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,&element,&intele) != -1) {
-            element = sdsfromlonglong(intele);
+            element = sdsfromlonglongA(intele,a);
             serverAssert(dictAdd(d,element,NULL) == DICT_OK);
         }
         setTypeReleaseIterator(si);
@@ -256,7 +256,7 @@ void setTypeConvert(robj *setobj, int enc) {
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->a->free(setobj->ptr);
         setobj->ptr = d;
-        setobj->a = z_alloc;
+        setobj->a = a;
     } else {
         serverPanic("Unsupported set conversion");
     }
@@ -888,9 +888,9 @@ void sinterGenericCommand(client *c, robj **setkeys,
                     sdsfree(elesds);
                 } else {
                     if (!dstset) {
-                        dstset = createIntsetObject();
+                        dstset = createIntsetObjectM();
                     }
-                    setTypeAdd(dstset,elesds);
+                    setTypeAddM(dstset,elesds);
                 }
             }
         }
