@@ -2947,6 +2947,7 @@ sds genRedisInfoString(char *section) {
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
+        char memkind_malloc_used_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
         size_t memkind_malloc_used = memkind_malloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
@@ -2967,11 +2968,13 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(used_memory_lua_hmem,memory_lua);
         bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
+        bytesToHuman(memkind_malloc_used_hmem, memkind_malloc_used);
 
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
             "used_memory_memkind:%zu\r\n"
+            "used_memory_memkind_human:%s\r\n"
             "used_memory:%zu\r\n"
             "used_memory_human:%s\r\n"
             "used_memory_rss:%zu\r\n"
@@ -2995,6 +2998,7 @@ sds genRedisInfoString(char *section) {
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
             memkind_malloc_used,
+            memkind_malloc_used_hmem,
             zmalloc_used,
             hmem,
             server.resident_set_size,
