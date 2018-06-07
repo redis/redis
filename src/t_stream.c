@@ -237,8 +237,20 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
      * regular stream entries (see below), and marks the fact that there are
      * no more entires, when we scan the stream from right to left. */
 
+    /* First of all, check if we can append to the current macro node or
+     * if we need to switch to the next one. 'lp' will be set to NULL if
+     * the current node is full. */
+    if (lp != NULL) {
+        if (lp_bytes > server.stream_node_max_bytes) {
+            lp = NULL;
+        } else {
+            int64_t count = lpGetInteger(lpFirst(lp));
+            if (count > server.stream_node_max_entries) lp = NULL;
+        }
+    }
+
     int flags = STREAM_ITEM_FLAG_NONE;
-    if (lp == NULL || lp_bytes > STREAM_BYTES_PER_LISTPACK) {
+    if (lp == NULL || lp_bytes > server.stream_node_max_bytes) {
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields. */
