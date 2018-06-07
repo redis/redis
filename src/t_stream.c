@@ -222,7 +222,7 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
      * +-------+---------+------------+---------+--/--+---------+---------+-+
      *
      * count and deleted just represent respectively the total number of
-     * entires inside the listpack that are valid, and marked as deleted
+     * entries inside the listpack that are valid, and marked as deleted
      * (delted flag in the entry flags set). So the total number of items
      * actually inside the listpack (both deleted and not) is count+deleted.
      *
@@ -235,7 +235,7 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
      *
      * The "0" entry at the end is the same as the 'lp-count' entry in the
      * regular stream entries (see below), and marks the fact that there are
-     * no more entires, when we scan the stream from right to left. */
+     * no more entries, when we scan the stream from right to left. */
 
     /* First of all, check if we can append to the current macro node or
      * if we need to switch to the next one. 'lp' will be set to NULL if
@@ -832,7 +832,7 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
  * Note that this function is recursive in certian cases. When it's called
  * with a non NULL group and consumer argument, it may call
  * streamReplyWithRangeFromConsumerPEL() in order to get entries from the
- * consumer pending entires list. However such a function will then call
+ * consumer pending entries list. However such a function will then call
  * streamReplyWithRange() in order to emit single entries (found in the
  * PEL by ID) to the client. This is the use case for the STREAM_RWR_RAWENTRIES
  * flag.
@@ -1840,7 +1840,7 @@ void xpendingCommand(client *c) {
  * becomes the specified <consumer>. If the minimum idle time specified
  * is zero, messages are claimed regardless of their idle time.
  *
- * All the messages that cannot be found inside the pending entires list
+ * All the messages that cannot be found inside the pending entries list
  * are ignored, but in case the FORCE option is used. In that case we
  * create the NACK (representing a not yet acknowledged message) entry in
  * the consumer group PEL.
