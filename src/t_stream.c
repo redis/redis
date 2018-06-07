@@ -241,9 +241,11 @@ int streamAppendItem(stream *s, robj **argv, int numfields, streamID *added_id, 
      * if we need to switch to the next one. 'lp' will be set to NULL if
      * the current node is full. */
     if (lp != NULL) {
-        if (lp_bytes > server.stream_node_max_bytes) {
+        if (server.stream_node_max_bytes &&
+            lp_bytes > server.stream_node_max_bytes)
+        {
             lp = NULL;
-        } else {
+        } else if (server.stream_node_max_entries) {
             int64_t count = lpGetInteger(lpFirst(lp));
             if (count > server.stream_node_max_entries) lp = NULL;
         }
