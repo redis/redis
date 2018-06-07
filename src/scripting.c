@@ -1514,7 +1514,7 @@ NULL
             return;
         }
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SCRIPT HELP", (char*)c->argv[1]->ptr);
+        addReplySubSyntaxError(c);
     }
 }
 

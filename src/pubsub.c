@@ -372,7 +372,6 @@ NULL
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try PUBSUB HELP",
-            (char*)c->argv[1]->ptr);
+        addReplySubSyntaxError(c);
     }
 }

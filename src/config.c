@@ -2149,8 +2149,7 @@ NULL
             addReply(c,shared.ok);
         }
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CONFIG HELP",
-            (char*)c->argv[1]->ptr);
+        addReplySubSyntaxError(c);
         return;
     }
 }
