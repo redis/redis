@@ -2377,7 +2377,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * same time.
      *
      * Since we have non-voting slaves that lower the probability of an entry
-     * to feature our node, we set the number of entires per packet as
+     * to feature our node, we set the number of entries per packet as
      * 10% of the total nodes we have. */
     wanted = floor(dictSize(server.cluster->nodes)/10);
     if (wanted < 3) wanted = 3;
