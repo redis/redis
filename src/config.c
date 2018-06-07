@@ -547,6 +547,10 @@ void loadServerConfigFromString(char *config) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
             server.hash_max_ziplist_value = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"stream-node-max-bytes") && argc == 2) {
+            server.stream_node_max_bytes = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"stream-node-max-entries") && argc == 2) {
+            server.stream_node_max_entries = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -1084,6 +1088,10 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LLONG_MAX) {
     } config_set_numerical_field(
+      "stream-node-max-bytes",server.stream_node_max_bytes,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
+    } config_set_numerical_field(
       "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
     } config_set_numerical_field(
       "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
@@ -1267,6 +1275,10 @@ void configGetCommand(client *c) {
             server.hash_max_ziplist_entries);
     config_get_numerical_field("hash-max-ziplist-value",
             server.hash_max_ziplist_value);
+    config_get_numerical_field("stream-node-max-bytes",
+            server.stream_node_max_bytes);
+    config_get_numerical_field("stream-node-max-entries",
+            server.stream_node_max_entries);
     config_get_numerical_field("list-max-ziplist-size",
             server.list_max_ziplist_size);
     config_get_numerical_field("list-compress-depth",
@@ -2056,6 +2068,8 @@ int rewriteConfig(char *path) {
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-entries",server.hash_max_ziplist_entries,OBJ_HASH_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-value",server.hash_max_ziplist_value,OBJ_HASH_MAX_ZIPLIST_VALUE);
+    rewriteConfigNumericalOption(state,"stream-node-max-bytes",server.stream_node_max_bytes,OBJ_STREAM_NODE_MAX_BYTES);
+    rewriteConfigNumericalOption(state,"stream-node-max-entries",server.stream_node_max_entries,OBJ_STREAM_NODE_MAX_ENTRIES);
     rewriteConfigNumericalOption(state,"list-max-ziplist-size",server.list_max_ziplist_size,OBJ_LIST_MAX_ZIPLIST_SIZE);
     rewriteConfigNumericalOption(state,"list-compress-depth",server.list_compress_depth,OBJ_LIST_COMPRESS_DEPTH);
     rewriteConfigNumericalOption(state,"set-max-intset-entries",server.set_max_intset_entries,OBJ_SET_MAX_INTSET_ENTRIES);
