@@ -994,6 +994,7 @@ struct redisServer {
     struct memkind *pmem_kind1;
     /* PM parameters */
     char* pm_dir_path;				/* Path to pmem directory*/
+    bool keys_on_pm;
     size_t pm_file_size;			/* Limit for pmem pool size*/
     bool use_volatile;              /* Indicates volatile usage */
     /* AOF persistence */
@@ -1917,6 +1918,7 @@ uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 void dictSdsDestructorM(void *privdata, void *val);
+void dictSdsDestructorVar(void *privdata, void *val);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

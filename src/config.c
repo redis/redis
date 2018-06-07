@@ -447,6 +447,12 @@ void loadServerConfigFromString(char *config) {
 			}
 			server.pm_file_size = size;
 			server.use_volatile = true;
+        } else if (!strcasecmp(argv[0],"keys-on-pm") && (argc == 2)) {
+            int yes;
+            if ((yes = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+            server.keys_on_pm = (yes ? true : false);
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 

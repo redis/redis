@@ -486,6 +486,13 @@ void dictSdsDestructorM(void *privdata, void *val)
     sdsfreeA(val,m_alloc);
 }
 
+void dictSdsDestructorVar(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+
+    sdsfreeA(val,server.keys_on_pm ? m_alloc : z_alloc);
+}
+
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
@@ -554,7 +561,7 @@ dictType objectKeyPointerValueDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
-    dictObjectDestructor, /* key destructor */
+    dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -584,7 +591,7 @@ dictType dbDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructorM,         /* key destructor */
+    dictSdsDestructorVar,       /* key destructor */
     dictObjectDestructor        /* val destructor */
 };
 
@@ -624,7 +631,7 @@ dictType hashDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructorM,          /* key destructor */
+    dictSdsDestructorM,         /* key destructor */
     dictSdsDestructorM          /* val destructor */
 };
 
@@ -1456,6 +1463,7 @@ void initServerConfig(void) {
     server.pm_dir_path = NULL;
     server.pm_file_size = MEMKIND_PMEM_MIN_SIZE;
     server.use_volatile = true;
+    server.keys_on_pm = true;
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
@@ -1843,6 +1851,7 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
+    server.keys_on_pm = false;
 
     createSharedObjects();
     adjustOpenFilesLimit();
