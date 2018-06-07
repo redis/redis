@@ -51,6 +51,11 @@ int memkind_pmem_create(struct memkind *kind, struct memkind_ops *ops, const cha
 int memkind_pmem_destroy(struct memkind *kind);
 void *memkind_pmem_mmap(struct memkind *kind, void *addr, size_t size);
 int memkind_pmem_get_mmap_flags(struct memkind *kind, int *flags);
+int memkind_pmem_get_size(struct memkind *kind, size_t *total, size_t *free);
+size_t jemk_malloc_usable_size(void *ptr);
+int jemk_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
+int jemk_mallctl(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+void jemk_dallocx(void *ptr, int flags);
 
 struct memkind_pmem {
     int fd;
