@@ -55,6 +55,14 @@ void memkind_free_wrapper(void *ptr) {
     memkind_free(server.pmem_kind1, ptr);
 }
 
+void memkind_free_no_tcache_wrapper(void *ptr) {
+    if(!ptr) return;
+    size_t oldsize;
+    oldsize = jemk_malloc_usable_size(ptr);
+    update_memkind_malloc_stat_free(oldsize);
+    jemk_dallocx(ptr, MALLOCX_TCACHE_NONE);
+}
+
 
 size_t memkind_malloc_used_memory(void){
     size_t um;

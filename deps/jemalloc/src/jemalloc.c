@@ -2598,7 +2598,7 @@ jemalloc_postfork_child(void)
  * returns the bin utilization and run utilization both in fixed point 16:16.
  * If the application decides to re-allocate it should use MALLOCX_TCACHE_NONE when doing so. */
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
-je_get_defrag_hint(void* ptr, int *bin_util, int *run_util) {
+jemk_get_defrag_hint(void* ptr, int *bin_util, int *run_util) {
     int defrag = 0;
     arena_chunk_t *chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(ptr);
     if (likely(chunk != ptr)) { /* indication that this is not a HUGE alloc */

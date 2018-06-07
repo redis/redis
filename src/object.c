@@ -1204,8 +1204,13 @@ void memoryCommand(client *c) {
         if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
             sprintf(tmp, "arena.%d.purge", narenas);
             if (!je_mallctl(tmp, NULL, 0, NULL, 0)) {
-                addReply(c, shared.ok);
-                return;
+                if (!jemk_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
+                    sprintf(tmp, "arena.%d.purge", narenas);
+                    if (!jemk_mallctl(tmp, NULL, 0, NULL, 0)) {
+                        addReply(c, shared.ok);
+                        return;
+                    }
+                }
             }
         }
         addReplyError(c, "Error purging dirty pages");

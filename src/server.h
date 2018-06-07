@@ -891,6 +891,7 @@ struct redisServer {
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
+    char active_defrag_mode;
     char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
@@ -1481,6 +1482,7 @@ static inline robj *createObject(int type, void *ptr) { return createObjectA(typ
 static inline robj *createObjectM(int type, void *ptr) { return createObjectA(type, ptr, m_alloc); }
 robj *createStringObjectA(const char *ptr, size_t len, alloc a);
 static inline robj *createStringObject(const char *ptr, size_t len) { return createStringObjectA(ptr, len, z_alloc); }
+static inline robj *createStringObjectM(const char *ptr, size_t len) { return createStringObjectA(ptr, len, m_alloc); }
 robj *createRawStringObjectA(const char *ptr, size_t len, alloc a);
 static inline robj *createRawStringObject(const char *ptr, size_t len) { return createRawStringObjectA(ptr, len, z_alloc); }
 robj *createEmbeddedStringObjectA(const char *ptr, size_t len, alloc a);

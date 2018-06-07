@@ -36,8 +36,6 @@ extern "C" {
  * API standards are described in memkind(3) man page.
  */
 
-int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
-
 /* EXPERIMENTAL API */
 #define _MEMKIND_BIT(N) (1ull << N)
 

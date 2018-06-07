@@ -41,6 +41,9 @@
 
 #ifdef HAVE_DEFRAG
 
+#define DEFRAG_JEMALLOC 1
+#define DEFRAG_MEMKIND 2
+
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
@@ -50,11 +53,13 @@ int je_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
  * returns NULL in case the allocatoin wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-void* activeDefragAlloc(void *ptr) {
+void* activeDefragAllocA(void *ptr, alloc a) {
     int bin_util, run_util;
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr, &bin_util, &run_util)) {
+    if((a==m_alloc && !(server.active_defrag_mode&DEFRAG_MEMKIND)) || (a==z_alloc && !(server.active_defrag_mode&DEFRAG_JEMALLOC)))
+        return NULL;
+    if(!a->get_defrag_hint(ptr, &bin_util, &run_util)) {
         server.stat_active_defrag_misses++;
         return NULL;
     }
@@ -74,15 +79,17 @@ void* activeDefragAlloc(void *ptr) {
     zfree_no_tcache(ptr);
     return newptr;
 }
+static inline void* activeDefragAlloc(void *ptr) { return activeDefragAllocA(ptr,z_alloc); }
+static inline void* activeDefragAllocM(void *ptr) { return activeDefragAllocA(ptr,m_alloc); }
 
 /*Defrag helper for sds strings
  *
  * returns NULL in case the allocatoin wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-sds activeDefragSds(sds sdsptr) {
+sds activeDefragSdsA(sds sdsptr, alloc a) {
     void* ptr = sdsAllocPtr(sdsptr);
-    void* newptr = activeDefragAlloc(ptr);
+    void* newptr = activeDefragAllocA(ptr,a);
     if (newptr) {
         size_t offset = sdsptr - (char*)ptr;
         sdsptr = (char*)newptr + offset;
@@ -90,6 +97,7 @@ sds activeDefragSds(sds sdsptr) {
     }
     return NULL;
 }
+static inline sds activeDefragSdsM(sds sdsptr) { return activeDefragSdsA(sdsptr,z_alloc); }
 
 /* Defrag helper for robj and/or string objects
  *
@@ -103,7 +111,7 @@ robj *activeDefragStringOb(robj* ob, int *defragged) {
 
     /* try to defrag robj (only if not an EMBSTR type (handled below). */
     if (ob->type!=OBJ_STRING || ob->encoding!=OBJ_ENCODING_EMBSTR) {
-        if ((ret = activeDefragAlloc(ob))) {
+        if ((ret = activeDefragAllocA(ob,ob->a))) {
             ob = ret;
             (*defragged)++;
         }
@@ -112,7 +120,7 @@ robj *activeDefragStringOb(robj* ob, int *defragged) {
     /* try to defrag string object */
     if (ob->type == OBJ_STRING) {
         if(ob->encoding==OBJ_ENCODING_RAW) {
-            sds newsds = activeDefragSds((sds)ob->ptr);
+            sds newsds = activeDefragSdsA((sds)ob->ptr,ob->a);
             if (newsds) {
                 ob->ptr = newsds;
                 (*defragged)++;
@@ -121,7 +129,7 @@ robj *activeDefragStringOb(robj* ob, int *defragged) {
             /* The sds is embedded in the object allocation, calculate the
              * offset and update the pointer in the new allocation. */
             long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
-            if ((ret = activeDefragAlloc(ob))) {
+            if ((ret = activeDefragAllocA(ob,ob->a))) {
                 ret->ptr = (void*)((intptr_t)ret + ofs);
                 (*defragged)++;
             }
@@ -282,7 +290,7 @@ int defragKey(redisDb *db, dictEntry *de) {
     sds newsds;
 
     /* Try to defrag the key name. */
-    newsds = activeDefragSds(keysds);
+    newsds = activeDefragSdsM(keysds);
     if (newsds)
         defragged++, de->key = newsds;
     if (dictSize(db->expires)) {
@@ -321,12 +329,12 @@ int defragKey(redisDb *db, dictEntry *de) {
                     node = newnode;
                     defragged++;
                 }
-                if ((newzl = activeDefragAlloc(node->zl)))
+                if ((newzl = activeDefragAllocA(node->zl,ob->a)))
                     defragged++, node->zl = newzl;
                 node = node->next;
             }
         } else if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
+            if ((newzl = activeDefragAllocA(ob->ptr,ob->a)))
                 defragged++, ob->ptr = newzl;
         } else {
             serverPanic("Unknown list encoding");
@@ -337,7 +345,7 @@ int defragKey(redisDb *db, dictEntry *de) {
             di = dictGetIterator(d);
             while((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
-                if ((newsds = activeDefragSds(sdsele)))
+                if ((newsds = activeDefragSdsM(sdsele)))
                     defragged++, de->key = newsds;
                 defragged += dictIterDefragEntry(di);
             }
@@ -345,7 +353,7 @@ int defragKey(redisDb *db, dictEntry *de) {
             dictDefragTables((dict**)&ob->ptr);
         } else if (ob->encoding == OBJ_ENCODING_INTSET) {
             intset *is = ob->ptr;
-            intset *newis = activeDefragAlloc(is);
+            intset *newis = activeDefragAllocA(is,ob->a);
             if (newis)
                 defragged++, ob->ptr = newis;
         } else {
@@ -353,7 +361,7 @@ int defragKey(redisDb *db, dictEntry *de) {
         }
     } else if (ob->type == OBJ_ZSET) {
         if (ob->encoding == OBJ_ENCODING_ZIPLIST) {
-            if ((newzl = activeDefragAlloc(ob->ptr)))
+            if ((newzl = activeDefragAllocA(ob->ptr,ob->a)))
                 defragged++, ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = (zset*)ob->ptr;
@@ -371,7 +379,7 @@ int defragKey(redisDb *db, dictEntry *de) {
             while((de = dictNext(di)) != NULL) {
                 double* newscore;
                 sds sdsele = dictGetKey(de);
-                if ((newsds = activeDefragSds(sdsele)))
+                if ((newsds = activeDefragSdsM(sdsele)))
                     defragged++, de->key = newsds;
                 newscore = zslDefrag(zs->zsl, *(double*)dictGetVal(de), sdsele, newsds);
                 if (newscore) {
@@ -394,10 +402,10 @@ int defragKey(redisDb *db, dictEntry *de) {
             di = dictGetIterator(d);
             while((de = dictNext(di)) != NULL) {
                 sds sdsele = dictGetKey(de);
-                if ((newsds = activeDefragSds(sdsele)))
+                if ((newsds = activeDefragSdsM(sdsele)))
                     defragged++, de->key = newsds;
                 sdsele = dictGetVal(de);
-                if ((newsds = activeDefragSds(sdsele)))
+                if ((newsds = activeDefragSdsA(sdsele,ob->a)))
                     defragged++, de->v.val = newsds;
                 defragged += dictIterDefragEntry(di);
             }
@@ -469,6 +477,31 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     return frag_pct;
 }
 
+float getAllocatorFragmentationM(size_t *out_frag_bytes) {
+    size_t epoch = 1, allocated = 0, resident = 0, active = 0, sz = sizeof(size_t);
+    /* Update the statistics cached by mallctl. */
+    jemk_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    /* Unlike RSS, this does not include RSS from shared libraries and other non
+     * heap mappings. */
+    jemk_mallctl("stats.resident", &resident, &sz, NULL, 0);
+    /* Unlike resident, this doesn't not include the pages jemalloc reserves
+     * for re-use (purge will clean that). */
+    jemk_mallctl("stats.active", &active, &sz, NULL, 0);
+    /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
+     * into account all allocations done by this process (not only zmalloc). */
+    jemk_mallctl("stats.allocated", &allocated, &sz, NULL, 0);
+    float frag_pct = ((float)active / allocated)*100 - 100;
+    size_t frag_bytes = active - allocated;
+    float rss_pct = ((float)resident / allocated)*100 - 100;
+    size_t rss_bytes = resident - allocated;
+    if(out_frag_bytes)
+        *out_frag_bytes = frag_bytes;
+    serverLog(LL_DEBUG,
+        "allocated=%zu, active=%zu, resident=%zu, frag=%.0f%% (%.0f%% rss), frag_bytes=%zu (%zu%% rss)",
+        allocated, active, resident, frag_pct, rss_pct, frag_bytes, rss_bytes);
+    return frag_pct;
+}
+
 #define INTERPOLATE(x, x1, x2, y1, y2) ( (y1) + ((x)-(x1)) * ((y2)-(y1)) / ((x2)-(x1)) )
 #define LIMIT(y, min, max) ((y)<(min)? min: ((y)>(max)? max: (y)))
 
@@ -491,10 +524,17 @@ void activeDefragCycle(void) {
      * or making it more aggressive. */
     run_with_period(1000) {
         size_t frag_bytes;
+        size_t frag_bytes_memkind;
         float frag_pct = getAllocatorFragmentation(&frag_bytes);
+        float frag_pct_memkind = getAllocatorFragmentationM(&frag_bytes_memkind);
         /* If we're not already running, and below the threshold, exit. */
         if (!server.active_defrag_running) {
-            if(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes)
+            server.active_defrag_mode = 0;
+            if(!(frag_pct < server.active_defrag_threshold_lower || frag_bytes < server.active_defrag_ignore_bytes))
+                server.active_defrag_mode = DEFRAG_JEMALLOC;
+            if(!(frag_pct_memkind < server.active_defrag_threshold_lower || frag_bytes_memkind < server.active_defrag_ignore_bytes))
+                server.active_defrag_mode = server.active_defrag_mode | DEFRAG_MEMKIND;
+            if(!server.active_defrag_mode)
                 return;
         }
 
@@ -507,6 +547,18 @@ void activeDefragCycle(void) {
         cpu_pct = LIMIT(cpu_pct,
                 server.active_defrag_cycle_min,
                 server.active_defrag_cycle_max);
+        int cpu_pct_memkind = INTERPOLATE(frag_pct_memkind,
+                server.active_defrag_threshold_lower,
+                server.active_defrag_threshold_upper,
+                server.active_defrag_cycle_min,
+                server.active_defrag_cycle_max);
+        cpu_pct_memkind = LIMIT(cpu_pct_memkind,
+                server.active_defrag_cycle_min,
+                server.active_defrag_cycle_max);
+        if((server.active_defrag_mode&DEFRAG_JEMALLOC) && (server.active_defrag_mode&DEFRAG_MEMKIND))
+            cpu_pct = cpu_pct>cpu_pct_memkind ? cpu_pct : cpu_pct_memkind;
+        else if(server.active_defrag_mode&DEFRAG_MEMKIND)
+            cpu_pct = cpu_pct_memkind;
          /* We allow increasing the aggressiveness during a scan, but don't
           * reduce it. */
         if (!server.active_defrag_running ||
@@ -558,7 +610,7 @@ void activeDefragCycle(void) {
             cursor = dictScan(db->dict, cursor, defragScanCallback, defragDictBucketCallback, db);
             /* Once in 16 scan iterations, or 1000 pointer reallocations
              * (if we have a lot of pointers in one hash bucket), check if we
-             * reached the tiem limit. */
+             * reached the time limit. */
             if (cursor && (++iterations > 16 || server.stat_active_defrag_hits - defragged > 1000)) {
                 if ((ustime() - start) > timelimit) {
                     return;
