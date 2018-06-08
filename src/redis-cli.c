@@ -1075,6 +1075,8 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
                        !strcasecmp(argv[1],"htstats")) ||
+        (argc >= 2 && !strcasecmp(command,"debug") &&
+                       !strcasecmp(argv[1],"htstats-key")) ||
         (argc >= 2 && !strcasecmp(command,"memory") &&
                       (!strcasecmp(argv[1],"malloc-stats") ||
                        !strcasecmp(argv[1],"doctor"))) ||
