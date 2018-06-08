@@ -1178,17 +1178,13 @@ void xrangeGenericCommand(client *c, int rev) {
 
     /* Parse the COUNT option if any. */
     if (c->argc > 4) {
-        for (int j = 4; j < c->argc; j++) {
-            int additional = c->argc-j-1;
-            if (strcasecmp(c->argv[j]->ptr,"COUNT") == 0 && additional >= 1) {
-                if (getLongLongFromObjectOrReply(c,c->argv[j+1],&count,NULL)
-                    != C_OK) return;
-                if (count < 0) count = 0;
-                j++; /* Consume additional arg. */
-            } else {
-                addReply(c,shared.syntaxerr);
-                return;
-            }
+        if (c->argc == 6 && strcasecmp(c->argv[4]->ptr,"COUNT") == 0) {
+            if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL)
+                != C_OK) return;
+            if (count < 0) count = 0;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
         }
     }
 
@@ -1229,6 +1225,8 @@ void xlenCommand(client *c) {
 void xreadCommand(client *c) {
     long long timeout = -1; /* -1 means, no BLOCK argument given. */
     long long count = 0;
+    int got_timeout = 0;
+    int got_count = 0;
     int streams_count = 0;
     int streams_arg = 0;
     int noack = 0;          /* True if NOACK option was specified. */
@@ -1237,6 +1235,7 @@ void xreadCommand(client *c) {
     streamID *ids = static_ids;
     streamCG **groups = NULL;
     int xreadgroup = sdslen(c->argv[0]->ptr) == 10; /* XREAD or XREADGROUP? */
+    int got_group = 0;
     robj *groupname = NULL;
     robj *consumername = NULL;
 
@@ -1244,14 +1243,16 @@ void xreadCommand(client *c) {
     for (int i = 1; i < c->argc; i++) {
         int moreargs = c->argc-i-1;
         char *o = c->argv[i]->ptr;
-        if (!strcasecmp(o,"BLOCK") && moreargs) {
+        if (!got_timeout && !strcasecmp(o,"BLOCK") && moreargs) {
             i++;
             if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
                 UNIT_MILLISECONDS) != C_OK) return;
-        } else if (!strcasecmp(o,"COUNT") && moreargs) {
+            got_timeout = 1;
+        } else if (!got_count && !strcasecmp(o,"COUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK)
                 return;
+            got_count = 1;
             if (count < 0) count = 0;
         } else if (!strcasecmp(o,"STREAMS") && moreargs) {
             streams_arg = i+1;
@@ -1264,7 +1265,7 @@ void xreadCommand(client *c) {
             }
             streams_count /= 2; /* We have two arguments for each stream. */
             break;
-        } else if (!strcasecmp(o,"GROUP") && moreargs >= 2) {
+        } else if (!got_group && !strcasecmp(o,"GROUP") && moreargs >= 2) {
             if (!xreadgroup) {
                 addReplyError(c,"The GROUP option is only supported by "
                                 "XREADGROUP. You called XREAD instead.");
@@ -1273,7 +1274,8 @@ void xreadCommand(client *c) {
             groupname = c->argv[i+1];
             consumername = c->argv[i+2];
             i += 2;
-        } else if (!strcasecmp(o,"NOACK")) {
+            got_group = 1;
+        } else if (!noack && !strcasecmp(o,"NOACK")) {
             if (!xreadgroup) {
                 addReplyError(c,"The NOACK option is only supported by "
                                 "XREADGROUP. You called XREAD instead.");
