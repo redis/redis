@@ -290,6 +290,7 @@ void debugCommand(client *c) {
 "crash-and-recover <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
 "digest -- Outputs an hex signature representing the current DB content.",
 "htstats <dbid> -- Return hash table statistics of the specified Redis database.",
+"htstats-key <key> -- Like htstats but for the hash table stored as key's value.",
 "loadaof -- Flush the AOF buffers on disk and reload the AOF in memory.",
 "lua-always-replicate-commands (0|1) -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
 "object <key> -- Show low level info about key and associated value.",
@@ -547,6 +548,34 @@ NULL
         stats = sdscat(stats,buf);
 
         addReplyBulkSds(c,stats);
+    } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
+        robj *o;
+        dict *ht = NULL;
+
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+                == NULL) return;
+
+        /* Get the hash table reference from the object, if possible. */
+        switch (o->encoding) {
+        case OBJ_ENCODING_SKIPLIST:
+            {
+                zset *zs = o->ptr;
+                ht = zs->dict;
+            }
+            break;
+        case OBJ_ENCODING_HT:
+            ht = o->ptr;
+            break;
+        }
+
+        if (ht == NULL) {
+            addReplyError(c,"The value stored at the specified key is not "
+                            "represented using an hash table");
+        } else {
+            char buf[4096];
+            dictGetStats(buf,sizeof(buf),ht);
+            addReplyBulkCString(c,buf);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"change-repl-id") && c->argc == 2) {
         serverLog(LL_WARNING,"Changing replication IDs after receiving DEBUG change-repl-id");
         changeReplicationId();
