@@ -1110,7 +1110,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "slowlog-max-len",ll,0,LLONG_MAX) {
       /* Cast to unsigned. */
-        server.slowlog_max_len = (unsigned)ll;
+        server.slowlog_max_len = (unsigned long)ll;
     } config_set_numerical_field(
       "latency-monitor-threshold",server.latency_monitor_threshold,0,LLONG_MAX){
     } config_set_numerical_field(
