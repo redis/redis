@@ -2826,9 +2826,9 @@ void commandCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "(no subcommand) -- Return details about all Redis commands.",
-"count -- Return the total number of commands in this Redis server.",
-"getkeys <full-command> -- Return the keys from a full Redis command.",
-"info [command-name ...] -- Return details about multiple Redis commands.",
+"COUNT -- Return the total number of commands in this Redis server.",
+"GETKEYS <full-command> -- Return the keys from a full Redis command.",
+"INFO [command-name ...] -- Return details about multiple Redis commands.",
 NULL
         };
         addReplyHelp(c, help);
