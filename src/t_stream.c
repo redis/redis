@@ -1310,14 +1310,13 @@ void xreadCommand(client *c) {
          * starting from now. */
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
-        robj *o;
+        robj *o = lookupKeyRead(c->db,key);
+        if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
         streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
          * key and group actually exist. */
         if (groupname) {
-            o = lookupKeyRead(c->db,key);
-            if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
             if (o == NULL ||
                 (group = streamLookupCG(o->ptr,groupname->ptr)) == NULL)
             {
@@ -1331,8 +1330,6 @@ void xreadCommand(client *c) {
         }
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
-            o = lookupKeyRead(c->db,key);
-            if (o && checkType(c,o,OBJ_STREAM)) goto cleanup;
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
@@ -2179,7 +2176,7 @@ NULL
 
     /* Lookup the key now, this is common for all the subcommands but HELP. */
     robj *o = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
-    if (o == NULL) return;
+    if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
     s = o->ptr;
 
     /* Dispatch the different subcommands. */
