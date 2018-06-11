@@ -398,12 +398,6 @@ void handleClientsBlockedOnKeys(void) {
                                            1);
                             }
 
-                            /* Note that after we unblock the client, 'gt'
-                             * and other receiver->bpop stuff are no longer
-                             * valid, so we must do the setup above before
-                             * this call. */
-                            unblockClient(receiver);
-
                             /* Emit the two elements sub-array consisting of
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
@@ -419,6 +413,12 @@ void handleClientsBlockedOnKeys(void) {
                             streamReplyWithRange(receiver,s,&start,NULL,
                                                  receiver->bpop.xread_count,
                                                  0, group, consumer, 0, &pi);
+
+                            /* Note that after we unblock the client, 'gt'
+                             * and other receiver->bpop stuff are no longer
+                             * valid, so we must do the setup above before
+                             * this call. */
+                            unblockClient(receiver);
                         }
                     }
                 }
