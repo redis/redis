@@ -236,4 +236,42 @@ start_server {tags {"scan"}} {
         set first_score [lindex $res 1]
         assert {$first_score != 0}
     }
+
+    test "SCAN regression test for issue #4906" {
+        r del set
+        set toremove {}
+        array set found {}
+        for {set j 0} {$j < 500} {incr j} {
+            r sadd set $j
+            if {$j >= 100} {
+                lappend toremove $j
+            }
+        }
+
+        # Start scanning
+        set cursor 0
+        set iteration 0
+        while {!($cursor == 0 && $iteration != 0)} {
+            lassign [r sscan set $cursor] cursor items
+
+            # Mark found items. We expect to find from 0 to 99 at the end
+            # since those elements will never be removed during the scanning.
+            foreach i $items {
+                set found($i) 1
+            }
+            incr iteration
+            # At some point remove most of the items to trigger the
+            # rehashing to a smaller hash table.
+            if {$iteration == 1} {
+                r srem set {*}$toremove
+            }
+        }
+
+        # Verify that SSCAN reported everything from 0 to 99
+        for {set j 0} {$j < 100} {incr j} {
+            if {![info exists found($j)]} {
+                fail "SSCAN element missing $j"
+            }
+        }
+    }
 }
