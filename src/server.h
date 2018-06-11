@@ -952,6 +952,7 @@ struct redisServer {
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
     long long stat_active_defrag_key_misses;/* number of keys scanned and not moved */
     size_t stat_peak_memory;        /* Max used memory record */
+    size_t stat_peak_memory_memkind;/* Max used memkind memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */

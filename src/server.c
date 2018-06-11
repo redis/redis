@@ -1921,6 +1921,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_peak_memory_memkind = 0;
     server.stat_rdb_cow_bytes = 0;
     server.stat_aof_cow_bytes = 0;
     server.resident_set_size = 0;
@@ -2943,6 +2944,7 @@ sds genRedisInfoString(char *section) {
     if (allsections || defsections || !strcasecmp(section,"memory")) {
         char hmem[64];
         char peak_hmem[64];
+        char peak_memkind_hmem[64];
         char total_system_hmem[64];
         char used_memory_lua_hmem[64];
         char used_memory_rss_hmem[64];
@@ -2961,9 +2963,12 @@ sds genRedisInfoString(char *section) {
          * if found smaller than the current memory usage. */
         if (zmalloc_used > server.stat_peak_memory)
             server.stat_peak_memory = zmalloc_used;
+        if (memkind_malloc_used > server.stat_peak_memory_memkind)
+            server.stat_peak_memory_memkind = memkind_malloc_used;
 
         bytesToHuman(hmem,zmalloc_used);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
+        bytesToHuman(peak_memkind_hmem,server.stat_peak_memory_memkind);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
         bytesToHuman(used_memory_rss_hmem,server.resident_set_size);
@@ -2982,6 +2987,9 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
             "used_memory_peak_perc:%.2f%%\r\n"
+            "used_memory_peak_memkind:%zu\r\n"
+            "used_memory_peak_memkind_human:%s\r\n"
+            "used_memory_peak_memkind_perc:%.2f%%\r\n"
             "used_memory_overhead:%zu\r\n"
             "used_memory_startup:%zu\r\n"
             "used_memory_dataset:%zu\r\n"
@@ -3006,6 +3014,10 @@ sds genRedisInfoString(char *section) {
             server.stat_peak_memory,
             peak_hmem,
             mh->peak_perc,
+            server.stat_peak_memory_memkind,
+            peak_memkind_hmem,
+            server.stat_peak_memory_memkind == 0 ? 0.0 :
+                (float)memkind_malloc_used*100/server.stat_peak_memory_memkind,
             mh->overhead_total,
             mh->startup_allocated,
             mh->dataset,
