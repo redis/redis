@@ -1576,7 +1576,7 @@ NULL
     /* Lookup the key now, this is common for all the subcommands but HELP. */
     if (c->argc >= 4) {
         robj *o = lookupKeyWriteOrReply(c,c->argv[2],shared.nokeyerr);
-        if (o == NULL) return;
+        if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
         s = o->ptr;
         grpname = c->argv[3]->ptr;
 
