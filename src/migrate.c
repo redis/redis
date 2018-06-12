@@ -715,6 +715,18 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
     }
 }
 
+void unblockClientFromMigrate(client *c) {
+    serverAssert(c->migrate_command_args != NULL && c->migrate_command_args->client == c &&
+                 c->migrate_command_args->background);
+    c->migrate_command_args->client = NULL;
+    c->migrate_command_args = NULL;
+}
+
+void freeMigrateCommandArgsFromFreeClient(client *c) {
+    UNUSED(c);
+    serverPanic("Should not arrive here.");
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -813,7 +825,5 @@ static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_ar
 void migrateCommand(client *c) {}
 void restoreCommand(client *c) {}
 void restoreCloseTimedoutCommands(void) {}
-void freeMigrateCommandArgsFromFreeClient(client *c) {}
 void freeRestoreCommandArgsFromFreeClient(client *c) {}
-void unblockClientFromMigrate(client *c) {}
 void unblockClientFromRestore(client *c) {}
