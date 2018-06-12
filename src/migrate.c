@@ -748,6 +748,25 @@ void migrateCommand(client *c) {
     blockClient(c, BLOCKED_MIGRATE);
 }
 
+static void migrateCommandNonBlockingCallback(migrateCommandArgs *args) {
+    serverAssert(args->non_blocking && args->background);
+
+    for (int j = 0; j < args->num_keys; j++) {
+        robj *key = args->kvpairs[j].key;
+        serverAssert(dictDelete(args->db->migrating_keys, key) == DICT_OK);
+    }
+    migrateGenericCommandReplyAndPropagate(args);
+
+    if (args->client != NULL) {
+        client *c = args->client;
+        serverAssert(c->migrate_command_args == args);
+        unblockClient(c);
+        serverAssert(c->migrate_command_args == NULL && args->client == NULL);
+    }
+
+    freeMigrateCommandArgs(args);
+}
+
 void unblockClientFromMigrate(client *c) {
     serverAssert(c->migrate_command_args != NULL && c->migrate_command_args->client == c &&
                  c->migrate_command_args->background);
@@ -809,7 +828,10 @@ static void *migrateCommandThreadMain(void *privdata) {
         pthread_mutex_unlock(&p->mutex);
 
         if (migrate_args != NULL) {
-            // TODO: handle migrate command
+            serverAssert(migrate_args->non_blocking && migrate_args->background);
+            if (migrateGenericCommandSendRequests(migrate_args)) {
+                migrateGenericCommandFetchReplies(migrate_args);
+            }
         }
         if (restore_args != NULL) {
             // TODO: handle restore command
@@ -862,7 +884,7 @@ static void migrateCommandThreadCallback(aeEventLoop *el, int fd, void *privdata
         pthread_mutex_unlock(&p->mutex);
 
         if (migrate_args != NULL) {
-            // TODO: callback of migrate command
+            migrateCommandNonBlockingCallback(migrate_args);
         }
         if (restore_args != NULL) {
             // TODO: callback of restore command
