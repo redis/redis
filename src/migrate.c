@@ -562,6 +562,8 @@ failed_cleanup:
 }
 
 static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
+    serverAssert(args->errmsg == NULL);
+
     migrateCachedSocket *cs = args->socket;
     if (!cs->authenticated) {
         if (cs->auth != NULL) {
@@ -628,6 +630,7 @@ rio_failed_cleanup:
 
 failed_socket_error:
     args->socket->error = 1;
+    serverAssert(args->errmsg != NULL);
     return 0;
 }
 
