@@ -100,6 +100,9 @@ int rdbLoadType(rio *rdb) {
     return type;
 }
 
+/* This is only used to load old databases stored with the RDB_OPCODE_EXPIRETIME
+ * opcode. New versions of Redis store using the RDB_OPCODE_EXPIRETIME_MS
+ * opcode. */
 time_t rdbLoadTime(rio *rdb) {
     int32_t t32;
     rdbLoadRaw(rdb,&t32,4);
@@ -108,12 +111,14 @@ time_t rdbLoadTime(rio *rdb) {
 
 int rdbSaveMillisecondTime(rio *rdb, long long t) {
     int64_t t64 = (int64_t) t;
+    memrev64ifbe(&t64); /* Store in little endian. */
     return rdbWriteRaw(rdb,&t64,8);
 }
 
 long long rdbLoadMillisecondTime(rio *rdb) {
     int64_t t64;
     rdbLoadRaw(rdb,&t64,8);
+    memrev64ifbe(&t64); /* Convert in big endian if the system is BE. */
     return (long long)t64;
 }
 
