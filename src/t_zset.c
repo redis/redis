@@ -1908,12 +1908,12 @@ int zuiLength(zsetopsrc *op) {
 /* Check if the current value is valid. If so, store it in the passed structure
  * and move to the next element. If not valid, this means we have reached the
  * end of the structure and can abort. */
-int zuiNext(zsetopsrc *op, zsetopval *val) {
+int zuiNext(zsetopsrc *op, zsetopval *val, alloc a) {
     if (op->subject == NULL)
         return 0;
 
     if (val->flags & OPVAL_DIRTY_SDS)
-        sdsfree(val->ele);
+        sdsfreeA(val->ele, a);
 
     memset(val,0,sizeof(zsetopval));
 
@@ -2228,7 +2228,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
              * by size, all src[i > 0] are non-empty too. */
             zuiInitIterator(&src[0]);
-            while (zuiNext(&src[0],&zval)) {
+            while (zuiNext(&src[0],&zval, dstkey->a)) {
                 double score, value;
 
                 score = src[0].weight * zval.score;
@@ -2276,7 +2276,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
             if (zuiLength(&src[i]) == 0) continue;
 
             zuiInitIterator(&src[i]);
-            while (zuiNext(&src[i],&zval)) {
+            while (zuiNext(&src[i],&zval, dstkey->a)) {
                 /* Initialize value */
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
