@@ -361,7 +361,8 @@ void incrDecrCommand(client *c, long long incr) {
         new = o;
         o->ptr = (void*)((long)value);
     } else {
-        new = createStringObjectFromLongLong(value);
+        new = createObject(OBJ_STRING, sdsfromlonglong(value));
+        new = tryObjectEncoding(new);
         if (o) {
             dbOverwrite(c->db,c->argv[1],new);
         } else {
