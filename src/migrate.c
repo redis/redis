@@ -670,6 +670,51 @@ failed_socket_error:
     return 0;
 }
 
+static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
+    if (args->client != NULL) {
+        client *c = args->client;
+        if (args->errmsg != NULL) {
+            addReplySds(c, sdsdup(args->errmsg));
+        } else {
+            addReply(c, shared.ok);
+        }
+    }
+
+    if (!args->copy) {
+        int migrated_keys = 0;
+        robj **propargv = zmalloc(sizeof(propargv[0]) * (1 + args->num_keys));
+        for (int j = 0; j < args->num_keys; j++) {
+            if (!args->kvpairs[j].success) {
+                continue;
+            }
+            migrated_keys++;
+
+            robj *key = args->kvpairs[j].key;
+            propargv[migrated_keys] = key;
+
+            dbDelete(args->db, key);
+            signalModifiedKey(args->db, key);
+            server.dirty++;
+        }
+
+        if (migrated_keys == 0) {
+            zfree(propargv);
+            return;
+        }
+
+        if (!args->non_blocking && args->client != NULL) {
+            preventCommandPropagation(args->client);
+        }
+
+        propargv[0] = createStringObject("DEL", 3);
+
+        propagate(server.delCommand, args->db->id, propargv, 1 + migrated_keys, PROPAGATE_AOF | PROPAGATE_REPL);
+
+        decrRefCount(propargv[0]);
+        zfree(propargv);
+    }
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
