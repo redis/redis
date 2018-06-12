@@ -647,7 +647,12 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 for (int64_t i = 0; i < to_discard; i++)
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             } else {
-                int prev_times = 4; /* flag + id ms/seq diff + numfields. */
+                int prev_times = 4; /* flag + id ms + id seq + one more to
+                                       go back to the previous entry "count"
+                                       field. */
+                /* If the entry was not flagged SAMEFIELD we also read the
+                 * number of fields, so go back one more. */
+                if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS)) prev_times++;
                 while(prev_times--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
             }
         }
