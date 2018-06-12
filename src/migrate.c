@@ -815,3 +815,5 @@ void restoreCommand(client *c) {}
 void restoreCloseTimedoutCommands(void) {}
 void freeMigrateCommandArgsFromFreeClient(client *c) {}
 void freeRestoreCommandArgsFromFreeClient(client *c) {}
+void unblockClientFromMigrate(client *c) {}
+void unblockClientFromRestore(client *c) {}

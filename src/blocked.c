@@ -168,6 +168,10 @@ void unblockClient(client *c) {
         unblockClientWaitingReplicas(c);
     } else if (c->btype == BLOCKED_MODULE) {
         unblockClientFromModule(c);
+    } else if (c->btype == BLOCKED_MIGRATE) {
+        unblockClientFromMigrate(c);
+    } else if (c->btype == BLOCKED_RESTORE) {
+        unblockClientFromRestore(c);
     } else {
         serverPanic("Unknown btype in unblockClient().");
     }
@@ -186,7 +190,9 @@ void unblockClient(client *c) {
 void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
-        c->btype == BLOCKED_STREAM) {
+        c->btype == BLOCKED_STREAM ||
+        c->btype == BLOCKED_MIGRATE ||
+        c->btype == BLOCKED_RESTORE) {
         addReply(c,shared.nullmultibulk);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
