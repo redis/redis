@@ -808,8 +808,39 @@ struct _restoreCommandArgs {
     const char *cmd_name;
 
     client *client;
-    int processing_state;
+    int process_state;
 };
+
+static list *restore_command_args_list = NULL;
+
+static void freeRestoreCommandArgs(restoreCommandArgs *args) {
+    if (args->key != NULL) {
+        decrRefCount(args->key);
+    }
+    if (args->obj != NULL) {
+        decrRefCountLazyfree(args->obj);
+    }
+
+    while (listLength(args->fragments) != 0) {
+        listNode *head = listFirst(args->fragments);
+        decrRefCount(listNodeValue(head));
+        listDelNode(args->fragments, head);
+    }
+    listRelease(args->fragments);
+
+    if (args->payload != NULL) {
+        decrRefCount(args->payload);
+    }
+    if (args->errmsg != NULL) {
+        sdsfree(args->errmsg);
+    }
+    if (args->link_node != NULL) {
+        listDelNode(restore_command_args_list, args->link_node);
+    }
+    serverAssert(args->process_state != PROCESS_STATE_QUEUED);
+
+    zfree(args);
+}
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
