@@ -831,15 +831,47 @@ static void *migrateCommandThreadMain(void *privdata) {
     return NULL;
 }
 
-static void migrateCommandThreadReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+static void migrateCommandThreadCallback(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(fd);
     UNUSED(mask);
 
     migrateCommandThread *p = privdata;
 
-    // TODO: Not finished yet.
-    UNUSED(p);
+    char byte;
+    int n = read(p->pipe_fds[0], &byte, sizeof(byte));
+    if (n != 1) {
+        serverAssert(n == -1 && errno == EAGAIN);
+    }
+
+    while (1) {
+        migrateCommandArgs *migrate_args = NULL;
+        restoreCommandArgs *restore_args = NULL;
+
+        pthread_mutex_lock(&p->mutex);
+        {
+            if (listLength(p->migrate.done) != 0) {
+                migrate_args = listNodeValue(listFirst(p->migrate.done));
+                listDelNode(p->migrate.done, listFirst(p->migrate.done));
+            }
+            if (listLength(p->restore.done) != 0) {
+                restore_args = listNodeValue(listFirst(p->restore.done));
+                listDelNode(p->restore.done, listFirst(p->restore.done));
+            }
+        }
+        pthread_mutex_unlock(&p->mutex);
+
+        if (migrate_args != NULL) {
+            // TODO: callback of migrate command
+        }
+        if (restore_args != NULL) {
+            // TODO: callback of restore command
+        }
+
+        if (migrate_args == NULL && restore_args == NULL) {
+            return;
+        }
+    }
 }
 
 static void migrateCommandThreadInit(migrateCommandThread *p) {
@@ -866,7 +898,7 @@ static void migrateCommandThreadInit(migrateCommandThread *p) {
         serverPanic("Fatal: call anetNonBlock '%s'.", strerror(errno));
         exit(1);
     }
-    if (aeCreateFileEvent(server.el, p->pipe_fds[0], AE_READABLE, migrateCommandThreadReadEvent, p) == AE_ERR) {
+    if (aeCreateFileEvent(server.el, p->pipe_fds[0], AE_READABLE, migrateCommandThreadCallback, p) == AE_ERR) {
         serverPanic("Fatal: call aeCreateFileEvent '%s'.", strerror(errno));
         exit(1);
     }
