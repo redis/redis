@@ -798,6 +798,16 @@ static migrateCommandThread migrate_command_threads[1];
 
 void migrateBackgroundThreadInit(void) { migrateCommandThreadInit(&migrate_command_threads[0]); }
 
+static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_args) {
+    migrateCommandThread *p = &migrate_command_threads[0];
+    pthread_mutex_lock(&p->mutex);
+    {
+        listAddNodeTail(p->migrate.jobs, migrate_args);
+        pthread_cond_broadcast(&p->cond);
+    }
+    pthread_mutex_unlock(&p->mutex);
+}
+
 // TODO
 
 void migrateCommand(client *c) {}
