@@ -923,6 +923,16 @@ static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_ar
     pthread_mutex_unlock(&p->mutex);
 }
 
+static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_args) {
+    migrateCommandThread *p = &migrate_command_threads[0];
+    pthread_mutex_lock(&p->mutex);
+    {
+        listAddNodeTail(p->restore.jobs, restore_args);
+        pthread_cond_broadcast(&p->cond);
+    }
+    pthread_mutex_unlock(&p->mutex);
+}
+
 // TODO
 
 void restoreCommand(client *c) {}
