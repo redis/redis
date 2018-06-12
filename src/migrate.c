@@ -784,6 +784,33 @@ void freeMigrateCommandArgsFromFreeClient(client *c) {
     serverPanic("Should not arrive here.");
 }
 
+// ---------------- RESTORE COMMAND ----------------------------------------- //
+
+struct _restoreCommandArgs {
+    redisDb *db;
+    robj *key;
+    robj *obj;
+    mstime_t ttl;
+
+    int replace;
+    int non_blocking;
+
+    list *fragments;
+    size_t total_bytes;
+
+    robj *payload;
+
+    time_t last_update_time;
+    sds errmsg;
+
+    listNode *link_node;
+
+    const char *cmd_name;
+
+    client *client;
+    int processing_state;
+};
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
