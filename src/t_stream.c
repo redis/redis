@@ -1565,7 +1565,7 @@ void xgroupCommand(client *c) {
     const char *help[] = {
 "CREATE      <key> <groupname> <id or $>  -- Create a new consumer group.",
 "SETID       <key> <groupname> <id or $>  -- Set the current group ID.",
-"DESTROY    <key> <groupname>            -- Remove the specified group.",
+"DESTROY     <key> <groupname>            -- Remove the specified group.",
 "DELCONSUMER <key> <groupname> <consumer> -- Remove the specified conusmer.",
 "HELP                                     -- Prints this help.",
 NULL
