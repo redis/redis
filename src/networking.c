@@ -2147,7 +2147,6 @@ void readQueryFromClient(connection *conn) {
     }
 
     qblen = sdslen(c->querybuf);
-    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     if (big_arg || sdsalloc(c->querybuf) < PROTO_IOBUF_LEN) {
         /* When reading a BIG_ARG we won't be reading more than that one arg
          * into the query buffer, so we don't need to pre-allocate more than we
@@ -2187,6 +2186,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     sdsIncrLen(c->querybuf,nread);
+    qblen = sdslen(c->querybuf);
+    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+
     c->lastinteraction = server.unixtime;
     if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
     atomicIncr(server.stat_net_input_bytes, nread);
