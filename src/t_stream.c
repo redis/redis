@@ -1614,11 +1614,13 @@ NULL
         }
         cg->last_id = id;
         addReply(c,shared.ok);
+        server.dirty++;
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamFreeCG(cg);
             addReply(c,shared.cone);
+            server.dirty++;
         } else {
             addReply(c,shared.czero);
         }
