@@ -866,6 +866,13 @@ static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_
     return args;
 }
 
+static void restoreGenericCommandAddFragment(restoreCommandArgs *args, robj *frag) {
+    incrRefCount(frag);
+    listAddNodeTail(args->fragments, frag);
+    args->total_bytes += sdslen(frag->ptr);
+    args->last_update_time = server.unixtime;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
