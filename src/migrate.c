@@ -405,6 +405,10 @@ rio_failed_cleanup:
 
 // ---------------- MIGRATE COMMAND ----------------------------------------- //
 
+#define PROCESS_STATE_NONE 0
+#define PROCESS_STATE_DONE 1
+#define PROCESS_STATE_QUEUED 2
+
 struct _migrateCommandArgs {
     redisDb *db;
     robj *host;
@@ -432,7 +436,7 @@ struct _migrateCommandArgs {
     const char *cmd_name;
 
     client *client;
-    int background;
+    int process_state;
 };
 
 static void freeMigrateCommandArgs(migrateCommandArgs *args) {
@@ -464,6 +468,8 @@ static void freeMigrateCommandArgs(migrateCommandArgs *args) {
     if (args->errmsg != NULL) {
         sdsfree(args->errmsg);
     }
+    serverAssert(args->process_state != PROCESS_STATE_QUEUED);
+
     zfree(args);
 }
 
@@ -741,7 +747,6 @@ void migrateCommand(client *c) {
         serverAssert(dictAdd(args->db->migrating_keys, key, NULL) == DICT_OK);
     }
     c->migrate_command_args = args;
-    c->migrate_command_args->background = 1;
 
     migrateCommandThreadAddMigrateJobTail(args);
 
@@ -749,7 +754,7 @@ void migrateCommand(client *c) {
 }
 
 static void migrateCommandNonBlockingCallback(migrateCommandArgs *args) {
-    serverAssert(args->non_blocking && args->background);
+    serverAssert(args->non_blocking && args->process_state == PROCESS_STATE_DONE);
 
     for (int j = 0; j < args->num_keys; j++) {
         robj *key = args->kvpairs[j].key;
@@ -769,7 +774,7 @@ static void migrateCommandNonBlockingCallback(migrateCommandArgs *args) {
 
 void unblockClientFromMigrate(client *c) {
     serverAssert(c->migrate_command_args != NULL && c->migrate_command_args->client == c &&
-                 c->migrate_command_args->background);
+                 c->migrate_command_args->non_blocking && c->migrate_command_args->process_state == PROCESS_STATE_DONE);
     c->migrate_command_args->client = NULL;
     c->migrate_command_args = NULL;
 }
@@ -828,7 +833,6 @@ static void *migrateCommandThreadMain(void *privdata) {
         pthread_mutex_unlock(&p->mutex);
 
         if (migrate_args != NULL) {
-            serverAssert(migrate_args->non_blocking && migrate_args->background);
             if (migrateGenericCommandSendRequests(migrate_args)) {
                 migrateGenericCommandFetchReplies(migrate_args);
             }
@@ -884,6 +888,7 @@ static void migrateCommandThreadCallback(aeEventLoop *el, int fd, void *privdata
         pthread_mutex_unlock(&p->mutex);
 
         if (migrate_args != NULL) {
+            migrate_args->process_state = PROCESS_STATE_DONE;
             migrateCommandNonBlockingCallback(migrate_args);
         }
         if (restore_args != NULL) {
@@ -936,9 +941,12 @@ static migrateCommandThread migrate_command_threads[1];
 void migrateBackgroundThreadInit(void) { migrateCommandThreadInit(&migrate_command_threads[0]); }
 
 static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_args) {
+    serverAssert(migrate_args->process_state != PROCESS_STATE_QUEUED);
+
     migrateCommandThread *p = &migrate_command_threads[0];
     pthread_mutex_lock(&p->mutex);
     {
+        migrate_args->process_state = PROCESS_STATE_QUEUED;
         listAddNodeTail(p->migrate.jobs, migrate_args);
         pthread_cond_broadcast(&p->cond);
     }
