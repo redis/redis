@@ -115,10 +115,22 @@ int rdbSaveMillisecondTime(rio *rdb, long long t) {
     return rdbWriteRaw(rdb,&t64,8);
 }
 
-long long rdbLoadMillisecondTime(rio *rdb) {
+/* This function loads a time from the RDB file. It gets the version of the
+ * RDB because, unfortunately, before Redis 5 (RDB version 9), the function
+ * failed to convert data to/from little endian, so RDB files with keys having
+ * expires could not be shared between big endian and little endian systems
+ * (because the expire time will be totally wrong). The fix for this is just
+ * to call memrev64ifbe(), however if we fix this for all the RDB versions,
+ * this call will introduce an incompatibility for big endian systems:
+ * after upgrading to Redis version 5 they will no longer be able to load their
+ * own old RDB files. Because of that, we instead fix the function only for new
+ * RDB versions, and load older RDB versions as we used to do in the past,
+ * allowing big endian systems to load their own old RDB files. */
+long long rdbLoadMillisecondTime(rio *rdb, int rdbver) {
     int64_t t64;
     rdbLoadRaw(rdb,&t64,8);
-    memrev64ifbe(&t64); /* Convert in big endian if the system is BE. */
+    if (rdbver >= 9) /* Check the top comment of this function. */
+        memrev64ifbe(&t64); /* Convert in big endian if the system is BE. */
     return (long long)t64;
 }
 
@@ -1693,7 +1705,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 unsigned char rawid[sizeof(streamID)];
                 rdbLoadRaw(rdb,rawid,sizeof(rawid));
                 streamNACK *nack = streamCreateNACK(NULL);
-                nack->delivery_time = rdbLoadMillisecondTime(rdb);
+                nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
                 if (!raxInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL))
                     rdbExitReportCorruptRDB("Duplicated gobal PEL entry "
@@ -1712,7 +1724,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 streamConsumer *consumer = streamLookupConsumer(cgroup,cname,
                                            1);
                 sdsfree(cname);
-                consumer->seen_time = rdbLoadMillisecondTime(rdb);
+                consumer->seen_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
 
                 /* Load the PEL about entries owned by this specific
                  * consumer. */
@@ -1877,7 +1889,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
-            expiretime = rdbLoadMillisecondTime(rdb);
+            expiretime = rdbLoadMillisecondTime(rdb,rdbver);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
             /* FREQ: LFU frequency. */
