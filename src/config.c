@@ -509,14 +509,16 @@ void loadServerConfigFromString(char *config) {
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"active-defrag-threshold-lower") && argc == 2) {
             server.active_defrag_threshold_lower = atoi(argv[1]);
-            if (server.active_defrag_threshold_lower < 0) {
-                err = "active-defrag-threshold-lower must be 0 or greater";
+            if (server.active_defrag_threshold_lower < 0 ||
+                server.active_defrag_threshold_lower > 1000) {
+                err = "active-defrag-threshold-lower must be between 0 and 1000";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"active-defrag-threshold-upper") && argc == 2) {
             server.active_defrag_threshold_upper = atoi(argv[1]);
-            if (server.active_defrag_threshold_upper < 0) {
-                err = "active-defrag-threshold-upper must be 0 or greater";
+            if (server.active_defrag_threshold_upper < 0 ||
+                server.active_defrag_threshold_upper > 1000) {
+                err = "active-defrag-threshold-upper must be between 0 and 1000";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"active-defrag-ignore-bytes") && argc == 2) {
