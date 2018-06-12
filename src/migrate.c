@@ -842,6 +842,30 @@ static void freeRestoreCommandArgs(restoreCommandArgs *args) {
     zfree(args);
 }
 
+static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_blocking) {
+    restoreCommandArgs *args = zcalloc(sizeof(*args));
+    args->db = c->db;
+    args->key = key;
+    args->non_blocking = non_blocking;
+    args->fragments = listCreate();
+    args->last_update_time = server.unixtime;
+    if (server.cluster_enabled) {
+        args->cmd_name = non_blocking ? "RESTORE-ASYNC-ASKING" : "RESTORE-ASKING";
+    } else {
+        args->cmd_name = non_blocking ? "RESTORE-ASYNC" : "RESTORE";
+    }
+    args->client = c;
+
+    incrRefCount(key);
+
+    if (restore_command_args_list == NULL) {
+        restore_command_args_list = listCreate();
+    }
+    listAddNodeTail(restore_command_args_list, args);
+    args->link_node = listLast(restore_command_args_list);
+    return args;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
