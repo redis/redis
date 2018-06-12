@@ -788,8 +788,46 @@ static void *migrateCommandThreadMain(void *privdata) {
 
     migrateCommandThread *p = privdata;
 
-    // TODO: Not finished yet.
-    UNUSED(p);
+    while (1) {
+        migrateCommandArgs *migrate_args = NULL;
+        restoreCommandArgs *restore_args = NULL;
+
+        pthread_mutex_lock(&p->mutex);
+        {
+            while (listLength(p->migrate.jobs) == 0 && listLength(p->restore.jobs) == 0) {
+                pthread_cond_wait(&p->cond, &p->mutex);
+            }
+            if (listLength(p->migrate.jobs) != 0) {
+                migrate_args = listNodeValue(listFirst(p->migrate.jobs));
+                listDelNode(p->migrate.jobs, listFirst(p->migrate.jobs));
+            }
+            if (listLength(p->restore.jobs) != 0) {
+                restore_args = listNodeValue(listFirst(p->restore.jobs));
+                listDelNode(p->restore.jobs, listFirst(p->restore.jobs));
+            }
+        }
+        pthread_mutex_unlock(&p->mutex);
+
+        if (migrate_args != NULL) {
+            // TODO: handle migrate command
+        }
+        if (restore_args != NULL) {
+            // TODO: handle restore command
+        }
+
+        pthread_mutex_lock(&p->mutex);
+        {
+            if (migrate_args != NULL) {
+                listAddNodeTail(p->migrate.done, migrate_args);
+            }
+            if (restore_args != NULL) {
+                listAddNodeTail(p->restore.done, restore_args);
+            }
+        }
+        pthread_mutex_unlock(&p->mutex);
+
+        serverAssert(write(p->pipe_fds[1], ".", 1) == 1);
+    }
     return NULL;
 }
 
