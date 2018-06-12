@@ -716,6 +716,8 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
     }
 }
 
+static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *args);
+
 void migrateCommand(client *c) {
     migrateCommandArgs *args = initMigrateCommandArgsOrReply(c);
     if (args == NULL) {
@@ -733,7 +735,17 @@ void migrateCommand(client *c) {
         return;
     }
 
-    // TODO: Not finished yet.
+    for (int j = 0; j < args->num_keys; j++) {
+        robj *key = args->kvpairs[j].key;
+        incrRefCount(key);
+        serverAssert(dictAdd(args->db->migrating_keys, key, NULL) == DICT_OK);
+    }
+    c->migrate_command_args = args;
+    c->migrate_command_args->background = 1;
+
+    migrateCommandThreadAddMigrateJobTail(args);
+
+    blockClient(c, BLOCKED_MIGRATE);
 }
 
 void unblockClientFromMigrate(client *c) {
