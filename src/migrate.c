@@ -629,8 +629,9 @@ rio_failed_cleanup:
         sdscatfmt(sdsempty(), "-ERR Command %s failed, sending error '%s'.\r\n", args->cmd_name, strerror(errno));
 
 failed_socket_error:
-    args->socket->error = 1;
     serverAssert(args->errmsg != NULL);
+
+    args->socket->error = 1;
     return 0;
 }
 
@@ -713,6 +714,26 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
         decrRefCount(propargv[0]);
         zfree(propargv);
     }
+}
+
+void migrateCommand(client *c) {
+    migrateCommandArgs *args = initMigrateCommandArgsOrReply(c);
+    if (args == NULL) {
+        return;
+    }
+    serverAssert(c->migrate_command_args == NULL);
+
+    if (!args->non_blocking) {
+        if (migrateGenericCommandSendRequests(args)) {
+            migrateGenericCommandFetchReplies(args);
+        }
+        migrateGenericCommandReplyAndPropagate(args);
+
+        freeMigrateCommandArgs(args);
+        return;
+    }
+
+    // TODO: Not finished yet.
 }
 
 void unblockClientFromMigrate(client *c) {
@@ -822,7 +843,6 @@ static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_ar
 
 // TODO
 
-void migrateCommand(client *c) {}
 void restoreCommand(client *c) {}
 void restoreCloseTimedoutCommands(void) {}
 void freeRestoreCommandArgsFromFreeClient(client *c) {}
