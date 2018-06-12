@@ -942,16 +942,18 @@ void moveCommand(client *c) {
 }
 
 /* Helper function for dbSwapDatabases(): scans the list of keys that have
- * one or more blocked clients for B[LR]POP or other list blocking commands
- * and signal the keys are ready if they are lists. See the comment where
- * the function is used for more info. */
+ * one or more blocked clients for B[LR]POP or other blocking commands
+ * and signal the keys as ready if they are of the right type. See the comment
+ * where the function is used for more info. */
 void scanDatabaseForReadyLists(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && (value->type == OBJ_LIST || value->type == OBJ_STREAM))
+        if (value && (value->type == OBJ_LIST ||
+                      value->type == OBJ_STREAM ||
+                      value->type == OBJ_ZSET))
             signalKeyAsReady(db, key);
     }
     dictReleaseIterator(di);
