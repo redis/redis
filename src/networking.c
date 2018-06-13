@@ -247,7 +247,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
 
         /* Append to this object when possible. If tail == NULL it was
          * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES) {
+        if (tail && (sdsavail(tail) >= len || sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES)) {
             tail = sdscatlen(tail,s,len);
             listNodeValue(ln) = tail;
             c->reply_bytes += len;
