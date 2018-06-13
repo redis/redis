@@ -128,6 +128,8 @@ static int syncPingCommand(int fd, mstime_t timeout, sds *reterr) {
     serverAssert(rioWriteBulkCount(&cmd, '*', 1));
     serverAssert(rioWriteBulkString(&cmd, cmd_name, strlen(cmd_name)));
 
+    serverAssert(reterr != NULL && *reterr == NULL);
+
     if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
@@ -156,6 +158,8 @@ static int syncAuthCommand(int fd, mstime_t timeout, sds password, sds *reterr) 
     serverAssert(rioWriteBulkString(&cmd, cmd_name, strlen(cmd_name)));
     serverAssert(rioWriteBulkString(&cmd, password, sdslen(password)));
 
+    serverAssert(reterr != NULL && *reterr == NULL);
+
     if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
@@ -183,6 +187,8 @@ static int syncSelectCommand(int fd, mstime_t timeout, int dbid, sds *reterr) {
     serverAssert(rioWriteBulkCount(&cmd, '*', 2));
     serverAssert(rioWriteBulkString(&cmd, cmd_name, strlen(cmd_name)));
     serverAssert(rioWriteBulkLongLong(&cmd, dbid));
+
+    serverAssert(reterr != NULL && *reterr == NULL);
 
     if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
