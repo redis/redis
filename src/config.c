@@ -1062,15 +1062,15 @@ void configSetCommand(client *c) {
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
     } config_set_numerical_field(
-      "tcp-keepalive",server.tcpkeepalive,0,LLONG_MAX) {
+      "tcp-keepalive",server.tcpkeepalive,0,INT_MAX) {
     } config_set_numerical_field(
-      "maxmemory-samples",server.maxmemory_samples,1,LLONG_MAX) {
+      "maxmemory-samples",server.maxmemory_samples,1,INT_MAX) {
     } config_set_numerical_field(
-      "lfu-log-factor",server.lfu_log_factor,0,LLONG_MAX) {
+      "lfu-log-factor",server.lfu_log_factor,0,INT_MAX) {
     } config_set_numerical_field(
-      "lfu-decay-time",server.lfu_decay_time,0,LLONG_MAX) {
+      "lfu-decay-time",server.lfu_decay_time,0,INT_MAX) {
     } config_set_numerical_field(
-      "timeout",server.maxidletime,0,LONG_MAX) {
+      "timeout",server.maxidletime,0,INT_MAX) {
     } config_set_numerical_field(
       "active-defrag-threshold-lower",server.active_defrag_threshold_lower,0,1000) {
     } config_set_numerical_field(
@@ -1082,15 +1082,15 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
     } config_set_numerical_field(
-      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LLONG_MAX) {
+      "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LONG_MAX) {
     } config_set_numerical_field(
-      "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,LLONG_MAX){
+      "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,INT_MAX){
     } config_set_numerical_field(
-      "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LLONG_MAX) {
+      "hash-max-ziplist-entries",server.hash_max_ziplist_entries,0,LONG_MAX) {
     } config_set_numerical_field(
-      "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LLONG_MAX) {
+      "hash-max-ziplist-value",server.hash_max_ziplist_value,0,LONG_MAX) {
     } config_set_numerical_field(
-      "stream-node-max-bytes",server.stream_node_max_bytes,0,LLONG_MAX) {
+      "stream-node-max-bytes",server.stream_node_max_bytes,0,LONG_MAX) {
     } config_set_numerical_field(
       "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
@@ -1098,40 +1098,40 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
     } config_set_numerical_field(
-      "set-max-intset-entries",server.set_max_intset_entries,0,LLONG_MAX) {
+      "set-max-intset-entries",server.set_max_intset_entries,0,LONG_MAX) {
     } config_set_numerical_field(
-      "zset-max-ziplist-entries",server.zset_max_ziplist_entries,0,LLONG_MAX) {
+      "zset-max-ziplist-entries",server.zset_max_ziplist_entries,0,LONG_MAX) {
     } config_set_numerical_field(
-      "zset-max-ziplist-value",server.zset_max_ziplist_value,0,LLONG_MAX) {
+      "zset-max-ziplist-value",server.zset_max_ziplist_value,0,LONG_MAX) {
     } config_set_numerical_field(
-      "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,LLONG_MAX) {
+      "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,LONG_MAX) {
     } config_set_numerical_field(
-      "lua-time-limit",server.lua_time_limit,0,LLONG_MAX) {
+      "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
       "slowlog-log-slower-than",server.slowlog_log_slower_than,0,LLONG_MAX) {
     } config_set_numerical_field(
-      "slowlog-max-len",ll,0,LLONG_MAX) {
+      "slowlog-max-len",ll,0,LONG_MAX) {
       /* Cast to unsigned. */
         server.slowlog_max_len = (unsigned long)ll;
     } config_set_numerical_field(
       "latency-monitor-threshold",server.latency_monitor_threshold,0,LLONG_MAX){
     } config_set_numerical_field(
-      "repl-ping-slave-period",server.repl_ping_slave_period,1,LLONG_MAX) {
+      "repl-ping-slave-period",server.repl_ping_slave_period,1,INT_MAX) {
     } config_set_numerical_field(
-      "repl-timeout",server.repl_timeout,1,LLONG_MAX) {
+      "repl-timeout",server.repl_timeout,1,INT_MAX) {
     } config_set_numerical_field(
-      "repl-backlog-ttl",server.repl_backlog_time_limit,0,LLONG_MAX) {
+      "repl-backlog-ttl",server.repl_backlog_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
-      "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,LLONG_MAX) {
+      "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,INT_MAX) {
     } config_set_numerical_field(
-      "slave-priority",server.slave_priority,0,LLONG_MAX) {
+      "slave-priority",server.slave_priority,0,INT_MAX) {
     } config_set_numerical_field(
       "slave-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
-      "min-slaves-to-write",server.repl_min_slaves_to_write,0,LLONG_MAX) {
+      "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
-      "min-slaves-max-lag",server.repl_min_slaves_max_lag,0,LLONG_MAX) {
+      "min-slaves-max-lag",server.repl_min_slaves_max_lag,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
       "cluster-node-timeout",server.cluster_node_timeout,0,LLONG_MAX) {
@@ -1140,17 +1140,17 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "cluster-announce-bus-port",server.cluster_announce_bus_port,0,65535) {
     } config_set_numerical_field(
-      "cluster-migration-barrier",server.cluster_migration_barrier,0,LLONG_MAX){
+      "cluster-migration-barrier",server.cluster_migration_barrier,0,INT_MAX){
     } config_set_numerical_field(
-      "cluster-slave-validity-factor",server.cluster_slave_validity_factor,0,LLONG_MAX) {
+      "cluster-slave-validity-factor",server.cluster_slave_validity_factor,0,INT_MAX) {
     } config_set_numerical_field(
-      "hz",server.hz,0,LLONG_MAX) {
+      "hz",server.hz,0,INT_MAX) {
         /* Hz is more an hint from the user, so we accept values out of range
          * but cap them to reasonable values. */
         if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
         if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
     } config_set_numerical_field(
-      "watchdog-period",ll,0,LLONG_MAX) {
+      "watchdog-period",ll,0,INT_MAX) {
         if (ll)
             enableWatchdog(ll);
         else
