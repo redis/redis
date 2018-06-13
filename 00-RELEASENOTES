@@ -11,6 +11,17 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 3.2.12     Released Wed Jun 13 12:43:01 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL:
+
+* Multilple security issues fixed.
+* Backport of an older AOF fsync=always fix. Check 4.x release notes.
+* Backport of a *SCAN bug. Sometimes elements could be missing from the scan.
+* Other minor things.
+
+================================================================================
 Redis 3.2.11     Released Thu Sep 21 15:47:53 CEST 2017
 ================================================================================
 
