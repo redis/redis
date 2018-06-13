@@ -481,8 +481,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbExists(c->db,c->argv[j])) count++;
+        if (lookupKeyRead(c->db,c->argv[j])) count++;
     }
     addReplyLongLong(c,count);
 }
