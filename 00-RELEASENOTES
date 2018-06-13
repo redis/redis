@@ -11,6 +11,129 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.10     Released Wed Jun 13 12:49:13 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL: This release fixes important security issues.
+                    HIGH: This release fixes a SCAN commands family bug.
+                MODERATE: This release fixes a PSYNC2 edge case with expires.
+                MODERATE: Sentinel related fixes.
+                     LOW: All the other issues
+
+Redis 4.0.10 fixes a number of important issues:
+
+* Important security issues related to the Lua scripting engine.
+  Please check https://github.com/antirez/redis/issues/5017
+  for more information.
+
+* A bug with SCAN, SSCAN, HSCAN and ZSCAN, that may not return all the elements.
+  We also add a regression test that can trigger the issue often when present, and
+  may in theory be able to find unrelated regressions.
+
+* A PSYNC2 bug is fixed: Redis should not expire keys when saving RDB files
+  because otherwise it is no longer possible to use such RDB file as a base
+  for partial resynchronization. It no longer represents the right state.
+
+* Compatibility of AOF with RDB preamble when the RDB checksum is disabled.
+
+* Sentinel bug that in some cases prevented Sentinel to detect that the master
+  was down immediately. A delay was added to the detection.
+
+* Other minor issues.
+
+The following is the list of commits composing the release, please check
+the commit messages and authors for credits.
+
+antirez in commit 9fdcc159:
+ Security: fix redis-cli buffer overflow.
+ 1 file changed, 16 insertions(+), 11 deletions(-)
+
+antirez in commit cf760071:
+ Security: fix Lua struct package offset handling.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit a57595ca:
+ Security: more cmsgpack fixes by @soloestoy.
+ 1 file changed, 7 insertions(+)
+
+antirez in commit 8783fb94:
+ Security: update Lua struct package for security.
+ 1 file changed, 23 insertions(+), 23 deletions(-)
+
+antirez in commit 8cb9344b:
+ Security: fix Lua cmsgpack library stack overflow.
+ 1 file changed, 3 insertions(+)
+
+赵磊 in commit 59080f60:
+ Fix dictScan(): It can't scan all buckets when dict is shrinking.
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+dejun.xdj in commit ac2a824a:
+ Fix redis-cli memory leak when sending set preference command.
+ 1 file changed, 2 insertions(+)
+
+dejun.xdj in commit c7197ff5:
+ Check if the repeat value is positive in while loop of cliSendCommand().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 3f77777f:
+ Change the type of repeat argument to long for function cliSendCommand.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 7a565d72:
+ Fix negtive repeat command value issue.
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+dejun.xdj in commit 64bf60fb:
+ Detect and stop saving history for auth command with repeat option.
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+dejun.xdj in commit 5bed12aa:
+ Change the warning message a little bit to avoid trademark issuses.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit d71c4961:
+ Stop saving auth command in redis-cli history.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+dejun.xdj in commit fca99e41:
+ Add warning message when using password on command line
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 01407a3a:
+ Don't expire keys while loading RDB from AOF preamble.
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+WuYunlong in commit fb5408cf:
+ Fix rdb save by allowing dumping of expire keys, so that when we add a new slave, and do a failover, eighter by manual or not, other local slaves will delete the expired keys properly.
+ 2 files changed, 3 insertions(+), 7 deletions(-)
+
+antirez in commit 0b8b6df4:
+ Backport hiredis issue 525 fix to compile on FreeBSD.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit e98627c5:
+ Add INIT INFO to the provided init script.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit 17f5de89:
+ Fix ae.c when a timer finalizerProc adds an event.
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+antirez in commit 266e6423:
+ Sentinel: fix delay in detecting ODOWN.
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit eafaf172:
+ AOF & RDB: be compatible with rdbchecksum no
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+huijing.whj in commit 4630da37:
+ fix int overflow problem in freeMemoryIfNeeded
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+
+================================================================================
 Redis 4.0.9     Released Mon Mar 26 17:52:32 CEST 2018
 ================================================================================
 
