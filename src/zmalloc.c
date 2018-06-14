@@ -165,7 +165,7 @@ void *zrealloc(void *ptr, size_t size) {
 
     *((size_t*)newptr) = size;
     update_zmalloc_stat_free(oldsize);
-    update_zmalloc_stat_alloc(size);
+    update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     return (char*)newptr+PREFIX_SIZE;
 #endif
 }
