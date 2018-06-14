@@ -246,7 +246,7 @@ start_server {tags {"scan"}} {
             array set found {}
 
             # Populate the set
-            set numele [expr {100+[randomInt 1000]}]
+            set numele [expr {101+[randomInt 1000]}]
             for {set j 0} {$j < $numele} {incr j} {
                 r sadd set $j
                 if {$j >= 100} {
