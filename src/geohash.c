@@ -144,8 +144,8 @@ int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
         (longitude - long_range->min) / (long_range->max - long_range->min);
 
     /* convert to fixed point based on the step size */
-    lat_offset *= (1 << step);
-    long_offset *= (1 << step);
+    lat_offset *= (1ULL << step);
+    long_offset *= (1ULL << step);
     hash->bits = interleave64(lat_offset, long_offset);
     return 1;
 }
