@@ -12,6 +12,15 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0 RC3     Released Wed Jun 14 9:51:44 CEST 2018
+================================================================================
+
+Upgrade urgency LOW:
+
+This release fixes compilation of Redis RC2. For an error the commit from unstable
+updating the Rax library was not merged into the 5.0 branch.
+
+================================================================================
 Redis 5.0 RC2     Released Wed Jun 13 12:49:13 CEST 2018
 ================================================================================
 
