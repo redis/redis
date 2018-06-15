@@ -873,10 +873,54 @@ static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_
 }
 
 static void restoreGenericCommandAddFragment(restoreCommandArgs *args, robj *frag) {
+    serverAssert(sdsEncodedObject(frag));
     incrRefCount(frag);
     listAddNodeTail(args->fragments, frag);
     args->total_bytes += sdslen(frag->ptr);
     args->last_update_time = server.unixtime;
+}
+
+extern int verifyDumpPayload(unsigned char *p, size_t len);
+
+static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
+    serverAssert(args->payload == NULL && listLength(args->fragments) != 0);
+    if (listLength(args->fragments) == 1) {
+        listNode *head = listFirst(args->fragments);
+        args->payload = listNodeValue(head);
+        listDelNode(args->fragments, head);
+    } else {
+        sds rawbytes = sdsMakeRoomFor(sdsempty(), args->total_bytes);
+        while (listLength(args->fragments) != 0) {
+            listNode *head = listFirst(args->fragments);
+            rawbytes = sdscatsds(rawbytes, ((robj *)listNodeValue(head))->ptr);
+            decrRefCount(listNodeValue(head));
+            listDelNode(args->fragments, head);
+        }
+        args->payload = createObject(OBJ_STRING, rawbytes);
+    }
+
+    void *ptr = args->payload->ptr;
+    if (verifyDumpPayload(ptr, sdslen(ptr)) != C_OK) {
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR DUMP payload version or checksum are wrong.\r\n");
+        return 0;
+    }
+    serverAssert(args->obj == NULL);
+
+    rio payload;
+    rioInitWithBuffer(&payload, ptr);
+
+    int type = rdbLoadObjectType(&payload);
+    if (type == -1) {
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR Bad data format, invalid object type.\r\n");
+        return 0;
+    }
+
+    args->obj = rdbLoadObject(type, &payload);
+    if (args->obj == NULL) {
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR Bad data format, invalid object data.\r\n");
+        return 0;
+    }
+    return 1;
 }
 
 // ---------------- BACKGROUND THREAD --------------------------------------- //
