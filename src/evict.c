@@ -87,12 +87,12 @@ unsigned int LRU_CLOCK(void) {
 
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
-unsigned long long estimateObjectIdleTime(robj *o) {
+unsigned long long estimateObjectIdleTime(rkey *key) {
     unsigned long long lruclock = LRU_CLOCK();
-    if (lruclock >= o->lru) {
-        return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
+    if (lruclock >= key->lru) {
+        return (lruclock - key->lru) * LRU_CLOCK_RESOLUTION;
     } else {
-        return (lruclock + (LRU_CLOCK_MAX - o->lru)) *
+        return (lruclock + (LRU_CLOCK_MAX - key->lru)) *
                     LRU_CLOCK_RESOLUTION;
     }
 }
@@ -166,7 +166,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
-        sds key;
+        rkey *key;
         robj *o;
         dictEntry *de;
 
@@ -185,7 +185,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * idle just because the code initially handled LRU, but is in fact
          * just a score where an higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
-            idle = estimateObjectIdleTime(o);
+            idle = estimateObjectIdleTime(key);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             /* When we use an LRU policy, we sort the keys by idle time
              * so that we expire keys starting from greater idle time.
@@ -194,10 +194,10 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
              * first. So inside the pool we put objects using the inverted
              * frequency subtracting the actual frequency to the maximum
              * frequency of 255. */
-            idle = 255-LFUDecrAndReturn(o);
+            idle = 255-LFUDecrAndReturn(key);
         } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
             /* In this case the sooner the expire the better. */
-            idle = ULLONG_MAX - (long)dictGetVal(de);
+            idle = key->expire;
         } else {
             serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
@@ -243,9 +243,9 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
          * because allocating and deallocating this object is costly
          * (according to the profiler, not my fantasy. Remember:
          * premature optimizbla bla bla bla. */
-        int klen = sdslen(key);
+        int klen = key->len;
         if (klen > EVPOOL_CACHED_SDS_SIZE) {
-            pool[k].key = sdsdup(key);
+            pool[k].key = sdsnewlen(key->name,key->len);
         } else {
             memcpy(pool[k].cached,key,klen+1);
             sdssetlen(pool[k].cached,klen);
@@ -332,9 +332,9 @@ uint8_t LFULogIncr(uint8_t counter) {
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
-unsigned long LFUDecrAndReturn(robj *o) {
-    unsigned long ldt = o->lru >> 8;
-    unsigned long counter = o->lru & 255;
+unsigned long LFUDecrAndReturn(rkey *k) {
+    unsigned long ldt = k->lru >> 8;
+    unsigned long counter = k->lru & 255;
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
     if (num_periods)
         counter = (num_periods > counter) ? 0 : counter - num_periods;
@@ -488,8 +488,13 @@ int freeMemoryIfNeeded(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
+                    #if 0
                     dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
                             db->dict : db->expires;
+                    #else
+                    dict = db->dict;
+                    #warning "Implement the volatile policy correctly"
+                    #endif
                     if ((keys = dictSize(dict)) != 0) {
                         evictionPoolPopulate(i, dict, db->dict, pool);
                         total_keys += keys;
@@ -506,8 +511,11 @@ int freeMemoryIfNeeded(void) {
                         de = dictFind(server.db[pool[k].dbid].dict,
                             pool[k].key);
                     } else {
+                        #warning "Implement the volatile policy correctly"
+                        #if 0
                         de = dictFind(server.db[pool[k].dbid].expires,
                             pool[k].key);
+                        #endif
                     }
 
                     /* Remove the entry from the pool. */
@@ -538,8 +546,13 @@ int freeMemoryIfNeeded(void) {
             for (i = 0; i < server.dbnum; i++) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
+                #if 0
                 dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
                         db->dict : db->expires;
+                #else
+                #warning "Implement the volatile policy correctly"
+                dict = db->dict;
+                #endif
                 if (dictSize(dict) != 0) {
                     de = dictGetRandomKey(dict);
                     bestkey = dictGetKey(de);

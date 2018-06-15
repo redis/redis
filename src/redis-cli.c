@@ -1987,7 +1987,8 @@ typedef struct clusterManagerLink {
 } clusterManagerLink;
 
 static dictType clusterManagerDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
@@ -1996,10 +1997,12 @@ static dictType clusterManagerDictType = {
 };
 
 static dictType clusterManagerLinkDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
+    dictSdsKeyCompare,         /* lookup key compare */
+    dictSdsKeyCompare,         /* stored key compare */
     dictSdsDestructor,         /* key destructor */
     dictListDestructor         /* val destructor */
 };
@@ -6933,7 +6936,8 @@ void type_free(void* priv_data, void* val) {
 }
 
 static dictType typeinfoDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */

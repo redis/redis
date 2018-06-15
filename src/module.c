@@ -148,7 +148,8 @@ typedef struct RedisModuleCtx RedisModuleCtx;
 struct RedisModuleKey {
     RedisModuleCtx *ctx;
     redisDb *db;
-    robj *key;      /* Key name object. */
+    rkey *keyobj;   /* Key object stored at the dictionary. */
+    robj *keyname;  /* Key name object. */
     robj *value;    /* Value object, or NULL if the key was not found. */
     void *iter;     /* Iterator. */
     int mode;       /* Opening mode. */
@@ -436,7 +437,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
         break;
     default: return REDISMODULE_ERR;
     }
-    dbAdd(key->db,key->key,obj);
+    key->keyobj = dbAdd(key->db,key->keyname,obj);
     key->value = obj;
     return REDISMODULE_OK;
 }
@@ -465,7 +466,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     }
 
     if (isempty) {
-        dbDelete(key->db,key->key);
+        dbDelete(key->db,key->keyname);
         key->value = NULL;
         return 1;
     } else {
@@ -1519,11 +1520,12 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
 void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
+    rkey *keyobj;
 
     if (mode & REDISMODULE_WRITE) {
-        value = lookupKeyWrite(ctx->client->db,keyname);
+        value = lookupKeyWrite(ctx->client->db,keyname,&keyobj);
     } else {
-        value = lookupKeyRead(ctx->client->db,keyname);
+        value = lookupKeyRead(ctx->client->db,keyname,&keyobj);
         if (value == NULL) {
             return NULL;
         }
@@ -1533,8 +1535,9 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     kp = zmalloc(sizeof(*kp));
     kp->ctx = ctx;
     kp->db = ctx->client->db;
-    kp->key = keyname;
+    kp->keyname = keyname;
     incrRefCount(keyname);
+    kp->keyobj = keyobj;
     kp->value = value;
     kp->iter = NULL;
     kp->mode = mode;
@@ -1546,10 +1549,10 @@ void *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
 /* Close a key handle. */
 void RM_CloseKey(RedisModuleKey *key) {
     if (key == NULL) return;
-    if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->key);
+    if (key->mode & REDISMODULE_WRITE) signalModifiedKey(key->db,key->keyname);
     /* TODO: if (key->iter) RM_KeyIteratorStop(kp); */
     RM_ZsetRangeStop(key);
-    decrRefCount(key->key);
+    decrRefCount(key->keyname);
     autoMemoryFreed(key->ctx,REDISMODULE_AM_KEY,key);
     zfree(key);
 }
@@ -1595,13 +1598,13 @@ size_t RM_ValueLength(RedisModuleKey *key) {
 int RM_DeleteKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbDelete(key->db,key->key);
+        dbDelete(key->db,key->keyname);
         key->value = NULL;
     }
     return REDISMODULE_OK;
 }
 
-/* If the key is open for writing, unlink it (that is delete it in a 
+/* If the key is open for writing, unlink it (that is delete it in a
  * non-blocking way, not reclaiming memory immediately) and setup the key to
  * accept new writes as an empty key (that will be created on demand).
  * On success REDISMODULE_OK is returned. If the key is not open for
@@ -1609,7 +1612,7 @@ int RM_DeleteKey(RedisModuleKey *key) {
 int RM_UnlinkKey(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->value) {
-        dbAsyncDelete(key->db,key->key);
+        dbAsyncDelete(key->db,key->keyname);
         key->value = NULL;
     }
     return REDISMODULE_OK;
@@ -1619,7 +1622,7 @@ int RM_UnlinkKey(RedisModuleKey *key) {
  * If no TTL is associated with the key or if the key is empty,
  * REDISMODULE_NO_EXPIRE is returned. */
 mstime_t RM_GetExpire(RedisModuleKey *key) {
-    mstime_t expire = getExpire(key->db,key->key);
+    mstime_t expire = getExpire(key->keyobj);
     if (expire == -1 || key->value == NULL) return -1;
     expire -= mstime();
     return expire >= 0 ? expire : 0;
@@ -1639,9 +1642,9 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
         return REDISMODULE_ERR;
     if (expire != REDISMODULE_NO_EXPIRE) {
         expire += mstime();
-        setExpire(key->ctx->client,key->db,key->key,expire);
+        setExpire(key->ctx->client,key->db,key->keyobj,expire);
     } else {
-        removeExpire(key->db,key->key);
+        removeExpire(key->db,key->keyobj);
     }
     return REDISMODULE_OK;
 }
@@ -1657,7 +1660,7 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
 int RM_StringSet(RedisModuleKey *key, RedisModuleString *str) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
-    setKey(key->db,key->key,str);
+    setKey(key->db,key->keyname,str);
     key->value = str;
     return REDISMODULE_OK;
 }
@@ -1707,7 +1710,7 @@ char *RM_StringDMA(RedisModuleKey *key, size_t *len, int mode) {
     /* For write access, and even for read access if the object is encoded,
      * we unshare the string (that has the side effect of decoding it). */
     if ((mode & REDISMODULE_WRITE) || key->value->encoding != OBJ_ENCODING_RAW)
-        key->value = dbUnshareStringValue(key->db, key->key, key->value);
+        key->value = dbUnshareStringValue(key->db, key->keyname, key->value);
 
     *len = sdslen(key->value->ptr);
     return key->value->ptr;
@@ -1737,12 +1740,12 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     if (key->value == NULL) {
         /* Empty key: create it with the new size. */
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
-        setKey(key->db,key->key,o);
+        setKey(key->db,key->keyname,o);
         key->value = o;
         decrRefCount(o);
     } else {
         /* Unshare and resize. */
-        key->value = dbUnshareStringValue(key->db, key->key, key->value);
+        key->value = dbUnshareStringValue(key->db, key->keyname, key->value);
         size_t curlen = sdslen(key->value->ptr);
         if (newlen > curlen) {
             key->value->ptr = sdsgrowzero(key->value->ptr,newlen);
@@ -3088,7 +3091,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
-    setKey(key->db,key->key,o);
+    setKey(key->db,key->keyname,o);
     decrRefCount(o);
     key->value = o;
     return REDISMODULE_OK;
@@ -5031,7 +5034,8 @@ int dictCStringKeyCompare(void *privdata, const void *key1, const void *key2) {
 }
 
 dictType moduleAPIDictType = {
-    dictCStringKeyHash,        /* hash function */
+    dictCStringKeyHash,        /* lookup hash function */
+    dictCStringKeyHash,        /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictCStringKeyCompare,     /* key compare */

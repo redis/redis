@@ -64,7 +64,7 @@ static int checkStringLength(client *c, long long size) {
 #define OBJ_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define OBJ_SET_PX (1<<3)     /* Set if time in ms in given */
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *keyname, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
@@ -77,18 +77,18 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,keyname,NULL) != NULL) ||
+        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,keyname,NULL) == NULL))
     {
         addReply(c, abort_reply ? abort_reply : shared.null[c->resp]);
         return;
     }
-    setKey(c->db,key,val);
+    rkey *key = setKey(c->db,keyname,val);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
-    notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,"set",keyname,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
-        "expire",key,c->db->id);
+        "expire",keyname,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
 
@@ -157,8 +157,8 @@ void psetexCommand(client *c) {
 int getGenericCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
-        return C_OK;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
+        == NULL) return C_OK;
 
     if (o->type != OBJ_STRING) {
         addReply(c,shared.wrongtypeerr);
@@ -194,7 +194,7 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (sdslen(value) == 0) {
@@ -251,8 +251,8 @@ void getrangeCommand(client *c) {
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.emptybulk)) == NULL
+        || checkType(c,o,OBJ_STRING)) return;
 
     if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
@@ -287,7 +287,7 @@ void mgetCommand(client *c) {
 
     addReplyArrayLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
-        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        robj *o = lookupKeyRead(c->db,c->argv[j],NULL);
         if (o == NULL) {
             addReplyNull(c);
         } else {
@@ -312,7 +312,7 @@ void msetGenericCommand(client *c, int nx) {
      * set anything if at least one key alerady exists. */
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+            if (lookupKeyWrite(c->db,c->argv[j],NULL) != NULL) {
                 addReply(c, shared.czero);
                 return;
             }
@@ -340,7 +340,7 @@ void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
@@ -400,7 +400,7 @@ void incrbyfloatCommand(client *c) {
     long double incr, value;
     robj *o, *new, *aux;
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o != NULL && checkType(c,o,OBJ_STRING)) return;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
@@ -434,7 +434,7 @@ void appendCommand(client *c) {
     size_t totlen;
     robj *o, *append;
 
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
@@ -465,7 +465,7 @@ void appendCommand(client *c) {
 
 void strlenCommand(client *c) {
     robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
 }

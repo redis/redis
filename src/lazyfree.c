@@ -51,18 +51,18 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * a lazy free list instead of being freed synchronously. The lazy free list
  * will be reclaimed in a different bio.c thread. */
 #define LAZYFREE_THRESHOLD 64
-int dbAsyncDelete(redisDb *db, robj *key) {
-    /* Deleting an entry from the expires dict will not free the sds of
-     * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-
+int dbAsyncDelete(redisDb *db, robj *keyname) {
     /* If the value is composed of a few allocations, to free in a lazy way
      * is actually just slower... So under a certain limit we just free
      * the object synchronously. */
-    dictEntry *de = dictUnlink(db->dict,key->ptr);
+    dictEntry *de = dictUnlink(db->dict,keyname->ptr);
     if (de) {
+        rkey *key = dictGetKey(de);
         robj *val = dictGetVal(de);
         size_t free_effort = lazyfreeGetFreeEffort(val);
+
+        /* Remove the entry from the expire tree since this is fast anyway. */
+        if (key->flags & KEY_FLAG_EXPIRE) removeExpireFromTree(db,key);
 
         /* If releasing the object is too much work, do it in the background
          * by adding the object to the lazy free list.
@@ -83,7 +83,7 @@ int dbAsyncDelete(redisDb *db, robj *key) {
      * field to NULL in order to lazy free it later. */
     if (de) {
         dictFreeUnlinkedEntry(db->dict,de);
-        if (server.cluster_enabled) slotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(keyname);
         return 1;
     } else {
         return 0;
@@ -105,11 +105,11 @@ void freeObjAsync(robj *o) {
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
 void emptyDbAsync(redisDb *db) {
-    dict *oldht1 = db->dict, *oldht2 = db->expires;
+    void *hashtable = db->dict, *tree = db->expires;
     db->dict = dictCreate(&dbDictType,NULL);
-    db->expires = dictCreate(&keyptrDictType,NULL);
-    atomicIncr(lazyfree_objects,dictSize(oldht1));
-    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,oldht1,oldht2);
+    db->expires = raxNew();
+    atomicIncr(lazyfree_objects,dictSize((dict*)hashtable));
+    bioCreateBackgroundJob(BIO_LAZY_FREE,NULL,hashtable,tree);
 }
 
 /* Empty the slots-keys map of Redis CLuster by creating a new empty one
@@ -136,10 +136,10 @@ void lazyfreeFreeObjectFromBioThread(robj *o) {
  * when the database was logically deleted. 'sl' is a skiplist used by
  * Redis Cluster in order to take the hash slots -> keys mapping. This
  * may be NULL if Redis Cluster is disabled. */
-void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2) {
-    size_t numkeys = dictSize(ht1);
-    dictRelease(ht1);
-    dictRelease(ht2);
+void lazyfreeFreeDatabaseFromBioThread(dict *hashtable, rax *tree) {
+    size_t numkeys = dictSize(hashtable);
+    dictRelease(hashtable);
+    raxFree(tree);
     atomicDecr(lazyfree_objects,numkeys);
 }
 

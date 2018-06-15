@@ -466,8 +466,8 @@ void georadiusGeneric(client *c, int flags) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.null[c->resp])) == NULL ||
-        checkType(c, zobj, OBJ_ZSET)) {
+    if ((zobj = lookupKeyReadOrReply(c, key, NULL, shared.null[c->resp]))
+        == NULL || checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
 
@@ -701,7 +701,7 @@ void geohashCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    robj *zobj = lookupKeyRead(c->db, c->argv[1], NULL);
     if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
@@ -754,7 +754,7 @@ void geoposCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    robj *zobj = lookupKeyRead(c->db, c->argv[1], NULL);
     if (zobj && checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Report elements one after the other, using a null bulk reply for
@@ -797,7 +797,7 @@ void geodistCommand(client *c) {
 
     /* Look up the requested zset */
     robj *zobj = NULL;
-    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], NULL, shared.null[c->resp]))
         == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Get the scores. We need both otherwise NULL is returned. */

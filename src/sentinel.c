@@ -402,7 +402,8 @@ void dictInstancesValDestructor (void *privdata, void *obj) {
  * also used for: sentinelRedisInstance->sentinels dictionary that maps
  * sentinels ip:port to last seen time in Pub/Sub hello message. */
 dictType instancesDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* store hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
@@ -415,7 +416,8 @@ dictType instancesDictType = {
  * This is useful into sentinelGetObjectiveLeader() function in order to
  * count the votes and understand who is the leader. */
 dictType leaderVotesDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
@@ -425,10 +427,12 @@ dictType leaderVotesDictType = {
 
 /* Instance renamed commands table. */
 dictType renamedCommandsDictType = {
-    dictSdsCaseHash,           /* hash function */
+    dictSdsCaseHash,           /* lookup hash function */
+    dictSdsCaseHash,           /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictSdsKeyCaseCompare,     /* key compare */
+    dictSdsKeyCaseCompare,     /* lookup key compare */
+    dictSdsKeyCaseCompare,     /* stored key compare */
     dictSdsDestructor,         /* key destructor */
     dictSdsDestructor          /* val destructor */
 };

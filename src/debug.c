@@ -118,10 +118,10 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
  * Note that this function does not reset the initial 'digest' passed, it
  * will continue mixing this object digest to anything that was already
  * present. */
-void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) {
+void xorObjectDigest(rkey *key, unsigned char *digest, robj *o) {
     uint32_t aux = htonl(o->type);
     mixDigest(digest,&aux,sizeof(aux));
-    long long expiretime = getExpire(db,keyobj);
+    long long expiretime = getExpire(key);
     char buf[128];
 
     /* Save the key and associated value */
@@ -277,21 +277,19 @@ void computeDatasetDigest(unsigned char *final) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds key;
-            robj *keyobj, *o;
+            rkey *key;
+            robj *o;
 
             memset(digest,0,20); /* This key-val digest */
             key = dictGetKey(de);
-            keyobj = createStringObject(key,sdslen(key));
 
-            mixDigest(digest,key,sdslen(key));
+            mixDigest(digest,key->name,key->len);
 
             o = dictGetVal(de);
-            xorObjectDigest(db,keyobj,digest,o);
+            xorObjectDigest(key,digest,o);
 
             /* We can finally xor the key-val digest to the final digest */
             xorDigest(final,digest,20);
-            decrRefCount(keyobj);
         }
         dictReleaseIterator(di);
     }
@@ -385,6 +383,7 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
+        rkey *key;
         robj *val;
         char *strenc;
 
@@ -392,6 +391,7 @@ NULL
             addReply(c,shared.nokeyerr);
             return;
         }
+        key = dictGetKey(de);
         val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
@@ -434,7 +434,7 @@ NULL
             "lru:%d lru_seconds_idle:%llu%s",
             (void*)val, val->refcount,
             strenc, rdbSavedObjectLen(val),
-            val->lru, estimateObjectIdleTime(val)/1000, extra);
+            key->lru, estimateObjectIdleTime(key)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;
         robj *val;
@@ -463,7 +463,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"ziplist") && c->argc == 3) {
         robj *o;
 
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],NULL,shared.nokeyerr))
                 == NULL) return;
 
         if (o->encoding != OBJ_ENCODING_ZIPLIST) {
@@ -489,7 +489,7 @@ NULL
             if (c->argc == 5)
                 if (getLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK)
                     return;
-            if (lookupKeyWrite(c->db,key) != NULL) {
+            if (lookupKeyWrite(c->db,key,NULL) != NULL) {
                 decrRefCount(key);
                 continue;
             }
@@ -521,8 +521,10 @@ NULL
         for (int j = 2; j < c->argc; j++) {
             unsigned char digest[20];
             memset(digest,0,20); /* Start with a clean result */
-            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH);
-            if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
+            rkey *key;
+            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],&key,
+                                             LOOKUP_NOTOUCH);
+            if (o) xorObjectDigest(key,digest,o);
 
             sds d = sdsempty();
             for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
@@ -634,16 +636,12 @@ NULL
         dictGetStats(buf,sizeof(buf),server.db[dbid].dict);
         stats = sdscat(stats,buf);
 
-        stats = sdscatprintf(stats,"[Expires HT]\n");
-        dictGetStats(buf,sizeof(buf),server.db[dbid].expires);
-        stats = sdscat(stats,buf);
-
         addReplyBulkSds(c,stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc == 3) {
         robj *o;
         dict *ht = NULL;
 
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],NULL,shared.nokeyerr))
                 == NULL) return;
 
         /* Get the hash table reference from the object, if possible. */

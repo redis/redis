@@ -475,6 +475,7 @@ ssize_t rdbSaveStringObject(rio *rdb, robj *obj) {
  * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
  *                 instead of a Redis object with an sds in it.
  * RDB_LOAD_SDS: Return an SDS string instead of a Redis object.
+ * RDB_LOAD_KEY: Return a key object instead of a Redis object.
  *
  * On I/O error NULL is returned.
  */
@@ -751,7 +752,7 @@ size_t rdbSaveStreamConsumers(rio *rdb, streamCG *cg) {
 
 /* Save a Redis object.
  * Returns -1 on error, number of bytes written on success. */
-ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
+ssize_t rdbSaveObject(rio *rdb, robj *o, rkey *key) {
     ssize_t n = 0, nwritten = 0;
 
     if (o->type == OBJ_STRING) {
@@ -966,7 +967,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key) {
         RedisModuleIO io;
         moduleValue *mv = o->ptr;
         moduleType *mt = mv->type;
-        moduleInitIOContext(io,mt,rdb,key);
+        robj *keyobj = createStringObject(key->name,key->len);
+        moduleInitIOContext(io,mt,rdb,keyobj);
+        decrRefCount(keyobj);
 
         /* Write the "module" identifier as prefix, so that we'll be able
          * to call the right module during loading. */
@@ -1005,7 +1008,7 @@ size_t rdbSavedObjectLen(robj *o) {
  * On error -1 is returned.
  * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
+int rdbSaveKeyValuePair(rio *rdb, rkey *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
@@ -1017,7 +1020,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
 
     /* Save the LRU info. */
     if (savelru) {
-        uint64_t idletime = estimateObjectIdleTime(val);
+        uint64_t idletime = estimateObjectIdleTime(key);
         idletime /= 1000; /* Using seconds is enough and requires less space.*/
         if (rdbSaveType(rdb,RDB_OPCODE_IDLE) == -1) return -1;
         if (rdbSaveLen(rdb,idletime) == -1) return -1;
@@ -1026,7 +1029,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     /* Save the LFU info. */
     if (savelfu) {
         uint8_t buf[1];
-        buf[0] = LFUDecrAndReturn(val);
+        buf[0] = LFUDecrAndReturn(key);
         /* We can encode this in exactly two bytes: the opcode and an 8
          * bit counter, since the frequency is logarithmic with a 0-255 range.
          * Note that we do not store the halving time because to reset it
@@ -1037,7 +1040,8 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
 
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
-    if (rdbSaveStringObject(rdb,key) == -1) return -1;
+    if (rdbSaveRawString(rdb,(unsigned char*)key->name,key->len) == -1)
+        return -1;
     if (rdbSaveObject(rdb,val,key) == -1) return -1;
     return 1;
 }
@@ -1129,20 +1133,18 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
          * these sizes are just hints to resize the hash tables. */
         uint64_t db_size, expires_size;
         db_size = dictSize(db->dict);
-        expires_size = dictSize(db->expires);
+        expires_size = raxSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
-            long long expire;
+            rkey *key = dictGetKey(de);
+            robj *o = dictGetVal(de);
 
-            initStaticStringObject(key,keystr);
-            expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(rdb,&key,o,expire) == -1) goto werr;
+            if (rdbSaveKeyValuePair(rdb,key,o,getExpire(key)) == -1)
+                goto werr;
 
             /* When this RDB is produced as part of an AOF rewrite, move
              * accumulated diff from parent to child while rewriting in
@@ -1928,7 +1930,6 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             if ((expires_size = rdbLoadLen(rdb,NULL)) == RDB_LENERR)
                 goto eoferr;
             dictExpand(db->dict,db_size);
-            dictExpand(db->expires,expires_size);
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
@@ -2034,17 +2035,13 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             decrRefCount(val);
         } else {
             /* Add the new object in the hash table */
-            dbAdd(db,key,val);
+            rkey *k = dbAdd(db,key,val);
 
             /* Set the expire time if needed */
-            if (expiretime != -1) setExpire(NULL,db,key,expiretime);
+            if (expiretime != -1) setExpire(NULL,db,k,expiretime);
 
             /* Set usage information (for eviction). */
-            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
-
-            /* Decrement the key refcount since dbAdd() will take its
-             * own reference. */
-            decrRefCount(key);
+            objectSetLRUOrLFU(k,lfu_freq,lru_idle,lru_clock);
         }
 
         /* Reset the state that is key-specified and is populated by

@@ -1164,7 +1164,8 @@ static int fetchClusterSlotsConfiguration(client c) {
         printf("Cluster slots configuration changed, fetching new one...\n");
     const char *errmsg = "Failed to update cluster slots configuration";
     static dictType dtype = {
-        dictSdsHash,               /* hash function */
+        dictSdsHash,               /* lookup hash function */
+        dictSdsHash,               /* stored hash function */
         NULL,                      /* key dup */
         NULL,                      /* val dup */
         dictSdsKeyCompare,         /* key compare */

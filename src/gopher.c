@@ -50,7 +50,7 @@ void addReplyGopherItem(client *c, const char *type, const char *descr,
  * protocol. */
 void processGopherRequest(client *c) {
     robj *keyname = c->argc == 0 ? createStringObject("/",1) : c->argv[0];
-    robj *o = lookupKeyRead(c->db,keyname);
+    robj *o = lookupKeyRead(c->db,keyname,NULL);
 
     /* If there is no such key, return with a Gopher error. */
     if (o == NULL || o->type != OBJ_STRING) {

@@ -449,7 +449,7 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
 }
 
 robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
-    robj *o = lookupKeyWrite(c->db,key);
+    robj *o = lookupKeyWrite(c->db,key,NULL);
     if (o == NULL) {
         o = createHashObject();
         dbAdd(c->db,key,o);
@@ -679,8 +679,8 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
 void hgetCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
+        == NULL || checkType(c,o,OBJ_HASH)) return;
 
     addHashFieldToReply(c, o, c->argv[2]->ptr);
 }
@@ -691,7 +691,7 @@ void hmgetCommand(client *c) {
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
-    o = lookupKeyRead(c->db, c->argv[1]);
+    o = lookupKeyRead(c->db, c->argv[1], NULL);
     if (o != NULL && o->type != OBJ_HASH) {
         addReply(c, shared.wrongtypeerr);
         return;
@@ -707,7 +707,7 @@ void hdelCommand(client *c) {
     robj *o;
     int j, deleted = 0, keyremoved = 0;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     for (j = 2; j < c->argc; j++) {
@@ -734,7 +734,7 @@ void hdelCommand(client *c) {
 void hlenCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addReplyLongLong(c,hashTypeLength(o));
@@ -743,7 +743,7 @@ void hlenCommand(client *c) {
 void hstrlenCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
     addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]->ptr));
 }
@@ -772,8 +772,8 @@ void genericHgetallCommand(client *c, int flags) {
     hashTypeIterator *hi;
     int length, count = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
-        || checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
+        == NULL || checkType(c,o,OBJ_HASH)) return;
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */
@@ -817,7 +817,7 @@ void hgetallCommand(client *c) {
 
 void hexistsCommand(client *c) {
     robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addReply(c, hashTypeExists(o,c->argv[2]->ptr) ? shared.cone : shared.czero);
@@ -828,7 +828,7 @@ void hscanCommand(client *c) {
     unsigned long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.emptyscan))
+        == NULL || checkType(c,o,OBJ_HASH)) return;
     scanGenericCommand(c,o,cursor);
 }

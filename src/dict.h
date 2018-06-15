@@ -44,6 +44,8 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
+/* An entry (a key basically) as stored inside the hash table. Note that
+ * there is a 'next' pointer, since we use chaining to resolve conflicts. */
 typedef struct dictEntry {
     void *key;
     union {
@@ -55,11 +57,33 @@ typedef struct dictEntry {
     struct dictEntry *next;
 } dictEntry;
 
+/* The hash table type.
+ *
+ * There are two hash functions both for key hashing and comparison, one set is
+ * used for looking up the key and the other set to store it.
+ *
+ * Most of the times each set will be the same function pointer, but sometimes
+ * we want the ability to store a key in a given way inside the hash function,
+ * and lookup it in some other way without resorting to any kind of conversion. 
+ * For instance the key may be stored as a structure also representing other
+ * things, but the lookup happens via just a pointer to a null terminated
+ * string. The dual hash design allows for such usage. In that case we'll have
+ * a lookupHashFunction that will expect a null terminated C string, and a
+ * storeHashFunction that will instead expect the structure.
+ * Similarly the two comparison functions will work differently. The
+ * lookupKeyCompare will treat the first argument as a pointer to a C string
+ * and the other as a structure (this way we can directly lookup the structure
+ * key using the C string). While the storedKeyCompare() will check if two
+ * pointers to the key in structure form are the same.
+ *
+ * Every actual hash table have a pointer to its type. */
 typedef struct dictType {
-    uint64_t (*hashFunction)(const void *key);
+    uint64_t (*lookupHashFunction)(const void *key);
+    uint64_t (*storedHashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
     void *(*valDup)(void *privdata, const void *obj);
-    int (*keyCompare)(void *privdata, const void *key1, const void *key2);
+    int (*lookupKeyCompare)(void *privdata, const void *key1, const void *key2);
+    int (*storedKeyCompare)(void *privdata, const void *key1, const void *key2);
     void (*keyDestructor)(void *privdata, void *key);
     void (*valDestructor)(void *privdata, void *obj);
 } dictType;
@@ -132,12 +156,18 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
         (entry)->key = (_key_); \
 } while(0)
 
-#define dictCompareKeys(d, key1, key2) \
-    (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d)->privdata, key1, key2) : \
+#define dictCompareLookupKeys(d, key1, key2) \
+    (((d)->type->lookupKeyCompare) ? \
+        (d)->type->lookupKeyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
 
-#define dictHashKey(d, key) (d)->type->hashFunction(key)
+#define dictCompareStoredKeys(d, key1, key2) \
+    (((d)->type->storedKeyCompare) ? \
+        (d)->type->storedKeyCompare((d)->privdata, key1, key2) : \
+        (key1) == (key2))
+
+#define dictHashLookupKey(d, key) (d)->type->lookupHashFunction(key)
+#define dictHashStoredKey(d, key) (d)->type->storedHashFunction(key)
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
@@ -180,6 +210,7 @@ void dictSetHashFunctionSeed(uint8_t *seed);
 uint8_t *dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
 uint64_t dictGetHash(dict *d, const void *key);
+uint64_t dictGetEntryHash(dict *d, const dictEntry *de);
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
 
 /* Hash table types */

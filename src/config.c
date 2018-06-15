@@ -1650,19 +1650,23 @@ void dictListDestructor(void *privdata, void *val);
 void rewriteConfigSentinelOption(struct rewriteConfigState *state);
 
 dictType optionToLineDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* store hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     dictListDestructor          /* val destructor */
 };
 
 dictType optionSetDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* store hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };

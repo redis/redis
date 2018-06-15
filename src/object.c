@@ -44,14 +44,6 @@ robj *createObject(int type, void *ptr) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
-
-    /* Set the LRU to the current lruclock (minutes resolution), or
-     * alternatively the LFU counter. */
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
     return o;
 }
 
@@ -89,11 +81,6 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
-    } else {
-        o->lru = LRU_CLOCK();
-    }
 
     sh->len = len;
     sh->alloc = len;
@@ -1052,8 +1039,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_main = mem;
         mem_total+=mem;
 
-        mem = dictSize(db->expires) * sizeof(dictEntry) +
-              dictSlots(db->expires) * sizeof(dictEntry*);
+        #warning "Fix the memory computation here with expires overhead"
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
@@ -1202,12 +1188,12 @@ sds getMemoryDoctorReport(void) {
  * The lru_idle and lru_clock args are only relevant if policy
  * is MAXMEMORY_FLAG_LRU.
  * Either or both of them may be <0, in that case, nothing is set. */
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+void objectSetLRUOrLFU(rkey *key, long long lfu_freq, long long lru_idle,
                        long long lru_clock) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         if (lfu_freq >= 0) {
             serverAssert(lfu_freq <= 255);
-            val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
+            key->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
         }
     } else if (lru_idle >= 0) {
         /* Provided LRU idle time is in seconds. Scale
@@ -1223,7 +1209,7 @@ void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * some time. */
         if (lru_abs < 0)
             lru_abs = (lru_clock+(LRU_CLOCK_MAX/2)) % LRU_CLOCK_MAX;
-        val->lru = lru_abs;
+        key->lru = lru_abs;
     }
 }
 
@@ -1231,15 +1217,16 @@ void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
-robj *objectCommandLookup(client *c, robj *key) {
+robj *objectCommandLookup(client *c, robj *keyname, rkey **key) {
     dictEntry *de;
 
-    if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
+    if ((de = dictFind(c->db->dict,keyname->ptr)) == NULL) return NULL;
+    if (key) *key = dictGetKey(de);
     return (robj*) dictGetVal(de);
 }
 
-robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
-    robj *o = objectCommandLookup(c,key);
+robj *objectCommandLookupOrReply(client *c, robj *keyname, rkey **key, robj *reply) {
+    robj *o = objectCommandLookup(c,keyname,key);
 
     if (!o) addReply(c, reply);
     return o;
@@ -1260,24 +1247,26 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
-                == NULL) return;
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],NULL,
+                 shared.null[c->resp])) == NULL) return;
         addReplyLongLong(c,o->refcount);
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
-                == NULL) return;
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],NULL,
+                 shared.null[c->resp])) == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
-                == NULL) return;
+        rkey *key;
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],&key,
+                 shared.null[c->resp])) == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             addReplyError(c,"An LFU maxmemory policy is selected, idle time not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
             return;
         }
-        addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
+        addReplyLongLong(c,estimateObjectIdleTime(key)/1000);
     } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
-                == NULL) return;
+        rkey *k;
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],&k,
+                 shared.null[c->resp])) == NULL) return;
         if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU)) {
             addReplyError(c,"An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
             return;
@@ -1286,7 +1275,7 @@ NULL
          * in case of the key has not been accessed for a long time,
          * because we update the access time only
          * when the key is read or overwritten. */
-        addReplyLongLong(c,LFUDecrAndReturn(o));
+        addReplyLongLong(c,LFUDecrAndReturn(k));
     } else {
         addReplySubcommandSyntaxError(c);
     }

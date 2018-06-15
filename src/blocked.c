@@ -270,7 +270,7 @@ void handleClientsBlockedOnKeys(void) {
             dictDelete(rl->db->ready_keys,rl->key);
 
             /* Serve clients blocked on list key. */
-            robj *o = lookupKeyWrite(rl->db,rl->key);
+            robj *o = lookupKeyWrite(rl->db,rl->key,NULL);
             if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 

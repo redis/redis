@@ -1597,7 +1597,7 @@ void zaddGenericCommand(client *c, int flags) {
     }
 
     /* Lookup the key and create the sorted set if does not exist. */
-    zobj = lookupKeyWrite(c->db,key);
+    zobj = lookupKeyWrite(c->db,key,NULL);
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         if (server.zset_max_ziplist_entries == 0 ||
@@ -1665,7 +1665,7 @@ void zremCommand(client *c) {
     robj *zobj;
     int deleted = 0, keyremoved = 0, j;
 
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+    if ((zobj = lookupKeyWriteOrReply(c,key,NULL,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     for (j = 2; j < c->argc; j++) {
@@ -1718,7 +1718,7 @@ void zremrangeGenericCommand(client *c, int rangetype) {
     }
 
     /* Step 2: Lookup & range sanity checks if needed. */
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+    if ((zobj = lookupKeyWriteOrReply(c,key,NULL,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
@@ -2165,7 +2165,8 @@ uint64_t dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 
 dictType setAccumulatorDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
@@ -2205,7 +2206,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = 3; i < setnum; i++, j++) {
-        robj *obj = lookupKeyWrite(c->db,c->argv[j]);
+        robj *obj = lookupKeyWrite(c->db,c->argv[j],NULL);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -2427,7 +2428,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         return;
     }
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.null[c->resp])) == NULL
          || checkType(c,zobj,OBJ_ZSET)) return;
 
     /* Sanitize indexes. */
@@ -2575,8 +2576,8 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.null[c->resp]))
+        == NULL || checkType(c,zobj,OBJ_ZSET)) return;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -2730,7 +2731,7 @@ void zcountCommand(client *c) {
     }
 
     /* Lookup the sorted set */
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c, key, NULL, shared.czero)) == NULL ||
         checkType(c, zobj, OBJ_ZSET)) return;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -2807,7 +2808,7 @@ void zlexcountCommand(client *c) {
     }
 
     /* Lookup the sorted set */
-    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c, key, NULL, shared.czero)) == NULL ||
         checkType(c, zobj, OBJ_ZSET))
     {
         zslFreeLexRange(&range);
@@ -2920,8 +2921,8 @@ void genericZrangebylexCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET))
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.null[c->resp]))
+        == NULL || checkType(c,zobj,OBJ_ZSET))
     {
         zslFreeLexRange(&range);
         return;
@@ -3065,7 +3066,7 @@ void zcardCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     addReplyLongLong(c,zsetLength(zobj));
@@ -3076,8 +3077,8 @@ void zscoreCommand(client *c) {
     robj *zobj;
     double score;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.null[c->resp])) == NULL
+        || checkType(c,zobj,OBJ_ZSET)) return;
 
     if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
         addReplyNull(c);
@@ -3092,8 +3093,8 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *zobj;
     long rank;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,NULL,shared.null[c->resp]))
+        == NULL || checkType(c,zobj,OBJ_ZSET)) return;
 
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
     rank = zsetRank(zobj,ele->ptr,reverse);
@@ -3117,8 +3118,8 @@ void zscanCommand(client *c) {
     unsigned long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_ZSET)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.emptyscan))
+        == NULL || checkType(c,o,OBJ_ZSET)) return;
     scanGenericCommand(c,o,cursor);
 }
 
@@ -3153,7 +3154,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     idx = 0;
     while (idx < keyc) {
         key = keyv[idx++];
-        zobj = lookupKeyWrite(c->db,key);
+        zobj = lookupKeyWrite(c->db,key,NULL);
         if (!zobj) continue;
         if (checkType(c,zobj,OBJ_ZSET)) return;
         break;
@@ -3265,7 +3266,7 @@ void blockingGenericZpopCommand(client *c, int where) {
         != C_OK) return;
 
     for (j = 1; j < c->argc-1; j++) {
-        o = lookupKeyWrite(c->db,c->argv[j]);
+        o = lookupKeyWrite(c->db,c->argv[j],NULL);
         if (o != NULL) {
             if (o->type != OBJ_ZSET) {
                 addReply(c,shared.wrongtypeerr);

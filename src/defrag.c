@@ -775,7 +775,7 @@ long defragKey(redisDb *db, dictEntry *de) {
          /* Dirty code:
           * I can't search in db->expires for that key after i already released
           * the pointer it holds it won't be able to do the string compare */
-        uint64_t hash = dictGetHash(db->dict, de->key);
+        uint64_t hash = dictGetEntryHash(db->dict, de);
         replaceSateliteDictKeyPtrAndOrDefragDictEntry(db->expires, keysds, newsds, hash, &defragged);
     }
 

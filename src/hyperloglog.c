@@ -1179,7 +1179,7 @@ invalid:
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    robj *o = lookupKeyWrite(c->db,c->argv[1],NULL);
     struct hllhdr *hdr;
     int updated = 0, j;
 
@@ -1238,7 +1238,7 @@ void pfcountCommand(client *c) {
         registers = max + HLL_HDR_SIZE;
         for (j = 1; j < c->argc; j++) {
             /* Check type and size. */
-            robj *o = lookupKeyRead(c->db,c->argv[j]);
+            robj *o = lookupKeyRead(c->db,c->argv[j],NULL);
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
             if (isHLLObjectOrReply(c,o) != C_OK) return;
 
@@ -1259,7 +1259,7 @@ void pfcountCommand(client *c) {
      *
      * The user specified a single key. Either return the cached value
      * or compute one and update the cache. */
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */
@@ -1320,7 +1320,7 @@ void pfmergeCommand(client *c) {
     memset(max,0,sizeof(max));
     for (j = 1; j < c->argc; j++) {
         /* Check type and size. */
-        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        robj *o = lookupKeyRead(c->db,c->argv[j],NULL);
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
         if (isHLLObjectOrReply(c,o) != C_OK) return;
 
@@ -1338,7 +1338,7 @@ void pfmergeCommand(client *c) {
     }
 
     /* Create / unshare the destination key's value if needed. */
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    robj *o = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (o == NULL) {
         /* Create the key with a string value of the exact length to
          * hold our HLL data structure. sdsnewlen() when NULL is passed
@@ -1497,7 +1497,7 @@ void pfdebugCommand(client *c) {
     robj *o;
     int j;
 
-    o = lookupKeyWrite(c->db,c->argv[2]);
+    o = lookupKeyWrite(c->db,c->argv[2],NULL);
     if (o == NULL) {
         addReplyError(c,"The specified key does not exist");
         return;

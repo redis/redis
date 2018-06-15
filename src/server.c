@@ -1142,16 +1142,33 @@ void dictListDestructor(void *privdata, void *val)
     listRelease((list*)val);
 }
 
-int dictSdsKeyCompare(void *privdata, const void *key1,
-        const void *key2)
-{
+static int dictGenericKeyCompare(const char *key1, const char *key2, size_t len1, size_t len2) {
+    if (len1 != len2) return 0;
+    return memcmp(key1, key2, len1) == 0;
+}
+
+int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2) {
     int l1,l2;
     DICT_NOTUSED(privdata);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
-    if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
+    return dictGenericKeyCompare(key1,key2,l1,l2);
+}
+
+int dictSdsRkeyKeyCompare(void *privdata, const void *key1, const void *key2){
+    DICT_NOTUSED(privdata);
+    sds sdskey = (sds)key1;
+    rkey *keyobj = (rkey*)key2;
+    return dictGenericKeyCompare(sdskey,keyobj->name,
+                                 sdslen(sdskey),keyobj->len);
+}
+
+int dictRkeyKeyCompare(void *privdata, const void *key1, const void *key2) {
+    DICT_NOTUSED(privdata);
+    rkey *k1 = (rkey*)key1;
+    rkey *k2 = (rkey*)key2;
+    return dictGenericKeyCompare(k1->name,k2->name,k1->len,k2->len);
 }
 
 /* A case insensitive version used for the command lookup table and other
@@ -1179,6 +1196,13 @@ void dictSdsDestructor(void *privdata, void *val)
     sdsfree(val);
 }
 
+void dictKeyDestructor(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+
+    freeKey(val);
+}
+
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
@@ -1193,6 +1217,11 @@ uint64_t dictObjHash(const void *key) {
 
 uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
+}
+
+uint64_t dictKeyHash(const void *keyptr) {
+    const rkey *key = keyptr;
+    return dictGenHashFunction(key->name, key->len);
 }
 
 uint64_t dictSdsCaseHash(const void *key) {
@@ -1243,10 +1272,12 @@ uint64_t dictEncObjHash(const void *key) {
 /* Generic hash table type where keys are Redis Objects, Values
  * dummy pointers. */
 dictType objectKeyPointerValueDictType = {
-    dictEncObjHash,            /* hash function */
+    dictEncObjHash,            /* lookup hash function */
+    dictEncObjHash,            /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictEncObjKeyCompare,      /* key compare */
+    dictEncObjKeyCompare,      /* lookup key compare */
+    dictEncObjKeyCompare,      /* stored key compare */
     dictObjectDestructor,      /* key destructor */
     NULL                       /* val destructor */
 };
@@ -1254,80 +1285,100 @@ dictType objectKeyPointerValueDictType = {
 /* Like objectKeyPointerValueDictType(), but values can be destroyed, if
  * not NULL, calling zfree(). */
 dictType objectKeyHeapPointerValueDictType = {
-    dictEncObjHash,            /* hash function */
+    dictEncObjHash,            /* lookup hash function */
+    dictEncObjHash,            /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictEncObjKeyCompare,      /* key compare */
+    dictEncObjKeyCompare,      /* lookup key compare */
+    dictEncObjKeyCompare,      /* stored key compare */
     dictObjectDestructor,      /* key destructor */
     dictVanillaFree            /* val destructor */
 };
 
 /* Set dictionary type. Keys are SDS strings, values are ot used. */
 dictType setDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
+    dictSdsKeyCompare,         /* lookup key compare */
+    dictSdsKeyCompare,         /* stored key compare */
     dictSdsDestructor,         /* key destructor */
     NULL                       /* val destructor */
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
 dictType zsetDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsHash,               /* lookup hash function */
+    dictSdsHash,               /* stored hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
+    dictSdsKeyCompare,         /* lookup key compare */
+    dictSdsKeyCompare,         /* stored key compare */
     NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL                       /* val destructor */
 };
 
-/* Db->dict, keys are sds strings, vals are Redis objects. */
+/* Db->dict, keys are "rkey" key objects, vals are "robj" Redis objects.
+ *
+ * Note that this dictionary is designed to be looked up via SDS strings
+ * even if keys are stored as rkey structures. So there are two differet
+ * hash functions and two different compare functions. */
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsHash,                /* lookup hash function */
+    dictKeyHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
+    dictSdsRkeyKeyCompare,      /* lookup key compare */
+    dictRkeyKeyCompare,         /* stored key compare */
+    dictKeyDestructor,          /* key destructor */
     dictObjectDestructor   /* val destructor */
 };
 
 /* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
 dictType shaScriptObjectDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor        /* val destructor */
 };
 
 /* Db->expires */
 dictType keyptrDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsHash,                /* look hash function */
+    dictSdsHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsKeyCompare,          /* lookup compare */
+    dictSdsKeyCompare,          /* stored compare */
     NULL,                       /* key destructor */
     NULL                        /* val destructor */
 };
 
 /* Command table. sds string -> command struct pointer. */
 dictType commandTableDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
 
-/* Hash type hash table (note that small hashes are represented with ziplists) */
+/* Hash values type (note that small hashes are represented with ziplists) */
 dictType hashDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsHash,                /* lookup hash function */
+    dictSdsHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsKeyCompare,          /* lookup key compare */
+    dictSdsKeyCompare,          /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor           /* val destructor */
 };
@@ -1336,10 +1387,12 @@ dictType hashDictType = {
  * lists as values. It's used for blocking operations (BLPOP) and to
  * map swapped keys to a list of clients waiting for this keys to be loaded. */
 dictType keylistDictType = {
-    dictObjHash,                /* hash function */
+    dictObjHash,                /* lookup hash function */
+    dictObjHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictObjKeyCompare,          /* key compare */
+    dictObjKeyCompare,          /* lookup key compare */
+    dictObjKeyCompare,          /* stored key compare */
     dictObjectDestructor,       /* key destructor */
     dictListDestructor          /* val destructor */
 };
@@ -1347,10 +1400,12 @@ dictType keylistDictType = {
 /* Cluster nodes hash table, mapping nodes addresses 1.2.3.4:6379 to
  * clusterNode structures. */
 dictType clusterNodesDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsHash,                /* lookup hash function */
+    dictSdsHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsKeyCompare,          /* lookup key compare */
+    dictSdsKeyCompare,          /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
@@ -1359,10 +1414,12 @@ dictType clusterNodesDictType = {
  * we can re-add this node. The goal is to avoid readding a removed
  * node for some time. */
 dictType clusterNodesBlackListDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
@@ -1371,20 +1428,24 @@ dictType clusterNodesBlackListDictType = {
  * we can re-add this node. The goal is to avoid readding a removed
  * node for some time. */
 dictType modulesDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
 
 /* Migrate cache dict type. */
 dictType migrateCacheDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsHash,                /* lookup hash function */
+    dictSdsHash,                /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsKeyCompare,          /* lookup key compare */
+    dictSdsKeyCompare,          /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
@@ -1393,10 +1454,12 @@ dictType migrateCacheDictType = {
  * Keys are sds SHA1 strings, while values are not used at all in the current
  * implementation. */
 dictType replScriptCacheDictType = {
-    dictSdsCaseHash,            /* hash function */
+    dictSdsCaseHash,            /* lookup hash function */
+    dictSdsCaseHash,            /* stored hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsKeyCaseCompare,      /* lookup key compare */
+    dictSdsKeyCaseCompare,      /* stored key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
@@ -1415,8 +1478,6 @@ int htNeedsResize(dict *dict) {
 void tryResizeHashTables(int dbid) {
     if (htNeedsResize(server.db[dbid].dict))
         dictResize(server.db[dbid].dict);
-    if (htNeedsResize(server.db[dbid].expires))
-        dictResize(server.db[dbid].expires);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -1430,11 +1491,6 @@ int incrementallyRehash(int dbid) {
     /* Keys dictionary */
     if (dictIsRehashing(server.db[dbid].dict)) {
         dictRehashMilliseconds(server.db[dbid].dict,1);
-        return 1; /* already used our millisecond for this loop... */
-    }
-    /* Expires */
-    if (dictIsRehashing(server.db[dbid].expires)) {
-        dictRehashMilliseconds(server.db[dbid].expires,1);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
@@ -1859,7 +1915,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
             size = dictSlots(server.db[j].dict);
             used = dictSize(server.db[j].dict);
-            vkeys = dictSize(server.db[j].expires);
+            vkeys = raxSize(server.db[j].expires);
             if (used || vkeys) {
                 serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 /* dictPrintStats(server.dict); */
@@ -2668,7 +2724,6 @@ void resetServerStats(void) {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
-    server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
@@ -2763,7 +2818,7 @@ void initServer(void) {
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&keyptrDictType,NULL);
+        server.db[j].expires = raxNew();
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
@@ -4109,7 +4164,6 @@ sds genRedisInfoString(char *section) {
             "sync_partial_ok:%lld\r\n"
             "sync_partial_err:%lld\r\n"
             "expired_keys:%lld\r\n"
-            "expired_stale_perc:%.2f\r\n"
             "expired_time_cap_reached_count:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
@@ -4135,7 +4189,6 @@ sds genRedisInfoString(char *section) {
             server.stat_sync_partial_ok,
             server.stat_sync_partial_err,
             server.stat_expiredkeys,
-            server.stat_expired_stale_perc*100,
             server.stat_expired_time_cap_reached_count,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
@@ -4331,7 +4384,7 @@ sds genRedisInfoString(char *section) {
             long long keys, vkeys;
 
             keys = dictSize(server.db[j].dict);
-            vkeys = dictSize(server.db[j].expires);
+            vkeys = raxSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
                     "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",

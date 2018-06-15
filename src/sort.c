@@ -107,9 +107,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst, int writeflag)
 
     /* Lookup substituted key */
     if (!writeflag)
-        o = lookupKeyRead(db,keyobj);
+        o = lookupKeyRead(db,keyobj,NULL);
     else
-        o = lookupKeyWrite(db,keyobj);
+        o = lookupKeyWrite(db,keyobj,NULL);
     if (o == NULL) goto noobj;
 
     if (fieldobj) {
@@ -271,9 +271,9 @@ void sortCommand(client *c) {
 
     /* Lookup the key to sort. It must be of the right types */
     if (storekey)
-        sortval = lookupKeyRead(c->db,c->argv[1]);
+        sortval = lookupKeyRead(c->db,c->argv[1],NULL);
     else
-        sortval = lookupKeyWrite(c->db,c->argv[1]);
+        sortval = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (sortval && sortval->type != OBJ_SET &&
                    sortval->type != OBJ_LIST &&
                    sortval->type != OBJ_ZSET)

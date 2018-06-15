@@ -206,7 +206,7 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            h = dictHashStoredKey(d, de->key) & d->ht[1].sizemask;
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
@@ -299,7 +299,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Get the index of the new element, or -1 if
      * the element already exists. */
-    if ((index = _dictKeyIndex(d, key, dictHashKey(d,key), existing)) == -1)
+    if ((index = _dictKeyIndex(d,key,dictHashStoredKey(d,key),existing)) == -1)
         return NULL;
 
     /* Allocate the memory and store the new entry.
@@ -369,14 +369,14 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    h = dictHashLookupKey(d, key);
 
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         prevHe = NULL;
         while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
+            if (key==he->key || dictCompareLookupKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
@@ -480,12 +480,12 @@ dictEntry *dictFind(dict *d, const void *key)
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    h = dictHashLookupKey(d, key);
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key))
+            if (key==he->key || dictCompareLookupKeys(d, key, he->key))
                 return he;
             he = he->next;
         }
@@ -998,7 +998,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
-            if (key==he->key || dictCompareKeys(d, key, he->key)) {
+            if (key==he->key || dictCompareStoredKeys(d, key, he->key)) {
                 if (existing) *existing = he;
                 return -1;
             }
@@ -1024,15 +1024,28 @@ void dictDisableResize(void) {
     dict_can_resize = 0;
 }
 
+/* Compute the hash of the specified key (using the lookup hash function)
+ * and returns it to the caller. This is useful in order to later call
+ * dictFindEntryRefByPtrAndHash(). */
 uint64_t dictGetHash(dict *d, const void *key) {
-    return dictHashKey(d, key);
+    return dictHashLookupKey(d, key);
+}
+
+/* Compute the hash of the specified dict entry (using the stored keys hash
+ * function) and returns it to the caller. This is useful in order to later
+ * call dictFindEntryRefByPtrAndHash(). */
+uint64_t dictGetEntryHash(dict *d, const dictEntry *de) {
+    return dictHashStoredKey(d, de->key);
 }
 
 /* Finds the dictEntry reference by using pointer and pre-calculated hash.
  * oldkey is a dead pointer and should not be accessed.
- * the hash value should be provided using dictGetHash.
- * no string / key comparison is performed.
- * return value is the reference to the dictEntry if found, or NULL if not found. */
+ * the hash value should be provided using dictGetHash() or dictGetEntryHash()
+ * depending on the object type (if the one we lookup the hash table with, or
+ * the one stored in the dict entry).
+ * No string / key comparison is performed.
+ * Return value is the reference to the dictEntry if found, or NULL if not
+ * found. */
 dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
     dictEntry *he, **heref;
     unsigned long idx, table;
@@ -1160,8 +1173,10 @@ void freeCallback(void *privdata, void *val) {
 
 dictType BenchmarkDictType = {
     hashCallback,
+    hashCallback,
     NULL,
     NULL,
+    compareCallback,
     compareCallback,
     freeCallback,
     NULL

@@ -63,8 +63,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASCII graphs API */
-#include "quicklist.h"  /* Lists are encoded as linked lists of
-                           N-elements flat arrays */
+#include "quicklist.h" /* Lists are encoded as linked lists of
+                          N-elements flat arrays */
 #include "rax.h"     /* Radix tree */
 
 /* Following includes allow test functions to be called from Redis main() */
@@ -634,14 +634,13 @@ typedef struct RedisModuleDigest {
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
+#define KEY_FLAGS_BITS (32-LRU_BITS)
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
+    unsigned flags:24;
     int refcount;
     void *ptr;
 } robj;
@@ -660,18 +659,34 @@ typedef struct redisObject {
 struct evictionPoolEntry; /* Defined in evict.c */
 
 /* This structure is used in order to represent the output buffer of a client,
- * which is actually a linked list of blocks like that, that is: client->reply. */
+ * which is actually a linked list of clientReplyBlock blocks.
+ * Such list is stored in the client->reply field. */
 typedef struct clientReplyBlock {
     size_t size, used;
     char buf[];
 } clientReplyBlock;
+
+/* Representation of a Redis key. This representation is just used in order
+ * to store keys in the main dictionary. Note that keys with an expire are
+ * also stored in a different data structure as well, stored in db->expires,
+ * for the expiration algorithm to work more efficiently. */
+#define KEY_FLAG_EXPIRE (1<<0)
+typedef struct redisKey {
+    uint32_t len;
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits access time). */
+    unsigned flags:KEY_FLAGS_BITS;
+    uint64_t expire;
+    char name[];
+} rkey;
 
 /* Redis database representation. There are multiple databases identified
  * by integers from 0 (the default database) up to the max configured
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
-    dict *expires;              /* Timeout of keys with a timeout set */
+    rax *expires;               /* Sorted tree of keys with an expire set. */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
@@ -1089,7 +1104,6 @@ struct redisServer {
     long long stat_numcommands;     /* Number of processed commands */
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
-    double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cylce stops.*/
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
@@ -1674,7 +1688,7 @@ char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
-unsigned long long estimateObjectIdleTime(robj *o);
+unsigned long long estimateObjectIdleTime(rkey *k);
 void trimStringObjectIfNeeded(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
@@ -1941,31 +1955,34 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *opti
 int rewriteConfig(char *path);
 
 /* db.c -- Keyspace access API */
-int removeExpire(redisDb *db, robj *key);
+int removeExpire(redisDb *db, rkey *key);
 void propagateExpire(redisDb *db, robj *key, int lazy);
-int expireIfNeeded(redisDb *db, robj *key);
-long long getExpire(redisDb *db, robj *key);
-void setExpire(client *c, redisDb *db, robj *key, long long when);
-robj *lookupKey(redisDb *db, robj *key, int flags);
-robj *lookupKeyRead(redisDb *db, robj *key);
-robj *lookupKeyWrite(redisDb *db, robj *key);
-robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
-robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
-robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
-robj *objectCommandLookup(client *c, robj *key);
-robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
-void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+int expireIfNeeded(redisDb *db, robj *keyname, rkey *key);
+int expireIfNeededByName(redisDb *db, robj *keyname);
+long long getExpire(rkey *key);
+void setExpire(client *c, redisDb *db, rkey *key, long long when);
+robj *lookupKey(redisDb *db, robj *keyname, rkey **keyptr, int flags);
+robj *lookupKeyRead(redisDb *db, robj *keyname, rkey **keyptr);
+robj *lookupKeyWrite(redisDb *db, robj *keyname, rkey **keyptr);
+robj *lookupKeyReadOrReply(client *c, robj *keyname, rkey **keyptr, robj *reply);
+robj *lookupKeyWriteOrReply(client *c, robj *keyname, rkey **keyptr, robj *reply);
+robj *lookupKeyReadWithFlags(redisDb *db, robj *keyname, rkey **keyptr, int flags);
+void objectSetLRUOrLFU(rkey *key, long long lfu_freq, long long lru_idle,
                        long long lru_clock);
+robj *objectCommandLookup(client *c, robj *keyname, rkey **key);
+robj *objectCommandLookupOrReply(client *c, robj *keyname, rkey **key, robj *reply);
 #define LOOKUP_NONE 0
 #define LOOKUP_NOTOUCH (1<<0)
-void dbAdd(redisDb *db, robj *key, robj *val);
-void dbOverwrite(redisDb *db, robj *key, robj *val);
-void setKey(redisDb *db, robj *key, robj *val);
+rkey *dbAdd(redisDb *db, robj *key, robj *val);
+rkey *dbOverwrite(redisDb *db, robj *key, robj *val);
+rkey *setKey(redisDb *db, robj *keyname, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
+void freeKey(rkey *key);
+void removeExpireFromTree(redisDb *db, rkey *key);
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
@@ -2043,7 +2060,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
 void expireSlaveKeys(void);
-void rememberSlaveKeyWithExpire(redisDb *db, robj *key);
+void rememberSlaveKeyWithExpire(redisDb *db, rkey *key);
 void flushSlaveKeysWithExpireList(void);
 size_t getSlaveKeyWithExpireCount(void);
 
@@ -2052,7 +2069,7 @@ void evictionPoolAlloc(void);
 #define LFU_INIT_VAL 5
 unsigned long LFUGetTimeInMinutes(void);
 uint8_t LFULogIncr(uint8_t value);
-unsigned long LFUDecrAndReturn(robj *o);
+unsigned long LFUDecrAndReturn(rkey *k);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
 uint64_t dictSdsHash(const void *key);

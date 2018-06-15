@@ -265,7 +265,7 @@ void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
 
-    set = lookupKeyWrite(c->db,c->argv[1]);
+    set = lookupKeyWrite(c->db,c->argv[1],NULL);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);
@@ -291,7 +291,7 @@ void sremCommand(client *c) {
     robj *set;
     int j, deleted = 0, keyremoved = 0;
 
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
     for (j = 2; j < c->argc; j++) {
@@ -317,8 +317,8 @@ void sremCommand(client *c) {
 
 void smoveCommand(client *c) {
     robj *srcset, *dstset, *ele;
-    srcset = lookupKeyWrite(c->db,c->argv[1]);
-    dstset = lookupKeyWrite(c->db,c->argv[2]);
+    srcset = lookupKeyWrite(c->db,c->argv[1],NULL);
+    dstset = lookupKeyWrite(c->db,c->argv[2],NULL);
     ele = c->argv[3];
 
     /* If the source key does not exist return 0 */
@@ -373,7 +373,7 @@ void smoveCommand(client *c) {
 void sismemberCommand(client *c) {
     robj *set;
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
     if (setTypeIsMember(set,c->argv[2]->ptr))
@@ -385,7 +385,7 @@ void sismemberCommand(client *c) {
 void scardCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_SET)) return;
 
     addReplyLongLong(c,setTypeSize(o));
@@ -415,7 +415,7 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* If count is zero, serve an empty multibulk ASAP to avoid special
@@ -566,7 +566,7 @@ void spopCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
          == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* Get a random element from the set */
@@ -632,7 +632,7 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
@@ -760,7 +760,7 @@ void srandmemberCommand(client *c) {
         return;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
     encoding = setTypeRandomElement(set,&ele,&llele);
@@ -802,8 +802,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+            lookupKeyWrite(c->db,setkeys[j],NULL) :
+            lookupKeyRead(c->db,setkeys[j],NULL);
         if (!setobj) {
             zfree(sets);
             if (dstkey) {
@@ -939,8 +939,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+            lookupKeyWrite(c->db,setkeys[j],NULL) :
+            lookupKeyRead(c->db,setkeys[j],NULL);
         if (!setobj) {
             sets[j] = NULL;
             continue;
@@ -1110,7 +1110,7 @@ void sscanCommand(client *c) {
     unsigned long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.emptyscan))
+        == NULL || checkType(c,set,OBJ_SET)) return;
     scanGenericCommand(c,set,cursor);
 }

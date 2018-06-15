@@ -477,7 +477,7 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * an error is sent to the client. */
 robj *lookupStringForBitCommand(client *c, size_t maxbit) {
     size_t byte = maxbit >> 3;
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    robj *o = lookupKeyWrite(c->db,c->argv[1],NULL);
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
@@ -571,7 +571,7 @@ void getbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
 
     byte = bitoffset >> 3;
@@ -625,7 +625,7 @@ void bitopCommand(client *c) {
     len = zmalloc(sizeof(long) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
-        o = lookupKeyRead(c->db,c->argv[j+3]);
+        o = lookupKeyRead(c->db,c->argv[j+3],NULL);
         /* Handle non-existing keys as empty strings. */
         if (o == NULL) {
             objects[j] = NULL;
@@ -773,7 +773,7 @@ void bitcountCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
 
     /* Lookup, check for type, and return 0 for non existing keys. */
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],NULL,shared.czero)) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
     p = getObjectReadOnlyString(o,&strlen,llbuf);
 
@@ -834,7 +834,7 @@ void bitposCommand(client *c) {
     /* If the key does not exist, from our point of view it is an infinite
      * array of 0 bits. If the user is looking for the fist clear bit return 0,
      * If the user is looking for the first set bit, return -1. */
-    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
+    if ((o = lookupKeyRead(c->db,c->argv[1],NULL)) == NULL) {
         addReplyLongLong(c, bit ? -1 : 0);
         return;
     }
@@ -993,7 +993,7 @@ void bitfieldCommand(client *c) {
     if (readonly) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string. */
-        o = lookupKeyRead(c->db,c->argv[1]);
+        o = lookupKeyRead(c->db,c->argv[1],NULL);
         if (o != NULL && checkType(c,o,OBJ_STRING)) {
             zfree(ops);
             return;

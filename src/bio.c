@@ -85,7 +85,7 @@ struct bio_job {
 
 void *bioProcessBackgroundJobs(void *arg);
 void lazyfreeFreeObjectFromBioThread(robj *o);
-void lazyfreeFreeDatabaseFromBioThread(dict *ht1, dict *ht2);
+void lazyfreeFreeDatabaseFromBioThread(dict *ht, rax *tree);
 void lazyfreeFreeSlotsMapFromBioThread(zskiplist *sl);
 
 /* Make sure we have enough stack to perform all the things we do in the
