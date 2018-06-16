@@ -1093,6 +1093,7 @@ struct redisServer {
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
     char *logfile;                  /* Path of log file */
+    FILE *logfp;                    /* File pointer of log file */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */

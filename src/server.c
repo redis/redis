@@ -331,19 +331,14 @@ struct redisCommand redisCommandTable[] = {
 void serverLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
-    FILE *fp;
     char buf[64];
     int rawmode = (level & LL_RAW);
-    int log_to_stdout = server.logfile[0] == '\0';
 
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
-    fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
-    if (!fp) return;
-
     if (rawmode) {
-        fprintf(fp,"%s",msg);
+        fprintf(server.logfp,"%s",msg);
     } else {
         int off;
         struct timeval tv;
@@ -360,12 +355,11 @@ void serverLogRaw(int level, const char *msg) {
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
         }
-        fprintf(fp,"%d:%c %s %c %s\n",
+        fprintf(server.logfp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
     }
-    fflush(fp);
+    fflush(server.logfp);
 
-    if (!log_to_stdout) fclose(fp);
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
@@ -1435,6 +1429,7 @@ void initServerConfig(void) {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(CONFIG_DEFAULT_LOGFILE);
+    server.logfp = stdout;
     server.syslog_enabled = CONFIG_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(CONFIG_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;

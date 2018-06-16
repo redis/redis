@@ -281,7 +281,9 @@ void loadServerConfigFromString(char *config) {
                         "Can't open the log file: %s", strerror(errno));
                     goto loaderr;
                 }
-                fclose(logfp);
+                server.logfp = logfp;
+            } else {
+                server.logfp = stdout;
             }
         } else if (!strcasecmp(argv[0],"always-show-logo") && argc == 2) {
             if ((server.always_show_logo = yesnotoi(argv[1])) == -1) {
