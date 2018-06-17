@@ -1105,6 +1105,11 @@ void xaddCommand(client *c) {
             }
             if (getLongLongFromObjectOrReply(c,c->argv[i+1],&maxlen,NULL)
                 != C_OK) return;
+
+            if (maxlen < 0) {
+                addReplyError(c,"The MAXLEN argument must be equal or greater than zero. A value of zero means that no trimming should be performed.");
+                return;
+            }
             i++;
             maxlen_arg_idx = i;
         } else {
