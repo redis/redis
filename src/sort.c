@@ -447,7 +447,7 @@ void sortCommand(client *c) {
     serverAssertWithInfo(c,sortval,j == vectorlen);
 
     /* Now it's time to load the right scores in the sorting vector */
-    if (dontsort == 0) {
+    if (!dontsort) {
         for (j = 0; j < vectorlen; j++) {
             robj *byval;
             if (sortby) {
@@ -487,9 +487,7 @@ void sortCommand(client *c) {
                 decrRefCount(byval);
             }
         }
-    }
 
-    if (dontsort == 0) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
