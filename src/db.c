@@ -1398,18 +1398,32 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
- *       [RETRY <milliseconds> <ttl>] STREAMS key_1 key_2 ... key_N
- *       ID_1 ID_2 ... ID_N */
+ *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
 int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     UNUSED(cmd);
 
-    /* We need to seek the last argument that contains "STREAMS", because other
-     * arguments before may contain it (for example the group name). */
+    /* We need to parse the options of the command in order to seek the first
+     * "STREAMS" string which is actually the option. This is needed because
+     * "STREAMS" could also be the name of the consumer group and even the
+     * name of the stream key. */
     int streams_pos = -1;
     for (i = 1; i < argc; i++) {
         char *arg = argv[i]->ptr;
-        if (!strcasecmp(arg, "streams")) streams_pos = i;
+        if (!strcasecmp(arg, "block")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "count")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "group")) {
+            i += 2; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "noack")) {
+            /* Nothing to do. */
+        } else if (!strcasecmp(arg, "streams")) {
+            streams_pos = i;
+            break;
+        } else {
+            break; /* Syntax error. */
+        }
     }
     if (streams_pos != -1) num = argc - streams_pos - 1;
 
