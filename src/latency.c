@@ -63,8 +63,15 @@ dictType latencyTimeSeriesDictType = {
  * Otherwise (or if we are unable to check) 0 is returned. */
 int THPIsEnabled(void) {
     char buf[1024];
+    char *thp_file;
 
-    FILE *fp = fopen("/sys/kernel/mm/transparent_hugepage/enabled","r");
+    thp_file = "/sys/kernel/mm/transparent_hugepage/enabled";
+    if (access(thp_file, F_OK) != 0) {
+        /* handle redhat distribution THP file location */
+        thp_file = "/sys/kernel/mm/redhat_transparent_hugepage/enabled";
+    }
+
+    FILE *fp = fopen(thp_file,"r");
     if (!fp) return 0;
     if (fgets(buf,sizeof(buf),fp) == NULL) {
         fclose(fp);
