@@ -1081,7 +1081,7 @@ invalid:
 void xaddCommand(client *c) {
     streamID id;
     int id_given = 0; /* Was an ID different than "*" specified? */
-    long long maxlen = 0;   /* 0 means no maximum length. */
+    long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
                                the maxium length is not applied verbatim. */
     int maxlen_arg_idx = 0; /* Index of the count in MAXLEN, for rewriting. */
@@ -1107,7 +1107,7 @@ void xaddCommand(client *c) {
                 != C_OK) return;
 
             if (maxlen < 0) {
-                addReplyError(c,"The MAXLEN argument must be equal or greater than zero. A value of zero means that no trimming should be performed.");
+                addReplyError(c,"The MAXLEN argument must be >= 0.");
                 return;
             }
             i++;
@@ -1149,7 +1149,7 @@ void xaddCommand(client *c) {
     server.dirty++;
 
     /* Remove older elements if MAXLEN was specified. */
-    if (maxlen) {
+    if (maxlen >= 0) {
         if (!streamTrimByLength(s,maxlen,approx_maxlen)) {
             /* If no trimming was performed, for instance because approximated
              * trimming length was specified, rewrite the MAXLEN argument
