@@ -123,9 +123,25 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+/* Create a string object from a long long value. When possible returns a
+ * shared integer object, or at least an integer encoded one.
+ *
+ * If valueobj is non zero, the function avoids returning a a shared
+ * integer, because the object is going to be used as value in the Redis key
+ * space (for instance when the INCR command is used), so we want LFU/LRU
+ * values specific for each key. */
+robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
-    if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
+
+    if (server.maxmemory == 0 ||
+        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
+    {
+        /* If the maxmemory policy permits, we can still return shared integers
+         * even if valueobj is true. */
+        valueobj = 0;
+    }
+
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -138,6 +154,20 @@ robj *createStringObjectFromLongLong(long long value) {
         }
     }
     return o;
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
+ * to create a shared object if possible. */
+robj *createStringObjectFromLongLong(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,0);
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
+ * object when LFU/LRU info are needed, that is, when the object is used
+ * as a value in the key space, and Redis is configured to evict based on
+ * LFU/LRU. */
+robj *createStringObjectFromLongLongForValue(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,1);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
