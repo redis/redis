@@ -1422,7 +1422,7 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
                  there are also the IDs, one per key. */
 
     keys = zmalloc(sizeof(int) * num);
-    for (i = streams_pos+1; i < argc; i++) keys[i-streams_pos-1] = i;
+    for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
     *numkeys = num;
     return keys;
 }
