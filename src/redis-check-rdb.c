@@ -34,7 +34,6 @@
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
-long long rdbLoadMillisecondTime(rio *rdb);
 int rdbCheckMode = 0;
 
 struct {
@@ -224,7 +223,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
-            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadMillisecondTime(&rdb, rdbver)) == -1) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
             /* FREQ: LFU frequency. */
