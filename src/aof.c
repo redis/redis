@@ -1247,9 +1247,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             expiretime = getExpire(db,&key);
 
-            /* If this key is already expired skip it */
-            if (expiretime != -1 && expiretime < now) continue;
-
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {
                 /* Emit a SET command */
