@@ -1127,13 +1127,9 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
          * is currently the largest type we are able to represent in RDB sizes.
          * However this does not limit the actual size of the DB to load since
          * these sizes are just hints to resize the hash tables. */
-        uint32_t db_size, expires_size;
-        db_size = (dictSize(db->dict) <= UINT32_MAX) ?
-                                dictSize(db->dict) :
-                                UINT32_MAX;
-        expires_size = (dictSize(db->expires) <= UINT32_MAX) ?
-                                dictSize(db->expires) :
-                                UINT32_MAX;
+        uint64_t db_size, expires_size;
+        db_size = dictSize(db->dict);
+        expires_size = dictSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
