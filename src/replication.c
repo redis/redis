@@ -1315,23 +1315,30 @@ error:
 #define SYNC_CMD_FULL (SYNC_CMD_READ|SYNC_CMD_WRITE)
 char *sendSynchronousCommand(int flags, int fd, ...) {
 
-    /* Create the command to send to the master, we use simple inline
-     * protocol for simplicity as currently we only send simple strings. */
+    /* Create the command to send to the master, we use redis binary
+     * protocol to make sure correct arguments are sent. This function
+     * is not safe for all binary data.*/
     if (flags & SYNC_CMD_WRITE) {
         char *arg;
         va_list ap;
         sds cmd = sdsempty();
+        sds cmdargs = sdsempty();
+        int argslen = 0;
         va_start(ap,fd);
 
         while(1) {
             arg = va_arg(ap, char*);
             if (arg == NULL) break;
 
-            if (sdslen(cmd) != 0) cmd = sdscatlen(cmd," ",1);
-            cmd = sdscat(cmd,arg);
+            cmdargs = sdscatprintf(cmdargs,"$%zu\r\n%s\r\n",strlen(arg),arg);
+            argslen++;
         }
-        cmd = sdscatlen(cmd,"\r\n",2);
+
         va_end(ap);
+
+        cmd = sdscatprintf(cmd,"*%zu\r\n",argslen);
+        cmd = sdscatsds(cmd,cmdargs);
+        sdsfree(cmdargs);
         
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
