@@ -1221,7 +1221,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
     size_t processed = 0;
-    long long now = mstime();
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
