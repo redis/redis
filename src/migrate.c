@@ -637,6 +637,8 @@ rio_failed_cleanup:
     sdsfree(cmd->payload);
     sdsfree(cmd->io.buffer);
 
+    serverAssert(args->errmsg == NULL);
+
     args->errmsg =
         sdscatfmt(sdsempty(), "-ERR Command %s failed, sending error '%s'.\r\n", args->cmd_name, strerror(errno));
 
