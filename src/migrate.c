@@ -1032,6 +1032,27 @@ void unblockClientFromRestore(client *c) {
 
 void freeRestoreCommandArgsFromFreeClient(client *c) { restoreGenericCommandResetIfNeeded(c); }
 
+void restoreCloseTimedoutCommands(void) {
+    if (restore_command_args_list != NULL && listLength(restore_command_args_list) != 0) {
+        listIter li;
+        listNode *ln;
+        listRewind(restore_command_args_list, &li);
+        while ((ln = listNext(&li))) {
+            restoreCommandArgs *args = listNodeValue(ln);
+            if (!args->non_blocking || args->process_state != PROCESS_STATE_NONE) {
+                continue;
+            }
+            if (server.unixtime - args->last_use_time <= 300) {
+                continue;
+            }
+            client *c = args->client;
+            serverAssert(c != NULL && c->restore_command_args == args);
+
+            restoreGenericCommandResetIfNeeded(c);
+        }
+    }
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -1218,4 +1239,3 @@ static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_ar
 // TODO
 
 void restoreCommand(client *c) {}
-void restoreCloseTimedoutCommands(void) {}
