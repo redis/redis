@@ -990,6 +990,21 @@ static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
     }
 }
 
+static void restoreCommandNonBlockingCallback(restoreCommandArgs *args) {
+    serverAssert(args->non_blocking && args->process_state == PROCESS_STATE_DONE);
+
+    restoreGenericCommandReplyAndPropagate(args);
+
+    if (args->client != NULL) {
+        client *c = args->client;
+        serverAssert(c->restore_command_args == args);
+        unblockClient(c);
+        serverAssert(c->restore_command_args == NULL && args->client == NULL);
+    }
+
+    freeRestoreCommandArgs(args);
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -1098,7 +1113,8 @@ static void migrateCommandThreadCallback(aeEventLoop *el, int fd, void *privdata
             migrateCommandNonBlockingCallback(migrate_args);
         }
         if (restore_args != NULL) {
-            // TODO: callback of restore command
+            restore_args->process_state = PROCESS_STATE_DONE;
+            restoreCommandNonBlockingCallback(restore_args);
         }
 
         if (migrate_args == NULL && restore_args == NULL) {
@@ -1147,7 +1163,7 @@ static migrateCommandThread migrate_command_threads[1];
 void migrateBackgroundThreadInit(void) { migrateCommandThreadInit(&migrate_command_threads[0]); }
 
 static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_args) {
-    serverAssert(migrate_args->process_state != PROCESS_STATE_QUEUED);
+    serverAssert(migrate_args->process_state == PROCESS_STATE_NONE);
 
     migrateCommandThread *p = &migrate_command_threads[0];
     pthread_mutex_lock(&p->mutex);
@@ -1160,9 +1176,12 @@ static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_ar
 }
 
 static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_args) {
+    serverAssert(restore_args->process_state == PROCESS_STATE_NONE);
+
     migrateCommandThread *p = &migrate_command_threads[0];
     pthread_mutex_lock(&p->mutex);
     {
+        restore_args->process_state = PROCESS_STATE_QUEUED;
         listAddNodeTail(p->restore.jobs, restore_args);
         pthread_cond_broadcast(&p->cond);
     }
