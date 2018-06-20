@@ -782,7 +782,7 @@ static void migrateCommandNonBlockingCallback(migrateCommandArgs *args) {
 
 void unblockClientFromMigrate(client *c) {
     serverAssert(c->migrate_command_args != NULL && c->migrate_command_args->client == c &&
-                 c->migrate_command_args->non_blocking && c->migrate_command_args->process_state == PROCESS_STATE_DONE);
+                 c->migrate_command_args->non_blocking && c->migrate_command_args->process_state != PROCESS_STATE_NONE);
     c->migrate_command_args->client = NULL;
     c->migrate_command_args = NULL;
 }
@@ -1005,6 +1005,13 @@ static void restoreCommandNonBlockingCallback(restoreCommandArgs *args) {
     freeRestoreCommandArgs(args);
 }
 
+void unblockClientFromRestore(client *c) {
+    serverAssert(c->restore_command_args != NULL && c->restore_command_args->client == c &&
+                 c->restore_command_args->non_blocking && c->restore_command_args->process_state != PROCESS_STATE_NONE);
+    c->restore_command_args->client = NULL;
+    c->restore_command_args = NULL;
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
@@ -1193,4 +1200,3 @@ static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_ar
 void restoreCommand(client *c) {}
 void restoreCloseTimedoutCommands(void) {}
 void freeRestoreCommandArgsFromFreeClient(client *c) {}
-void unblockClientFromRestore(client *c) {}
