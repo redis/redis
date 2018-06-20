@@ -1871,11 +1871,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     }
 
     /* Key-specific attributes, set by opcodes before the key type. */
-    long long expiretime = -1, now = mstime();
+    long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    uint64_t lru_idle = -1;
-    int lfu_freq = -1;
-
+    
     while(1) {
         robj *key, *val;
 
@@ -1903,7 +1901,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_IDLE) {
             /* IDLE: LRU idle time. */
-            if ((lru_idle = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
+            uint64_t qword;
+            if ((qword = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
+            lru_idle = qword;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -2022,20 +2022,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 
             /* Set the expire time if needed */
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-            if (lfu_freq != -1) {
-                val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
-            } else {
-                /* LRU idle time loaded from RDB is in seconds. Scale
-                 * according to the LRU clock resolution this Redis
-                 * instance was compiled with (normaly 1000 ms, so the
-                 * below statement will expand to lru_idle*1000/1000. */
-                lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
-                val->lru = lru_clock - lru_idle;
-                /* If the lru field overflows (since LRU it is a wrapping
-                 * clock), the best we can do is to provide the maxium
-                 * representable idle time. */
-                if (val->lru < 0) val->lru = lru_clock+1;
-            }
+            
+            /* Set usage information (for eviction). */
+            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
             /* Decrement the key refcount since dbAdd() will take its
              * own reference. */
