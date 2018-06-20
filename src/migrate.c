@@ -806,7 +806,7 @@ struct _restoreCommandArgs {
 
     robj *payload;
 
-    time_t last_update_time;
+    time_t last_use_time;
     sds errmsg;
 
     listNode *link_node;
@@ -854,7 +854,7 @@ static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_
     args->key = key;
     args->non_blocking = non_blocking;
     args->fragments = listCreate();
-    args->last_update_time = server.unixtime;
+    args->last_use_time = server.unixtime;
     if (server.cluster_enabled) {
         args->cmd_name = non_blocking ? "RESTORE-ASYNC-ASKING" : "RESTORE-ASKING";
     } else {
@@ -877,7 +877,7 @@ static void restoreGenericCommandAddFragment(restoreCommandArgs *args, robj *fra
     incrRefCount(frag);
     listAddNodeTail(args->fragments, frag);
     args->total_bytes += sdslen(frag->ptr);
-    args->last_update_time = server.unixtime;
+    args->last_use_time = server.unixtime;
 }
 
 extern int verifyDumpPayload(unsigned char *p, size_t len);
