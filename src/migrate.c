@@ -925,6 +925,71 @@ static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
     return 1;
 }
 
+static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
+    client *c = args->client;
+    if (args->errmsg != NULL) {
+        if (c != NULL) {
+            addReplySds(c, sdsdup(args->errmsg));
+        }
+        return;
+    }
+
+    if (dictFind(args->db->migrating_keys, args->key) != NULL) {
+        if (c != NULL) {
+            addReplySds(c, sdscatfmt(sdsempty(), "-RETRYLATER %S is busy.\r\n", args->key->ptr));
+        }
+        return;
+    }
+
+    if (lookupKeyWrite(args->db, args->key) != NULL) {
+        if (!args->replace) {
+            if (c != NULL) {
+                addReply(c, shared.busykeyerr);
+            }
+            return;
+        }
+        dbDelete(args->db, args->key);
+    }
+    incrRefCount(args->obj);
+    dbAdd(args->db, args->key, args->obj);
+
+    if (args->ttl != 0) {
+        setExpire(c, args->db, args->key, mstime() + args->ttl);
+    }
+    signalModifiedKey(args->db, args->key);
+    server.dirty++;
+
+    if (c != NULL) {
+        addReply(c, shared.ok);
+    }
+    if (c != NULL && !args->non_blocking) {
+        preventCommandPropagation(c);
+    }
+
+    // RESTORE key ttl serialized-value REPLACE [ASYNC]
+    robj *propargv[6];
+
+    propargv[0] = createStringObject("RESTORE", 7);
+    propargv[1] = args->key;
+    incrRefCount(propargv[1]);
+    propargv[2] = createStringObjectFromLongLong(args->ttl);
+    propargv[3] = args->payload;
+    incrRefCount(propargv[3]);
+    propargv[4] = createStringObject("REPLACE", 7);
+
+    int propargc = sizeof(propargv) / sizeof(propargv[0]) - 1;
+    if (args->non_blocking) {
+        propargv[5] = createStringObject("ASYNC", 5);
+        propargc++;
+    }
+
+    propagate(server.restoreCommand, args->db->id, propargv, propargc, PROPAGATE_AOF | PROPAGATE_REPL);
+
+    for (int i = 0; i < propargc; i++) {
+        decrRefCount(propargv[i]);
+    }
+}
+
 // ---------------- BACKGROUND THREAD --------------------------------------- //
 
 typedef struct {
