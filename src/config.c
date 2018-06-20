@@ -271,7 +271,7 @@ void loadServerConfigFromString(char *config) {
             FILE *logfp;
 
             zfree(server.logfile);
-            server.logfile = zstrdup(argv[1]);
+            server.logfile = getAbsolutePath(argv[1]);
             if (server.logfile[0] != '\0') {
                 /* Test if we are able to open the file. The server will not
                  * be able to abort just for this problem later... */
