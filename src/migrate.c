@@ -650,6 +650,8 @@ failed_socket_error:
 }
 
 static int migrateGenericCommandFetchReplies(migrateCommandArgs *args) {
+    serverAssert(args->errmsg == NULL);
+
     migrateCachedSocket *cs = args->socket;
     for (int j = 0; j < args->num_keys; j++) {
         int errors = 0;
@@ -886,7 +888,7 @@ static void restoreGenericCommandAddFragment(restoreCommandArgs *args, robj *fra
 extern int verifyDumpPayload(unsigned char *p, size_t len);
 
 static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
-    serverAssert(args->payload == NULL && listLength(args->fragments) != 0);
+    serverAssert(args->payload == NULL && args->errmsg == NULL);
     if (listLength(args->fragments) == 1) {
         listNode *head = listFirst(args->fragments);
         args->payload = listNodeValue(head);
@@ -1084,7 +1086,7 @@ static void *migrateCommandThreadMain(void *privdata) {
             }
         }
         if (restore_args != NULL) {
-            // TODO: handle restore command
+            restoreGenericCommandExtractPayload(restore_args);
         }
 
         pthread_mutex_lock(&p->mutex);
@@ -1188,7 +1190,7 @@ static migrateCommandThread migrate_command_threads[1];
 void migrateBackgroundThreadInit(void) { migrateCommandThreadInit(&migrate_command_threads[0]); }
 
 static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_args) {
-    serverAssert(migrate_args->process_state == PROCESS_STATE_NONE);
+    serverAssert(migrate_args->non_blocking && migrate_args->process_state == PROCESS_STATE_NONE);
 
     migrateCommandThread *p = &migrate_command_threads[0];
     pthread_mutex_lock(&p->mutex);
@@ -1201,7 +1203,7 @@ static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *migrate_ar
 }
 
 static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_args) {
-    serverAssert(restore_args->process_state == PROCESS_STATE_NONE);
+    serverAssert(restore_args->non_blocking && restore_args->process_state == PROCESS_STATE_NONE);
 
     migrateCommandThread *p = &migrate_command_threads[0];
     pthread_mutex_lock(&p->mutex);
