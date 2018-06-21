@@ -288,7 +288,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
-        return createStringObjectFromLongLong(val);
+        return createStringObjectFromLongLongForValue(val);
     } else {
         return createObject(OBJ_STRING,sdsfromlonglong(val));
     }
