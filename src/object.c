@@ -745,7 +745,7 @@ char *strEncoding(int encoding) {
  * size of a radix tree that is used to store Stream IDs.
  *
  * Note: to guess the size of the radix tree is not trivial, so we
- * approximate it considering 128 bytes of data overhead for each
+ * approximate it considering 16 bytes of data overhead for each
  * key (the ID), and then adding the number of bare nodes, plus some
  * overhead due by the data and child pointers. This secret recipe
  * was obtained by checking the average radix tree created by real
@@ -904,6 +904,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                  * structures and the PEL memory usage. */
                 raxIterator cri;
                 raxStart(&cri,cg->consumers);
+                raxSeek(&cri,"^",NULL,0);
                 while(raxNext(&cri)) {
                     streamConsumer *consumer = cri.data;
                     asize += sizeof(*consumer);
