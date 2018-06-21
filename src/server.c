@@ -1851,7 +1851,6 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
-    server.keys_on_pm = false;
 
     createSharedObjects();
     adjustOpenFilesLimit();
