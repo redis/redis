@@ -522,7 +522,8 @@ parsed_options:
     args->port = c->argv[2];
     incrRefCount(args->port);
 
-    long dbid, timeout;
+    long dbid;
+    long timeout;
     if (getLongFromObjectOrReply(c, c->argv[4], &dbid, NULL) != C_OK ||
         getLongFromObjectOrReply(c, c->argv[5], &timeout, NULL) != C_OK) {
         goto failed_cleanup;
@@ -733,6 +734,7 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
 }
 
 static void migrateCommandThreadAddMigrateJobTail(migrateCommandArgs *args);
+static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *args);
 
 void migrateCommand(client *c) {
     migrateCommandArgs *args = initMigrateCommandArgsOrReply(c);
@@ -1006,6 +1008,79 @@ static void restoreGenericCommandResetIfNeeded(client *c) {
     freeRestoreCommandArgs(args);
 }
 
+static void restoreAsyncCommandByCommandArgs(restoreCommandArgs *args) {
+    client *c = args->client;
+    serverAssert(c != NULL && c->restore_command_args == args);
+
+    migrateCommandThreadAddRestoreJobTail(args);
+
+    blockClient(c, BLOCKED_RESTORE);
+}
+
+// RESTORE-ASYNC RESET
+// RESTORE-ASYNC PAYLOAD key serialized-fragment
+// RESTORE-ASYNC RESTORE key ttl [REPLACE]
+void restoreAsyncCommand(client *c) {
+    // TODO
+    UNUSED(c);
+}
+
+// RESTORE key ttl serialized-value [REPLACE] [ASYNC]
+void restoreCommand(client *c) {
+    int replace = 0;
+    int non_blocking = 0;
+    for (int j = 4; j < c->argc; j++) {
+        if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
+            replace = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "async") == 0) {
+            non_blocking = 1;
+        } else {
+            addReply(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    if (non_blocking && (c->flags & CLIENT_LUA) != 0) {
+        addReplyError(c, "Option ASYNC is not allowed from scripts.");
+        return;
+    }
+
+    long long ttl;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &ttl, NULL) != C_OK) {
+        return;
+    } else if (ttl < 0) {
+        addReplyError(c, "Invalid TTL value, must be >= 0");
+        return;
+    }
+
+    if (!replace && lookupKeyWrite(c->db, c->argv[1]) != NULL) {
+        addReply(c, shared.busykeyerr);
+        return;
+    }
+    restoreGenericCommandResetIfNeeded(c);
+
+    restoreCommandArgs *args = initRestoreCommandArgs(c, c->argv[1], non_blocking);
+
+    args->ttl = ttl;
+    args->replace = replace;
+
+    restoreGenericCommandAddFragment(args, c->argv[3]);
+
+    serverAssert(c->restore_command_args == NULL);
+
+    if (!args->non_blocking) {
+        restoreGenericCommandExtractPayload(args);
+
+        restoreGenericCommandReplyAndPropagate(args);
+
+        freeRestoreCommandArgs(args);
+        return;
+    }
+    c->restore_command_args = args;
+
+    restoreAsyncCommandByCommandArgs(args);
+}
+
 static void restoreCommandNonBlockingCallback(restoreCommandArgs *args) {
     serverAssert(args->non_blocking && args->process_state == PROCESS_STATE_DONE);
 
@@ -1233,7 +1308,3 @@ static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_ar
     }
     pthread_mutex_unlock(&p->mutex);
 }
-
-// TODO
-
-void restoreCommand(client *c) {}
