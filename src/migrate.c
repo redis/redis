@@ -783,9 +783,8 @@ static void migrateCommandNonBlockingCallback(migrateCommandArgs *args) {
 }
 
 void unblockClientFromMigrate(client *c) {
-    serverAssert(c->migrate_command_args != NULL);
-    serverAssert(c->migrate_command_args->client == c && c->migrate_command_args->non_blocking &&
-                 c->migrate_command_args->process_state != PROCESS_STATE_NONE);
+    serverAssert(c->migrate_command_args != NULL && c->migrate_command_args->client == c);
+    serverAssert(c->migrate_command_args->non_blocking && c->migrate_command_args->process_state != PROCESS_STATE_NONE);
     c->migrate_command_args->client = NULL;
     c->migrate_command_args = NULL;
 }
@@ -997,10 +996,10 @@ static void restoreGenericCommandResetIfNeeded(client *c) {
     if (c->restore_command_args == NULL) {
         return;
     }
-    serverAssert(c->restore_command_args->client == c && c->restore_command_args->non_blocking &&
-                 c->restore_command_args->process_state == PROCESS_STATE_NONE);
+    serverAssert(c->restore_command_args->client == c);
 
     restoreCommandArgs *args = c->restore_command_args;
+    serverAssert(args->non_blocking && args->process_state == PROCESS_STATE_NONE);
 
     c->restore_command_args = NULL;
 
@@ -1023,9 +1022,8 @@ static void restoreCommandNonBlockingCallback(restoreCommandArgs *args) {
 }
 
 void unblockClientFromRestore(client *c) {
-    serverAssert(c->restore_command_args != NULL);
-    serverAssert(c->restore_command_args->client == c && c->restore_command_args->non_blocking &&
-                 c->restore_command_args->process_state != PROCESS_STATE_NONE);
+    serverAssert(c->restore_command_args != NULL && c->restore_command_args->client == c);
+    serverAssert(c->restore_command_args->non_blocking && c->restore_command_args->process_state != PROCESS_STATE_NONE);
     c->restore_command_args->client = NULL;
     c->restore_command_args = NULL;
 }
@@ -1039,7 +1037,7 @@ void restoreCloseTimedoutCommands(void) {
         listRewind(restore_command_args_list, &li);
         while ((ln = listNext(&li))) {
             restoreCommandArgs *args = listNodeValue(ln);
-            if (!args->non_blocking || args->process_state != PROCESS_STATE_NONE) {
+            if (!(args->non_blocking && args->process_state == PROCESS_STATE_NONE)) {
                 continue;
             }
             if (server.unixtime - args->last_use_time <= 300) {
