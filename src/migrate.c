@@ -278,7 +278,7 @@ static int _rioMigrateObjectFlushNonBlockingFragment(rioMigrateCommand *cmd) {
     }
     RIO_GOTO_IF_ERROR(rioWriteBulkCount(rio, '*', 2));
     RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd_name, strlen(cmd_name)));
-    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "PREPARE", 7));
+    RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, "RESET", 5));
 
     cmd->seq_num++;
 
@@ -1021,8 +1021,77 @@ static void restoreAsyncCommandByCommandArgs(restoreCommandArgs *args) {
 // RESTORE-ASYNC PAYLOAD key serialized-fragment
 // RESTORE-ASYNC RESTORE key ttl [REPLACE]
 void restoreAsyncCommand(client *c) {
-    // TODO
-    UNUSED(c);
+    // RESTORE-ASYNC RESET
+    if (strcasecmp(c->argv[1]->ptr, "reset") == 0) {
+        if (c->argc != 2) {
+            goto failed_syntax_error;
+        }
+        restoreGenericCommandResetIfNeeded(c);
+        addReply(c, shared.ok);
+        return;
+    }
+
+    // RESTORE-ASYNC PAYLOAD key serialized-fragment
+    if (strcasecmp(c->argv[1]->ptr, "payload") == 0) {
+        if (c->argc != 4) {
+            goto failed_syntax_error;
+        }
+        if (c->restore_command_args == NULL) {
+            c->restore_command_args = initRestoreCommandArgs(c, c->argv[2], 1);
+        } else if (compareStringObjects(c->argv[2], c->restore_command_args->key) != 0) {
+            goto failed_syntax_error;
+        }
+        restoreCommandArgs *args = c->restore_command_args;
+
+        restoreGenericCommandAddFragment(args, c->argv[3]);
+
+        addReply(c, shared.ok);
+        return;
+    }
+
+    // RESTORE-ASYNC RESTORE key ttl [REPLACE]
+    if (strcasecmp(c->argv[1]->ptr, "restore") == 0) {
+        if (c->argc < 4) {
+            goto failed_syntax_error;
+        }
+        int replace = 0;
+        for (int j = 4; j < c->argc; j++) {
+            if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
+                replace = 1;
+            } else {
+                goto failed_syntax_error;
+            }
+        }
+
+        long long ttl;
+        if (getLongLongFromObjectOrReply(c, c->argv[3], &ttl, NULL) != C_OK) {
+            return;
+        } else if (ttl < 0) {
+            addReplyError(c, "Invalid TTL value, must be >= 0");
+            return;
+        }
+
+        if (!replace && lookupKeyWrite(c->db, c->argv[2]) != NULL) {
+            addReply(c, shared.busykeyerr);
+            return;
+        }
+
+        if (c->restore_command_args == NULL) {
+            goto failed_syntax_error;
+        } else if (compareStringObjects(c->argv[2], c->restore_command_args->key) != 0) {
+            goto failed_syntax_error;
+        }
+        restoreCommandArgs *args = c->restore_command_args;
+
+        args->ttl = ttl;
+        args->replace = replace;
+
+        restoreAsyncCommandByCommandArgs(args);
+        return;
+    }
+
+failed_syntax_error:
+    addReply(c, shared.syntaxerr);
 }
 
 // RESTORE key ttl serialized-value [REPLACE] [ASYNC]
