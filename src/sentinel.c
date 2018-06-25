@@ -3492,7 +3492,23 @@ void sentinelSetCommand(client *c) {
             if (changes) sentinelFlushConfig();
             return;
         }
-        sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",option,value);
+
+        /* Log the event. */
+        int numargs = j-old_j+1;
+        switch(numargs) {
+        case 2:
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s",c->argv[old_j]->ptr,
+                                                          c->argv[old_j+1]->ptr);
+            break;
+        case 3:
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s %s %s",c->argv[old_j]->ptr,
+                                                             c->argv[old_j+1]->ptr,
+                                                             c->argv[old_j+2]->ptr);
+            break;
+        default:
+            sentinelEvent(LL_WARNING,"+set",ri,"%@ %s",c->argv[old_j]->ptr);
+            break;
+        }
     }
 
     if (changes) sentinelFlushConfig();
