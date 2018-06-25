@@ -3180,7 +3180,7 @@ void sentinelCommand(client *c) {
             addReplySds(c,e);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
-        if (c->argc < 3 || c->argc % 2 == 0) goto numargserr;
+        if (c->argc < 3) goto numargserr;
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         /* SENTINEL INFO-CACHE <name> */
@@ -3385,33 +3385,37 @@ void sentinelSetCommand(client *c) {
         == NULL) return;
 
     /* Process option - value pairs. */
-    for (j = 3; j < c->argc; j += 2) {
+    for (j = 3; j < c->argc; j++) {
+        int moreargs = (c->argc-1) - j;
         option = c->argv[j]->ptr;
-        value = c->argv[j+1]->ptr;
         robj *o = c->argv[j+1];
         long long ll;
 
-        if (!strcasecmp(option,"down-after-milliseconds")) {
+        if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
             /* down-after-millisecodns <milliseconds> */
+            value = c->argv[++j]->ptr;
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->down_after_period = ll;
             sentinelPropagateDownAfterPeriod(ri);
             changes++;
-        } else if (!strcasecmp(option,"failover-timeout")) {
+        } else if (!strcasecmp(option,"failover-timeout") && moreargs > 0) {
             /* failover-timeout <milliseconds> */
+            value = c->argv[++j]->ptr;
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->failover_timeout = ll;
             changes++;
-       } else if (!strcasecmp(option,"parallel-syncs")) {
+        } else if (!strcasecmp(option,"parallel-syncs") && moreargs > 0) {
             /* parallel-syncs <milliseconds> */
+            value = c->argv[++j]->ptr;
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->parallel_syncs = ll;
             changes++;
-       } else if (!strcasecmp(option,"notification-script")) {
+        } else if (!strcasecmp(option,"notification-script") && moreargs > 0) {
             /* notification-script <path> */
+            value = c->argv[++j]->ptr;
             if (sentinel.deny_scripts_reconfig) {
                 addReplyError(c,
                     "Reconfiguration of scripts path is denied for "
@@ -3429,8 +3433,9 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->notification_script);
             ri->notification_script = strlen(value) ? sdsnew(value) : NULL;
             changes++;
-       } else if (!strcasecmp(option,"client-reconfig-script")) {
+        } else if (!strcasecmp(option,"client-reconfig-script") && moreargs > 0) {
             /* client-reconfig-script <path> */
+            value = c->argv[++j]->ptr;
             if (sentinel.deny_scripts_reconfig) {
                 addReplyError(c,
                     "Reconfiguration of scripts path is denied for "
@@ -3449,20 +3454,22 @@ void sentinelSetCommand(client *c) {
             sdsfree(ri->client_reconfig_script);
             ri->client_reconfig_script = strlen(value) ? sdsnew(value) : NULL;
             changes++;
-       } else if (!strcasecmp(option,"auth-pass")) {
+        } else if (!strcasecmp(option,"auth-pass") && moreargs > 0) {
             /* auth-pass <password> */
+            value = c->argv[++j]->ptr;
             sdsfree(ri->auth_pass);
             ri->auth_pass = strlen(value) ? sdsnew(value) : NULL;
             changes++;
-       } else if (!strcasecmp(option,"quorum")) {
+        } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */
+            value = c->argv[++j]->ptr;
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->quorum = ll;
             changes++;
         } else {
-            addReplyErrorFormat(c,"Unknown option '%s' for SENTINEL SET",
-                option);
+            addReplyErrorFormat(c,"Unknown option or number of arguments for "
+                                  "SENTINEL SET '%s'", option);
             if (changes) sentinelFlushConfig();
             return;
         }
