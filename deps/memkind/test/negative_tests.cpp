@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 - 2016 Intel Corporation.
+ * Copyright (C) 2014 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,7 +23,6 @@
  */
 
 #include <memkind.h>
-#include <memkind/internal/memkind_gbtlb.h>
 
 #include <fstream>
 #include <algorithm>
@@ -36,20 +35,20 @@
 #include "check.h"
 #include "omp.h"
 #include "trial_generator.h"
+#include "allocator_perf_tool/HugePageOrganizer.hpp"
 
 /* Set of negative test cases for memkind, its main goal are to verify that the
  * library behaves accordingly to documentation when calling an API with
  * invalid inputs, incorrect usage, NULL pointers.
  */
 class NegativeTest: public ::testing::Test
+{};
+
+class NegativeTestHuge: public ::testing::Test
 {
-
-protected:
-    void SetUp()
-    {}
-
-    void TearDown()
-    {}
+private:
+    //Enable huge pages to avoid false positive test result.
+    HugePageOrganizer huge_page_organizer = HugePageOrganizer(8);
 };
 
 TEST_F(NegativeTest, test_TC_MEMKIND_Negative_create_kind_zero_memtype)
@@ -197,28 +196,6 @@ TEST_F(NegativeTest, test_TC_MEMKIND_Negative_create_kind_DEFAULT_INTERLEAVE_ALL
     ASSERT_EQ(ret, MEMKIND_ERROR_INVALID);
 }
 
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_create_kind_HIGH_BANDWIDTH_BIND_ALL)
-{
-    memkind_t kind;
-    int ret = memkind_create_kind(
-        MEMKIND_MEMTYPE_HIGH_BANDWIDTH,
-        MEMKIND_POLICY_BIND_ALL,
-        memkind_bits_t(),
-        &kind);
-    ASSERT_EQ(ret, MEMKIND_ERROR_INVALID);
-}
-
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_create_kind_HIGH_BANDWIDTH_BIND_ALL_PAGE_SIZE_2MB)
-{
-    memkind_t kind;
-    int ret = memkind_create_kind(
-        MEMKIND_MEMTYPE_HIGH_BANDWIDTH,
-        MEMKIND_POLICY_BIND_ALL,
-        MEMKIND_MASK_PAGE_SIZE_2MB,
-        &kind);
-    ASSERT_EQ(ret, MEMKIND_ERROR_INVALID);
-}
-
 TEST_F(NegativeTest, test_TC_MEMKIND_Negative_create_kind_HIGH_BANDWIDTH_INTERLEAVE_LOCAL)
 {
     memkind_t kind;
@@ -321,10 +298,8 @@ TEST_F(NegativeTest, test_TC_MEMKIND_Negative_ErrorAllocM)
     struct sysinfo info;
     unsigned long long MemTotal = 0;
 
-    errno = 0;
     ret = sysinfo(&info);
     EXPECT_EQ(ret, 0);
-    EXPECT_EQ(errno, 0);
 
     //Determine total memory size as totalram (total usable main memory size)
     //multipled by mem_unit (memory unit size in bytes). This value is equal
@@ -339,72 +314,82 @@ TEST_F(NegativeTest, test_TC_MEMKIND_Negative_ErrorAllocM)
                                  16,
                                  2*MemTotal);
     EXPECT_EQ(err, ret);
-    EXPECT_EQ(errno, 0);
 }
 
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_InvalidSizeMalloc)
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_malloc_over_size)
 {
-    void *ptr = NULL;
-    for (int i = -1; i <= 0; i++) {
-        ptr = hbw_malloc(i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-
-        ptr = memkind_malloc(MEMKIND_HBW, i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-    }
+    void *ptr = hbw_malloc(SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
 }
 
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_InvalidSizeCalloc)
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_malloc_size_zero)
 {
-    void *ptr = NULL;
-    for (int i = -1; i <= 0; i++) {
-        ptr = hbw_calloc(1, i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-
-        ptr = memkind_calloc(MEMKIND_HBW,
-                             1,
-                             i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-    }
+    void *ptr = hbw_malloc(0);
+    ASSERT_TRUE(ptr == NULL);
 }
 
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_InvalidSizeRealloc)
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_malloc_over_size)
 {
-    void *ptr = NULL;
-    for (int i = -1; i <= 0; i++) {
-        ptr = hbw_realloc(ptr, i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-
-        ptr = memkind_realloc(MEMKIND_HBW,
-                              ptr,
-                              i);
-        ASSERT_TRUE(ptr == NULL);
-        EXPECT_EQ(errno, ENOMEM);
-    }
+    void *ptr = memkind_malloc(MEMKIND_HBW, SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
 }
 
-TEST_F(NegativeTest, test_TC_MEMKIND_Negative_InvalidSizeMemalign)
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_malloc_size_zero)
 {
-    int ret = 0;
-    void *ptr = NULL;
-    int err = ENOMEM;
+    void *ptr = memkind_malloc(MEMKIND_HBW, 0);
+    ASSERT_TRUE(ptr == NULL);
+}
 
-    errno = 0;
-    ret = hbw_posix_memalign(&ptr, 4096, ULLONG_MAX);
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_calloc_over_size)
+{
+    void *ptr = hbw_calloc(1, SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_calloc_size_zero)
+{
+    void *ptr = hbw_calloc(1, 0);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_calloc_over_size)
+{
+    void *ptr = memkind_calloc(MEMKIND_HBW, 1, SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_calloc_size_zero)
+{
+    void *ptr = memkind_calloc(MEMKIND_HBW, 1, 0);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_realloc_over_size)
+{
+    void *ptr = hbw_realloc(NULL, SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_realloc_over_size)
+{
+    void *ptr = memkind_realloc(MEMKIND_HBW, NULL, SIZE_MAX);
+    ASSERT_TRUE(ptr == NULL);
+}
+
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_hbw_posix_memalign_over_size)
+{
+    void *ptr = NULL;
+    int ret = hbw_posix_memalign(&ptr, 4096, SIZE_MAX);
     EXPECT_TRUE(ptr == NULL);
-    EXPECT_EQ(ret, err);
-    EXPECT_EQ(errno, 0);
+    EXPECT_EQ(ENOMEM, ret);
+}
 
-    errno = 0;
-    ret = memkind_posix_memalign(MEMKIND_HBW, &ptr, 4096, ULLONG_MAX);
+TEST_F(NegativeTest, test_TC_MEMKIND_Negative_memkind_posix_memalign_over_size)
+{
+    void *ptr = NULL;
+    int ret = memkind_posix_memalign(MEMKIND_HBW, &ptr, 4096, SIZE_MAX);
     EXPECT_TRUE(ptr == NULL);
-    EXPECT_EQ(err, ret);
-    EXPECT_EQ(errno, 0);
+    EXPECT_EQ(ENOMEM, ret);
 }
 
 TEST_F(NegativeTest, test_TC_MEMKIND_Negative_GBFailureMemalign)
@@ -534,11 +519,19 @@ TEST_F(NegativeTest, test_TC_MEMKIND_Negative_GBMemalignPsizeAllign)
 TEST_F(NegativeTest, test_TC_MEMKIND_Negative_GBNullRealloc)
 {
     void *ptr = NULL;
-    ptr = memkind_gbtlb_realloc(MEMKIND_HBW_GBTLB, NULL, -1);
+    ptr = memkind_realloc(MEMKIND_HBW_GBTLB, NULL, -1);
     EXPECT_TRUE(ptr == NULL);
 }
 
 TEST_F(NegativeTest, test_TC_MEMKIND_Negative_GBNullFree)
 {
     memkind_free(MEMKIND_GBTLB, NULL);
+}
+
+TEST_F(NegativeTestHuge, test_TC_MEMKIND_hbwmalloc_memalign_psize_Interleave_Policy_PAGE_SIZE_2MB)
+{
+    void* ptr = NULL;
+    hbw_set_policy(HBW_POLICY_INTERLEAVE);
+    int ret = hbw_posix_memalign_psize(&ptr, 4096, 4096, HBW_PAGESIZE_2MB);
+    ASSERT_EQ(EINVAL, ret);
 }

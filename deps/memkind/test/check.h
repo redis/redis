@@ -46,11 +46,8 @@ public:
     Check(const void *p, const size_t size, const size_t page_size);
     Check(const Check &);
     ~Check();
-    void check_node_hbw();
-    void check_node_hbw_interleave();
     int check_page_size(size_t page_size);
     int check_zero(void);
-    int check_data(int data);
     int check_align(size_t align);
 private:
     const void *ptr;

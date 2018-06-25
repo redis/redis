@@ -191,18 +191,19 @@ system to two megabyte pages.
 The two megabyte page size option. Note: This page size requires
 huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
-.B HBW_PAGESIZE_1GB
+.B HBW_PAGESIZE_1GB (DEPRECATED)
 This option allows the user to specify arbitrary sizes backed by
-one gigabytes pages. Gigabyte pages are allocated even if the
-size is not a modulo of 1GB. A good example of using this feature
-with realloc is shown in gb_realloc_example.c. Note: This page size requires
-gigabyte pages configuration described in SYSTEM CONFIGURATION section.
+1GB chunks of huge pages. Huge pages are allocated even if the
+size is not a modulo of 1GB. Note: This page size requires
+huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
-.B HBW_PAGESIZE_1GB_STRICT
-The one gigabyte page size option. The total size of the allocation
-must be a multiple of 1GB with this option, otherwise the allocation
-will fail. Note: This page size requires gigabyte pages configuration
-described in SYSTEM CONFIGURATION section.
+.B HBW_PAGESIZE_1GB_STRICT (DEPRECATED)
+The total size of the allocation must be a multiple of 1GB with
+this option, otherwise the allocation will fail. Note: This page
+size requires huge pages configuration described in SYSTEM
+CONFIGURATION section.
+.TP
+HBW_PAGESIZE_2MB, HBW_PAGESIZE_1GB and HBW_PAGESIZE_1GB_STRICT options are not supported with HBW_POLICY_INTERLEAVE policy.
 .PP
 .BR hbw_get_policy ()
 returns the current fallback policy when insufficient high bandwith
@@ -217,6 +218,15 @@ Note: If the policy is not set, than HBW_POLICY_PREFERRED will be used by defaul
 If insufficient high bandwidth memory from the nearest NUMA node is
 available to satisfy a request, the allocated pointer is set to NULL
 and
+.I errno
+is set to ENOMEM.  If insufficient high bandwidth memory pages are
+available at fault time the Out Of Memory (OOM) killer is triggered.
+Note that pages are faulted exclusively from the high bandwidth NUMA
+node nearest at time of allocation, not at time of fault.
+.TP
+.B HBW_POLICY_BIND_ALL
+If insufficient high bandwidth memory is available to satisfy a request,
+the allocated pointer is set to NULL and
 .I errno
 is set to ENOMEM.  If insufficient high bandwidth memory pages are
 available at fault time the Out Of Memory (OOM) killer is triggered.
@@ -262,9 +272,11 @@ Using this option may trigger Out Of Memory killer.
 .SH "RETURN VALUE"
 .BR hbw_get_policy ()
 returns
-.B HBW_POLICY_BIND
-or
+.B HBW_POLICY_BIND,
+.B HBW_POLICY_BIND_ALL,
 .B HBW_POLICY_PREFERRED
+or
+.B HBW_POLICY_INTERLEAVE
 which represents the current high bandwidth policy.
 .BR hbw_free ()
 do not have return value.
@@ -298,7 +310,13 @@ parameter is not a power of two, or was not a multiple of
 .IR "sizoeof(void *)" ,
 then
 .B EINVAL
-is returned. If there was insufficient memory to satisfy the request then
+is returned.
+If the policy and
+.I pagesize
+combination is unsupported then
+.B EINVAL
+is returned.
+If there was insufficient memory to satisfy the request then
 .B ENOMEM
 is returned.
 .TP
@@ -310,7 +328,8 @@ if hbw_set_policy () was called more than once, or
 .I mode
 argument was neither
 .B HBW_POLICY_PREFERRED,
-.B HBW_POLICY_BIND
+.B HBW_POLICY_BIND,
+.B HBW_POLICY_BIND_ALL
 nor
 .B HBW_POLICY_INTERLEAVE.
 .TP
@@ -360,8 +379,19 @@ provide better performance in extremely multithreaded applications at
 the cost of memory overhead. See section "IMPLEMENTATION NOTES" of
 .BR jemalloc (3)
 for more details about arenas.
+.TP
+.B MEMKIND_HEAP_MANAGER
+Controls heap management behavior in memkind library by switching to one of the available heap managers.
+.br
+Values:
+.br
+    JEMALLOC – sets the jamalloc heap manager
+.br
+    TBB – sets the Intel Threading Building Blocks heap manager. This option requires installed
+    Intel Threading Building Blocks library.
+If the MEMKIND_HEAP_MANAGER is not set than the jemalloc heap manager will be used by default.
 .SH "SYSTEM CONFIGURATION"
-Interfaces for obtaining 2MB and 1GB pages (HUGETLB and GBTLB) need allocated
+Interfaces for obtaining 2MB (HUGETLB) need allocated
 huge pages in the kernel's huge page pool.
 .TP
 .B HUGETLB (huge pages)
@@ -369,12 +399,6 @@ Current number of "persistent" huge pages can be read from /proc/sys/vm/nr_hugep
 Proposed way of setting hugepages is: "sudo sysctl vm.nr_hugepages=<number_of_hugepages>".
 More informations can be found here:
 https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt
-.TP
-.B GBTLB (gigabyte pages)
-Number of preallocated gigabyte pages can be read from /proc/cmdline
-(hugepagesz=1G nr_hugepages=N). Setting gigabyte hugepages is available
-by kernel commandline. From 3.16 and later kernels, users can allocate
-gigabyte pages like its done for 2MB pages.
 .SH "KNOWN ISSUES"
 .TP
 .B HUGETLB (huge pages)

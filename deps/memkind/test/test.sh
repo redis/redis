@@ -30,7 +30,7 @@ PROGNAME=`basename $0`
 TEST_PATH="$basedir/"
 
 # Gtest binaries executed by Berta
-GTEST_BINARIES=(all_tests decorator_test allocator_perf_tool_tests gb_pages_test_bind_policy gb_pages_test_preferred_policy bat_bind_tests bat_interleave_tests)
+GTEST_BINARIES=(all_tests decorator_test allocator_perf_tool_tests gb_page_tests_bind_policy)
 
 # Pytest files executed by Berta
 PYTEST_FILES=(hbw_detection_test.py autohbw_test.py trace_mechanism_test.py)
@@ -45,7 +45,7 @@ err=0
 function usage () {
    cat <<EOF
 
-Usage: $PROGNAME [-c csv_file] [-l log_file] [-f test_filter] [-T tests_dir] [-d] [-m] [-g] [-h]
+Usage: $PROGNAME [-c csv_file] [-l log_file] [-f test_filter] [-T tests_dir] [-d] [-m] [-g] [-h] [-p]
 
 OPTIONS
     -c,
@@ -60,13 +60,12 @@ OPTIONS
         skip high bandwidth memory nodes detection tests
     -m,
         skip tests that require 2MB pages configured on the machine
-    -g,
-        skip tests that require GB pages configured on the machine
+    -p,
+        skip python tests
     -x,
         skip tests that are passed as value
     -h,
         parameter added to display script usage
-
 EOF
 }
 
@@ -232,36 +231,23 @@ if [[ $ret == "" ]]; then
     TEST_PREFIX="numactl --membind=0 %s"
 fi
 
-# Execute getopt
-ARGS=$(getopt -o T:c:f:l:hdmgx: -- "$@");
+OPTIND=1
 
-#Bad arguments
-if [ $? -ne 0 ];
-then
-    usage
-fi
-
-eval set -- "$ARGS";
-
-while true; do
-    case "$1" in
-        -T)
-            TEST_PATH=$2;
-            shift 2;
+while getopts "T:c:f:l:hdmgx:p:" opt; do
+    case "$opt" in
+        T)
+            TEST_PATH=$OPTARG;
             ;;
-        -c)
-            CSV=$2;
-            shift 2;
+        c)
+            CSV=$OPTARG;
             ;;
-        -f)
-            TEST_FILTER=$2;
-            shift 2;
+        f)
+            TEST_FILTER=$OPTARG;
             ;;
-        -l)
-            LOG_FILE=$2;
-            shift 2;
+        l)
+            LOG_FILE=$OPTARG;
             ;;
-        -m)
+        m)
             echo "Skipping tests that require 2MB pages due to unsatisfactory system conditions"
             if [[ "$SKIPPED_GTESTS" == "" ]]; then
                 SKIPPED_GTESTS=":-*test_TC_MEMKIND_2MBPages_*"
@@ -274,24 +260,8 @@ while true; do
                 SKIPPED_PYTESTS=$SKIPPED_PYTESTS" and not test_TC_MEMKIND_2MBPages_"
             fi
             show_skipped_tests "test_TC_MEMKIND_2MBPages_"
-            shift
             ;;
-        -g)
-            echo "Skipping tests that require GB pages due to unsatisfactory system conditions"
-            if [[ "$SKIPPED_GTESTS" == "" ]]; then
-                SKIPPED_GTESTS=":-*test_TC_MEMKIND_GBPages_*"
-            else
-                SKIPPED_GTESTS=$SKIPPED_GTESTS":*test_TC_MEMKIND_GBPages_*"
-            fi
-            if [[ "$SKIPPED_PYTESTS" == "" ]]; then
-                SKIPPED_PYTESTS=" and not test_TC_MEMKIND_GBPages_"
-            else
-                SKIPPED_PYTESTS=$SKIPPED_PYTESTS" and not test_TC_MEMKIND_GBPages_"
-            fi
-            show_skipped_tests "test_TC_MEMKIND_GBPages_"
-            shift
-            ;;
-        -d)
+        d)
             echo "Skipping tests that detect high bandwidth memory nodes due to unsatisfactory system conditions"
             if [[ $SKIPPED_PYTESTS == "" ]]; then
                 SKIPPED_PYTESTS=" and not hbw_detection"
@@ -299,25 +269,23 @@ while true; do
                 SKIPPED_PYTESTS=$SKIPPED_PYTESTS" and not hbw_detection"
             fi
             show_skipped_tests "test_TC_MEMKIND_hbw_detection"
-            shift
             ;;
-        -x)
-            echo "Skipping some tests on demand '$2'"
-            if [[ $SKIPPED_GTESTS == "" ]]; then
-                SKIPPED_GTESTS=":-"$2
-            else
-                SKIPPED_GTESTS=$SKIPPED_GTESTS":"$2
-            fi
-            show_skipped_tests "$2"
-            shift 2;
-            ;;
-        -h)
-            usage;
-            shift;
-            ;;
-        --)
-            shift;
+        p)
+            SKIPPED_PYTESTS=$SKIPPED_PYTESTS$OPTARG
+            show_skipped_tests "$OPTARG"
             break;
+            ;;
+        x)
+            echo "Skipping some tests on demand '$OPTARG'"
+            if [[ $SKIPPED_GTESTS == "" ]]; then
+                SKIPPED_GTESTS=":-"$OPTARG
+            else
+                SKIPPED_GTESTS=$SKIPPED_GTESTS":"$OPTARG
+            fi
+            show_skipped_tests "$OPTARG"
+            ;;
+        h)
+            usage;
             ;;
     esac
 done

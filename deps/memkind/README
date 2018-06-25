@@ -1,6 +1,8 @@
 MEMKIND
 =======
 
+[![Build Status](https://travis-ci.org/memkind/memkind.svg)](https://travis-ci.org/memkind/memkind)
+[![MEMKIND version](https://img.shields.io/github/tag/memkind/memkind.svg)](https://github.com/memkind/memkind/releases/latest)
 
 DISCLAIMER
 ----------
@@ -47,32 +49,7 @@ or
 
 BUILD REQUIREMENTS
 ------------------
-To build the memkind libraries on a RHEL Linux system first install
-the required packages with the following command:
-
-    sudo yum install numactl-devel gcc-c++ unzip
-
-On a SLES Linux system install the dependencies with the following
-command:
-
-    sudo zypper install libnuma-devel gcc-c++ unzip
-
-The jemalloc source was forked from jemalloc version 4.3.1 and
-modified for the memkind extension.  This source tree is located
-within the jemalloc subdirectory of the memkind source. The jemalloc
-source code has been kept close to the original form, and in particular,
-the build system has been lightly modified.
-
-It is required that you configure and build the jemalloc subdirectory
-before configuring and building the top level memkind directory.  The
-jemalloc build system supports using an object directory separate from
-the source tree.  To ensure the memkind is able to discover the output
-of the jemalloc build you must create an 'obj' directory, and build
-from within that directory. You can achieve that using attached script:
-
-    ./build_jemalloc.sh
-
-For more details about configuring and building jemalloc and memkind
+For details about configuring and building jemalloc and memkind
 see "BUILDING" section of CONTRIBUTING document.
 
 RUN REQUIREMENTS
@@ -100,7 +77,7 @@ and on a SLES Linux system with:
 
     sudo zypper install pthread libnuma
 
-To use the interfaces for obtaining 2MB and 1GB pages please be sure
+To use the interfaces for obtaining 2MB pages please be sure
 to follow the instructions here:
     https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt
 and pay particular attention to the use of the procfs files:
@@ -108,6 +85,17 @@ and pay particular attention to the use of the procfs files:
     /proc/sys/vm/nr_overcommit_hugepages
 for enabling the kernel's huge page pool.
 
+
+SETTING HEAP MANAGER
+--------------------
+In memkind library heap management can be adjusted with MEMKIND_HEAP_MANAGER
+environment variable, which allows for switching to one of the available
+heap managers.
+Values:
+    JEMALLOC – sets the jamalloc heap manager
+    TBB – sets Intel Threading Building Blocks heap manager. This option requires installed
+    Intel Threading Building Blocks library.
+If the MEMKIND_HEAP_MANAGER is not set than the jemalloc heap manager will be used by default.
 
 TESTING
 -------

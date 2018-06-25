@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 - 2016 Intel Corporation.
+ * Copyright (C) 2014 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,7 +27,12 @@
 extern "C" {
 #endif
 
+#ifndef MEMKIND_INTERNAL_API
+#warning "DO NOT INCLUDE THIS FILE! IT IS INTERNAL MEMKIND API AND SOON WILL BE REMOVED FROM BIN & DEVEL PACKAGES"
+#endif
+
 #include <memkind.h>
+#include <memkind/internal/memkind_private.h>
 
 /*
  * Header file for the default implementations for memkind operations.
@@ -37,7 +42,7 @@ extern "C" {
  * API standards are described in memkind(3) man page.
  */
 
-int memkind_default_create(struct memkind *kind, const struct memkind_ops *ops, const char *name);
+int memkind_default_create(struct memkind *kind, struct memkind_ops *ops, const char *name);
 int memkind_default_destroy(struct memkind *kind);
 void *memkind_default_malloc(struct memkind *kind, size_t size);
 void *memkind_default_calloc(struct memkind *kind, size_t num, size_t size);
@@ -52,11 +57,15 @@ int memkind_default_get_mbind_nodemask(struct memkind *kind, unsigned long *node
 int memkind_preferred_get_mbind_mode(struct memkind *kind, int *mode);
 int memkind_interleave_get_mbind_mode(struct memkind *kind, int *mode);
 int memkind_nohugepage_madvise(struct memkind *kind, void *addr, size_t size);
-int memkind_default_get_size(struct memkind *kind, size_t *total, size_t *free);
 int memkind_posix_check_alignment(struct memkind *kind, size_t alignment);
 void memkind_default_init_once(void);
 
-extern const struct memkind_ops MEMKIND_DEFAULT_OPS;
+static inline bool size_out_of_bounds(size_t size)
+{
+    return !size;
+}
+
+extern struct memkind_ops MEMKIND_DEFAULT_OPS;
 
 #ifdef __cplusplus
 }

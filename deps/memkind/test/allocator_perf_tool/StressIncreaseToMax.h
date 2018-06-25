@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,6 @@
 struct iteration_result
 {
 	bool has_next_memory_operation;
-	bool is_memory_available;
 	bool is_allocation_error;
 };
 
@@ -48,7 +47,10 @@ class StressIncreaseToMax
 	: public Task
 {
 public:
-	StressIncreaseToMax(TaskConf conf) {task_conf = conf;}
+	StressIncreaseToMax(const TaskConf& conf, size_t requested_memory_limit)
+	: task_conf(conf),
+	  req_mem_limit(requested_memory_limit)
+	{}
 
 	void run();
 
@@ -56,12 +58,13 @@ public:
 	std::vector<memory_operation> get_results() {return results;}
 	iteration_result get_test_status() {return test_status;}
 
-	static std::vector<iteration_result> execute_test_iterations(TaskConf task_conf, unsigned time);
+	static std::vector<iteration_result> execute_test_iterations(const TaskConf& task_conf, unsigned time, size_t requested_memory_limit);
 
 private:
+	size_t req_mem_limit;
 	ScenarioWorkload* scenario_workload;
 	std::vector<memory_operation> results;
-	TaskConf task_conf;
+	const TaskConf& task_conf;
 
 	//Test status
 	iteration_result test_status;

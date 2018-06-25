@@ -35,23 +35,12 @@ extern "C" {
 
 /*
  * Header file for the gigabyte TLB memkind operations.
- * More details in memkind_gbtlb(3) man page.
  *
- * Functionality defined in this header is considered as EXPERIMENTAL API.
+ * All function declarations has been moved to memkind_deprecated.h
+ * because of end of GBTLB support.
+ *
  * API standards are described in memkind(3) man page.
  */
-
-void *memkind_gbtlb_malloc(struct memkind *kind, size_t size);
-void *memkind_gbtlb_calloc(struct memkind *kind, size_t num, size_t size);
-int memkind_gbtlb_posix_memalign(struct memkind *kind, void **memptr, size_t alignment, size_t size);
-void *memkind_gbtlb_realloc(struct memkind *kind, void *ptr, size_t size);
-void memkind_gbtlb_free(struct memkind *kind, void *ptr);
-int memkind_gbtlb_get_mmap_flags(struct memkind *kind, int *flags);
-int memkind_gbtlb_check_addr(struct memkind *kind, void *addr);
-
-extern const struct memkind_ops MEMKIND_HBW_GBTLB_OPS;
-extern const struct memkind_ops MEMKIND_HBW_PREFERRED_GBTLB_OPS;
-extern const struct memkind_ops MEMKIND_GBTLB_OPS;
 
 #ifdef __cplusplus
 }

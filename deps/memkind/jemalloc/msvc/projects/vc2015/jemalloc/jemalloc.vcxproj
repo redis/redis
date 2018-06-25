@@ -1,0 +1,402 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug-static|Win32">
+      <Configuration>Debug-static</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug-static|x64">
+      <Configuration>Debug-static</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release-static|Win32">
+      <Configuration>Release-static</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release-static|x64">
+      <Configuration>Release-static</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\arena.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\assert.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\atomic.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\base.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\bitmap.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\chunk.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\chunk_dss.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\chunk_mmap.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\ckh.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\ctl.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\extent.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\hash.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\huge.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\jemalloc_internal.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\jemalloc_internal_decls.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\jemalloc_internal_defs.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\jemalloc_internal_macros.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\mb.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\mutex.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\nstime.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\pages.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\ph.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\private_namespace.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\private_unnamespace.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\prng.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\prof.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\public_namespace.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\public_unnamespace.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\ql.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\qr.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\quarantine.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\rb.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\rtree.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\size_classes.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\smoothstep.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\spin.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\stats.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\tcache.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\ticker.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\tsd.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\util.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\internal\witness.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_defs.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_macros.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_mangle.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_protos.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_protos_jet.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_rename.h" />
+    <ClInclude Include="..\..\..\..\include\jemalloc\jemalloc_typedefs.h" />
+    <ClInclude Include="..\..\..\..\include\msvc_compat\C99\stdbool.h" />
+    <ClInclude Include="..\..\..\..\include\msvc_compat\C99\stdint.h" />
+    <ClInclude Include="..\..\..\..\include\msvc_compat\strings.h" />
+    <ClInclude Include="..\..\..\..\include\msvc_compat\windows_extra.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\..\..\src\arena.c" />
+    <ClCompile Include="..\..\..\..\src\atomic.c" />
+    <ClCompile Include="..\..\..\..\src\base.c" />
+    <ClCompile Include="..\..\..\..\src\bitmap.c" />
+    <ClCompile Include="..\..\..\..\src\chunk.c" />
+    <ClCompile Include="..\..\..\..\src\chunk_dss.c" />
+    <ClCompile Include="..\..\..\..\src\chunk_mmap.c" />
+    <ClCompile Include="..\..\..\..\src\ckh.c" />
+    <ClCompile Include="..\..\..\..\src\ctl.c" />
+    <ClCompile Include="..\..\..\..\src\extent.c" />
+    <ClCompile Include="..\..\..\..\src\hash.c" />
+    <ClCompile Include="..\..\..\..\src\huge.c" />
+    <ClCompile Include="..\..\..\..\src\jemalloc.c" />
+    <ClCompile Include="..\..\..\..\src\mb.c" />
+    <ClCompile Include="..\..\..\..\src\mutex.c" />
+    <ClCompile Include="..\..\..\..\src\nstime.c" />
+    <ClCompile Include="..\..\..\..\src\pages.c" />
+    <ClCompile Include="..\..\..\..\src\prng.c" />
+    <ClCompile Include="..\..\..\..\src\prof.c" />
+    <ClCompile Include="..\..\..\..\src\quarantine.c" />
+    <ClCompile Include="..\..\..\..\src\rtree.c" />
+    <ClCompile Include="..\..\..\..\src\spin.c" />
+    <ClCompile Include="..\..\..\..\src\stats.c" />
+    <ClCompile Include="..\..\..\..\src\tcache.c" />
+    <ClCompile Include="..\..\..\..\src\ticker.c" />
+    <ClCompile Include="..\..\..\..\src\tsd.c" />
+    <ClCompile Include="..\..\..\..\src\util.c" />
+    <ClCompile Include="..\..\..\..\src\witness.c" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{8D6BB292-9E1C-413D-9F98-4864BDC1514A}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>jemalloc</RootNamespace>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|Win32'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)d</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|Win32'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)-$(PlatformToolset)-$(Configuration)</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|Win32'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)-$(PlatformToolset)-$(Configuration)</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)d</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|x64'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)-vc$(PlatformToolsetVersion)-$(Configuration)</TargetName>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|x64'">
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <TargetName>$(ProjectName)-vc$(PlatformToolsetVersion)-$(Configuration)</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_REENTRANT;_WINDLL;DLLEXPORT;JEMALLOC_DEBUG;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>JEMALLOC_DEBUG;_REENTRANT;JEMALLOC_EXPORT=;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_REENTRANT;_WINDLL;DLLEXPORT;JEMALLOC_DEBUG;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug-static|x64'">
+    <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>JEMALLOC_DEBUG;_REENTRANT;JEMALLOC_EXPORT=;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <MinimalRebuild>false</MinimalRebuild>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>_REENTRANT;_WINDLL;DLLEXPORT;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>_REENTRANT;JEMALLOC_EXPORT=;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_REENTRANT;_WINDLL;DLLEXPORT;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <ProgramDataBaseFileName>$(OutputPath)$(TargetName).pdb</ProgramDataBaseFileName>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release-static|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>_REENTRANT;JEMALLOC_EXPORT=;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\..\include;..\..\..\..\include\msvc_compat;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <DisableSpecificWarnings>4090;4146;4267;4334</DisableSpecificWarnings>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

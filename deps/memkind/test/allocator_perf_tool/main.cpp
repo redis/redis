@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -68,16 +68,15 @@ Options:
 	- 'threads_num' - the number of threads per test case
 	- 'time' - minimum execution time interval
 	- 'kind' - the kind to test
-	- 'reserved_unallocated' - limit memory allocations to leave unallocated memory (in MB), where available_memory = free - reserved_unallocated
 	- 'csv_log' - if 'true' then log to csv file memory operations and statistics
-	- 'check_memory_availability' - when 'false' does not check memory avaiability before memory operation
 	- 'call' specify the allocation function call. This option can be used with the following values: 'malloc' (default), 'calloc', 'realloc',
+	- 'requested_memory_limit' test stops when the requested memory limit has been reached
 * - maximum of available memory in OS, or maximum memory based 'operations' parameter
 Example:
 1. Performance test:
 ./perf_tool test=all operations=1000 size_from=32 size_to=20480 seed=11 threads_num=200
 2. Stress test
-./perf_tool test=s1 time=120 kind=MEMKIND_HBW size_from=1048576 csv_log=true reserved_unallocated=15
+./perf_tool test=s1 time=120 kind=MEMKIND_HBW size_from=1048576 csv_log=true requested_memory_limit=1048576
 */
 
 int main(int argc, char* argv[])
@@ -103,10 +102,6 @@ int main(int argc, char* argv[])
 	cmd_line.parse_with_strtol("threads_num", threads_number);
 
 	bool is_csv_log_enabled = cmd_line.is_option_set("csv_log", "true");
-	bool check_memory_availability = !cmd_line.is_option_set("check_memory_availability", "false");
-
-	unsigned reserved_unallocated = 0;
-	cmd_line.parse_with_strtol("reserved_unallocated", reserved_unallocated);
 
 	//Heap Manager initialization
 	std::vector<AllocatorFactory::initialization_stat> stats = AllocatorFactory().initialization_test();
@@ -137,6 +132,9 @@ int main(int argc, char* argv[])
 		unsigned time = 120; //Default time interval.
 		cmd_line.parse_with_strtol("time", time);
 
+		size_t requested_memory_limit = 1024*1024;
+		cmd_line.parse_with_strtol("requested_memory_limit", requested_memory_limit);
+
 		unsigned allocator = AllocatorTypes::MEMKIND_HBW;
 		if(cmd_line.is_option_present("kind"))
 		{
@@ -153,7 +151,6 @@ int main(int argc, char* argv[])
 			mem_operations_num,
 			{
 				mem_operations_num,
-				reserved_unallocated,
 				size_from, //No random sizes.
 				size_from
 			},
@@ -161,18 +158,17 @@ int main(int argc, char* argv[])
 			allocator_types,
 			11,
 			is_csv_log_enabled,
-			check_memory_availability
 		};
 
-		StressIncreaseToMax::execute_test_iterations(task_conf, time);
+		StressIncreaseToMax::execute_test_iterations(task_conf, time, requested_memory_limit);
 		return 0;
 	}
 
 	printf("\nTest configuration: \n");
 	printf("\t memory operations per thread = %u \n", mem_operations_num);
 	printf("\t seed = %d\n", seed);
-	printf("\t number of threads = %u\n", threads_number);
-	printf("\t size from-to = %u-%u\n\n", size_from, size_to);
+	printf("\t number of threads = %zu\n", threads_number);
+	printf("\t size from-to = %zu-%zu\n\n", size_from, size_to);
 
 	assert(size_from <= size_to);
 #ifdef PRINT_LOG
@@ -213,7 +209,6 @@ int main(int argc, char* argv[])
 		mem_operations_num, //number memory operations
 		{
 			mem_operations_num, //number of memory operations
-			reserved_unallocated, //reserved unallocated memory to limit allocations
 			size_from, //min. size of single allocation
 			size_to //max. size of single allocatioion
 		},
@@ -221,7 +216,6 @@ int main(int argc, char* argv[])
 		allocator_types, //enable allocators
 		seed, //random seed
 		is_csv_log_enabled,
-		check_memory_availability
 	};
 
 	//Footprint test

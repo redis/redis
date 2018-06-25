@@ -51,7 +51,7 @@ namespace performance_tests
 #define EMIT(LEVEL, TEXT)
 #endif
 
-    // Use "vanilia" jemalloc, compiled with unique prefix (--with-jemalloc-prefix= configure option)
+    // Use jemalloc, compiled with unique prefix (--with-jemalloc-prefix= configure option)
     #ifdef SYSTEM_JEMALLOC_PREFIX
     #define TOKENPASTE(x, y) x ## y
     #define JE(x, y) TOKENPASTE(x, y)
@@ -61,7 +61,7 @@ namespace performance_tests
     #define jexx_realloc JE(SYSTEM_JEMALLOC_PREFIX, realloc)
     #define jexx_free JE(SYSTEM_JEMALLOC_PREFIX, free)
     extern "C" {
-        // "vanilia" jemalloc 4.3.1 function prototypes
+        // jemalloc function prototypes
         // full header cannot be include due to conflict with memkind jemalloc
         extern void * jexx_malloc(size_t size);
         extern void * jexx_calloc(size_t num, size_t size);

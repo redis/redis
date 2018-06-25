@@ -1,8 +1,8 @@
 Installation Instructions
 *************************
 
-Copyright (C) 1994, 1995, 1996, 1999, 2000, 2001, 2002, 2004, 2005,
-2006, 2007, 2008, 2009 Free Software Foundation, Inc.
+Copyright (C) 1994-1996, 1999-2002, 2004-2013 Free Software Foundation,
+Inc.
 
    Copying and distribution of this file, with or without modification,
 are permitted in any medium without royalty provided the copyright
@@ -226,6 +226,11 @@ order to use an ANSI C compiler:
 
 and if that doesn't work, install pre-built binaries of GCC for HP-UX.
 
+   HP-UX `make' updates targets which have the same time stamps as
+their prerequisites, which makes it generally unusable when shipped
+generated files such as `configure' are involved.  Use GNU `make'
+instead.
+
    On OSF/1 a.k.a. Tru64, some versions of the default C compiler cannot
 parse its `<wchar.h>' header file.  The option `-nodtk' can be used as
 a workaround.  If GNU CC is not installed, it is therefore recommended
@@ -304,9 +309,10 @@ causes the specified `gcc' to be used as the C compiler (unless it is
 overridden in the site shell script).
 
 Unfortunately, this technique does not work for `CONFIG_SHELL' due to
-an Autoconf bug.  Until the bug is fixed you can use this workaround:
+an Autoconf limitation.  Until the limitation is lifted, you can use
+this workaround:
 
-     CONFIG_SHELL=/bin/bash /bin/bash ./configure CONFIG_SHELL=/bin/bash
+     CONFIG_SHELL=/bin/bash ./configure CONFIG_SHELL=/bin/bash
 
 `configure' Invocation
 ======================
@@ -362,4 +368,3 @@ operates.
 
 `configure' also accepts some other, not widely useful, options.  Run
 `configure --help' for more details.
-

@@ -24,26 +24,14 @@
 #
 err=0
 basedir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+test_cmd=$basedir/test.sh
 
 # Check if 2MB pages are enabled on system
 nr_hugepages=$(cat /proc/sys/vm/nr_hugepages)
 nr_overcommit_hugepages=$(cat /proc/sys/vm/nr_overcommit_hugepages)
 if [[ "$nr_hugepages" == "0" ]] && [[ "$nr_overcommit_hugepages" == "0" ]]; then
         # Add parameter that disables tests that require 2MB pages
-        params=" -m"
-fi
-
-# Check if GB pages are enabled on system
-cmdline=$(cat /proc/cmdline)
-if [[ $cmdline == *"hugepagesz=1048576k hugepages="* ]]; then
-        nr_gbpages=$(sed "s/^.*hugepagesz=1048576k hugepages=\([0-9]*\).*$/\1/" <<< $cmdline)
-        if [ $nr_gbpages == "" ] || [ $nr_gbpages == "0" ]; then
-                # Add parameter that disables tests that require GB pages
-                params=$params" -g"
-        fi
-else
-        # Add parameter that disables tests that require GB pages
-        params=$params" -g"
+        test_cmd=$test_cmd" -m"
 fi
 
 # Check if MCDRAM nodes exists on system
@@ -58,15 +46,20 @@ fi
 ret=$(memkind-hbw-nodes)
 if [[ $ret == "" ]]; then
         # Add parameter that disables tests that detects high bandwidth nodes
-        params=$params" -d"
+        test_cmd=$test_cmd" -d"
 fi
 
-if [[ -n $DISABLE_TESTS ]]; then
+if [[ -n $DISABLE_GTEST_TESTS ]]; then
         echo "On demand test disabling detected!"
-        params="$params -x $DISABLE_TESTS"
+        test_cmd=$test_cmd" -x $DISABLE_GTEST_TESTS"
 fi
 
-$basedir/test.sh $params
+if [[ -n "$DISABLE_PYTEST_TESTS" ]]; then
+        test_cmd=$test_cmd" -p \"$DISABLE_PYTEST_TESTS\""
+        echo "Python test disabling env var detected $DISABLE_PYTEST_TESTS"
+fi
+
+eval $test_cmd
 
 err=${PIPESTATUS[0]}
 

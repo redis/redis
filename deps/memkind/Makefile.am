@@ -1,5 +1,5 @@
 #
-#  Copyright (C) 2014 - 2016 Intel Corporation.
+#  Copyright (C) 2014 - 2017 Intel Corporation.
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -28,23 +28,23 @@ AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/jemalloc/obj/include
 lib_LTLIBRARIES = libmemkind.la
 
 libmemkind_la_SOURCES = src/hbwmalloc.c \
+                        src/heap_manager.c \
                         src/memkind_arena.c \
                         src/memkind.c \
                         src/memkind_default.c \
                         src/memkind_gbtlb.c \
                         src/memkind_hbw.c \
+                        src/memkind_regular.c \
                         src/memkind_hugetlb.c \
                         src/memkind_pmem.c \
                         src/memkind_interleave.c \
                         src/memkind_log.c \
+                        src/tbb_wrapper.c \
                         # end
 
 
 libmemkind_la_LIBADD = jemalloc/obj/lib/libjemalloc_pic.a
-
-
-libmemkind_la_LDFLAGS = -version-info $(memkind_abi_version)
-
+libmemkind_la_LDFLAGS = -version-info 0:1:0 -ldl
 include_HEADERS = include/hbwmalloc.h \
                   include/hbw_allocator.h \
                   include/memkind.h \
@@ -53,19 +53,23 @@ include_HEADERS = include/hbwmalloc.h \
 
 nonstandardincludedir = $(includedir)/memkind/internal
 nonstandardinclude_HEADERS = include/memkind/internal/memkind_arena.h \
+                  include/memkind/internal/heap_manager.h \
                   include/memkind/internal/memkind_default.h \
                   include/memkind/internal/memkind_gbtlb.h \
                   include/memkind/internal/memkind_hbw.h \
+                  include/memkind/internal/memkind_regular.h \
                   include/memkind/internal/memkind_hugetlb.h \
                   include/memkind/internal/memkind_interleave.h \
                   include/memkind/internal/memkind_pmem.h \
                   include/memkind/internal/memkind_private.h \
                   include/memkind/internal/memkind_log.h \
+                  include/memkind/internal/tbb_wrapper.h \
+                  include/memkind/internal/tbb_mem_pool_policy.h \
                   # end
 
-sbin_PROGRAMS =
-
 EXTRA_DIST = autogen.sh \
+             build.sh \
+             build_jemalloc.sh \
              examples/README \
              test/check.sh \
              test/test.sh \
@@ -251,6 +255,30 @@ EXTRA_DIST = autogen.sh \
              jemalloc/test/unit/prof_active.c \
              jemalloc/test/unit/decay.c \
              jemalloc/test/stress/microbench.c \
+             jemalloc/test/integration/chunk.sh \
+             jemalloc/test/integration/mallocx.sh \
+             jemalloc/test/integration/xallocx.sh \
+             jemalloc/test/unit/arena_reset.sh \
+             jemalloc/test/unit/decay.sh \
+             jemalloc/test/unit/extent_quantize.c \
+             jemalloc/test/unit/junk.sh \
+             jemalloc/test/unit/junk_alloc.sh \
+             jemalloc/test/unit/junk_free.sh \
+             jemalloc/test/unit/lg_chunk.sh \
+             jemalloc/test/unit/pack.c \
+             jemalloc/test/unit/pack.sh \
+             jemalloc/test/unit/pages.c \
+             jemalloc/test/unit/prof_accum.sh \
+             jemalloc/test/unit/prof_active.sh \
+             jemalloc/test/unit/prof_gdump.sh \
+             jemalloc/test/unit/prof_idump.sh \
+             jemalloc/test/unit/prof_reset.sh \
+             jemalloc/test/unit/prof_tctx.sh \
+             jemalloc/test/unit/prof_thread_name.sh \
+             jemalloc/test/unit/quarantine.sh \
+             jemalloc/test/unit/stats_print.c \
+             jemalloc/test/unit/zero.sh \
+             jemalloc/scripts/gen_travis.py \
              jemalloc/Makefile.in \
              jemalloc/autogen.sh \
              jemalloc/ChangeLog \
@@ -286,7 +314,6 @@ dist_man_MANS = man/hbwmalloc.3 \
                 man/memkind.3 \
                 man/memkind_arena.3 \
                 man/memkind_default.3 \
-                man/memkind_gbtlb.3 \
                 man/memkind_hbw.3 \
                 man/memkind_hugetlb.3 \
                 man/memkind_pmem.3 \
@@ -299,25 +326,19 @@ DISTCLEANFILES = VERSION
 bin_PROGRAMS = memkind-hbw-nodes
 
 memkind_hbw_nodes_SOURCES = src/memkind-hbw-nodes.c
-memkind_hbw_nodes_LDADD= libmemkind.la
+memkind_hbw_nodes_LDADD = libmemkind.la
 
 bin_SCRIPTS =
 check_PROGRAMS =
 noinst_PROGRAMS =
 noinst_LTLIBRARIES =
 noinst_HEADERS =
-
 TESTS =
-XFAIL_TESTS =
-TESTS_ENVIRONMENT =
 
-AM_CFLAGS =  -fvisibility=hidden -Wall -Werror -msse4.2 -D_GNU_SOURCE -DMEMKIND_INTERNAL_API
-AM_CXXFLAGS = -fvisibility=hidden -Wall -Werror -msse4.2 -D_GNU_SOURCE -DMEMKIND_INTERNAL_API
-if ENABLE_CXX11
-AM_CXXFLAGS += -std=c++11
-else
-AM_CXXFLAGS += -std=c++0x
-endif
+req_flags = -fvisibility=hidden -Wall -Werror -msse4.2 -D_GNU_SOURCE -DMEMKIND_INTERNAL_API -DJE_PREFIX=$(JE_PREFIX)
+
+AM_CFLAGS = $(req_flags)
+AM_CXXFLAGS = $(req_flags)
 
 .PHONY: checkprogs
 
@@ -330,7 +351,7 @@ $(jemalloc_objects): jemalloc/obj/src/%.lo: jemalloc/obj/src/%.pic.o jemalloc/ob
 	@echo "non_pic_object='$*.o'" >> $@
 
 # build check programs without running tests
-checkprogs: $(check_PROGRAMS)
+checkprogs: libmemkind.la $(check_PROGRAMS)
 
 memkind-$(VERSION).spec:
 	$(MAKE) version="$(VERSION)" -f memkind.spec.mk $@
@@ -338,6 +359,23 @@ memkind-$(VERSION).spec:
 rpm: dist
 	$(MAKE) version="$(VERSION)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		-f memkind.spec.mk $@
+
+all: static_lib
+
+# the script merge memkind and jemalloc libraries into one static library.
+define ar_prog
+create libmemkind.a\n\
+addlib .libs/libmemkind.a\n\
+addlib jemalloc/obj/lib/libjemalloc_pic.a\n\
+save\n\
+end
+endef
+
+static_lib: jemalloc/obj/lib/libjemalloc_pic.a libmemkind.la
+	bash -c "ar -M < <(echo -e '$(ar_prog)')"
+	cp libmemkind.a .libs/
+	rm libmemkind.a
+
 
 include autohbw/Makefile.mk
 include test/Makefile.mk

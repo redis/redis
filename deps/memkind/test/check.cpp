@@ -39,6 +39,7 @@
 #include <string>
 #include <cstring>
 #include <numa.h>
+#include <errno.h>
 
 #include "check.h"
 
@@ -91,43 +92,6 @@ Check::Check(const Check &other)
     }
 }
 
-void Check::check_node_hbw()
-{
-    int status = -1;
-    struct bitmask *expected_nodemask = numa_allocate_nodemask(), *returned_nodemask = numa_allocate_nodemask();
-
-    memkind_hbw_all_get_mbind_nodemask(NULL, expected_nodemask->maskp, expected_nodemask->size);
-
-    for (size_t i = 0; i < num_address; i++) {
-        ASSERT_EQ(get_mempolicy(&status, returned_nodemask->maskp, returned_nodemask->size, address[i], MPOL_F_ADDR), 0);
-        for(int i=0; i < numa_num_possible_nodes(); i++) {
-            if(numa_bitmask_isbitset(returned_nodemask, i)) {
-                EXPECT_TRUE(numa_bitmask_isbitset(expected_nodemask, i));
-            }
-        }
-    }
-
-    numa_free_nodemask(expected_nodemask);
-    numa_free_nodemask(returned_nodemask);
-}
-
-void Check::check_node_hbw_interleave()
-{
-    int status = -1;
-    struct bitmask *expected_nodemask = numa_allocate_nodemask(), *returned_nodemask = numa_allocate_nodemask();
-
-    memkind_hbw_all_get_mbind_nodemask(NULL, expected_nodemask->maskp, expected_nodemask->size);
-    //check if policy is MPOL_INTERLEAVE
-    for (size_t i = 0; i < num_address; i++) {
-        ASSERT_EQ(get_mempolicy(&status, returned_nodemask->maskp, returned_nodemask->size, address[i], MPOL_F_ADDR), 0);
-        EXPECT_EQ(status, MPOL_INTERLEAVE);
-        EXPECT_TRUE(numa_bitmask_equal(expected_nodemask, returned_nodemask));
-    }
-
-    numa_free_nodemask(expected_nodemask);
-    numa_free_nodemask(returned_nodemask);
-}
-
 int Check::check_zero(void)
 {
     size_t i;
@@ -138,18 +102,6 @@ int Check::check_zero(void)
         }
     }
     return 0;
-}
-
-int Check::check_data(int data)
-{
-    int ret;
-    void *p;
-    p = malloc(size);
-    memset(p, data, size);
-    memset((void*)ptr, data, size);
-    ret = memcmp(p, ptr, size);
-    free(p);
-    return ret;
 }
 
 int Check::check_align(size_t align)

@@ -22,7 +22,6 @@ memkind-afts
 This is scenario for basic functional tests. Maximum number of allocations per numa node:
 - 512 x 4KB pages (summary: 2GB)
 - 16 x 2MB pages
-- 1 x GB pages
 
 memkind-afts-ext
 ----------------
@@ -31,7 +30,6 @@ available. Special test cases prepared only for this scenario are described as r
 and needs at least:
 - 512 x 4KB pages (summary: 2GB)
 - 16 x 2MB pages
-- 3 x GB pages
 memory available per numa node.
 
 memkind-perf
@@ -39,14 +37,12 @@ memkind-perf
 This is scenario for performance tests, excluding tests that allocate more than:
 - 512 x 4KB pages (summary: 2GB)
 - 16 x 2MB pages
-- 1 x GB pages
 
 memkind-perf-ext
 ----------------
 This test scenario extend memkind-perf for tests that allocate more than:
 - 512 x 4KB pages (summary: 2GB)
 - 16 x 2MB pages
-- 1 x GB pages
 AllocPerformanceTest is a group of performance tests for *alloc() execution. TC properties:
 - 5 kinds (MEMKIND_DEFAULT, MEMKIND_HBW, MEMKIND_INTERLEAVE, MEMKIND_HBW_INTERLEAVE, MEMKIND_HBW_PREFERRED)
 - 3 calls (malloc, calloc, realloc)
@@ -65,8 +61,8 @@ This is scenario for all stress and longevity tests.
 MANUAL TESTING
 ==============
 In order to run tests on local machine, check.sh or test.sh should be executed.
-While running tests with check.sh, script is determining if 2MB pages and 1GB pages are enabled
+While running tests with check.sh, script is determining if 2MB pages are enabled
 on the machine as well as whether it contains MCDRAM nodes. Based on this information test.sh
 is executed with parameters that skip tests that would fail because of machine configuration.
 When test.sh is run, all tests are executed as long as -d (skip MCDRAM nodes detection), -m (skip
-tests that require 2MB pages) or -g (skip tests that require 1GB pages) parameters are not used.
+tests that require 2MB pages) parameters are not used.

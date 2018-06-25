@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Intel Corporation.
+ * Copyright (C) 2015 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,9 +27,9 @@
 #include <memkind/internal/memkind_arena.h>
 #include <memkind/internal/memkind_private.h>
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_INTERLEAVE_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_INTERLEAVE_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
@@ -42,8 +42,8 @@ MEMKIND_EXPORT const struct memkind_ops MEMKIND_INTERLEAVE_OPS = {
     .get_mbind_mode = memkind_interleave_get_mbind_mode,
     .get_mbind_nodemask = memkind_default_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_interleave_init_once,
+    .finalize = memkind_arena_finalize
 };
 
 MEMKIND_EXPORT void memkind_interleave_init_once(void)

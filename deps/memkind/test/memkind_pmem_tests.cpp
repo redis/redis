@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Intel Corporation.
+ * Copyright (C) 2015 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,6 +23,7 @@
  */
 
 #include <memkind/internal/memkind_pmem.h>
+#include <memkind/internal/memkind_private.h>
 
 #include <sys/param.h>
 #include <sys/mman.h>
@@ -50,13 +51,20 @@ protected:
     {}
 };
 
+static void pmem_get_size(struct memkind *kind, size_t& total, size_t& free)
+{
+    struct memkind_pmem *priv = reinterpret_cast<struct memkind_pmem *>(kind->priv);
+
+    total = priv->max_size;
+    free = priv->max_size - priv->offset; /* rough estimation */
+}
 
 TEST_F(MemkindPmemTests, test_TC_MEMKIND_PmemPriv)
 {
     size_t total_mem = 0;
     size_t free_mem = 0;
 
-    memkind_get_size(pmem_kind, &total_mem, &free_mem);
+    pmem_get_size(pmem_kind, total_mem, free_mem);
 
     ASSERT_TRUE(total_mem != 0);
     ASSERT_TRUE(free_mem != 0);
@@ -134,26 +142,6 @@ TEST_F(MemkindPmemTests, test_TC_MEMKIND_PmemCallocHuge)
 
     sprintf(default_str, "memkind_calloc MEMKIND_PMEM\n");
     printf("%s", default_str);
-
-    memkind_free(pmem_kind, default_str);
-}
-
-TEST_F(MemkindPmemTests, test_TC_MEMKIND_PmemGetSize)
-{
-    const size_t size = 512;
-    char *default_str = NULL;
-    int err = 0;
-    size_t total;
-    size_t free;
-
-    default_str = (char *)memkind_malloc(pmem_kind, size);
-    EXPECT_TRUE(NULL != default_str);
-
-    err = memkind_get_size(pmem_kind, &total, &free);
-    EXPECT_EQ(0, err);
-
-    // requested PMEM partition size is internally aligned to 4MB
-    EXPECT_EQ(total, (size_t)roundup(PMEM_PART_SIZE, CHUNK_SIZE));
 
     memkind_free(pmem_kind, default_str);
 }

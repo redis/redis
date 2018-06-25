@@ -36,8 +36,6 @@ Note: This is EXEPRIMENTAL API. The functionality and the header file itself can
 .br
 .BI "int memkind_hbw_hugetlb_check_available(struct memkind " "*kind" );
 .br
-.BI "int memkind_hbw_gbtlb_check_available(struct memkind " "*kind" );
-.br
 .BI "int memkind_hbw_get_mbind_nodemask(struct memkind " "*kind" ", unsigned long " "*nodemask" ", unsigned long " "maxnode" );
 .br
 .BI "int memkind_hbw_all_get_mbind_nodemask(struct memkind " "*kind" ", unsigned long " "*nodemask" ", unsigned long " "maxnode" );
@@ -72,11 +70,6 @@ man page.
 In addition to checking for high bandwidth memory as is done by
 memkind_hbw_check_available (), this also checks for 2MB huge pages as
 is done by memkind_hugetlb_check_available_2mb().
-.PP
-.BR memkind_hbw_gbtlb_check_available ()
-In addition to checking for high bandwidth memory as is done by
-memkind_hbw_check_available (), this also checks for 1GB huge pages as
-is done by memkind_hugetlb_check_available_1gb().
 .PP
 .BR memkind_hbw_get_mbind_nodemask ()
 sets the
@@ -140,7 +133,6 @@ Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
 .BR memkind (3),
 .BR memkind_arena (3),
 .BR memkind_default (3),
-.BR memkind_gbtlb (3),
 .BR memkind_hugetlb (3),
 .BR memkind_pmem (3),
 .BR jemalloc (3),

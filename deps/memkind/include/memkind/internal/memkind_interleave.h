@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Intel Corporation.
+ * Copyright (C) 2015 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,7 @@ extern "C" {
 
 void memkind_interleave_init_once(void);
 
-extern const struct memkind_ops MEMKIND_INTERLEAVE_OPS;
+extern struct memkind_ops MEMKIND_INTERLEAVE_OPS;
 
 #ifdef __cplusplus
 }

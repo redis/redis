@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#  Copyright (C) 2014-2016 Intel Corporation.
+#  Copyright (C) 2014-2017 Intel Corporation.
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -23,16 +23,20 @@
 #  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+set -e
+
 # If the VERSION file does not exist, then create it based on git
 # describe or if not in a git repo just set VERSION to 0.0.0.
 if [ ! -f VERSION ]; then
     if [ -f .git/config ]; then
-        sha=$(git describe --long | awk -F- '{print $(NF)}')
-	release=$(git describe --long | awk -F- '{print $(NF-1)}')
-	version=$(git describe --long | sed -e "s|\(.*\)-$release-$sha|\1|" -e "s|-|+|g" -e "s|^v||")
-	if [ ${release} != "0" ]; then
-	    version=${version}+dev${release}${sha}
-	fi
+        sha=$(git describe --long --always | awk -F- '{print $(NF)}')
+        release=$(git describe --long | awk -F- '{print $(NF-1)}')
+        version=$(git describe --long | sed -e "s|\(.*\)-$release-$sha|\1|" -e "s|-|+|g" -e "s|^v||")
+        if [ "$release" == "" ]; then
+            version=${sha}
+        else
+            version=${version}+dev${release}-${sha}
+        fi
     else
         echo "WARNING:  VERSION file does not exist and working directory is not a git repository, setting verison to 0.0.0" 2>&1
         version=0.0.0
@@ -40,19 +44,5 @@ if [ ! -f VERSION ]; then
     echo $version > VERSION
 fi
 
-pushd jemalloc
-autoconf
-popd
+autoreconf --install
 
-mkdir -p m4
-autoreconf -i -f
-
-if [ ! -e jemalloc/obj ]; then
-    echo
-    echo "WARNING: library build process assume existance of compiled jemalloc objects located in jemalloc/obj subdir. You can simply run:"
-    echo
-    echo "   ./build_jemalloc.sh"
-    echo
-    echo "or see CONTRIBUTING document for more information about configuring and building included version of jemalloc."
-    echo
-fi

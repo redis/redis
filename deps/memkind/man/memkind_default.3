@@ -1,5 +1,5 @@
 .\"
-.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" Copyright (C) 2014 - 2017 Intel Corporation.
 .\" All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@ Note: This is EXEPRIMENTAL API. The functionality and the header file itself can
 .sp
 .B Link with -lmemkind
 .sp
-.BI "int memkind_default_create(struct memkind " "*kind" ", const struct memkind_ops " "*ops" ", const char " "*name" );
+.BI "int memkind_default_create(struct memkind " "*kind" ", struct memkind_ops " "*ops" ", const char " "*name" );
 .br
 .BI "int memkind_default_destroy(struct memkind " "*kind" );
 .br
@@ -60,8 +60,6 @@ Note: This is EXEPRIMENTAL API. The functionality and the header file itself can
 .br
 .BI "int memkind_nohugepage_madvise(struct memkind " "*kind" ", void " "*addr" ", size_t " "size" );
 .br
-.BI "int memkind_default_get_size(struct memkind " "*kind" ", size_t " "*total" ", size_t " "*free" );
-.br
 .BI "int memkind_posix_check_alignment(struct memkind " "*kind" ", size_t " "alignment" );
 .br
 .SH DESCRIPTION
@@ -88,24 +86,24 @@ operation, then the function that it points to must call
 at its end.
 .PP
 .BR memkind_default_malloc ()
-is a direct call through to
-.BR jemk_malloc ().
+is a direct call through to jemalloc's
+.BR malloc ().
 .PP
 .BR memkind_default_calloc ()
-is a direct call through to
-.BR jemk_calloc ().
+is a direct call through to jemalloc's
+.BR calloc ().
 .PP
 .BR memkind_default_posix_memalign ()
-is a direct call through to
-.BR jemk_posix_memalign ().
+is a direct call through to jemalloc's
+.BR posix_memalign ().
 .PP
 .BR memkind_default_realloc ()
-is a direct call through to
-.BR jemk_realloc ().
+is a direct call through to jemalloc's
+.BR realloc ().
 .PP
 .BR memkind_default_free ().
-is a direct call through to
-.BR jemk_free ().
+is a direct call through to jemalloc's
+.BR free ().
 Note that this method can be called on any pointer returned by a
 jemalloc allocation, and in particular, all of the arena
 allocations described in
@@ -187,17 +185,6 @@ See
 .BR madvise (2)
 for more information about this option.
 .PP
-.BR memkind_default_get_size ()
-sums the values returned by
-.BR numa_node_size64 ()
-function for every NUMA node set by the
-.BR .get_node_mask ()
-operation.  If the
-.I .get_node_mask
-pointer is
-.B NULL
-then the values are summed for all NUMA nodes.
-.PP
 .BR memkind_posix_check_alignment ()
 can be used to check the alignment value for
 .BR memkind_posix_memalign ()
@@ -205,13 +192,12 @@ to ensure that is abides by the POSIX requirements:
 alignment must be a power of 2 at least as large as
 .RB sizeof( "void *" ).
 .SH "COPYRIGHT"
-Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+Copyright (C) 2014 - 2017 Intel Corporation. All rights reserved.
 .SH "SEE ALSO"
 .BR memkind (3),
 .BR memkind_arena (3),
 .BR memkind_hbw (3),
 .BR memkind_hugetlb (3),
-.BR memkind_gbtlb (3),
 .BR memkind_pmem (3),
 .BR jemalloc (3),
 .BR mbind (2),

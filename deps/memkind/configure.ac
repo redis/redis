@@ -25,39 +25,25 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ([2.62])
-AC_INIT([memkind],m4_esyscmd([tr -d '\n' < VERSION]),[krzysztof.kulakowski@intel.com])
-AM_INIT_AUTOMAKE([-Wall -Werror foreign subdir-objects tar-pax])
+AC_PREREQ([2.64])
+AC_INIT([memkind],m4_esyscmd([tr -d '\n' < VERSION]))
+
 AC_CONFIG_HEADERS([config.h])
-AC_CONFIG_HEADERS([config_tls.h])
-AC_CONFIG_MACRO_DIR([m4])
+AC_CONFIG_SRCDIR([memkind.spec.mk])
 
-memkind_abi_version=0:1:0
-AC_SUBST(memkind_abi_version)
+AM_INIT_AUTOMAKE([-Wall -Werror foreign 1.11 silent-rules subdir-objects parallel-tests tar-pax])
+AM_SILENT_RULES([yes])
 
-LT_PREREQ([2.2.6])
-
-# all modifications to CFLAGS/CXXFLAGS shall be done *after* this line
+# Checks for programs and libraries.
+AM_PROG_AR
+AC_PROG_CXX
 AC_PROG_CC
+AC_OPENMP
+AC_CHECK_LIB(numa, numa_available, [], [AC_MSG_ERROR([libnuma is required dependency])])
+AX_PTHREAD([LIBS="$PTHREAD_LIBS $LIBS" CFLAGS="$CFLAGS $PTHREAD_CFLAGS" CC="$PTHREAD_CC"],
+           [AC_MSG_ERROR([pthreads are required dependency])])
 
-AC_ARG_WITH([numa], [AS_HELP_STRING([--with-numa=PATH],
-            [specify prefix directory for installed numa package.])])
-if test "x$with_numa" != x; then
-  CPPFLAGS="$CPPFLAGS -I$with_numa/include"
-  LD_LIBRARY_PATH="$with_numa/lib:$LD_LIBRARY_PATH"
-  LDFLAGS="$LDFLAGS -L$with_numa/lib"
-fi
-AC_ARG_WITH([numa-include], [AS_HELP_STRING([--with-numa-include=PATH],
-            [specify directory for the installed numa include files.])])
-if test "x$with_numa_include" != x; then
-  CPPFLAGS="$CPPFLAGS -I$with_numa_include"
-fi
-AC_ARG_WITH([numa-lib], [AS_HELP_STRING([--with-numa-lib=PATH],
-            [specify directory for installed numa library])])
-if test "x$with_numa_lib" != x; then
-  LD_LIBRARY_PATH="$with_numa_lib:$LD_LIBRARY_PATH"
-  LDFLAGS="$LDFLAGS -L$with_numa_lib"
-fi
+AM_PROG_CC_C_O
 
 #============================tls===============================================
 # Check for tls_model attribute support
@@ -66,7 +52,7 @@ CFLAGS="$CFLAGS -Werror"
 AC_MSG_CHECKING([for tls_model attribute support])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
 [[
-    static __thread int __attribute__((tls_model("initial-exec"))) x;
+    static __thread int __attribute__((tls_model("local-dynamic"))) x;
 ]],
 [[
     x = 1234;
@@ -113,7 +99,7 @@ AC_SUBST([enable_tls])
 
 #============================decorators========================================
 AC_ARG_ENABLE([decorators],
-  [AS_HELP_STRING([--enable-decorators], [Enable decorators 111])],
+  [AS_HELP_STRING([--enable-decorators], [Enable decorators])],
 [if test "x$enable_decorators" = "xyes" ; then
   enable_decorators="1"
 else
@@ -126,17 +112,6 @@ if test "x${enable_decorators}" = "x1" ; then
   AC_DEFINE([MEMKIND_DECORATION_ENABLED], [ ], [Enables decorators])
 fi
 AC_SUBST([enable_decorators])
-
-#============================arena_limit=======================================
-arena_limit=256;
-AC_ARG_VAR(ARENA_LIMIT,
-  [Upper bound for number of arenas per kind, if set to 0 then no limit]
-)
-if test "$ARENA_LIMIT" != "" ; then
-  arena_limit=$ARENA_LIMIT;
-fi
-
-AC_DEFINE_UNQUOTED([ARENA_LIMIT_PER_KIND], $arena_limit, [Upper bound for number of arenas per kind])
 
 #============================debug=============================================
 AC_ARG_ENABLE([debug],
@@ -180,102 +155,26 @@ fi
 
 AC_SUBST([enable_secure])
 
-#============================cxx11=============================================
-AC_ARG_ENABLE([cxx11],
-  [AS_HELP_STRING([--enable-cxx11], [Enable tests and examples that use C++11 features])],
-[if test "x$enable_cxx11" = "xno" ; then
-  enable_cxx11="0"
-else
-  enable_cxx11="1"
-fi
-],
-[enable_cxx11="0"]
+#============================arena_limit=======================================
+arena_limit=256;
+AC_ARG_VAR(ARENA_LIMIT,
+  [Upper bound for number of arenas per kind, if set to 0 then no limit]
 )
-if test "x$enable_cxx11" = "x1" ; then
-  AC_DEFINE([MEMKIND_CXX11], [ ], [Enables C++11 features in tests and examples])
+if test "$ARENA_LIMIT" != "" ; then
+  arena_limit=$ARENA_LIMIT;
 fi
-AC_SUBST([enable_cxx11])
-AM_CONDITIONAL([ENABLE_CXX11], [test "x$enable_cxx11" = "x1"])
 
-# Checks for programs.
-m4_ifdef([AM_PROG_AR], [AM_PROG_AR])
-AC_PROG_CXX
-AC_PROG_AWK
-AC_PROG_CC
-AC_PROG_CPP
-AC_PROG_INSTALL
-AC_PROG_LN_S
-AC_PROG_MAKE_SET
+AC_DEFINE_UNQUOTED([ARENA_LIMIT_PER_KIND], $arena_limit, [Upper bound for number of arenas per kind])
+
+#============================cxx11=============================================
+
+AX_CXX_COMPILE_STDCXX_11([noext], [optional])
+AM_CONDITIONAL([HAVE_CXX11], [test "x$HAVE_CXX11" = x1])
+
+LT_PREREQ([2.2])
 LT_INIT
-AM_PROG_CC_C_O
-
-# Below macro is setting OPENMP_CFLAGS, but it is not working correctly for CXXFLAGS
-# (even with lang pop/push trick). Current W/A is to use CFLAGS also for C++.
-AC_OPENMP
-
-if test "x$OPENMP_CFLAGS" = "x" ; then
-  echo "WARNING: Could not locate OpenMP support. This warning can also occur if compiler already supports OpenMP"
-fi
-
-AC_CHECK_HEADER([omp.h], [], [
-    echo "omp.h is required for this library"
-    exit -1])
-AC_CHECK_LIB([numa], [numa_available], [], [
-    echo "libnuma is required for this library"
-    exit -1])
-AC_CHECK_HEADER([numa.h], [], [
-    echo "numa.h is required for this library"
-    exit -1])
-AC_CHECK_LIB([pthread], [pthread_mutex_init], [], [
-    echo "pthread is required for this library"
-    exit -1])
-AC_CHECK_HEADER([pthread.h], [], [
-    echo "pthread.h is required for this library"
-    exit -1])
-
-# Checks for header files.
-AC_CHECK_HEADERS([fcntl.h float.h limits.h stdint.h stdlib.h string.h sys/time.h unistd.h utmpx.h])
-
-# Checks for typedefs, structures, and compiler characteristics.
-AC_C_INLINE
-AC_TYPE_SIZE_T
-AC_TYPE_SSIZE_T
-
-# Checks for library functions.
-AC_FUNC_MALLOC
-AC_FUNC_MMAP
-AC_FUNC_REALLOC
-AC_CHECK_FUNCS([gettimeofday memset mkdir munmap setenv strtol strtoul])
 
 AC_CONFIG_FILES([Makefile])
+
 AC_OUTPUT
 
-# ============================================================================
-# Print out the results of configuration.
-AC_MSG_RESULT([===============================================================================])
-AC_MSG_RESULT([memkind version    : ${VERSION}])
-AC_MSG_RESULT([])
-AC_MSG_RESULT([CC                 : ${CC}])
-AC_MSG_RESULT([CPPFLAGS           : ${CPPFLAGS}])
-AC_MSG_RESULT([CFLAGS             : ${CFLAGS}])
-AC_MSG_RESULT([CXXFLAGS           : ${CXXFLAGS}])
-AC_MSG_RESULT([OPENMP_CFLAGS      : ${OPENMP_CFLAGS}])
-AC_MSG_RESULT([LDFLAGS            : ${LDFLAGS}])
-AC_MSG_RESULT([LD_LIBRARY_PATH    : ${LD_LIBRARY_PATH}])
-AC_MSG_RESULT([LIBS               : ${LIBS}])
-AC_MSG_RESULT([])
-AC_MSG_RESULT([prefix             : ${prefix}])
-AC_MSG_RESULT([exec_prefix        : ${exec_prefix}])
-AC_MSG_RESULT([sbindir            : ${sbindir}])
-AC_MSG_RESULT([includedir         : ${includedir}])
-AC_MSG_RESULT([libdir             : ${libdir}])
-AC_MSG_RESULT([datarootdir        : ${datarootdir}])
-AC_MSG_RESULT([datadir            : ${datadir}])
-AC_MSG_RESULT([mandir             : ${mandir}])
-AC_MSG_RESULT([])
-AC_MSG_RESULT([arena_limit        : ${arena_limit}])
-AC_MSG_RESULT([debug              : ${enable_debug}])
-AC_MSG_RESULT([tls                : ${enable_tls}])
-AC_MSG_RESULT([decorators         : ${enable_decorators}])
-AC_MSG_RESULT([secure             : ${enable_secure}])
-AC_MSG_RESULT([===============================================================================])

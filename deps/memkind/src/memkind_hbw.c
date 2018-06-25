@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 - 2016 Intel Corporation.
+ * Copyright (C) 2014 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,6 +28,7 @@
 #include <memkind/internal/memkind_arena.h>
 #include <memkind/internal/memkind_private.h>
 #include <memkind/internal/memkind_log.h>
+#include <memkind/internal/heap_manager.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -45,86 +46,122 @@
 #include <stdint.h>
 #include <assert.h>
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
     .realloc = memkind_arena_realloc,
-    .free = memkind_default_free,
+    .free = heap_manager_free,
     .check_available = memkind_hbw_check_available,
     .mbind = memkind_default_mbind,
     .get_mmap_flags = memkind_default_get_mmap_flags,
     .get_mbind_mode = memkind_default_get_mbind_mode,
     .get_mbind_nodemask = memkind_hbw_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_hbw_init_once,
+    .finalize = memkind_arena_finalize
 };
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_HUGETLB_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_ALL_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
     .realloc = memkind_arena_realloc,
-    .free = memkind_default_free,
+    .free = heap_manager_free,
+    .check_available = memkind_hbw_check_available,
+    .mbind = memkind_default_mbind,
+    .get_mmap_flags = memkind_default_get_mmap_flags,
+    .get_mbind_mode = memkind_default_get_mbind_mode,
+    .get_mbind_nodemask = memkind_hbw_all_get_mbind_nodemask,
+    .get_arena = memkind_thread_get_arena,
+    .init_once = memkind_hbw_all_init_once,
+    .finalize = memkind_arena_finalize
+};
+
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_HUGETLB_OPS = {
+    .create = memkind_arena_create,
+    .destroy = memkind_default_destroy,
+    .malloc = memkind_arena_malloc,
+    .calloc = memkind_arena_calloc,
+    .posix_memalign = memkind_arena_posix_memalign,
+    .realloc = memkind_arena_realloc,
+    .free = heap_manager_free,
     .check_available = memkind_hbw_hugetlb_check_available,
     .mbind = memkind_default_mbind,
     .get_mmap_flags = memkind_hugetlb_get_mmap_flags,
     .get_mbind_mode = memkind_default_get_mbind_mode,
     .get_mbind_nodemask = memkind_hbw_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_hbw_hugetlb_init_once,
+    .finalize = memkind_arena_finalize
 };
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_PREFERRED_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_ALL_HUGETLB_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
     .realloc = memkind_arena_realloc,
-    .free = memkind_default_free,
+    .free = heap_manager_free,
+    .check_available = memkind_hbw_hugetlb_check_available,
+    .mbind = memkind_default_mbind,
+    .get_mmap_flags = memkind_hugetlb_get_mmap_flags,
+    .get_mbind_mode = memkind_default_get_mbind_mode,
+    .get_mbind_nodemask = memkind_hbw_all_get_mbind_nodemask,
+    .get_arena = memkind_thread_get_arena,
+    .init_once = memkind_hbw_all_hugetlb_init_once,
+    .finalize = memkind_arena_finalize
+};
+
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_PREFERRED_OPS = {
+    .create = memkind_arena_create,
+    .destroy = memkind_default_destroy,
+    .malloc = memkind_arena_malloc,
+    .calloc = memkind_arena_calloc,
+    .posix_memalign = memkind_arena_posix_memalign,
+    .realloc = memkind_arena_realloc,
+    .free = heap_manager_free,
     .check_available = memkind_hbw_check_available,
     .mbind = memkind_default_mbind,
     .get_mmap_flags = memkind_default_get_mmap_flags,
     .get_mbind_mode = memkind_preferred_get_mbind_mode,
     .get_mbind_nodemask = memkind_hbw_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_hbw_preferred_init_once,
+    .finalize = memkind_arena_finalize
 };
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_PREFERRED_HUGETLB_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_PREFERRED_HUGETLB_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
     .realloc = memkind_arena_realloc,
-    .free = memkind_default_free,
+    .free = heap_manager_free,
     .check_available = memkind_hbw_hugetlb_check_available,
     .mbind = memkind_default_mbind,
     .get_mmap_flags = memkind_hugetlb_get_mmap_flags,
     .get_mbind_mode = memkind_preferred_get_mbind_mode,
     .get_mbind_nodemask = memkind_hbw_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_hbw_preferred_hugetlb_init_once,
+    .finalize = memkind_arena_finalize
 };
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_INTERLEAVE_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_HBW_INTERLEAVE_OPS = {
     .create = memkind_arena_create,
-    .destroy = memkind_arena_destroy,
+    .destroy = memkind_default_destroy,
     .malloc = memkind_arena_malloc,
     .calloc = memkind_arena_calloc,
     .posix_memalign = memkind_arena_posix_memalign,
     .realloc = memkind_arena_realloc,
-    .free = memkind_default_free,
+    .free = heap_manager_free,
     .check_available = memkind_hbw_check_available,
     .mbind = memkind_default_mbind,
     .madvise = memkind_nohugepage_madvise,
@@ -132,8 +169,8 @@ MEMKIND_EXPORT const struct memkind_ops MEMKIND_HBW_INTERLEAVE_OPS = {
     .get_mbind_mode = memkind_interleave_get_mbind_mode,
     .get_mbind_nodemask = memkind_hbw_all_get_mbind_nodemask,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_hbw_interleave_init_once,
+    .finalize = memkind_arena_finalize
 };
 
 struct numanode_bandwidth_t {
@@ -188,15 +225,6 @@ MEMKIND_EXPORT int memkind_hbw_hugetlb_check_available(struct memkind *kind)
     int err = memkind_hbw_check_available(kind);
     if (!err) {
         err = memkind_hugetlb_check_available_2mb(kind);
-    }
-    return err;
-}
-
-MEMKIND_EXPORT int memkind_hbw_gbtlb_check_available(struct memkind *kind)
-{
-    int err = memkind_hbw_check_available(kind);
-    if (!err) {
-        err = memkind_hugetlb_check_available_1gb(kind);
     }
     return err;
 }
@@ -636,9 +664,19 @@ MEMKIND_EXPORT void memkind_hbw_init_once(void)
     memkind_init(MEMKIND_HBW, true);
 }
 
+MEMKIND_EXPORT void memkind_hbw_all_init_once(void)
+{
+    memkind_init(MEMKIND_HBW_ALL, true);
+}
+
 MEMKIND_EXPORT void memkind_hbw_hugetlb_init_once(void)
 {
     memkind_init(MEMKIND_HBW_HUGETLB, true);
+}
+
+MEMKIND_EXPORT void memkind_hbw_all_hugetlb_init_once(void)
+{
+    memkind_init(MEMKIND_HBW_ALL_HUGETLB, true);
 }
 
 MEMKIND_EXPORT void memkind_hbw_preferred_init_once(void)

@@ -73,7 +73,7 @@ $(source_tar): $(topdir)/.setup $(src) MANIFEST
 		mkdir -p `dirname $(source_tmp_dir)/$(name)-$(version)/$$f` ; \
 		cp $$f $(source_tmp_dir)/$(name)-$(version)/$$f ; \
 	done
-	cd $(source_tmp_dir)/$(name)-$(version) && ./autogen.sh && ./configure && make dist
+	cd $(source_tmp_dir)/$(name)-$(version) && ./autogen.sh && (cd ./jemalloc && ./autogen.sh) && ./configure && make dist; \
 	# tar.gz produced by "make dist" from above produces memkind-$(version).tar.gz
 	# If $(package_prefix) is not empty, then need to repackage that tar.gz to $(name)-$(version)
 	# thus below command. Otherwise, rpmbuild will fail.
@@ -100,3 +100,4 @@ clean:
 .PHONY: all clean
 
 include memkind.spec.mk
+

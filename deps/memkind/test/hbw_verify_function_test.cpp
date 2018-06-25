@@ -161,7 +161,7 @@ TEST_F(HbwVerifyFunctionTest, test_TC_MEMKIND_HBW_iterate_not_round)
  */
 TEST_F(HbwVerifyFunctionTest, test_TC_MEMKIND_2MBPages_HBW_HUGETLB)
 {
-    ASSERT_HUGEPAGES_AVAILABILITY();
+    HugePageOrganizer huge_page_organizer(16);
     size_t size = 2 * 1024 * 1024 * 10; //10 * 2MB pages
     char* ptr = (char*) memkind_malloc(MEMKIND_HBW_HUGETLB, size);
     ASSERT_FALSE(ptr == NULL);

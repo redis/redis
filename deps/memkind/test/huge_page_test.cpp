@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2016 Intel Corporation.
+* Copyright (C) 2016 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -33,31 +33,12 @@
 * There are two root causes of the error:
 * - kernel bug (munmap() fails when the size is not aligned)
 * - heap Manager doesn’t provide size aligned to 2MB pages for munmap()
-* Test allocates 2000MB = 1000 Huge Pages (50threads*10operations*4MBalloc_size),
+* Test allocates 2000MB using Huge Pages (50threads*10operations*4MBalloc_size),
 * but it needs extra Huge Pages due to overhead caused by heap management.
 */
 class  HugePageTest: public :: testing::Test
 {
-private:
-    int initial_nr_hugepages;
-
 protected:
-    void SetUp()
-    {
-        // Get initial value of nr_hugepages
-        initial_nr_hugepages = HugePageOrganizer::get_nr_hugepages();
-        // Set number of Huge Pages to allocate
-        // System command returned -1 on error
-        ASSERT_NE(HugePageOrganizer::set_nr_hugepages(1024), -1);
-    }
-
-    void TearDown()
-    {
-        // Set number of Huge Pages to previous value
-        // System command returned -1 on error
-        ASSERT_NE(HugePageOrganizer::set_nr_hugepages(initial_nr_hugepages), -1);
-    }
-
     void run()
     {
         unsigned mem_operations_num = 10;
@@ -101,11 +82,8 @@ protected:
 
 
 // Test passes when there is no crash.
-TEST_F(HugePageTest, test_TC_MEMKIND_UNMAP_HUGE_PAGE)
+TEST_F(HugePageTest, test_TC_MEMKIND_ext_UNMAP_HUGE_PAGE)
 {
-    ASSERT_HUGEPAGES_AVAILABILITY();
-    int iterations = 10;
-    for (int i=0; i<iterations; i++) {
-        run();
-    }
+    HugePageOrganizer huge_page_organizer(1024);
+    run();
 }

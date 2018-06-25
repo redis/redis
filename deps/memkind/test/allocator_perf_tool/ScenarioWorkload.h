@@ -25,6 +25,7 @@
 #include "Workload.hpp"
 #include "FunctionCalls.hpp"
 #include "Allocator.hpp"
+#include "AllocatorFactory.hpp"
 
 #include <string.h>
 
@@ -51,6 +52,7 @@ public:
 	void post_allocation_check(const memory_operation& data);
 
 private:
+	AllocatorFactory allocator_factory;
 	std::vector<memory_operation> allocations;
 
 	bool touch_memory_on_allocation;

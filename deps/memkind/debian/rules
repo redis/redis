@@ -1,0 +1,21 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+# ignore tests during build
+override_dh_auto_test:
+
+override_dh_auto_configure:
+	./build_jemalloc.sh
+	./autogen.sh
+	dh_auto_configure -- --prefix=/usr --libdir=/usr/lib \
+           --includedir=/usr/include --sbindir=/usr/sbin --enable-cxx11 \
+           --mandir=/usr/share/man --docdir=/usr/share/doc/memkind
+
+override_dh_auto_build:
+	dh_auto_build -- checkprogs
+
+%:
+	dh $@

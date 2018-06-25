@@ -25,11 +25,12 @@
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.ma as ma
 import os
 from shutil import rmtree
 
 files = ('alloctest_hbw.txt', 'alloctest_glibc.txt', 'alloctest_tbb.txt')
-legend = ('hbw', 'glibc', 'tbb', 'first operation')
+legend = ('avg hbw', 'avg glibc', 'avg tbb', 'first operation')
 colors = ('red', 'green', 'blue')
 first_operation_color = 'yellow'
 
@@ -84,8 +85,38 @@ def init_axis(fig, suptitle, subplot_projection, x_label, x_ticks, x_values, y_l
         ax.set_zlabel(z_label)
     return ax
 
-def save_plot(filename):
-    plt.savefig(output_directory + filename)
+def draw_bar(ax, show_first_operation, x, y, time, init_time, draw_color):
+    assert ax is not None
+    if y is None:
+        if show_first_operation is True:
+            mask_time = ma.where(time>=init_time)
+            mask_init_time = ma.where(init_time>=time)
+            ax.bar(x[mask_time], time[mask_time], width=bar_width, color=draw_color)
+            ax.bar(x, init_time, width=bar_width, color=first_operation_color)
+            ax.bar(x[mask_init_time], time[mask_init_time], width=bar_width, color=draw_color)
+        else:
+            ax.bar(x, time, width=bar_width, color=draw_color)
+    else:
+        if show_first_operation is True:
+            mask_time = ma.where(time>=init_time)
+            mask_init_time = ma.where(init_time>=time)
+            ax.bar(x[mask_time], (time - init_time)[mask_time], y[mask_time], bottom=init_time[mask_time], zdir='y', width=bar_width, color=draw_color)
+            ax.bar(x[mask_init_time], (init_time - time)[mask_init_time], y[mask_init_time], bottom=time[mask_init_time], zdir='y', width=bar_width, color=first_operation_color)
+            ax.bar(x[mask_init_time], time[mask_init_time], y[mask_init_time], zdir='y', width=bar_width, color=draw_color)
+            ax.bar(x[mask_time], init_time[mask_time], y[mask_time], zdir='y', width=bar_width, color=first_operation_color)
+        else:
+            ax.bar(x, time, y, zdir='y', width=bar_width, color=draw_color)
+
+def save_plot(show_first_operation, subfolder, filename):
+    if show_first_operation:
+        path = os.path.join(output_directory, "with_first_operation")
+    else:
+        path = os.path.join(output_directory, "without_first_operation")
+    if subfolder:
+        path = os.path.join(path, subfolder)
+    if not os.path.exists(path):
+        os.mkdir(path)
+    plt.savefig(os.path.join(path, filename))
     print "Saved file %s" % filename
 
 def load_data_from_files():
@@ -117,39 +148,39 @@ bar_width, offsets = set_bar_width_and_offsets(bar_width_3D)
 
 # for each size range (small, medium, big)
 for size_values, size_index, size_display in zip(sizes_values, sizes_index, sizes_display):
-    # for each operation (allocation, free, total)
-    for operation in operations:
-        # add bar_width to each element of size_index
-        ax = init_axis(fig, "%s time of %s sizes (%s iterations)" % (operation, size_display, iterations), '3d',
-                       'size [kB]', size_index + (bar_width,) * len(size_index), size_values,
-                       'threads', threads_index, threads_values,
-                       'time [s]')
-        legend_data = []
-        # for each allocator (hbw, glibc, tbb)
-        for entry, offset, draw_color in zip(data, offsets, colors):
-            # remove all rows where column 1 (size) is not in size_values (current size range)
-            entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
-            # convert column 0 (threads values) to thread index
-            threads_col = [threads_values.index(str(n)) for n in map(int, entry[:,0])]
-            # convert column 1 (sizes values) to size index
-            size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
-            # add offset to size index so that bars display near each other
-            size_col = np.array(size_col) + offset
-            total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
-            if operation == 'Allocation':
-                ax.bar(size_col, alloc_time_col, threads_col, zdir='y', width=bar_width, color=draw_color)
-                ax.bar(size_col, first_alloc_time_col, threads_col, zdir='y', bottom=alloc_time_col, width=bar_width, color=first_operation_color)
-            elif operation == 'Free':
-                ax.bar(size_col, free_time_col, threads_col, zdir='y', width=bar_width, color=draw_color)
-                ax.bar(size_col, first_free_time_col, threads_col, zdir='y', bottom=free_time_col, width=bar_width, color=first_operation_color)
-            elif operation == 'Total':
-                ax.bar(size_col, total_time_col, threads_col, zdir='y', width=bar_width, color=draw_color)
-                ax.bar(size_col, first_alloc_time_col+first_free_time_col, threads_col, zdir='y', bottom=total_time_col, width=bar_width, color=first_operation_color)
-            legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
-        legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
-        ax.legend(legend_data,legend,loc='best')
-        plt.grid()
-        save_plot("%s_time_of_%s_sizes_%s_iterations.png" % (operation, size_display, iterations))
+    # show plots with and without first operation
+    for show_first_operation in (True, False):
+        # for each operation (allocation, free, total)
+        for operation in operations:
+            # add bar_width to each element of size_index
+            ax = init_axis(fig, "%s time of %s sizes (%s iterations)" % (operation, size_display, iterations), '3d',
+                           'size [kB]', size_index + (bar_width,) * len(size_index), size_values,
+                           'threads', threads_index, threads_values,
+                           'time [ms]')
+            legend_data = []
+            # for each allocator (hbw, glibc, tbb)
+            for entry, offset, draw_color in zip(data, offsets, colors):
+                # remove all rows where column 1 (size) is not in size_values (current size range)
+                entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
+                # convert column 0 (threads values) to thread index
+                threads_col = np.array([threads_values.index(str(n)) for n in map(int, entry[:,0])])
+                # convert column 1 (sizes values) to size index
+                size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
+                # add offset to size index so that bars display near each other
+                size_col = np.array(size_col) + offset
+                total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
+                if operation == 'Allocation':
+                    draw_bar(ax, show_first_operation, size_col, threads_col, alloc_time_col, first_alloc_time_col, draw_color)
+                elif operation == 'Free':
+                    draw_bar(ax, show_first_operation, size_col, threads_col, free_time_col, first_free_time_col, draw_color)
+                elif operation == 'Total':
+                    draw_bar(ax, show_first_operation, size_col, threads_col, total_time_col, first_alloc_time_col+first_free_time_col, draw_color)
+                legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
+            if show_first_operation is True:
+                legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
+            ax.legend(legend_data,legend,loc='best')
+            plt.grid()
+            save_plot(show_first_operation, None, "%s_time_of_%s_sizes_%s_iterations.png" % (operation, size_display, iterations))
 
 ################################################
 # Draw 2D plots (time, sizes, constant thread) #
@@ -159,42 +190,42 @@ bar_width, offsets = set_bar_width_and_offsets(bar_width_2D)
 
 # for each size range (small, medium, big)
 for size_values, size_index, size_display in zip(sizes_values, sizes_index, sizes_display):
-    for thread in threads_values:
-        # for each operation (allocation, free, total)
-        for operation in operations:
-            # add bar_width to each element of size_index
-            ax = init_axis(fig, "%s time of %s sizes with %s threads (%s operations)" % (operation, size_display, thread, iterations), None,
-                           'size [kB]', size_index + (bar_width,) * len(size_index), size_values,
-                           'time [s]', None, None,
-                           None)
-            legend_data = []
-            # for each allocator (hbw, glibc, tbb)
-            for entry, offset, draw_color in zip(data, offsets, colors):
-                # remove all rows where column 1 (size) is not in size_values (current size range)
-                entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
-                # remove all rows where column 0 (threads) is not equal to currently analyzed thread value
-                entry = entry[entry[:,0] == int(thread)]
-                # convert column 0 (threads values) to thread index
-                threads_col = [threads_values.index(str(n)) for n in map(int, entry[:,0])]
-                # convert column 1 (size values) to size index
-                size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
-                # add offset to size index so that bars display near each other
-                size_col = np.array(size_col) + offset
-                total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
-                if operation == 'Allocation':
-                    ax.bar(size_col, alloc_time_col, width=bar_width, color=draw_color)
-                    ax.bar(size_col, first_alloc_time_col, bottom=alloc_time_col, width=bar_width, color=first_operation_color)
-                elif operation == 'Free':
-                    ax.bar(size_col, free_time_col, width=bar_width, color=draw_color)
-                    ax.bar(size_col, first_free_time_col, bottom=free_time_col, width=bar_width, color=first_operation_color)
-                elif operation == 'Total':
-                    ax.bar(size_col, total_time_col, width=bar_width, color=draw_color)
-                    ax.bar(size_col, first_alloc_time_col+first_free_time_col, bottom=total_time_col, width=bar_width, color=first_operation_color)
-                legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
-            legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
-            ax.legend(legend_data,legend,loc='best')
-            plt.grid()
-            save_plot("%s_time_of_%s_sizes_with_%s_threads_%s_iterations.png" % (operation, size_display, thread, iterations))
+    # show plots with and without first operation
+    for show_first_operation in (True, False):
+        for thread in threads_values:
+            # for each operation (allocation, free, total)
+            for operation in operations:
+                # add bar_width to each element of size_index
+                ax = init_axis(fig, "%s time of %s sizes with %s threads (%s operations)" % (operation, size_display, thread, iterations), None,
+                               'size [kB]', size_index + (bar_width,) * len(size_index), size_values,
+                               'time [ms]', None, None,
+                               None)
+                legend_data = []
+                # for each allocator (hbw, glibc, tbb)
+                for entry, offset, draw_color in zip(data, offsets, colors):
+                    # remove all rows where column 1 (size) is not in size_values (current size range)
+                    entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
+                    # remove all rows where column 0 (threads) is not equal to currently analyzed thread value
+                    entry = entry[entry[:,0] == int(thread)]
+                    # convert column 0 (threads values) to thread index
+                    threads_col = np.array([threads_values.index(str(n)) for n in map(int, entry[:,0])])
+                    # convert column 1 (size values) to size index
+                    size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
+                    # add offset to size index so that bars display near each other
+                    size_col = np.array(size_col) + offset
+                    total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
+                    if operation == 'Allocation':
+                        draw_bar(ax, show_first_operation, size_col, None, alloc_time_col, first_alloc_time_col, draw_color)
+                    elif operation == 'Free':
+                        draw_bar(ax, show_first_operation, size_col, None, free_time_col, first_free_time_col, draw_color)
+                    elif operation == 'Total':
+                        draw_bar(ax, show_first_operation, size_col, None, total_time_col, first_alloc_time_col+first_free_time_col, draw_color)
+                    legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
+                if show_first_operation is True:
+                    legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
+                ax.legend(legend_data,legend,loc='best')
+                plt.grid()
+                save_plot(show_first_operation, "constant_thread", "%s_time_of_%s_sizes_with_%s_threads_%s_iterations.png" % (operation, size_display, thread, iterations))
 
 ################################################
 # Draw 2D plots (time, threads, constant size) #
@@ -202,39 +233,39 @@ for size_values, size_index, size_display in zip(sizes_values, sizes_index, size
 
 # for each size range (small, medium, big)
 for size_values, size_index, size_display in zip(sizes_values, sizes_index, sizes_display):
-    for size in size_values:
-        # for each operation (allocation, free, total)
-        for operation in operations:
-            # add bar_width to each element of threads_index
-            ax = init_axis(fig, "%s time of %s kB (%s operations)" % (operation, size, iterations), None,
-                           'threads', threads_index + (bar_width,) * len(threads_index), threads_values,
-                           'time [s]', None, None,
-                           None)
-            legend_data = []
-            # for each allocator (hbw, glibc, tbb)
-            for entry, offset, draw_color in zip(data, offsets, colors):
-                # remove all rows where column 1 (size) is not in size_values (current size range)
-                entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
-                # remove all rows where column 1 (size) is not equal to currently analyzed size value
-                entry = entry[entry[:,1] == int(size)]
-                # convert column 0 (threads values) to thread index
-                threads_col = [threads_values.index(str(n)) for n in map(int, entry[:,0])]
-                # add offset to thread index so that bars display near each other
-                threads_col = np.array(threads_col) + offset
-                # convert column 1 (size values) to size index
-                size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
-                total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
-                if operation == 'Allocation':
-                    ax.bar(threads_col, alloc_time_col, width=bar_width, color=draw_color)
-                    ax.bar(threads_col, first_alloc_time_col, bottom=alloc_time_col, width=bar_width, color=first_operation_color)
-                elif operation == 'Free':
-                    ax.bar(threads_col, free_time_col, width=bar_width, color=draw_color)
-                    ax.bar(threads_col, first_free_time_col, bottom=free_time_col, width=bar_width, color=first_operation_color)
-                elif operation == 'Total':
-                    ax.bar(threads_col, total_time_col, width=bar_width, color=draw_color)
-                    ax.bar(threads_col, first_alloc_time_col+first_free_time_col, bottom=total_time_col, width=bar_width, color=first_operation_color)
-                legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
-            legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
-            ax.legend(legend_data,legend,loc='best')
-            plt.grid()
-            save_plot("%s_time_of_%s_kB_%s_operations.png" % (operation, size, iterations))
+    # show plots with and without first operation
+    for show_first_operation in (True, False):
+        for size in size_values:
+            # for each operation (allocation, free, total)
+            for operation in operations:
+                # add bar_width to each element of threads_index
+                ax = init_axis(fig, "%s time of %s kB (%s operations)" % (operation, size, iterations), None,
+                               'threads', threads_index + (bar_width,) * len(threads_index), threads_values,
+                               'time [ms]', None, None,
+                               None)
+                legend_data = []
+                # for each allocator (hbw, glibc, tbb)
+                for entry, offset, draw_color in zip(data, offsets, colors):
+                    # remove all rows where column 1 (size) is not in size_values (current size range)
+                    entry = entry[np.in1d(entry[:,1], np.array(size_values).astype(np.int))]
+                    # remove all rows where column 1 (size) is not equal to currently analyzed size value
+                    entry = entry[entry[:,1] == int(size)]
+                    # convert column 0 (threads values) to thread index
+                    threads_col = np.array([threads_values.index(str(n)) for n in map(int, entry[:,0])])
+                    # add offset to thread index so that bars display near each other
+                    threads_col = np.array(threads_col) + offset
+                    # convert column 1 (size values) to size index
+                    size_col = [size_values.index(str(n)) for n in map(int, entry[:,1])]
+                    total_time_col, alloc_time_col, free_time_col, first_alloc_time_col, first_free_time_col = return_times(entry)
+                    if operation == 'Allocation':
+                        draw_bar(ax, show_first_operation, threads_col, None, alloc_time_col, first_alloc_time_col, draw_color)
+                    elif operation == 'Free':
+                        draw_bar(ax, show_first_operation, threads_col, None, free_time_col, first_free_time_col, draw_color)
+                    elif operation == 'Total':
+                        draw_bar(ax, show_first_operation, threads_col, None, total_time_col, first_alloc_time_col+first_free_time_col, draw_color)
+                    legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=draw_color))
+                if show_first_operation is True:
+                    legend_data.append(plt.Rectangle((0, 0), 1, 1, fc=first_operation_color))
+                ax.legend(legend_data,legend,loc='best')
+                plt.grid()
+                save_plot(show_first_operation, "constant_size", "%s_time_of_%s_kB_%s_operations.png" % (operation, size, iterations))

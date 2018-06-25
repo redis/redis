@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Intel Corporation.
+ * Copyright (C) 2016 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,8 +27,11 @@
 extern "C" {
 #endif
 
+#ifndef MEMKIND_INTERNAL_API
+#warning "DO NOT INCLUDE THIS FILE! IT IS INTERNAL MEMKIND API AND SOON WILL BE REMOVED FROM BIN & DEVEL PACKAGES"
+#endif
+
 #include "memkind.h"
-#include "memkind/internal/memkind_default.h"
 
 #include <stdbool.h>
 #include <pthread.h>
@@ -45,13 +48,55 @@ extern "C" {
 #   define MEMKIND_EXPORT __attribute__((visibility("default")))
 #endif
 
+#ifndef JE_PREFIX
+#error "Can't find JE_PREFIX define. Define one or use build.sh script."
+#endif
+
+// This ladder call is required due to meanders of C's preprocessor logic.
+// Without it, JE_PREFIX would be used directly (i.e. 'JE_PREFIX') and not
+// substituted with defined value.
+#define JE_SYMBOL2(a, b) a ## b
+#define JE_SYMBOL1(a, b) JE_SYMBOL2(a, b)
+#define JE_SYMBOL(b)     JE_SYMBOL1(JE_PREFIX, b)
+
+// Redefine symbols
+#define jemk_malloc         JE_SYMBOL(malloc)
+#define jemk_mallocx        JE_SYMBOL(mallocx)
+#define jemk_calloc         JE_SYMBOL(calloc)
+#define jemk_rallocx        JE_SYMBOL(rallocx)
+#define jemk_realloc        JE_SYMBOL(realloc)
+#define jemk_mallctl        JE_SYMBOL(mallctl)
+#define jemk_memalign       JE_SYMBOL(memalign)
+#define jemk_posix_memalign JE_SYMBOL(posix_memalign)
+#define jemk_free           JE_SYMBOL(free)
+
 enum memkind_const_private {
     MEMKIND_NAME_LENGTH_PRIV = 64
 };
 
+struct memkind_ops {
+    int (* create)(struct memkind *kind, struct memkind_ops *ops, const char *name);
+    int (* destroy)(struct memkind *kind);
+    void *(* malloc)(struct memkind *kind, size_t size);
+    void *(* calloc)(struct memkind *kind, size_t num, size_t size);
+    int (* posix_memalign)(struct memkind *kind, void **memptr, size_t alignment, size_t size);
+    void *(* realloc)(struct memkind *kind, void *ptr, size_t size);
+    void (* free)(struct memkind *kind, void *ptr);
+    void *(* mmap)(struct memkind *kind, void *addr, size_t size);
+    int (* mbind)(struct memkind *kind, void *ptr, size_t size);
+    int (* madvise)(struct memkind *kind, void *addr, size_t size);
+    int (* get_mmap_flags)(struct memkind *kind, int *flags);
+    int (* get_mbind_mode)(struct memkind *kind, int *mode);
+    int (* get_mbind_nodemask)(struct memkind *kind, unsigned long *nodemask, unsigned long maxnode);
+    int (* get_arena)(struct memkind *kind, unsigned int *arena, size_t size);
+    int (* check_available)(struct memkind *kind);
+    int (* check_addr)(struct memkind *kind, void *addr);
+    void (*init_once)(void);
+    int (* finalize)(struct memkind *kind);
+};
 
 struct memkind {
-    const struct memkind_ops *ops;
+    struct memkind_ops *ops;
     unsigned int partition;
     char name[MEMKIND_NAME_LENGTH_PRIV];
     pthread_once_t init_once;
@@ -65,18 +110,25 @@ struct memkind {
 
 void memkind_init(memkind_t kind, bool check_numa);
 
-// common function for registering kinds on creation or first use (in case of static kinds)
-void memkind_register_kind(struct memkind *kind);
+void *kind_mmap(struct memkind *kind, void* addr, size_t size);
 
-static inline void *kind_mmap(struct memkind *kind, void* addr, size_t size)
-{
-    if (MEMKIND_LIKELY(kind->ops->mmap == NULL)) {
-        return memkind_default_mmap(kind, addr, size);
-    }
-    else {
-        return kind->ops->mmap(kind, addr, size);
-    }
-}
+enum memkind_base_partition {
+    MEMKIND_PARTITION_DEFAULT = 0,
+    MEMKIND_PARTITION_HBW = 1,
+    MEMKIND_PARTITION_HBW_HUGETLB = 2,
+    MEMKIND_PARTITION_HBW_PREFERRED = 3,
+    MEMKIND_PARTITION_HBW_PREFERRED_HUGETLB = 4,
+    MEMKIND_PARTITION_HUGETLB = 5,
+    MEMKIND_PARTITION_HBW_GBTLB = 6,
+    MEMKIND_PARTITION_HBW_PREFERRED_GBTLB = 7,
+    MEMKIND_PARTITION_GBTLB = 8,
+    MEMKIND_PARTITION_HBW_INTERLEAVE = 9,
+    MEMKIND_PARTITION_INTERLEAVE = 10,
+    MEMKIND_PARTITION_REGULAR = 11,
+    MEMKIND_PARTITION_HBW_ALL = 12,
+    MEMKIND_PARTITION_HBW_ALL_HUGETLB = 13,
+    MEMKIND_NUM_BASE_KIND
+};
 
 #ifdef __cplusplus
 }

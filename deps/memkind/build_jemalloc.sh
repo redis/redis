@@ -22,11 +22,14 @@
 #  OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 #  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+EXTRA_CONF=$@
+
 cd jemalloc
 test -e configure || autoconf
 test -e obj || mkdir obj
 cd obj
-../configure --enable-autogen --with-jemalloc-prefix=jemk_ --without-export \
-             --disable-stats --disable-fill --disable-valgrind --with-private-namespace=mk_ \
-             --with-malloc-conf="lg_chunk:22" #4MB chunksize
+../configure --enable-autogen --with-jemalloc-prefix=$JE_PREFIX --without-export \
+             --disable-stats --disable-fill --disable-valgrind \
+             $EXTRA_CONF --with-malloc-conf="lg_chunk:22,narenas:256,lg_tcache_max:12"
+
 make -j`nproc`

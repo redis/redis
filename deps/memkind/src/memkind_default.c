@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 - 2016 Intel Corporation.
+ * Copyright (C) 2014 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,6 +25,8 @@
 #include <memkind/internal/memkind_default.h>
 #include <memkind/internal/memkind_private.h>
 #include <memkind/internal/memkind_log.h>
+#include <memkind/internal/tbb_wrapper.h>
+#include <memkind/internal/heap_manager.h>
 
 #include <numa.h>
 #include <numaif.h>
@@ -37,7 +39,7 @@
 #define MADV_NOHUGEPAGE 15
 #endif
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_DEFAULT_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_DEFAULT_OPS = {
     .create = memkind_default_create,
     .destroy = memkind_default_destroy,
     .malloc = memkind_default_malloc,
@@ -45,11 +47,10 @@ MEMKIND_EXPORT const struct memkind_ops MEMKIND_DEFAULT_OPS = {
     .posix_memalign = memkind_default_posix_memalign,
     .realloc = memkind_default_realloc,
     .free = memkind_default_free,
-    .get_size = memkind_default_get_size,
     .init_once = memkind_default_init_once
 };
 
-MEMKIND_EXPORT int memkind_default_create(struct memkind *kind, const struct memkind_ops *ops, const char *name)
+MEMKIND_EXPORT int memkind_default_create(struct memkind *kind, struct memkind_ops *ops, const char *name)
 {
     int err = 0;
 
@@ -66,60 +67,44 @@ MEMKIND_EXPORT int memkind_default_create(struct memkind *kind, const struct mem
 
 MEMKIND_EXPORT int memkind_default_destroy(struct memkind *kind)
 {
-    kind->name[0] = '\0';
     return 0;
 }
 
 MEMKIND_EXPORT void *memkind_default_malloc(struct memkind *kind, size_t size)
 {
+    if(MEMKIND_UNLIKELY(size_out_of_bounds(size))) {
+        return NULL;
+    }
     return jemk_malloc(size);
 }
 
 MEMKIND_EXPORT void *memkind_default_calloc(struct memkind *kind, size_t num, size_t size)
 {
+    if(MEMKIND_UNLIKELY(size_out_of_bounds(num) || size_out_of_bounds(size))) {
+        return NULL;
+    }
     return jemk_calloc(num, size);
 }
 
 MEMKIND_EXPORT int memkind_default_posix_memalign(struct memkind *kind, void **memptr, size_t alignment, size_t size)
 {
+    if(MEMKIND_UNLIKELY(size_out_of_bounds(size))) {
+        return EINVAL;
+    }
     return jemk_posix_memalign(memptr, alignment, size);
 }
 
 MEMKIND_EXPORT void *memkind_default_realloc(struct memkind *kind, void *ptr, size_t size)
 {
+    if(MEMKIND_UNLIKELY(size_out_of_bounds(size))) {
+        return NULL;
+    }
     return jemk_realloc(ptr, size);
 }
 
 MEMKIND_EXPORT void memkind_default_free(struct memkind *kind, void *ptr)
 {
     jemk_free(ptr);
-}
-
-MEMKIND_EXPORT int memkind_default_get_size(struct memkind *kind, size_t *total, size_t *free)
-{
-    nodemask_t nodemask;
-    struct bitmask nodemask_bm = {NUMA_NUM_NODES, nodemask.n};
-    long long f;
-    int err = 0;
-    int i;
-
-    *total = 0;
-    *free = 0;
-    if (kind->ops->get_mbind_nodemask) {
-        err = kind->ops->get_mbind_nodemask(kind, nodemask.n, NUMA_NUM_NODES);
-    }
-    else {
-        copy_bitmask_to_bitmask(numa_all_nodes_ptr, &nodemask_bm);
-    }
-    if (!err) {
-        for (i = 0; i < NUMA_NUM_NODES; ++i) {
-            if (numa_bitmask_isbitset(&nodemask_bm, i)) {
-                *total += numa_node_size64(i, &f);
-                *free += f;
-            }
-        }
-    }
-    return err;
 }
 
 MEMKIND_EXPORT void *memkind_default_mmap(struct memkind *kind, void *addr, size_t size)
@@ -136,21 +121,23 @@ MEMKIND_EXPORT void *memkind_default_mmap(struct memkind *kind, void *addr, size
     }
     if (MEMKIND_LIKELY(!err)) {
         result = mmap(addr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
-    }
-    if (MEMKIND_LIKELY(result != MAP_FAILED)) {
-        if (kind->ops->mbind) {
-            err = kind->ops->mbind(kind, result, size);
-            if (err) {
-                munmap(result, size);
-                result = MAP_FAILED;
-            }
+        if (result == MAP_FAILED) {
+            log_err("syscall mmap() returned: %p", result);
+            return result;
         }
-        if (kind->ops->madvise) {
-            err = kind->ops->madvise(kind, result, size);
-            if (err) {
-                munmap(result, size);
-                result = MAP_FAILED;
-            }
+    }
+    if (kind->ops->mbind) {
+        err = kind->ops->mbind(kind, result, size);
+        if (err) {
+            munmap(result, size);
+            result = MAP_FAILED;
+        }
+    }
+    if (kind->ops->madvise) {
+        err = kind->ops->madvise(kind, result, size);
+        if (err) {
+            munmap(result, size);
+            result = MAP_FAILED;
         }
     }
     return result;
@@ -165,6 +152,9 @@ MEMKIND_EXPORT int memkind_nohugepage_madvise(struct memkind *kind, void *addr, 
     {
         return 0;
     }
+    if (MEMKIND_UNLIKELY(err)) {
+        log_err("syscall madvise() returned: %d", err);
+    }
     return err;
 }
 
@@ -177,17 +167,20 @@ MEMKIND_EXPORT int memkind_default_mbind(struct memkind *kind, void *ptr, size_t
     if (MEMKIND_UNLIKELY(kind->ops->get_mbind_nodemask == NULL ||
         kind->ops->get_mbind_mode == NULL)) {
         log_err("memkind_ops->mbind_mode or memkind_ops->bind_nodemask is NULL.");
-        err = MEMKIND_ERROR_BADOPS;
+        return MEMKIND_ERROR_BADOPS;
     }
-    if (MEMKIND_LIKELY(!err)) {
-        err = kind->ops->get_mbind_nodemask(kind, nodemask.n, NUMA_NUM_NODES);
+    err = kind->ops->get_mbind_nodemask(kind, nodemask.n, NUMA_NUM_NODES);
+    if (MEMKIND_UNLIKELY(err)) {
+        return err;
     }
-    if (MEMKIND_LIKELY(!err)) {
-        err = kind->ops->get_mbind_mode(kind, &mode);
+    err = kind->ops->get_mbind_mode(kind, &mode);
+    if (MEMKIND_UNLIKELY(err)) {
+        return err;
     }
-    if (MEMKIND_LIKELY(!err)) {
-        err = mbind(ptr, size, mode, nodemask.n, NUMA_NUM_NODES, 0);
-        err = err ? MEMKIND_ERROR_MBIND : 0;
+    err = mbind(ptr, size, mode, nodemask.n, NUMA_NUM_NODES, 0);
+    if (MEMKIND_UNLIKELY(err)) {
+        log_err("syscall mbind() returned: %d", err);
+        return MEMKIND_ERROR_MBIND;
     }
     return err;
 }
@@ -237,5 +230,5 @@ MEMKIND_EXPORT int memkind_posix_check_alignment(struct memkind *kind, size_t al
 
 MEMKIND_EXPORT void memkind_default_init_once(void)
 {
-    memkind_register_kind(MEMKIND_DEFAULT);
+    heap_manager_init(MEMKIND_DEFAULT);
 }

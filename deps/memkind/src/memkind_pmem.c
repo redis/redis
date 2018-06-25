@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Intel Corporation.
+ * Copyright (C) 2015 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,7 @@
 #include <jemalloc/jemalloc.h>
 #include <assert.h>
 
-MEMKIND_EXPORT const struct memkind_ops MEMKIND_PMEM_OPS = {
+MEMKIND_EXPORT struct memkind_ops MEMKIND_PMEM_OPS = {
     .create = memkind_pmem_create,
     .destroy = memkind_pmem_destroy,
     .malloc = memkind_arena_malloc,
@@ -45,9 +45,7 @@ MEMKIND_EXPORT const struct memkind_ops MEMKIND_PMEM_OPS = {
     .mmap = memkind_pmem_mmap,
     .get_mmap_flags = memkind_pmem_get_mmap_flags,
     .get_arena = memkind_thread_get_arena,
-    .get_size = memkind_pmem_get_size,
 };
-
 
 void *pmem_chunk_alloc(void *chunk, size_t size, size_t alignment,
                        bool *zero, bool *commit, unsigned arena_ind)
@@ -138,8 +136,7 @@ static chunk_hooks_t pmem_chunk_hooks = {
     pmem_chunk_merge
 };
 
-MEMKIND_EXPORT int memkind_pmem_create(struct memkind *kind, const struct memkind_ops *ops,
-                        const char *name)
+MEMKIND_EXPORT int memkind_pmem_create(struct memkind *kind, struct memkind_ops *ops, const char *name)
 {
     struct memkind_pmem *priv;
     int err;
@@ -218,15 +215,5 @@ MEMKIND_EXPORT void *memkind_pmem_mmap(struct memkind *kind, void *addr, size_t 
 MEMKIND_EXPORT int memkind_pmem_get_mmap_flags(struct memkind *kind, int *flags)
 {
     *flags = MAP_SHARED;
-    return 0;
-}
-
-MEMKIND_EXPORT int memkind_pmem_get_size(struct memkind *kind, size_t *total, size_t *free)
-{
-    struct memkind_pmem *priv = kind->priv;
-
-    *total = priv->max_size;
-    *free = priv->max_size - priv->offset; /* rough estimation */
-
     return 0;
 }

@@ -1,0 +1,25 @@
+Source: memkind
+Section: utils
+Priority: optional
+Maintainer: Krzysztof Kulakowski <krzysztof.kulakowski@intel.com>
+Build-Depends: debhelper (>= 8.0.0)
+Standards-Version: 3.9.4
+Homepage: https://github.com/memkind/memkind
+
+Package: memkind
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description:
+ The memkind library is an user extensible heap manager built on top of
+ jemalloc which enables control of memory characteristics and a
+ partitioning of the heap between kinds of memory. The kinds of memory
+ are defined by operating system memory policies that have been applied
+ to virtual address ranges. Memory characteristics supported by
+ memkind without user extension include control of NUMA and page size
+ features. The jemalloc non-standard interface has been extended to
+ enable specialized arenas to make requests for virtual memory from the
+ operating system through the memkind partition interface. Through the
+ other memkind interfaces the user can control and extend memory
+ partition features and allocate memory while selecting enabled
+ features. This software is being made available for early evaluation.
+ Feedback on design or implementation is greatly appreciated.

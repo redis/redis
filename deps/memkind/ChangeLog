@@ -1,3 +1,32 @@
+* Tue Jun 13 2017 Artur Koziej <artur.koziej@intel.com> v1.6.0
+- Introduced new policy HBW_POLICY_BIND_ALL.
+- Introduced MEMKIND_HBW_ALL, MEMKIND_HBW_ALL_HUGETLB and MEMKIND_REGULAR kinds.
+- Fixed hbw_posix_memalign_psize() return value in case of unsupported policy and
+  page size combination.
+- Documented supported policy and page size combination for
+  hbw_posix_memalign_psize().
+- Merged libmemkind.a and libjemalloc_pic.a into a single static library.
+- Fixed OOM during tcache acquisition.
+- Tuned huge pages configuration in memkind tests.
+- Added stress tests for allocations with large random sizes.
+- Added stress tests for allocations with random kinds.
+- Extended policy and NUMA node binding tests.
+- Fixed several Travis build problems.
+- Removed gb_page_tests_preferred_policy tests.
+
+* Tue Feb 21 2017 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.5.0
+- Intel(R) TBB scalable_allocator can be used as heap management alternative
+  to jemalloc (requires installed Intel (R) TBB package and environment variable
+  MEMKIND_HEAP_MANAGER=TBB)
+- Updated internally used jemalloc to upstream version 4.3.1 (previously modified 3.5.1)
+- Introduced new environment option MEMKIND_HOG_MEMORY. Setting it to "1" will prevent
+  memkind from releasing memory to OS.
+- Introduced support for KNM processor from Intel(R) Xeon Phi(TM) family
+- General cleanup of build scripts (e.g. fixed issues found on Ubuntu,
+  introduced simple build.sh script)
+- Deprecated support for gigabyte-pages
+- Removed number of previously deprecated symbols
+
 * Thu Nov 17 2016 Krzysztof Kulakowski <krzysztof.kulakowski@intel.com> v1.4.0
 - Introduced hbw_verify_memory_region() for verifying if provided memory
   region fully falls into high-bandwidth memory (for details please take a look

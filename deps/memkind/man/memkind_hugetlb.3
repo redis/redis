@@ -34,8 +34,6 @@ Note: This is EXEPRIMENTAL API. The functionality and the header file itself can
 .sp
 .BI "int memkind_hugetlb_check_available_2mb(struct memkind " "*kind" );
 .br
-.BI "int memkind_hugetlb_check_available_1gb(struct memkind " "*kind" );
-.br
 .BI "int memkind_hugetlb_get_mmap_flags(struct memkind " "*kind" ", int " "*flags" );
 .br
 .BI "void memkind_hugetlb_init_once(void);"
@@ -54,10 +52,6 @@ Check if there are 2MB pages reserved in the default hugetlbfs.  If
 the kind implements ops.get_mbind_nodemask(), then only the NUMA nodes
 set by the nodemask are checked, otherwise every NUMA node is checked.
 .PP
-.BR memkind_hugetlb_check_available_1gb ()
-Similar to memkind_hugetlb_check_available_2mb() except that the check
-is for 1GB pages instead of 2MB pages.
-.PP
 .BR memkind_hugetlb_get_mmap_flags ()
 Sets the flags for the
 .BR mmap ()
@@ -74,7 +68,6 @@ Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
 .BR memkind (3),
 .BR memkind_arena (3),
 .BR memkind_default (3),
-.BR memkind_gbtlb (3),
 .BR memkind_hbw (3),
 .BR memkind_pmem (3),
 .BR jemalloc (3),

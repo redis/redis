@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,7 @@ public:
 		STANDARD_ALLOCATOR,
 		JEMALLOC,
 		MEMKIND_DEFAULT,
+		MEMKIND_REGULAR,
 		MEMKIND_HBW,
 		MEMKIND_INTERLEAVE,
 		MEMKIND_HBW_INTERLEAVE,
@@ -46,6 +47,7 @@ public:
 		MEMKIND_HBW_PREFERRED_HUGETLB,
 		MEMKIND_HBW_GBTLB,
 		MEMKIND_HBW_PREFERRED_GBTLB,
+		HBWMALLOC_ALLOCATOR,
 		NUM_OF_ALLOCATOR_TYPES
 	};
 
@@ -56,6 +58,7 @@ public:
 			"STANDARD_ALLOCATOR",
 			"JEMALLOC",
 			"MEMKIND_DEFAULT",
+			"MEMKIND_REGULAR",
 			"MEMKIND_HBW",
 			"MEMKIND_INTERLEAVE",
 			"MEMKIND_HBW_INTERLEAVE",
@@ -65,7 +68,8 @@ public:
 			"MEMKIND_HBW_HUGETLB",
 			"MEMKIND_HBW_PREFERRED_HUGETLB",
 			"MEMKIND_HBW_GBTLB",
-			"MEMKIND_HBW_PREFERRED_GBTLB"
+			"MEMKIND_HBW_PREFERRED_GBTLB",
+			"HBWMALLOC_ALLOCATOR"
 		};
 
 		if(type >= NUM_OF_ALLOCATOR_TYPES) assert(!"Invalid input argument!");
@@ -109,7 +113,7 @@ public:
 			types[type] = false;
 	}
 
-	bool is_enabled(unsigned type) {return (types.count(type) ? types[type] : false);}
+	bool is_enabled(unsigned type) const {return (types.count(type) ? types.find(type)->second : false);}
 
 private:
 	std::map<unsigned, bool> types;
@@ -121,7 +125,6 @@ class AllocationSizesConf
 {
 public:
 	unsigned n;
-	unsigned reserved_unallocated; // limit allocations
 	size_t size_from;
 	size_t size_to;
 };
@@ -133,6 +136,7 @@ public:
 // - "func_calls" - enabled or disabled function calls,
 // - "allocators_types" - enable allocators,
 // - "seed" - random seed.
+// - "touch_memory" - enable or disable touching memory
 class TaskConf
 {
 public:
@@ -141,6 +145,6 @@ public:
 	TypesConf func_calls;
 	TypesConf allocators_types;
 	unsigned seed;
+	bool touch_memory;
 	bool is_csv_log_enabled;
-	bool check_memory_availability;
 };

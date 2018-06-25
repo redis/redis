@@ -27,10 +27,9 @@ noinst_PROGRAMS += examples/hello_memkind \
                    examples/hello_hbw \
                    examples/filter_memkind \
                    examples/pmem_memkind \
-                   examples/gb_realloc \
                    examples/autohbw_candidates \
                    # end
-if ENABLE_CXX11
+if HAVE_CXX11
 noinst_PROGRAMS += examples/memkind_allocated
 endif
 
@@ -39,10 +38,9 @@ examples_hello_memkind_debug_LDADD = libmemkind.la
 examples_hello_hbw_LDADD = libmemkind.la
 examples_filter_memkind_LDADD = libmemkind.la
 examples_pmem_memkind_LDADD = libmemkind.la
-examples_gb_realloc_LDADD = libmemkind.la
 examples_autohbw_candidates_LDADD = libmemkind.la
 
-if ENABLE_CXX11
+if HAVE_CXX11
 examples_memkind_allocated_LDADD = libmemkind.la
 endif
 
@@ -51,8 +49,7 @@ examples_hello_memkind_debug_SOURCES = examples/hello_memkind_example.c examples
 examples_hello_hbw_SOURCES = examples/hello_hbw_example.c
 examples_filter_memkind_SOURCES = examples/filter_example.c
 examples_pmem_memkind_SOURCES = examples/pmem_example.c
-examples_gb_realloc_SOURCES = examples/gb_realloc_example.c
 examples_autohbw_candidates_SOURCES = examples/autohbw_candidates.c
-if ENABLE_CXX11
+if HAVE_CXX11
 examples_memkind_allocated_SOURCES = examples/memkind_allocated_example.cpp examples/memkind_allocated.hpp
 endif

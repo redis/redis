@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 - 2016 Intel Corporation.
+ * Copyright (C) 2015 - 2017 Intel Corporation.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +27,10 @@
 extern "C" {
 #endif
 
+#ifndef MEMKIND_INTERNAL_API
+#warning "DO NOT INCLUDE THIS FILE! IT IS INTERNAL MEMKIND API AND SOON WILL BE REMOVED FROM BIN & DEVEL PACKAGES"
+#endif
+
 #include <memkind.h>
 #include "memkind_default.h"
 #include "memkind_arena.h"
@@ -43,15 +47,10 @@ extern "C" {
 
 #define	MEMKIND_PMEM_MIN_SIZE (1024 * 1024 * 16)
 
-int memkind_pmem_create(struct memkind *kind, const struct memkind_ops *ops, const char *name);
+int memkind_pmem_create(struct memkind *kind, struct memkind_ops *ops, const char *name);
 int memkind_pmem_destroy(struct memkind *kind);
 void *memkind_pmem_mmap(struct memkind *kind, void *addr, size_t size);
 int memkind_pmem_get_mmap_flags(struct memkind *kind, int *flags);
-int memkind_pmem_get_size(struct memkind *kind, size_t *total, size_t *free);
-size_t jemk_malloc_usable_size(void *ptr);
-int jemk_get_defrag_hint(void* ptr, int *bin_util, int *run_util);
-int jemk_mallctl(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
-void jemk_dallocx(void *ptr, int flags);
 
 struct memkind_pmem {
     int fd;
@@ -61,7 +60,7 @@ struct memkind_pmem {
     pthread_mutex_t pmem_lock;
 };
 
-extern const struct memkind_ops MEMKIND_PMEM_OPS;
+extern struct memkind_ops MEMKIND_PMEM_OPS;
 
 #ifdef __cplusplus
 }

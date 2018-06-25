@@ -1,5 +1,5 @@
 .\"
-.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" Copyright (C) 2014 - 2017 Intel Corporation.
 .\" All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@ Note: This is EXEPRIMENTAL API. The functionality and the header file itself can
 .sp
 .B Link with -lmemkind
 .sp
-.BI "int memkind_arena_create(struct memkind " "*kind" ", const struct memkind_ops " "*ops" ", const char " "*name" );
+.BI "int memkind_arena_create(struct memkind " "*kind" ", struct memkind_ops " "*ops" ", const char " "*name" );
 .BI "int memkind_arena_create_map(struct memkind " "*kind" );
 .BI "int memkind_arena_destroy(struct memkind " "*kind" );
 .BI "void *memkind_arena_malloc(struct memkind " "*kind" ", size_t " "size" );
@@ -81,8 +81,8 @@ is an implementation of the memkind "malloc" operation for memory
 kinds that use jemalloc.  This allocates memory using the arenas
 created by
 .BR memkind_arena_create ()
-though the jemalloc
-.BR jemk_mallocx ()
+through the jemalloc's
+.BR mallocx ()
 interface.  It uses the memkind "get_arena" operation to select the
 arena.
 .PP
@@ -91,8 +91,8 @@ is an implementation of the memkind "calloc" operation for memory
 kinds that use jemalloc.  This allocates memory using the arenas
 created by
 .BR memkind_arena_create ()
-though the jemalloc
-.BR jemk_mallocx ()
+through the jemalloc's
+.BR mallocx ()
 interface.  It uses the memkind "get_arena" operation to select the
 arena.
 .PP
@@ -101,19 +101,19 @@ is an implementation of the memkind "posix_memalign" operation for memory
 kinds that use jemalloc.  This allocates memory using the arenas
 created by
 .BR memkind_arena_create ()
-though the jemalloc
-.BR jemk_mallocx ()
+through the jemalloc's
+.BR mallocx ()
 interface.  It uses the memkind "get_arena" operation to select the
 arena.  The POSIX standard requires that
 .BR posix_memalign (3)
 may not set
 .I errno
-however the
-.BR jemk_mallocx ()
+however the jemalloc's
+.BR mallocx ()
 routine may.  In an attempt to abide by the standard
 .I errno
-is recorded before calling
-.BR jemk_mallocx ()
+is recorded before calling jemalloc's
+.BR mallocx ()
 and then reset after the call.
 .PP
 .BR memkind_arena_realloc ()
@@ -121,8 +121,8 @@ is an implementation of the memkind "realloc" operation for memory
 kinds that use jemalloc.  This allocates memory using the arenas
 created by
 .BR memkind_arena_create ()
-though the jemalloc
-.BR jemk_mallocx ()
+through the jemalloc's
+.BR mallocx ()
 interface.  It uses the memkind "get_arena" operation to select the
 arena.
 .PP
@@ -132,14 +132,14 @@ Retrieves the
 index that is bound to to the calling thread based on a hash of its
 thread ID.  The
 .I arena
-index can be used with the MALLOCX_ARENA macro to set flags for
-.BR jemk_mallocx ().
+index can be used with the MALLOCX_ARENA macro to set flags for jemalloc's
+.BR mallocx ().
 .PP
 .BR memkind_bijective_arena_get_arena ()
 Retrieves the
 .I arena
-index to be used with the MALLOCX_ARENA macro to set flags for
-.BR jemk_mallocx ().
+index to be used with the MALLOCX_ARENA macro to set flags for jemalloc's
+.BR mallocx ().
 Use of this operation implies that only one arena is used for the
 .IR kind .
 .SH "COPYRIGHT"
@@ -149,7 +149,6 @@ Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
 .BR memkind_default (3),
 .BR memkind_hbw (3),
 .BR memkind_hugetlb (3),
-.BR memkind_gbtlb (3),
 .BR memkind_pmem (3),
 .BR jemalloc (3),
 .BR mbind (2),

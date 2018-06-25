@@ -1,5 +1,5 @@
 .\"
-.\" Copyright (C) 2014 - 2016 Intel Corporation.
+.\" Copyright (C) 2014 - 2017 Intel Corporation.
 .\" All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
@@ -54,19 +54,7 @@ This header expose EXPERIMENTAL API in except of STANDARD API placed in section 
 .sp
 .B "KIND MANAGMENT:"
 .br
-.BI "int memkind_create(const struct memkind_ops " "*ops" ", const char " "*name" ", memkind_t " "*kind" ); (DEPRECATED)
-.br
 .BI "int memkind_create_pmem(const char " "*dir" ", size_t " "max_size" ", memkind_t " "*kind" );
-.br
-.BI "int memkind_finalize(void);" (DEPRECATED)
-.br
-.BI "int memkind_get_num_kind(int " "*num_kind" ); (DEPRECATED)
-.br
-.BI "int memkind_get_kind_by_partition(int " "partition" ", memkind_t " "*kind" ); (DEPRECATED)
-.br
-.BI "int memkind_get_kind_by_name(const char " "*name" ", memkind_t " "*kind" ); (DEPRECATED)
-.br
-.BI "int memkind_get_size(memkind_t " "kind" ", size_t " "*total" ", size_t " "*free" ); (DEPRECATED)
 .br
 .BI "int memkind_check_available(memkind_t " "kind" );
 .sp
@@ -236,8 +224,7 @@ The value of
 can be given as the
 .I kind
 for all buffers allocated by a kind that leverages the jemalloc
-allocator.  This includes all internally defined kinds other than those
-that use gigabyte pages.  In cases where the kind is unknown in the
+allocator. In cases where the kind is unknown in the
 context of the call to
 .BR memkind_free ()
 .B 0
@@ -280,20 +267,6 @@ section.  The user can also create their own kinds of memory.  This
 section describes the API's that enable the tracking of the different
 kinds of memory and determining their properties.
 .PP
-.BR memkind_create () (DEPRECATED)
-is used to create a new kind of memory.  It takes as input a pointer
-to a vtable called
-.I ops
-that determines the operations that define the kind of memory.  These
-operations can be taken from one of the memkind built-in implementations
-defined in the memkind headers, or it can be user implemented.  The requirements
-for each operation is defined in the
-.B MEMKIND OPERATIONS
-section.  See the
-.B SEE ALSO
-section for the list of memkind header files that implement the built-in
-operations: each header has a man page.
-.PP
 .BR memkind_create_pmem ()
 is a convenience function used to create a file-backed kind of memory.
 It allocates a temporary file in the given directory
@@ -304,17 +277,7 @@ so that the file name does not appear when the directory is listed and
 the space is automatically freed when the program terminates.
 The file is truncated to a size of
 .I max_size
-bytes and the resulting space is memory-mapped.  Then, the actual pmem
-.I kind
-is created by calling
-.BR memkind_create ()
-with a unique
-.I name
-string ("pmemXXXXXXXX"), and the pointer to
-.BR MEMKIND_PMEM_OPS
-as
-.I ops
-argument.
+bytes and the resulting space is memory-mapped.
 .br
 Note that the actual file system space is not allocated immediately, but only
 on a call to
@@ -342,62 +305,6 @@ The
 passed in is the raw size of the memory pool and
 .B jemalloc
 will use some of that space for its own metadata.
-.PP
-.BR memkind_finalize ()
-releases all resources associated with the memkind library including
-the resources used by all of the kinds that were created, but it does
-not free memory allocated with the
-.B HEAP MANAGEMENT
-interface.  This must be the last call to the memkind library before
-application termination, but it can be called more than once.
-.PP
-.BR memkind_get_num_kind ()
-sets
-.I num_kind
-to the number of available kinds of memory.  This accounts for
-the built-in static kinds and any dynamically created kinds.
-Since there is a one-to-one mapping between partitions and kinds,
-this is also the number of partitions.
-.PP
-.BR memkind_get_kind_by_partition ()
-sets
-.I kind
-to the memory kind associated with the
-.I partition
-index which must be in the range [0,
-.IR "num_kind" " - 1]"
-where num_kind can be retrieved with the
-.BR memkind_get_num_kind ()
-function.
-.PP
-.BR memkind_get_kind_by_name ()
-sets
-.I kind
-to the memory kind associated with the
-.I name
-string specified.  All of the built-in kinds have name strings that are the lower-case version of name
-given in the
-.B KINDS
-section (for example: MEMKIND_DEFAULT has
-.I name
-"memkind_default")
-.PP
-.BR memkind_get_size () (DEPRECATED)
-sets
-.I total
-to the number of bytes on the system which can be allocated with the specified
-.IR kind ,
-and sets
-.I free
-to the number of unallocated bytes available of memory with the
-specified
-.IR kind.
-
-.BR Note:
-These numbers may be specific to the CPU of the calling
-thread if the
-.I kind
-binds memory to NUMA nodes associated with the CPU.
 .PP
 .BR memkind_check_available ()
 Returns a zero if the specified
@@ -475,7 +382,7 @@ structure will be prepended with
 and should be considered the operation associated with the
 .IR kind .
 .PP
-.BI "int ops.create(memkind_t " "kind" ", const struct memkind_ops " "*ops" ", const char " "*name" );
+.BI "int ops.create(memkind_t " "kind" ", struct memkind_ops " "*ops" ", const char " "*name" );
 .br
 shall instantiate all of the dynamic resources associated with the
 .IR kind .
@@ -629,8 +536,8 @@ to an index appropriate for the
 .I kind,
 allocation
 .I size,
-and CPU when using the jemalloc arena allocation through the
-.BR jemk_mallocx ()
+and CPU when using the jemalloc arena allocation through the jemalloc's
+.BR mallocx ()
 API. Size parameter is not used at the moment, but will be necessary for integration with jemalloc 4.0.x (planned for one of the future releases).
 .PP
 .BI "int ops.get_size(memkind_t " "kind" ", size_t " "*total" ", size_t " "*free" );
@@ -645,14 +552,14 @@ shall return 0 if the
 .I kind
 is available on the system, and an error code if not.
 .PP
-.BI "int ops.check_addr(memkind_t " "kind" ", void " "*addr" );
+.BI "int ops.check_addr(memkind_t " "kind" ", void " "*addr" ); (DEPRECATED)
 .br
 shall return 0 if the
 .I addr
 can be freed with the specified
 .I kind
-and an error code otherwise.  If the memory cannot be freed with
-.BR jemk_free (),
+and an error code otherwise.  If the memory cannot be freed with jemalloc's
+.BR free (),
 then at least one of the instantiated kinds must return 0 to enable
 freeing.
 .PP
@@ -687,9 +594,9 @@ Default allocation using standard memory and default page size.
 Allocate from standard memory using huge pages. Note: This kind requires
 huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
-.B MEMKIND_GBTLB
-Allocate from standard memory using giga byte huge pages. Note: This kind
-requires gigabyte pages configuration described in SYSTEM CONFIGURATION section.
+.B MEMKIND_GBTLB (DEPRECATED)
+Allocate from standard memory using 1GB chunks backed by huge pages.
+Note: This kind requires huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
 .B MEMKIND_INTERLEAVE
 Allocate pages interleaved across all NUMA nodes with transparent huge
@@ -701,10 +608,23 @@ of allocation. If there is not enough high bandwidth memory to satisfy the reque
 .I errno
 is set to ENOMEM and the allocated pointer is set to NULL.
 .TP
+.B MEMKIND_HBW_ALL
+Same as
+.B MEMKIND_HBW
+except decision regarding closest NUMA node is postponed until the time of first write.
+.TP
 .B MEMKIND_HBW_HUGETLB
 Same as
 .B MEMKIND_HBW
 except the allocation is backed by huge pages. Note: This kind requires
+huge pages configuration described in SYSTEM CONFIGURATION section.
+.TP
+.B MEMKIND_HBW_ALL_HUGETLB
+Combination of
+.B MEMKIND_HBW_ALL
+and
+.B MEMKIND_HBW_HUGETLB
+properties. Note: This kind requires
 huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
 .B MEMKIND_HBW_PREFERRED
@@ -719,26 +639,22 @@ Same as
 except the allocation is backed by huge pages. Note: This kind requires huge pages
 configuration described in SYSTEM CONFIGURATION section.
 .TP
-.B MEMKIND_HBW_GBTLB
+.B MEMKIND_HBW_GBTLB (DEPRECATED)
 Same as
 .B MEMKIND_HBW
-except the allocation is backed by one gigabyte huge pages.  Note that
+except the allocation is backed by 1GB chunks of huge pages. Note that
 .I size
 can take on any value, but full gigabyte pages will allocated for each
-request, so remainder of the last page will be wasted. A good use case
-scenario is to grow a buffer in the course of an application with reallocs.
-In this case, if there is enough memory available within in already allocated
-gigabyte page, newer pages are not fetched. This is demonstrated in the
-examples directory with gb_realloc_example.c
-This kind requires gigabyte pages configuration described in SYSTEM CONFIGURATION
+request, so remainder of the last page will be wasted.
+This kind requires huge pages configuration described in SYSTEM CONFIGURATION
 section.
 .TP
-.B MEMKIND_HBW_PREFERRED_GBTLB
+.B MEMKIND_HBW_PREFERRED_GBTLB (DEPRECATED)
 Same as
 .B MEMKIND_HBW_GBTLB
 except that if there is not enough high bandwidth memory to satisfy
 the request, the allocation will fall back on standard memory. Note: This kind
-requires gigabyte pages configuration described in SYSTEM CONFIGURATION section.
+requires huge pages configuration described in SYSTEM CONFIGURATION section.
 .TP
 .B MEMKIND_HBW_INTERLEAVE
 Same as
@@ -746,6 +662,10 @@ Same as
 except that the pages that support the allocation are interleaved
 across all high bandwidth nodes and transparent huge pages are
 disabled.
+.TP
+.B MEMKIND_REGULAR
+Allocate from regular memory using the default page size. Regular means general purpose memory
+from the NUMA nodes containing CPUs.
 .SH "ERRORS"
 .TP
 .BR memkind_posix_memalign ()
@@ -787,18 +707,18 @@ Call to
 failed
 .TP
 .B MEMKIND_ERROR_MEMALIGN (DEPRECATED)
-Call to
-.BR jemk_posix_memalign ()
+Call to jemalloc's
+.BR posix_memalign ()
 failed
 .TP
 .B MEMKIND_ERROR_MALLCTL (DEPRECATED)
-Call to
-.BR jemk_mallctl ()
+Call to jemalloc's
+.BR mallctl ()
 failed
 .TP
 .B MEMKIND_ERROR_MALLOC
-Call to
-.BR jemk_malloc ()
+Call to jemalloc's
+.BR malloc ()
 failed
 .TP
 .B MEMKIND_ERROR_GETCPU (DEPRECATED)
@@ -813,8 +733,8 @@ Two NUMA memory nodes are equidistant from target cpu node
 Alignment must be a power of two and larger than sizeof(void *)
 .TP
 .B MEMKIND_ERROR_ALLOCM
-Call to
-.BR jemk_allocm ()
+Call to jemalloc's
+.BR allocm ()
 failed
 .TP
 .B MEMKIND_ERROR_ENVIRON
@@ -860,8 +780,19 @@ Controls logging mechanism in memkind. Setting
 .B MEMKIND_DEBUG
 to "1" enables printing messages like errors and general informations about environment to
 .I stderr.
+.TP
+.B MEMKIND_HEAP_MANAGER
+Controls heap management behavior in memkind library by switching to one of the available heap managers.
+.br
+Values:
+.br
+    JEMALLOC – sets the jamalloc heap manager
+.br
+    TBB – sets the Intel Threading Building Blocks heap manager. This option requires installed
+    Intel Threading Building Blocks library.
+If the MEMKIND_HEAP_MANAGER is not set than the jemalloc heap manager will be used by default.
 .SH "SYSTEM CONFIGURATION"
-Interfaces for obtaining 2MB and 1GB pages (HUGETLB and GBTLB) need allocated
+Interfaces for obtaining 2MB (HUGETLB) need allocated
 huge pages in the kernel's huge page pool.
 .TP
 .B HUGETLB (huge pages)
@@ -869,19 +800,16 @@ Current number of "persistent" huge pages can be read from /proc/sys/vm/nr_hugep
 Proposed way of setting hugepages is: "sudo sysctl vm.nr_hugepages=<number_of_hugepages>".
 More informations can be found here:
 https://www.kernel.org/doc/Documentation/vm/hugetlbpage.txt
+.SH "STATIC LINKING"
 .TP
-.B GBTLB (gigabyte pages)
-Number of preallocated gigabyte pages can be read from /proc/cmdline
-(hugepagesz=1G nr_hugepages=N). Setting gigabyte hugepages is available
-by kernel commandline. From 3.16 and later kernels, users can allocate
-gigabyte pages like its done for 2MB pages.
+When linking statically against memkind, libmemkind.a should be used together with its dependencies libnuma and pthread. Pthread can be linked by adding /usr/lib64/libpthread.a as a dependency (exact path may vary). Typically libnuma will need to be compiled from sources to use it as a static dependency. libnuma can be reached on github: https://github.com/numactl/numactl
 .SH "KNOWN ISSUES"
 .TP
 .B HUGETLB (huge pages)
 There might be some overhead in huge pages consumption caused by heap management.
 If your allocation fails because of OOM, please try to allocate extra huge pages (e.g. 8 huge pages).
 .SH "COPYRIGHT"
-Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
+Copyright (C) 2014 - 2017 Intel Corporation. All rights reserved.
 .SH "SEE ALSO"
 .BR malloc (3),
 .BR numa (3),
@@ -894,5 +822,4 @@ Copyright (C) 2014 - 2016 Intel Corporation. All rights reserved.
 .BR memkind_arena (3),
 .BR memkind_hbw (3),
 .BR memkind_hugetlb (3),
-.BR memkind_gbtlb (3),
 .BR memkind_pmem (3)

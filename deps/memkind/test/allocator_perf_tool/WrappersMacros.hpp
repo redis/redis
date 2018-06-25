@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -26,32 +26,18 @@
 #include <ctime>
 #include <sys/time.h>
 
-#if __cplusplus > 201100L
 #include <chrono>
-#define START_TEST(ALOCATOR, METHOD) \
+#define START_TEST(ALLOCATOR, METHOD) \
 	memory_operation data; \
-	data.allocator_type = ALOCATOR; \
+	data.allocator_type = ALLOCATOR; \
 	data.allocation_method = METHOD;\
+	data.error_code = 0; \
 	std::chrono::system_clock::time_point last = std::chrono::high_resolution_clock::now();
 #define END_TEST \
 	std::chrono::system_clock::time_point now = std::chrono::high_resolution_clock::now(); \
 	std::chrono::duration<double,std::milli> elapsedTime(now - last); \
 	data.total_time = elapsedTime.count() / 1000.0; \
 	data.size_of_allocation = size; \
+	data.error_code = errno; \
 	data.is_allocated = true; \
 	return data;
-#else
-#define START_TEST(ALOCATOR, METHOD) \
-	memory_operation data; \
-	data.allocator_type = ALOCATOR; \
-	data.allocation_method = METHOD;\
-	/*Prevent to reorder RDTSC instruction.*/ \
-	__asm__ __volatile__ ("lfence;\n"); \
-	clock_t last = clock();
-#define END_TEST \
-	clock_t now = clock(); \
-	data.total_time = (double)(now - last) / CLOCKS_PER_SEC; \
-	data.size_of_allocation = size; \
-	data.is_allocated = true; \
-	return data;
-#endif

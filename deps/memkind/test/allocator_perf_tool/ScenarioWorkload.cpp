@@ -22,7 +22,6 @@
 * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #include "ScenarioWorkload.h"
-#include "AllocatorFactory.hpp"
 
 ScenarioWorkload::ScenarioWorkload(VectorIterator<Allocator*>* a, VectorIterator<size_t>* as,  VectorIterator<int>* fc)
 {
@@ -65,7 +64,7 @@ bool ScenarioWorkload::run()
 
 				if(!allocations.empty() && (data != NULL))
 				{
-					AllocatorFactory().get_existing(data->allocator_type)->wrapped_free(data->ptr);
+					allocator_factory.get_existing(data->allocator_type)->wrapped_free(data->ptr);
 					data->is_allocated = false;
 
 					memory_operation free_op = *data;
@@ -92,7 +91,7 @@ ScenarioWorkload::~ScenarioWorkload(void)
 	{
 		memory_operation data = allocations[i];
 		if(data.is_allocated && (data.allocation_method != FunctionCalls::FREE))
-			AllocatorFactory().get_existing(data.allocator_type)->wrapped_free(data.ptr);
+			allocator_factory.get_existing(data.allocator_type)->wrapped_free(data.ptr);
 	}
 }
 

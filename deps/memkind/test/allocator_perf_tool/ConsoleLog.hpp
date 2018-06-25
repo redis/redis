@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -39,7 +39,7 @@ public:
 			if(stats.stats[allocator_type].count(func_calls))
 			{
 				MethodStats method_stats = stats.stats[allocator_type][func_calls];
-				printf(" %20s (%u) | %7s | %10f.s | %10f.s  | %u bytes/%f MB \n",
+				printf(" %20s (%u) | %7s | %10f.s | %10f.s  | %zu bytes/%f MB \n",
 					AllocatorTypes::allocator_name(allocator_type).c_str(),
 					allocator_type,
 					FunctionCalls::function_name(func_calls).c_str(),
@@ -75,15 +75,15 @@ public:
 		printf("Max overhead: %f MB\n", stats.get_max_mem_overhead());
 		printf("Max memory usage: %f MB\n", stats.get_max_memory_usage());
 		printf("Min memory usage: %f MB\n", stats.get_min_memory_usage());
-		printf("Number of samples: %d\n", stats.get_number_of_samples());
+		printf("Number of samples: %zu\n", stats.get_number_of_samples());
 		printf("=====================================================================\n");
 	}
 
 	static void print_requested_memory(TimeStats& stats, std::string test_name)
 	{
 		printf("\n====== Requested memory stats for %s =================\n", test_name.c_str());
-		printf("Total requested allocations: %u bytes/%f MB. \n",stats.get_allocated(), convert_bytes_to_mb(stats.get_allocated()));
-		printf("Total requested deallocations: %u bytes/%f MB. \n",stats.get_deallocated(), convert_bytes_to_mb(stats.get_deallocated()));
+		printf("Total requested allocations: %zu bytes/%f MB. \n",stats.get_allocated(), convert_bytes_to_mb(stats.get_allocated()));
+		printf("Total requested deallocations: %zu bytes/%f MB. \n",stats.get_deallocated(), convert_bytes_to_mb(stats.get_deallocated()));
 		printf("=====================================================================\n");
 	}
 };

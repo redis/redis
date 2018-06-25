@@ -28,6 +28,5 @@ lib_LTLIBRARIES += autohbw/libautohbw.la \
 EXTRA_DIST += autohbw/autohbw_get_src_lines.pl
 
 autohbw_libautohbw_la_LIBADD = libmemkind.la
-autohbw_libautohbw_la_LDFLAGS = -version-info $(memkind_abi_version)
 
 autohbw_libautohbw_la_SOURCES = autohbw/autohbw.c

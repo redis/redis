@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2015 - 2016 Intel Corporation.
+* Copyright (C) 2015 - 2017 Intel Corporation.
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,7 @@
 #include "Configuration.hpp"
 #include "JemallocAllocatorWithTimer.hpp"
 #include "MemkindAllocatorWithTimer.hpp"
+#include "HBWmallocAllocatorWithTimer.hpp"
 #include "Numastat.hpp"
 
 #include <vector>
@@ -54,6 +55,7 @@ public:
 	AllocatorFactory()
 	{
 		memkind_allocators[AllocatorTypes::MEMKIND_DEFAULT] = MemkindAllocatorWithTimer(MEMKIND_DEFAULT, AllocatorTypes::MEMKIND_DEFAULT);
+		memkind_allocators[AllocatorTypes::MEMKIND_REGULAR] = MemkindAllocatorWithTimer(MEMKIND_REGULAR, AllocatorTypes::MEMKIND_REGULAR);
 		memkind_allocators[AllocatorTypes::MEMKIND_HBW] = MemkindAllocatorWithTimer(MEMKIND_HBW, AllocatorTypes::MEMKIND_HBW);
 		memkind_allocators[AllocatorTypes::MEMKIND_INTERLEAVE] = MemkindAllocatorWithTimer(MEMKIND_INTERLEAVE, AllocatorTypes::MEMKIND_INTERLEAVE);
 		memkind_allocators[AllocatorTypes::MEMKIND_HBW_INTERLEAVE] = MemkindAllocatorWithTimer(MEMKIND_HBW_INTERLEAVE, AllocatorTypes::MEMKIND_HBW_INTERLEAVE);
@@ -77,6 +79,9 @@ public:
 
 			case AllocatorTypes::JEMALLOC:
 				return &jemalloc;
+
+			case AllocatorTypes::HBWMALLOC_ALLOCATOR:
+				return &hbwmalloc_allocator;
 
 			default:
 				{
@@ -186,6 +191,7 @@ public:
 private:
 	StandardAllocatorWithTimer standard_allocator;
 	JemallocAllocatorWithTimer jemalloc;
+	HBWmallocAllocatorWithTimer hbwmalloc_allocator;
 
 	std::map<unsigned, MemkindAllocatorWithTimer> memkind_allocators;
 };
