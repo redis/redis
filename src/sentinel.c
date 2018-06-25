@@ -1713,6 +1713,17 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             si->runid = sdsnew(argv[4]);
             sentinelTryConnectionSharing(si);
         }
+    } else if (!strcasecmp(argv[0],"rename-command") && argc == 4) {
+        /* rename-command <name> <command> <renamed-command> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        sds oldcmd = sdsnew(argv[2]);
+        sds newcmd = sdsnew(argv[3]);
+        if (dictAdd(ri->renamed_commands,oldcmd,newcmd) != DICT_OK) {
+            sdsfree(oldcmd);
+            sdsfree(newcmd);
+            return "Same command renamed multiple times with rename-command.";
+        }
     } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
         /* announce-ip <ip-address> */
         if (strlen(argv[1]))
