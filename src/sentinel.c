@@ -387,6 +387,7 @@ void sentinelSimFailureCrash(void);
 /* ========================= Dictionary types =============================== */
 
 uint64_t dictSdsHash(const void *key);
+uint64_t dictSdsCaseHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
@@ -424,7 +425,7 @@ dictType leaderVotesDictType = {
 
 /* Instance renamed commands table. */
 dictType renamedCommandsDictType = {
-    dictSdsHash,               /* hash function */
+    dictSdsCaseHash,           /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCaseCompare,     /* key compare */
