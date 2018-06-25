@@ -3469,19 +3469,16 @@ void sentinelSetCommand(client *c) {
             ri->quorum = ll;
             changes++;
         } else if (!strcasecmp(option,"rename-command") && moreargs > 1) {
-            /* rename-command <oldname> <newname>
-             *
-             * Note: if newname is the empty string the command renaming
-             * entry is deleted. */
+            /* rename-command <oldname> <newname> */
             sds oldname = c->argv[++j]->ptr;
             sds newname = c->argv[++j]->ptr;
 
             /* Remove any older renaming for this command. */
             dictDelete(ri->renamed_commands,oldname);
 
-            /* If the target name length is not zero, we need to add the
-             * actual entry to the renamed table. */
-            if (sdslen(newname)) {
+            /* If the target name is the same as the source name there
+             * is no need to add an entry mapping to itself. */
+            if (!dictSdsKeyCaseCompare(NULL,oldname,newname)) {
                 oldname = sdsdup(oldname);
                 newname = sdsdup(newname);
                 dictAdd(ri->renamed_commands,oldname,newname);
