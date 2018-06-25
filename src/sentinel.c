@@ -1870,6 +1870,18 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
         dictReleaseIterator(di2);
+
+        /* sentinel rename-command */
+        di2 = dictGetIterator(master->renamed_commands);
+        while((de = dictNext(di2)) != NULL) {
+            sds oldname = dictGetKey(de);
+            sds newname = dictGetVal(de);
+            line = sdscatprintf(sdsempty(),
+                "sentinel rename-command %s %s %s",
+                master->name, oldname, newname);
+            rewriteConfigRewriteLine(state,"sentinel",line,1);
+        }
+        dictReleaseIterator(di2);
     }
 
     /* sentinel current-epoch is a global state valid for all the masters. */
