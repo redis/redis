@@ -3388,12 +3388,12 @@ void sentinelSetCommand(client *c) {
     for (j = 3; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j;
         option = c->argv[j]->ptr;
-        robj *o = c->argv[j+1];
         long long ll;
+        int old_j = j; /* Used to know what to log as an event. */
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
             /* down-after-millisecodns <milliseconds> */
-            value = c->argv[++j]->ptr;
+            robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->down_after_period = ll;
@@ -3401,14 +3401,14 @@ void sentinelSetCommand(client *c) {
             changes++;
         } else if (!strcasecmp(option,"failover-timeout") && moreargs > 0) {
             /* failover-timeout <milliseconds> */
-            value = c->argv[++j]->ptr;
+            robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->failover_timeout = ll;
             changes++;
         } else if (!strcasecmp(option,"parallel-syncs") && moreargs > 0) {
             /* parallel-syncs <milliseconds> */
-            value = c->argv[++j]->ptr;
+            robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->parallel_syncs = ll;
@@ -3462,7 +3462,7 @@ void sentinelSetCommand(client *c) {
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */
-            value = c->argv[++j]->ptr;
+            robj *o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->quorum = ll;
