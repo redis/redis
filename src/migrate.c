@@ -566,7 +566,7 @@ parsed_options:
     args->db = c->db;
     args->client = c;
     args->errmsg = NULL;
-    args->cmd_name = (args->non_blocking ? "MIGRATE-ASYNC" : "MIGRATE");
+    args->cmd_name = "MIGRATE";
     return args;
 
 failed_cleanup:
