@@ -3467,6 +3467,25 @@ void sentinelSetCommand(client *c) {
                 goto badfmt;
             ri->quorum = ll;
             changes++;
+        } else if (!strcasecmp(option,"rename-command") && moreargs > 1) {
+            /* rename-command <oldname> <newname>
+             *
+             * Note: if newname is the empty string the command renaming
+             * entry is deleted. */
+            sds oldname = c->argv[++j]->ptr;
+            sds newname = c->argv[++j]->ptr;
+
+            /* Remove any older renaming for this command. */
+            dictDelete(ri->renamed_commands,oldname);
+
+            /* If the target name length is not zero, we need to add the
+             * actual entry to the renamed table. */
+            if (sdslen(newname)) {
+                oldname = sdsdup(oldname);
+                newname = sdsdup(newname);
+                dictAdd(ri->renamed_commands,oldname,newname);
+            }
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option or number of arguments for "
                                   "SENTINEL SET '%s'", option);
