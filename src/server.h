@@ -50,7 +50,6 @@
 #include <signal.h>
 
 #include <memkind.h>
-#include <memkind/internal/memkind_pmem.h>
 
 typedef long long mstime_t; /* millisecond time type. */
 

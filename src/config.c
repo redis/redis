@@ -446,7 +446,7 @@ void loadServerConfigFromString(char *config) {
                 err = "unable to write to pmem directory"; goto loaderr;
             }
             long long size = memtoll(argv[2],NULL);
-            if (size < MEMKIND_PMEM_MIN_SIZE) {
+            if (size < 1024 * 1024 * 16) {
                 err = "Invalid pmfile size"; goto loaderr;
             }
             server.pm_file_size = size;
