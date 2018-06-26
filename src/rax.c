@@ -1167,6 +1167,7 @@ void raxStart(raxIterator *it, rax *rt) {
     it->key = it->key_static_string;
     it->key_max = RAX_ITER_STATIC_LEN;
     it->data = NULL;
+    it->node_cb = NULL;
     raxStackInit(&it->stack);
 }
 
@@ -1240,6 +1241,8 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             if (!raxIteratorAddChars(it,it->node->data,
                 it->node->iscompr ? it->node->size : 1)) return 0;
             memcpy(&it->node,cp,sizeof(it->node));
+            if (it->node_cb && it->node_cb(&it->node))
+                memcpy(cp,&it->node,sizeof(it->node));
             /* For "next" step, stop every time we find a key along the
              * way, since the key is lexicograhically smaller compared to
              * what follows in the sub-children. */
@@ -1292,6 +1295,8 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         raxIteratorAddChars(it,it->node->data+i,1);
                         if (!raxStackPush(&it->stack,it->node)) return 0;
                         memcpy(&it->node,cp,sizeof(it->node));
+                        if (it->node_cb && it->node_cb(&it->node))
+                            memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);
                             return 1;
@@ -1325,7 +1330,7 @@ int raxSeekGreatest(raxIterator *it) {
 
 /* Like raxIteratorNextStep() but implements an iteration step moving
  * to the lexicographically previous element. The 'noup' option has a similar
- * effect to the one of raxIteratorPrevSte(). */
+ * effect to the one of raxIteratorNextStep(). */
 int raxIteratorPrevStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
         return 1;
