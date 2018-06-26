@@ -1339,7 +1339,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         cmd = sdscatprintf(cmd,"*%zu\r\n",argslen);
         cmd = sdscatsds(cmd,cmdargs);
         sdsfree(cmdargs);
-        
+
         /* Transfer command to the server. */
         if (syncWrite(fd,cmd,sdslen(cmd),server.repl_syncio_timeout*1000)
             == -1)
