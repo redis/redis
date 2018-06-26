@@ -1317,7 +1317,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
 
     /* Create the command to send to the master, we use redis binary
      * protocol to make sure correct arguments are sent. This function
-     * is not safe for all binary data.*/
+     * is not safe for all binary data. */
     if (flags & SYNC_CMD_WRITE) {
         char *arg;
         va_list ap;
