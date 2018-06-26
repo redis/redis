@@ -3381,6 +3381,7 @@ void sentinelSetCommand(client *c) {
     sentinelRedisInstance *ri;
     int j, changes = 0;
     char *option, *value;
+    robj *o;
 
     if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
         == NULL) return;
@@ -3394,7 +3395,7 @@ void sentinelSetCommand(client *c) {
 
         if (!strcasecmp(option,"down-after-milliseconds") && moreargs > 0) {
             /* down-after-millisecodns <milliseconds> */
-            robj *o = c->argv[++j];
+            o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->down_after_period = ll;
@@ -3402,14 +3403,14 @@ void sentinelSetCommand(client *c) {
             changes++;
         } else if (!strcasecmp(option,"failover-timeout") && moreargs > 0) {
             /* failover-timeout <milliseconds> */
-            robj *o = c->argv[++j];
+            o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->failover_timeout = ll;
             changes++;
         } else if (!strcasecmp(option,"parallel-syncs") && moreargs > 0) {
             /* parallel-syncs <milliseconds> */
-            robj *o = c->argv[++j];
+            o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->parallel_syncs = ll;
@@ -3463,7 +3464,7 @@ void sentinelSetCommand(client *c) {
             changes++;
         } else if (!strcasecmp(option,"quorum") && moreargs > 0) {
             /* quorum <count> */
-            robj *o = c->argv[++j];
+            o = c->argv[++j];
             if (getLongLongFromObject(o,&ll) == C_ERR || ll <= 0)
                 goto badfmt;
             ri->quorum = ll;
@@ -3516,7 +3517,7 @@ void sentinelSetCommand(client *c) {
 badfmt: /* Bad format errors */
     if (changes) sentinelFlushConfig();
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
-            value, option);
+            (char *)o->ptr, option);
 }
 
 /* Our fake PUBLISH command: it is actually useful only to receive hello messages
