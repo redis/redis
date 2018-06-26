@@ -431,6 +431,11 @@ void loadServerConfigFromString(char *config) {
             if ((server.active_defrag_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+            if (server.active_defrag_enabled) {
+#ifndef HAVE_DEFRAG
+                err = "active defrag can't be enabled without proper jemalloc support"; goto loaderr;
+#endif
+            }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;

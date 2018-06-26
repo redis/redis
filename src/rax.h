@@ -119,6 +119,12 @@ typedef struct raxStack {
     int oom; /* True if pushing into this stack failed for OOM at some point. */
 } raxStack;
 
+/* Optional callback used for iterators and be notified on each rax node.
+ * This is used by active defrag, the return value is an indication that
+ * the noderef was chagned, and the tree needs to be updated.
+ * This is currently only supported in forward iterations (raxNext) */
+typedef int (*raxNodeCallback)(raxNode **noderef);
+
 /* Radix tree iterator state is encapsulated into this data structure. */
 #define RAX_ITER_STATIC_LEN 128
 #define RAX_ITER_JUST_SEEKED (1<<0) /* Iterator was just seeked. Return current
@@ -137,6 +143,7 @@ typedef struct raxIterator {
     unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
+    raxNodeCallback node_cb;
 } raxIterator;
 
 /* A special pointer returned for not found items. */
@@ -160,5 +167,8 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
+
+/* internals */
+void raxSetData(raxNode *n, void *data);
 
 #endif

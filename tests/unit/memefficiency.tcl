@@ -97,10 +97,15 @@ start_server {tags {"defrag"}} {
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 0
             r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
+            r config set stream-node-max-entries 5
             r hmset hash h1 v1 h2 v2 h3 v3
             r lpush list a b c d
             r zadd zset 0 a 1 b 2 c 3 d
             r sadd set a b c d
+            r xadd stream * item 1 value a
+            r xadd stream * item 2 value b
+            r xgroup create stream mygroup $
+            r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
             set rd [redis_deferring_client]
@@ -109,8 +114,9 @@ start_server {tags {"defrag"}} {
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
+                $rd xadd bigstream * item 1 value a
             }
-            for {set j 0} {$j < 40000} {incr j} {
+            for {set j 0} {$j < 50000} {incr j} {
                 $rd read ; # Discard replies
             }
 
@@ -134,7 +140,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 500008}
+            assert {[r dbsize] == 500010}
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -143,7 +149,7 @@ start_server {tags {"defrag"}} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert {[r dbsize] == 250008}
+            assert {[r dbsize] == 250010}
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
@@ -155,6 +161,7 @@ start_server {tags {"defrag"}} {
             r config set latency-monitor-threshold 5
             r latency reset
 
+            set digest [r debug digest]
             catch {r config set activedefrag yes} e
             if {![string match {DISABLED*} $e]} {
                 # wait for the active defrag to start working (decision once a second)
@@ -193,9 +200,11 @@ start_server {tags {"defrag"}} {
                 # due to high fragmentation, 10hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 75ms
                 assert {$max_latency <= 80}
-            } else {
-                set _ ""
             }
-        } {}
+            # verify the data isn't corrupted or changed
+            set newdigest [r debug digest]
+            assert {$digest eq $newdigest}
+            r save ;# saving an rdb iterates over all the data / pointers
+        } {OK}
     }
 }
