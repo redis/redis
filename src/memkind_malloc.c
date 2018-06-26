@@ -2,7 +2,6 @@
 #include "atomicvar.h"
 
 #include <memkind.h>
-#include <memkind/internal/memkind_pmem.h>
 
 #define update_memkind_malloc_stat_alloc(__n) do { \
     size_t _n = (__n); \
