@@ -1323,7 +1323,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
         va_list ap;
         sds cmd = sdsempty();
         sds cmdargs = sdsempty();
-        int argslen = 0;
+        size_t argslen = 0;
         va_start(ap,fd);
 
         while(1) {
