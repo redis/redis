@@ -1088,7 +1088,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
-        (argc == 2 && !strcasecmp(command,"client") &&
+        (argc >= 2 && !strcasecmp(command,"client") &&
                        !strcasecmp(argv[1],"list")) ||
         (argc == 3 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"graph")) ||
