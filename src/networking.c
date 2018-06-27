@@ -75,6 +75,8 @@ void linkClient(client *c) {
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
+    uint64_t id = htonu64(c->id);
+    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
 client *createClient(int fd) {
@@ -720,6 +722,8 @@ void unlinkClient(client *c) {
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
         if (c->client_list_node) {
+            uint64_t id = htonu64(c->id);
+            raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
             listDelNode(server.clients,c->client_list_node);
             c->client_list_node = NULL;
         }
