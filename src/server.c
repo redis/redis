@@ -2590,13 +2590,21 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
-    if (server.cluster_enabled &&
-        !(c->flags & CLIENT_MASTER) &&
-        !(c->flags & CLIENT_LUA &&
-          server.lua_caller->flags & CLIENT_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
-          c->cmd->proc != execCommand))
-    {
+    int check_keys = !(c->flags & CLIENT_MASTER) &&
+                     !(c->flags & CLIENT_LUA && server.lua_caller->flags & CLIENT_MASTER) &&
+                     !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 && c->cmd->proc != execCommand);
+
+    if (check_keys && migrateNeedsRedirectClient(c)) {
+        if (c->cmd->proc == execCommand) {
+            discardTransaction(c);
+        } else {
+            flagTransaction(c);
+        }
+        addReplySds(c, sdsnew("-TRYAGAIN The specific keys are being migrated.\r\n"));
+        return C_OK;
+    }
+
+    if (check_keys && server.cluster_enabled) {
         int hashslot;
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,

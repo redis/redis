@@ -530,9 +530,14 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* If this is a Redis Cluster node, we need to make sure Lua is not
      * trying to access non-local keys, with the exception of commands
      * received from our master or when loading the AOF back in memory. */
-    if (server.cluster_enabled && !server.loading &&
-        !(server.lua_caller->flags & CLIENT_MASTER))
-    {
+    int check_keys = !server.loading && !(server.lua_caller->flags & CLIENT_MASTER);
+
+    if (check_keys && migrateNeedsRedirectClient(c)) {
+        luaPushError(lua, "Lua script attempted to access a key that is being migrated.");
+        goto cleanup;
+    }
+
+    if (check_keys && server.cluster_enabled) {
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= server.lua_caller->flags & (CLIENT_READONLY|CLIENT_ASKING);
@@ -2447,4 +2452,3 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
         server.lua_time_start = mstime();
     }
 }
-

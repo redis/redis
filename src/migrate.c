@@ -796,6 +796,12 @@ void freeMigrateCommandArgsFromFreeClient(client *c) {
     serverPanic("Should not arrive here.");
 }
 
+int migrateNeedsRedirectClient(client *c) {
+    // TODO
+    UNUSED(c);
+    return 0;
+}
+
 // ---------------- RESTORE COMMAND ----------------------------------------- //
 
 struct _restoreCommandArgs {
