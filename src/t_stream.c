@@ -945,7 +945,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 /* This is an helper function for streamReplyWithRange() when called with
  * group and consumer arguments, but with a range that is referring to already
  * delivered messages. In this case we just emit messages that are already
- * in the history of the conusmer, fetching the IDs from its PEL.
+ * in the history of the consumer, fetching the IDs from its PEL.
  *
  * Note that this function does not have a 'rev' argument because it's not
  * possible to iterate in reverse using a group. Basically this function
@@ -1571,7 +1571,7 @@ void xgroupCommand(client *c) {
 "CREATE      <key> <groupname> <id or $>  -- Create a new consumer group.",
 "SETID       <key> <groupname> <id or $>  -- Set the current group ID.",
 "DESTROY     <key> <groupname>            -- Remove the specified group.",
-"DELCONSUMER <key> <groupname> <consumer> -- Remove the specified conusmer.",
+"DELCONSUMER <key> <groupname> <consumer> -- Remove the specified consumer.",
 "HELP                                     -- Prints this help.",
 NULL
     };
