@@ -167,8 +167,8 @@ typedef struct clusterManagerCommand {
     char *from;
     char *to;
     char **weight;
-    char *master_id;
     int weight_argc;
+    char *master_id;
     int slots;
     int timeout;
     int pipeline;
@@ -1337,11 +1337,20 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-to") && !lastarg) {
             config.cluster_manager_command.to = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
+            if (config.cluster_manager_command.weight != NULL) {
+                fprintf(stderr, "WARNING: you cannot use --cluster-weight "
+                                "more than once.\n"
+                                "You can set more weights by adding them "
+                                "as a space-separated list, ie:\n"
+                                "--cluster-weight n1=w n2=w\n");
+                exit(1);
+            }
             int widx = i + 1;
             char **weight = argv + widx;
             int wargc = 0;
             for (; widx < argc; widx++) {
                 if (strstr(argv[widx], "--") == argv[widx]) break;
+                if (strchr(argv[widx], '=') == NULL) break;
                 wargc++;
             }
             if (wargc > 0) {
@@ -4899,7 +4908,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     clusterManagerCheckCluster(1);
     if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
         clusterManagerLogErr("*** Please fix your cluster problems "
-                             "before rebalancing" );
+                             "before rebalancing\n");
         result = 0;
         goto cleanup;
     }
@@ -6610,6 +6619,7 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.from = NULL;
     config.cluster_manager_command.to = NULL;
     config.cluster_manager_command.weight = NULL;
+    config.cluster_manager_command.weight_argc = 0;
     config.cluster_manager_command.slots = 0;
     config.cluster_manager_command.timeout = CLUSTER_MANAGER_MIGRATE_TIMEOUT;
     config.cluster_manager_command.pipeline = CLUSTER_MANAGER_MIGRATE_PIPELINE;
