@@ -868,6 +868,15 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+/* Return a client by ID, or NULL if the client ID is not in the set
+ * of registered clients. Note that "fake clients", created with -1 as FD,
+ * are not registered clients. */
+client *lookupClientByID(uint64_t id) {
+    id = htonu64(id);
+    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
+    return (c == raxNotFound) ? NULL : c;
+}
+
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
 int writeToClient(int fd, client *c, int handler_installed) {
@@ -1679,6 +1688,19 @@ NULL
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && c->argc == 3) {
+        /* CLIENT UNBLOCK <id> */
+        long long id;
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
+            != C_OK) return;
+        struct client *target = lookupClientByID(id);
+        if (target && target->flags & CLIENT_BLOCKED) {
+            replyToBlockedClientTimedOut(target);
+            unblockClient(target);
+            addReply(c,shared.cone);
+        } else {
+            addReply(c,shared.czero);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;
