@@ -3482,6 +3482,11 @@ void sentinelSetCommand(client *c) {
             sds oldname = c->argv[++j]->ptr;
             sds newname = c->argv[++j]->ptr;
 
+            if ((sdslen(oldname) == 0) || (sdslen(newname) == 0)) {
+                badarg = sdslen(newname) ? j-1 : j;
+                goto badfmt;
+            }
+
             /* Remove any older renaming for this command. */
             dictDelete(ri->renamed_commands,oldname);
 
