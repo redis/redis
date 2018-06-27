@@ -1688,14 +1688,33 @@ NULL
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
-    } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && c->argc == 3) {
-        /* CLIENT UNBLOCK <id> */
+    } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && (c->argc == 3 ||
+                                                          c->argc == 4))
+    {
+        /* CLIENT UNBLOCK <id> [timeout|error] */
         long long id;
+        int unblock_error = 0;
+
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"timeout")) {
+                unblock_error = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr,"error")) {
+                unblock_error = 1;
+            } else {
+                addReplyError(c,
+                    "CLIENT UNBLOCK reason should be TIMEOUT or ERROR");
+                return;
+            }
+        }
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
         if (target && target->flags & CLIENT_BLOCKED) {
-            replyToBlockedClientTimedOut(target);
+            if (unblock_error)
+                addReplyError(target,
+                    "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
+            else
+                replyToBlockedClientTimedOut(target);
             unblockClient(target);
             addReply(c,shared.cone);
         } else {
