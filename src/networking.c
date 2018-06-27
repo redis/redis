@@ -1577,6 +1577,7 @@ void clientCommand(client *c) {
 "pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
 "reply (on|off|skip) -- Control the replies sent to the current connection.",
 "setname <name> -- Assign the name <name> to the current connection.",
+"unblock <id> [timeout|error] - Unblock a client by id with an optional reason."
 NULL
         };
         addReplyHelp(c, help);
