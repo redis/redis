@@ -48,7 +48,7 @@ start_server [list overrides [list "dir" $server_path]] {
                 r xadd stream * bar $j
             }
         }
-        r xgroup create stream mygroup $
+        r xgroup create stream mygroup 0
         r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
         set digest [r debug digest]
         r debug reload

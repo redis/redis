@@ -104,7 +104,7 @@ start_server {tags {"defrag"}} {
             r sadd set a b c d
             r xadd stream * item 1 value a
             r xadd stream * item 2 value b
-            r xgroup create stream mygroup $
+            r xgroup create stream mygroup 0
             r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
