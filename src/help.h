@@ -975,7 +975,7 @@ struct commandHelp {
     "5.0.0" },
     { "XPENDING",
     "key group [start end count] [consumer]",
-    "Return information and entries from a stream conusmer group pending entries list, that are messages fetched but never acknowledged.",
+    "Return information and entries from a stream consumer group pending entries list, that are messages fetched but never acknowledged.",
     14,
     "5.0.0" },
     { "XRANGE",
