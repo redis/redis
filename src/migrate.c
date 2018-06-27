@@ -797,8 +797,47 @@ void freeMigrateCommandArgsFromFreeClient(client *c) {
 }
 
 int migrateNeedsRedirectClient(client *c) {
-    // TODO
-    UNUSED(c);
+    if (dictSize(c->db->migrating_keys) == 0) {
+        return 0;
+    }
+
+    multiState _ms, *ms = &_ms;
+    multiCmd mc;
+    if (c->cmd->proc != execCommand) {
+        mc.cmd = c->cmd;
+        mc.argv = c->argv;
+        mc.argc = c->argc;
+        ms->commands = &mc;
+        ms->count = 1;
+    } else if (c->flags & CLIENT_MULTI) {
+        ms = &c->mstate;
+    } else {
+        return 0;
+    }
+
+    for (int i = 0; i < ms->count; i++) {
+        struct redisCommand *mcmd = ms->commands[i].cmd;
+        if (mcmd->flags & CMD_READONLY) {
+            continue;
+        }
+        robj **margv = ms->commands[i].argv;
+        int margc = ms->commands[i].argc;
+
+        int numkeys = 0;
+        int *keyindex = getKeysFromCommand(mcmd, margv, margc, &numkeys);
+        int migrating = 0;
+        for (int j = 0; j < numkeys && !migrating; j++) {
+            robj *thiskey = margv[keyindex[j]];
+            if (dictFind(c->db->migrating_keys, thiskey) != NULL) {
+                migrating = 1;
+            }
+        }
+        getKeysFreeResult(keyindex);
+
+        if (migrating) {
+            return 1;
+        }
+    }
     return 0;
 }
 
