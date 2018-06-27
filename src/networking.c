@@ -1553,6 +1553,7 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
+"id      -- Return the ID of the current connection.",
 "getname -- Return the name of the current connection.",
 "kill <ip:port> -- Kill connection made from <ip:port>.",
 "kill <option> <value> [option value ...] -- Kill connections. Options are:",
@@ -1566,6 +1567,9 @@ void clientCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
+        /* CLIENT ID */
+        addReplyLongLong(c,c->id);
     } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
         /* CLIENT LIST */
         sds o = getAllClientsInfoString();
