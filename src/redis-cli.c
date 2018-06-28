@@ -4867,7 +4867,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     }
     /* Calculate the slots balance for each node. It's the number of
      * slots the node should lose (if positive) or gain (if negative)
-     * in order to be balanced. */  
+     * in order to be balanced. */
     int threshold_reached = 0, total_balance = 0;
     float threshold = config.cluster_manager_command.threshold;
     i = 0;
