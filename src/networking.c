@@ -1506,6 +1506,7 @@ sds catClientInfoString(sds s, client *client) {
             *p++ = 'S';
     }
     if (client->flags & CLIENT_MASTER) *p++ = 'M';
+    if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
