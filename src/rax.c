@@ -1241,6 +1241,8 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             if (!raxIteratorAddChars(it,it->node->data,
                 it->node->iscompr ? it->node->size : 1)) return 0;
             memcpy(&it->node,cp,sizeof(it->node));
+            /* Call the node callback if any, and replace the node pointer
+             * if the callback returns true. */
             if (it->node_cb && it->node_cb(&it->node))
                 memcpy(cp,&it->node,sizeof(it->node));
             /* For "next" step, stop every time we find a key along the
@@ -1295,6 +1297,8 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         raxIteratorAddChars(it,it->node->data+i,1);
                         if (!raxStackPush(&it->stack,it->node)) return 0;
                         memcpy(&it->node,cp,sizeof(it->node));
+                        /* Call the node callback if any, and replace the node
+                         * pointer if the callback returns true. */
                         if (it->node_cb && it->node_cb(&it->node))
                             memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {

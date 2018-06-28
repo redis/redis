@@ -119,9 +119,18 @@ typedef struct raxStack {
     int oom; /* True if pushing into this stack failed for OOM at some point. */
 } raxStack;
 
-/* Optional callback used for iterators and be notified on each rax node.
- * This is used by active defrag, the return value is an indication that
- * the noderef was chagned, and the tree needs to be updated.
+/* Optional callback used for iterators and be notified on each rax node,
+ * including nodes not representing keys. If the callback returns true
+ * the callback changed the node pointer in the iterator structure, and the
+ * iterator implementation will have to replace the pointer in the radix tree
+ * internals. This allows the callback to reallocate the node to perform
+ * very special operations, normally not needed by normal applications.
+ *
+ * This callback is used to perform very low level analysis of the radix tree
+ * structure, scanning each possible node (but the root node), or in order to
+ * reallocate the nodes to reduce the allocation fragmentation (this is the
+ * Redis application for this callback).
+ *
  * This is currently only supported in forward iterations (raxNext) */
 typedef int (*raxNodeCallback)(raxNode **noderef);
 
@@ -143,7 +152,7 @@ typedef struct raxIterator {
     unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
-    raxNodeCallback node_cb;
+    raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
 } raxIterator;
 
 /* A special pointer returned for not found items. */
@@ -168,7 +177,8 @@ int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
 
-/* internals */
+/* Internal API. May be used by the node callback in order to access rax nodes
+ * in a low level way, so this function is exported as well. */
 void raxSetData(raxNode *n, void *data);
 
 #endif
