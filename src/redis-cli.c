@@ -1467,7 +1467,10 @@ static void usage(void) {
 "                     line interface.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
-"\n"
+"\n",
+    version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
+    /* Using another fprintf call to avoid -Woverlength-strings compile warning */
+    fprintf(stderr,
 "Cluster Manager Commands:\n"
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
@@ -1484,8 +1487,7 @@ static void usage(void) {
 "When no command is given, redis-cli starts in interactive mode.\n"
 "Type \"help\" in interactive mode for information on available commands\n"
 "and settings.\n"
-"\n",
-        version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
+"\n");
     sdsfree(version);
     exit(1);
 }
