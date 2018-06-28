@@ -3375,7 +3375,7 @@ void clusterCron(void) {
             clusterLink *link;
 
             fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
-                node->cport, NET_FIRST_BIND_ADDR);
+                node->cport, myself->ip[0] == '\0' ? 0 : myself->ip);
             if (fd == -1) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.
