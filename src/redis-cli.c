@@ -1463,6 +1463,8 @@ static void usage(void) {
 "  --cluster <command> [args...] [opts...]\n"
 "                     Cluster Manager command and arguments (see below).\n"
 "  --verbose          Verbose mode.\n"
+"  --no-auth-warning  Don't show warning message when using password on command\n"
+"                     line interface.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
 "\n"
