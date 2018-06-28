@@ -220,6 +220,7 @@ static struct config {
     int last_cmd_type;
     int verbose;
     clusterManagerCommand cluster_manager_command;
+    int no_auth_warning;
 } config;
 
 /* User preferences. */
@@ -1235,8 +1236,9 @@ static int parseOptions(int argc, char **argv) {
             config.interval = seconds*1000000;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--no-auth-warning")) {
+            config.no_auth_warning = 1;
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
-            fputs("Warning: Using a password with '-a' option on the command line interface may not be safe.\n", stderr);
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
@@ -1387,6 +1389,12 @@ static int parseOptions(int argc, char **argv) {
         fprintf(stderr,"Try %s --help for more information.\n", argv[0]);
         exit(1);
     }
+
+    if (!config.no_auth_warning) {
+        fputs("Warning: Using a password with '-a' or '-u' option on the command"
+              " line interface may not be safe.\n", stderr);
+    }
+
     return i;
 }
 
@@ -6555,6 +6563,7 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
     config.verbose = 0;
+    config.no_auth_warning = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;
