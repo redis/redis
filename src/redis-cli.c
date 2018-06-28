@@ -1390,7 +1390,7 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (!config.no_auth_warning) {
+    if (!config.no_auth_warning && config.auth != NULL) {
         fputs("Warning: Using a password with '-a' or '-u' option on the command"
               " line interface may not be safe.\n", stderr);
     }
