@@ -850,6 +850,7 @@ struct _restoreCommandArgs {
     mstime_t ttl;
 
     int replace;
+    int absttl;
     int non_blocking;
 
     list *fragments;
@@ -1003,7 +1004,7 @@ static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
     dbAdd(args->db, args->key, args->obj);
 
     if (args->ttl != 0) {
-        setExpire(c, args->db, args->key, mstime() + args->ttl);
+        setExpire(c, args->db, args->key, args->absttl ? args->ttl : args->ttl + mstime());
     }
     signalModifiedKey(args->db, args->key);
     server.dirty++;
@@ -1139,13 +1140,16 @@ failed_syntax_error:
     addReply(c, shared.syntaxerr);
 }
 
-// RESTORE key ttl serialized-value [REPLACE] [ASYNC]
+// RESTORE key ttl serialized-value [REPLACE] [ASYNC] [ABSTTL]
 void restoreCommand(client *c) {
     int replace = 0;
+    int absttl = 0;
     int non_blocking = 0;
     for (int j = 4; j < c->argc; j++) {
         if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
             replace = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "absttl") == 0) {
+            absttl = 1;
         } else if (strcasecmp(c->argv[j]->ptr, "async") == 0) {
             non_blocking = 1;
         } else {
@@ -1177,6 +1181,7 @@ void restoreCommand(client *c) {
 
     args->ttl = ttl;
     args->replace = replace;
+    args->absttl = absttl;
 
     restoreGenericCommandAddFragment(args, c->argv[3]);
 
