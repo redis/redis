@@ -3525,7 +3525,7 @@ void sentinelSetCommand(client *c) {
 badfmt: /* Bad format errors */
     if (changes) sentinelFlushConfig();
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
-        c->argv[badarg]->ptr,option);
+        (char*)c->argv[badarg]->ptr,option);
 }
 
 /* Our fake PUBLISH command: it is actually useful only to receive hello messages
