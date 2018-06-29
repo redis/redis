@@ -853,6 +853,10 @@ struct _restoreCommandArgs {
     int absttl;
     int non_blocking;
 
+    long long lfu_freq;
+    long long lru_idle;
+    long long lru_clock;
+
     list *fragments;
     size_t total_bytes;
 
@@ -905,6 +909,9 @@ static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_
     args->db = c->db;
     args->key = key;
     args->non_blocking = non_blocking;
+    args->lfu_freq = -1;
+    args->lru_idle = -1;
+    args->lru_clock = -1;
     args->fragments = listCreate();
     args->last_use_time = server.unixtime;
     if (server.cluster_enabled) {
@@ -1006,6 +1013,8 @@ static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
     if (args->ttl != 0) {
         setExpire(c, args->db, args->key, args->absttl ? args->ttl : args->ttl + mstime());
     }
+    objectSetLRUOrLFU(args->obj, args->lfu_freq, args->lru_idle, args->lru_clock);
+
     signalModifiedKey(args->db, args->key);
     server.dirty++;
 
@@ -1140,16 +1149,45 @@ failed_syntax_error:
     addReply(c, shared.syntaxerr);
 }
 
-// RESTORE key ttl serialized-value [REPLACE] [ASYNC] [ABSTTL]
+// RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME lru_idle | FREQ lfu_freq] [ASYNC]
 void restoreCommand(client *c) {
     int replace = 0;
     int absttl = 0;
     int non_blocking = 0;
+    long long lfu_freq = -1;
+    long long lru_idle = -1;
+    long long lru_clock = -1;
     for (int j = 4; j < c->argc; j++) {
         if (strcasecmp(c->argv[j]->ptr, "replace") == 0) {
             replace = 1;
         } else if (strcasecmp(c->argv[j]->ptr, "absttl") == 0) {
             absttl = 1;
+        } else if (strcasecmp(c->argv[j]->ptr, "idletime") == 0) {
+            if (j == c->argc - 1 || lfu_freq != -1) {
+                addReply(c, shared.syntaxerr);
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c, c->argv[j + 1], &lru_idle, NULL) != C_OK) {
+                return;
+            } else if (lru_idle < 0) {
+                addReplyError(c, "Invalid IDLETIME value, must be >= 0");
+                return;
+            } else {
+                lru_clock = LRU_CLOCK();
+            }
+            j++;
+        } else if (strcasecmp(c->argv[j]->ptr, "freq") == 0) {
+            if (j == c->argc - 1 || lru_idle != -1) {
+                addReply(c, shared.syntaxerr);
+                return;
+            }
+            if (getLongLongFromObjectOrReply(c, c->argv[j + 1], &lfu_freq, NULL) != C_OK) {
+                return;
+            } else if (!(lfu_freq >= 0 && lfu_freq <= 255)) {
+                addReplyError(c, "Invalid FREQ value, must be >= 0 and <= 255");
+                return;
+            }
+            j++;
         } else if (strcasecmp(c->argv[j]->ptr, "async") == 0) {
             non_blocking = 1;
         } else {
@@ -1182,6 +1220,9 @@ void restoreCommand(client *c) {
     args->ttl = ttl;
     args->replace = replace;
     args->absttl = absttl;
+    args->lfu_freq = lfu_freq;
+    args->lru_idle = lru_idle;
+    args->lru_clock = lru_clock;
 
     restoreGenericCommandAddFragment(args, c->argv[3]);
 
