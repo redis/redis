@@ -730,22 +730,6 @@ start_server {tags {"zset"}} {
             }
         }
 
-        test "ZSCORE after a DEBUG RELOAD - $encoding" {
-            r del zscoretest
-            set aux {}
-            for {set i 0} {$i < $elements} {incr i} {
-                set score [expr rand()]
-                lappend aux $score
-                r zadd zscoretest $score $i
-            }
-
-            r debug reload
-            assert_encoding $encoding zscoretest
-            for {set i 0} {$i < $elements} {incr i} {
-                assert_equal [lindex $aux $i] [r zscore zscoretest $i]
-            }
-        }
-
         test "ZSET sorting stresser - $encoding" {
             set delta 0
             for {set test 0} {$test < 2} {incr test} {

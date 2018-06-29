@@ -66,21 +66,6 @@ start_server {
         assert_equal [lsort {A a b c B}] [lsort [r smembers myset]]
     }
 
-    test "Set encoding after DEBUG RELOAD" {
-        r del myintset myhashset mylargeintset
-        for {set i 0} {$i <  100} {incr i} { r sadd myintset $i }
-        for {set i 0} {$i < 1280} {incr i} { r sadd mylargeintset $i }
-        for {set i 0} {$i <  256} {incr i} { r sadd myhashset [format "i%03d" $i] }
-        assert_encoding intset myintset
-        assert_encoding hashtable mylargeintset
-        assert_encoding hashtable myhashset
-
-        r debug reload
-        assert_encoding intset myintset
-        assert_encoding hashtable mylargeintset
-        assert_encoding hashtable myhashset
-    }
-
     test {SREM basics - regular set} {
         create_set myset {foo bar ciao}
         assert_encoding hashtable myset
@@ -151,13 +136,6 @@ start_server {
         }
 
         test "SINTERSTORE with two sets - $type" {
-            r sinterstore setres set1 set2
-            assert_encoding $type setres
-            assert_equal [list 195 196 197 198 199 $large] [lsort [r smembers setres]]
-        }
-
-        test "SINTERSTORE with two sets, after a DEBUG RELOAD - $type" {
-            r debug reload
             r sinterstore setres set1 set2
             assert_encoding $type setres
             assert_equal [list 195 196 197 198 199 $large] [lsort [r smembers setres]]
