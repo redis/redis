@@ -1077,7 +1077,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     infostring = genRedisInfoString("all");
     serverLogRaw(LL_WARNING|LL_RAW, infostring);
     serverLogRaw(LL_WARNING|LL_RAW, "\n------ CLIENT LIST OUTPUT ------\n");
-    clients = getAllClientsInfoString();
+    clients = getAllClientsInfoString(-1);
     serverLogRaw(LL_WARNING|LL_RAW, clients);
     sdsfree(infostring);
     sdsfree(clients);
