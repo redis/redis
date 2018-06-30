@@ -1087,6 +1087,7 @@ void replicationCreateMasterClient(int fd, int dbid) {
     if (server.master->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
     if (dbid != -1) selectDb(server.master,dbid);
+    server.repl_down_since = 0;
 }
 
 void restartAOF() {
@@ -1950,7 +1951,6 @@ void replicationSetMaster(char *ip, int port) {
      * our own parameters, to later PSYNC with the new master. */
     if (was_master) replicationCacheMasterUsingMyself();
     server.repl_state = REPL_STATE_CONNECT;
-    server.repl_down_since = 0;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
