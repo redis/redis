@@ -94,7 +94,7 @@ typedef struct raxNode {
      *
      * If the node has an associated key (iskey=1) and is not NULL
      * (isnull=0), then after the raxNode pointers poiting to the
-     * childen, an additional value pointer is present (as you can see
+     * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
     unsigned char data[];

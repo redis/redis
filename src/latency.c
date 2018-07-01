@@ -152,7 +152,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
  * Check latency.h definition of struct latenctStat for more info.
  * If the specified event has no elements the structure is populate with

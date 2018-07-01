@@ -1636,7 +1636,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to tail of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushTail(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1644,7 +1644,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to head of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }

@@ -291,7 +291,7 @@ int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, ui
 /* Store a reverse-encoded variable length field, representing the length
  * of the previous element of size 'l', in the target buffer 'buf'.
  * The function returns the number of bytes used to encode it, from
- * 1 to 5. If 'buf' is NULL the funciton just returns the number of bytes
+ * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
  * needed in order to encode the backlen. */
 unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
@@ -568,7 +568,7 @@ unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     }
 }
 
-/* Insert, delete or replace the specified element 'ele' of lenght 'len' at
+/* Insert, delete or replace the specified element 'ele' of length 'len' at
  * the specified position 'p', with 'p' being a listpack element pointer
  * obtained with lpFirst(), lpLast(), lpIndex(), lpNext(), lpPrev() or
  * lpSeek().
@@ -710,7 +710,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
     return lp;
 }
 
-/* Append the specified element 'ele' of lenght 'len' at the end of the
+/* Append the specified element 'ele' of length 'len' at the end of the
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {

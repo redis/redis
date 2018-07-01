@@ -2423,7 +2423,7 @@ static void clusterManagerOptimizeAntiAffinity(clusterManagerNodeArray *ipnodes,
                                                            ip_count, 
                                                            NULL, NULL);
         /* If the change actually makes thing worse, revert. Otherwise
-         * leave as it is becuase the best solution may need a few
+         * leave as it is because the best solution may need a few
          * combined swaps. */
         if (new_score > score) {
             first->replicate = first_master;
@@ -3539,7 +3539,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
-                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                /* Since CLUSTER ADDSLOTS succeeded, we also update the slot 
                  * info into the node struct, in order to keep it synced */
                 n->slots[atoi(slot)] = 1;
                 fixed++;
@@ -3570,7 +3570,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
-                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                /* Since CLUSTER ADDSLOTS succeeded, we also update the slot 
                  * info into the node struct, in order to keep it synced */
                 n->slots[atoi(slot)] = 1;
                 fixed++;
@@ -3580,7 +3580,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
 
     /* Handle case "3": keys in multiple nodes. */
     if (listLength(multi) > 0) {
-        printf("The folowing uncovered slots have keys in multiple nodes:\n");
+        printf("The following uncovered slots have keys in multiple nodes:\n");
         clusterManagerPrintSlotsList(multi);
         if (confirmWithYes("Fix these slots by moving keys "
                            "into a single node?")) {
@@ -3612,7 +3612,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(target, r, NULL)) fixed = -1;
                 if (r) freeReplyObject(r);
                 if (fixed < 0) goto cleanup;
-                /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+                /* Since CLUSTER ADDSLOTS succeeded, we also update the slot 
                  * info into the node struct, in order to keep it synced */
                 target->slots[atoi(slot)] = 1;
                 listIter nli;
@@ -3735,7 +3735,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         success = clusterManagerCheckRedisReply(owner, reply, NULL);
         if (reply) freeReplyObject(reply);
         if (!success) goto cleanup;
-        /* Since CLUSTER ADDSLOTS succeded, we also update the slot 
+        /* Since CLUSTER ADDSLOTS succeeded, we also update the slot 
          * info into the node struct, in order to keep it synced */
         owner->slots[slot] = 1;
         /* Make sure this information will propagate. Not strictly needed
@@ -4945,7 +4945,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                                                             src->port, 
                                                             dst->ip, 
                                                             dst->port);
-            /* Actaully move the slots. */
+            /* Actually move the slots. */
             list *lsrc = listCreate(), *table = NULL;
             listAddNodeTail(lsrc, src); 
             table = clusterManagerComputeReshardTable(lsrc, numslots);
@@ -5894,15 +5894,15 @@ static void getKeySizes(redisReply *keys, int *types,
             keys->element[i]->str);
     }
 
-    /* Retreive sizes */
+    /* Retrieve sizes */
     for(i=0;i<keys->elements;i++) {
-        /* Skip keys that dissapeared between SCAN and TYPE */
+        /* Skip keys that disappeared between SCAN and TYPE */
         if(types[i] == TYPE_NONE) {
             sizes[i] = 0;
             continue;
         }
 
-        /* Retreive size */
+        /* Retrieve size */
         if(redisGetReply(context, (void**)&reply)!=REDIS_OK) {
             fprintf(stderr, "Error getting size for key '%s' (%d: %s)\n",
                 keys->element[i]->str, context->err, context->errstr);
@@ -5972,7 +5972,7 @@ static void findBigKeys(void) {
             arrsize = keys->elements;
         }
 
-        /* Retreive types and then sizes */
+        /* Retrieve types and then sizes */
         getKeyTypes(keys, types);
         getKeySizes(keys, types, sizes);
 

@@ -517,7 +517,7 @@ start_server {tags {"scripting"}} {
     # Note: keep this test at the end of this server stanza because it
     # kills the server.
     test {SHUTDOWN NOSAVE can kill a timedout script anyway} {
-        # The server sould be still unresponding to normal commands.
+        # The server could be still unresponding to normal commands.
         catch {r ping} e
         assert_match {BUSY*} $e
         catch {r shutdown nosave}
