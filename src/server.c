@@ -858,6 +858,17 @@ int clientsCronResizeQueryBuffer(client *c) {
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
     c->querybuf_peak = 0;
+
+    if (c->flags & CLIENT_MASTER) {
+        /* There are two conditions to resize the pending query buffer:
+         * 1) Pending Query buffer is > LIMIT_PENDING_QUERYBUF.
+         * 2) used length is smaller than pending_querybuf_size/2 */
+        size_t pending_querybuf_size = sdsAllocSize(c->pending_querybuf);
+        if(pending_querybuf_size > LIMIT_PENDING_QUERYBUF &&
+                sdslen(c->pending_querybuf) < (pending_querybuf_size>>1)){
+            c->pending_querybuf = sdsRemoveFreeSpace(c->pending_querybuf);
+        }
+    }
     return 0;
 }
 
