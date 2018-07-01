@@ -507,7 +507,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
   * + means the max string possible
   *
   * If the string is valid the *dest pointer is set to the redis object
-  * that will be used for the comparision, and ex will be set to 0 or 1
+  * that will be used for the comparison, and ex will be set to 0 or 1
   * respectively if the item is exclusive or inclusive. C_OK will be
   * returned.
   *

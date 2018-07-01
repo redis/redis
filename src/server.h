@@ -1601,11 +1601,11 @@ void receiveChildInfo(void);
 #define ZADD_NONE 0
 #define ZADD_INCR (1<<0)    /* Increment the score instead of setting it. */
 #define ZADD_NX (1<<1)      /* Don't touch elements not already existing. */
-#define ZADD_XX (1<<2)      /* Only touch elements already exisitng. */
+#define ZADD_XX (1<<2)      /* Only touch elements already existing. */
 
 /* Output flags. */
 #define ZADD_NOP (1<<3)     /* Operation not performed because of conditionals.*/
-#define ZADD_NAN (1<<4)     /* Only touch elements already exisitng. */
+#define ZADD_NAN (1<<4)     /* Only touch elements already existing. */
 #define ZADD_ADDED (1<<5)   /* The element was new and was added. */
 #define ZADD_UPDATED (1<<6) /* The element already existed, score updated. */
 

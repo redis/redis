@@ -3100,7 +3100,7 @@ void clusterHandleSlaveFailover(void) {
                 (unsigned long long) myself->configEpoch);
         }
 
-        /* Take responsability for the cluster slots. */
+        /* Take responsibility for the cluster slots. */
         clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
@@ -3151,11 +3151,11 @@ void clusterHandleSlaveMigration(int max_slaves) {
             !nodeTimedOut(mymaster->slaves[j])) okslaves++;
     if (okslaves <= server.cluster_migration_barrier) return;
 
-    /* Step 3: Idenitfy a candidate for migration, and check if among the
+    /* Step 3: Identify a candidate for migration, and check if among the
      * masters with the greatest number of ok slaves, I'm the one with the
      * smallest node ID (the "candidate slave").
      *
-     * Note: this means that eventually a replica migration will occurr
+     * Note: this means that eventually a replica migration will occur
      * since slaves that are reachable again always have their FAIL flag
      * cleared, so eventually there must be a candidate. At the same time
      * this does not mean that there are no race conditions possible (two
@@ -3736,7 +3736,7 @@ void clusterCloseAllSlots(void) {
  * -------------------------------------------------------------------------- */
 
 /* The following are defines that are only used in the evaluation function
- * and are based on heuristics. Actaully the main point about the rejoin and
+ * and are based on heuristics. Actually the main point about the rejoin and
  * writable delay is that they should be a few orders of magnitude larger
  * than the network latency. */
 #define CLUSTER_MAX_REJOIN_DELAY 5000
@@ -5584,7 +5584,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
-        /* The request spawns mutliple keys in the same slot,
+        /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
         addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));

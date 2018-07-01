@@ -553,7 +553,7 @@ need_full_resync:
  * Side effects, other than starting a BGSAVE:
  *
  * 1) Handle the slaves in WAIT_START state, by preparing them for a full
- *    sync if the BGSAVE was succesfully started, or sending them an error
+ *    sync if the BGSAVE was successfully started, or sending them an error
  *    and dropping them from the list of slaves.
  *
  * 2) Flush the Lua scripting script cache if the BGSAVE was actually
@@ -896,7 +896,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
-    /* If the preamble was already transfered, send the RDB bulk data. */
+    /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
@@ -965,7 +965,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                         replicationGetSlaveName(slave));
                 /* Note: we wait for a REPLCONF ACK message from slave in
                  * order to really put it online (install the write handler
-                 * so that the accumulated data can be transfered). However
+                 * so that the accumulated data can be transferred). However
                  * we change the replication state ASAP, since our slave
                  * is technically online now. */
                 slave->replstate = SLAVE_STATE_ONLINE;
@@ -1048,7 +1048,7 @@ int slaveIsInHandshakeState(void) {
 
 /* Avoid the master to detect the slave is timing out while loading the
  * RDB file in initial synchronization. We send a single newline character
- * that is valid protocol but is guaranteed to either be sent entierly or
+ * that is valid protocol but is guaranteed to either be sent entirely or
  * not, since the byte is indivisible.
  *
  * The function is called in two contexts: while we flush the current
@@ -1397,7 +1397,7 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
  *
  * The function returns:
  *
- * PSYNC_CONTINUE: If the PSYNC command succeded and we can continue.
+ * PSYNC_CONTINUE: If the PSYNC command succeeded and we can continue.
  * PSYNC_FULLRESYNC: If PSYNC is supported but a full resync is needed.
  *                   In this case the master run_id and global replication
  *                   offset is saved.
@@ -2120,7 +2120,7 @@ void replicationSendAck(void) {
  * functions. */
 
 /* This function is called by freeClient() in order to cache the master
- * client structure instead of destryoing it. freeClient() will return
+ * client structure instead of destroying it. freeClient() will return
  * ASAP after this function returns, so every action needed to avoid problems
  * with a client that is really "suspended" has to be done by this function.
  *

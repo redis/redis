@@ -207,7 +207,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     /* Create a new listpack and radix tree node if needed. Note that when
      * a new listpack is created, we populate it with a "master entry". This
-     * is just a set of fields that is taken as refernce in order to compress
+     * is just a set of fields that is taken as references in order to compress
      * the stream entries that we'll add inside the listpack.
      *
      * Note that while we use the first added entry fields to create
@@ -469,7 +469,7 @@ int64_t streamTrimByLength(stream *s, size_t maxlen, int approx) {
  * iteration is from the start to the end element (inclusive), otherwise
  * if rev is non-zero, the iteration is reversed.
  *
- * Once the iterator is initalized, we iterate like this:
+ * Once the iterator is initialized, we iterate like this:
  *
  *  streamIterator myiterator;
  *  streamIteratorStart(&myiterator,...);
@@ -834,7 +834,7 @@ void streamPropagateXCLAIM(client *c, robj *key, robj *group, robj *id, streamNA
  * given, but currently such a feature is never used by the code base that
  * will always pass 'spi' and propagate when a group is passed.
  *
- * Note that this function is recursive in certian cases. When it's called
+ * Note that this function is recursive in certain cases. When it's called
  * with a non NULL group and consumer argument, it may call
  * streamReplyWithRangeFromConsumerPEL() in order to get entries from the
  * consumer pending entries list. However such a function will then call
@@ -2067,7 +2067,7 @@ void xclaimCommand(client *c) {
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
  *
  * Removes the specified entries from the stream. Returns the number
- * of items actaully deleted, that may be different from the number
+ * of items actually deleted, that may be different from the number
  * of IDs passed in case certain IDs do not exist. */
 void xdelCommand(client *c) {
     robj *o;
@@ -2078,13 +2078,13 @@ void xdelCommand(client *c) {
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
-     * executed becuase at some point an invalid ID is parsed. */
+     * executed because at some point an invalid ID is parsed. */
     streamID id;
     for (int j = 2; j < c->argc; j++) {
         if (streamParseIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
     }
 
-    /* Actaully apply the command. */
+    /* Actually apply the command. */
     int deleted = 0;
     for (int j = 2; j < c->argc; j++) {
         streamParseIDOrReply(c,c->argv[j],&id,0); /* Retval already checked. */

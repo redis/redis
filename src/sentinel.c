@@ -514,7 +514,7 @@ void sentinelIsRunning(void) {
         if (sentinel.myid[j] != 0) break;
 
     if (j == CONFIG_RUN_ID_SIZE) {
-        /* Pick ID and presist the config. */
+        /* Pick ID and persist the config. */
         getRandomHexChars(sentinel.myid,CONFIG_RUN_ID_SIZE);
         sentinelFlushConfig();
     }
@@ -2531,7 +2531,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 }
 
 /* Send an "Hello" message via Pub/Sub to the specified 'ri' Redis
- * instance in order to broadcast the current configuraiton for this
+ * instance in order to broadcast the current configuration for this
  * master, and to advertise the existence of this Sentinel at the same time.
  *
  * The message has the following format:
@@ -3357,7 +3357,7 @@ void sentinelInfoCommand(client *c) {
     addReplyBulkSds(c, info);
 }
 
-/* Implements Sentinel verison of the ROLE command. The output is
+/* Implements Sentinel version of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(client *c) {
     dictIterator *di;
@@ -3568,7 +3568,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
     if (ri->link->cc &&
         (mstime() - ri->link->cc_conn_time) >
         SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
-        ri->link->act_ping_time != 0 && /* Ther is a pending ping... */
+        ri->link->act_ping_time != 0 && /* There is a pending ping... */
         /* The pending ping is delayed, and we did not received
          * error replies as well. */
         (mstime() - ri->link->act_ping_time) > (ri->down_after_period/2) &&
@@ -3757,7 +3757,7 @@ void sentinelSimFailureCrash(void) {
 }
 
 /* Vote for the sentinel with 'req_runid' or return the old vote if already
- * voted for the specifed 'req_epoch' or one greater.
+ * voted for the specified 'req_epoch' or one greater.
  *
  * If a vote is not available returns NULL, otherwise return the Sentinel
  * runid and populate the leader_epoch with the epoch of the vote. */
@@ -3908,7 +3908,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     /* In order to send SLAVEOF in a safe way, we send a transaction performing
      * the following tasks:
      * 1) Reconfigure the instance according to the specified host/port params.
-     * 2) Rewrite the configuraiton.
+     * 2) Rewrite the configuration.
      * 3) Disconnect all clients (but this one sending the commnad) in order
      *    to trigger the ask-master-on-reconnection protocol for connected
      *    clients.

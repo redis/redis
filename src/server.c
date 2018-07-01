@@ -2364,7 +2364,7 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementatino called preventCommandPropagation() or similar,
+         * implementations called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
@@ -3920,7 +3920,7 @@ int main(int argc, char **argv) {
             configfile = argv[j];
             server.configfile = getAbsolutePath(configfile);
             /* Replace the config file in server.exec_argv with
-             * its absoulte path. */
+             * its absolute path. */
             zfree(server.exec_argv[j]);
             server.exec_argv[j] = zstrdup(server.configfile);
             j++;

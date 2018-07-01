@@ -380,7 +380,7 @@ size_t zmalloc_get_private_dirty(long pid) {
 }
 
 /* Returns the size of physical memory (RAM) in bytes.
- * It looks ugly, but this is the cleanest way to achive cross platform results.
+ * It looks ugly, but this is the cleanest way to achieve cross platform results.
  * Cleaned up from:
  *
  * http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system
