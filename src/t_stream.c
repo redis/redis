@@ -1650,7 +1650,7 @@ NULL
     } else if (!strcasecmp(opt,"HELP")) {
         addReplyHelp(c, help);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubSyntaxError(c);
     }
 }
 
@@ -2277,7 +2277,7 @@ NULL
                                      STREAM_RWR_RAWENTRIES,NULL);
         if (!count) addReply(c,shared.nullbulk);
     } else {
-        addReplyError(c,"syntax error, try 'XINFO HELP'");
+        addReplySubSyntaxError(c);
     }
 }
 

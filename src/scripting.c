@@ -1457,11 +1457,11 @@ void evalShaCommand(client *c) {
 void scriptCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"debug (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
-"exists <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
-"flush -- Flush the Lua scripts cache. Very dangerous on slaves.",
-"kill -- Kill the currently executing Lua script.",
-"load <script> -- Load a script into the scripts cache, without executing it.",
+"DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
+"EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
+"FLUSH -- Flush the Lua scripts cache. Very dangerous on slaves.",
+"KILL -- Kill the currently executing Lua script.",
+"LOAD <script> -- Load a script into the scripts cache, without executing it.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1514,7 +1514,7 @@ NULL
             return;
         }
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try SCRIPT HELP", (char*)c->argv[1]->ptr);
+        addReplySubSyntaxError(c);
     }
 }
 

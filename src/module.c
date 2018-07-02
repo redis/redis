@@ -4502,7 +4502,15 @@ int moduleUnload(sds name) {
  * MODULE LOAD <path> [args...] */
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
-
+    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+        const char *help[] = {
+"LIST -- Return a list of loaded modules.",
+"LOAD <path> [arg ...] -- Load a module library from <path>.",
+"UNLOAD <name> -- Unload a module.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else
     if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
@@ -4551,7 +4559,8 @@ void moduleCommand(client *c) {
         }
         dictReleaseIterator(di);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubSyntaxError(c);
+        return;
     }
 }
 
