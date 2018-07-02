@@ -475,7 +475,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::dont_clean 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
-        incr j
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j
