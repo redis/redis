@@ -582,7 +582,7 @@ NULL
         clearReplicationId2();
         addReply(c,shared.ok);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }

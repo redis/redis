@@ -187,6 +187,6 @@ NULL
         }
         setDeferredMultiBulkLength(c,totentries,sent);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }

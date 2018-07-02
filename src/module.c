@@ -4559,7 +4559,7 @@ NULL
         }
         dictReleaseIterator(di);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }

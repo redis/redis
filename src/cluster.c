@@ -4746,7 +4746,7 @@ NULL
         clusterReset(hard);
         addReply(c,shared.ok);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }

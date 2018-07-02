@@ -1413,7 +1413,7 @@ void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
 void addReplyMultiBulkLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
-void addReplySubSyntaxError(client *c);
+void addReplySubcommandSyntaxError(client *c);
 void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);

@@ -2168,7 +2168,7 @@ NULL
             addReply(c,shared.ok);
         }
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }

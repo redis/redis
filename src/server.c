@@ -2876,7 +2876,7 @@ NULL
             getKeysFreeResult(keys);
         }
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

@@ -1254,7 +1254,7 @@ NULL
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

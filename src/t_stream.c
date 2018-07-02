@@ -1650,7 +1650,7 @@ NULL
     } else if (!strcasecmp(opt,"HELP")) {
         addReplyHelp(c, help);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }
 
@@ -2277,7 +2277,7 @@ NULL
                                      STREAM_RWR_RAWENTRIES,NULL);
         if (!count) addReply(c,shared.nullbulk);
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

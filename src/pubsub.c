@@ -372,6 +372,6 @@ NULL
         /* PUBSUB NUMPAT */
         addReplyLongLong(c,listLength(server.pubsub_patterns));
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }

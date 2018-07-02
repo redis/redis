@@ -1514,7 +1514,7 @@ NULL
             return;
         }
     } else {
-        addReplySubSyntaxError(c);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

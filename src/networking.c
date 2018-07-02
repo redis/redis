@@ -565,13 +565,13 @@ void addReplyHelp(client *c, const char **help) {
 /* Add a suggestive error reply.
  * This function is typically invoked by from commands that support
  * subcommands in response to an unknown subcommand or argument error. */
-void addReplySubSyntaxError(client *c) {
+void addReplySubcommandSyntaxError(client *c) {
     sds cmd = sdsnew((char*) c->argv[0]->ptr);
     sdstoupper(cmd);
     addReplyErrorFormat(c,
         "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
         c->argv[1]->ptr,cmd);
-    sdsfree(cmd);    
+    sdsfree(cmd);
 }
 
 /* Copy 'src' client output buffers into 'dst' client output buffers.
