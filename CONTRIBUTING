@@ -8,7 +8,9 @@ each source file that you contribute.
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
 * Github issues SHOULD ONLY BE USED to report bugs, and for DETAILED feature
-  requests. Everything else belongs to the Redis Google Group.
+  requests. Everything else belongs to the Redis Google Group:
+      
+      https://groups.google.com/forum/m/#!forum/Redis-db
 
   PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
   bugs in the Github issues system. We'll be very happy to help you and provide
