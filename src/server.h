@@ -739,6 +739,7 @@ typedef struct client {
     blockingState bpop;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+    list *watched_modules;  /* modules WATCHED for MULTI/EXEC, in case of module unloaded */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
@@ -931,6 +932,7 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     /* Modules */
     dict *moduleapi;            /* Exported APIs dictionary for modules. */
+    dict *watched_modules;      /* WATCHED modules for MULTI/EXEC, in case of module unloaded. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
                                    client blocked on a module command needs
@@ -1479,6 +1481,11 @@ void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandPropagateMulti(client *c);
+/* WATCH module unloaded */
+void watchForModule(client *c, robj *module);
+void unwatchAllModules(client *c);
+void touchWatchedModule(robj * module);
+sds getModuleNameByCommand(struct redisCommand *cmd);
 
 /* Redis object implementation */
 void decrRefCount(robj *o);

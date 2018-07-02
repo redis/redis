@@ -144,6 +144,7 @@ client *createClient(int fd) {
     c->bpop.reploffset = 0;
     c->woff = 0;
     c->watched_keys = listCreate();
+    c->watched_modules = listCreate();
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
@@ -791,6 +792,10 @@ void freeClient(client *c) {
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
     listRelease(c->watched_keys);
+
+    /* UNWATCH all the modules */
+    unwatchAllModules(c);
+    listRelease(c->watched_modules);
 
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
@@ -1509,7 +1514,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
-    if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
+    if (client->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) *p++ = 'd';
     if (client->flags & CLIENT_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & CLIENT_UNBLOCKED) *p++ = 'u';
     if (client->flags & CLIENT_CLOSE_ASAP) *p++ = 'A';
