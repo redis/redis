@@ -143,6 +143,7 @@ struct redisCommand redisCommandTable[] = {
     {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
     {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
     {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
+    {"increx",increxCommand,3,"wmF",0,NULL,1,1,1,0,0},
     {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
     {"mget",mgetCommand,-2,"rF",0,NULL,1,-1,1,0,0},
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},

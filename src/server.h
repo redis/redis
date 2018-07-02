@@ -1901,6 +1901,7 @@ void bitfieldCommand(client *c);
 void setrangeCommand(client *c);
 void getrangeCommand(client *c);
 void incrCommand(client *c);
+void increxCommand(client *c);
 void decrCommand(client *c);
 void incrbyCommand(client *c);
 void decrbyCommand(client *c);

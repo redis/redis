@@ -380,6 +380,65 @@ void incrCommand(client *c) {
     incrDecrCommand(c,1);
 }
 
+void incrdecrexCommand(client *c, long long incr, long long ttl) {
+    long long value, oldvalue;
+    robj *o, *new;
+
+    o = lookupKeyWrite(c->db,c->argv[1]);
+    if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+    
+    // When a non readonly slave accepts increx command, check if the object
+    // expires, and if yes, delete the expired key 
+    if (server.masterhost != NULL) {
+        mstime_t when = getExpire(c->db, c->argv[1]);
+        if (when > 0 && when < mstime()) {
+          dbDelete(c->db, c->argv[1]);
+          o = NULL;
+        }
+    }
+    
+    // Cannot find the key or the key is expired ( if key is expired and in Slave ,we deleted the expired key )
+    if (o == NULL) {
+        value = 0;
+    } else {
+        if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
+    }
+
+    oldvalue = value;
+    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
+            (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
+        addReplyError(c,"increment or decrement would overflow");
+        return;
+    }
+
+    value += incr;
+    new = createStringObjectFromLongLong(value);
+    if (o) {
+        if (getExpire(c->db,c->argv[1])==-1) {
+            setExpire(c,c->db,c->argv[1],ttl);
+        }
+        dbOverwrite(c->db,c->argv[1],new);
+    } else {
+        dbAdd(c->db,c->argv[1],new);
+        setExpire(c,c->db,c->argv[1],ttl);
+    }
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_STRING,"increx",c->argv[1],c->db->id);
+    server.dirty++;
+    addReply(c,shared.colon);
+    addReply(c,new);
+    addReply(c,shared.crlf);
+}
+
+
+void increxCommand(client *c) {
+    long long ttl;
+
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&ttl,NULL) != C_OK) return;
+    incrdecrexCommand(c, 1, ttl*1000+mstime());
+}
+
+
 void decrCommand(client *c) {
     incrDecrCommand(c,-1);
 }
