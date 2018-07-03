@@ -90,7 +90,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  *  LOOKUP_NONE (or zero): no special flags are passed.
  *  LOOKUP_NOTOUCH: don't alter the last access time of the key.
  *
- * Note: this function also returns NULL is the key is logically expired
+ * Note: this function also returns NULL if the key is logically expired
  * but still existing, in case this is a slave, since this API is called only
  * for read operations. Even if the key expiry is master-driven, we can
  * correctly report a key is expired on slaves even if the master is lagging
@@ -223,6 +223,8 @@ int dbExists(redisDb *db, robj *key) {
  * The function makes sure to return keys not already expired. */
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
+    int maxtries = 100;
+    int allvolatile = dictSize(db->dict) == dictSize(db->expires);
 
     while(1) {
         sds key;
@@ -234,6 +236,17 @@ robj *dbRandomKey(redisDb *db) {
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
+            if (allvolatile && server.masterhost && --maxtries == 0) {
+                /* If the DB is composed only of keys with an expire set,
+                 * it could happen that all the keys are already logically
+                 * expired in the slave, so the function cannot stop because
+                 * expireIfNeeded() is false, nor it can stop because
+                 * dictGetRandomKey() returns NULL (there are keys to return).
+                 * To prevent the infinite loop we do some tries, but if there
+                 * are the conditions for an infinite loop, eventually we
+                 * return a key name that may be already expired. */
+                return keyobj;
+            }
             if (expireIfNeeded(db,keyobj)) {
                 decrRefCount(keyobj);
                 continue; /* search for another key. This expired. */
@@ -467,8 +480,7 @@ void existsCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++) {
-        expireIfNeeded(c->db,c->argv[j]);
-        if (dbExists(c->db,c->argv[j])) count++;
+        if (lookupKeyRead(c->db,c->argv[j])) count++;
     }
     addReplyLongLong(c,count);
 }
@@ -942,16 +954,18 @@ void moveCommand(client *c) {
 }
 
 /* Helper function for dbSwapDatabases(): scans the list of keys that have
- * one or more blocked clients for B[LR]POP or other list blocking commands
- * and signal the keys are ready if they are lists. See the comment where
- * the function is used for more info. */
+ * one or more blocked clients for B[LR]POP or other blocking commands
+ * and signal the keys as ready if they are of the right type. See the comment
+ * where the function is used for more info. */
 void scanDatabaseForReadyLists(redisDb *db) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(db->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
         robj *value = lookupKey(db,key,LOOKUP_NOTOUCH);
-        if (value && (value->type == OBJ_LIST || value->type == OBJ_STREAM))
+        if (value && (value->type == OBJ_LIST ||
+                      value->type == OBJ_STREAM ||
+                      value->type == OBJ_ZSET))
             signalKeyAsReady(db, key);
     }
     dictReleaseIterator(di);
@@ -1226,7 +1240,7 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     num = atoi(argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
-    if (num > (argc-3)) {
+    if (num < 1 || num > (argc-3)) {
         *numkeys = 0;
         return NULL;
     }
@@ -1255,7 +1269,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     num = atoi(argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
-    if (num > (argc-3)) {
+    if (num <= 0 || num > (argc-3)) {
         *numkeys = 0;
         return NULL;
     }
@@ -1384,23 +1398,37 @@ int *georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numk
 }
 
 /* XREAD [BLOCK <milliseconds>] [COUNT <count>] [GROUP <groupname> <ttl>]
- *       [RETRY <milliseconds> <ttl>] STREAMS key_1 key_2 ... key_N
- *       ID_1 ID_2 ... ID_N */
+ *       STREAMS key_1 key_2 ... key_N ID_1 ID_2 ... ID_N */
 int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
+    int i, num = 0, *keys;
     UNUSED(cmd);
 
-    /* We need to seek the last argument that contains "STREAMS", because other
-     * arguments before may contain it (for example the group name). */
+    /* We need to parse the options of the command in order to seek the first
+     * "STREAMS" string which is actually the option. This is needed because
+     * "STREAMS" could also be the name of the consumer group and even the
+     * name of the stream key. */
     int streams_pos = -1;
     for (i = 1; i < argc; i++) {
         char *arg = argv[i]->ptr;
-        if (!strcasecmp(arg, "streams")) streams_pos = i;
+        if (!strcasecmp(arg, "block")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "count")) {
+            i++; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "group")) {
+            i += 2; /* Skip option argument. */
+        } else if (!strcasecmp(arg, "noack")) {
+            /* Nothing to do. */
+        } else if (!strcasecmp(arg, "streams")) {
+            streams_pos = i;
+            break;
+        } else {
+            break; /* Syntax error. */
+        }
     }
     if (streams_pos != -1) num = argc - streams_pos - 1;
 
     /* Syntax error. */
-    if (streams_pos == -1 || num % 2 != 0) {
+    if (streams_pos == -1 || num == 0 || num % 2 != 0) {
         *numkeys = 0;
         return NULL;
     }
@@ -1408,7 +1436,7 @@ int *xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys)
                  there are also the IDs, one per key. */
 
     keys = zmalloc(sizeof(int) * num);
-    for (i = streams_pos+1; i < argc; i++) keys[i-streams_pos-1] = i;
+    for (i = streams_pos+1; i < argc-num; i++) keys[i-streams_pos-1] = i;
     *numkeys = num;
     return keys;
 }

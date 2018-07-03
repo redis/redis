@@ -75,6 +75,8 @@ void linkClient(client *c) {
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
+    uint64_t id = htonu64(c->id);
+    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
 client *createClient(int fd) {
@@ -247,7 +249,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
 
         /* Append to this object when possible. If tail == NULL it was
          * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES) {
+        if (tail && (sdsavail(tail) >= len || sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES)) {
             tail = sdscatlen(tail,s,len);
             listNodeValue(ln) = tail;
             c->reply_bytes += len;
@@ -560,6 +562,18 @@ void addReplyHelp(client *c, const char **help) {
     setDeferredMultiBulkLength(c,blenp,blen);
 }
 
+/* Add a suggestive error reply.
+ * This function is typically invoked by from commands that support
+ * subcommands in response to an unknown subcommand or argument error. */
+void addReplySubcommandSyntaxError(client *c) {
+    sds cmd = sdsnew((char*) c->argv[0]->ptr);
+    sdstoupper(cmd);
+    addReplyErrorFormat(c,
+        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
+        c->argv[1]->ptr,cmd);
+    sdsfree(cmd);
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */
@@ -720,6 +734,8 @@ void unlinkClient(client *c) {
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
         if (c->client_list_node) {
+            uint64_t id = htonu64(c->id);
+            raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
             listDelNode(server.clients,c->client_list_node);
             c->client_list_node = NULL;
         }
@@ -862,6 +878,15 @@ void freeClientsInAsyncFreeQueue(void) {
         freeClient(c);
         listDelNode(server.clients_to_close,ln);
     }
+}
+
+/* Return a client by ID, or NULL if the client ID is not in the set
+ * of registered clients. Note that "fake clients", created with -1 as FD,
+ * are not registered clients. */
+client *lookupClientByID(uint64_t id) {
+    id = htonu64(id);
+    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
+    return (c == raxNotFound) ? NULL : c;
 }
 
 /* Write data in output buffers to client. Return C_OK if the client
@@ -1493,6 +1518,7 @@ sds catClientInfoString(sds s, client *client) {
             *p++ = 'S';
     }
     if (client->flags & CLIENT_MASTER) *p++ = 'M';
+    if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
@@ -1531,7 +1557,7 @@ sds catClientInfoString(sds s, client *client) {
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
 
-sds getAllClientsInfoString(void) {
+sds getAllClientsInfoString(int type) {
     listNode *ln;
     listIter li;
     client *client;
@@ -1540,6 +1566,7 @@ sds getAllClientsInfoString(void) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
+        if (type != -1 && getClientType(client) != type) continue;
         o = catClientInfoString(o,client);
         o = sdscatlen(o,"\n",1);
     }
@@ -1553,22 +1580,40 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"getname -- Return the name of the current connection.",
-"kill <ip:port> -- Kill connection made from <ip:port>.",
+"id                     -- Return the ID of the current connection.",
+"getname                -- Return the name of the current connection.",
+"kill <ip:port>         -- Kill connection made from <ip:port>.",
 "kill <option> <value> [option value ...] -- Kill connections. Options are:",
-"     addr <ip:port> -- Kill connection made from <ip:port>.",
-"     type (normal|master|slave|pubsub) -- Kill connections by type.",
-"     skipme (yes|no) -- Skip killing current connection (default: yes).",
-"list -- Return information about client connections.",
-"pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
-"reply (on|off|skip) -- Control the replies sent to the current connection.",
-"setname <name> -- Assign the name <name> to the current connection.",
+"     addr <ip:port>                      -- Kill connection made from <ip:port>",
+"     type (normal|master|slave|pubsub)   -- Kill connections by type.",
+"     skipme (yes|no)   -- Skip killing current connection (default: yes).",
+"list [options ...]     -- Return information about client connections. Options:",
+"     type (normal|master|slave|pubsub)   -- Return clients of specified type.",
+"pause <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
+"reply (on|off|skip)    -- Control the replies sent to the current connection.",
+"setname <name>         -- Assign the name <name> to the current connection.",
+"unblock                -- Unblock the specified blocked client.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
+        /* CLIENT ID */
+        addReplyLongLong(c,c->id);
+    } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
-        sds o = getAllClientsInfoString();
+        int type = -1;
+        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
+            type = getClientTypeByName(c->argv[3]->ptr);
+            if (type == -1) {
+                addReplyErrorFormat(c,"Unknown client type '%s'",
+                    (char*) c->argv[3]->ptr);
+                return;
+             }
+        } else if (c->argc != 2) {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+        sds o = getAllClientsInfoString(type);
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
@@ -1671,6 +1716,38 @@ NULL
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && (c->argc == 3 ||
+                                                          c->argc == 4))
+    {
+        /* CLIENT UNBLOCK <id> [timeout|error] */
+        long long id;
+        int unblock_error = 0;
+
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"timeout")) {
+                unblock_error = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr,"error")) {
+                unblock_error = 1;
+            } else {
+                addReplyError(c,
+                    "CLIENT UNBLOCK reason should be TIMEOUT or ERROR");
+                return;
+            }
+        }
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
+            != C_OK) return;
+        struct client *target = lookupClientByID(id);
+        if (target && target->flags & CLIENT_BLOCKED) {
+            if (unblock_error)
+                addReplyError(target,
+                    "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
+            else
+                replyToBlockedClientTimedOut(target);
+            unblockClient(target);
+            addReply(c,shared.cone);
+        } else {
+            addReply(c,shared.czero);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;

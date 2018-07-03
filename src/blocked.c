@@ -314,8 +314,9 @@ void handleClientsBlockedOnKeys(void) {
                 if (de) {
                     list *clients = dictGetVal(de);
                     int numclients = listLength(clients);
+                    unsigned long zcard = zsetLength(o);
 
-                    while(numclients--) {
+                    while(numclients-- && zcard) {
                         listNode *clientnode = listFirst(clients);
                         client *receiver = clientnode->value;
 
@@ -332,6 +333,7 @@ void handleClientsBlockedOnKeys(void) {
                                      ? ZSET_MIN : ZSET_MAX;
                         unblockClient(receiver);
                         genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+                        zcard--;
 
                         /* Replicate the command. */
                         robj *argv[2];
@@ -396,12 +398,6 @@ void handleClientsBlockedOnKeys(void) {
                                            1);
                             }
 
-                            /* Note that after we unblock the client, 'gt'
-                             * and other receiver->bpop stuff are no longer
-                             * valid, so we must do the setup above before
-                             * this call. */
-                            unblockClient(receiver);
-
                             /* Emit the two elements sub-array consisting of
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
@@ -417,6 +413,12 @@ void handleClientsBlockedOnKeys(void) {
                             streamReplyWithRange(receiver,s,&start,NULL,
                                                  receiver->bpop.xread_count,
                                                  0, group, consumer, 0, &pi);
+
+                            /* Note that after we unblock the client, 'gt'
+                             * and other receiver->bpop stuff are no longer
+                             * valid, so we must do the setup above before
+                             * this call. */
+                            unblockClient(receiver);
                         }
                     }
                 }

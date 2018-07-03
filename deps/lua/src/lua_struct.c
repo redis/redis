@@ -1,7 +1,7 @@
 /*
 ** {======================================================
 ** Library for packing/unpacking structures.
-** $Id: struct.c,v 1.4 2012/07/04 18:54:29 roberto Exp $
+** $Id: struct.c,v 1.7 2018/05/11 22:04:31 roberto Exp $
 ** See Copyright Notice at the end of this file
 ** =======================================================
 */
@@ -15,8 +15,8 @@
 ** h/H - signed/unsigned short
 ** l/L - signed/unsigned long
 ** T   - size_t
-** i/In - signed/unsigned integer with size `n' (default is size of int)
-** cn - sequence of `n' chars (from/to a string); when packing, n==0 means
+** i/In - signed/unsigned integer with size 'n' (default is size of int)
+** cn - sequence of 'n' chars (from/to a string); when packing, n==0 means
         the whole string; when unpacking, n==0 means use the previous
         read number as the string length
 ** s - zero-terminated string
@@ -89,14 +89,12 @@ typedef struct Header {
 } Header;
 
 
-static int getnum (lua_State *L, const char **fmt, int df) {
+static int getnum (const char **fmt, int df) {
   if (!isdigit(**fmt))  /* no number? */
     return df;  /* return default value */
   else {
     int a = 0;
     do {
-      if (a > (INT_MAX / 10) || a * 10 > (INT_MAX - (**fmt - '0')))
-        luaL_error(L, "integral size overflow");
       a = a*10 + *((*fmt)++) - '0';
     } while (isdigit(**fmt));
     return a;
@@ -117,9 +115,9 @@ static size_t optsize (lua_State *L, char opt, const char **fmt) {
     case 'f':  return sizeof(float);
     case 'd':  return sizeof(double);
     case 'x': return 1;
-    case 'c': return getnum(L, fmt, 1);
+    case 'c': return getnum(fmt, 1);
     case 'i': case 'I': {
-      int sz = getnum(L, fmt, sizeof(int));
+      int sz = getnum(fmt, sizeof(int));
       if (sz > MAXINTSIZE)
         luaL_error(L, "integral size %d is larger than limit of %d",
                        sz, MAXINTSIZE);
@@ -152,7 +150,7 @@ static void controloptions (lua_State *L, int opt, const char **fmt,
     case '>': h->endian = BIG; return;
     case '<': h->endian = LITTLE; return;
     case '!': {
-      int a = getnum(L, fmt, MAXALIGN);
+      int a = getnum(fmt, MAXALIGN);
       if (!isp2(a))
         luaL_error(L, "alignment %d is not a power of 2", a);
       h->align = a;
@@ -295,21 +293,26 @@ static int b_unpack (lua_State *L) {
   const char *fmt = luaL_checkstring(L, 1);
   size_t ld;
   const char *data = luaL_checklstring(L, 2, &ld);
-  size_t pos = luaL_optinteger(L, 3, 1) - 1;
+  size_t pos = luaL_optinteger(L, 3, 1);
+  luaL_argcheck(L, pos > 0, 3, "offset must be 1 or greater");
+  pos--; /* Lua indexes are 1-based, but here we want 0-based for C
+          * pointer math. */
+  int n = 0;  /* number of results */
   defaultoptions(&h);
-  lua_settop(L, 2);
   while (*fmt) {
     int opt = *fmt++;
     size_t size = optsize(L, opt, &fmt);
     pos += gettoalign(pos, &h, opt, size);
-    luaL_argcheck(L, pos+size <= ld, 2, "data string too short");
-    luaL_checkstack(L, 1, "too many results");
+    luaL_argcheck(L, size <= ld && pos <= ld - size,
+                   2, "data string too short");
+    /* stack space for item + next position */
+    luaL_checkstack(L, 2, "too many results");
     switch (opt) {
       case 'b': case 'B': case 'h': case 'H':
       case 'l': case 'L': case 'T': case 'i':  case 'I': {  /* integer types */
         int issigned = islower(opt);
         lua_Number res = getinteger(data+pos, h.endian, issigned, size);
-        lua_pushnumber(L, res);
+        lua_pushnumber(L, res); n++;
         break;
       }
       case 'x': {
@@ -319,25 +322,26 @@ static int b_unpack (lua_State *L) {
         float f;
         memcpy(&f, data+pos, size);
         correctbytes((char *)&f, sizeof(f), h.endian);
-        lua_pushnumber(L, f);
+        lua_pushnumber(L, f); n++;
         break;
       }
       case 'd': {
         double d;
         memcpy(&d, data+pos, size);
         correctbytes((char *)&d, sizeof(d), h.endian);
-        lua_pushnumber(L, d);
+        lua_pushnumber(L, d); n++;
         break;
       }
       case 'c': {
         if (size == 0) {
-          if (!lua_isnumber(L, -1))
-            luaL_error(L, "format `c0' needs a previous size");
+          if (n == 0 || !lua_isnumber(L, -1))
+            luaL_error(L, "format 'c0' needs a previous size");
           size = lua_tonumber(L, -1);
-          lua_pop(L, 1);
-          luaL_argcheck(L, pos+size <= ld, 2, "data string too short");
+          lua_pop(L, 1); n--;
+          luaL_argcheck(L, size <= ld && pos <= ld - size,
+                           2, "data string too short");
         }
-        lua_pushlstring(L, data+pos, size);
+        lua_pushlstring(L, data+pos, size); n++;
         break;
       }
       case 's': {
@@ -345,15 +349,15 @@ static int b_unpack (lua_State *L) {
         if (e == NULL)
           luaL_error(L, "unfinished string in data");
         size = (e - (data+pos)) + 1;
-        lua_pushlstring(L, data+pos, size - 1);
+        lua_pushlstring(L, data+pos, size - 1); n++;
         break;
       }
       default: controloptions(L, opt, &fmt, &h);
     }
     pos += size;
   }
-  lua_pushinteger(L, pos + 1);
-  return lua_gettop(L) - 2;
+  lua_pushinteger(L, pos + 1);  /* next position */
+  return n + 1;
 }
 
 
@@ -399,7 +403,7 @@ LUALIB_API int luaopen_struct (lua_State *L) {
 
 
 /******************************************************************************
-* Copyright (C) 2010-2012 Lua.org, PUC-Rio.  All rights reserved.
+* Copyright (C) 2010-2018 Lua.org, PUC-Rio.  All rights reserved.
 *
 * Permission is hereby granted, free of charge, to any person obtaining
 * a copy of this software and associated documentation files (the

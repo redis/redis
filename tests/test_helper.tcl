@@ -83,6 +83,8 @@ set ::force_failure 0
 set ::timeout 600; # 10 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
+set ::dont_clean 0
+set ::wait_server 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -176,6 +178,9 @@ proc s {args} {
 }
 
 proc cleanup {} {
+    if {$::dont_clean} {
+        return
+    }
     if {!$::quiet} {puts -nonewline "Cleanup: may take some time... "}
     flush stdout
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
@@ -225,6 +230,7 @@ proc test_server_cron {} {
     if {$elapsed > $::timeout} {
         set err "\[[colorstr red TIMEOUT]\]: clients state report follows."
         puts $err
+        lappend ::failed_tests $err
         show_clients_state
         kill_clients
         force_kill_all_servers
@@ -411,6 +417,8 @@ proc print_help_screen {} {
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
+        "--dont-clean       don't delete redis log files after the run"
+        "--wait-server      wait after server is started (so that you can attach a debugger)"
         "--help             Print this help screen."
     } "\n"]
 }
@@ -464,6 +472,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--clients}} {
         set ::numclients $arg
         incr j
+    } elseif {$opt eq {--dont-clean}} {
+        set ::dont_clean 1
+    } elseif {$opt eq {--wait-server}} {
+        set ::wait_server 1
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j

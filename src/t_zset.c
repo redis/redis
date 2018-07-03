@@ -1100,8 +1100,8 @@ unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsig
  * Common sorted set API
  *----------------------------------------------------------------------------*/
 
-unsigned int zsetLength(const robj *zobj) {
-    int length = -1;
+unsigned long zsetLength(const robj *zobj) {
+    unsigned long length = 0;
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -1878,7 +1878,7 @@ void zuiClearIterator(zsetopsrc *op) {
     }
 }
 
-int zuiLength(zsetopsrc *op) {
+unsigned long zuiLength(zsetopsrc *op) {
     if (op->subject == NULL)
         return 0;
 
@@ -2085,7 +2085,11 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
 }
 
 int zuiCompareByCardinality(const void *s1, const void *s2) {
-    return zuiLength((zsetopsrc*)s1) - zuiLength((zsetopsrc*)s2);
+    unsigned long first = zuiLength((zsetopsrc*)s1);
+    unsigned long second = zuiLength((zsetopsrc*)s2);
+    if (first > second) return 1;
+    if (first < second) return -1;
+    return 0;
 }
 
 #define REDIS_AGGR_SUM 1
@@ -2129,7 +2133,7 @@ void zunionInterGenericCommand(client *c, robj *dstkey, int op) {
     zsetopsrc *src;
     zsetopval zval;
     sds tmp;
-    unsigned int maxelelen = 0;
+    size_t maxelelen = 0;
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
@@ -2363,8 +2367,8 @@ void zrangeGenericCommand(client *c, int reverse) {
     int withscores = 0;
     long start;
     long end;
-    int llen;
-    int rangelen;
+    long llen;
+    long rangelen;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -2671,7 +2675,7 @@ void zcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zrangespec range;
-    int count = 0;
+    unsigned long count = 0;
 
     /* Parse the range arguments */
     if (zslParseRange(c->argv[2],c->argv[3],&range) != C_OK) {
@@ -2748,7 +2752,7 @@ void zlexcountCommand(client *c) {
     robj *key = c->argv[1];
     robj *zobj;
     zlexrangespec range;
-    int count = 0;
+    unsigned long count = 0;
 
     /* Parse the range arguments */
     if (zslParseLexRange(c->argv[2],c->argv[3],&range) != C_OK) {
@@ -3163,8 +3167,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             signalModifiedKey(c->db,key);
         }
 
-        addReplyDouble(c,score);
         addReplyBulkCBuffer(c,ele,sdslen(ele));
+        addReplyDouble(c,score);
         sdsfree(ele);
         arraylen += 2;
 
@@ -3216,9 +3220,9 @@ void blockingGenericZpopCommand(client *c, int where) {
                 return;
             } else {
                 if (zsetLength(o) != 0) {
-                    /* Non empty zset, this is like a normal Z[REV]POP. */
+                    /* Non empty zset, this is like a normal ZPOP[MIN|MAX]. */
                     genericZpopCommand(c,&c->argv[j],1,where,1,NULL);
-                    /* Replicate it as an Z[REV]POP instead of BZ[REV]POP. */
+                    /* Replicate it as an ZPOP[MIN|MAX] instead of BZPOP[MIN|MAX]. */
                     rewriteClientCommandVector(c,2,
                         where == ZSET_MAX ? shared.zpopmax : shared.zpopmin,
                         c->argv[j]);

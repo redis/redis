@@ -27,7 +27,7 @@
  * traversal.
  *
  * <uint16_t zllen> is the number of entries. When there are more than
- * 2^16-2 entires, this value is set to 2^16-1 and we need to traverse the
+ * 2^16-2 entries, this value is set to 2^16-1 and we need to traverse the
  * entire list to know how many items it holds.
  *
  * <uint8_t zlend> is a special entry representing the end of the ziplist.
@@ -256,7 +256,7 @@
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
 
 /* Increment the number of items field in the ziplist header. Note that this
- * macro should never overflow the unsigned 16 bit integer, since entires are
+ * macro should never overflow the unsigned 16 bit integer, since entries are
  * always pushed one at a time. When UINT16_MAX is reached we want the count
  * to stay there to signal that a full scan is needed to get the number of
  * items inside the ziplist. */

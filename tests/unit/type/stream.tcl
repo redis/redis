@@ -253,4 +253,20 @@ start_server {
             }
         }
     }
+
+    test {XREVRANGE regression test for issue #5006} {
+        # Add non compressed entries
+        r xadd teststream 1234567891230 key1 value1
+        r xadd teststream 1234567891240 key2 value2
+        r xadd teststream 1234567891250 key3 value3
+
+        # Add SAMEFIELD compressed entries
+        r xadd teststream2 1234567891230 key1 value1
+        r xadd teststream2 1234567891240 key1 value2
+        r xadd teststream2 1234567891250 key1 value3
+
+        assert_equal [r xrevrange teststream 1234567891245 -] {{1234567891240-0 {key2 value2}} {1234567891230-0 {key1 value1}}}
+
+        assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
+    }
 }

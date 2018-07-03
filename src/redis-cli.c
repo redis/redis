@@ -220,6 +220,7 @@ static struct config {
     int last_cmd_type;
     int verbose;
     clusterManagerCommand cluster_manager_command;
+    int no_auth_warning;
 } config;
 
 /* User preferences. */
@@ -258,20 +259,25 @@ static long long mstime(void) {
 }
 
 static void cliRefreshPrompt(void) {
-    int len;
-
     if (config.eval_ldb) return;
-    if (config.hostsocket != NULL)
-        len = snprintf(config.prompt,sizeof(config.prompt),"redis %s",
-                       config.hostsocket);
-    else
-        len = anetFormatAddr(config.prompt, sizeof(config.prompt),
-                           config.hostip, config.hostport);
+
+    sds prompt = sdsempty();
+    if (config.hostsocket != NULL) {
+        prompt = sdscatfmt(prompt,"redis %s",config.hostsocket);
+    } else {
+        char addr[256];
+        anetFormatAddr(addr, sizeof(addr), config.hostip, config.hostport);
+        prompt = sdscatlen(prompt,addr,strlen(addr));
+    }
+
     /* Add [dbnum] if needed */
     if (config.dbnum != 0)
-        len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
-            config.dbnum);
-    snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
+        prompt = sdscatfmt(prompt,"[%i]",config.dbnum);
+
+    /* Copy the prompt in the static buffer. */
+    prompt = sdscatlen(prompt,"> ",2);
+    snprintf(config.prompt,sizeof(config.prompt),"%s",prompt);
+    sdsfree(prompt);
 }
 
 /* Return the name of the dotfile for the specified 'dotfilename'.
@@ -1075,13 +1081,15 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"info") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
                        !strcasecmp(argv[1],"htstats")) ||
+        (argc >= 2 && !strcasecmp(command,"debug") &&
+                       !strcasecmp(argv[1],"htstats-key")) ||
         (argc >= 2 && !strcasecmp(command,"memory") &&
                       (!strcasecmp(argv[1],"malloc-stats") ||
                        !strcasecmp(argv[1],"doctor"))) ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
-        (argc == 2 && !strcasecmp(command,"client") &&
+        (argc >= 2 && !strcasecmp(command,"client") &&
                        !strcasecmp(argv[1],"list")) ||
         (argc == 3 && !strcasecmp(command,"latency") &&
                        !strcasecmp(argv[1],"graph")) ||
@@ -1228,8 +1236,9 @@ static int parseOptions(int argc, char **argv) {
             config.interval = seconds*1000000;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[++i]);
+        } else if (!strcmp(argv[i], "--no-auth-warning")) {
+            config.no_auth_warning = 1;
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
-            fputs("Warning: Using a password with '-a' option on the command line interface may not be safe.\n", stderr);
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i]);
@@ -1380,6 +1389,12 @@ static int parseOptions(int argc, char **argv) {
         fprintf(stderr,"Try %s --help for more information.\n", argv[0]);
         exit(1);
     }
+
+    if (!config.no_auth_warning && config.auth != NULL) {
+        fputs("Warning: Using a password with '-a' or '-u' option on the command"
+              " line interface may not be safe.\n", stderr);
+    }
+
     return i;
 }
 
@@ -1456,9 +1471,14 @@ static void usage(void) {
 "  --cluster <command> [args...] [opts...]\n"
 "                     Cluster Manager command and arguments (see below).\n"
 "  --verbose          Verbose mode.\n"
+"  --no-auth-warning  Don't show warning message when using password on command\n"
+"                     line interface.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
-"\n"
+"\n",
+    version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
+    /* Using another fprintf call to avoid -Woverlength-strings compile warning */
+    fprintf(stderr,
 "Cluster Manager Commands:\n"
 "  Use --cluster help to list all available cluster manager commands.\n"
 "\n"
@@ -1475,8 +1495,7 @@ static void usage(void) {
 "When no command is given, redis-cli starts in interactive mode.\n"
 "Type \"help\" in interactive mode for information on available commands\n"
 "and settings.\n"
-"\n",
-        version, REDIS_CLI_DEFAULT_PIPE_TIMEOUT);
+"\n");
     sdsfree(version);
     exit(1);
 }
@@ -3088,7 +3107,7 @@ static int clusterManagerNodeLoadInfo(clusterManagerNode *node, int opts,
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_FAIL;
             else if (strcmp(flag, "slave") == 0) {
                 currentNode->flags |= CLUSTER_MANAGER_FLAG_SLAVE;
-                if (master_id == 0) {
+                if (master_id != NULL) {
                     if (currentNode->replicate) sdsfree(currentNode->replicate);
                     currentNode->replicate = sdsnew(master_id);
                 }
@@ -4848,7 +4867,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     }
     /* Calculate the slots balance for each node. It's the number of
      * slots the node should lose (if positive) or gain (if negative)
-     * in order to be balanced. */	
+     * in order to be balanced. */
     int threshold_reached = 0, total_balance = 0;
     float threshold = config.cluster_manager_command.threshold;
     i = 0;
@@ -4860,9 +4879,9 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                         n->weight);
         n->balance = n->slots_count - expected;
         total_balance += n->balance;
-	/* Compute the percentage of difference between the
-	 * expected number of slots and the real one, to see
-	 * if it's over the threshold specified by the user. */
+        /* Compute the percentage of difference between the
+         * expected number of slots and the real one, to see
+         * if it's over the threshold specified by the user. */
         int over_threshold = 0;
         if (threshold > 0) {
             if (n->slots_count > 0) {
@@ -4887,7 +4906,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
         listRewind(involved, &li);
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
-            if (n->balance < 0 && total_balance > 0) {
+            if (n->balance <= 0 && total_balance > 0) {
                 n->balance--;
                 total_balance--;
             }
@@ -5091,7 +5110,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
 
     // Build a slot -> node map
     clusterManagerNode  *slots_map[CLUSTER_MANAGER_SLOTS];
-    memset(slots_map, 0, sizeof(slots_map) / sizeof(clusterManagerNode *));
+    memset(slots_map, 0, sizeof(slots_map));
     listIter li;
     listNode *ln;
     for (i = 0; i < CLUSTER_MANAGER_SLOTS; i++) {
@@ -5575,7 +5594,7 @@ static void getRDB(void) {
         nwritten = write(fd, buf, nread);
         if (nwritten != nread) {
             fprintf(stderr,"Error writing data to file: %s\n",
-                strerror(errno));
+                (nwritten == -1) ? strerror(errno) : "short write");
             exit(1);
         }
         payload -= nread;
@@ -6544,6 +6563,7 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
     config.verbose = 0;
+    config.no_auth_warning = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
     config.cluster_manager_command.argv = NULL;

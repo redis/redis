@@ -66,3 +66,13 @@ test "SDOWN is triggered by misconfigured instance repling with errors" {
     R 0 bgsave
     ensure_master_up
 }
+
+# We use this test setup to also test command renaming, as a side
+# effect of the master going down if we send PONG instead of PING
+test "SDOWN is triggered if we rename PING to PONG" {
+    ensure_master_up
+    S 4 SENTINEL SET mymaster rename-command PING PONG
+    ensure_master_down
+    S 4 SENTINEL SET mymaster rename-command PING PING
+    ensure_master_up
+}
