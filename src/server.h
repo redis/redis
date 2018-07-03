@@ -700,9 +700,10 @@ typedef struct client {
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
-    sds pending_querybuf;   /* If this is a master, this buffer represents the
-                               yet not applied replication stream that we
-                               are receiving from the master. */
+    sds pending_querybuf;   /* If this client is flagged as master, this buffer
+                               represents the yet not applied portion of the
+                               replication stream that we are receiving from
+                               the master. */
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size. */
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
