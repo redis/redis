@@ -61,6 +61,7 @@ set ::all_tests {
     unit/hyperloglog
     unit/lazyfree
     unit/wait
+    unit/pendingquerybuf
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
