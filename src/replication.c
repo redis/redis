@@ -1087,7 +1087,6 @@ void replicationCreateMasterClient(int fd, int dbid) {
     if (server.master->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
     if (dbid != -1) selectDb(server.master,dbid);
-    server.repl_down_since = 0;
 }
 
 void restartAOF() {
@@ -1280,6 +1279,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         close(server.repl_transfer_fd);
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
+        server.repl_down_since = 0;
         /* After a full resynchroniziation we use the replication ID and
          * offset of the master. The secondary ID / offset are cleared since
          * we are starting a new history. */
@@ -2217,6 +2217,7 @@ void replicationResurrectCachedMaster(int newfd) {
     server.master->authenticated = 1;
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
+    server.repl_down_since = 0;
 
     /* Re-add to the list of clients. */
     linkClient(server.master);
