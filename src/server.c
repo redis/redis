@@ -349,9 +349,11 @@ void serverLogRaw(int level, const char *msg) {
         struct timeval tv;
         int role_char;
         pid_t pid = getpid();
+        struct tm tm;
 
         gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        localtime_nolock(&tv.tv_sec, &tm);
+        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
@@ -2061,6 +2063,7 @@ void initServer(void) {
     latencyMonitorInit();
     bioInit();
     server.initial_memory_usage = zmalloc_used_memory();
+    tzset(); /* init timezone on start */
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
