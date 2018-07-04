@@ -94,6 +94,6 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
         tmp->tm_mon++;
     }
 
-    tmp->tm_mday = days;
-    tmp->tm_year -= 1900; /* Surprisingly tm_year is year-1900. */
+    tmp->tm_mday = days+1;  /* Add 1 since our 'days' is zero-based. */
+    tmp->tm_year -= 1900;   /* Surprisingly tm_year is year-1900. */
 }
