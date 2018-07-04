@@ -326,6 +326,10 @@ struct redisCommand redisCommandTable[] = {
 
 /*============================ Utility functions ============================ */
 
+/* We use a private localtime implementation which is fork-safe. The logging
+ * function of Redis may be called from other threads. */
+void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -351,7 +355,9 @@ void serverLogRaw(int level, const char *msg) {
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        struct tm tm;
+        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
