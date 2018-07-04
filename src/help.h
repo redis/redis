@@ -579,7 +579,7 @@ struct commandHelp {
     1,
     "1.0.0" },
     { "MIGRATE",
-    "host port key|"" destination-db timeout [COPY] [REPLACE] [KEYS key]",
+    "host port key|\"\" destination-db timeout [COPY] [REPLACE] [AUTH password] [KEYS key]",
     "Atomically transfer a key from a Redis instance to another one.",
     0,
     "2.6.0" },

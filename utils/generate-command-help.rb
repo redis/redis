@@ -34,6 +34,7 @@ def argument arg
   if arg["optional"]
     name = "[#{name}]"
   end
+  name.gsub! "\"", "\\\""
   name
 end
 
