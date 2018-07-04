@@ -39,7 +39,12 @@
  * This function takes the timezone 'tz' as argument, and the 'dst' flag is
  * used to check if daylight saving time is currently in effect. The caller
  * of this function should obtain such information calling tzset() ASAP in the
- * main() function, and later accessing the globals 'timezone' and 'daylight'.
+ * main() function to obtain the timezone offset from the 'timezone' global
+ * variable. To obtain the daylight information, if it is currently active or not,
+ * one trick is to call localtime() in main() ASAP as well, and get the
+ * information from the tm_isdst field of the tm structure. However the daylight
+ * time may switch in the future for long running processes, so this information
+ * should be refreshed at safe times.
  *
  * Note that this function does not work for dates < 1/1/1970, it is solely
  * designed to work with what time(NULL) may return, and to support Redis
@@ -57,6 +62,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     const time_t secs_day = 3600*24;
 
     t -= tz;                            /* Adjust for timezone. */
+    t += 3600+dst;                      /* Adjust for daylight time. */
     time_t days = t / secs_day;         /* Days passed since epoch. */
     time_t seconds = t % secs_day;      /* Remaining seconds. */
 
@@ -101,13 +107,17 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
 #include <stdio.h>
 
 int main(void) {
-    tzset();
+    /* Obtain timezone and daylight info. */
+    tzset(); /* Now 'timezome' global is populated. */
     time_t t = time(NULL);
+    struct tm *aux = localtime(&t);
+    int daylight_active = aux->tm_isdst;
+
     struct tm tm;
     char buf[1024];
 
-    nolocks_localtime(&tm,t,timezone,daylight);
+    nolocks_localtime(&tm,t,timezone,daylight_active);
     strftime(buf,sizeof(buf),"%d %b %H:%M:%S",&tm);
-    printf("[timezone: %d, dl: %d] %s\n", (int)timezone, (int)daylight, buf);
+    printf("[timezone: %d, dl: %d] %s\n", (int)timezone, (int)daylight_active, buf);
 }
 #endif
