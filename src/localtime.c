@@ -39,6 +39,34 @@
  * This function takes the timezone 'tz' as argument, and the 'dst' flag is
  * used to check if daylight saving time is currently in effect. The caller
  * of this function should obtain such information calling tzset() ASAP in the
- * main() function, and later accessing the globals 'timezone' and 'daylight'. */
-void nolocks_localtime(struct tm *tmptr, time_t t, time_t tz, int dst) {
+ * main() function, and later accessing the globals 'timezone' and 'daylight'.
+ *
+ * Note that this function does not work for dates < 1/1/1970, it is solely
+ * designed to work with what time(NULL) may return, and to support Redis
+ * logging of the dates, it's not really a complete implementation. */
+static int is_leap_year(time_t year) {
+    if (year % 4) return 0;
+    else if (year % 100) return 1;
+    else if (year % 400) return 0;
+    else return 1;
+}
+
+void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
+    const time_t secs_min = 60;
+    const time_t secs_hour = 3600;
+    const time_t secs_day = 3600*24;
+
+    t += tz;                            /* Adjust for timezone. */
+    time_t days = t / secs_day;         /* Days passed since epoch. */
+    time_t seconds = t % secs_day;      /* Remaining seconds. */
+
+    tmp->tm_isdst = dst;
+    tmp->tm_hour = seconds / secs_hour;
+    tmp->tm_min = (seconds % secs_hour) / secs_min;
+    tmp->tm_sec = (seconds % secs_hour) % secs_min;
+
+    /* 1/1/1970 was a Thursday, that is, day 4 from the POV of the tm structure
+     * where sunday = 0, so to calculate the day of the week we have to add 4
+     * and take the modulo by 7. */
+    tmp->tm_wday = (days+4)%7;
 }
