@@ -79,7 +79,7 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     /* Calculate the current year. */
     tmp->tm_year = 1970;
     while(1) {
-        /* Leap years have one year more. */
+        /* Leap years have one day more. */
         time_t days_this_year = 365 + is_leap_year(tmp->tm_year);
         if (days_this_year > days) break;
         days -= days_this_year;
