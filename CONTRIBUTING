@@ -32,7 +32,7 @@ each source file that you contribute.
     a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )
     b. Create a topic branch (git checkout -b my_branch)
     c. Push to your branch (git push origin my_branch)
-    d. Initiate a pull request on github ( http://help.github.com/send-pull-requests/ )
+    d. Initiate a pull request on github ( https://help.github.com/articles/creating-a-pull-request/ )
     e. Done :)
 
 For minor fixes just open a pull request on Github.
