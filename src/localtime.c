@@ -57,7 +57,6 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     const time_t secs_day = 3600*24;
 
     t -= tz;                            /* Adjust for timezone. */
-    t += 3600+dst;                      /* Adjust for daylight time.  */
     time_t days = t / secs_day;         /* Days passed since epoch. */
     time_t seconds = t % secs_day;      /* Remaining seconds. */
 
@@ -97,3 +96,18 @@ void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst) {
     tmp->tm_mday = days+1;  /* Add 1 since our 'days' is zero-based. */
     tmp->tm_year -= 1900;   /* Surprisingly tm_year is year-1900. */
 }
+
+#ifdef LOCALTIME_TEST_MAIN
+#include <stdio.h>
+
+int main(void) {
+    tzset();
+    time_t t = time(NULL);
+    struct tm tm;
+    char buf[1024];
+
+    nolocks_localtime(&tm,t,timezone,daylight);
+    strftime(buf,sizeof(buf),"%d %b %H:%M:%S",&tm);
+    printf("[timezone: %d, dl: %d] %s\n", (int)timezone, (int)daylight, buf);
+}
+#endif
