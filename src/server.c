@@ -977,6 +977,14 @@ void updateCachedTime(void) {
     time_t unixtime = time(NULL);
     atomicSet(server.unixtime,unixtime);
     server.mstime = mstime();
+
+    /* To get information about daylight saving time, we need to call localtime_r
+     * and cache the result. However calling localtime_r in this context is safe
+     * since we will never fork() while here, in the main thread. The logging
+     * function will call a thread safe version of localtime that has no locks. */
+    struct tm tm;
+    localtime_r(&server.unixtime,&tm);
+    server.daylight_active = tm.tm_isdst;
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -1419,10 +1427,12 @@ void initServerConfig(void) {
     pthread_mutex_init(&server.lruclock_mutex,NULL);
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
+    updateCachedTime();
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    server.timezone = timezone; /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
     server.hz = CONFIG_DEFAULT_HZ;
@@ -2000,7 +2010,6 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
-    updateCachedTime();
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -3861,9 +3870,11 @@ int main(int argc, char **argv) {
     spt_init(argc, argv);
 #endif
     setlocale(LC_COLLATE,"");
+    tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
+
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
