@@ -1144,6 +1144,7 @@ void restoreAsyncCommand(client *c) {
     }
 
 failed_syntax_error:
+    c->flags |= CLIENT_CLOSE_AFTER_REPLY;
     addReply(c, shared.syntaxerr);
 }
 
