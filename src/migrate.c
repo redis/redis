@@ -220,7 +220,7 @@ typedef struct {
     int non_blocking;
     struct {
         int fd;
-        sds buffer;
+        sds sendbuf;
     } io;
     struct {
         robj *key;
@@ -239,11 +239,11 @@ typedef struct {
 #define RIO_IOBUF_AUTO_FLUSH_THRESHOLD (RIO_IOBUF_MAX_LEN - 1024)
 
 static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
-    if (sdslen(cmd->io.buffer) != 0) {
-        if (syncWriteBuffer(cmd->io.fd, cmd->io.buffer, cmd->timeout) != C_OK) {
+    if (sdslen(cmd->io.sendbuf) != 0) {
+        if (syncWriteBuffer(cmd->io.fd, cmd->io.sendbuf, cmd->timeout) != C_OK) {
             return 0;
         }
-        sdsclear(cmd->io.buffer);
+        sdsclear(cmd->io.sendbuf);
     }
     return 1;
 }
@@ -268,7 +268,7 @@ static int _rioMigrateObjectFlushNonBlockingFragment(rioMigrateCommand *cmd) {
 
     rio _rio;
     rio *rio = &_rio;
-    rioInitWithBuffer(rio, cmd->io.buffer);
+    rioInitWithBuffer(rio, cmd->io.sendbuf);
 
     robj *key = cmd->privdata.key;
     const char *cmd_name = server.cluster_enabled ? "RESTORE-ASYNC-ASKING" : "RESTORE-ASYNC";
@@ -290,16 +290,16 @@ rio_fragment_payload:
     RIO_GOTO_IF_ERROR(rioWriteBulkString(rio, cmd->payload, sdslen(cmd->payload)));
 
     cmd->seq_num++;
-    cmd->io.buffer = rio->io.buffer.ptr;
+    cmd->io.sendbuf = rio->io.buffer.ptr;
     sdsclear(cmd->payload);
 
-    if (sdslen(cmd->io.buffer) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
 
 rio_failed_cleanup:
-    cmd->io.buffer = rio->io.buffer.ptr;
+    cmd->io.sendbuf = rio->io.buffer.ptr;
     return 0;
 }
 
@@ -311,7 +311,7 @@ static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
     if (!cmd->non_blocking) {
         return 1;
     }
-    if (sdslen(cmd->io.buffer) + sdslen(cmd->payload) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) + sdslen(cmd->payload) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return _rioMigrateObjectFlushNonBlockingFragment(cmd);
@@ -330,7 +330,7 @@ static int _rioMigrateObjectFlush(rio *r) {
 
     rio _rio;
     rio *rio = &_rio;
-    rioInitWithBuffer(rio, cmd->io.buffer);
+    rioInitWithBuffer(rio, cmd->io.sendbuf);
 
     robj *key = cmd->privdata.key;
     mstime_t ttl = cmd->privdata.ttl;
@@ -360,15 +360,15 @@ static int _rioMigrateObjectFlush(rio *r) {
     serverAssert(sdslen(cmd->payload) == 0);
 
     cmd->seq_num++;
-    cmd->io.buffer = rio->io.buffer.ptr;
+    cmd->io.sendbuf = rio->io.buffer.ptr;
 
-    if (sdslen(cmd->io.buffer) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
 
 rio_failed_cleanup:
-    cmd->io.buffer = rio->io.buffer.ptr;
+    cmd->io.sendbuf = rio->io.buffer.ptr;
     return 0;
 }
 
@@ -608,7 +608,7 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
         .io =
             {
                 .fd = cs->fd,
-                .buffer = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
+                .sendbuf = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
             },
     };
     rioMigrateCommand *cmd = &_cmd;
@@ -629,14 +629,14 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
     RIO_GOTO_IF_ERROR(rioMigrateCommandFlushIOBuffer(cmd));
 
     sdsfree(cmd->payload);
-    sdsfree(cmd->io.buffer);
+    sdsfree(cmd->io.sendbuf);
 
     args->socket->last_use_time = server.unixtime;
     return 1;
 
 rio_failed_cleanup:
     sdsfree(cmd->payload);
-    sdsfree(cmd->io.buffer);
+    sdsfree(cmd->io.sendbuf);
 
     serverAssert(args->errmsg == NULL);
 
