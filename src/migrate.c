@@ -474,8 +474,6 @@ static void freeMigrateCommandArgs(migrateCommandArgs *args) {
     if (args->errmsg != NULL) {
         sdsfree(args->errmsg);
     }
-    serverAssert(args->process_state != PROCESS_STATE_QUEUED);
-
     zfree(args);
 }
 
@@ -567,6 +565,7 @@ parsed_options:
     args->client = c;
     args->errmsg = NULL;
     args->cmd_name = "MIGRATE";
+    args->process_state = PROCESS_STATE_NONE;
     return args;
 
 failed_cleanup:
@@ -899,8 +898,6 @@ static void freeRestoreCommandArgs(restoreCommandArgs *args) {
     if (args->link_node != NULL) {
         listDelNode(restore_command_args_list, args->link_node);
     }
-    serverAssert(args->process_state != PROCESS_STATE_QUEUED);
-
     zfree(args);
 }
 
@@ -920,6 +917,7 @@ static restoreCommandArgs *initRestoreCommandArgs(client *c, robj *key, int non_
         args->cmd_name = non_blocking ? "RESTORE-ASYNC" : "RESTORE";
     }
     args->client = c;
+    args->process_state = PROCESS_STATE_NONE;
 
     incrRefCount(key);
 
