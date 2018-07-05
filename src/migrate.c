@@ -393,7 +393,7 @@ static int rioMigrateCommandObject(rioMigrateCommand *cmd, robj *key, robj *obj,
     RIO_GOTO_IF_ERROR(rdbSaveObject(rio, obj));
 
     uint16_t ver = RDB_VERSION;
-    memrev64ifbe(&ver);
+    memrev16ifbe(&ver);
     RIO_GOTO_IF_ERROR(rioWrite(rio, &ver, sizeof(ver)));
 
     uint64_t crc = rio->cksum;
