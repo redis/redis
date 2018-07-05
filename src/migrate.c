@@ -1271,7 +1271,7 @@ void restoreCloseTimedoutCommands(void) {
         listRewind(restore_command_args_list, &li);
         while ((ln = listNext(&li))) {
             restoreCommandArgs *args = listNodeValue(ln);
-            if (!(args->non_blocking && args->process_state == PROCESS_STATE_NONE)) {
+            if (!args->non_blocking || args->process_state != PROCESS_STATE_NONE) {
                 continue;
             }
             if (server.unixtime - args->last_use_time <= 300) {
