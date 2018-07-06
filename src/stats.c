@@ -7,12 +7,15 @@
  * Author:
  *   Steven Grimm <sgrimm@facebook.com>
  */
-#include "stats.h"
-#include "util.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+
+#include "stats.h"
+#include "util.h"
+#include "zmalloc.h"
 
 /*
  * Stats are tracked on the basis of key prefixes. This is a simple
@@ -101,13 +104,13 @@ static PREFIX_STATS *stats_prefix_find(const char *key, const size_t nkey) {
             return pfs;
     }
 
-    pfs = calloc(sizeof(PREFIX_STATS), 1);
+    pfs = zcalloc(sizeof(PREFIX_STATS));
     if (NULL == pfs) {
         perror("Can't allocate space for stats structure: calloc");
         return NULL;
     }
 
-    pfs->prefix = malloc(length + 1);
+    pfs->prefix = zmalloc(length + 1);
     if (NULL == pfs->prefix) {
         perror("Can't allocate space for copy of prefix: malloc");
         free(pfs);
@@ -192,11 +195,10 @@ char *stats_prefix_dump(int *length) {
     STATS_LOCK();
     size = strlen(format) + total_prefix_size +
            num_prefixes * (strlen(format) - 2 /* %s */
-                           + 4 * (20 - 4)) /* %llu replaced by 20-digit num */
-                           + sizeof("END\r\n");
-    buf = malloc(size);
+                           + 4 * (20 - 4)); /* %llu replaced by 20-digit num */
+    buf = zmalloc(size);
     if (NULL == buf) {
-        perror("Can't allocate stats response: malloc");
+        perror("Can't allocate stats response: zmalloc");
         STATS_UNLOCK();
         return NULL;
     }
@@ -214,7 +216,6 @@ char *stats_prefix_dump(int *length) {
     }
 
     STATS_UNLOCK();
-    memcpy(buf + pos, "END\r\n", 6);
 
     *length = pos + 5;
     return buf;

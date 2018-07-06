@@ -33,6 +33,7 @@
 #include "bio.h"
 #include "latency.h"
 #include "atomicvar.h"
+#include "stats.h"
 
 #include <time.h>
 #include <signal.h>
@@ -3275,6 +3276,18 @@ sds genRedisInfoString(char *section) {
             server.stat_active_defrag_key_misses);
     }
 
+    if (allsections || defsections || !strcasecmp(section,"detail")) {
+        int length = 0;
+        char *detail = stats_prefix_dump(&length);
+
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, 
+            "# Detail\r\n"
+            "%s\r\n", detail);
+
+        zfree(detail);
+    }
+
     /* Replication */
     if (allsections || defsections || !strcasecmp(section,"replication")) {
         if (sections++) info = sdscat(info,"\r\n");
@@ -3869,7 +3882,9 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+    stats_prefix_init();
     moduleInitModulesSystem();
+
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
