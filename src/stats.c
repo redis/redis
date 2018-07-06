@@ -217,7 +217,8 @@ char *stats_prefix_dump(int *length) {
 
     STATS_UNLOCK();
 
-    *length = pos + 5;
+    *length = pos;
+    buf[pos] = '\0';
     return buf;
 }
 
