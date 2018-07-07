@@ -570,7 +570,7 @@ void addReplySubcommandSyntaxError(client *c) {
     sdstoupper(cmd);
     addReplyErrorFormat(c,
         "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
-        c->argv[1]->ptr,cmd);
+        (char*)c->argv[1]->ptr,cmd);
     sdsfree(cmd);
 }
 
