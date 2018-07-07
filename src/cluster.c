@@ -41,6 +41,10 @@
 #include <sys/file.h>
 #include <math.h>
 
+#define CLUSTER_BROADCAST_ALL 0
+#define CLUSTER_BROADCAST_LOCAL_SLAVES 1
+#define CLUSTER_BROADCAST_LOCAL 2
+
 /* A global reference to myself is handy to make code more clear.
  * Myself always points to server.cluster->myself, that is, the clusterNode
  * that represents this node. */
@@ -68,6 +72,7 @@ void clusterHandleSlaveMigration(int max_slaves);
 int bitmapTestBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
+void clusterBroadcastUpdate(clusterNode *sender, clusterNode *node, int target);
 void resetManualFailover(void);
 void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
@@ -1968,8 +1973,9 @@ int clusterProcessPacket(clusterLink *link) {
                             "Node %.40s has old slots configuration, sending "
                             "an UPDATE message about %.40s",
                                 sender->name, server.cluster->slots[j]->name);
-                        clusterSendUpdate(sender->link,
-                            server.cluster->slots[j]);
+                        clusterBroadcastUpdate(sender,
+                            server.cluster->slots[j],
+                            CLUSTER_BROADCAST_LOCAL);
 
                         /* TODO: instead of exiting the loop send every other
                          * UPDATE packet for other nodes that are the new owner
@@ -2483,8 +2489,6 @@ void clusterSendPing(clusterLink *link, int type) {
  * CLUSTER_BROADCAST_ALL -> All known instances.
  * CLUSTER_BROADCAST_LOCAL_SLAVES -> All slaves in my master-slaves ring.
  */
-#define CLUSTER_BROADCAST_ALL 0
-#define CLUSTER_BROADCAST_LOCAL_SLAVES 1
 void clusterBroadcastPong(int target) {
     dictIterator *di;
     dictEntry *de;
@@ -2577,6 +2581,30 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
     clusterSendMessage(link,buf,ntohl(hdr->totlen));
+}
+
+void clusterBroadcastUpdate(clusterNode *sender, clusterNode *node, int target) {
+    dictIterator *di;
+    dictEntry *de;
+    clusterNode *local_master;
+
+    local_master = nodeIsMaster(sender) ? sender : sender->slaveof;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while ((de = dictNext(di)) != NULL) {
+        clusterNode *n = dictGetVal(de);
+
+        if (!n->link) continue;
+        if (n == myself || nodeInHandshake(n)) continue;
+        if (target == CLUSTER_BROADCAST_LOCAL) {
+            int local_node = (nodeIsMaster(n) && (n == local_master)) ||
+                (nodeIsSlave(n) && n->slaveof &&
+                 n->slaveof == local_master);
+            if (!local_node) continue;
+        }
+        clusterSendUpdate(n->link, node);
+    }
+    dictReleaseIterator(di);
 }
 
 /* Send a MODULE message.
