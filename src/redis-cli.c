@@ -504,7 +504,7 @@ static void cliInitHelp(void) {
  * entries with additional entries obtained using the COMMAND command
  * available in recent versions of Redis. */
 static void cliIntegrateHelp(void) {
-    if (cliConnect(0) == REDIS_ERR) return;
+    if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
     if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
