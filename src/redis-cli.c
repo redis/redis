@@ -6672,9 +6672,6 @@ int main(int argc, char **argv) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
 
-        /* Note that in repl mode we don't abort on connection error.
-         * A new attempt will be performed for every command send. */
-        cliConnect(0);
         repl();
     }
 
