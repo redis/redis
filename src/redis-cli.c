@@ -136,6 +136,10 @@
 #define LOG_COLOR_YELLOW    "33;1m"
 #define LOG_COLOR_RESET     "0m"
 
+/* cliConnect() flags. */
+#define CC_FORCE (1<<0)         /* Re-connect if already connected. */
+#define CC_QUIET (1<<1)         /* Don't log connecting errors. */
+
 /* --latency-dist palettes. */
 int spectrum_palette_color_size = 19;
 int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
@@ -741,10 +745,12 @@ static int cliSelect(void) {
     return REDIS_ERR;
 }
 
-/* Connect to the server. If force is not zero the connection is performed
- * even if there is already a connected socket. */
-static int cliConnect(int force) {
-    if (context == NULL || force) {
+/* Connect to the server. It is possible to pass certain flags to the function:
+ *      CC_FORCE: The connection is performed even if there is already
+ *                a connected socket.
+ *      CC_QUIET: Don't print errors if connection fails. */
+static int cliConnect(int flags) {
+    if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
             redisFree(context);
         }
@@ -756,11 +762,15 @@ static int cliConnect(int force) {
         }
 
         if (context->err) {
-            fprintf(stderr,"Could not connect to Redis at ");
-            if (config.hostsocket == NULL)
-                fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,context->errstr);
-            else
-                fprintf(stderr,"%s: %s\n",config.hostsocket,context->errstr);
+            if (!(flags & CC_QUIET)) {
+                fprintf(stderr,"Could not connect to Redis at ");
+                if (config.hostsocket == NULL)
+                    fprintf(stderr,"%s:%d: %s\n",
+                        config.hostip,config.hostport,context->errstr);
+                else
+                    fprintf(stderr,"%s: %s\n",
+                        config.hostsocket,context->errstr);
+            }
             redisFree(context);
             context = NULL;
             return REDIS_ERR;
@@ -1524,7 +1534,7 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
     while (1) {
         config.cluster_reissue_command = 0;
         if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-            cliConnect(1);
+            cliConnect(CC_FORCE);
 
             /* If we still cannot send the command print error.
              * We'll try to reconnect the next time. */
@@ -1535,7 +1545,7 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
          }
          /* Issue the command again if we got redirected in cluster mode */
          if (config.cluster_mode && config.cluster_reissue_command) {
-            cliConnect(1);
+            cliConnect(CC_FORCE);
          } else {
              break;
         }
@@ -1698,7 +1708,7 @@ static void repl(void) {
                     config.hostip = sdsnew(argv[1]);
                     config.hostport = atoi(argv[2]);
                     cliRefreshPrompt();
-                    cliConnect(1);
+                    cliConnect(CC_FORCE);
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                     linenoiseClearScreen();
                 } else {
@@ -1822,7 +1832,7 @@ static int evalMode(int argc, char **argv) {
                 strncpy(config.prompt,"lua debugger> ",sizeof(config.prompt));
                 repl();
                 /* Restart the session if repl() returned. */
-                cliConnect(1);
+                cliConnect(CC_FORCE);
                 printf("\n");
             }
         } else {
