@@ -542,6 +542,7 @@ static void cliIntegrateHelp(void) {
         ch->name = new->argv[0];
         ch->params = sdsempty();
         int args = llabs(entry->element[1]->integer);
+        args--; /* Remove the command name itself. */
         if (entry->element[3]->integer == 1) {
             ch->params = sdscat(ch->params,"key ");
             args--;
