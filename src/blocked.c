@@ -404,7 +404,7 @@ void handleClientsBlockedOnKeys(void) {
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
 
-                            /* Lookup the consuemr for the group, if any. */
+                            /* Lookup the consumer for the group, if any. */
                             streamConsumer *consumer = NULL;
                             if (group) {
                                 consumer = streamLookupConsumer(group,
