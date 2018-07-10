@@ -1461,6 +1461,7 @@ void xreadCommand(client *c) {
             incrRefCount(consumername);
             c->bpop.xread_group = groupname;
             c->bpop.xread_consumer = consumername;
+            c->bpop.xread_group_noack = noack;
         } else {
             c->bpop.xread_group = NULL;
             c->bpop.xread_consumer = NULL;

@@ -406,10 +406,13 @@ void handleClientsBlockedOnKeys(void) {
 
                             /* Lookup the consumer for the group, if any. */
                             streamConsumer *consumer = NULL;
+                            int noack = 0;
+
                             if (group) {
                                 consumer = streamLookupConsumer(group,
                                            receiver->bpop.xread_consumer->ptr,
                                            1);
+                                noack = receiver->bpop.xread_group_noack;
                             }
 
                             /* Emit the two elements sub-array consisting of
@@ -426,7 +429,7 @@ void handleClientsBlockedOnKeys(void) {
                             };
                             streamReplyWithRange(receiver,s,&start,NULL,
                                                  receiver->bpop.xread_count,
-                                                 0, group, consumer, 0, &pi);
+                                                 0, group, consumer, noack, &pi);
 
                             /* Note that after we unblock the client, 'gt'
                              * and other receiver->bpop stuff are no longer

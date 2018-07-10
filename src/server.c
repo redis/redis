@@ -1165,7 +1165,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
-         for (j = 0; j < server.saveparamslen; j++) {
+        for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
             /* Save if we reached the given amount of changes,
@@ -1185,23 +1185,23 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
-         }
+        }
 
-         /* Trigger an AOF rewrite if needed. */
-         if (server.aof_state == AOF_ON &&
-             server.rdb_child_pid == -1 &&
-             server.aof_child_pid == -1 &&
-             server.aof_rewrite_perc &&
-             server.aof_current_size > server.aof_rewrite_min_size)
-         {
+        /* Trigger an AOF rewrite if needed. */
+        if (server.aof_state == AOF_ON &&
+            server.rdb_child_pid == -1 &&
+            server.aof_child_pid == -1 &&
+            server.aof_rewrite_perc &&
+            server.aof_current_size > server.aof_rewrite_min_size)
+        {
             long long base = server.aof_rewrite_base_size ?
-                            server.aof_rewrite_base_size : 1;
+                server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
-         }
+        }
     }
 
 
