@@ -387,7 +387,11 @@ void handleClientsBlockedOnKeys(void) {
                             /* If the group was not found, send an error
                              * to the consumer. */
                             if (!group) {
-                                /* XXX: Fixme, send the error. */
+                                addReplyError(receiver,
+                                    "-NOGROUP the consumer group this client "
+                                    "was blocked on no longer exists");
+                                unblockClient(receiver);
+                                continue;
                             } else {
                                 *gt = group->last_id;
                             }
