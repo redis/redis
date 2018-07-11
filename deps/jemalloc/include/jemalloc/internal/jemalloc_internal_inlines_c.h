@@ -234,8 +234,8 @@ iget_defrag_hint(tsdn_t *tsdn, void* ptr, int *bin_util, int *run_util) {
 		if (slab != bin->slabcur) {
 			const bin_info_t *bin_info = &bin_infos[binind];
 			size_t availregs = bin_info->nregs * bin->stats.curslabs;
-			*bin_util = (bin->stats.curregs<<16) / availregs;
-			*run_util = ((bin_info->nregs - extent_nfree_get(slab))<<16) / bin_info->nregs;
+			*bin_util = ((long long)bin->stats.curregs<<16) / availregs;
+			*run_util = ((long long)(bin_info->nregs - extent_nfree_get(slab))<<16) / bin_info->nregs;
 			defrag = 1;
 		}
 		malloc_mutex_unlock(tsdn, &bin->lock);
