@@ -23,6 +23,8 @@
 
 require 'rubygems'
 require 'redis'
+require 'io/console'
+require 'optparse'
 
 ClusterHashSlots = 16384
 MigrateDefaultTimeout = 60000
@@ -55,7 +57,7 @@ def xputs(s)
 end
 
 class ClusterNode
-    def initialize(addr)
+    def initialize(addr, password)
         s = addr.split("@")[0].split(":")
         if s.length < 2
            puts "Invalid IP or Port (given as #{addr}) - use IP:Port format"
@@ -71,6 +73,7 @@ class ClusterNode
         @info[:migrating] = {}
         @info[:importing] = {}
         @info[:replicate] = false
+        @info[:password] = password
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
     end
@@ -97,6 +100,11 @@ class ClusterNode
         STDOUT.flush
         begin
             @r = Redis.new(:host => @info[:host], :port => @info[:port], :timeout => 60)
+
+            if @info[:password]
+                @r.auth(@info[:password])
+            end
+
             @r.ping
         rescue
             xputs "[ERR] Sorry, can't connect to node #{self}"
@@ -951,8 +959,8 @@ class RedisTrib
         end
     end
 
-    def load_cluster_info_from_node(nodeaddr)
-        node = ClusterNode.new(nodeaddr)
+    def load_cluster_info_from_node(nodeaddr, password)
+        node = ClusterNode.new(nodeaddr, password)
         node.connect(:abort => true)
         node.assert_cluster
         node.load_info(:getfriends => true)
@@ -961,7 +969,7 @@ class RedisTrib
             next if f[:flags].index("noaddr") ||
                     f[:flags].index("disconnected") ||
                     f[:flags].index("fail")
-            fnode = ClusterNode.new(f[:addr])
+            fnode = ClusterNode.new(f[:addr], password)
             fnode.connect()
             next if !fnode.r
             begin
@@ -1099,12 +1107,12 @@ class RedisTrib
     # redis-trib subcommands implementations.
 
     def check_cluster_cmd(argv,opt)
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         check_cluster
     end
 
     def info_cluster_cmd(argv,opt)
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         show_cluster_info
     end
 
@@ -1116,7 +1124,7 @@ class RedisTrib
 
         # Load nodes info before parsing options, otherwise we can't
         # handle --weight.
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
 
         # Options parsing
         threshold = opt['threshold'].to_i
@@ -1266,14 +1274,14 @@ class RedisTrib
         @fix = true
         @timeout = opt['timeout'].to_i if opt['timeout']
 
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         check_cluster
     end
 
     def reshard_cluster_cmd(argv,opt)
         opt = {'pipeline' => MigrateDefaultPipeline}.merge(opt)
 
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         check_cluster
         if @errors.length != 0
             puts "*** Please fix your cluster problems before resharding"
@@ -1411,7 +1419,7 @@ class RedisTrib
 
         xputs ">>> Creating cluster"
         argv[0..-1].each{|n|
-            node = ClusterNode.new(n)
+            node = ClusterNode.new(n, opt['password'])
             node.connect(:abort => true)
             node.assert_cluster
             node.load_info
@@ -1439,7 +1447,7 @@ class RedisTrib
         # final summary is listed in check_cluster about the newly created cluster
         # all the nodes would get properly listed as slaves or masters
         reset_nodes
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         check_cluster
     end
 
@@ -1447,7 +1455,7 @@ class RedisTrib
         xputs ">>> Adding node #{argv[0]} to cluster #{argv[1]}"
 
         # Check the existing cluster
-        load_cluster_info_from_node(argv[1])
+        load_cluster_info_from_node(argv[1], opt['password'])
         check_cluster
 
         # If --master-id was specified, try to resolve it now so that we
@@ -1465,7 +1473,7 @@ class RedisTrib
         end
 
         # Add the new node
-        new = ClusterNode.new(argv[0])
+        new = ClusterNode.new(argv[0], opt['password'])
         new.connect(:abort => true)
         new.assert_cluster
         new.load_info
@@ -1492,7 +1500,7 @@ class RedisTrib
         xputs ">>> Removing node #{id} from cluster #{argv[0]}"
 
         # Load cluster information
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
 
         # Check if the node exists and is not empty
         node = get_node_by_name(id)
@@ -1533,7 +1541,7 @@ class RedisTrib
         end
 
         # Load cluster information
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         ok_count = 0
         err_count = 0
 
@@ -1558,7 +1566,7 @@ class RedisTrib
         cmd[0] = cmd[0].upcase
 
         # Load cluster information
-        load_cluster_info_from_node(argv[0])
+        load_cluster_info_from_node(argv[0], opt['password'])
         xputs ">>> Calling #{cmd.join(" ")}"
         @nodes.each{|n|
             begin
@@ -1774,26 +1782,31 @@ end
 
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
-    "check"   => ["check_cluster_cmd", 2, "host:port"],
-    "info"    => ["info_cluster_cmd", 2, "host:port"],
-    "fix"     => ["fix_cluster_cmd", 2, "host:port"],
-    "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
+    "check"   => ["check_cluster_cmd", -2, "host:port"],
+    "info"    => ["info_cluster_cmd", -2, "host:port"],
+    "fix"     => ["fix_cluster_cmd", -2, "host:port"],
+    "reshard" => ["reshard_cluster_cmd", -2, "host:port"],
     "rebalance" => ["rebalance_cluster_cmd", -2, "host:port"],
-    "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
-    "del-node" => ["delnode_cluster_cmd", 3, "host:port node_id"],
-    "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
+    "add-node" => ["addnode_cluster_cmd", -3, "new_host:new_port existing_host:existing_port"],
+    "del-node" => ["delnode_cluster_cmd", -3, "host:port node_id"],
+    "set-timeout" => ["set_timeout_cluster_cmd", -3, "host:port milliseconds"],
     "call" =>    ["call_cluster_cmd", -3, "host:port command arg arg .. arg"],
     "import" =>  ["import_cluster_cmd", 2, "host:port"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
 ALLOWED_OPTIONS={
-    "create" => {"replicas" => true},
-    "add-node" => {"slave" => false, "master-id" => true},
-    "import" => {"from" => :required, "copy" => false, "replace" => false},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
-    "rebalance" => {"weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
-    "fix" => {"timeout" => MigrateDefaultTimeout},
+    "info" => {"password" => true},
+    "check" => {"password" => true},
+    "create" => {"password" => true, "replicas" => true},
+    "add-node" => {"password" => true, "slave" => false, "master-id" => true},
+    "del-node" => {"password" => true},
+    "set-timeout" => {"password" => true},
+    "import" => {"password" => true, "from" => :required, "copy" => false, "replace" => false},
+    "reshard" => {"password" => true, "from" => true, "to" => true, "slots" => true, "yes" => false, "timeout" => true, "pipeline" => true},
+    "rebalance" => {"password" => true, "weight" => [], "auto-weights" => false, "use-empty-masters" => false, "timeout" => true, "simulate" => false, "pipeline" => true, "threshold" => true},
+    "fix" => {"password" => true, "timeout" => MigrateDefaultTimeout},
+    "call" => {"password" => true},
 }
 
 def show_help
@@ -1825,6 +1838,38 @@ end
 # Parse options
 cmd_options,first_non_option = rt.parse_options(ARGV[0].downcase)
 rt.check_arity(cmd_spec[1],ARGV.length-(first_non_option-1))
+
+options = {}
+OptionParser.new do |opts|
+    opts.on("-p", "--password [password]", "For password argument, all cluster nodes need to have the same password.") do |password|
+        options["password"] = password
+    end
+    opts.on("--replicas [replicas]")
+    opts.on("--slave [slave]")
+    opts.on("--master-id [master-id]")
+    opts.on("--from [from]")
+    opts.on("--copy [copy]")
+    opts.on("--replace [replace]")
+    opts.on("--to [to]")
+    opts.on("--slots [slots]")
+    opts.on("--yes [yes]")
+    opts.on("--timeout [timeout]")
+    opts.on("--pipeline [pipeline]")
+    opts.on("--weight [weight]")
+    opts.on("--auto-weights [auto-weights]")
+    opts.on("--use-empty-masters [use-empty-masters]")
+    opts.on("--simulate [simulate]")
+end.parse!
+
+if options.key?("password")
+    password = options["password"]
+    if password == nil
+        print "Enter with password: "
+        password = STDIN.noecho(&:gets).chomp
+    end
+    ARGV.insert(1, "--password")
+    ARGV.insert(2, password)
+end
 
 # Dispatch
 rt.send(cmd_spec[0],ARGV[first_non_option..-1],cmd_options)
