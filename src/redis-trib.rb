@@ -700,6 +700,8 @@ class RedisTrib
         nodes_count -= masters.length
 
         masters.each{|m| puts m}
+        
+        interleaved.push interleaved.shift
 
         # Rotating the list sometimes helps to get better initial
         # anti-affinity before the optimizer runs.
