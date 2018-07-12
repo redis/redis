@@ -2920,7 +2920,6 @@ void bytesToHuman(char *s, unsigned long long n) {
     if (n < 1024) {
         /* Bytes */
         sprintf(s,"%lluB",n);
-        return;
     } else if (n < (1024*1024)) {
         d = (double)n/(1024);
         sprintf(s,"%.2fK",d);
