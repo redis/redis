@@ -918,10 +918,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 nack = raxFind(group->pel,buf,sizeof(buf));
                 serverAssert(nack != raxNotFound);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                /* Update the consumer and idle time. */
+                /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = mstime();
-                nack->delivery_count++;
+                nack->delivery_count = 1;
                 /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
             } else if (group_inserted == 1 && consumer_inserted == 0) {
