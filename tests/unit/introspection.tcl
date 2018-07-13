@@ -3,6 +3,13 @@ start_server {tags {"introspection"}} {
         r client list
     } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
 
+    test {CLIENT GETID} {
+        set rd [redis_deferring_client]
+        $rd client getid
+        assert [string is wideinteger [$rd read]]
+        $rd close
+    } {}
+
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]
         $rd monitor
