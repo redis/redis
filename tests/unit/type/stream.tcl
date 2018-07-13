@@ -234,6 +234,18 @@ start_server {
         assert {[lindex $res 0 1 1 1] eq {field two}}
     }
 
+    test {XDEL basic test} {
+        r del somestream
+        r xadd somestream * foo value0
+        set id [r xadd somestream * foo value1]
+        r xadd somestream * foo value2
+        r xdel somestream $id
+        assert {[r xlen somestream] == 2}
+        set result [r xrange somestream - +]
+        assert {[lindex $result 0 1 1] eq {value0}}
+        assert {[lindex $result 1 1 1] eq {value2}}
+    }
+
     test {XRANGE fuzzing} {
         set low_id [lindex $items 0 0]
         set high_id [lindex $items end 0]
