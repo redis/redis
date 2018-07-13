@@ -294,7 +294,7 @@ sds createLatencyReport(void) {
 
         /* Potentially commands. */
         if (!strcasecmp(event,"command")) {
-            if (server.slowlog_log_slower_than == 0) {
+            if (server.slowlog_log_slower_than < 0) {
                 advise_slowlog_enabled = 1;
                 advices++;
             } else if (server.slowlog_log_slower_than/1000 >
