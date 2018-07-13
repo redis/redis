@@ -1122,7 +1122,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
-      "slowlog-log-slower-than",server.slowlog_log_slower_than,0,LLONG_MAX) {
+      "slowlog-log-slower-than",server.slowlog_log_slower_than,-1,LLONG_MAX) {
     } config_set_numerical_field(
       "slowlog-max-len",ll,0,LONG_MAX) {
       /* Cast to unsigned. */
