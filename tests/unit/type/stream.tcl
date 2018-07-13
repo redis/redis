@@ -246,6 +246,26 @@ start_server {
         assert {[lindex $result 1 1 1] eq {value2}}
     }
 
+    # Here the idea is to check the consistency of the stream data structure
+    # as we remove all the elements down to zero elements.
+    test {XDEL fuzz test} {
+        r del somestream
+        set ids {}
+        set x 0; # Length of the stream
+        while 1 {
+            lappend ids [r xadd somestream * item $x]
+            incr x
+            # Add enough elements to have a few radix tree nodes inside the stream.
+            if {[dict get [r xinfo stream somestream] radix-tree-keys] > 20} break
+        }
+
+        # Now remove all the elements till we reach an empty stream
+        # and after every deletion, check that the stream is sane enough
+        # to report the right number of elements with XRANGE: this will also
+        # force accessing the whole data structure to check sanity.
+        assert {[r xlen somestream] == $x}
+    }
+
     test {XRANGE fuzzing} {
         set low_id [lindex $items 0 0]
         set high_id [lindex $items end 0]
