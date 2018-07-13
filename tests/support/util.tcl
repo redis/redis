@@ -375,3 +375,17 @@ proc start_write_load {host port seconds} {
 proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
 }
+
+# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
+# other versions. Code should be under public domain.
+proc lshuffle {list} {
+    set n [llength $list]
+    while {$n>0} {
+        set j [expr {int(rand()*$n)}]
+        lappend slist [lindex $list $j]
+        incr n -1
+        set temp [lindex $list $n]
+        set list [lreplace [K $list [set list {}]] $j $j $temp]
+    }
+    return $slist
+}
