@@ -376,6 +376,8 @@ proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
+proc K { x y } { set x } 
+
 # Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
 # other versions. Code should be under public domain.
 proc lshuffle {list} {
