@@ -1,73 +1,44 @@
 #include "test/jemalloc_test.h"
 
 void
-timer_start(timedelta_t *timer)
-{
-
-#ifdef _WIN32
-	GetSystemTimeAsFileTime(&timer->ft0);
-#elif JEMALLOC_CLOCK_GETTIME
-	if (sysconf(_SC_MONOTONIC_CLOCK) <= 0)
-		timer->clock_id = CLOCK_REALTIME;
-	else
-		timer->clock_id = CLOCK_MONOTONIC;
-	clock_gettime(timer->clock_id, &timer->ts0);
-#else
-	gettimeofday(&timer->tv0, NULL);
-#endif
+timer_start(timedelta_t *timer) {
+	nstime_init(&timer->t0, 0);
+	nstime_update(&timer->t0);
 }
 
 void
-timer_stop(timedelta_t *timer)
-{
-
-#ifdef _WIN32
-	GetSystemTimeAsFileTime(&timer->ft0);
-#elif JEMALLOC_CLOCK_GETTIME
-	clock_gettime(timer->clock_id, &timer->ts1);
-#else
-	gettimeofday(&timer->tv1, NULL);
-#endif
+timer_stop(timedelta_t *timer) {
+	nstime_copy(&timer->t1, &timer->t0);
+	nstime_update(&timer->t1);
 }
 
 uint64_t
-timer_usec(const timedelta_t *timer)
-{
+timer_usec(const timedelta_t *timer) {
+	nstime_t delta;
 
-#ifdef _WIN32
-	uint64_t t0, t1;
-	t0 = (((uint64_t)timer->ft0.dwHighDateTime) << 32) |
-	    timer->ft0.dwLowDateTime;
-	t1 = (((uint64_t)timer->ft1.dwHighDateTime) << 32) |
-	    timer->ft1.dwLowDateTime;
-	return ((t1 - t0) / 10);
-#elif JEMALLOC_CLOCK_GETTIME
-	return (((timer->ts1.tv_sec - timer->ts0.tv_sec) * 1000000) +
-	    (timer->ts1.tv_nsec - timer->ts0.tv_nsec) / 1000);
-#else
-	return (((timer->tv1.tv_sec - timer->tv0.tv_sec) * 1000000) +
-	    timer->tv1.tv_usec - timer->tv0.tv_usec);
-#endif
+	nstime_copy(&delta, &timer->t1);
+	nstime_subtract(&delta, &timer->t0);
+	return nstime_ns(&delta) / 1000;
 }
 
 void
-timer_ratio(timedelta_t *a, timedelta_t *b, char *buf, size_t buflen)
-{
+timer_ratio(timedelta_t *a, timedelta_t *b, char *buf, size_t buflen) {
 	uint64_t t0 = timer_usec(a);
 	uint64_t t1 = timer_usec(b);
 	uint64_t mult;
-	unsigned i = 0;
-	unsigned j;
-	int n;
+	size_t i = 0;
+	size_t j, n;
 
 	/* Whole. */
 	n = malloc_snprintf(&buf[i], buflen-i, "%"FMTu64, t0 / t1);
 	i += n;
-	if (i >= buflen)
+	if (i >= buflen) {
 		return;
+	}
 	mult = 1;
-	for (j = 0; j < n; j++)
+	for (j = 0; j < n; j++) {
 		mult *= 10;
+	}
 
 	/* Decimal. */
 	n = malloc_snprintf(&buf[i], buflen-i, ".");

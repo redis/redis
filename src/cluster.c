@@ -56,7 +56,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter);
-clusterNode *clusterLookupNode(char *name);
+clusterNode *clusterLookupNode(const char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
@@ -75,6 +75,7 @@ void clusterDelNode(clusterNode *delnode);
 sds representClusterNodeFlags(sds ci, uint16_t flags);
 uint64_t clusterGetMaxEpoch(void);
 int clusterBumpConfigEpochWithoutConsensus(void);
+void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8_t type, const unsigned char *payload, uint32_t len);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -201,6 +202,8 @@ int clusterLoadConfig(char *filename) {
                 n->flags |= CLUSTER_NODE_HANDSHAKE;
             } else if (!strcasecmp(s,"noaddr")) {
                 n->flags |= CLUSTER_NODE_NOADDR;
+            } else if (!strcasecmp(s,"nofailover")) {
+                n->flags |= CLUSTER_NODE_NOFAILOVER;
             } else if (!strcasecmp(s,"noflags")) {
                 /* nothing to do */
             } else {
@@ -243,6 +246,7 @@ int clusterLoadConfig(char *filename) {
                 *p = '\0';
                 direction = p[1]; /* Either '>' or '<' */
                 slot = atoi(argv[j]+1);
+                if (slot < 0 || slot >= CLUSTER_SLOTS) goto fmterr;
                 p += 3;
                 cn = clusterLookupNode(p);
                 if (!cn) {
@@ -262,6 +266,8 @@ int clusterLoadConfig(char *filename) {
             } else {
                 start = stop = atoi(argv[j]);
             }
+            if (start < 0 || start >= CLUSTER_SLOTS) goto fmterr;
+            if (stop < 0 || stop >= CLUSTER_SLOTS) goto fmterr;
             while(start <= stop) clusterAddSlot(n, start++);
         }
 
@@ -404,6 +410,22 @@ int clusterLockConfig(char *filename) {
     return C_OK;
 }
 
+/* Some flags (currently just the NOFAILOVER flag) may need to be updated
+ * in the "myself" node based on the current configuration of the node,
+ * that may change at runtime via CONFIG SET. This function changes the
+ * set of flags in myself->flags accordingly. */
+void clusterUpdateMyselfFlags(void) {
+    int oldflags = myself->flags;
+    int nofailover = server.cluster_slave_no_failover ?
+                     CLUSTER_NODE_NOFAILOVER : 0;
+    myself->flags &= ~CLUSTER_NODE_NOFAILOVER;
+    myself->flags |= nofailover;
+    if (myself->flags != oldflags) {
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_UPDATE_STATE);
+    }
+}
+
 void clusterInit(void) {
     int saveconf = 0;
 
@@ -494,6 +516,7 @@ void clusterInit(void) {
 
     server.cluster->mf_end = 0;
     resetManualFailover();
+    clusterUpdateMyselfFlags();
 }
 
 /* Reset a node performing a soft or hard reset:
@@ -578,8 +601,7 @@ clusterLink *createClusterLink(clusterNode *node) {
  * with this link will have the 'link' field set to NULL. */
 void freeClusterLink(clusterLink *link) {
     if (link->fd != -1) {
-        aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
-        aeDeleteFileEvent(server.el, link->fd, AE_READABLE);
+        aeDeleteFileEvent(server.el, link->fd, AE_READABLE|AE_WRITABLE);
     }
     sdsfree(link->sndbuf);
     sdsfree(link->rcvbuf);
@@ -650,7 +672,7 @@ unsigned int keyHashSlot(char *key, int keylen) {
     for (e = s+1; e < keylen; e++)
         if (key[e] == '}') break;
 
-    /* No '}' or nothing betweeen {} ? Hash the whole key. */
+    /* No '}' or nothing between {} ? Hash the whole key. */
     if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
 
     /* If we are here there is both a { and a } on its right. Hash
@@ -910,7 +932,7 @@ void clusterDelNode(clusterNode *delnode) {
 }
 
 /* Node lookup by name */
-clusterNode *clusterLookupNode(char *name) {
+clusterNode *clusterLookupNode(const char *name) {
     sds s = sdsnewlen(name, CLUSTER_NAMELEN);
     dictEntry *de;
 
@@ -1661,6 +1683,12 @@ int clusterProcessPacket(clusterLink *link) {
 
         explen += sizeof(clusterMsgDataUpdate);
         if (totlen != explen) return 1;
+    } else if (type == CLUSTERMSG_TYPE_MODULE) {
+        uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+
+        explen += sizeof(clusterMsgDataPublish) -
+                3 + ntohl(hdr->data.module.msg.len);
+        if (totlen != explen) return 1;
     }
 
     /* Check if the sender is a known node. */
@@ -1803,6 +1831,18 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 return 0;
             }
+        }
+
+        /* Copy the CLUSTER_NODE_NOFAILOVER flag from what the sender
+         * announced. This is a dynamic flag that we receive from the
+         * sender, and the latest status must be trusted. We need it to
+         * be propagated because the slave ranking used to understand the
+         * delay of each slave in the voting process, needs to know
+         * what are the instances really competing. */
+        if (sender) {
+            int nofailover = flags & CLUSTER_NODE_NOFAILOVER;
+            sender->flags &= ~CLUSTER_NODE_NOFAILOVER;
+            sender->flags |= nofailover;
         }
 
         /* Update the node address if it changed. */
@@ -2043,6 +2083,15 @@ int clusterProcessPacket(clusterLink *link) {
          * config accordingly. */
         clusterUpdateSlotsConfigWith(n,reportedConfigEpoch,
             hdr->data.update.nodecfg.slots);
+    } else if (type == CLUSTERMSG_TYPE_MODULE) {
+        if (!sender) return 1;  /* Protect the module from unknown nodes. */
+        /* We need to route this message back to the right module subscribed
+         * for the right message type. */
+        uint64_t module_id = hdr->data.module.msg.module_id; /* Endian-safe ID */
+        uint32_t len = ntohl(hdr->data.module.msg.len);
+        uint8_t type = hdr->data.module.msg.type;
+        unsigned char *payload = hdr->data.module.msg.bulk_data;
+        moduleCallClusterReceivers(sender->name,module_id,type,payload,len);
     } else {
         serverLog(LL_WARNING,"Received unknown packet type: %d", type);
     }
@@ -2071,7 +2120,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         serverLog(LL_DEBUG,"I/O error writing to node link: %s",
-            strerror(errno));
+            (nwritten == -1) ? strerror(errno) : "short write");
         handleLinkIOError(link);
         return;
     }
@@ -2153,7 +2202,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
-        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE,
+        aeCreateFileEvent(server.el,link->fd,AE_WRITABLE|AE_BARRIER,
                     clusterWriteHandler,link);
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
@@ -2328,7 +2377,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * same time.
      *
      * Since we have non-voting slaves that lower the probability of an entry
-     * to feature our node, we set the number of entires per packet as
+     * to feature our node, we set the number of entries per packet as
      * 10% of the total nodes we have. */
     wanted = floor(dictSize(server.cluster->nodes)/10);
     if (wanted < 3) wanted = 3;
@@ -2530,6 +2579,61 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
     clusterSendMessage(link,buf,ntohl(hdr->totlen));
 }
 
+/* Send a MODULE message.
+ *
+ * If link is NULL, then the message is broadcasted to the whole cluster. */
+void clusterSendModule(clusterLink *link, uint64_t module_id, uint8_t type,
+                       unsigned char *payload, uint32_t len) {
+    unsigned char buf[sizeof(clusterMsg)], *heapbuf;
+    clusterMsg *hdr = (clusterMsg*) buf;
+    uint32_t totlen;
+
+    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_MODULE);
+    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    totlen += sizeof(clusterMsgModule) - 3 + len;
+
+    hdr->data.module.msg.module_id = module_id; /* Already endian adjusted. */
+    hdr->data.module.msg.type = type;
+    hdr->data.module.msg.len = htonl(len);
+    hdr->totlen = htonl(totlen);
+
+    /* Try to use the local buffer if possible */
+    if (totlen < sizeof(buf)) {
+        heapbuf = buf;
+    } else {
+        heapbuf = zmalloc(totlen);
+        memcpy(heapbuf,hdr,sizeof(*hdr));
+        hdr = (clusterMsg*) heapbuf;
+    }
+    memcpy(hdr->data.module.msg.bulk_data,payload,len);
+
+    if (link)
+        clusterSendMessage(link,heapbuf,totlen);
+    else
+        clusterBroadcastMessage(heapbuf,totlen);
+
+    if (heapbuf != buf) zfree(heapbuf);
+}
+
+/* This function gets a cluster node ID string as target, the same way the nodes
+ * addresses are represented in the modules side, resolves the node, and sends
+ * the message. If the target is NULL the message is broadcasted.
+ *
+ * The function returns C_OK if the target is valid, otherwise C_ERR is
+ * returned. */
+int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len) {
+    clusterNode *node = NULL;
+
+    if (target != NULL) {
+        node = clusterLookupNode(target);
+        if (node == NULL || node->link == NULL) return C_ERR;
+    }
+
+    clusterSendModule(target ? node->link : NULL,
+                      module_id, type, payload, len);
+    return C_OK;
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER Pub/Sub support
  *
@@ -2688,9 +2792,10 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     }
 
     /* We can vote for this slave. */
-    clusterSendFailoverAuth(node);
     server.cluster->lastVoteEpoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = mstime();
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+    clusterSendFailoverAuth(node);
     serverLog(LL_WARNING, "Failover auth granted to %.40s for epoch %llu",
         node->name, (unsigned long long) server.cluster->currentEpoch);
 }
@@ -2719,6 +2824,7 @@ int clusterGetSlaveRank(void) {
     myoffset = replicationGetSlaveOffset();
     for (j = 0; j < master->numslaves; j++)
         if (master->slaves[j] != myself &&
+            !nodeCantFailover(master->slaves[j]) &&
             master->slaves[j]->repl_offset > myoffset) rank++;
     return rank;
 }
@@ -2856,10 +2962,13 @@ void clusterHandleSlaveFailover(void) {
      * of an automatic or manual failover:
      * 1) We are a slave.
      * 2) Our master is flagged as FAIL, or this is a manual failover.
-     * 3) It is serving slots. */
+     * 3) We don't have the no failover configuration set, and this is
+     *    not a manual failover.
+     * 4) It is serving slots. */
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
+        (server.cluster_slave_no_failover && !manual_failover) ||
         myself->slaveof->numslots == 0)
     {
         /* There are no reasons to failover, so we set the reason why we
@@ -2991,7 +3100,7 @@ void clusterHandleSlaveFailover(void) {
                 (unsigned long long) myself->configEpoch);
         }
 
-        /* Take responsability for the cluster slots. */
+        /* Take responsibility for the cluster slots. */
         clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
@@ -3042,11 +3151,11 @@ void clusterHandleSlaveMigration(int max_slaves) {
             !nodeTimedOut(mymaster->slaves[j])) okslaves++;
     if (okslaves <= server.cluster_migration_barrier) return;
 
-    /* Step 3: Idenitfy a candidate for migration, and check if among the
+    /* Step 3: Identify a candidate for migration, and check if among the
      * masters with the greatest number of ok slaves, I'm the one with the
      * smallest node ID (the "candidate slave").
      *
-     * Note: this means that eventually a replica migration will occurr
+     * Note: this means that eventually a replica migration will occur
      * since slaves that are reachable again always have their FAIL flag
      * cleared, so eventually there must be a candidate. At the same time
      * this does not mean that there are no race conditions possible (two
@@ -3234,6 +3343,9 @@ void clusterCron(void) {
      * the value of 1 second. */
     handshake_timeout = server.cluster_node_timeout;
     if (handshake_timeout < 1000) handshake_timeout = 1000;
+
+    /* Update myself flags. */
+    clusterUpdateMyselfFlags();
 
     /* Check if we have disconnected nodes and re-establish the connection.
      * Also update a few stats while we are here, that can be used to make
@@ -3602,8 +3714,10 @@ int clusterDelNodeSlots(clusterNode *node) {
     int deleted = 0, j;
 
     for (j = 0; j < CLUSTER_SLOTS; j++) {
-        if (clusterNodeGetSlotBit(node,j)) clusterDelSlot(j);
-        deleted++;
+        if (clusterNodeGetSlotBit(node,j)) {
+            clusterDelSlot(j);
+            deleted++;
+        }
     }
     return deleted;
 }
@@ -3622,7 +3736,7 @@ void clusterCloseAllSlots(void) {
  * -------------------------------------------------------------------------- */
 
 /* The following are defines that are only used in the evaluation function
- * and are based on heuristics. Actaully the main point about the rejoin and
+ * and are based on heuristics. Actually the main point about the rejoin and
  * writable delay is that they should be a few orders of magnitude larger
  * than the network latency. */
 #define CLUSTER_MAX_REJOIN_DELAY 5000
@@ -3831,7 +3945,8 @@ static struct redisNodeFlags redisNodeFlagsTable[] = {
     {CLUSTER_NODE_PFAIL,        "fail?,"},
     {CLUSTER_NODE_FAIL,         "fail,"},
     {CLUSTER_NODE_HANDSHAKE,    "handshake,"},
-    {CLUSTER_NODE_NOADDR,       "noaddr,"}
+    {CLUSTER_NODE_NOADDR,       "noaddr,"},
+    {CLUSTER_NODE_NOFAILOVER,   "nofailover,"}
 };
 
 /* Concatenate the comma separated list of node flags to the given SDS
@@ -3964,6 +4079,7 @@ const char *clusterGetMessageTypeString(int type) {
     case CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK: return "auth-ack";
     case CLUSTERMSG_TYPE_UPDATE: return "update";
     case CLUSTERMSG_TYPE_MFSTART: return "mfstart";
+    case CLUSTERMSG_TYPE_MODULE: return "module";
     }
     return "unknown";
 }
@@ -4060,7 +4176,34 @@ void clusterCommand(client *c) {
         return;
     }
 
-    if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"ADDSLOTS <slot> [slot ...] -- Assign slots to current node.",
+"BUMPEPOCH -- Advance the cluster config epoch.",
+"COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
+"COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
+"DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
+"FAILOVER [force|takeover] -- Promote current slave node to being a master.",
+"FORGET <node-id> -- Remove a node from the cluster.",
+"GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
+"FLUSHSLOTS -- Delete current node own slots information.",
+"INFO - Return onformation about the cluster.",
+"KEYSLOT <key> -- Return the hash slot for <key>.",
+"MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
+"MYID -- Return the node id.",
+"NODES -- Return cluster configuration seen by node. Output format:",
+"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
+"REPLICATE <node-id> -- Configure current node as slave to <node-id>.",
+"RESET [hard|soft] -- Reset current node (default: soft).",
+"SET-config-epoch <epoch> - Set config epoch of current node.",
+"SETSLOT <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
+"SLAVES <node-id> -- Return <node-id> slaves.",
+"SLOTS -- Return information about slots range mappings. Each range is made of:",
+"    start, end, master and replicas IP addresses, ports and ids",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
         /* CLUSTER MEET <ip> <port> [cport] */
         long long port, cport;
 
@@ -4195,7 +4338,7 @@ void clusterCommand(client *c) {
             }
             if ((n = clusterLookupNode(c->argv[4]->ptr)) == NULL) {
                 addReplyErrorFormat(c,"I don't know about node %s",
-                    (char*)c->argv[3]->ptr);
+                    (char*)c->argv[4]->ptr);
                 return;
             }
             server.cluster->importing_slots_from[slot] = n;
@@ -4253,7 +4396,7 @@ void clusterCommand(client *c) {
             clusterAddSlot(n,slot);
         } else {
             addReplyError(c,
-                "Invalid CLUSTER SETSLOT action or number of arguments");
+                "Invalid CLUSTER SETSLOT action or number of arguments. Try CLUSTER HELP");
             return;
         }
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
@@ -4603,7 +4746,8 @@ void clusterCommand(client *c) {
         clusterReset(hard);
         addReply(c,shared.ok);
     } else {
-        addReplyError(c,"Wrong CLUSTER subcommand or number of arguments");
+        addReplySubcommandSyntaxError(c);
+        return;
     }
 }
 
@@ -4690,15 +4834,39 @@ void dumpCommand(client *c) {
 
 /* RESTORE key ttl serialized-value [REPLACE] */
 void restoreCommand(client *c) {
-    long long ttl;
+    long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
-    int j, type, replace = 0;
+    int j, type, replace = 0, absttl = 0;
     robj *obj;
 
     /* Parse additional options */
     for (j = 4; j < c->argc; j++) {
+        int additional = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"absttl")) {
+            absttl = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"idletime") && additional >= 1 &&
+                   lfu_freq == -1)
+        {
+            if (getLongLongFromObjectOrReply(c,c->argv[j+1],&lru_idle,NULL)
+                    != C_OK) return;
+            if (lru_idle < 0) {
+                addReplyError(c,"Invalid IDLETIME value, must be >= 0");
+                return;
+            }
+            lru_clock = LRU_CLOCK();
+            j++; /* Consume additional arg. */
+        } else if (!strcasecmp(c->argv[j]->ptr,"freq") && additional >= 1 &&
+                   lru_idle == -1)
+        {
+            if (getLongLongFromObjectOrReply(c,c->argv[j+1],&lfu_freq,NULL)
+                    != C_OK) return;
+            if (lfu_freq < 0 || lfu_freq > 255) {
+                addReplyError(c,"Invalid FREQ value, must be >= 0 and <= 255");
+                return;
+            }
+            j++; /* Consume additional arg. */
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -4739,7 +4907,11 @@ void restoreCommand(client *c) {
 
     /* Create the key and set the TTL if any */
     dbAdd(c->db,c->argv[1],obj);
-    if (ttl) setExpire(c,c->db,c->argv[1],mstime()+ttl);
+    if (ttl) {
+        if (!absttl) ttl+=mstime();
+        setExpire(c,c->db,c->argv[1],ttl);
+    }
+    objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock);
     signalModifiedKey(c->db,c->argv[1]);
     addReply(c,shared.ok);
     server.dirty++;
@@ -4862,14 +5034,16 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE]
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password]
  *
  * On in the multiple keys form:
  *
- * MIGRATE host port "" dbid timeout [COPY | REPLACE] KEYS key1 key2 ... keyN */
+ * MIGRATE host port "" dbid timeout [COPY | REPLACE | AUTH password] KEYS key1
+ * key2 ... keyN */
 void migrateCommand(client *c) {
     migrateCachedSocket *cs;
-    int copy, replace, j;
+    int copy = 0, replace = 0, j;
+    char *password = NULL;
     long timeout;
     long dbid;
     robj **ov = NULL; /* Objects to migrate. */
@@ -4884,16 +5058,20 @@ void migrateCommand(client *c) {
     int first_key = 3; /* Argument index of the first key. */
     int num_keys = 1;  /* By default only migrate the 'key' argument. */
 
-    /* Initialization */
-    copy = 0;
-    replace = 0;
-
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
+        int moreargs = j < c->argc-1;
         if (!strcasecmp(c->argv[j]->ptr,"copy")) {
             copy = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"auth")) {
+            if (!moreargs) {
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            j++;
+            password = c->argv[j]->ptr;
         } else if (!strcasecmp(c->argv[j]->ptr,"keys")) {
             if (sdslen(c->argv[3]->ptr) != 0) {
                 addReplyError(c,
@@ -4952,6 +5130,14 @@ try_again:
 
     rioInitWithBuffer(&cmd,sdsempty());
 
+    /* Authentication */
+    if (password) {
+        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"AUTH",4));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,password,
+            sdslen(password)));
+    }
+
     /* Send the SELECT command if the current DB is not already selected. */
     int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
     if (select) {
@@ -4969,7 +5155,9 @@ try_again:
             ttl = expireat-mstime();
             if (ttl < 1) ttl = 1;
         }
-        serverAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+        serverAssertWithInfo(c,NULL,
+            rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+
         if (server.cluster_enabled)
             serverAssertWithInfo(c,NULL,
                 rioWriteBulkString(&cmd,"RESTORE-ASKING",14));
@@ -5012,8 +5200,13 @@ try_again:
         }
     }
 
+    char buf0[1024]; /* Auth reply. */
     char buf1[1024]; /* Select reply. */
     char buf2[1024]; /* Restore reply. */
+
+    /* Read the AUTH reply if needed. */
+    if (password && syncReadLine(cs->fd, buf0, sizeof(buf0), timeout) <= 0)
+        goto socket_err;
 
     /* Read the SELECT reply if needed. */
     if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
@@ -5031,13 +5224,21 @@ try_again:
             socket_error = 1;
             break;
         }
-        if ((select && buf1[0] == '-') || buf2[0] == '-') {
+        if ((password && buf0[0] == '-') ||
+            (select && buf1[0] == '-') ||
+            buf2[0] == '-')
+        {
             /* On error assume that last_dbid is no longer valid. */
             if (!error_from_target) {
                 cs->last_dbid = -1;
-                addReplyErrorFormat(c,"Target instance replied with error: %s",
-                    (select && buf1[0] == '-') ? buf1+1 : buf2+1);
+                char *errbuf;
+                if (password && buf0[0] == '-') errbuf = buf0;
+                else if (select && buf1[0] == '-') errbuf = buf1;
+                else errbuf = buf2;
+
                 error_from_target = 1;
+                addReplyErrorFormat(c,"Target instance replied with error: %s",
+                    errbuf+1);
             }
         } else {
             if (!copy) {
@@ -5102,7 +5303,7 @@ try_again:
         addReply(c,shared.ok);
     } else {
         /* On error we already sent it in the for loop above, and set
-         * the curretly selected socket to -1 to force SELECT the next time. */
+         * the currently selected socket to -1 to force SELECT the next time. */
     }
 
     sdsfree(cmd.io.buffer.ptr);
@@ -5358,7 +5559,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * node is a slave and the request is about an hash slot our master
      * is serving, we can reply without redirection. */
     if (c->flags & CLIENT_READONLY &&
-        cmd->flags & CMD_READONLY &&
+        (cmd->flags & CMD_READONLY || cmd->proc == evalCommand ||
+         cmd->proc == evalShaCommand) &&
         nodeIsSlave(myself) &&
         myself->slaveof == n)
     {
@@ -5382,7 +5584,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
-        /* The request spawns mutliple keys in the same slot,
+        /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
         addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
@@ -5414,7 +5616,11 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
  * longer handles, the client is sent a redirection error, and the function
  * returns 1. Otherwise 0 is returned and no operation is performed. */
 int clusterRedirectBlockedClientIfNeeded(client *c) {
-    if (c->flags & CLIENT_BLOCKED && c->btype == BLOCKED_LIST) {
+    if (c->flags & CLIENT_BLOCKED &&
+        (c->btype == BLOCKED_LIST ||
+         c->btype == BLOCKED_ZSET ||
+         c->btype == BLOCKED_STREAM))
+    {
         dictEntry *de;
         dictIterator *di;
 

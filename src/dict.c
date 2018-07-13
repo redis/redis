@@ -66,7 +66,7 @@ static unsigned int dict_force_resize_ratio = 5;
 
 static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
-static int _dictKeyIndex(dict *ht, const void *key, unsigned int hash, dictEntry **existing);
+static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
@@ -146,13 +146,13 @@ int dictResize(dict *d)
 /* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
-    dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
-
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
+
+    dictht n; /* the new hash table */
+    unsigned long realsize = _dictNextPower(size);
 
     /* Rehashing to the same table size is not useful. */
     if (realsize == d->ht[0].size) return DICT_ERR;
@@ -202,7 +202,7 @@ int dictRehash(dict *d, int n) {
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
-            unsigned int h;
+            uint64_t h;
 
             nextde = de->next;
             /* Get the index in the new hash table */
@@ -291,7 +291,7 @@ int dictAdd(dict *d, void *key, void *val)
  */
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
-    int index;
+    long index;
     dictEntry *entry;
     dictht *ht;
 
@@ -327,7 +327,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will suceed. */
+     * does not exists dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -362,7 +362,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
-    unsigned int h, idx;
+    uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
 
@@ -476,7 +476,7 @@ void dictRelease(dict *d)
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
-    unsigned int h, idx, table;
+    uint64_t h, idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -610,7 +610,7 @@ void dictReleaseIterator(dictIterator *iter)
 dictEntry *dictGetRandomKey(dict *d)
 {
     dictEntry *he, *orighe;
-    unsigned int h;
+    unsigned long h;
     int listlen, listele;
 
     if (dictSize(d) == 0) return NULL;
@@ -858,6 +858,15 @@ unsigned long dictScan(dict *d,
             de = next;
         }
 
+        /* Set unmasked bits so incrementing the reversed cursor
+         * operates on the masked bits */
+        v |= ~m0;
+
+        /* Increment the reverse cursor */
+        v = rev(v);
+        v++;
+        v = rev(v);
+
     } else {
         t0 = &d->ht[0];
         t1 = &d->ht[1];
@@ -892,21 +901,15 @@ unsigned long dictScan(dict *d,
                 de = next;
             }
 
-            /* Increment bits not covered by the smaller mask */
-            v = (((v | m0) + 1) & ~m0) | (v & m0);
+            /* Increment the reverse cursor not covered by the smaller mask.*/
+            v |= ~m1;
+            v = rev(v);
+            v++;
+            v = rev(v);
 
             /* Continue while bits covered by mask difference is non-zero */
         } while (v & (m0 ^ m1));
     }
-
-    /* Set unmasked bits so incrementing the reversed cursor
-     * operates on the masked bits of the smaller table */
-    v |= ~m0;
-
-    /* Increment the reverse cursor */
-    v = rev(v);
-    v++;
-    v = rev(v);
 
     return v;
 }
@@ -940,7 +943,7 @@ static unsigned long _dictNextPower(unsigned long size)
 {
     unsigned long i = DICT_HT_INITIAL_SIZE;
 
-    if (size >= LONG_MAX) return LONG_MAX;
+    if (size >= LONG_MAX) return LONG_MAX + 1LU;
     while(1) {
         if (i >= size)
             return i;
@@ -955,9 +958,9 @@ static unsigned long _dictNextPower(unsigned long size)
  *
  * Note that if we are in the process of rehashing the hash table, the
  * index is always returned in the context of the second (new) hash table. */
-static int _dictKeyIndex(dict *d, const void *key, unsigned int hash, dictEntry **existing)
+static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **existing)
 {
-    unsigned int idx, table;
+    unsigned long idx, table;
     dictEntry *he;
     if (existing) *existing = NULL;
 
@@ -995,7 +998,7 @@ void dictDisableResize(void) {
     dict_can_resize = 0;
 }
 
-unsigned int dictGetHash(dict *d, const void *key) {
+uint64_t dictGetHash(dict *d, const void *key) {
     return dictHashKey(d, key);
 }
 
@@ -1004,9 +1007,9 @@ unsigned int dictGetHash(dict *d, const void *key) {
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is the reference to the dictEntry if found, or NULL if not found. */
-dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, unsigned int hash) {
+dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash) {
     dictEntry *he, **heref;
-    unsigned int idx, table;
+    unsigned long idx, table;
 
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {

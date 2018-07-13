@@ -31,9 +31,9 @@ test "Each master should have at least two replicas attached" {
 set master0_id [dict get [get_myself 0] id]
 test "Resharding all the master #0 slots away from it" {
     set output [exec \
-        ../../../src/redis-trib.rb rebalance \
-        --weight ${master0_id}=0 \
-        127.0.0.1:[get_instance_attrib redis 0 port] >@ stdout]
+        ../../../src/redis-cli --cluster rebalance \
+        127.0.0.1:[get_instance_attrib redis 0 port] \
+        --cluster-weight ${master0_id}=0 >@ stdout ]
 }
 
 test "Master #0 should lose its replicas" {
@@ -49,10 +49,10 @@ test "Resharding back some slot to master #0" {
     # new resharding.
     after 10000
     set output [exec \
-        ../../../src/redis-trib.rb rebalance \
-        --weight ${master0_id}=.01 \
-        --use-empty-masters \
-        127.0.0.1:[get_instance_attrib redis 0 port] >@ stdout]
+        ../../../src/redis-cli --cluster rebalance \
+        127.0.0.1:[get_instance_attrib redis 0 port] \
+        --cluster-weight ${master0_id}=.01 \
+        --cluster-use-empty-masters  >@ stdout]
 }
 
 test "Master #0 should re-acquire one or more replicas" {

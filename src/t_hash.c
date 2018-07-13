@@ -287,8 +287,8 @@ int hashTypeDelete(robj *o, sds field) {
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr);
-                zl = ziplistDelete(zl,&fptr);
+                zl = ziplistDelete(zl,&fptr); /* Delete the key. */
+                zl = ziplistDelete(zl,&fptr); /* Delete the value. */
                 o->ptr = zl;
                 deleted = 1;
             }
@@ -616,7 +616,7 @@ void hincrbyfloatCommand(client *c) {
 
     value += incr;
 
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,1);
     new = sdsnewlen(buf,len);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);

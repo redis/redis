@@ -109,6 +109,8 @@ void latencyAddSample(char *event, mstime_t latency) {
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
+    if (latency > ts->max) ts->max = latency;
+
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
@@ -120,7 +122,6 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     ts->samples[ts->idx].time = time(NULL);
     ts->samples[ts->idx].latency = latency;
-    if (latency > ts->max) ts->max = latency;
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
@@ -151,7 +152,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
  * Check latency.h definition of struct latenctStat for more info.
  * If the specified event has no elements the structure is populate with

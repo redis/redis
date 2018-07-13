@@ -34,7 +34,6 @@
 
 void createSharedObjects(void);
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len);
-long long rdbLoadMillisecondTime(rio *rdb);
 int rdbCheckMode = 0;
 
 struct {
@@ -85,7 +84,8 @@ char *rdb_type_string[] = {
     "set-intset",
     "zset-ziplist",
     "hash-ziplist",
-    "quicklist"
+    "quicklist",
+    "stream"
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -193,18 +193,18 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         rdbCheckError("Wrong signature trying to load DB from file");
-        return 1;
+        goto err;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > RDB_VERSION) {
         rdbCheckError("Can't handle RDB format version %d",rdbver);
-        return 1;
+        goto err;
     }
 
+    expiretime = -1;
     startLoading(fp);
     while(1) {
         robj *key, *val;
-        expiretime = -1;
 
         /* Read type. */
         rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
@@ -217,20 +217,23 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-            /* the EXPIRETIME opcode specifies time in seconds, so convert
-             * into milliseconds. */
             expiretime *= 1000;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
-            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again. */
-            rdbstate.doing = RDB_CHECK_DOING_READ_TYPE;
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadMillisecondTime(&rdb, rdbver)) == -1) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_FREQ) {
+            /* FREQ: LFU frequency. */
+            uint8_t byte;
+            if (rioRead(&rdb,&byte,1) == 0) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_IDLE) {
+            /* IDLE: LRU idle time. */
+            if (rdbLoadLen(&rdb,NULL) == RDB_LENERR) goto eoferr;
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
@@ -270,7 +273,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
-                return 1;
+                goto err;
             }
             rdbstate.key_type = type;
         }
@@ -283,18 +286,15 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
         if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
-        /* Check if the key already expired. This function is used when loading
-         * an RDB file from disk, either at startup, or when an RDB was
-         * received from the master. In the latter case, the master is
-         * responsible for key expiry. If we would expire keys here, the
-         * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && expiretime != -1 && expiretime < now)
+        /* Check if the key already expired. */
+        if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
         rdbstate.key = NULL;
         decrRefCount(key);
         decrRefCount(val);
         rdbstate.key_type = -1;
+        expiretime = -1;
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
@@ -307,6 +307,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             rdbCheckInfo("RDB file was saved with checksum disabled: no check performed.");
         } else if (cksum != expected) {
             rdbCheckError("RDB CRC error");
+            goto err;
         } else {
             rdbCheckInfo("Checksum OK");
         }
@@ -321,6 +322,8 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     } else {
         rdbCheckError("Unexpected EOF reading RDB file");
     }
+err:
+    if (closefile) fclose(fp);
     return 1;
 }
 
