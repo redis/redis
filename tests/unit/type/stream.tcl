@@ -264,6 +264,21 @@ start_server {
         # to report the right number of elements with XRANGE: this will also
         # force accessing the whole data structure to check sanity.
         assert {[r xlen somestream] == $x}
+
+        # We want to remove elements in random order to really test the
+        # implementation in a better way.
+        set ids [lshuffle $ids]
+        foreach id $ids {
+            assert {[r xdel somestream $id] == 1}
+            incr x -1
+            assert {[r xlen somestream] == $x}
+            # The test would be too slow calling XRANGE for every iteration.
+            # Do it every 100 removal.
+            if {$x % 100 == 0} {
+                set res [r xrange somestream - +]
+                assert {[llength $res] == $x}
+            }
+        }
     }
 
     test {XRANGE fuzzing} {
