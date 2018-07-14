@@ -397,10 +397,7 @@ void handleClientsBlockedOnKeys(void) {
                             }
                         }
 
-                        if (s->last_id.ms > gt->ms ||
-                            (s->last_id.ms == gt->ms &&
-                             s->last_id.seq > gt->seq))
-                        {
+                        if (streamCompareID(&s->last_id, gt) > 0) {
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
 
