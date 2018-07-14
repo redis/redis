@@ -342,11 +342,13 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     if (!len || s[0] != '-') addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
-    if (c->flags & CLIENT_MASTER) {
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+        char* to = c->flags & CLIENT_MASTER? "master": "slave";
+        char* from = c->flags & CLIENT_MASTER? "slave": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
-        serverLog(LL_WARNING,"== CRITICAL == This slave is sending an error "
-                             "to its master: '%s' after processing the command "
-                             "'%s'", s, cmdname);
+        serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
+                             "to its %s: '%s' after processing the command "
+                             "'%s'", from, to, s, cmdname);
     }
 }
 
@@ -608,6 +610,7 @@ void addReplySubcommandSyntaxError(client *c) {
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
     listRelease(dst->reply);
+    dst->sentlen = 0;
     dst->reply = listDup(src->reply);
     memcpy(dst->buf,src->buf,src->bufpos);
     dst->bufpos = src->bufpos;
@@ -1094,7 +1097,7 @@ void resetClient(client *c) {
  * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
-    int argc, j;
+    int argc, j, linefeed_chars = 1;
     sds *argv, aux;
     size_t querylen;
 
@@ -1112,7 +1115,7 @@ int processInlineBuffer(client *c) {
 
     /* Handle the \r\n case. */
     if (newline && newline != c->querybuf && *(newline-1) == '\r')
-        newline--;
+        newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
@@ -1132,7 +1135,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+linefeed_chars,-1);
 
     /* Setup argv array on client structure */
     if (argc) {
