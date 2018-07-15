@@ -224,4 +224,12 @@ void setproctitle(const char *fmt, ...);
 #define USE_ALIGNED_ACCESS
 #endif
 
+/* since linux 3.15, kernel support prctl PR_SET_THP_DISABLE
+& PR_SET_THP_DISABLE */
+#ifdef __linux__
+#if (LINUX_VERSION_CODE >= 0x031500)
+#define HAVE_PRCTL_THP_DISABLE 1
+#endif
+#endif
+
 #endif

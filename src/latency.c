@@ -34,6 +34,9 @@
  */
 
 #include "server.h"
+#if defined(HAVE_PRCTL_THP_DISABLE)
+#include <sys/prctl.h>
+#endif
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
@@ -61,7 +64,7 @@ dictType latencyTimeSeriesDictType = {
 #ifdef __linux__
 /* Returns 1 if Transparent Huge Pages support is enabled in the kernel.
  * Otherwise (or if we are unable to check) 0 is returned. */
-int THPIsEnabled(void) {
+int THPKernelIsEnabled(void) {
     char buf[1024];
 
     FILE *fp = fopen("/sys/kernel/mm/transparent_hugepage/enabled","r");
@@ -73,6 +76,31 @@ int THPIsEnabled(void) {
     fclose(fp);
     return (strstr(buf,"[never]") == NULL) ? 1 : 0;
 }
+
+/* Returns 1 if Transparent Huge Pages support is enabled in the process.
+ * Otherwise (or if we are unable to check) 0 is returned. */
+int THPProcIsEnabled(void) {
+#if defined(HAVE_PRCTL_THP_DISABLE)
+    int ret = 0;
+    ret = prctl(PR_GET_THP_DISABLE, NULL, NULL, NULL, NULL);
+    if (ret == 0)
+        return 1;
+    else
+        return 0;
+#else
+    return 1;
+#endif
+}
+
+int THPProcDisable(void) {
+#if defined(HAVE_PRCTL_THP_DISABLE)
+    unsigned long opt = 1;
+    return prctl(PR_SET_THP_DISABLE, &opt, NULL, NULL, NULL);
+#else
+    return -ENOTSUP;
+#endif
+}
+
 #endif
 
 /* Report the amount of AnonHugePages in smap, in bytes. If the return
