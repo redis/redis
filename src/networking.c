@@ -245,12 +245,15 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
 
     listNode *ln = listLast(c->reply);
     clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
-    /* It is possible that we have a tail list node, but no tail buffer.
-     * if addDeferredMultiBulkLength() was used. */
+
+    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+     * addDeferredMultiBulkLength() is used, it sets a dummy node to NULL just
+     * fo fill it later, when the size of the bulk length is set. */
 
     /* Append to tail string when possible. */
     if (tail) {
-        /* Copy the part we can fit into the tail, and leave the rest for a new node */
+        /* Copy the part we can fit into the tail, and leave the rest for a
+         * new node */
         size_t avail = tail->size - tail->used;
         size_t copy = avail >= len? len: avail;
         memcpy(tail->buf + tail->used, s, copy);
@@ -259,7 +262,8 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
         len -= copy;
     }
     if (len) {
-        /* Create a new node, make sure it is allocated to at least PROTO_REPLY_CHUNK_BYTES */
+        /* Create a new node, make sure it is allocated to at
+         * least PROTO_REPLY_CHUNK_BYTES */
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc(size + sizeof(clientReplyBlock));
         /* take over the allocation's internal fragmentation */
@@ -408,11 +412,17 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
     if (node == NULL) return;
     serverAssert(!listNodeValue(ln));
 
-    /* Glue into next node when:
-     * - the next node is non-NULL,
-     * - it has enough room already allocated
-     * - and not too large (avoid large memmove) */
-    if (ln->next != NULL && (next = listNodeValue(ln->next)) && 
+    /* Normally we fill this dummy NULL node, added by addDeferredMultiBulkLength(),
+     * with a new buffer structure containing the protocol needed to specify
+     * the length of the array following. However sometimes when there is
+     * little memory to move, we may instead remove this NULL node, and prefix
+     * our protocol in the node immediately after to it, in order to save a
+     * write(2) syscall later. Conditions needed to do it:
+     *
+     * - The next node is non-NULL,
+     * - It has enough room already allocated
+     * - And not too large (avoid large memmove) */
+    if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
         next->size - next->used >= lenstr_len &&
         next->used < PROTO_REPLY_CHUNK_BYTES * 4) {
         memmove(next->buf + lenstr_len, next->buf, next->used);
@@ -422,7 +432,7 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
     } else {
         /* Create a new node */
         clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
-        /* take over the allocation's internal fragmentation */
+        /* Take over the allocation's internal fragmentation */
         buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
         buf->used = lenstr_len;
         memcpy(buf->buf, lenstr, lenstr_len);
