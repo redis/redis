@@ -705,10 +705,14 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     /* Change the valid/deleted entries count in the master entry. */
     unsigned char *p = lpFirst(lp);
     aux = lpGetInteger(p);
+
     if (aux == 1) {
+        /* If this is the last element in the listpack, we can remove the whole
+         * node. */
         lpFree(lp);
         raxRemove(si->stream->rax,si->ri.key,si->ri.key_len,NULL);
     } else {
+        /* In the base case we alter the counters of valid/deleted entries. */
         lp = lpReplaceInteger(lp,&p,aux-1);
         p = lpNext(lp,p); /* Seek deleted field. */
         aux = lpGetInteger(p);
