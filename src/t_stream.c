@@ -2301,7 +2301,7 @@ NULL
         addReplyLongLong(c,s->rax->numnodes);
         addReplyStatus(c,"groups");
         addReplyLongLong(c,s->cgroups ? raxSize(s->cgroups) : 0);
-        addReplyStatus(c,"last-id");
+        addReplyStatus(c,"last-generated-id");
         addReplyStreamID(c,&s->last_id);
 
         /* To emit the first/last entry we us the streamReplyWithRange()
