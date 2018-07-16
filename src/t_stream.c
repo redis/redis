@@ -2279,18 +2279,20 @@ NULL
         raxSeek(&ri,"^",NULL,0);
         while(raxNext(&ri)) {
             streamCG *cg = ri.data;
-            addReplyMultiBulkLen(c,6);
+            addReplyMultiBulkLen(c,8);
             addReplyStatus(c,"name");
             addReplyBulkCBuffer(c,ri.key,ri.key_len);
             addReplyStatus(c,"consumers");
             addReplyLongLong(c,raxSize(cg->consumers));
             addReplyStatus(c,"pending");
             addReplyLongLong(c,raxSize(cg->pel));
+            addReplyStatus(c,"last-delivered-id");
+            addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);
     } else if (!strcasecmp(opt,"STREAM") && c->argc == 3) {
         /* XINFO STREAM <key> (or the alias XINFO <key>). */
-        addReplyMultiBulkLen(c,12);
+        addReplyMultiBulkLen(c,14);
         addReplyStatus(c,"length");
         addReplyLongLong(c,s->length);
         addReplyStatus(c,"radix-tree-keys");
@@ -2299,6 +2301,8 @@ NULL
         addReplyLongLong(c,s->rax->numnodes);
         addReplyStatus(c,"groups");
         addReplyLongLong(c,s->cgroups ? raxSize(s->cgroups) : 0);
+        addReplyStatus(c,"last-id");
+        addReplyStreamID(c,&s->last_id);
 
         /* To emit the first/last entry we us the streamReplyWithRange()
          * API. */
