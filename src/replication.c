@@ -2148,6 +2148,7 @@ void replicationCacheMaster(client *c) {
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
+    c->reply_bytes = 0;
     c->bufpos = 0;
     resetClient(c);
 

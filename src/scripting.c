@@ -575,9 +575,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         reply = sdsnewlen(c->buf,c->bufpos);
         c->bufpos = 0;
         while(listLength(c->reply)) {
-            sds o = listNodeValue(listFirst(c->reply));
+            clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
-            reply = sdscatsds(reply,o);
+            reply = sdscatlen(reply,o->buf,o->used);
             listDelNode(c->reply,listFirst(c->reply));
         }
     }

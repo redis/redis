@@ -2712,9 +2712,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
     while(listLength(c->reply)) {
-        sds o = listNodeValue(listFirst(c->reply));
+        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
-        proto = sdscatsds(proto,o);
+        proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));
     }
     reply = moduleCreateCallReplyFromProto(ctx,proto);

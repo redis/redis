@@ -182,6 +182,9 @@ size_t zmalloc_size(void *ptr) {
     if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
 }
+size_t zmalloc_usable(void *ptr) {
+    return zmalloc_usable(ptr)-PREFIX_SIZE;
+}
 #endif
 
 void zfree(void *ptr) {

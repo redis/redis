@@ -3101,6 +3101,11 @@ sds genRedisInfoString(char *section) {
             "rss_overhead_bytes:%zu\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_fragmentation_bytes:%zu\r\n"
+            "mem_not_counted_for_evict:%zu\r\n"
+            "mem_replication_backlog:%zu\r\n"
+            "mem_clients_slaves:%zu\r\n"
+            "mem_clients_normal:%zu\r\n"
+            "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
@@ -3133,6 +3138,11 @@ sds genRedisInfoString(char *section) {
             mh->rss_extra_bytes,
             mh->total_frag, /* this is the total RSS overhead, including fragmentation, */
             mh->total_frag_bytes, /* named so for backwards compatibility */
+            freeMemoryGetNotCountedMemory(),
+            mh->repl_backlog,
+            mh->clients_slaves,
+            mh->clients_normal,
+            mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
