@@ -2137,9 +2137,13 @@ void xdelCommand(client *c) {
         streamParseIDOrReply(c,c->argv[j],&id,0); /* Retval already checked. */
         deleted += streamDeleteItem(s,&id);
     }
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
-    server.dirty += deleted;
+
+    /* Propagate the write if needed. */
+    if (deleted) {
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+        server.dirty += deleted;
+    }
     addReplyLongLong(c,deleted);
 }
 
