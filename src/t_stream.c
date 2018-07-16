@@ -705,10 +705,15 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     /* Change the valid/deleted entries count in the master entry. */
     unsigned char *p = lpFirst(lp);
     aux = lpGetInteger(p);
-    lp = lpReplaceInteger(lp,&p,aux-1);
-    p = lpNext(lp,p); /* Seek deleted field. */
-    aux = lpGetInteger(p);
-    lp = lpReplaceInteger(lp,&p,aux+1);
+    if (aux == 1) {
+        lpFree(lp);
+        raxRemove(si->stream->rax,si->ri.key,si->ri.key_len,NULL);
+    } else {
+        lp = lpReplaceInteger(lp,&p,aux-1);
+        p = lpNext(lp,p); /* Seek deleted field. */
+        aux = lpGetInteger(p);
+        lp = lpReplaceInteger(lp,&p,aux+1);
+    }
 
     /* Update the number of entries counter. */
     si->stream->length--;
