@@ -419,6 +419,22 @@ int string2l(const char *s, size_t slen, long *lval) {
     return 1;
 }
 
+/* Convert a string into a int. Returns 1 if the string could be parsed into a
+ * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
+ * value when appropriate. */
+int string2i(const char *s, size_t slen, int *val) {
+    long long llval;
+
+    if (!string2ll(s,slen,&llval))
+        return 0;
+
+    if (llval < INT_MIN || llval > INT_MAX)
+        return 0;
+
+    *val = (int)llval;
+    return 1;
+}
+
 /* Convert a string into a double. Returns 1 if the string could be parsed
  * into a (non-overflowing) double, 0 otherwise. The value will be set to
  * the parsed value when appropriate.
