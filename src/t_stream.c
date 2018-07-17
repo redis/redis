@@ -1135,6 +1135,7 @@ void xaddCommand(client *c) {
              * creation. */
             break;
         } else if (!strcasecmp(opt,"maxlen") && moreargs) {
+            approx_maxlen = 0;
             char *next = c->argv[i+1]->ptr;
             /* Check for the form MAXLEN ~ <count>. */
             if (moreargs >= 2 && next[0] == '~' && next[1] == '\0') {
@@ -2202,6 +2203,7 @@ void xtrimCommand(client *c) {
         int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
         char *opt = c->argv[i]->ptr;
         if (!strcasecmp(opt,"maxlen") && moreargs) {
+            approx_maxlen = 0;
             trim_strategy = TRIM_STRATEGY_MAXLEN;
             char *next = c->argv[i+1]->ptr;
             /* Check for the form MAXLEN ~ <count>. */
