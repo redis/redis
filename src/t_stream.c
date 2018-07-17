@@ -2197,7 +2197,7 @@ void xtrimCommand(client *c) {
 
     /* Argument parsing. */
     int trim_strategy = TRIM_STRATEGY_NONE;
-    long long maxlen = 0;   /* 0 means no maximum length. */
+    long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
                                the maxium length is not applied verbatim. */
 
@@ -2216,6 +2216,11 @@ void xtrimCommand(client *c) {
             }
             if (getLongLongFromObjectOrReply(c,c->argv[i+1],&maxlen,NULL)
                 != C_OK) return;
+
+            if (maxlen < 0) {
+                addReplyError(c,"The MAXLEN argument must be >= 0.");
+                return;
+            }
             i++;
         } else {
             addReply(c,shared.syntaxerr);
