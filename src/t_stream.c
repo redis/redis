@@ -1351,6 +1351,11 @@ void xreadCommand(client *c) {
         }
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The $ ID can be specified only when calling "
+                              "XREAD without GROUP option.");
+                goto cleanup;
+            }
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
@@ -1360,7 +1365,7 @@ void xreadCommand(client *c) {
             }
             continue;
         } else if (strcmp(c->argv[i]->ptr,">") == 0) {
-            if (!xreadgroup || groupname == NULL) {
+            if (!xreadgroup) {
                 addReplyError(c,"The > ID can be specified only when calling "
                                 "XREADGROUP using the GROUP <group> "
                                 "<consumer> option.");
