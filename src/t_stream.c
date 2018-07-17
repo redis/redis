@@ -1352,8 +1352,11 @@ void xreadCommand(client *c) {
 
         if (strcmp(c->argv[i]->ptr,"$") == 0) {
             if (xreadgroup) {
-                addReplyError(c,"The $ ID can be specified only when calling "
-                              "XREAD without GROUP option.");
+                addReplyError(c,"The $ ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The $ ID would "
+                                "just return an empty result set.");
                 goto cleanup;
             }
             if (o) {
