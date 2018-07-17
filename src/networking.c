@@ -349,6 +349,11 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
                              "'%s'", from, to, s, cmdname);
+        /* Here we want to panic because when an instance is sending an
+         * error to another instance in the context of replication, this can
+         * only create some kind of offset or data desynchronization. Better
+         * to catch it ASAP and crash instead of continuing. */
+        serverPanic("Continuing is unsafe: replication protocol violation.");
     }
 }
 
