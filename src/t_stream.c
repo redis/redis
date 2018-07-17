@@ -1191,18 +1191,9 @@ void xaddCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
-    /* Remove older elements if MAXLEN was specified. */
-    if (maxlen >= 0) {
-        if (!streamTrimByLength(s,maxlen,approx_maxlen)) {
-            /* If no trimming was performed, for instance because approximated
-             * trimming length was specified, rewrite the MAXLEN argument
-             * as zero, so that the command is propagated without trimming. */
-            robj *zeroobj = createStringObjectFromLongLong(0);
-            rewriteClientCommandArgument(c,maxlen_arg_idx,zeroobj);
-            decrRefCount(zeroobj);
-        } else {
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
-        }
+    /* Notify xtrim event if needed. */
+    if (maxlen >= 0 && streamTrimByLength(s,maxlen,approx_maxlen)) {
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
     }
 
     /* Let's rewrite the ID argument with the one actually generated for
