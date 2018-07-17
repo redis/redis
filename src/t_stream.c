@@ -1365,7 +1365,7 @@ void xreadCommand(client *c) {
             }
             continue;
         } else if (strcmp(c->argv[i]->ptr,">") == 0) {
-            if (!xreadgroup || groupname == NULL) {
+            if (!xreadgroup) {
                 addReplyError(c,"The > ID can be specified only when calling "
                                 "XREADGROUP using the GROUP <group> "
                                 "<consumer> option.");
