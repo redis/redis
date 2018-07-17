@@ -2449,8 +2449,13 @@ int processCommand(client *c) {
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
-        addReplyErrorFormat(c,"unknown command '%s'",
-            (char*)c->argv[0]->ptr);
+        sds args = sdsempty();
+        int i;
+        for (i=1; i < c->argc && sdslen(args) < 128; i++)
+            args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+        addReplyErrorFormat(c,"unknown command `%s`, with args beginning with: %s",
+            (char*)c->argv[0]->ptr, args);
+        sdsfree(args);
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
