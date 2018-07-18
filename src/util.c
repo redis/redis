@@ -729,6 +729,19 @@ static void test_string2ll(void) {
 
     strcpy(buf,"9223372036854775808"); /* overflow */
     assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    /* none digital */
+    strcpy(buf,"foobared");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    /* May not start with non-digital. */
+    strcpy(buf,"foobared1");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    /* May not end with non-digital. */
+    strcpy(buf,"1foobared");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
 }
 
 static void test_string2l(void) {
@@ -778,6 +791,79 @@ static void test_string2l(void) {
     strcpy(buf,"2147483648"); /* overflow */
     assert(string2l(buf,strlen(buf),&v) == 0);
 #endif
+
+    /* none digital */
+    strcpy(buf,"foobared");
+    assert(string2l(buf,strlen(buf),&v) == 0);
+
+    /* May not start with non-digital. */
+    strcpy(buf,"foobared1");
+    assert(string2l(buf,strlen(buf),&v) == 0);
+
+    /* May not end with non-digital. */
+    strcpy(buf,"1foobared");
+    assert(string2l(buf,strlen(buf),&v) == 0);
+}
+
+static void test_string2i(void) {
+    char buf[32];
+    int v;
+
+    /* May not start with +. */
+    strcpy(buf,"+1");
+    assert(string2i(buf,strlen(buf),&v) == 0);
+
+    /* May not start with 0. */
+    strcpy(buf,"01");
+    assert(string2i(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"-1");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == -1);
+
+    strcpy(buf,"0");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == 0);
+
+    strcpy(buf,"1");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == 1);
+
+    strcpy(buf,"99");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == 99);
+
+    strcpy(buf,"-99");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == -99);
+
+#if INT_MAX != LLONG_MAX
+    strcpy(buf,"-2147483648");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == INT_MIN);
+
+    strcpy(buf,"-2147483649"); /* overflow */
+    assert(string2i(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"2147483647");
+    assert(string2i(buf,strlen(buf),&v) == 1);
+    assert(v == INT_MAX);
+
+    strcpy(buf,"2147483648"); /* overflow */
+    assert(string2i(buf,strlen(buf),&v) == 0);
+#endif
+
+    /* none digital */
+    strcpy(buf,"foobared");
+    assert(string2i(buf,strlen(buf),&v) == 0);
+
+    /* May not start with non-digital. */
+    strcpy(buf,"foobared1");
+    assert(string2i(buf,strlen(buf),&v) == 0);
+
+    /* May not end with non-digital. */
+    strcpy(buf,"1foobared");
+    assert(string2i(buf,strlen(buf),&v) == 0);
 }
 
 static void test_ll2string(void) {
@@ -828,6 +914,7 @@ int utilTest(int argc, char **argv) {
 
     test_string2ll();
     test_string2l();
+    test_string2i();
     test_ll2string();
     return 0;
 }
