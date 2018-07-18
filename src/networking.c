@@ -342,6 +342,17 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     if (!len || s[0] != '-') addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
+
+    /* Sometimes it could be normal that a slave replies to a master with
+     * an error and this function gets called. Actually the error will never
+     * be sent because addReply*() against master clients has no effect...
+     * A notable example is:
+     *
+     *    EVAL 'redis.call("incr",KEYS[1]); redis.call("nonexisting")' 1 x
+     *
+     * Where the master must propagate the first change even if the second
+     * will produce an error. However it is useful to log such events since
+     * they are rare and may hint at errors in a script or a bug in Redis. */
     if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
         char* to = c->flags & CLIENT_MASTER? "master": "slave";
         char* from = c->flags & CLIENT_MASTER? "slave": "master";
