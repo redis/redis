@@ -41,7 +41,7 @@ start_server {tags {"defrag"}} {
         test "Active defrag" {
             r config set activedefrag no
             r config set active-defrag-threshold-lower 5
-            r config set active-defrag-cycle-min 25
+            r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 100mb
@@ -66,9 +66,10 @@ start_server {tags {"defrag"}} {
                 }
 
                 # Wait for the active defrag to stop working.
-                wait_for_condition 100 100 {
+                wait_for_condition 150 100 {
                     [s active_defrag_running] eq 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
                     puts [r memory malloc-stats]
                     fail "defrag didn't stop."
@@ -175,6 +176,7 @@ start_server {tags {"defrag"}} {
                 wait_for_condition 500 100 {
                     [s active_defrag_running] eq 0
                 } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
                     puts [r memory malloc-stats]
                     fail "defrag didn't stop."

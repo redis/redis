@@ -867,9 +867,8 @@ void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
  * or not, a false detection can cause the defragmenter to waste a lot of CPU
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
-    size_t resident = server.cron_malloc_stats.allocator_resident;
-    size_t active = server.cron_malloc_stats.allocator_active;
-    size_t allocated = server.cron_malloc_stats.allocator_allocated;
+    size_t resident, active, allocated;
+    zmalloc_get_allocator_info(&allocated, &active, &resident);
     float frag_pct = ((float)active / allocated)*100 - 100;
     size_t frag_bytes = active - allocated;
     float rss_pct = ((float)resident / allocated)*100 - 100;
