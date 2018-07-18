@@ -566,7 +566,17 @@ dictType objectKeyPointerValueDictType = {
 };
 
 /* Set dictionary type. Keys are SDS strings, values are ot used. */
-dictType setDictType = {
+dictType setDictTypeZ = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    dictSdsDestructor,         /* key destructor */
+    NULL                       /* val destructor */
+};
+
+/* Set dictionary type. Keys are SDS strings, values are ot used. Allocated by Memkind. */
+dictType setDictTypeM = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
     NULL,                      /* val dup */
@@ -626,7 +636,18 @@ dictType commandTableDictType = {
 };
 
 /* Hash type hash table (note that small hashes are represented with ziplists) */
-dictType hashDictType = {
+dictType hashDictTypeZ = {
+    dictSdsHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCompare,          /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictSdsDestructor           /* val destructor */
+};
+
+/* Hash type hash table (note that small hashes are represented with ziplists).
+ * Allocated by Memkind. */
+dictType hashDictTypeM = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */

@@ -201,9 +201,8 @@ robj *createZiplistObject(void) {
 }
 
 robj *createSetObjectA(alloc a) {
-    dict *d = dictCreate(&setDictType,NULL);
+    dict *d = dictCreate((!memcmp(a,z_alloc, sizeof(*a)) ? &setDictTypeZ : &setDictTypeM),NULL);
     robj *o = createObject(OBJ_SET,d);
-    o->a = a;
     o->encoding = OBJ_ENCODING_HT;
     o->a = a;
     return o;
@@ -1040,7 +1039,7 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
- * Usage: OBJECT <refcount|encoding|idletime|freq> <key> */
+ * Usage: OBJECT <refcount|encoding|idletime|freq|allocator> <key> */
 void objectCommand(client *c) {
     robj *o;
 
@@ -1057,6 +1056,8 @@ void objectCommand(client *c) {
         "idletime -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.");
         blen++; addReplyStatus(c,
         "freq -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.");
+        blen++; addReplyStatus(c,
+        "allocator -- Return the allocator used to allocate an object.");
         setDeferredMultiBulkLength(c,blenp,blen);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
@@ -1086,6 +1087,10 @@ void objectCommand(client *c) {
          * because we update the access time only
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
+    } else if (!strcasecmp(c->argv[1]->ptr,"allocator") && c->argc == 3) {
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) return;
+        addReplyBulkCString(c,!memcmp(o->a,z_alloc, sizeof(*z_alloc)) ? "zmalloc" : "memkind");
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help",
             (char *)c->argv[1]->ptr);

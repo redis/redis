@@ -476,7 +476,7 @@ void hashTypeConvertZiplist(robj *o, int enc, alloc a) {
         int ret;
 
         hi = hashTypeInitIterator(o);
-        dict = dictCreate(&hashDictType, NULL);
+        dict = dictCreate(&hashDictTypeM, NULL);
 
         while (hashTypeNext(hi) != C_ERR) {
             sds key, value;

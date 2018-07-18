@@ -62,6 +62,7 @@ int setTypeAddA(robj *subject, sds value, alloc a) {
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
+            serverAssert(subject->a->alloc == a->alloc);
             subject->ptr = intsetAddA(subject->ptr,llval,&success, a);
             if (success) {
                 /* Convert to regular set when the intset contains
@@ -239,7 +240,7 @@ void setTypeConvertA(robj *setobj, int enc, alloc a) {
 
     if (enc == OBJ_ENCODING_HT) {
         int64_t intele;
-        dict *d = dictCreate(&setDictType,NULL);
+        dict *d = dictCreate((a->alloc == z_alloc->alloc ? &setDictTypeZ : &setDictTypeM),NULL);
         sds element;
 
         /* Presize the dict to avoid rehashing */
@@ -479,11 +480,11 @@ void spopWithCountCommand(client *c) {
             if (encoding == OBJ_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
                 objele = createStringObjectFromLongLong(llele);
-                set->ptr = intsetRemoveM(set->ptr,llele,NULL);
+                set->ptr = intsetRemoveA(set->ptr,llele,NULL,set->a);
             } else {
                 addReplyBulkCBuffer(c,sdsele,sdslen(sdsele));
                 objele = createStringObject(sdsele,sdslen(sdsele));
-                setTypeRemove(set,sdsele);
+                setTypeRemoveA(set,sdsele,set->a);
             }
 
             /* Replicate/AOF this command as an SREM operation */

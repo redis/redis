@@ -36,7 +36,6 @@ distclean:
 	-(cd hiredis && $(MAKE) clean) > /dev/null || true
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
 	-(cd lua && $(MAKE) clean) > /dev/null || true
-#	-(cd jemalloc && rm configure) > /dev/null || true
 	-(cd memkind/jemalloc/obj && $(MAKE) distclean) > /dev/null || true
 	-(cd memkind && $(MAKE) distclean ) > /dev/null || true
 	-(rm memkind/configure) > /dev/null || true
@@ -84,8 +83,6 @@ memkind: .make-prerequisites
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-#	cd jemalloc_JE/ && ./autogen.sh
-#	mkdir -p jemalloc_JE/obj
 	cd jemalloc_JE && ./autogen.sh
 	cd jemalloc_JE && ./configure --with-jemalloc-prefix=je_ --with-private-namespace=
 	cd jemalloc_JE && make -j $(nproc)
