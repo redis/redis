@@ -156,7 +156,7 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
 }
 
 /* Upgrades the intset to a larger encoding and inserts the given integer. */
-static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
+static intset *intsetUpgradeAndAddA(intset *is, int64_t value, alloc a) {
     uint8_t curenc = intrev32ifbe(is->encoding);
     uint8_t newenc = _intsetValueEncoding(value);
     int length = intrev32ifbe(is->length);
@@ -164,7 +164,7 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
 
     /* First set new encoding and resize */
     is->encoding = intrev32ifbe(newenc);
-    is = intsetResizeM(is,intrev32ifbe(is->length)+1);
+    is = intsetResizeA(is,intrev32ifbe(is->length)+1,a);
 
     /* Upgrade back-to-front so we don't overwrite values.
      * Note that the "prepend" variable is used to make sure we have an empty
@@ -213,7 +213,7 @@ intset *intsetAddA(intset *is, int64_t value, uint8_t *success, alloc a) {
      * because it lies outside the range of existing values. */
     if (valenc > intrev32ifbe(is->encoding)) {
         /* This always succeeds, so we don't need to curry *success. */
-        return intsetUpgradeAndAdd(is,value);
+        return intsetUpgradeAndAddA(is,value,a);
     } else {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert
