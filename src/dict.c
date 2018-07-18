@@ -189,6 +189,8 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
+    int shrinking = d->ht[1].size < d->ht[0].size;
+
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
 
@@ -206,7 +208,8 @@ int dictRehash(dict *d, int n) {
 
             nextde = de->next;
             /* Get the index in the new hash table */
-            h = dictHashKey(d, de->key) & d->ht[1].sizemask;
+            /* Optimization: if table is shrinking then do not rehash key */
+            h = (shrinking ? d->rehashidx : dictHashKey(d, de->key)) & d->ht[1].sizemask;
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
