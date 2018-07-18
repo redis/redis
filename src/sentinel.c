@@ -1608,14 +1608,21 @@ char *sentinelInstanceMapCommand(sentinelRedisInstance *ri, char *command) {
 /* ============================ Config handling ============================= */
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
+    int ok;
 
     if (!strcasecmp(argv[0],"monitor") && argc == 5) {
         /* monitor <name> <host> <port> <quorum> */
-        int quorum = atoi(argv[4]);
+        int quorum, port;
+        ok = string2i(argv[4], strlen(argv[4]), &quorum);
+        if (!ok || quorum <= 0) return "Quorum must be 1 or greater.";
 
-        if (quorum <= 0) return "Quorum must be 1 or greater.";
+        ok = string2i(argv[3], strlen(argv[3]), &port);
+        if (!ok || port < 0 || port > 65535) {
+            return "Invalid port.";
+        }
+
         if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
-                                        atoi(argv[3]),quorum,NULL) == NULL)
+                                        port,quorum,NULL) == NULL)
         {
             switch(errno) {
             case EBUSY: return "Duplicated master name.";
@@ -1627,22 +1634,24 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         /* down-after-milliseconds <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
-        ri->down_after_period = atoi(argv[2]);
-        if (ri->down_after_period <= 0)
-            return "negative or zero time parameter.";
+        ok = string2ll(argv[2], strlen(argv[2]), &ri->down_after_period);
+        if (!ok || ri->down_after_period <= 0)
+            return "time parameter must be 1 or greater.";
         sentinelPropagateDownAfterPeriod(ri);
     } else if (!strcasecmp(argv[0],"failover-timeout") && argc == 3) {
         /* failover-timeout <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
-        ri->failover_timeout = atoi(argv[2]);
-        if (ri->failover_timeout <= 0)
-            return "negative or zero time parameter.";
+        ok = string2ll(argv[2], strlen(argv[2]), &ri->failover_timeout);
+        if (!ok || ri->failover_timeout <= 0)
+            return "time parameter must be 1 or greater.";
    } else if (!strcasecmp(argv[0],"parallel-syncs") && argc == 3) {
         /* parallel-syncs <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
-        ri->parallel_syncs = atoi(argv[2]);
+        ok = string2i(argv[2], strlen(argv[2]), &ri->parallel_syncs);
+        if (!ok || ri->parallel_syncs <= 0)
+            return "time parameter must be 1 or greater.";
    } else if (!strcasecmp(argv[0],"notification-script") && argc == 3) {
         /* notification-script <name> <path> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -1689,25 +1698,35 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->leader_epoch = strtoull(argv[2],NULL,10);
     } else if (!strcasecmp(argv[0],"known-slave") && argc == 4) {
         sentinelRedisInstance *slave;
+        int port;
+
+        ok = string2i(argv[3], strlen(argv[3]), &port);
+        if (!ok || port < 0 || port > 65535) 
+            return "Invalid port.";
 
         /* known-slave <name> <ip> <port> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
-                    atoi(argv[3]), ri->quorum, ri)) == NULL)
+                    port, ri->quorum, ri)) == NULL)
         {
             return "Wrong hostname or port for slave.";
         }
     } else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
         sentinelRedisInstance *si;
+        int port;
+
+        ok = string2i(argv[3], strlen(argv[3]), &port);
+        if (!ok || port < 0 || port > 65535) 
+            return "Invalid port.";
 
         if (argc == 5) { /* Ignore the old form without runid. */
             /* known-sentinel <name> <ip> <port> [runid] */
             ri = sentinelGetMasterByName(argv[1]);
             if (!ri) return "No such master with specified name.";
             if ((si = createSentinelRedisInstance(argv[4],SRI_SENTINEL,argv[2],
-                        atoi(argv[3]), ri->quorum, ri)) == NULL)
+                        port, ri->quorum, ri)) == NULL)
             {
                 return "Wrong hostname or port for sentinel.";
             }
@@ -1731,7 +1750,9 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             sentinel.announce_ip = sdsnew(argv[1]);
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
         /* announce-port <port> */
-        sentinel.announce_port = atoi(argv[1]);
+        ok = string2i(argv[1], strlen(argv[1]), &sentinel.announce_port);
+        if (!ok || sentinel.announce_port < 0 || sentinel.announce_port > 65535) 
+            return "Invalid port.";
     } else if (!strcasecmp(argv[0],"deny-scripts-reconfig") && argc == 2) {
         /* deny-scripts-reconfig <yes|no> */
         if ((sentinel.deny_scripts_reconfig = yesnotoi(argv[1])) == -1) {

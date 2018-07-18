@@ -171,7 +171,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
 
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
-    int linenum = 0, totlines, i;
+    int linenum = 0, totlines, i, ok;
     int slaveof_linenum = 0;
     sds *lines;
 
@@ -203,13 +203,13 @@ void loadServerConfigFromString(char *config) {
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"timeout") && argc == 2) {
-            server.maxidletime = atoi(argv[1]);
-            if (server.maxidletime < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.maxidletime); 
+            if (!ok || server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
-            server.tcpkeepalive = atoi(argv[1]);
-            if (server.tcpkeepalive < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.tcpkeepalive); 
+            if (!ok || server.tcpkeepalive < 0) {
                 err = "Invalid tcp-keepalive value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"protected-mode") && argc == 2) {
@@ -217,13 +217,13 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
-            server.port = atoi(argv[1]);
-            if (server.port < 0 || server.port > 65535) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.port);
+            if (!ok || server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"tcp-backlog") && argc == 2) {
-            server.tcp_backlog = atoi(argv[1]);
-            if (server.tcp_backlog < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.tcp_backlog); 
+            if (!ok || server.tcp_backlog < 0) {
                 err = "Invalid backlog value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
@@ -245,9 +245,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"save")) {
             if (argc == 3) {
-                int seconds = atoi(argv[1]);
-                int changes = atoi(argv[2]);
-                if (seconds < 1 || changes < 0) {
+                int seconds, changes, ok1, ok2;
+                ok1 = string2i(argv[1], sdslen(argv[1]), &seconds);
+                ok2 = string2i(argv[2], sdslen(argv[2]), &changes);
+                if (!ok1 || !ok2 || seconds < 1 || changes < 0) {
                     err = "Invalid save parameters"; goto loaderr;
                 }
                 appendServerSaveParams(seconds,changes);
@@ -302,15 +303,15 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
-            server.dbnum = atoi(argv[1]);
-            if (server.dbnum < 1) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.dbnum);
+            if (!ok || server.dbnum < 1) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
-            server.maxclients = atoi(argv[1]);
-            if (server.maxclients < 1) {
+            ok = string2i(argv[1], sdslen(argv[1]), (int *)&server.maxclients);
+            if (!ok || server.maxclients < 1) {
                 err = "Invalid max clients limit"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
@@ -323,8 +324,8 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
-            server.maxmemory_samples = atoi(argv[1]);
-            if (server.maxmemory_samples <= 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.maxmemory_samples);
+            if (!ok || server.maxmemory_samples <= 0) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
@@ -333,31 +334,35 @@ void loadServerConfigFromString(char *config) {
         } else if ((!strcasecmp(argv[0],"client-query-buffer-limit")) && argc == 2) {
             server.client_max_querybuf_len = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"lfu-log-factor") && argc == 2) {
-            server.lfu_log_factor = atoi(argv[1]);
-            if (server.lfu_log_factor < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.lfu_log_factor);
+            if (!ok || server.lfu_log_factor < 0) {
                 err = "lfu-log-factor must be 0 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"lfu-decay-time") && argc == 2) {
-            server.lfu_decay_time = atoi(argv[1]);
-            if (server.lfu_decay_time < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.lfu_decay_time);
+            if (!ok || server.lfu_decay_time < 0) {
                 err = "lfu-decay-time must be 0 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
-            server.masterport = atoi(argv[2]);
+            ok = string2i(argv[2], sdslen(argv[2]), &server.masterport);
+            if (!ok || server.masterport < 0 || server.masterport > 65535) {
+                err = "Invalid port";
+                goto loaderr;
+            }
             server.repl_state = REPL_STATE_CONNECT;
         } else if (!strcasecmp(argv[0],"repl-ping-slave-period") && argc == 2) {
-            server.repl_ping_slave_period = atoi(argv[1]);
-            if (server.repl_ping_slave_period <= 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.repl_ping_slave_period);
+            if (!ok || server.repl_ping_slave_period <= 0) {
                 err = "repl-ping-slave-period must be 1 or greater";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-timeout") && argc == 2) {
-            server.repl_timeout = atoi(argv[1]);
-            if (server.repl_timeout <= 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.repl_timeout);
+            if (!ok || server.repl_timeout <= 0) {
                 err = "repl-timeout must be 1 or greater";
                 goto loaderr;
             }
@@ -370,9 +375,9 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
-            server.repl_diskless_sync_delay = atoi(argv[1]);
-            if (server.repl_diskless_sync_delay < 0) {
-                err = "repl-diskless-sync-delay can't be negative";
+            ok = string2i(argv[1], sdslen(argv[1]), &server.repl_diskless_sync_delay);
+            if (!ok || server.repl_diskless_sync_delay < 0) {
+                err = "repl-diskless-sync-delay must be 1 or greater.";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
@@ -383,8 +388,8 @@ void loadServerConfigFromString(char *config) {
             }
             resizeReplicationBacklog(size);
         } else if (!strcasecmp(argv[0],"repl-backlog-ttl") && argc == 2) {
-            server.repl_backlog_time_limit = atoi(argv[1]);
-            if (server.repl_backlog_time_limit < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), (int *)&server.repl_backlog_time_limit);
+            if (!ok || server.repl_backlog_time_limit < 0) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
@@ -441,7 +446,11 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
-            server.hz = atoi(argv[1]);
+            ok = string2i(argv[1], sdslen(argv[1]), &server.hz);
+            if (!ok) {
+                err = "Invalid hz value";
+                goto loaderr;
+            }
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
@@ -472,9 +481,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
                    argc == 2)
         {
-            server.aof_rewrite_perc = atoi(argv[1]);
-            if (server.aof_rewrite_perc < 0) {
-                err = "Invalid negative percentage for AOF auto rewrite";
+            ok = string2i(argv[1], sdslen(argv[1]), &server.aof_rewrite_perc);
+            if (!ok || server.aof_rewrite_perc < 0) {
+                err = "Invalid percentage for AOF auto rewrite";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
@@ -520,15 +529,15 @@ void loadServerConfigFromString(char *config) {
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"active-defrag-threshold-lower") && argc == 2) {
-            server.active_defrag_threshold_lower = atoi(argv[1]);
-            if (server.active_defrag_threshold_lower < 0 ||
+            ok = string2i(argv[1], sdslen(argv[1]), &server.active_defrag_threshold_lower);
+            if (!ok || server.active_defrag_threshold_lower < 0 || 
                 server.active_defrag_threshold_lower > 1000) {
                 err = "active-defrag-threshold-lower must be between 0 and 1000";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"active-defrag-threshold-upper") && argc == 2) {
-            server.active_defrag_threshold_upper = atoi(argv[1]);
-            if (server.active_defrag_threshold_upper < 0 ||
+            ok = string2i(argv[1], sdslen(argv[1]), &server.active_defrag_threshold_upper);
+            if (!ok || server.active_defrag_threshold_upper < 0 || 
                 server.active_defrag_threshold_upper > 1000) {
                 err = "active-defrag-threshold-upper must be between 0 and 1000";
                 goto loaderr;
@@ -540,14 +549,16 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"active-defrag-cycle-min") && argc == 2) {
-            server.active_defrag_cycle_min = atoi(argv[1]);
-            if (server.active_defrag_cycle_min < 1 || server.active_defrag_cycle_min > 99) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.active_defrag_cycle_min);
+            if (!ok || server.active_defrag_cycle_min < 1 || 
+                server.active_defrag_cycle_min > 99) {
                 err = "active-defrag-cycle-min must be between 1 and 99";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"active-defrag-cycle-max") && argc == 2) {
-            server.active_defrag_cycle_max = atoi(argv[1]);
-            if (server.active_defrag_cycle_max < 1 || server.active_defrag_cycle_max > 99) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.active_defrag_cycle_max);
+            if (!ok || server.active_defrag_cycle_max < 1 || 
+                server.active_defrag_cycle_max > 99) {
                 err = "active-defrag-cycle-max must be between 1 and 99";
                 goto loaderr;
             }
@@ -564,15 +575,24 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"stream-node-max-bytes") && argc == 2) {
             server.stream_node_max_bytes = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"stream-node-max-entries") && argc == 2) {
-            server.stream_node_max_entries = atoi(argv[1]);
+            ok = string2ll(argv[1], sdslen(argv[1]), (long long *)&server.stream_node_max_entries); 
+            if (!ok) {
+                err = "Invalid stream-node-max-entries value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-size") && argc == 2) {
-            server.list_max_ziplist_size = atoi(argv[1]);
+            ok = string2i(argv[1], sdslen(argv[1]), &server.list_max_ziplist_size); 
+            if (!ok) {
+                err = "Invalid list-max-ziplist-size value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"list-compress-depth") && argc == 2) {
-            server.list_compress_depth = atoi(argv[1]);
+            ok = string2i(argv[1], sdslen(argv[1]), &server.list_compress_depth); 
+            if (!ok) {
+                err = "Invalid list-compress-depth value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
             server.set_max_intset_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
@@ -616,19 +636,17 @@ void loadServerConfigFromString(char *config) {
             zfree(server.cluster_announce_ip);
             server.cluster_announce_ip = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"cluster-announce-port") && argc == 2) {
-            server.cluster_announce_port = atoi(argv[1]);
-            if (server.cluster_announce_port < 0 ||
-                server.cluster_announce_port > 65535)
-            {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.cluster_announce_port);
+            if (!ok || server.cluster_announce_port < 0 || 
+                server.cluster_announce_port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-announce-bus-port") &&
                    argc == 2)
         {
-            server.cluster_announce_bus_port = atoi(argv[1]);
-            if (server.cluster_announce_bus_port < 0 ||
-                server.cluster_announce_bus_port > 65535)
-            {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.cluster_announce_bus_port);
+            if (!ok || server.cluster_announce_bus_port < 0 || 
+                server.cluster_announce_bus_port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-require-full-coverage") &&
@@ -646,16 +664,16 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"cluster-migration-barrier")
                    && argc == 2)
         {
-            server.cluster_migration_barrier = atoi(argv[1]);
-            if (server.cluster_migration_barrier < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.cluster_migration_barrier);
+            if (!ok || server.cluster_migration_barrier < 0) {
                 err = "cluster migration barrier must zero or positive";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-slave-validity-factor")
                    && argc == 2)
         {
-            server.cluster_slave_validity_factor = atoi(argv[1]);
-            if (server.cluster_slave_validity_factor < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.cluster_slave_validity_factor);
+            if (!ok || server.cluster_slave_validity_factor < 0) {
                 err = "cluster slave validity factor must be zero or positive";
                 goto loaderr;
             }
@@ -697,9 +715,9 @@ void loadServerConfigFromString(char *config) {
             }
             hard = memtoll(argv[2],NULL);
             soft = memtoll(argv[3],NULL);
-            soft_seconds = atoi(argv[4]);
-            if (soft_seconds < 0) {
-                err = "Negative number of seconds in soft limit is invalid";
+            ok = string2i(argv[4], sdslen(argv[4]), &soft_seconds);
+            if (!ok || soft_seconds < 0) {
+                err = "Invalid number of seconds in soft limit.";
                 goto loaderr;
             }
             server.client_obuf_limits[class].hard_limit_bytes = hard;
@@ -711,25 +729,28 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
-            server.slave_priority = atoi(argv[1]);
+            ok = string2i(argv[1], sdslen(argv[1]), &server.slave_priority);
+            if (!ok || server.slave_priority < 0) {
+                err = "slave-priority must be 0 or greater.";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slave-announce-ip") && argc == 2) {
             zfree(server.slave_announce_ip);
             server.slave_announce_ip = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-announce-port") && argc == 2) {
-            server.slave_announce_port = atoi(argv[1]);
-            if (server.slave_announce_port < 0 ||
-                server.slave_announce_port > 65535)
-            {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.slave_announce_port);
+            if (!ok || server.slave_announce_port < 0 || 
+                server.slave_announce_port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"min-slaves-to-write") && argc == 2) {
-            server.repl_min_slaves_to_write = atoi(argv[1]);
-            if (server.repl_min_slaves_to_write < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.repl_min_slaves_to_write);
+            if (!ok || server.repl_min_slaves_to_write < 0 ) {
                 err = "Invalid value for min-slaves-to-write."; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"min-slaves-max-lag") && argc == 2) {
-            server.repl_min_slaves_max_lag = atoi(argv[1]);
-            if (server.repl_min_slaves_max_lag < 0) {
+            ok = string2i(argv[1], sdslen(argv[1]), &server.repl_min_slaves_max_lag);
+            if (!ok || server.repl_min_slaves_max_lag < 0 ) {
                 err = "Invalid value for min-slaves-max-lag."; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
