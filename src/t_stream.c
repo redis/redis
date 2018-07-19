@@ -2015,7 +2015,7 @@ void xclaimCommand(client *c) {
      * the client successfully claimed some message, so it should be
      * executed in a "all or nothing" fashion. */
     int j;
-    for (j = 4; j < c->argc; j++) {
+    for (j = 5; j < c->argc; j++) {
         streamID id;
         if (streamParseStrictIDOrReply(NULL,c->argv[j],&id,0) != C_OK) break;
     }
