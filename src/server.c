@@ -2965,7 +2965,6 @@ sds genRedisInfoString(char *section) {
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
-    getClientsMaxBuffers(&lol,&bib);
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
@@ -3035,6 +3034,7 @@ sds genRedisInfoString(char *section) {
 
     /* Clients */
     if (allsections || defsections || !strcasecmp(section,"clients")) {
+        getClientsMaxBuffers(&lol,&bib);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
