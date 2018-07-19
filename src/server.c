@@ -885,6 +885,28 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
+/* This function is used in order to track clients using the biggest amount
+ * of memory in the latest few seconds. This way we can provide such information
+ * in the INFO output (clients section), without having to do an O(N) scan for
+ * all the clients.
+ *
+ * This is how it works. We have an array of CLIENTS_PEAK_MEM_USAGE_SLOTS slots
+ * where we track, for each, the biggest client output and input buffers we
+ * saw in that slot. Every slot correspond to one of the latest seconds, since
+ * the array is indexed by doing UNIXTIME % CLIENTS_PEAK_MEM_USAGE_SLOTS.
+ *
+ * When we want to know what was recently the peak memory usage, we just scan
+ * such few slots searching for the maximum value. */
+#define CLIENTS_PEAK_MEM_USAGE_SLOTS 10
+size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
+size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS];
+
+int clientsCronTrackExpansiveClients(client *c) {
+    size_t in_usage = sdsAllocSize(c->querybuf);
+    size_t out_usage = getClientOutputBufferMemoryUsage(c);
+    return 0; /* This function never terminates the client. */
+}
+
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
     /* Make sure to process at least numclients/server.hz of clients
@@ -917,6 +939,7 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronTrackExpansiveClients(c)) continue;
     }
 }
 
