@@ -2955,7 +2955,6 @@ sds genRedisInfoString(char *section) {
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
     struct rusage self_ru, c_ru;
-    unsigned long lol, bib;
     int allsections = 0, defsections = 0;
     int sections = 0;
 
@@ -3034,6 +3033,7 @@ sds genRedisInfoString(char *section) {
 
     /* Clients */
     if (allsections || defsections || !strcasecmp(section,"clients")) {
+        unsigned long lol, bib;
         getClientsMaxBuffers(&lol,&bib);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
