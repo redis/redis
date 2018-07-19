@@ -209,7 +209,7 @@ int dictRehash(dict *d, int n) {
             nextde = de->next;
             /* Get the index in the new hash table */
             /* Optimization: if table is shrinking then do not rehash key */
-            h = (shrinking ? d->rehashidx : dictHashKey(d, de->key)) & d->ht[1].sizemask;
+            h = (shrinking ? (unsigned long) d->rehashidx : dictHashKey(d, de->key)) & d->ht[1].sizemask;
             de->next = d->ht[1].table[h];
             d->ht[1].table[h] = de;
             d->ht[0].used--;
