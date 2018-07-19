@@ -3081,17 +3081,17 @@ sds genRedisInfoString(char *section) {
 
     /* Clients */
     if (allsections || defsections || !strcasecmp(section,"clients")) {
-        unsigned long lol, bib;
-        getClientsMaxBuffers(&lol,&bib);
+        size_t maxin, maxout;
+        getExpansiveClientsInfo(&maxin,&maxout);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
             "connected_clients:%lu\r\n"
-            "client_longest_output_list:%lu\r\n"
-            "client_biggest_input_buf:%lu\r\n"
+            "client_max_input_buffer:%zu\r\n"
+            "client_max_output_buffer:%zu\r\n"
             "blocked_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
-            lol, bib,
+            maxin, maxout,
             server.blocked_clients);
     }
 
