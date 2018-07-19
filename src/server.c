@@ -905,13 +905,13 @@ int clientsCronTrackExpansiveClients(client *c) {
     size_t in_usage = sdsAllocSize(c->querybuf);
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
     int i = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
-    int j = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    int zeroidx = (i+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
 
     /* Always zero the next sample, so that when we switch to that second, we'll
      * only register samples that are greater in that second without considering
      * the history of such slot. */
-    ClientsPeakMemInput[j] = 0;
-    ClientsPeakMemOutput[j] = 0;
+    ClientsPeakMemInput[zeroidx] = 0;
+    ClientsPeakMemOutput[zeroidx] = 0;
 
     /* Track the biggest values observed so far in this slot. */
     if (in_usage > ClientsPeakMemInput[i]) ClientsPeakMemInput[i] = in_usage;
