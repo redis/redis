@@ -909,7 +909,15 @@ int clientsCronTrackExpansiveClients(client *c) {
 
     /* Always zero the next sample, so that when we switch to that second, we'll
      * only register samples that are greater in that second without considering
-     * the history of such slot. */
+     * the history of such slot.
+     *
+     * Note: our index may jump to any random position if serverCron() is not
+     * called for some reason with the normal frequency, for instance because
+     * some slow command is called taking multiple seconds to execute. In that
+     * case our array may end containing data which is potentially older
+     * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
+     * since here we want just to track if "recently" there were very expansive
+     * clients from the POV of memory usage. */
     ClientsPeakMemInput[zeroidx] = 0;
     ClientsPeakMemOutput[zeroidx] = 0;
 
