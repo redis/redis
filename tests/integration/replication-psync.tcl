@@ -11,7 +11,7 @@ proc stop_bg_complex_data {handle} {
 # partial resyncs attempts, all this while flooding the master with
 # write queries.
 #
-# You can specifiy backlog size, ttl, delay before reconnection, test duration
+# You can specify backlog size, ttl, delay before reconnection, test duration
 # in seconds, and an additional condition to verify at the end.
 #
 # If reconnect is > 0, the test actually try to break the connection and

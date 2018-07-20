@@ -279,7 +279,7 @@ start_server {tags {"dump"}} {
         set e
     } {*empty string*}
 
-    test {MIGRATE with mutliple keys migrate just existing ones} {
+    test {MIGRATE with multiple keys migrate just existing ones} {
         set first [srv 0 client]
         r set key1 "v1"
         r set key2 "v2"

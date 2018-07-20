@@ -276,6 +276,12 @@ proc start_server {options {code undefined}} {
             error_and_quit $config_file $line
         }
 
+        if {$::wait_server} {
+            set msg "server started PID: [dict get $srv "pid"]. press any key to continue..."
+            puts $msg
+            read stdin 1
+        }
+
         while 1 {
             # check that the server actually started and is ready for connections
             if {[exec grep -i "Ready to accept" | wc -l < $stdout] > 0} {

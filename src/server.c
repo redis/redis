@@ -326,6 +326,10 @@ struct redisCommand redisCommandTable[] = {
 
 /*============================ Utility functions ============================ */
 
+/* We use a private localtime implementation which is fork-safe. The logging
+ * function of Redis may be called from other threads. */
+void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -351,7 +355,9 @@ void serverLogRaw(int level, const char *msg) {
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        struct tm tm;
+        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
@@ -859,6 +865,23 @@ int clientsCronResizeQueryBuffer(client *c) {
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
     c->querybuf_peak = 0;
+
+    /* Clients representing masters also use a "pending query buffer" that
+     * is the yet not applied part of the stream we are reading. Such buffer
+     * also needs resizing from time to time, otherwise after a very large
+     * transfer (a huge value or a big MIGRATE operation) it will keep using
+     * a lot of memory. */
+    if (c->flags & CLIENT_MASTER) {
+        /* There are two conditions to resize the pending query buffer:
+         * 1) Pending Query buffer is > LIMIT_PENDING_QUERYBUF.
+         * 2) Used length is smaller than pending_querybuf_size/2 */
+        size_t pending_querybuf_size = sdsAllocSize(c->pending_querybuf);
+        if(pending_querybuf_size > LIMIT_PENDING_QUERYBUF &&
+           sdslen(c->pending_querybuf) < (pending_querybuf_size/2))
+        {
+            c->pending_querybuf = sdsRemoveFreeSpace(c->pending_querybuf);
+        }
+    }
     return 0;
 }
 
@@ -960,6 +983,14 @@ void updateCachedTime(void) {
     time_t unixtime = time(NULL);
     atomicSet(server.unixtime,unixtime);
     server.mstime = mstime();
+
+    /* To get information about daylight saving time, we need to call localtime_r
+     * and cache the result. However calling localtime_r in this context is safe
+     * since we will never fork() while here, in the main thread. The logging
+     * function will call a thread safe version of localtime that has no locks. */
+    struct tm tm;
+    localtime_r(&server.unixtime,&tm);
+    server.daylight_active = tm.tm_isdst;
 }
 
 /* This is our timer interrupt, called server.hz times per second.
@@ -1134,7 +1165,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
-         for (j = 0; j < server.saveparamslen; j++) {
+        for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
             /* Save if we reached the given amount of changes,
@@ -1154,23 +1185,23 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 rdbSaveBackground(server.rdb_filename,rsiptr);
                 break;
             }
-         }
+        }
 
-         /* Trigger an AOF rewrite if needed. */
-         if (server.aof_state == AOF_ON &&
-             server.rdb_child_pid == -1 &&
-             server.aof_child_pid == -1 &&
-             server.aof_rewrite_perc &&
-             server.aof_current_size > server.aof_rewrite_min_size)
-         {
+        /* Trigger an AOF rewrite if needed. */
+        if (server.aof_state == AOF_ON &&
+            server.rdb_child_pid == -1 &&
+            server.aof_child_pid == -1 &&
+            server.aof_rewrite_perc &&
+            server.aof_current_size > server.aof_rewrite_min_size)
+        {
             long long base = server.aof_rewrite_base_size ?
-                            server.aof_rewrite_base_size : 1;
+                server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
-         }
+        }
     }
 
 
@@ -1402,10 +1433,12 @@ void initServerConfig(void) {
     pthread_mutex_init(&server.lruclock_mutex,NULL);
     pthread_mutex_init(&server.unixtime_mutex,NULL);
 
+    updateCachedTime();
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
     changeReplicationId();
     clearReplicationId2();
+    server.timezone = timezone; /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
     server.hz = CONFIG_DEFAULT_HZ;
@@ -1890,6 +1923,7 @@ void initServer(void) {
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
+    server.clients_index = raxNew();
     server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -1982,7 +2016,6 @@ void initServer(void) {
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
-    updateCachedTime();
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
@@ -2346,7 +2379,7 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementatino called preventCommandPropagation() or similar,
+         * implementations called preventCommandPropagation() or similar,
          * or if we don't have the call() flags to do so. */
         if (c->flags & CLIENT_PREVENT_REPL_PROP ||
             !(flags & CMD_CALL_PROPAGATE_REPL))
@@ -2416,8 +2449,13 @@ int processCommand(client *c) {
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         flagTransaction(c);
-        addReplyErrorFormat(c,"unknown command '%s'",
-            (char*)c->argv[0]->ptr);
+        sds args = sdsempty();
+        int i;
+        for (i=1; i < c->argc && sdslen(args) < 128; i++)
+            args = sdscatprintf(args, "`%.*s`, ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
+        addReplyErrorFormat(c,"unknown command `%s`, with args beginning with: %s",
+            (char*)c->argv[0]->ptr, args);
+        sdsfree(args);
         return C_OK;
     } else if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
                (c->argc < -c->cmd->arity)) {
@@ -2486,7 +2524,8 @@ int processCommand(client *c) {
     if (((server.stop_writes_on_bgsave_err &&
           server.saveparamslen > 0 &&
           server.lastbgsave_status == C_ERR) ||
-          server.aof_last_write_status == C_ERR) &&
+          (server.aof_state != AOF_OFF &&
+           server.aof_last_write_status == C_ERR)) &&
         server.masterhost == NULL &&
         (c->cmd->flags & CMD_WRITE ||
          c->cmd->proc == pingCommand))
@@ -2828,9 +2867,9 @@ void commandCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "(no subcommand) -- Return details about all Redis commands.",
-"count -- Return the total number of commands in this Redis server.",
-"getkeys <full-command> -- Return the keys from a full Redis command.",
-"info [command-name ...] -- Return details about multiple Redis commands.",
+"COUNT -- Return the total number of commands in this Redis server.",
+"GETKEYS <full-command> -- Return the keys from a full Redis command.",
+"INFO [command-name ...] -- Return details about multiple Redis commands.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2875,7 +2914,7 @@ NULL
             getKeysFreeResult(keys);
         }
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try COMMAND HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 
@@ -2887,7 +2926,6 @@ void bytesToHuman(char *s, unsigned long long n) {
     if (n < 1024) {
         /* Bytes */
         sprintf(s,"%lluB",n);
-        return;
     } else if (n < (1024*1024)) {
         d = (double)n/(1024);
         sprintf(s,"%.2fK",d);
@@ -2917,7 +2955,6 @@ sds genRedisInfoString(char *section) {
     time_t uptime = server.unixtime-server.stat_starttime;
     int j;
     struct rusage self_ru, c_ru;
-    unsigned long lol, bib;
     int allsections = 0, defsections = 0;
     int sections = 0;
 
@@ -2927,7 +2964,6 @@ sds genRedisInfoString(char *section) {
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
-    getClientsMaxBuffers(&lol,&bib);
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
@@ -2997,6 +3033,8 @@ sds genRedisInfoString(char *section) {
 
     /* Clients */
     if (allsections || defsections || !strcasecmp(section,"clients")) {
+        unsigned long lol, bib;
+        getClientsMaxBuffers(&lol,&bib);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
@@ -3069,6 +3107,11 @@ sds genRedisInfoString(char *section) {
             "rss_overhead_bytes:%zu\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_fragmentation_bytes:%zu\r\n"
+            "mem_not_counted_for_evict:%zu\r\n"
+            "mem_replication_backlog:%zu\r\n"
+            "mem_clients_slaves:%zu\r\n"
+            "mem_clients_normal:%zu\r\n"
+            "mem_aof_buffer:%zu\r\n"
             "mem_allocator:%s\r\n"
             "active_defrag_running:%d\r\n"
             "lazyfree_pending_objects:%zu\r\n",
@@ -3101,6 +3144,11 @@ sds genRedisInfoString(char *section) {
             mh->rss_extra_bytes,
             mh->total_frag, /* this is the total RSS overhead, including fragmentation, */
             mh->total_frag_bytes, /* named so for backwards compatibility */
+            freeMemoryGetNotCountedMemory(),
+            mh->repl_backlog,
+            mh->clients_slaves,
+            mh->clients_normal,
+            mh->aof_buffer,
             ZMALLOC_LIB,
             server.active_defrag_running,
             lazyfreeGetPendingObjectsCount()
@@ -3843,9 +3891,11 @@ int main(int argc, char **argv) {
     spt_init(argc, argv);
 #endif
     setlocale(LC_COLLATE,"");
+    tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
+
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
@@ -3902,7 +3952,7 @@ int main(int argc, char **argv) {
             configfile = argv[j];
             server.configfile = getAbsolutePath(configfile);
             /* Replace the config file in server.exec_argv with
-             * its absoulte path. */
+             * its absolute path. */
             zfree(server.exec_argv[j]);
             server.exec_argv[j] = zstrdup(server.configfile);
             j++;

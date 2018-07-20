@@ -431,6 +431,11 @@ void loadServerConfigFromString(char *config) {
             if ((server.active_defrag_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+            if (server.active_defrag_enabled) {
+#ifndef HAVE_DEFRAG
+                err = "active defrag can't be enabled without proper jemalloc support"; goto loaderr;
+#endif
+            }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -1117,7 +1122,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
     } config_set_numerical_field(
-      "slowlog-log-slower-than",server.slowlog_log_slower_than,0,LLONG_MAX) {
+      "slowlog-log-slower-than",server.slowlog_log_slower_than,-1,LLONG_MAX) {
     } config_set_numerical_field(
       "slowlog-max-len",ll,0,LONG_MAX) {
       /* Cast to unsigned. */
@@ -2135,10 +2140,10 @@ void configCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"get <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
-"set <parameter> <value> -- Set parameter to value.",
-"resetstat -- Reset statistics reported by INFO.",
-"rewrite -- Rewrite the configuration file.",
+"GET <pattern> -- Return parameters matching the glob-like <pattern> and their values.",
+"SET <parameter> <value> -- Set parameter to value.",
+"RESETSTAT -- Reset statistics reported by INFO.",
+"REWRITE -- Rewrite the configuration file.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2163,8 +2168,7 @@ NULL
             addReply(c,shared.ok);
         }
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CONFIG HELP",
-            (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }

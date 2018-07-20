@@ -3100,7 +3100,7 @@ void clusterHandleSlaveFailover(void) {
                 (unsigned long long) myself->configEpoch);
         }
 
-        /* Take responsability for the cluster slots. */
+        /* Take responsibility for the cluster slots. */
         clusterFailoverReplaceYourMaster();
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
@@ -3151,11 +3151,11 @@ void clusterHandleSlaveMigration(int max_slaves) {
             !nodeTimedOut(mymaster->slaves[j])) okslaves++;
     if (okslaves <= server.cluster_migration_barrier) return;
 
-    /* Step 3: Idenitfy a candidate for migration, and check if among the
+    /* Step 3: Identify a candidate for migration, and check if among the
      * masters with the greatest number of ok slaves, I'm the one with the
      * smallest node ID (the "candidate slave").
      *
-     * Note: this means that eventually a replica migration will occurr
+     * Note: this means that eventually a replica migration will occur
      * since slaves that are reachable again always have their FAIL flag
      * cleared, so eventually there must be a candidate. At the same time
      * this does not mean that there are no race conditions possible (two
@@ -3736,7 +3736,7 @@ void clusterCloseAllSlots(void) {
  * -------------------------------------------------------------------------- */
 
 /* The following are defines that are only used in the evaluation function
- * and are based on heuristics. Actaully the main point about the rejoin and
+ * and are based on heuristics. Actually the main point about the rejoin and
  * writable delay is that they should be a few orders of magnitude larger
  * than the network latency. */
 #define CLUSTER_MAX_REJOIN_DELAY 5000
@@ -4178,27 +4178,27 @@ void clusterCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"addslots <slot> [slot ...] -- Assign slots to current node.",
-"bumpepoch -- Advance the cluster config epoch.",
-"count-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
-"countkeysinslot <slot> - Return the number of keys in <slot>.",
-"delslots <slot> [slot ...] -- Delete slots information from current node.",
-"failover [force|takeover] -- Promote current slave node to being a master.",
-"forget <node-id> -- Remove a node from the cluster.",
-"getkeysinslot <slot> <count> -- Return key names stored by current node in a slot.",
-"flushslots -- Delete current node own slots information.",
-"info - Return onformation about the cluster.",
-"keyslot <key> -- Return the hash slot for <key>.",
-"meet <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
-"myid -- Return the node id.",
-"nodes -- Return cluster configuration seen by node. Output format:",
+"ADDSLOTS <slot> [slot ...] -- Assign slots to current node.",
+"BUMPEPOCH -- Advance the cluster config epoch.",
+"COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
+"COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
+"DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
+"FAILOVER [force|takeover] -- Promote current slave node to being a master.",
+"FORGET <node-id> -- Remove a node from the cluster.",
+"GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
+"FLUSHSLOTS -- Delete current node own slots information.",
+"INFO - Return onformation about the cluster.",
+"KEYSLOT <key> -- Return the hash slot for <key>.",
+"MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
+"MYID -- Return the node id.",
+"NODES -- Return cluster configuration seen by node. Output format:",
 "    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
-"replicate <node-id> -- Configure current node as slave to <node-id>.",
-"reset [hard|soft] -- Reset current node (default: soft).",
-"set-config-epoch <epoch> - Set config epoch of current node.",
-"setslot <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
-"slaves <node-id> -- Return <node-id> slaves.",
-"slots -- Return information about slots range mappings. Each range is made of:",
+"REPLICATE <node-id> -- Configure current node as slave to <node-id>.",
+"RESET [hard|soft] -- Reset current node (default: soft).",
+"SET-config-epoch <epoch> - Set config epoch of current node.",
+"SETSLOT <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
+"SLAVES <node-id> -- Return <node-id> slaves.",
+"SLOTS -- Return information about slots range mappings. Each range is made of:",
 "    start, end, master and replicas IP addresses, ports and ids",
 NULL
         };
@@ -4746,8 +4746,7 @@ NULL
         clusterReset(hard);
         addReply(c,shared.ok);
     } else {
-         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLUSTER HELP",
-            (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
         return;
     }
 }
@@ -5585,7 +5584,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
     if (error_code == CLUSTER_REDIR_CROSS_SLOT) {
         addReplySds(c,sdsnew("-CROSSSLOT Keys in request don't hash to the same slot\r\n"));
     } else if (error_code == CLUSTER_REDIR_UNSTABLE) {
-        /* The request spawns mutliple keys in the same slot,
+        /* The request spawns multiple keys in the same slot,
          * but the slot is not "stable" currently as there is
          * a migration or import in progress. */
         addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
