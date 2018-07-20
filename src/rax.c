@@ -359,7 +359,18 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
  * parent's node is returned as '*plink' if not NULL. Finally, if the
  * search stopped in a compressed node, '*splitpos' returns the index
  * inside the compressed node where the search ended. This is useful to
- * know where to split the node for insertion. */
+ * know where to split the node for insertion.
+ *
+ * Note that when we stop in the middle of a compressed node with
+ * a perfect match, this function will return a length equal to the
+ * 'len' argument (all the key matched), and will return a *splitpos which is
+ * always positive (that will represent the index of the character immediately
+ * *after* the last match in the current compressed node).
+ *
+ * When instead we stop at a compressed node and *splitpos is zero, it
+ * means that the current node represents the key (that is, none of the
+ * compressed node characters are needed to represent the key, just all
+ * its parents nodes). */
 static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode **stopnode, raxNode ***plink, int *splitpos, raxStack *ts) {
     raxNode *h = rax->head;
     raxNode **parentlink = &rax->head;
@@ -405,10 +416,12 @@ static inline size_t raxLowWalk(rax *rax, unsigned char *s, size_t len, raxNode 
 
 /* Insert the element 's' of size 'len', setting as auxiliary data
  * the pointer 'data'. If the element is already present, the associated
- * data is updated, and 0 is returned, otherwise the element is inserted
- * and 1 is returned. On out of memory the function returns 0 as well but
- * sets errno to ENOMEM, otherwise errno will be set to 0. */
-int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
+ * data is updated (only if 'overwrite' is set to 1), and 0 is returned,
+ * otherwise the element is inserted and 1 is returned. On out of memory the
+ * function returns 0 as well but sets errno to ENOMEM, otherwise errno will
+ * be set to 0.
+ */
+int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old, int overwrite) {
     size_t i;
     int j = 0; /* Split position. If raxLowWalk() stops in a compressed
                   node, the index 'j' represents the char we stopped within the
@@ -426,7 +439,8 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
      * data pointer. */
     if (i == len && (!h->iscompr || j == 0 /* not in the middle if j is 0 */)) {
         debugf("### Insert: node representing key exists\n");
-        if (!h->iskey || h->isnull) {
+        /* Make space for the value pointer if needed. */
+        if (!h->iskey || (h->isnull && overwrite)) {
             h = raxReallocForData(h,data);
             if (h) memcpy(parentlink,&h,sizeof(h));
         }
@@ -434,12 +448,17 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
             errno = ENOMEM;
             return 0;
         }
+
+        /* Update the existing key if there is already one. */
         if (h->iskey) {
             if (old) *old = raxGetData(h);
-            raxSetData(h,data);
+            if (overwrite) raxSetData(h,data);
             errno = 0;
             return 0; /* Element already exists. */
         }
+
+        /* Otherwise set the node as a key. Note that raxSetData()
+         * will set h->iskey. */
         raxSetData(h,data);
         rax->numele++;
         return 1; /* Element inserted. */
@@ -448,7 +467,7 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
     /* If the node we stopped at is a compressed node, we need to
      * split it before to continue.
      *
-     * Splitting a compressed node have a few possibile cases.
+     * Splitting a compressed node have a few possible cases.
      * Imagine that the node 'h' we are currently at is a compressed
      * node contaning the string "ANNIBALE" (it means that it represents
      * nodes A -> N -> N -> I -> B -> A -> L -> E with the only child
@@ -730,7 +749,7 @@ int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
         cp = raxNodeLastChildPtr(trimmed);
         memcpy(cp,&postfix,sizeof(postfix));
 
-        /* Finish! We don't need to contine with the insertion
+        /* Finish! We don't need to continue with the insertion
          * algorithm for ALGO 2. The key is already inserted. */
         rax->numele++;
         rax_free(h);
@@ -791,6 +810,19 @@ oom:
     }
     errno = ENOMEM;
     return 0;
+}
+
+/* Overwriting insert. Just a wrapper for raxGenericInsert() that will
+ * update the element if there is already one for the same key. */
+int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
+    return raxGenericInsert(rax,s,len,data,old,1);
+}
+
+/* Non overwriting insert function: this if an element with the same key
+ * exists, the value is not updated and the function returns 0.
+ * This is a just a wrapper for raxGenericInsert(). */
+int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old) {
+    return raxGenericInsert(rax,s,len,data,old,0);
 }
 
 /* Find a key in the rax, returns raxNotFound special void pointer value
@@ -1135,6 +1167,7 @@ void raxStart(raxIterator *it, rax *rt) {
     it->key = it->key_static_string;
     it->key_max = RAX_ITER_STATIC_LEN;
     it->data = NULL;
+    it->node_cb = NULL;
     raxStackInit(&it->stack);
 }
 
@@ -1208,6 +1241,10 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             if (!raxIteratorAddChars(it,it->node->data,
                 it->node->iscompr ? it->node->size : 1)) return 0;
             memcpy(&it->node,cp,sizeof(it->node));
+            /* Call the node callback if any, and replace the node pointer
+             * if the callback returns true. */
+            if (it->node_cb && it->node_cb(&it->node))
+                memcpy(cp,&it->node,sizeof(it->node));
             /* For "next" step, stop every time we find a key along the
              * way, since the key is lexicograhically smaller compared to
              * what follows in the sub-children. */
@@ -1260,6 +1297,10 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         raxIteratorAddChars(it,it->node->data+i,1);
                         if (!raxStackPush(&it->stack,it->node)) return 0;
                         memcpy(&it->node,cp,sizeof(it->node));
+                        /* Call the node callback if any, and replace the node
+                         * pointer if the callback returns true. */
+                        if (it->node_cb && it->node_cb(&it->node))
+                            memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);
                             return 1;
@@ -1293,7 +1334,7 @@ int raxSeekGreatest(raxIterator *it) {
 
 /* Like raxIteratorNextStep() but implements an iteration step moving
  * to the lexicographically previous element. The 'noup' option has a similar
- * effect to the one of raxIteratorPrevSte(). */
+ * effect to the one of raxIteratorNextStep(). */
 int raxIteratorPrevStep(raxIterator *it, int noup) {
     if (it->flags & RAX_ITER_EOF) {
         return 1;
@@ -1523,11 +1564,26 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
             /* If there was no mismatch we are into a node representing the
              * key, (but which is not a key or the seek operator does not
              * include 'eq'), or we stopped in the middle of a compressed node
-             * after processing all the key. Cotinue iterating as this was
+             * after processing all the key. Continue iterating as this was
              * a legitimate key we stopped at. */
             it->flags &= ~RAX_ITER_JUST_SEEKED;
-            if (gt && !raxIteratorNextStep(it,0)) return 0;
-            if (lt && !raxIteratorPrevStep(it,0)) return 0;
+            if (it->node->iscompr && it->node->iskey && splitpos && lt) {
+                /* If we stopped in the middle of a compressed node with
+                 * perfect match, and the condition is to seek a key "<" than
+                 * the specified one, then if this node is a key it already
+                 * represents our match. For instance we may have nodes:
+                 *
+                 * "f" -> "oobar" = 1 -> "" = 2
+                 *
+                 * Representing keys "f" = 1, "foobar" = 2. A seek for
+                 * the key < "foo" will stop in the middle of the "oobar"
+                 * node, but will be our match, representing the key "f".
+                 *
+                 * So in that case, we don't seek backward. */
+            } else {
+                if (gt && !raxIteratorNextStep(it,0)) return 0;
+                if (lt && !raxIteratorPrevStep(it,0)) return 0;
+            }
             it->flags |= RAX_ITER_JUST_SEEKED; /* Ignore next call. */
         }
     } else {

@@ -152,7 +152,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
  * Check latency.h definition of struct latenctStat for more info.
  * If the specified event has no elements the structure is populate with
@@ -294,7 +294,7 @@ sds createLatencyReport(void) {
 
         /* Potentially commands. */
         if (!strcasecmp(event,"command")) {
-            if (server.slowlog_log_slower_than == 0) {
+            if (server.slowlog_log_slower_than < 0) {
                 advise_slowlog_enabled = 1;
                 advices++;
             } else if (server.slowlog_log_slower_than/1000 >

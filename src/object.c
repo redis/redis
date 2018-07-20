@@ -123,9 +123,25 @@ robj *createStringObject(const char *ptr, size_t len) {
         return createRawStringObject(ptr,len);
 }
 
-robj *createStringObjectFromLongLong(long long value) {
+/* Create a string object from a long long value. When possible returns a
+ * shared integer object, or at least an integer encoded one.
+ *
+ * If valueobj is non zero, the function avoids returning a a shared
+ * integer, because the object is going to be used as value in the Redis key
+ * space (for instance when the INCR command is used), so we want LFU/LRU
+ * values specific for each key. */
+robj *createStringObjectFromLongLongWithOptions(long long value, int valueobj) {
     robj *o;
-    if (value >= 0 && value < OBJ_SHARED_INTEGERS) {
+
+    if (server.maxmemory == 0 ||
+        !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS))
+    {
+        /* If the maxmemory policy permits, we can still return shared integers
+         * even if valueobj is true. */
+        valueobj = 0;
+    }
+
+    if (value >= 0 && value < OBJ_SHARED_INTEGERS && valueobj == 0) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -138,6 +154,20 @@ robj *createStringObjectFromLongLong(long long value) {
         }
     }
     return o;
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() always demanding
+ * to create a shared object if possible. */
+robj *createStringObjectFromLongLong(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,0);
+}
+
+/* Wrapper for createStringObjectFromLongLongWithOptions() avoiding a shared
+ * object when LFU/LRU info are needed, that is, when the object is used
+ * as a value in the key space, and Redis is configured to evict based on
+ * LFU/LRU. */
+robj *createStringObjectFromLongLongForValue(long long value) {
+    return createStringObjectFromLongLongWithOptions(value,1);
 }
 
 /* Create a string object from a long double. If humanfriendly is non-zero
@@ -715,7 +745,7 @@ char *strEncoding(int encoding) {
  * size of a radix tree that is used to store Stream IDs.
  *
  * Note: to guess the size of the radix tree is not trivial, so we
- * approximate it considering 128 bytes of data overhead for each
+ * approximate it considering 16 bytes of data overhead for each
  * key (the ID), and then adding the number of bare nodes, plus some
  * overhead due by the data and child pointers. This secret recipe
  * was obtained by checking the average radix tree created by real
@@ -874,6 +904,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
                  * structures and the PEL memory usage. */
                 raxIterator cri;
                 raxStart(&cri,cg->consumers);
+                raxSeek(&cri,"^",NULL,0);
                 while(raxNext(&cri)) {
                     streamConsumer *consumer = cri.data;
                     asize += sizeof(*consumer);
@@ -968,7 +999,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         listRewind(server.clients,&li);
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
-            if (c->flags & CLIENT_SLAVE)
+            if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
                 continue;
             mem += getClientOutputBufferMemoryUsage(c);
             mem += sdsAllocSize(c->querybuf);
@@ -1136,6 +1167,32 @@ sds getMemoryDoctorReport(void) {
     return s;
 }
 
+/* Set the object LRU/LFU depending on server.maxmemory_policy.
+ * The lfu_freq arg is only relevant if policy is MAXMEMORY_FLAG_LFU.
+ * The lru_idle and lru_clock args are only relevant if policy 
+ * is MAXMEMORY_FLAG_LRU.
+ * Either or both of them may be <0, in that case, nothing is set. */
+void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
+                       long long lru_clock) {
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
+        if (lfu_freq >= 0) {
+            serverAssert(lfu_freq <= 255);
+            val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
+        }
+    } else if (lru_idle >= 0) {
+        /* Serialized LRU idle time is in seconds. Scale
+         * according to the LRU clock resolution this Redis
+         * instance was compiled with (normally 1000 ms, so the
+         * below statement will expand to lru_idle*1000/1000. */
+        lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
+        val->lru = lru_clock - lru_idle;
+        /* If the lru field overflows (since LRU it is a wrapping
+         * clock), the best we can do is to provide the maximum
+         * representable idle time. */
+        if (val->lru < 0) val->lru = lru_clock+1;
+    }
+}
+
 /* ======================= The OBJECT and MEMORY commands =================== */
 
 /* This is a helper function for the OBJECT command. We need to lookup keys
@@ -1161,10 +1218,10 @@ void objectCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"encoding <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-"freq <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-"idletime <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-"refcount <key> -- Return the number of references of the value associated with the specified key.",
+"ENCODING <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
+"FREQ <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
+"IDLETIME <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
+"REFCOUNT <key> -- Return the number of references of the value associated with the specified key.",
 NULL
         };
         addReplyHelp(c, help);
@@ -1197,7 +1254,7 @@ NULL
          * when the key is read or overwritten. */
         addReplyLongLong(c,LFUDecrAndReturn(o));
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try OBJECT help", (char *)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 

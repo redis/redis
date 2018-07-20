@@ -56,11 +56,14 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
 
 /* Client.reply list dup and free methods. */
 void *dupClientReplyValue(void *o) {
-    return sdsdup(o);
+    clientReplyBlock *old = o;
+    clientReplyBlock *buf = zmalloc(sizeof(clientReplyBlock) + old->size);
+    memcpy(buf, o, sizeof(clientReplyBlock) + old->size);
+    return buf;
 }
 
 void freeClientReplyValue(void *o) {
-    sdsfree(o);
+    zfree(o);
 }
 
 int listMatchObjects(void *a, void *b) {
@@ -75,6 +78,8 @@ void linkClient(client *c) {
      * this way removing the client in unlinkClient() will not require
      * a linear scan, but just a constant time operation. */
     c->client_list_node = listLast(server.clients);
+    uint64_t id = htonu64(c->id);
+    raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
 client *createClient(int fd) {
@@ -138,6 +143,7 @@ client *createClient(int fd) {
     c->bpop.target = NULL;
     c->bpop.xread_group = NULL;
     c->bpop.xread_consumer = NULL;
+    c->bpop.xread_group_noack = 0;
     c->bpop.numreplicas = 0;
     c->bpop.reploffset = 0;
     c->woff = 0;
@@ -237,25 +243,35 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
 void _addReplyStringToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-    if (listLength(c->reply) == 0) {
-        sds node = sdsnewlen(s,len);
-        listAddNodeTail(c->reply,node);
-        c->reply_bytes += len;
-    } else {
-        listNode *ln = listLast(c->reply);
-        sds tail = listNodeValue(ln);
+    listNode *ln = listLast(c->reply);
+    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
 
-        /* Append to this object when possible. If tail == NULL it was
-         * set via addDeferredMultiBulkLength(). */
-        if (tail && sdslen(tail)+len <= PROTO_REPLY_CHUNK_BYTES) {
-            tail = sdscatlen(tail,s,len);
-            listNodeValue(ln) = tail;
-            c->reply_bytes += len;
-        } else {
-            sds node = sdsnewlen(s,len);
-            listAddNodeTail(c->reply,node);
-            c->reply_bytes += len;
-        }
+    /* Note that 'tail' may be NULL even if we have a tail node, becuase when
+     * addDeferredMultiBulkLength() is used, it sets a dummy node to NULL just
+     * fo fill it later, when the size of the bulk length is set. */
+
+    /* Append to tail string when possible. */
+    if (tail) {
+        /* Copy the part we can fit into the tail, and leave the rest for a
+         * new node */
+        size_t avail = tail->size - tail->used;
+        size_t copy = avail >= len? len: avail;
+        memcpy(tail->buf + tail->used, s, copy);
+        tail->used += copy;
+        s += copy;
+        len -= copy;
+    }
+    if (len) {
+        /* Create a new node, make sure it is allocated to at
+         * least PROTO_REPLY_CHUNK_BYTES */
+        size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
+        tail = zmalloc(size + sizeof(clientReplyBlock));
+        /* take over the allocation's internal fragmentation */
+        tail->size = zmalloc_usable(tail) - sizeof(clientReplyBlock);
+        tail->used = len;
+        memcpy(tail->buf, s, len);
+        listAddNodeTail(c->reply, tail);
+        c->reply_bytes += tail->size;
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
@@ -326,11 +342,30 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
     if (!len || s[0] != '-') addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
-    if (c->flags & CLIENT_MASTER) {
+
+    /* Sometimes it could be normal that a slave replies to a master with
+     * an error and this function gets called. Actually the error will never
+     * be sent because addReply*() against master clients has no effect...
+     * A notable example is:
+     *
+     *    EVAL 'redis.call("incr",KEYS[1]); redis.call("nonexisting")' 1 x
+     *
+     * Where the master must propagate the first change even if the second
+     * will produce an error. However it is useful to log such events since
+     * they are rare and may hint at errors in a script or a bug in Redis. */
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+        char* to = c->flags & CLIENT_MASTER? "master": "slave";
+        char* from = c->flags & CLIENT_MASTER? "slave": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
-        serverLog(LL_WARNING,"== CRITICAL == This slave is sending an error "
-                             "to its master: '%s' after processing the command "
-                             "'%s'", s, cmdname);
+        serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
+                             "to its %s: '%s' after processing the command "
+                             "'%s'", from, to, s, cmdname);
+        /* Here we want to panic because when a master is sending an
+         * error to some slave in the context of replication, this can
+         * only create some kind of offset or data desynchronization. Better
+         * to catch it ASAP and crash instead of continuing. */
+        if (c->flags & CLIENT_SLAVE)
+            serverPanic("Continuing is unsafe: replication protocol violation.");
     }
 }
 
@@ -387,26 +422,41 @@ void *addDeferredMultiBulkLength(client *c) {
 /* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(client *c, void *node, long length) {
     listNode *ln = (listNode*)node;
-    sds len, next;
+    clientReplyBlock *next;
+    char lenstr[128];
+    size_t lenstr_len = sprintf(lenstr, "*%ld\r\n", length);
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addDeferredMultiBulkLength() */
     if (node == NULL) return;
+    serverAssert(!listNodeValue(ln));
 
-    len = sdscatprintf(sdsnewlen("*",1),"%ld\r\n",length);
-    listNodeValue(ln) = len;
-    c->reply_bytes += sdslen(len);
-    if (ln->next != NULL) {
-        next = listNodeValue(ln->next);
-
-        /* Only glue when the next node is non-NULL (an sds in this case) */
-        if (next != NULL) {
-            len = sdscatsds(len,next);
-            listDelNode(c->reply,ln->next);
-            listNodeValue(ln) = len;
-            /* No need to update c->reply_bytes: we are just moving the same
-             * amount of bytes from one node to another. */
-        }
+    /* Normally we fill this dummy NULL node, added by addDeferredMultiBulkLength(),
+     * with a new buffer structure containing the protocol needed to specify
+     * the length of the array following. However sometimes when there is
+     * little memory to move, we may instead remove this NULL node, and prefix
+     * our protocol in the node immediately after to it, in order to save a
+     * write(2) syscall later. Conditions needed to do it:
+     *
+     * - The next node is non-NULL,
+     * - It has enough room already allocated
+     * - And not too large (avoid large memmove) */
+    if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
+        next->size - next->used >= lenstr_len &&
+        next->used < PROTO_REPLY_CHUNK_BYTES * 4) {
+        memmove(next->buf + lenstr_len, next->buf, next->used);
+        memcpy(next->buf, lenstr, lenstr_len);
+        next->used += lenstr_len;
+        listDelNode(c->reply,ln);
+    } else {
+        /* Create a new node */
+        clientReplyBlock *buf = zmalloc(lenstr_len + sizeof(clientReplyBlock));
+        /* Take over the allocation's internal fragmentation */
+        buf->size = zmalloc_usable(buf) - sizeof(clientReplyBlock);
+        buf->used = lenstr_len;
+        memcpy(buf->buf, lenstr, lenstr_len);
+        listNodeValue(ln) = buf;
+        c->reply_bytes += buf->size;
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
@@ -560,11 +610,24 @@ void addReplyHelp(client *c, const char **help) {
     setDeferredMultiBulkLength(c,blenp,blen);
 }
 
+/* Add a suggestive error reply.
+ * This function is typically invoked by from commands that support
+ * subcommands in response to an unknown subcommand or argument error. */
+void addReplySubcommandSyntaxError(client *c) {
+    sds cmd = sdsnew((char*) c->argv[0]->ptr);
+    sdstoupper(cmd);
+    addReplyErrorFormat(c,
+        "Unknown subcommand or wrong number of arguments for '%s'. Try %s HELP.",
+        (char*)c->argv[1]->ptr,cmd);
+    sdsfree(cmd);
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */
 void copyClientOutputBuffer(client *dst, client *src) {
     listRelease(dst->reply);
+    dst->sentlen = 0;
     dst->reply = listDup(src->reply);
     memcpy(dst->buf,src->buf,src->bufpos);
     dst->bufpos = src->bufpos;
@@ -720,6 +783,8 @@ void unlinkClient(client *c) {
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
         if (c->client_list_node) {
+            uint64_t id = htonu64(c->id);
+            raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
             listDelNode(server.clients,c->client_list_node);
             c->client_list_node = NULL;
         }
@@ -864,12 +929,21 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+/* Return a client by ID, or NULL if the client ID is not in the set
+ * of registered clients. Note that "fake clients", created with -1 as FD,
+ * are not registered clients. */
+client *lookupClientByID(uint64_t id) {
+    id = htonu64(id);
+    client *c = raxFind(server.clients_index,(unsigned char*)&id,sizeof(id));
+    return (c == raxNotFound) ? NULL : c;
+}
+
 /* Write data in output buffers to client. Return C_OK if the client
  * is still valid after the call, C_ERR if it was freed. */
 int writeToClient(int fd, client *c, int handler_installed) {
     ssize_t nwritten = 0, totwritten = 0;
     size_t objlen;
-    sds o;
+    clientReplyBlock *o;
 
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
@@ -886,23 +960,24 @@ int writeToClient(int fd, client *c, int handler_installed) {
             }
         } else {
             o = listNodeValue(listFirst(c->reply));
-            objlen = sdslen(o);
+            objlen = o->used;
 
             if (objlen == 0) {
+                c->reply_bytes -= o->size;
                 listDelNode(c->reply,listFirst(c->reply));
                 continue;
             }
 
-            nwritten = write(fd, o + c->sentlen, objlen - c->sentlen);
+            nwritten = write(fd, o->buf + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
             /* If we fully sent the object on head go to the next one */
             if (c->sentlen == objlen) {
+                c->reply_bytes -= o->size;
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
-                c->reply_bytes -= objlen;
                 /* If there are no longer objects in the list, we expect
                  * the count of reply bytes to be exactly zero. */
                 if (listLength(c->reply) == 0)
@@ -1039,7 +1114,7 @@ void resetClient(client *c) {
  * with the error and close the connection. */
 int processInlineBuffer(client *c) {
     char *newline;
-    int argc, j;
+    int argc, j, linefeed_chars = 1;
     sds *argv, aux;
     size_t querylen;
 
@@ -1057,7 +1132,7 @@ int processInlineBuffer(client *c) {
 
     /* Handle the \r\n case. */
     if (newline && newline != c->querybuf && *(newline-1) == '\r')
-        newline--;
+        newline--, linefeed_chars++;
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
@@ -1077,7 +1152,7 @@ int processInlineBuffer(client *c) {
         c->repl_ack_time = server.unixtime;
 
     /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+linefeed_chars,-1);
 
     /* Setup argv array on client structure */
     if (argc) {
@@ -1493,6 +1568,7 @@ sds catClientInfoString(sds s, client *client) {
             *p++ = 'S';
     }
     if (client->flags & CLIENT_MASTER) *p++ = 'M';
+    if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
@@ -1531,7 +1607,7 @@ sds catClientInfoString(sds s, client *client) {
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
 
-sds getAllClientsInfoString(void) {
+sds getAllClientsInfoString(int type) {
     listNode *ln;
     listIter li;
     client *client;
@@ -1540,6 +1616,7 @@ sds getAllClientsInfoString(void) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client = listNodeValue(ln);
+        if (type != -1 && getClientType(client) != type) continue;
         o = catClientInfoString(o,client);
         o = sdscatlen(o,"\n",1);
     }
@@ -1553,22 +1630,40 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"getname -- Return the name of the current connection.",
-"kill <ip:port> -- Kill connection made from <ip:port>.",
+"id                     -- Return the ID of the current connection.",
+"getname                -- Return the name of the current connection.",
+"kill <ip:port>         -- Kill connection made from <ip:port>.",
 "kill <option> <value> [option value ...] -- Kill connections. Options are:",
-"     addr <ip:port> -- Kill connection made from <ip:port>.",
-"     type (normal|master|slave|pubsub) -- Kill connections by type.",
-"     skipme (yes|no) -- Skip killing current connection (default: yes).",
-"list -- Return information about client connections.",
-"pause <timeout> -- Suspend all Redis clients for <timout> milliseconds.",
-"reply (on|off|skip) -- Control the replies sent to the current connection.",
-"setname <name> -- Assign the name <name> to the current connection.",
+"     addr <ip:port>                      -- Kill connection made from <ip:port>",
+"     type (normal|master|slave|pubsub)   -- Kill connections by type.",
+"     skipme (yes|no)   -- Skip killing current connection (default: yes).",
+"list [options ...]     -- Return information about client connections. Options:",
+"     type (normal|master|slave|pubsub)   -- Return clients of specified type.",
+"pause <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
+"reply (on|off|skip)    -- Control the replies sent to the current connection.",
+"setname <name>         -- Assign the name <name> to the current connection.",
+"unblock <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
+        /* CLIENT ID */
+        addReplyLongLong(c,c->id);
+    } else if (!strcasecmp(c->argv[1]->ptr,"list")) {
         /* CLIENT LIST */
-        sds o = getAllClientsInfoString();
+        int type = -1;
+        if (c->argc == 4 && !strcasecmp(c->argv[2]->ptr,"type")) {
+            type = getClientTypeByName(c->argv[3]->ptr);
+            if (type == -1) {
+                addReplyErrorFormat(c,"Unknown client type '%s'",
+                    (char*) c->argv[3]->ptr);
+                return;
+             }
+        } else if (c->argc != 2) {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+        sds o = getAllClientsInfoString(type);
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"reply") && c->argc == 3) {
@@ -1671,6 +1766,38 @@ NULL
         /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
          * only after we queued the reply to its output buffers. */
         if (close_this_client) c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+    } else if (!strcasecmp(c->argv[1]->ptr,"unblock") && (c->argc == 3 ||
+                                                          c->argc == 4))
+    {
+        /* CLIENT UNBLOCK <id> [timeout|error] */
+        long long id;
+        int unblock_error = 0;
+
+        if (c->argc == 4) {
+            if (!strcasecmp(c->argv[3]->ptr,"timeout")) {
+                unblock_error = 0;
+            } else if (!strcasecmp(c->argv[3]->ptr,"error")) {
+                unblock_error = 1;
+            } else {
+                addReplyError(c,
+                    "CLIENT UNBLOCK reason should be TIMEOUT or ERROR");
+                return;
+            }
+        }
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
+            != C_OK) return;
+        struct client *target = lookupClientByID(id);
+        if (target && target->flags & CLIENT_BLOCKED) {
+            if (unblock_error)
+                addReplyError(target,
+                    "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
+            else
+                replyToBlockedClientTimedOut(target);
+            unblockClient(target);
+            addReply(c,shared.cone);
+        } else {
+            addReply(c,shared.czero);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;
@@ -1821,10 +1948,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(client *c) {
-    unsigned long list_item_size = sizeof(listNode)+5;
-    /* The +5 above means we assume an sds16 hdr, may not be true
-     * but is not going to be a problem. */
-
+    unsigned long list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
 

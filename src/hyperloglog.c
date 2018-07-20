@@ -429,14 +429,14 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     }
 
     switch(len & 7) {
-    case 7: h ^= (uint64_t)data[6] << 48;
-    case 6: h ^= (uint64_t)data[5] << 40;
-    case 5: h ^= (uint64_t)data[4] << 32;
-    case 4: h ^= (uint64_t)data[3] << 24;
-    case 3: h ^= (uint64_t)data[2] << 16;
-    case 2: h ^= (uint64_t)data[1] << 8;
+    case 7: h ^= (uint64_t)data[6] << 48; /* fall-thru */
+    case 6: h ^= (uint64_t)data[5] << 40; /* fall-thru */
+    case 5: h ^= (uint64_t)data[4] << 32; /* fall-thru */
+    case 4: h ^= (uint64_t)data[3] << 24; /* fall-thru */
+    case 3: h ^= (uint64_t)data[2] << 16; /* fall-thru */
+    case 2: h ^= (uint64_t)data[1] << 8; /* fall-thru */
     case 1: h ^= (uint64_t)data[0];
-            h *= m;
+            h *= m; /* fall-thru */
     };
 
     h ^= h >> r;
@@ -673,7 +673,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
     end = p + sdslen(o->ptr) - HLL_HDR_SIZE;
 
     first = 0;
-    prev = NULL; /* Points to previos opcode at the end of the loop. */
+    prev = NULL; /* Points to previous opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
@@ -764,7 +764,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * and is either currently represented by a VAL opcode with len > 1,
      * by a ZERO opcode with len > 1, or by an XZERO opcode.
      *
-     * In those cases the original opcode must be split into muliple
+     * In those cases the original opcode must be split into multiple
      * opcodes. The worst case is an XZERO split in the middle resuling into
      * XZERO - VAL - XZERO, so the resulting sequence max length is
      * 5 bytes.
@@ -887,7 +887,7 @@ promote: /* Promote to dense representation. */
      *
      * Note that this in turn means that PFADD will make sure the command
      * is propagated to slaves / AOF, so if there is a sparse -> dense
-     * convertion, it will be performed in all the slaves as well. */
+     * conversion, it will be performed in all the slaves as well. */
     int dense_retval = hllDenseSet(hdr->registers,index,count);
     serverAssert(dense_retval == 1);
     return dense_retval;

@@ -234,6 +234,53 @@ start_server {
         assert {[lindex $res 0 1 1 1] eq {field two}}
     }
 
+    test {XDEL basic test} {
+        r del somestream
+        r xadd somestream * foo value0
+        set id [r xadd somestream * foo value1]
+        r xadd somestream * foo value2
+        r xdel somestream $id
+        assert {[r xlen somestream] == 2}
+        set result [r xrange somestream - +]
+        assert {[lindex $result 0 1 1] eq {value0}}
+        assert {[lindex $result 1 1 1] eq {value2}}
+    }
+
+    # Here the idea is to check the consistency of the stream data structure
+    # as we remove all the elements down to zero elements.
+    test {XDEL fuzz test} {
+        r del somestream
+        set ids {}
+        set x 0; # Length of the stream
+        while 1 {
+            lappend ids [r xadd somestream * item $x]
+            incr x
+            # Add enough elements to have a few radix tree nodes inside the stream.
+            if {[dict get [r xinfo stream somestream] radix-tree-keys] > 20} break
+        }
+
+        # Now remove all the elements till we reach an empty stream
+        # and after every deletion, check that the stream is sane enough
+        # to report the right number of elements with XRANGE: this will also
+        # force accessing the whole data structure to check sanity.
+        assert {[r xlen somestream] == $x}
+
+        # We want to remove elements in random order to really test the
+        # implementation in a better way.
+        set ids [lshuffle $ids]
+        foreach id $ids {
+            assert {[r xdel somestream $id] == 1}
+            incr x -1
+            assert {[r xlen somestream] == $x}
+            # The test would be too slow calling XRANGE for every iteration.
+            # Do it every 100 removal.
+            if {$x % 100 == 0} {
+                set res [r xrange somestream - +]
+                assert {[llength $res] == $x}
+            }
+        }
+    }
+
     test {XRANGE fuzzing} {
         set low_id [lindex $items 0 0]
         set high_id [lindex $items end 0]
@@ -252,5 +299,21 @@ start_server {
                 fail "XRANGE fuzzing failed, check logs for details"
             }
         }
+    }
+
+    test {XREVRANGE regression test for issue #5006} {
+        # Add non compressed entries
+        r xadd teststream 1234567891230 key1 value1
+        r xadd teststream 1234567891240 key2 value2
+        r xadd teststream 1234567891250 key3 value3
+
+        # Add SAMEFIELD compressed entries
+        r xadd teststream2 1234567891230 key1 value1
+        r xadd teststream2 1234567891240 key1 value2
+        r xadd teststream2 1234567891250 key1 value3
+
+        assert_equal [r xrevrange teststream 1234567891245 -] {{1234567891240-0 {key2 value2}} {1234567891230-0 {key1 value1}}}
+
+        assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
     }
 }

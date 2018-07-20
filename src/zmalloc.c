@@ -30,6 +30,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
@@ -164,7 +165,7 @@ void *zrealloc(void *ptr, size_t size) {
 
     *((size_t*)newptr) = size;
     update_zmalloc_stat_free(oldsize);
-    update_zmalloc_stat_alloc(size);
+    update_zmalloc_stat_alloc(size+PREFIX_SIZE);
     return (char*)newptr+PREFIX_SIZE;
 #endif
 }
@@ -180,6 +181,9 @@ size_t zmalloc_size(void *ptr) {
      * the underlying allocator. */
     if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
     return size+PREFIX_SIZE;
+}
+size_t zmalloc_usable(void *ptr) {
+    return zmalloc_usable(ptr)-PREFIX_SIZE;
 }
 #endif
 
@@ -379,7 +383,7 @@ size_t zmalloc_get_private_dirty(long pid) {
 }
 
 /* Returns the size of physical memory (RAM) in bytes.
- * It looks ugly, but this is the cleanest way to achive cross platform results.
+ * It looks ugly, but this is the cleanest way to achieve cross platform results.
  * Cleaned up from:
  *
  * http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system
@@ -418,7 +422,7 @@ size_t zmalloc_get_memory_size(void) {
     mib[0] = CTL_HW;
 #if defined(HW_REALMEM)
     mib[1] = HW_REALMEM;        /* FreeBSD. ----------------- */
-#elif defined(HW_PYSMEM)
+#elif defined(HW_PHYSMEM)
     mib[1] = HW_PHYSMEM;        /* Others. ------------------ */
 #endif
     unsigned int size = 0;      /* 32-bit */
