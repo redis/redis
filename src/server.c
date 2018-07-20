@@ -940,12 +940,27 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
     *out_usage = o;
 }
 
+/* This function is called by serverCron() and is used in order to perform
+ * operations on clients that are important to perform constantly. For instance
+ * we use this function in order to disconnect clients after a timeout, including
+ * clients blocked in some blocking command with a non-zero timeout.
+ *
+ * The function makes some effort to process all the clients every second, even
+ * if this cannot be strictly guaranteed, since serverCron() may be called with
+ * an actual frequency lower than server.hz in case of latency events like slow
+ * commands.
+ *
+ * It is very important for this function, and the functions it calls, to be
+ * very fast: sometimes Redis has tens of hundreds of connected clients, and the
+ * default server.hz value is 10, so sometimes here we need to process thousands
+ * of clients per second, turning this function into a source of latency.
+ */
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
-    /* Make sure to process at least numclients/server.hz of clients
-     * per call. Since this function is called server.hz times per second
-     * we are sure that in the worst case we process all the clients in 1
-     * second. */
+    /* Try to process at least numclients/server.hz of clients
+     * per call. Since normally (if there are no big latency events) this
+     * function is called server.hz times per second, in the average case we
+     * process all the clients in 1 second. */
     int numclients = listLength(server.clients);
     int iterations = numclients/server.hz;
     mstime_t now = mstime();
