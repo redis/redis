@@ -493,11 +493,21 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         {
             luaPushError(lua, shared.roslaveerr->ptr);
             goto cleanup;
-        } else if (server.stop_writes_on_bgsave_err &&
-                   server.saveparamslen > 0 &&
-                   server.lastbgsave_status == C_ERR)
+        } else if ((server.stop_writes_on_bgsave_err &&
+                    server.saveparamslen > 0 &&
+                    server.lastbgsave_status == C_ERR) ||
+                   (server.aof_state != AOF_OFF &&
+                    server.aof_last_write_status == C_ERR))
         {
-            luaPushError(lua, shared.bgsaveerr->ptr);
+            if (server.aof_last_write_status == C_OK) {
+                luaPushError(lua, shared.bgsaveerr->ptr);
+            } else {
+                sds aof_write_err = sdscatfmt(sdsempty(),
+                    "-MISCONF Errors writing to the AOF file: %s\r\n",
+                    strerror(server.aof_last_write_errno));
+                luaPushError(lua, aof_write_err);
+                sdsfree(aof_write_err);
+            }
             goto cleanup;
         }
     }
