@@ -380,7 +380,7 @@ The `robj` structure defining Redis objects was already described. Inside
 a basic level, like functions to allocate new objects, handle the reference
 counting and so forth. Notable functions inside this file:
 
-* `incrRefcount()` and `decrRefCount()` are used in order to increment or decrement an object reference count. When it drops to 0 the object is finally freed.
+* `incrRefCount()` and `decrRefCount()` are used in order to increment or decrement an object reference count. When it drops to 0 the object is finally freed.
 * `createObject()` allocates a new object. There are also specialized functions to allocate string objects having a specific content, like `createStringObjectFromLongLong()` and similar functions.
 
 This file also implements the `OBJECT` command.
