@@ -101,7 +101,7 @@ void activeExpireCycle(int type) {
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
-    int j, iteration = 0;
+    int j;
     int dbs_per_call = CRON_DBS_PER_CALL;
     long long start = ustime(), timelimit, elapsed;
 
@@ -161,7 +161,6 @@ void activeExpireCycle(int type) {
             unsigned long num, slots;
             long long now, ttl_sum;
             int ttl_samples;
-            iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = dictSize(db->expires)) == 0) {
@@ -169,7 +168,18 @@ void activeExpireCycle(int type) {
                 break;
             }
             slots = dictSlots(db->expires);
-            now = mstime();
+            now = ustime();
+
+            /* We can't block forever here even if there are many keys to
+             * expire. So after a given amount of milliseconds return to the
+             * caller waiting for the other active expire cycle. */
+            if (now > start + timelimit) {
+                timelimit_exit = 1;
+                server.stat_expired_time_cap_reached_count++;
+                break;
+            }
+
+            now /= 1000;//millisecond
 
             /* When there are less than 1% filled slots getting random
              * keys is expensive, so stop here waiting for better times...
@@ -213,17 +223,6 @@ void activeExpireCycle(int type) {
                 db->avg_ttl = (db->avg_ttl/50)*49 + (avg_ttl/50);
             }
 
-            /* We can't block forever here even if there are many keys to
-             * expire. So after a given amount of milliseconds return to the
-             * caller waiting for the other active expire cycle. */
-            if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                elapsed = ustime()-start;
-                if (elapsed > timelimit) {
-                    timelimit_exit = 1;
-                    server.stat_expired_time_cap_reached_count++;
-                    break;
-                }
-            }
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
