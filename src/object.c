@@ -780,7 +780,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
         if(o->encoding == OBJ_ENCODING_INT) {
             asize = sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_RAW) {
-            asize = sdsAllocSize(o->ptr)+sizeof(*o);
+            asize = sdsZmallocSize(o->ptr)+sizeof(*o);
         } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
             asize = sdslen(o->ptr)+2+sizeof(*o);
         } else {
@@ -808,7 +808,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
-                elesize += sizeof(struct dictEntry) + sdsAllocSize(ele);
+                elesize += sizeof(struct dictEntry) + sdsZmallocSize(ele);
                 samples++;
             }
             dictReleaseIterator(di);
@@ -828,7 +828,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             zskiplistNode *znode = zsl->header->level[0].forward;
             asize = sizeof(*o)+sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
             while(znode != NULL && samples < sample_size) {
-                elesize += sdsAllocSize(znode->ele);
+                elesize += sdsZmallocSize(znode->ele);
                 elesize += sizeof(struct dictEntry) + zmalloc_size(znode);
                 samples++;
                 znode = znode->level[0].forward;
@@ -847,7 +847,7 @@ size_t objectComputeSize(robj *o, size_t sample_size) {
             while((de = dictNext(di)) != NULL && samples < sample_size) {
                 ele = dictGetKey(de);
                 ele2 = dictGetVal(de);
-                elesize += sdsAllocSize(ele) + sdsAllocSize(ele2);
+                elesize += sdsZmallocSize(ele) + sdsZmallocSize(ele2);
                 elesize += sizeof(struct dictEntry);
                 samples++;
             }
@@ -984,7 +984,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         while((ln = listNext(&li))) {
             client *c = listNodeValue(ln);
             mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
+            mem += sdsZmallocSize(c->querybuf);
             mem += sizeof(client);
             mem += c->argv_bytes;
             if (c->argv)
@@ -1005,7 +1005,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             if (c->flags & CLIENT_SLAVE && !(c->flags & CLIENT_MONITOR))
                 continue;
             mem += getClientOutputBufferMemoryUsage(c);
-            mem += sdsAllocSize(c->querybuf);
+            mem += sdsZmallocSize(c->querybuf);
             mem += sizeof(client);
             mem += c->argv_bytes;
             if (c->argv)
@@ -1017,7 +1017,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
 
     mem = 0;
     if (server.aof_state != AOF_OFF) {
-        mem += sdslen(server.aof_buf);
+        mem += sdsZmallocSize(server.aof_buf);
         mem += aofRewriteBufferSize();
     }
     mh->aof_buffer = mem;
@@ -1315,7 +1315,7 @@ void memoryCommand(client *c) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         size_t usage = objectComputeSize(o,samples);
-        usage += sdsAllocSize(c->argv[2]->ptr);
+        usage += sdsZmallocSize(c->argv[2]->ptr);
         usage += sizeof(dictEntry);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
