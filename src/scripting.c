@@ -919,7 +919,7 @@ void scriptingInit(int setup) {
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
     server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
-    server.lua_scripts_mem = sizeof(dict);
+    server.lua_scripts_mem = 0;
 
     /* Register the redis commands table and fields */
     lua_newtable(lua);
@@ -1209,7 +1209,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
      * EVALSHA commands as EVAL using the original script. */
     int retval = dictAdd(server.lua_scripts,sha,body);
     serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
-    server.lua_scripts_mem += sdslen(body->ptr) + sizeof(dictEntry);
+    server.lua_scripts_mem += sdsZmallocSize(sha) + sdsZmallocSize(body->ptr);
     incrRefCount(body);
     return sha;
 }

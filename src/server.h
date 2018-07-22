@@ -851,6 +851,7 @@ struct redisMemOverhead {
     size_t clients_slaves;
     size_t clients_normal;
     size_t aof_buffer;
+    size_t lua_caches;
     size_t overhead_total;
     size_t dataset;
     size_t total_keys;
