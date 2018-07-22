@@ -548,13 +548,16 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             si->master_fields_count = lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele); /* Seek first field. */
             si->master_fields_start = si->lp_ele;
-            /* Skip master fileds to seek the first entry. */
-            for (uint64_t i = 0; i < si->master_fields_count; i++)
-                si->lp_ele = lpNext(si->lp,si->lp_ele);
-            /* We are now pointing the zero term of the master entry. If
+            /* We are now pointing the start filed of the master entry. If
              * we are iterating in reverse order, we need to seek the
              * end of the listpack. */
-            if (si->rev) si->lp_ele = lpLast(si->lp);
+            if (si->rev) {
+                si->lp_ele = lpLast(si->lp);
+            } else {
+                /* Skip master fileds to seek the first entry. */
+                for (uint64_t i = 0; i < si->master_fields_count; i++)
+                    si->lp_ele = lpNext(si->lp,si->lp_ele);
+            }
         } else if (si->rev) {
             /* If we are itereating in the reverse order, and this is not
              * the first entry emitted for this listpack, then we already
