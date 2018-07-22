@@ -183,7 +183,7 @@ size_t zmalloc_size(void *ptr) {
     return size+PREFIX_SIZE;
 }
 size_t zmalloc_usable(void *ptr) {
-    return zmalloc_usable(ptr)-PREFIX_SIZE;
+    return zmalloc_size(ptr)-PREFIX_SIZE;
 }
 #endif
 
