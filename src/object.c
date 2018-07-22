@@ -986,6 +986,18 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->aof_buffer = mem;
     mem_total+=mem;
 
+    mem = 0;
+    mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
+        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
+    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
+        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
+    if (listLength(server.repl_scriptcache_fifo) > 0) {
+        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) + 
+            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
+    }
+    mh->lua_caches = mem;
+    mem_total+=mem;
+
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         long long keyscount = dictSize(db->dict);
@@ -1043,6 +1055,7 @@ sds getMemoryDoctorReport(void) {
     int high_alloc_rss = 0; /* High rss overhead. */
     int big_slave_buf = 0;  /* Slave buffers are too big. */
     int big_client_buf = 0; /* Client buffers are too big. */
+    int many_scripts = 0;   /* Script cache has too many scripts. */
     int num_reports = 0;
     struct redisMemOverhead *mh = getMemoryOverheadData();
 
@@ -1093,6 +1106,12 @@ sds getMemoryDoctorReport(void) {
             big_slave_buf = 1;
             num_reports++;
         }
+
+        /* Too many (over 42) scripts are cached? */
+        if (dictSize(server.lua_scripts) > 42) {
+            many_scripts = 1;
+            num_reports++;
+        }
     }
 
     sds s;
@@ -1122,13 +1141,16 @@ sds getMemoryDoctorReport(void) {
             s = sdscatprintf(s," * High allocator RSS overhead: This instance has an RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the allocator is much larger than the sum what the allocator actually holds). This problem is usually due to a large peak memory (check if there is a peak memory entry above in the report), you can try the MEMORY PURGE command to reclaim it.\n\n");
         }
         if (high_proc_rss) {
-            s = sdscatprintf(s," * High process RSS overhead: This instance has non-allocator RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the Redis process is much larger than the RSS the allocator holds). This problem may be due to LUA scripts or Modules.\n\n");
+            s = sdscatprintf(s," * High process RSS overhead: This instance has non-allocator RSS memory overhead is greater than 1.1 (this means that the Resident Set Size of the Redis process is much larger than the RSS the allocator holds). This problem may be due to Lua scripts or Modules.\n\n");
         }
         if (big_slave_buf) {
             s = sdscat(s," * Big slave buffers: The slave output buffers in this instance are greater than 10MB for each slave (on average). This likely means that there is some slave instance that is struggling receiving data, either because it is too slow or because of networking issues. As a result, data piles on the master output buffers. Please try to identify what slave is not receiving data correctly and why. You can use the INFO output in order to check the slaves delays and the CLIENT LIST command to check the output buffers of each slave.\n\n");
         }
         if (big_client_buf) {
             s = sdscat(s," * Big client buffers: The clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like Pub/Sub clients subscribed to channels bot not receiving data fast enough, so that data piles on the Redis instance output buffer, or clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
+        }
+        if (many_scripts) {
+            s = sdscat(s," * Many scripts: There seem to be many cached scripts in this instance (more than 42). This may be because scripts are generated and `EVAL`ed, instead of being parameterized (with KEYS and ARGV), `SCRIPT LOAD`ed and `EVALSHA`ed. Unless `SCRIPT FLUSH` is called periodically, the scripts' caches may end up consuming most of your memory.\n\n");
         }
         s = sdscat(s,"I'm here to keep you safe, Sam. I want to help you.\n");
     }
@@ -1236,7 +1258,7 @@ void memoryCommand(client *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(24+mh->num_dbs)*2);
+        addReplyMultiBulkLen(c,(25+mh->num_dbs)*2);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1258,6 +1280,9 @@ void memoryCommand(client *c) {
 
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);
+
+        addReplyBulkCString(c,"lua.caches");
+        addReplyLongLong(c,mh->lua_caches);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];
