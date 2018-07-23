@@ -1096,6 +1096,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
 
+    /* Adapt the server.hz value to the number of configured clients. If we have
+     * many clients, we want to call serverCron() with an higher frequency. */
+    server.hz = server.config_hz;
+    while (listLength(server.clients) / server.hz > MAX_CLIENTS_PER_CLOCK_TICK) {
+        server.hz *= 2;
+        if (server.hz > CONFIG_MAX_HZ) {
+            server.hz = CONFIG_MAX_HZ;
+            break;
+        }
+    }
+
     run_with_period(100) {
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
