@@ -369,7 +369,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
         v = p[0]-'0';
         p++; plen++;
     } else if (p[0] == '0' && slen == 1) {
-        *value = 0;
+        if (value != NULL) *value = 0;
         return 1;
     } else {
         return 0;
