@@ -349,12 +349,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (plen == slen)
         return 0;
 
-    /* Special case: first and only digit is 0. */
-    if (slen == 1 && p[0] == '0') {
-        if (value != NULL) *value = 0;
-        return 1;
-    }
-
+    /* Handle negative integers. */
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
