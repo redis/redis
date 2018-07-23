@@ -288,7 +288,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         memcpy(p,buf,len);
         return p;
     } else if (encode) {
-        return createStringObjectFromLongLong(val);
+        return createStringObjectFromLongLongForValue(val);
     } else {
         return createObject(OBJ_STRING,sdsfromlonglong(val));
     }
@@ -1127,13 +1127,9 @@ int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi) {
          * is currently the largest type we are able to represent in RDB sizes.
          * However this does not limit the actual size of the DB to load since
          * these sizes are just hints to resize the hash tables. */
-        uint32_t db_size, expires_size;
-        db_size = (dictSize(db->dict) <= UINT32_MAX) ?
-                                dictSize(db->dict) :
-                                UINT32_MAX;
-        expires_size = (dictSize(db->expires) <= UINT32_MAX) ?
-                                dictSize(db->expires) :
-                                UINT32_MAX;
+        uint64_t db_size, expires_size;
+        db_size = dictSize(db->dict);
+        expires_size = dictSize(db->expires);
         if (rdbSaveType(rdb,RDB_OPCODE_RESIZEDB) == -1) goto werr;
         if (rdbSaveLen(rdb,db_size) == -1) goto werr;
         if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
@@ -1241,6 +1237,10 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     }
 
     rioInitWithFile(&rdb,fp);
+
+    if (server.rdb_save_incremental_fsync)
+        rioSetAutoSync(&rdb,REDIS_AUTOSYNC_BYTES);
+
     if (rdbSaveRio(&rdb,&error,RDB_SAVE_NONE,rsi) == C_ERR) {
         errno = error;
         goto werr;
@@ -1658,7 +1658,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (first == NULL) {
                 /* Serialized listpacks should never be empty, since on
                  * deletion we should remove the radix tree key if the
-                 * resulting listpack is emtpy. */
+                 * resulting listpack is empty. */
                 rdbExitReportCorruptRDB("Empty listpack inside stream");
             }
 
@@ -1867,11 +1867,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     }
 
     /* Key-specific attributes, set by opcodes before the key type. */
-    long long expiretime = -1, now = mstime();
+    long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    uint64_t lru_idle = -1;
-    int lfu_freq = -1;
-
+    
     while(1) {
         robj *key, *val;
 
@@ -1899,7 +1897,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_IDLE) {
             /* IDLE: LRU idle time. */
-            if ((lru_idle = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
+            uint64_t qword;
+            if ((qword = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
+            lru_idle = qword;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -2018,20 +2018,9 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 
             /* Set the expire time if needed */
             if (expiretime != -1) setExpire(NULL,db,key,expiretime);
-            if (lfu_freq != -1) {
-                val->lru = (LFUGetTimeInMinutes()<<8) | lfu_freq;
-            } else {
-                /* LRU idle time loaded from RDB is in seconds. Scale
-                 * according to the LRU clock resolution this Redis
-                 * instance was compiled with (normaly 1000 ms, so the
-                 * below statement will expand to lru_idle*1000/1000. */
-                lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
-                val->lru = lru_clock - lru_idle;
-                /* If the lru field overflows (since LRU it is a wrapping
-                 * clock), the best we can do is to provide the maxium
-                 * representable idle time. */
-                if (val->lru < 0) val->lru = lru_clock+1;
-            }
+            
+            /* Set usage information (for eviction). */
+            objectSetLRUOrLFU(val,lfu_freq,lru_idle,lru_clock);
 
             /* Decrement the key refcount since dbAdd() will take its
              * own reference. */
@@ -2110,7 +2099,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
@@ -2147,7 +2136,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
      * in error state.
      *
      * If the process returned an error, consider the list of slaves that
-     * can continue to be emtpy, so that it's just a special case of the
+     * can continue to be empty, so that it's just a special case of the
      * normal code path. */
     ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
     ok_slaves[0] = 0;

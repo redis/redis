@@ -433,7 +433,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * before replying to a client. */
             int invert = fe->mask & AE_BARRIER;
 
-	    /* Note the "fe->mask & mask & ..." code: maybe an already
+            /* Note the "fe->mask & mask & ..." code: maybe an already
              * processed event removed an element that fired and we still
              * didn't processed, so we check if the event is still valid.
              *
@@ -485,7 +485,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if ((retval = poll(&pfd, 1, milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+        if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
         if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
         return retmask;
     } else {

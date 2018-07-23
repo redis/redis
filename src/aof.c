@@ -228,7 +228,7 @@ static void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    aof_fsync(server.aof_fd);
+    redis_fsync(server.aof_fd);
     close(server.aof_fd);
 
     server.aof_fd = -1;
@@ -261,7 +261,7 @@ int startAppendOnly(void) {
         serverLog(LL_WARNING,"AOF was enabled but there is already a child process saving an RDB file on disk. An AOF background was scheduled to start when possible.");
     } else {
         /* If there is a pending AOF rewrite, we need to switch it off and
-         * start a new one: the old one cannot be reused becuase it is not
+         * start a new one: the old one cannot be reused because it is not
          * accumulating the AOF buffer. */
         if (server.aof_child_pid != -1) {
             serverLog(LL_WARNING,"AOF was enabled but there is already an AOF rewriting in background. Stopping background AOF and starting a rewrite now.");
@@ -476,10 +476,10 @@ void flushAppendOnlyFile(int force) {
 
     /* Perform the fsync if needed. */
     if (server.aof_fsync == AOF_FSYNC_ALWAYS) {
-        /* aof_fsync is defined as fdatasync() for Linux in order to avoid
+        /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         latencyStartMonitor(latency);
-        aof_fsync(server.aof_fd); /* Let's try to get this data on the disk */
+        redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_last_fsync = server.unixtime;
@@ -645,7 +645,7 @@ struct client *createFakeClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
-    listSetFreeMethod(c->reply,decrRefCountVoid);
+    listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
     return c;
@@ -683,7 +683,7 @@ int loadAppendOnlyFile(char *filename) {
         exit(1);
     }
 
-    /* Handle a zero-length AOF file as a special case. An emtpy AOF file
+    /* Handle a zero-length AOF file as a special case. An empty AOF file
      * is a valid AOF because an empty server with AOF enabled will create
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
@@ -1221,7 +1221,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     dictIterator *di = NULL;
     dictEntry *de;
     size_t processed = 0;
-    long long now = mstime();
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -1246,9 +1245,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             initStaticStringObject(key,keystr);
 
             expiretime = getExpire(db,&key);
-
-            /* If this key is already expired skip it */
-            if (expiretime != -1 && expiretime < now) continue;
 
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {
@@ -1322,7 +1318,7 @@ int rewriteAppendOnlyFile(char *filename) {
     rioInitWithFile(&aof,fp);
 
     if (server.aof_rewrite_incremental_fsync)
-        rioSetAutoSync(&aof,AOF_AUTOSYNC_BYTES);
+        rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
 
     if (server.aof_use_rdb_preamble) {
         int error;
@@ -1690,7 +1686,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
             if (server.aof_fsync == AOF_FSYNC_ALWAYS)
-                aof_fsync(newfd);
+                redis_fsync(newfd);
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
                 aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
@@ -1717,7 +1713,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             "Background AOF rewrite signal handler took %lldus", ustime()-now);
     } else if (!bysignal && exitcode != 0) {
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error conditon. */
+         * tirggering an error condition. */
         if (bysignal != SIGUSR1)
             server.aof_lastbgrewrite_status = C_ERR;
         serverLog(LL_WARNING,

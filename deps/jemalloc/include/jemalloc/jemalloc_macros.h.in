@@ -120,3 +120,7 @@
 #  define JEMALLOC_RESTRICT_RETURN
 #  define JEMALLOC_ALLOCATOR
 #endif
+
+/* This version of Jemalloc, modified for Redis, has the je_get_defrag_hint()
+ * function. */
+#define JEMALLOC_FRAG_HINT

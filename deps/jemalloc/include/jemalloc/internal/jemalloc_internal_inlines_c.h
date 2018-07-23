@@ -215,4 +215,32 @@ ixalloc(tsdn_t *tsdn, void *ptr, size_t oldsize, size_t size, size_t extra,
 	return arena_ralloc_no_move(tsdn, ptr, oldsize, size, extra, zero);
 }
 
+JEMALLOC_ALWAYS_INLINE int
+iget_defrag_hint(tsdn_t *tsdn, void* ptr, int *bin_util, int *run_util) {
+	int defrag = 0;
+	rtree_ctx_t rtree_ctx_fallback;
+	rtree_ctx_t *rtree_ctx = tsdn_rtree_ctx(tsdn, &rtree_ctx_fallback);
+	szind_t szind;
+	bool is_slab;
+	rtree_szind_slab_read(tsdn, &extents_rtree, rtree_ctx, (uintptr_t)ptr, true, &szind, &is_slab);
+	if (likely(is_slab)) {
+		/* Small allocation. */
+		extent_t *slab = iealloc(tsdn, ptr);
+		arena_t *arena = extent_arena_get(slab);
+		szind_t binind = extent_szind_get(slab);
+		bin_t *bin = &arena->bins[binind];
+		malloc_mutex_lock(tsdn, &bin->lock);
+		/* don't bother moving allocations from the slab currently used for new allocations */
+		if (slab != bin->slabcur) {
+			const bin_info_t *bin_info = &bin_infos[binind];
+			size_t availregs = bin_info->nregs * bin->stats.curslabs;
+			*bin_util = ((long long)bin->stats.curregs<<16) / availregs;
+			*run_util = ((long long)(bin_info->nregs - extent_nfree_get(slab))<<16) / bin_info->nregs;
+			defrag = 1;
+		}
+		malloc_mutex_unlock(tsdn, &bin->lock);
+	}
+	return defrag;
+}
+
 #endif /* JEMALLOC_INTERNAL_INLINES_C_H */

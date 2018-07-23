@@ -81,4 +81,19 @@ start_server {
         # just ID2.
         assert {[r XACK mystream mygroup $id1 $id2] eq 1}
     }
+
+    test {PEL NACK reassignment after XGROUP SETID event} {
+        r del events
+        r xadd events * f1 v1
+        r xadd events * f1 v1
+        r xadd events * f1 v1
+        r xadd events * f1 v1
+        r xgroup create events g1 $
+        r xadd events * f1 v1
+        set c [llength [lindex [r xreadgroup group g1 c1 streams events >] 0 1]]
+        assert {$c == 1}
+        r xgroup setid events g1 -
+        set c [llength [lindex [r xreadgroup group g1 c2 streams events >] 0 1]]
+        assert {$c == 5}
+    }
 }

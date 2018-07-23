@@ -67,8 +67,10 @@ static inline char sdsReqType(size_t string_size) {
 #if (LONG_MAX == LLONG_MAX)
     if (string_size < 1ll<<32)
         return SDS_TYPE_32;
-#endif
     return SDS_TYPE_64;
+#else
+    return SDS_TYPE_32;
+#endif
 }
 
 /* Create a new sds string with the content specified by the 'init' pointer
@@ -283,7 +285,7 @@ sds sdsRemoveFreeSpace(sds s) {
     return s;
 }
 
-/* Return the total size of the allocation of the specifed sds string,
+/* Return the total size of the allocation of the specified sds string,
  * including:
  * 1) The sds header before the pointer.
  * 2) The string.

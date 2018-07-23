@@ -327,7 +327,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, *existing, auxentry;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will suceed. */
+     * does not exists dictAdd will succeed. */
     entry = dictAddRaw(d,key,&existing);
     if (entry) {
         dictSetVal(d, entry, val);
@@ -705,8 +705,10 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
                  * (this happens when going from big to small table). */
-                if (i >= d->ht[1].size) i = d->rehashidx;
-                continue;
+                if (i >= d->ht[1].size)
+                    i = d->rehashidx;
+                else
+                    continue;
             }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];

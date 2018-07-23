@@ -2239,6 +2239,9 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
          * to avoid a useless copy. */
         if (flags & REDISMODULE_HASH_CFIELDS)
             low_flags |= HASH_SET_TAKE_FIELD;
+
+        robj *argv[2] = {field,value};
+        hashTypeTryConversion(key->value,argv,0,1);
         updated += hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
@@ -2709,9 +2712,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
     while(listLength(c->reply)) {
-        sds o = listNodeValue(listFirst(c->reply));
+        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
 
-        proto = sdscatsds(proto,o);
+        proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));
     }
     reply = moduleCreateCallReplyFromProto(ctx,proto);
@@ -3396,7 +3399,7 @@ void RM_LogRaw(RedisModule *module, const char *levelstr, const char *fmt, va_li
  *
  * If the specified log level is invalid, verbose is used by default.
  * There is a fixed limit to the length of the log line this function is able
- * to emit, this limti is not specified but is guaranteed to be more than
+ * to emit, this limit is not specified but is guaranteed to be more than
  * a few lines of text.
  */
 void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
@@ -3827,7 +3830,7 @@ void moduleReleaseGIL(void) {
  *
  * Notification callback gets executed with a redis context that can not be
  * used to send anything to the client, and has the db number where the event
- * occured as its selected db number.
+ * occurred as its selected db number.
  *
  * Notice that it is not necessary to enable norifications in redis.conf for
  * module notifications to work.
@@ -3884,7 +3887,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
     }
 }
 
-/* Unsubscribe any notification subscirbers this module has upon unloading */
+/* Unsubscribe any notification subscribers this module has upon unloading */
 void moduleUnsubscribeNotifications(RedisModule *module) {
     listIter li;
     listNode *ln;
@@ -4362,7 +4365,7 @@ void moduleInitModulesSystem(void) {
  * because the server must be fully initialized before loading modules.
  *
  * The function aborts the server on errors, since to start with missing
- * modules is not considered sane: clients may rely on the existance of
+ * modules is not considered sane: clients may rely on the existence of
  * given commands, loading AOF also may need some modules to exist, and
  * if this instance is a slave, it must understand commands from master. */
 void moduleLoadFromQueue(void) {
@@ -4499,7 +4502,15 @@ int moduleUnload(sds name) {
  * MODULE LOAD <path> [args...] */
 void moduleCommand(client *c) {
     char *subcmd = c->argv[1]->ptr;
-
+    if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
+        const char *help[] = {
+"LIST -- Return a list of loaded modules.",
+"LOAD <path> [arg ...] -- Load a module library from <path>.",
+"UNLOAD <name> -- Unload a module.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else
     if (!strcasecmp(subcmd,"load") && c->argc >= 3) {
         robj **argv = NULL;
         int argc = 0;
@@ -4548,7 +4559,8 @@ void moduleCommand(client *c) {
         }
         dictReleaseIterator(di);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
+        return;
     }
 }
 
