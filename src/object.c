@@ -1138,8 +1138,8 @@ sds getMemoryDoctorReport(void) {
             num_reports++;
         }
 
-        /* Too many (over 42) scripts are cached? */
-        if (dictSize(server.lua_scripts) > 42) {
+        /* Too many scripts are cached? */
+        if (dictSize(server.lua_scripts) > 1000) {
             many_scripts = 1;
             num_reports++;
         }
@@ -1181,7 +1181,7 @@ sds getMemoryDoctorReport(void) {
             s = sdscat(s," * Big client buffers: The clients output buffers in this instance are greater than 200K per client (on average). This may result from different causes, like Pub/Sub clients subscribed to channels bot not receiving data fast enough, so that data piles on the Redis instance output buffer, or clients sending commands with large replies or very large sequences of commands in the same pipeline. Please use the CLIENT LIST command in order to investigate the issue if it causes problems in your instance, or to understand better why certain clients are using a big amount of memory.\n\n");
         }
         if (many_scripts) {
-            s = sdscat(s," * Many scripts: There seem to be many cached scripts in this instance (more than 42). This may be because scripts are generated and `EVAL`ed, instead of being parameterized (with KEYS and ARGV), `SCRIPT LOAD`ed and `EVALSHA`ed. Unless `SCRIPT FLUSH` is called periodically, the scripts' caches may end up consuming most of your memory.\n\n");
+            s = sdscat(s," * Many scripts: There seem to be many cached scripts in this instance (more than 1000). This may be because scripts are generated and `EVAL`ed, instead of being parameterized (with KEYS and ARGV), `SCRIPT LOAD`ed and `EVALSHA`ed. Unless `SCRIPT FLUSH` is called periodically, the scripts' caches may end up consuming most of your memory.\n\n");
         }
         s = sdscat(s,"I'm here to keep you safe, Sam. I want to help you.\n");
     }
