@@ -1512,7 +1512,7 @@ void initServerConfig(void) {
     server.timezone = timezone; /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.hz = CONFIG_DEFAULT_HZ;
+    server.config_hz = CONFIG_DEFAULT_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
@@ -1991,6 +1991,7 @@ void initServer(void) {
             server.syslog_facility);
     }
 
+    server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
@@ -3074,6 +3075,7 @@ sds genRedisInfoString(char *section) {
             "uptime_in_seconds:%jd\r\n"
             "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
+            "configured_hz:%d\r\n"
             "lru_clock:%ld\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n",
@@ -3097,6 +3099,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
+            server.config_hz,
             (unsigned long) lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");

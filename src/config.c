@@ -441,9 +441,9 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
-            server.hz = atoi(argv[1]);
-            if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
-            if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+            server.config_hz = atoi(argv[1]);
+            if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
+            if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -1158,11 +1158,11 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "cluster-slave-validity-factor",server.cluster_slave_validity_factor,0,INT_MAX) {
     } config_set_numerical_field(
-      "hz",server.hz,0,INT_MAX) {
+      "hz",server.config_hz,0,INT_MAX) {
         /* Hz is more an hint from the user, so we accept values out of range
          * but cap them to reasonable values. */
-        if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
-        if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
+        if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
+        if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
     } config_set_numerical_field(
       "watchdog-period",ll,0,INT_MAX) {
         if (ll)
@@ -1329,7 +1329,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("slave-announce-port",server.slave_announce_port);
     config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
-    config_get_numerical_field("hz",server.hz);
+    config_get_numerical_field("hz",server.config_hz);
     config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
     config_get_numerical_field("cluster-migration-barrier",server.cluster_migration_barrier);
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
@@ -2098,7 +2098,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigYesNoOption(state,"protected-mode",server.protected_mode,CONFIG_DEFAULT_PROTECTED_MODE);
     rewriteConfigClientoutputbufferlimitOption(state);
-    rewriteConfigNumericalOption(state,"hz",server.hz,CONFIG_DEFAULT_HZ);
+    rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
     rewriteConfigYesNoOption(state,"rdb-save-incremental-fsync",server.rdb_save_incremental_fsync,CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC);
     rewriteConfigYesNoOption(state,"aof-load-truncated",server.aof_load_truncated,CONFIG_DEFAULT_AOF_LOAD_TRUNCATED);
