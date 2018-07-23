@@ -1108,10 +1108,6 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
     } config_set_numerical_field(
-      "stream-node-max-bytes",server.stream_node_max_bytes,0,LLONG_MAX) {
-    } config_set_numerical_field(
-      "stream-node-max-entries",server.stream_node_max_entries,0,LLONG_MAX) {
-    } config_set_numerical_field(
       "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
     } config_set_numerical_field(
       "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
