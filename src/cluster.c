@@ -3497,6 +3497,7 @@ void clusterCron(void) {
         {
             /* Disconnect the link, it will be reconnected automatically. */
             freeClusterLink(node->link);
+            continue;
         }
 
         /* If we have currently no active ping in this instance, and the
