@@ -5146,7 +5146,10 @@ try_again:
         serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
     }
 
-    int num_keys_non_expired = 0;
+    int expired = 0; /* Number of keys that we'll find already expired.
+                        Note that serializing large keys may take some time
+                        so certain keys that were found non expired by the
+                        lookupKey() function, may be expired later. */
 
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
@@ -5155,10 +5158,12 @@ try_again:
 
         if (expireat != -1) {
             ttl = expireat-mstime();
-            if (ttl < 0) continue;
+            if (ttl < 0) {
+                expired++;
+                continue;
+            }
             if (ttl < 1) ttl = 1;
         }
-        num_keys_non_expired++;
         serverAssertWithInfo(c,NULL,
             rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
 
@@ -5221,9 +5226,9 @@ try_again:
     int socket_error = 0;
     int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
 
-    if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys_non_expired+1));
+    if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys+1));
 
-    for (j = 0; j < num_keys_non_expired; j++) {
+    for (j = 0; j < num_keys-expired; j++) {
         if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0) {
             socket_error = 1;
             break;
