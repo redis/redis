@@ -346,6 +346,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
     int negative = 0;
     unsigned long long v;
 
+    /* A zero length string is not a valid number. */
     if (plen == slen)
         return 0;
 
@@ -355,6 +356,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 1;
     }
 
+    /* Handle negative numbers: just set a flag and continue like if it
+     * was a positive number. Later convert into negative. */
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
@@ -372,6 +375,7 @@ int string2ll(const char *s, size_t slen, long long *value) {
         return 0;
     }
 
+    /* Parse all the other digits, checking for overflow at every step. */
     while (plen < slen && p[0] >= '0' && p[0] <= '9') {
         if (v > (ULLONG_MAX / 10)) /* Overflow. */
             return 0;
@@ -388,6 +392,8 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (plen < slen)
         return 0;
 
+    /* Convert to negative if needed, and do the final overflow check when
+     * converting from unsigned long long to long long. */
     if (negative) {
         if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
