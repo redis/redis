@@ -5146,6 +5146,11 @@ try_again:
         serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
     }
 
+    int expired = 0; /* Number of keys that we'll find already expired.
+                        Note that serializing large keys may take some time
+                        so certain keys that were found non expired by the
+                        lookupKey() function, may be expired later. */
+
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
         long long ttl = 0;
@@ -5153,6 +5158,10 @@ try_again:
 
         if (expireat != -1) {
             ttl = expireat-mstime();
+            if (ttl < 0) {
+                expired++;
+                continue;
+            }
             if (ttl < 1) ttl = 1;
         }
         serverAssertWithInfo(c,NULL,
@@ -5217,9 +5226,13 @@ try_again:
     int socket_error = 0;
     int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
 
+    /* Allocate the new argument vector that will replace the current command,
+     * to propagate the MIGRATE as a DEL command (if no COPY option was given).
+     * We allocate num_keys+1 because the additional argument is for "DEL"
+     * command name itself. */
     if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys+1));
 
-    for (j = 0; j < num_keys; j++) {
+    for (j = 0; j < num_keys-expired; j++) {
         if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0) {
             socket_error = 1;
             break;

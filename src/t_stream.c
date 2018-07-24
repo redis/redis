@@ -764,6 +764,7 @@ int streamDeleteItem(stream *s, streamID *id) {
         streamIteratorRemoveEntry(&si,&myid);
         deleted = 1;
     }
+    streamIteratorStop(&si);
     return deleted;
 }
 
