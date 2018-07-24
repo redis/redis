@@ -5226,6 +5226,10 @@ try_again:
     int socket_error = 0;
     int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
 
+    /* Allocate the new argument vector that will replace the current command,
+     * to propagate the MIGRATE as a DEL command (if no COPY option was given).
+     * We allocate num_keys+1 because the additional argument is for "DEL"
+     * command name itself. */
     if (!copy) newargv = zmalloc(sizeof(robj*)*(num_keys+1));
 
     for (j = 0; j < num_keys-expired; j++) {
