@@ -368,9 +368,6 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
-    } else if (p[0] == '0' && slen == 1) {
-        *value = 0;
-        return 1;
     } else {
         return 0;
     }
