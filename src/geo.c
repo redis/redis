@@ -445,7 +445,7 @@ void geoaddCommand(client *c) {
 
     /* Finally call ZADD that will do the work for us. */
     replaceClientCommandVector(c,argc,argv);
-    zaddCommand(c);
+    zaddGenericCommand(c,ZADD_NONE,z_alloc);
 }
 
 #define SORT_NONE 0

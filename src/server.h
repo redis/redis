@@ -2106,6 +2106,9 @@ void latencyCommand(client *c);
 void moduleCommand(client *c);
 void securityWarningCommand(client *c);
 
+/* Geo stuff */
+void zaddGenericCommand(client *c, int flags, alloc a);
+
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));

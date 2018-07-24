@@ -1483,7 +1483,7 @@ long zsetRank(robj *zobj, sds ele, int reverse) {
  *----------------------------------------------------------------------------*/
 
 /* This generic command implements both ZADD and ZINCRBY. */
-void zaddGenericCommand(client *c, int flags) {
+void zaddGenericCommand(client *c, int flags, alloc a) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *zobj;
@@ -1556,9 +1556,9 @@ void zaddGenericCommand(client *c, int flags) {
         if (server.zset_max_ziplist_entries == 0 ||
             server.zset_max_ziplist_value < sdslen(c->argv[scoreidx+1]->ptr))
         {
-            zobj = createZsetObjectM();
+            zobj = createZsetObjectA(a);
         } else {
-            zobj = createZsetZiplistObjectM();
+            zobj = createZsetZiplistObjectA(a);
         }
         dbAdd(c->db,key,zobj);
     } else {
@@ -1574,7 +1574,7 @@ void zaddGenericCommand(client *c, int flags) {
         int retflags = flags;
 
         ele = c->argv[scoreidx+1+j*2]->ptr;
-        int retval = zsetAddM(zobj, score, ele, &retflags, &newscore);
+        int retval = zsetAddA(zobj, score, ele, &retflags, &newscore,a);
         if (retval == 0) {
             addReplyError(c,nanerr);
             goto cleanup;
@@ -1606,11 +1606,11 @@ cleanup:
 }
 
 void zaddCommand(client *c) {
-    zaddGenericCommand(c,ZADD_NONE);
+    zaddGenericCommand(c,ZADD_NONE,m_alloc);
 }
 
 void zincrbyCommand(client *c) {
-    zaddGenericCommand(c,ZADD_INCR);
+    zaddGenericCommand(c,ZADD_INCR,m_alloc);
 }
 
 void zremCommand(client *c) {
