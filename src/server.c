@@ -3188,7 +3188,7 @@ sds genRedisInfoString(char *section) {
         bytesToHuman(peak_hmem,server.stat_peak_memory);
         bytesToHuman(total_system_hmem,total_system_mem);
         bytesToHuman(used_memory_lua_hmem,memory_lua);
-        bytesToHuman(used_memory_scripts_hmem,server.lua_scripts_mem);
+        bytesToHuman(used_memory_scripts_hmem,mh->lua_scripts);
         bytesToHuman(used_memory_rss_hmem,server.cron_malloc_stats.process_rss);
         bytesToHuman(maxmemory_hmem,server.maxmemory);
 
@@ -3213,7 +3213,7 @@ sds genRedisInfoString(char *section) {
             "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "used_memory_lua_human:%s\r\n"
-            "used_memory_scripts:%lld\r\n"
+            "used_memory_scripts:%zu\r\n"
             "used_memory_scripts_human:%s\r\n"
             "number_of_cached_scripts:%lu\r\n"
             "maxmemory:%lld\r\n"
@@ -3253,7 +3253,7 @@ sds genRedisInfoString(char *section) {
             total_system_hmem,
             memory_lua,
             used_memory_lua_hmem,
-            server.lua_scripts_mem,
+            mh->lua_scripts,
             used_memory_scripts_hmem,
             dictSize(server.lua_scripts),
             server.maxmemory,

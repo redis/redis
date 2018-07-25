@@ -1215,7 +1215,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
      * EVALSHA commands as EVAL using the original script. */
     int retval = dictAdd(server.lua_scripts,sha,body);
     serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
-    server.lua_scripts_mem += sdsZmallocSize(sha) + sdsZmallocSize(body->ptr);
+    server.lua_scripts_mem += sdsAllocSize(sha) + sdsAllocSize(body->ptr);
     incrRefCount(body);
     return sha;
 }
