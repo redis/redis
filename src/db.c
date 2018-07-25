@@ -337,10 +337,15 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
         return -1;
     }
 
-    int j = dbnum == -1 ? 0 : dbnum;
-    int dbmax = dbnum == -1 ? server.dbnum : dbnum+1;
+    int startdb, enddb;
+    if (dbnum == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbnum;
+    }
 
-    for (; j < dbmax; j++) {
+    for (int j = startdb; j <= enddb; j++) {
         if (dbnum != -1 && dbnum != j) continue;
         removed += dictSize(server.db[j].dict);
         if (async) {
