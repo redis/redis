@@ -3536,14 +3536,14 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# CPU\r\n"
-        "used_cpu_sys:%.2f\r\n"
-        "used_cpu_user:%.2f\r\n"
-        "used_cpu_sys_children:%.2f\r\n"
-        "used_cpu_user_children:%.2f\r\n",
-        (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
-        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
-        (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
-        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000);
+        "used_cpu_sys:%ld.%06ld\r\n"
+        "used_cpu_user:%ld.%06ld\r\n"
+        "used_cpu_sys_children:%ld.%06ld\r\n"
+        "used_cpu_user_children:%ld.%06ld\r\n",
+        (long)self_ru.ru_stime.tv_sec, (long)self_ru.ru_stime.tv_usec,
+        (long)self_ru.ru_utime.tv_sec, (long)self_ru.ru_utime.tv_usec,
+        (long)c_ru.ru_stime.tv_sec, (long)c_ru.ru_stime.tv_usec,
+        (long)c_ru.ru_utime.tv_sec, (long)c_ru.ru_utime.tv_usec);
     }
 
     /* Command statistics */
