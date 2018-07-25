@@ -748,10 +748,10 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
     if (numele != LP_HDR_NUMELE_UNKNOWN) {
         if (index < 0) index = (long)numele+index;
         if (index < 0) return NULL; /* Index still < 0 means out of range. */
-        if (index >= numele) return NULL; /* Out of range the other side. */
+        if ((uint32_t)index >= numele) return NULL; /* Out of range the other side. */
         /* We want to scan right-to-left if the element we are looking for
          * is past the half of the listpack. */
-        if (index > numele/2) {
+        if ((uint32_t)index > numele/2) {
             forward = 0;
             /* Left to right scanning always expects a negative index. Convert
              * our index to negative form. */
