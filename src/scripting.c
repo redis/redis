@@ -1418,6 +1418,11 @@ void evalGenericCommand(client *c, int evalsha) {
                 PROPAGATE_AOF|PROPAGATE_REPL);
             decrRefCount(propargv[0]);
         }
+    } else if (!evalsha) {
+        rewriteClientCommandArgument(c,0,
+            resetRefCount(createStringObject("EVALSHA",7)));
+        rewriteClientCommandArgument(c,1,
+            resetRefCount(createStringObject(funcname+2,40)));
     }
 }
 
