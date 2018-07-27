@@ -1455,6 +1455,7 @@ void scriptCommand(client *c) {
         const char *help[] = {
 "DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
 "EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
+"GET <sha1> [<sha1> ...] -- Get the original scripts of sha1 in the script cache.",
 "FLUSH -- Flush the Lua scripts cache. Very dangerous on slaves.",
 "KILL -- Kill the currently executing Lua script.",
 "LOAD <script> -- Load a script into the scripts cache, without executing it.",
@@ -1474,6 +1475,18 @@ NULL
                 addReply(c,shared.cone);
             else
                 addReply(c,shared.czero);
+        }
+    } else if (c->argc >= 3 && !strcasecmp(c->argv[1]->ptr,"get")) {
+        int j;
+
+        addReplyMultiBulkLen(c, c->argc-2);
+        for (j = 2; j < c->argc; j++) {
+            robj *script = dictFetchValue(server.lua_scripts,c->argv[j]->ptr);
+            if (script == NULL) {
+                addReply(c,shared.nullbulk);
+            } else {
+                addReplyBulk(c,script);
+            }
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
         sds sha = luaCreateFunction(c,server.lua,c->argv[2]);
