@@ -5980,11 +5980,9 @@ static void findBigKeys(void) {
                 /* Keep track of biggest key name for this type */
                 sdsclear(maxkeys[type]);
                 maxkeys[type] = sdscatrepr(maxkeys[type], keys->element[i]->str, keys->element[i]->len);
-                /* Remove the start and end '"' added by sdscatrepr */
-                sdsrange(maxkeys[type], 1, -2);
 
                 printf(
-                   "[%05.2f%%] Biggest %-6s found so far '%s' with %llu %s\n",
+                   "[%05.2f%%] Biggest %-6s found so far %s with %llu %s\n",
                    pct, typename[type], maxkeys[type], sizes[i],
                    typeunit[type]);
 
@@ -6024,7 +6022,7 @@ static void findBigKeys(void) {
     /* Output the biggest keys we found, for types we did find */
     for(i=0;i<TYPE_NONE;i++) {
         if(sdslen(maxkeys[i])>0) {
-            printf("Biggest %6s found '%s' has %llu %s\n", typename[i], maxkeys[i],
+            printf("Biggest %6s found %s has %llu %s\n", typename[i], maxkeys[i],
                biggest[i], typeunit[i]);
         }
     }
