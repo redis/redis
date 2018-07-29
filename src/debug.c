@@ -290,6 +290,7 @@ void debugCommand(client *c) {
 "CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
 "DIGEST -- Output a hex signature representing the current DB content.",
 "ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
+"LOG <message> -- write message to the server log.",
 "HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> -- Like htstats but for the hash table stored as key's value.",
 "LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
@@ -333,6 +334,9 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         serverAssertWithInfo(c,c->argv[0],1 == 2);
+    } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
+        serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
