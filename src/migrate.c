@@ -2,9 +2,6 @@
 
 // ---------------- MIGRATE CACHED SOCKET ----------------------------------- //
 
-#define MIGRATE_SOCKET_CACHE_ITEMS 64
-#define MIGRATE_SOCKET_CACHE_TTL 10  // In seconds.
-
 typedef struct {
     int fd;
     int last_dbid;
@@ -38,7 +35,7 @@ void migrateCloseTimedoutSockets(void) {
     dictEntry *entry;
     while ((entry = dictNext(di)) != NULL) {
         migrateCachedSocket *cs = dictGetVal(entry);
-        if (cs->busy || server.unixtime - cs->last_use_time <= MIGRATE_SOCKET_CACHE_TTL) {
+        if (cs->busy || server.unixtime - cs->last_use_time <= server.migrate_socket_cache_timeout) {
             continue;
         }
         migrateCloseSocket(cs);
@@ -65,9 +62,11 @@ static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj 
         return cs;
     }
 
-    if (dictSize(server.migrate_cached_sockets) == MIGRATE_SOCKET_CACHE_ITEMS) {
-        dictEntry *entry = dictGetRandomKey(server.migrate_cached_sockets);
-        migrateCloseSocket(dictGetVal(entry));
+    if (server.migrate_socket_cache_items != 0) {
+        while (dictSize(server.migrate_cached_sockets) == (unsigned int)server.migrate_socket_cache_items) {
+            dictEntry *entry = dictGetRandomKey(server.migrate_cached_sockets);
+            migrateCloseSocket(dictGetVal(entry));
+        }
     }
 
     int fd = anetTcpNonBlockConnect(server.neterr, host->ptr, atoi(port->ptr));

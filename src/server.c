@@ -1647,6 +1647,10 @@ void initServerConfig(void) {
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
+    /* Migration related */
+    server.migrate_socket_cache_items = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS;
+    server.migrate_socket_cache_timeout = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT;
+
     /* Replication related */
     server.masterauth = NULL;
     server.masterhost = NULL;
