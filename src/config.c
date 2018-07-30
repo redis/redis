@@ -440,6 +440,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"dynamic-hz") && argc == 2) {
+            if ((server.dynamic_hz = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
             server.config_hz = atoi(argv[1]);
             if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
@@ -1072,6 +1076,8 @@ void configSetCommand(client *c) {
       "slave-lazy-flush",server.repl_slave_lazy_flush) {
     } config_set_bool_field(
       "no-appendfsync-on-rewrite",server.aof_no_fsync_on_rewrite) {
+    } config_set_bool_field(
+      "dynamic-hz",server.dynamic_hz) {
 
     /* Numerical fields.
      * config_set_numerical_field(name,var,min,max) */
@@ -1375,6 +1381,8 @@ void configGetCommand(client *c) {
             server.lazyfree_lazy_server_del);
     config_get_bool_field("slave-lazy-flush",
             server.repl_slave_lazy_flush);
+    config_get_bool_field("dynamic-hz",
+            server.dynamic_hz);
 
     /* Enum values */
     config_get_enum_field("maxmemory-policy",
@@ -2108,6 +2116,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-expire",server.lazyfree_lazy_expire,CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE);
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"slave-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
+    rewriteConfigYesNoOption(state,"dynamic-hz",server.dynamic_hz,CONFIG_DEFAULT_DYNAMIC_HZ);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
