@@ -74,7 +74,11 @@ set ::stack_logging 0
 set ::verbose 0
 set ::quiet 0
 set ::denytags {}
+set ::skiptests {}
 set ::allowtags {}
+set ::only_tests {}
+set ::single_tests {}
+set ::skip_till ""
 set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
@@ -255,6 +259,8 @@ proc accept_test_clients {fd addr port} {
 # testing: just used to signal that a given test started.
 # ok: a test was executed with success.
 # err: a test was executed with an error.
+# skip: a test was skipped by skipfile or individual test options.
+# ignore: a test was skipped by a group tag.
 # exception: there was a runtime exception while executing the test.
 # done: all the specified test file was processed, this test client is
 #       ready to accept a new task.
@@ -283,6 +289,14 @@ proc read_from_test_client fd {
             puts "\[[colorstr green $status]\]: $data"
         }
         set ::active_clients_task($fd) "(OK) $data"
+    } elseif {$status eq {skip}} {
+        if {!$::quiet} {
+            puts "\[[colorstr yellow $status]\]: $data"
+        }
+    } elseif {$status eq {ignore}} {
+        if {!$::quiet} {
+            puts "\[[colorstr cyan $status]\]: $data"
+        }
     } elseif {$status eq {err}} {
         set err "\[[colorstr red $status]\]: $data"
         puts $err
@@ -412,11 +426,15 @@ proc print_help_screen {} {
         "--stack-logging    Enable OSX leaks/malloc stack logging."
         "--accurate         Run slow randomized tests for more iterations."
         "--quiet            Don't show individual tests."
-        "--single <unit>    Just execute the specified unit (see next option)."
+        "--single <unit>    Just execute the specified unit (see next option). this option can be repeated."
         "--list-tests       List all the available test units."
+        "--only <test>      Just execute the specified test by test name. this option can be repeated."
+        "--skiptill <unit>  Skip all units until (and including) the specified one."
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
+        "--config <k> <v>   extra config file argument"
+        "--skipfile <file>  name of a file containing test names that should be skipped (one per line)"
         "--dont-clean       don't delete redis log files after the run"
         "--wait-server      wait after server is started (so that you can attach a debugger)"
         "--help             Print this help screen."
@@ -436,6 +454,18 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             }
         }
         incr j
+    } elseif {$opt eq {--config}} {
+        set arg2 [lindex $argv [expr $j+2]]
+        lappend ::global_overrides $arg
+        lappend ::global_overrides $arg2
+        incr j
+        incr j
+    } elseif {$opt eq {--skipfile}} {
+        incr j
+        set fp [open $arg r]
+        set file_data [read $fp]
+        close $fp
+        set ::skiptests [split $file_data "\n"]
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
     } elseif {$opt eq {--stack-logging}} {
@@ -456,7 +486,13 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--force-failure}} {
         set ::force_failure 1
     } elseif {$opt eq {--single}} {
-        set ::all_tests $arg
+        lappend ::single_tests $arg
+        incr j
+    } elseif {$opt eq {--only}} {
+        lappend ::only_tests $arg
+        incr j
+    } elseif {$opt eq {--skiptill}} {
+        set ::skip_till $arg
         incr j
     } elseif {$opt eq {--list-tests}} {
         foreach t $::all_tests {
@@ -486,6 +522,26 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         puts "Wrong argument: $opt"
         exit 1
     }
+}
+
+if {$::skip_till != ""} {
+    set skipping 1
+    foreach t $::all_tests {
+        if {$skipping == 0} {
+            lappend ::single_tests $t
+        }
+        if {$t == $::skip_till} {
+            set skipping 0
+        }
+    }
+    if {$skipping} {
+        puts "test $::skip_till not found"
+        exit 0
+    }
+}
+
+if {[llength $::single_tests] > 0} {
+    set ::all_tests $::single_tests
 }
 
 proc attach_to_replication_stream {} {
