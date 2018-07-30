@@ -1096,6 +1096,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
 
+    /* Adapt the server.hz value to the number of configured clients. If we have
+     * many clients, we want to call serverCron() with an higher frequency. */
+    server.hz = server.config_hz;
+    while (listLength(server.clients) / server.hz > MAX_CLIENTS_PER_CLOCK_TICK) {
+        server.hz *= 2;
+        if (server.hz > CONFIG_MAX_HZ) {
+            server.hz = CONFIG_MAX_HZ;
+            break;
+        }
+    }
+
     run_with_period(100) {
         trackInstantaneousMetric(STATS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(STATS_METRIC_NET_INPUT,
@@ -1512,7 +1523,7 @@ void initServerConfig(void) {
     server.timezone = timezone; /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.hz = CONFIG_DEFAULT_HZ;
+    server.config_hz = CONFIG_DEFAULT_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
@@ -1991,6 +2002,7 @@ void initServer(void) {
             server.syslog_facility);
     }
 
+    server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
@@ -3074,6 +3086,7 @@ sds genRedisInfoString(char *section) {
             "uptime_in_seconds:%jd\r\n"
             "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
+            "configured_hz:%d\r\n"
             "lru_clock:%ld\r\n"
             "executable:%s\r\n"
             "config_file:%s\r\n",
@@ -3097,6 +3110,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)uptime,
             (intmax_t)(uptime/(3600*24)),
             server.hz,
+            server.config_hz,
             (unsigned long) lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
