@@ -1060,13 +1060,17 @@ int string2ull(const char *s, unsigned long long *value) {
  * form, just stating the milliseconds time part of the stream. In such a case
  * the missing part is set according to the value of 'missing_seq' parameter.
  * The IDs "-" and "+" specify respectively the minimum and maximum IDs
- * that can be represented.
+ * that can be represented. If 'mmid_supp' is set to 0, "-" and "+" will be
+ * treated as an invalid ID.
  *
  * If 'c' is set to NULL, no reply is sent to the client. */
-int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq) {
+int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int mmid_supp) {
     char buf[128];
     if (sdslen(o->ptr) > sizeof(buf)-1) goto invalid;
     memcpy(buf,o->ptr,sdslen(o->ptr)+1);
+
+    if (!mmid_supp && (buf[0] == '-' || buf[0] == '+') &&
+        buf[1] == '\0') goto invalid;
 
     /* Handle the "-" and "+" special cases. */
     if (buf[0] == '-' && buf[1] == '\0') {
