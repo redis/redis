@@ -548,7 +548,7 @@ void RM_KeyAtPos(RedisModuleCtx *ctx, int pos) {
     ctx->keys_pos[ctx->keys_count++] = pos;
 }
 
-/* Helper for RM_CreateCommand(). Truns a string representing command
+/* Helper for RM_CreateCommand(). Turns a string representing command
  * flags into the command flags used by the Redis core.
  *
  * It returns the set of flags, or -1 if unknown flags are found. */
@@ -595,7 +595,7 @@ int commandFlagsFromString(char *s) {
  * And is supposed to always return REDISMODULE_OK.
  *
  * The set of flags 'strflags' specify the behavior of the command, and should
- * be passed as a C string compoesd of space separated words, like for
+ * be passed as a C string composed of space separated words, like for
  * example "write deny-oom". The set of flags are:
  *
  * * **"write"**:     The command may modify the data set (it may also read
@@ -616,7 +616,7 @@ int commandFlagsFromString(char *s) {
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
- * * **"no-monitor"**: Don't propoagate the command on monitor. Use this if
+ * * **"no-monitor"**: Don't propagate the command on monitor. Use this if
  *                     the command has sensible data among the arguments.
  * * **"fast"**:      The command time complexity is not greater
  *                    than O(log(N)) where N is the size of the collection or
@@ -956,9 +956,9 @@ RedisModuleString *moduleAssertUnsharedString(RedisModuleString *str) {
     return str;
 }
 
-/* Append the specified buffere to the string 'str'. The string must be a
+/* Append the specified buffer to the string 'str'. The string must be a
  * string created by the user that is referenced only a single time, otherwise
- * REDISMODULE_ERR is returend and the operation is not performed. */
+ * REDISMODULE_ERR is returned and the operation is not performed. */
 int RM_StringAppendBuffer(RedisModuleCtx *ctx, RedisModuleString *str, const char *buf, size_t len) {
     UNUSED(ctx);
     str = moduleAssertUnsharedString(str);
@@ -1118,7 +1118,7 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
  *
  * Note that in the above example there is no reason to postpone the array
  * length, since we produce a fixed number of elements, but in the practice
- * the code may use an interator or other ways of creating the output so
+ * the code may use an iterator or other ways of creating the output so
  * that is not easy to calculate in advance the number of elements.
  */
 void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
@@ -1410,7 +1410,7 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
  * to call other APIs with the key handle as argument to perform
  * operations on the key.
  *
- * The return value is the handle repesenting the key, that must be
+ * The return value is the handle representing the key, that must be
  * closed with RM_CloseKey().
  *
  * If the key does not exist and WRITE mode is requested, the handle
@@ -1664,7 +1664,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
  * Key API for List type
  * -------------------------------------------------------------------------- */
 
-/* Push an element into a list, on head or tail depending on 'where' argumnet.
+/* Push an element into a list, on head or tail depending on 'where' argument.
  * If the key pointer is about an empty key opened for writing, the key
  * is created. On error (key opened for read-only operations or of the wrong
  * type) REDISMODULE_ERR is returned, otherwise REDISMODULE_OK is returned. */
@@ -1769,7 +1769,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
  * The input and output flags, and the return value, have the same exact
  * meaning, with the only difference that this function will return
  * REDISMODULE_ERR even when 'score' is a valid double number, but adding it
- * to the existing score resuts into a NaN (not a number) condition.
+ * to the existing score results into a NaN (not a number) condition.
  *
  * This function has an additional field 'newscore', if not NULL is filled
  * with the new score of the element after the increment, if no error
@@ -3793,11 +3793,11 @@ void moduleReleaseGIL(void) {
  * -------------------------------------------------------------------------- */
 
 /* Subscribe to keyspace notifications. This is a low-level version of the
- * keyspace-notifications API. A module cand register callbacks to be notified
+ * keyspace-notifications API. A module can register callbacks to be notified
  * when keyspce events occur.
  *
  * Notification events are filtered by their type (string events, set events,
- * etc), and the subsriber callback receives only events that match a specific
+ * etc), and the subscriber callback receives only events that match a specific
  * mask of event types.
  *
  * When subscribing to notifications with RedisModule_SubscribeToKeyspaceEvents 
@@ -3832,7 +3832,7 @@ void moduleReleaseGIL(void) {
  * used to send anything to the client, and has the db number where the event
  * occurred as its selected db number.
  *
- * Notice that it is not necessary to enable norifications in redis.conf for
+ * Notice that it is not necessary to enable notifications in redis.conf for
  * module notifications to work.
  *
  * Warning: the notification callbacks are performed in a synchronous manner,
@@ -3876,7 +3876,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             ctx.client = moduleKeyspaceSubscribersClient;
             selectDb(ctx.client, dbid);
 
-            /* mark the handler as activer to avoid reentrant loops.
+            /* mark the handler as active to avoid reentrant loops.
              * If the subscriber performs an action triggering itself,
              * it will not be notified about it. */
             sub->active = 1;
