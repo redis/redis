@@ -1096,14 +1096,18 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
 
+    server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
-    server.hz = server.config_hz;
-    while (listLength(server.clients) / server.hz > MAX_CLIENTS_PER_CLOCK_TICK) {
-        server.hz *= 2;
-        if (server.hz > CONFIG_MAX_HZ) {
-            server.hz = CONFIG_MAX_HZ;
-            break;
+    if (server.dynamic_hz) {
+        while (listLength(server.clients) / server.hz >
+               MAX_CLIENTS_PER_CLOCK_TICK)
+        {
+            server.hz *= 2;
+            if (server.hz > CONFIG_MAX_HZ) {
+                server.hz = CONFIG_MAX_HZ;
+                break;
+            }
         }
     }
 
@@ -1524,6 +1528,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.config_hz = CONFIG_DEFAULT_HZ;
+    server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
     server.tcp_backlog = CONFIG_DEFAULT_TCP_BACKLOG;
