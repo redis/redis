@@ -357,7 +357,7 @@ void serverLogRaw(int level, const char *msg) {
         gettimeofday(&tv,NULL);
         struct tm tm;
         nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",&tm);
+        off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
