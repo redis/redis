@@ -538,7 +538,7 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
     char ip[NET_IP_STR_LEN];
     sentinelAddr *sa;
 
-    if (port < 0 || port > 65535) {
+    if (port < 1 || port > 65535) {
         errno = EINVAL;
         return NULL;
     }

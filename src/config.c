@@ -218,7 +218,7 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
-            if (server.port < 0 || server.port > 65535) {
+            if (server.port < 1 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"tcp-backlog") && argc == 2) {
@@ -621,7 +621,7 @@ void loadServerConfigFromString(char *config) {
             server.cluster_announce_ip = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"cluster-announce-port") && argc == 2) {
             server.cluster_announce_port = atoi(argv[1]);
-            if (server.cluster_announce_port < 0 ||
+            if (server.cluster_announce_port < 1 ||
                 server.cluster_announce_port > 65535)
             {
                 err = "Invalid port"; goto loaderr;
@@ -630,7 +630,7 @@ void loadServerConfigFromString(char *config) {
                    argc == 2)
         {
             server.cluster_announce_bus_port = atoi(argv[1]);
-            if (server.cluster_announce_bus_port < 0 ||
+            if (server.cluster_announce_bus_port < 1 ||
                 server.cluster_announce_bus_port > 65535)
             {
                 err = "Invalid port"; goto loaderr;
@@ -721,7 +721,7 @@ void loadServerConfigFromString(char *config) {
             server.slave_announce_ip = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-announce-port") && argc == 2) {
             server.slave_announce_port = atoi(argv[1]);
-            if (server.slave_announce_port < 0 ||
+            if (server.slave_announce_port < 1 ||
                 server.slave_announce_port > 65535)
             {
                 err = "Invalid port"; goto loaderr;
@@ -1146,7 +1146,7 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "slave-priority",server.slave_priority,0,INT_MAX) {
     } config_set_numerical_field(
-      "slave-announce-port",server.slave_announce_port,0,65535) {
+      "slave-announce-port",server.slave_announce_port,1,65535) {
     } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
@@ -1156,9 +1156,9 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "cluster-node-timeout",server.cluster_node_timeout,0,LLONG_MAX) {
     } config_set_numerical_field(
-      "cluster-announce-port",server.cluster_announce_port,0,65535) {
+      "cluster-announce-port",server.cluster_announce_port,1,65535) {
     } config_set_numerical_field(
-      "cluster-announce-bus-port",server.cluster_announce_bus_port,0,65535) {
+      "cluster-announce-bus-port",server.cluster_announce_bus_port,1,65535) {
     } config_set_numerical_field(
       "cluster-migration-barrier",server.cluster_migration_barrier,0,INT_MAX){
     } config_set_numerical_field(
