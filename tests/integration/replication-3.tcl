@@ -47,15 +47,16 @@ start_server {tags {"repl"}} {
             r 0 set x 10
             r 0 debug set-active-expire 0
             set slave [redis [srv -1 host] [srv -1 port] 1]
-            $slave debug sleep 3
+            $slave debug sleep 4
+            after 500
             r 0 expire x 3
+            after 3200
+            r -1 select 9
             wait_for_condition 50 100 {
                 [s -1 master_link_status] eq {up}
             } else {
                 fail "Slave not connected."
             }
-            after 4000
-            r -1 select 9
             assert_equal [r -1 ttl x] -2
         }
     }
