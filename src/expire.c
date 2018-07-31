@@ -440,12 +440,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        robj *expire_when, *pexpireat;
+        robj *expire_when;
         setExpire(c,c->db,key,when);
-        pexpireat = createStringObject("PEXPIREAT", 9);
         expire_when = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c,3,pexpireat,key, expire_when);
-        decrRefCount(pexpireat);
+        rewriteClientCommandVector(c,3,shared.pexpireat,key,expire_when);
         decrRefCount(expire_when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
