@@ -440,11 +440,13 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        robj *expire_when;
         setExpire(c,c->db,key,when);
-        expire_when = createStringObjectFromLongLong(when);
-        rewriteClientCommandVector(c,3,shared.pexpireat,key,expire_when);
-        decrRefCount(expire_when);
+        if (basetime > 0) {
+            robj *expire_when;
+            expire_when = createStringObjectFromLongLong(when);
+            rewriteClientCommandVector(c,3,shared.pexpireat,key,expire_when);
+            decrRefCount(expire_when);
+        }
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
