@@ -3325,10 +3325,11 @@ void clusterCron(void) {
         if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
 
         if (changed) {
-            prev_ip = curr_ip;
-            if (prev_ip) prev_ip = zstrdup(prev_ip);
+            if (prev_ip) zfree(prev_ip);
 
+            prev_ip = curr_ip;
             if (curr_ip) {
+                prev_ip = zstrdup(prev_ip);
                 strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
                 myself->ip[NET_IP_STR_LEN-1] = '\0';
             } else {
