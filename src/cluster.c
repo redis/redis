@@ -3321,14 +3321,17 @@ void clusterCron(void) {
         int changed = 0;
 
         if (prev_ip == NULL && curr_ip != NULL) changed = 1;
-        if (prev_ip != NULL && curr_ip == NULL) changed = 1;
-        if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
+        else if (prev_ip != NULL && curr_ip == NULL) changed = 1;
+        else if (prev_ip && curr_ip && strcmp(prev_ip,curr_ip)) changed = 1;
 
         if (changed) {
             if (prev_ip) zfree(prev_ip);
-
             prev_ip = curr_ip;
+
             if (curr_ip) {
+                /* We always take a copy of the previous IP address, by
+                 * duplicating the string. This way later we can check if
+                 * the address really changed. */
                 prev_ip = zstrdup(prev_ip);
                 strncpy(myself->ip,server.cluster_announce_ip,NET_IP_STR_LEN);
                 myself->ip[NET_IP_STR_LEN-1] = '\0';
