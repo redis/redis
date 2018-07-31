@@ -1478,7 +1478,7 @@ void createSharedObjects(void) {
     shared.lpush = createStringObject("LPUSH",5);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
-    shared.pexpireat = createStringObject("PEXPIREAT", 9);
+    shared.pexpireat = createStringObject("PEXPIREAT",9);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));
