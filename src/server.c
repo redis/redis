@@ -2609,17 +2609,14 @@ int processCommand(client *c) {
 
     /* Don't accept write commands if there are problems persisting on disk
      * and if this is a master instance. */
-    if (((server.stop_writes_on_bgsave_err &&
-          server.saveparamslen > 0 &&
-          server.lastbgsave_status == C_ERR) ||
-          (server.aof_state != AOF_OFF &&
-           server.aof_last_write_status == C_ERR)) &&
+    int deny_write_type = writeCommandsDeniedByDiskError();
+    if (deny_write_type != DISK_ERROR_TYPE_NONE &&
         server.masterhost == NULL &&
         (c->cmd->flags & CMD_WRITE ||
          c->cmd->proc == pingCommand))
     {
         flagTransaction(c);
-        if (server.aof_last_write_status == C_OK)
+        if (deny_write_type == DISK_ERROR_TYPE_RDB)
             addReply(c, shared.bgsaveerr);
         else
             addReplySds(c,
