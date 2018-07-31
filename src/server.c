@@ -2805,6 +2805,25 @@ int prepareForShutdown(int flags) {
 
 /*================================== Commands =============================== */
 
+/* Sometimes Redis cannot accept write commands because there is a perstence
+ * error with the RDB or AOF file, and Redis is configured in order to stop
+ * accepting writes in such situation. This function returns if such a
+ * condition is active, and the type of the condition. */
+int writeCommandsDeniedByDiskError(void) {
+    if (server.stop_writes_on_bgsave_err &&
+        server.saveparamslen > 0 &&
+        server.lastbgsave_status == C_ERR)
+    {
+        return DISK_ERROR_TYPE_AOF;
+    } else if (server.aof_state != AOF_OFF &&
+               server.aof_last_write_status == C_ERR)
+    {
+        return DISK_ERROR_TYPE_RDB;
+    } else {
+        return DISK_ERROR_TYPE_NONE;
+    }
+}
+
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
