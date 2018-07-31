@@ -2821,11 +2821,11 @@ int writeCommandsDeniedByDiskError(void) {
         server.saveparamslen > 0 &&
         server.lastbgsave_status == C_ERR)
     {
-        return DISK_ERROR_TYPE_AOF;
+        return DISK_ERROR_TYPE_RDB;
     } else if (server.aof_state != AOF_OFF &&
                server.aof_last_write_status == C_ERR)
     {
-        return DISK_ERROR_TYPE_RDB;
+        return DISK_ERROR_TYPE_AOF;
     } else {
         return DISK_ERROR_TYPE_NONE;
     }
