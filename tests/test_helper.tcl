@@ -429,7 +429,7 @@ proc print_help_screen {} {
         "--single <unit>    Just execute the specified unit (see next option). this option can be repeated."
         "--list-tests       List all the available test units."
         "--only <test>      Just execute the specified test by test name. this option can be repeated."
-        "--skiptill <unit>  Skip all units until (and including) the specified one."
+        "--skip-till <unit> Skip all units until (and including) the specified one."
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
@@ -458,8 +458,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set arg2 [lindex $argv [expr $j+2]]
         lappend ::global_overrides $arg
         lappend ::global_overrides $arg2
-        incr j
-        incr j
+        incr j 2
     } elseif {$opt eq {--skipfile}} {
         incr j
         set fp [open $arg r]
@@ -524,6 +523,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     }
 }
 
+# If --skil-till option was given, we populate the list of single tests
+# to run with everything *after* the specified unit.
 if {$::skip_till != ""} {
     set skipping 1
     foreach t $::all_tests {
@@ -540,6 +541,8 @@ if {$::skip_till != ""} {
     }
 }
 
+# Override the list of tests with the specific tests we want to run
+# in case there was some filter, that is --single or --skip-till options.
 if {[llength $::single_tests] > 0} {
     set ::all_tests $::single_tests
 }
