@@ -516,7 +516,7 @@ void spopWithCountCommand(client *c) {
             sdsfree(sdsele);
         }
 
-        /* Tranfer the old set to the client. */
+        /* Transfer the old set to the client. */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {
