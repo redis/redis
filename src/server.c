@@ -2808,7 +2808,14 @@ int prepareForShutdown(int flags) {
 /* Sometimes Redis cannot accept write commands because there is a perstence
  * error with the RDB or AOF file, and Redis is configured in order to stop
  * accepting writes in such situation. This function returns if such a
- * condition is active, and the type of the condition. */
+ * condition is active, and the type of the condition.
+ *
+ * Function return values:
+ *
+ * DISK_ERROR_TYPE_NONE:    No problems, we can accept writes.
+ * DISK_ERROR_TYPE_AOF:     Don't accept writes: AOF errors.
+ * DISK_ERROR_TYPE_RDB:     Don't accept writes: RDB errors.
+ */
 int writeCommandsDeniedByDiskError(void) {
     if (server.stop_writes_on_bgsave_err &&
         server.saveparamslen > 0 &&
