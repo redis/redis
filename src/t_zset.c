@@ -244,6 +244,23 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     return 0; /* not found */
 }
 
+/* Update the score of an elmenent inside the sorted set skiplist.
+ * Note that the element must exist and must match 'score'.
+ * This function does not update the score in the hash table side, the
+ * caller should take care of it.
+ *
+ * The function returns the updated element skiplist node pointer. */
+zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
+    zskiplistNode *node, *newnode;
+    serverAssert(zslDelete(zsl,curscore,ele,&node));
+    newnode = zslInsert(zsl,newscore,node->ele);
+    /* We reused the node->ele SDS string, free the node now
+     * since zslInsert created a new one. */
+    node->ele = NULL;
+    zslFreeNode(node);
+    return newnode;
+}
+
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
@@ -1341,13 +1358,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
-                zskiplistNode *node;
-                serverAssert(zslDelete(zs->zsl,curscore,ele,&node));
-                znode = zslInsert(zs->zsl,score,node->ele);
-                /* We reused the node->ele SDS string, free the node now
-                 * since zslInsert created a new one. */
-                node->ele = NULL;
-                zslFreeNode(node);
+                znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
