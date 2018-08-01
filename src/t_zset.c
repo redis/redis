@@ -292,19 +292,6 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     return newnode;
 }
 
-#if 0
-zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
-    zskiplistNode *node, *newnode;
-    serverAssert(zslDelete(zsl,curscore,ele,&node));
-    newnode = zslInsert(zsl,newscore,node->ele);
-    /* We reused the node->ele SDS string, free the node now
-     * since zslInsert created a new one. */
-    node->ele = NULL;
-    zslFreeNode(node);
-    return newnode;
-}
-#endif
-
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
