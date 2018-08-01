@@ -251,6 +251,49 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
  *
  * The function returns the updated element skiplist node pointer. */
 zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward &&
+                (x->level[i].forward->score < curscore ||
+                    (x->level[i].forward->score == curscore &&
+                     sdscmp(x->level[i].forward->ele,ele) < 0)))
+        {
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    /* Jump to our element: note that this function assumes that the
+     * element with the matching score exists. */
+    x = x->level[0].forward;
+    serverAssert(x && curscore == x->score && sdscmp(x->ele,ele) == 0);
+
+    /* If the node, after the score update, would be still exactly
+     * at the same position, we can just update the score without
+     * actually removing and re-inserting the element in the skiplist. */
+    if ((x->backward == NULL || x->backward->score <= newscore) &&
+        (x->level[0].forward == NULL || x->level[0].forward->score >= newscore))
+    {
+        x->score = newscore;
+        return x;
+    }
+
+    /* No way to reuse the old node: we need to remove and insert a new
+     * one at a different place. */
+    zslDeleteNode(zsl, x, update);
+    zskiplistNode *newnode = zslInsert(zsl,newscore,x->ele);
+    /* We reused the old node x->ele SDS string, free the node now
+     * since zslInsert created a new one. */
+    x->ele = NULL;
+    zslFreeNode(x);
+    return newnode;
+}
+
+#if 0
+zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
     zskiplistNode *node, *newnode;
     serverAssert(zslDelete(zsl,curscore,ele,&node));
     newnode = zslInsert(zsl,newscore,node->ele);
@@ -260,6 +303,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     zslFreeNode(node);
     return newnode;
 }
+#endif
 
 int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
