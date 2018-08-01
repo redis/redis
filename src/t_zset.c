@@ -259,6 +259,8 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
 
+    /* We need to seek to element to update to start: this is useful anyway,
+     * we'll have to update or remove it. */
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward &&
