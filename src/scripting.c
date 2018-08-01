@@ -483,6 +483,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * command marked as non-deterministic was already called in the context
      * of this script. */
     if (cmd->flags & CMD_WRITE) {
+        int deny_write_type = writeCommandsDeniedByDiskError();
         if (server.lua_random_dirty && !server.lua_replicate_commands) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands. Call redis.replicate_commands() at the start of your script in order to switch to single commands replication mode.");
@@ -493,13 +494,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         {
             luaPushError(lua, shared.roslaveerr->ptr);
             goto cleanup;
-        } else if ((server.stop_writes_on_bgsave_err &&
-                    server.saveparamslen > 0 &&
-                    server.lastbgsave_status == C_ERR) ||
-                   (server.aof_state != AOF_OFF &&
-                    server.aof_last_write_status == C_ERR))
-        {
-            if (server.aof_last_write_status == C_OK) {
+        } else if (deny_write_type != DISK_ERROR_TYPE_NONE) {
+            if (deny_write_type == DISK_ERROR_TYPE_RDB) {
                 luaPushError(lua, shared.bgsaveerr->ptr);
             } else {
                 sds aof_write_err = sdscatfmt(sdsempty(),

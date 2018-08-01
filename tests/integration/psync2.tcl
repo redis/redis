@@ -33,9 +33,8 @@ start_server {} {
 
     set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
-        test "PSYNC2: --- CYCLE $cycle ---" {
-            incr cycle
-        }
+        test "PSYNC2: --- CYCLE $cycle ---" {}
+        incr cycle
 
         # Create a random replication layout.
         # Start with switching master (this simulates a failover).
@@ -139,6 +138,11 @@ start_server {} {
             }
             assert {$sum == 4}
         }
+
+        # Limit anyway the maximum number of cycles. This is useful when the
+        # test is skipped via --only option of the test suite. In that case
+        # we don't want to see many seconds of this test being just skipped.
+        if {$cycle > 50} break
     }
 
     test "PSYNC2: Bring the master back again for next test" {
