@@ -281,8 +281,8 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     /* If the node, after the score update, would be still exactly
      * at the same position, we can just update the score without
      * actually removing and re-inserting the element in the skiplist. */
-    if ((x->backward == NULL || x->backward->score <= newscore) &&
-        (x->level[0].forward == NULL || x->level[0].forward->score >= newscore))
+    if ((x->backward == NULL || x->backward->score < newscore) &&
+        (x->level[0].forward == NULL || x->level[0].forward->score > newscore))
     {
         x->score = newscore;
         return x;
