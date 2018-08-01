@@ -1138,6 +1138,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
+    config.cluster_reissue_command = 0;
     while(repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
@@ -1549,20 +1550,17 @@ static char **convertToSds(int count, char** args) {
 }
 
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
-    while (1) {
-        config.cluster_reissue_command = 0;
-        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-            cliConnect(CC_FORCE);
+    if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+        cliConnect(CC_FORCE);
 
-            /* If we still cannot send the command print error.
-             * We'll try to reconnect the next time. */
-            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
-                cliPrintContextError();
-                return REDIS_ERR;
-            }
-        } else
-            break;
+        /* If we still cannot send the command print error.
+         * We'll try to reconnect the next time. */
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliPrintContextError();
+            return REDIS_ERR;
+        }
     }
+
     return REDIS_OK;
 }
 
