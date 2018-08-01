@@ -249,6 +249,11 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
  * This function does not update the score in the hash table side, the
  * caller should take care of it.
  *
+ * Note that this function attempts to just update the node, in case after
+ * the score update, the node would be exactly at the same position.
+ * Otherwise the skiplist is modified by removing and re-adding a new
+ * element, which is more costly.
+ *
  * The function returns the updated element skiplist node pointer. */
 zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double newscore) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
