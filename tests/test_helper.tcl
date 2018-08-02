@@ -89,6 +89,7 @@ set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
 set ::wait_server 0
+set ::stop_on_failure 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -302,6 +303,11 @@ proc read_from_test_client fd {
         puts $err
         lappend ::failed_tests $err
         set ::active_clients_task($fd) "(ERR) $data"
+            if {$::stop_on_failure} {
+            puts -nonewline "(Test stopped, press enter to continue)"
+            flush stdout
+            gets stdin
+        }
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
         kill_clients
@@ -433,10 +439,11 @@ proc print_help_screen {} {
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
-        "--config <k> <v>   extra config file argument"
-        "--skipfile <file>  name of a file containing test names that should be skipped (one per line)"
-        "--dont-clean       don't delete redis log files after the run"
-        "--wait-server      wait after server is started (so that you can attach a debugger)"
+        "--config <k> <v>   Extra config file argument"
+        "--skipfile <file>  Name of a file containing test names that should be skipped (one per line)"
+        "--dont-clean       Don't delete redis log files after the run"
+        "--stop             Blocks once the first test fails"
+        "--wait-server      Wait after server is started (so that you can attach a debugger)"
         "--help             Print this help screen."
     } "\n"]
 }
@@ -511,6 +518,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::dont_clean 1
     } elseif {$opt eq {--wait-server}} {
         set ::wait_server 1
+    } elseif {$opt eq {--stop}} {
+        set ::stop_on_failure 1
     } elseif {$opt eq {--timeout}} {
         set ::timeout $arg
         incr j
