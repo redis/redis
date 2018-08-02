@@ -677,6 +677,7 @@ int loadAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
         serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
@@ -781,9 +782,15 @@ int loadAppendOnlyFile(char *filename) {
             exit(1);
         }
 
+        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        cmd->proc(fakeClient);
+        if (fakeClient->flags & CLIENT_MULTI && fakeClient->cmd->proc != execCommand) {
+            queueMultiCommand(fakeClient);
+        } else {
+            cmd->proc(fakeClient);
+        }
 
         /* The fake client should not have a reply */
         serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
@@ -801,7 +808,11 @@ int loadAppendOnlyFile(char *filename) {
      * If the client is in the middle of a MULTI/EXEC, handle it as it was
      * a short read, even if technically the protocol is correct: we want
      * to remove the unprocessed tail and continue. */
-    if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
+    if (fakeClient->flags & CLIENT_MULTI) {
+        serverLog(LL_WARNING,"!!! Warning: we lost EXEC in the middle of transaction, discard !!!");
+        valid_up_to = valid_before_multi;
+        goto uxeof;
+    }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
