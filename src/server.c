@@ -2837,20 +2837,17 @@ int writeCommandsDeniedByDiskError(void) {
  * can avoid leaking any information about the password length and any
  * possible branch misprediction related leak.
  */
+#define CONFIG_AUTHPASS_MAX_LEN2LONG_WORD (CONFIG_AUTHPASS_MAX_LEN/sizeof(unsigned long long))
 unsigned long long time_independent_strcmp(char *a, char *b) {
-    char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
+    unsigned long long bufa[CONFIG_AUTHPASS_MAX_LEN2LONG_WORD], bufb[CONFIG_AUTHPASS_MAX_LEN2LONG_WORD];
     /* The above two strlen perform len(a) + len(b) operations where either
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
      * leak is possible in the following two lines of code. */
     unsigned int alen = strlen(a);
     unsigned int blen = strlen(b);
-    unsigned long long *bufap, *bufbp;
     unsigned int j;
     unsigned long long diff = 0;
-
-    bufap = (unsigned long long*)bufa;
-    bufbp = (unsigned long long*)bufb;
 
     /* We can't compare strings longer than our static buffers.
      * Note that this will never pass the first test in practical circumstances
@@ -2866,8 +2863,8 @@ unsigned long long time_independent_strcmp(char *a, char *b) {
 
     /* Always compare all the chars in the two buffers without
      * conditional expressions. */
-    for (j = 0; j < sizeof(bufa) / sizeof(unsigned long long); j++) {
-        diff |= (bufap[j] ^ bufbp[j]);
+    for (j = 0; j < CONFIG_AUTHPASS_MAX_LEN2LONG_WORD; j++) {
+        diff |= (bufa[j] ^ bufb[j]);
     }
     /* Length must be equal as well. */
     diff |= alen ^ blen;
