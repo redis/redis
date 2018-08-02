@@ -1185,4 +1185,30 @@ start_server {tags {"zset"}} {
         stressers ziplist
         stressers skiplist
     }
+
+    test {ZSET skiplist order consistency when elements are moved} {
+        set original_max [lindex [r config get zset-max-ziplist-entries] 1]
+        r config set zset-max-ziplist-entries 0
+        for {set times 0} {$times < 10} {incr times} {
+            r del zset
+            for {set j 0} {$j < 1000} {incr j} {
+                r zadd zset [randomInt 50] ele-[randomInt 10]
+            }
+
+            # Make sure that element ordering is correct
+            set prev_element {}
+            set prev_score -1
+            foreach {element score} [r zrange zset 0 -1 WITHSCORES] {
+                # Assert that elements are in increasing ordering
+                assert {
+                    $prev_score < $score ||
+                    ($prev_score == $score &&
+                     [string compare $prev_element $element] == -1)
+                }
+                set prev_element $element
+                set prev_score $score
+            }
+        }
+        r config set zset-max-ziplist-entries $original_max
+    }
 }
