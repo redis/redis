@@ -11,6 +11,56 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.11     Released Fri Aug 03 17:09:24 CEST 2018
+================================================================================
+
+Upgrade urgency HIGH: not critical but very important bugs fixed.
+
+Dear users, this is just a bugfix release of Redis 4. All new work
+is now focused on Redis 5, however we backported a number of bug fixes here:
+
+* The disconnection time between the master and slave was reset in an
+  incorrect place, sometimes a good slave will not be able to failover
+  because it claims it was disconnected for too much time from the master.
+* A replication bug, rare to trigger but non impossible, is in Redis for
+  years. It was lately discovered at Redis Labs and fixed by Oran Agra.
+  It may cause disconnections, desynchronizations and other issues.
+* RANDOMKEY may go in infinite loop on rare situations. Now fixed.
+* EXISTS now works in a more consistent way on slaves.
+* Sentinel: backport of an option to deny a potential security problem
+  when the SENTINEL command is used to configure an arbitrary script
+  to execute.
+
+Many of these issues are there for a very long time, however upgrading
+is a good idea.
+
+This is the full list of commits:
+
+antirez in commit 677f7585:
+ Set repl_down_since to zero on state change.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+WuYunlong in commit 8c6223f9:
+ fix server.repl_down_since resetting, so that slaves could failover automatically as expected.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 9535c215:
+ fix rare replication stream corruption with disk-based replication
+ 3 files changed, 19 insertions(+), 9 deletions(-)
+
+zhaozhao.zz in commit 5f1fcc59:
+ fix exists command on slave
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+antirez in commit ab145a9f:
+ Fix infinite loop in dbRandomKey().
+ 1 file changed, 13 insertions(+)
+
+antirez in commit 2fa43ece:
+ Sentinel: add an option to deny online script reconfiguration.
+ 2 files changed, 41 insertions(+)
+
+================================================================================
 Redis 4.0.10     Released Wed Jun 13 12:49:13 CEST 2018
 ================================================================================
 
