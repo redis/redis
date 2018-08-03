@@ -25,7 +25,8 @@ WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
 PREFIX?=/usr/local
-INSTALL_BIN=$(PREFIX)/bin
+DESTDIR?=
+INSTALL_BIN=$(DESTDIR)$(PREFIX)/bin
 INSTALL=install
 
 # Default allocator defaults to Jemalloc if it's not an ARM
