@@ -798,7 +798,9 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was
+     * a short read, even if technically the protocol is correct: we want
+     * to remove the unprocessed tail and continue. */
     if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
