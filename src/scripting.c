@@ -479,6 +479,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         goto cleanup;
     }
 
+    if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
+
     /* Write commands are forbidden against read-only slaves, or if a
      * command marked as non-deterministic was already called in the context
      * of this script. */
@@ -521,7 +523,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         }
     }
 
-    if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
     if (cmd->flags & CMD_WRITE) server.lua_write_dirty = 1;
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
