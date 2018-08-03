@@ -2040,12 +2040,12 @@ void xclaimCommand(client *c) {
         } else if (!strcasecmp(opt,"TIME") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
-                "Invalid IDLE option argument for XCLAIM")
+                "Invalid TIME option argument for XCLAIM")
                 != C_OK) return;
         } else if (!strcasecmp(opt,"RETRYCOUNT") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&retrycount,
-                "Invalid IDLE option argument for XCLAIM")
+                "Invalid RETRYCOUNT option argument for XCLAIM")
                 != C_OK) return;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
