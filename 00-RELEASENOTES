@@ -12,6 +12,1014 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0 RC4     Released Fri Aug 03 13:51:02 CEST 2018
+================================================================================
+
+Upgrade urgency
+
+    HIGH: Many non critical but important issues fixed.
+    CRITICAL for Stream users: Many important bugs fixed.
+
+Hi all, welcome to Redis 5.0 RC4.
+
+This release is a huge step forward in Redis 5 maturity and fixes a number
+of issues. It also provides interesting improvements. Here I'll summarize
+the biggest one, but laster you can find the full list of commits:
+
+Fixes:
+
+* A number of fixes related to Streams: stability and correctnes.
+* Fix dbRandomKey() potential infinite loop.
+* Improve eviction LFU/LRU when keys are created by INCR commands family.
+* Active defragmentation is now working on Redis 5.
+* Fix corner case in Redis CLuster / Sentinel failover, by resetting the
+  disconnection time with master in a more appropriate place.
+* Use a private version of localtime() to avoid potential deadlocks.
+* Different redis-cli non critical fixes.
+* Fix rare replication stream corruption with disk-based replication.
+
+Improvements:
+
+* Sentinel: add an option to deny online script reconfiguration.
+* Improved RESTORE command.
+* Sentinel command renaming: allows to use Sentinel with Redis instances
+  that have non standard command names.
+* CLIENT ID and CLIENT UNBLOCK.
+* CLIENT LIST now supports a TYPE option.
+* redis-cli --cluster now supports authentication.
+* redis-trib is now deprecated (use redis-cli --cluster).
+* Better slaves output buffers efficiency.
+* Faster INFO when there are many clients connected.
+* Dynamic HZ feature.
+* Improvements in what the MEMORY command is able to report.
+* Add year in log. (WARNING: may be incompatible with log scraping tools)
+* Lazy freeing now works even when values are overwritten (for instance SET).
+* Faster ZADD when elements scores are updated.
+* Improvements to the test suite, including many new options.
+
+antirez in commit a4d1201e:
+ Test suite: add --loop option.
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+antirez in commit 273d8191:
+ Test suite: new --stop option.
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+antirez in commit fbbcc6a6:
+ Streams IDs parsing refactoring.
+ 1 file changed, 32 insertions(+), 17 deletions(-)
+
+antirez in commit 70c4bcb7:
+ Test: new sorted set skiplist order consistency.
+ 1 file changed, 26 insertions(+)
+
+antirez in commit 63addc5c:
+ Fix zslUpdateScore() edge case.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 724740cc:
+ More commenting of zslUpdateScore().
+ 1 file changed, 2 insertions(+)
+
+antirez in commit ddc87eef:
+ Explain what's the point of zslUpdateScore() in top comment.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit 741f29ea:
+ Remove old commented zslUpdateScore() from source.
+ 1 file changed, 13 deletions(-)
+
+antirez in commit 20116836:
+ Optimize zslUpdateScore() as asked in #5179.
+ 1 file changed, 44 insertions(+)
+
+antirez in commit 8c297e8b:
+ zsetAdd() refactored adding zslUpdateScore().
+ 1 file changed, 18 insertions(+), 7 deletions(-)
+
+dejun.xdj in commit bd2f3f6b:
+ Streams: rearrange the usage of '-' and '+' IDs in stream commands.
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+dejun.xdj in commit c0c06b84:
+ Streams: add mmid_supp argument in streamParseIDOrReply().
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit ab237a8e:
+ Minor improvements to PR #5187.
+ 2 files changed, 13 insertions(+), 6 deletions(-)
+
+Oran Agra in commit 1ce3cf7a:
+ test suite conveniency improvements
+ 3 files changed, 79 insertions(+), 3 deletions(-)
+
+Oran Agra in commit 36622899:
+ add DEBUG LOG, to to assist test suite debugging
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 83d4311a:
+ Cluster cron announce IP minor refactoring.
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+shenlongxing in commit a633f8e1:
+ Fix cluster-announce-ip memory leak
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit 24c45538:
+ Tranfer -> transfer typo fixed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit c609f240:
+ refactor dbOverwrite to make lazyfree work
+ 4 files changed, 27 insertions(+), 12 deletions(-)
+
+antirez in commit 9e971739:
+ Refactoring: replace low-level checks with writeCommandsDeniedByDiskError().
+ 2 files changed, 6 insertions(+), 13 deletions(-)
+
+antirez in commit 0e77cef0:
+ Fix writeCommandsDeniedByDiskError() inverted return value.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit acfe9d13:
+ Better top comment for writeCommandsDeniedByDiskError().
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+antirez in commit 4e933e00:
+ Introduce writeCommandsDeniedByDiskError().
+ 2 files changed, 24 insertions(+)
+
+WuYunlong in commit 41607dfd:
+ Consider aof write error as well as rdb in lua script.
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+Salvatore Sanfilippo in commit 1d073a64:
+ Merge pull request #5168 from rpv-tomsk/issue-5033
+Guy Korland in commit 2db31fd4:
+ Few typo fixes
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+antirez in commit 64242757:
+ Add year in log.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 50be4a1f:
+ Document dynamic-hz in the example redis.conf.
+ 1 file changed, 16 insertions(+)
+
+antirez in commit 9a76472d:
+ Make dynamic hz actually configurable.
+ 1 file changed, 9 insertions(+)
+
+antirez in commit a330d06c:
+ Control dynamic HZ via server configuration.
+ 2 files changed, 13 insertions(+), 6 deletions(-)
+
+antirez in commit d42602ff:
+ Dynamic HZ: adapt cron frequency to number of clients.
+ 2 files changed, 17 insertions(+), 5 deletions(-)
+
+antirez in commit 7b5f0223:
+ Dynamic HZ: separate hz from the configured hz.
+ 3 files changed, 15 insertions(+), 9 deletions(-)
+
+antirez in commit 037b00de:
+ Remove useless conditional from emptyDb().
+ 1 file changed, 1 deletion(-)
+
+antirez in commit 0e97ae79:
+ Make emptyDb() change introduced in #4852 simpler to read.
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit f7740faf:
+ optimize flushdb, avoid useless loops
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 0c008376:
+ Streams: fix xdel memory leak
+ 1 file changed, 1 insertion(+)
+
+antirez in commit dc600a25:
+ Example the magic +1 in migrateCommand().
+ 1 file changed, 4 insertions(+)
+
+antirez in commit d6827ab6:
+ Make changes of PR #5154 hopefully simpler.
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+WuYunlong in commit 89ec1453:
+ Do not migrate already expired keys.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+Pavel Rochnyack in commit cd25ed17:
+ INFO CPU: higher precision of reported values
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+antirez in commit 6bfb4745:
+ Streams: refactoring of next entry seek in the iterator.
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+zhaozhao.zz in commit 4724548e:
+ Streams: skip master fileds only when we are going forward in streamIteratorGetID
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+Oran Agra in commit 4b79fdf1:
+ fix slave buffer test suite false positives
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a1e081f7:
+ string2ll(): better commenting.
+ 1 file changed, 6 insertions(+)
+
+dsomeshwar in commit 8b4fe752:
+ removing redundant check
+ 1 file changed, 3 deletions(-)
+
+antirez in commit 9e5bf047:
+ Restore string2ll() to original version.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+Oran Agra in commit c2ecdcde:
+ fix recursion typo in zmalloc_usable
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 4f742bd6:
+ string2ll(): remove duplicated check for special case.
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+antirez in commit a4efac00:
+ string2ll(): test for NULL pointer in all the cases.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 2c07c107:
+ Change 42 to 1000 as warning level for cached scripts.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Itamar Haber in commit 270903d6:
+ Adds Lua overheads to MEMORY STATS, smartens the MEMORY DOCTOR
+ 3 files changed, 30 insertions(+), 4 deletions(-)
+
+Itamar Haber in commit faf3dbfc:
+ Adds memory information about the script's cache to INFO
+ 3 files changed, 12 insertions(+)
+
+antirez in commit 49841a54:
+ Fix merge errors.
+ 2 files changed, 7 deletions(-)
+
+antirez in commit 77a7ec72:
+ Merge branch 'unstable' into 5.0 branch
+antirez in commit 4ff47a0b:
+ Top comment clientsCron().
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+antirez in commit aba68552:
+ Clarify that clientsCronTrackExpansiveClients() indexes may jump ahead.
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+antirez in commit be88c0b1:
+ Rename INFO CLIENT max buffers field names for correctness.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 0cf3794e:
+ Fix wrong array index variable in getExpansiveClientsInfo().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit ea3a20c5:
+ Change INFO CLIENTS sections to report pre-computed max/min client buffers.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 8f7e496b:
+ Rename var in clientsCronTrackExpansiveClients() for clarity.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 8d617596:
+ Implement a function to retrieve the expansive clients mem usage.
+ 1 file changed, 12 insertions(+)
+
+antirez in commit 85a1b4f8:
+ clientsCronTrackExpansiveClients() actual implementation.
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+antirez in commit d4c5fc57:
+ clientsCronTrackExpansiveClients() skeleton and ideas.
+ 1 file changed, 23 insertions(+)
+
+antirez in commit 1c95c075:
+ Make vars used only by INFO CLIENTS local to the block.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit 16b8d364:
+ Merge pull request #4727 from kingpeterpaule/redis-fix-info-cli
+antirez in commit 0aca977c:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 313b2240:
+ In addReplyErrorLength() only panic when replying to slave.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit 6183f059:
+ Refine comment in addReplyErrorLength() about replying to masters/slaves.
+ 1 file changed, 11 insertions(+)
+
+Salvatore Sanfilippo in commit 22e9321c:
+ Merge pull request #5138 from oranagra/improve_defrag_test
+Oran Agra in commit f89c93c8:
+ make active defrag test more stable
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+Salvatore Sanfilippo in commit 8213f64d:
+ Merge pull request #5122 from trevor211/allowWritesWhenAofDisabled
+Salvatore Sanfilippo in commit 46fd9278:
+ Merge pull request #4237 from aspirewit/update-comment
+antirez in commit 6201f7b4:
+ Streams: better error when $ is given with XREADGROUP.
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 4bff45c7:
+ Merge pull request #5136 from 0xtonyxia/fix-xread-id-parse
+antirez in commit afc7e08a:
+ Panic when we are sending an error to our master/slave.
+ 1 file changed, 5 insertions(+)
+
+Salvatore Sanfilippo in commit e03358c0:
+ Merge pull request #5135 from oranagra/rare_repl_corruption
+dejun.xdj in commit 846cf12a:
+ Streams: remove meaningless if condition.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 6501b6bb:
+ Streams: return an error message if using xreadgroup with '$' ID.
+ 1 file changed, 5 insertions(+)
+
+Oran Agra in commit d5559898:
+ fix rare replication stream corruption with disk-based replication
+ 3 files changed, 18 insertions(+), 9 deletions(-)
+
+antirez in commit cefe21d2:
+ dict.c: remove a few trailing spaces.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 4fc20992:
+ Merge pull request #5128 from kingpeterpaule/remove-one-loop-in-freeMemoryIfNeeded
+Salvatore Sanfilippo in commit 9fbd49bb:
+ Merge pull request #5113 from 0xtonyxia/using-compare-func-instead
+Salvatore Sanfilippo in commit cab39676:
+ Merge pull request #5127 from oranagra/sds_req_type
+antirez in commit f9c84d6d:
+ Hopefully improve commenting of #5126.
+ 2 files changed, 22 insertions(+), 10 deletions(-)
+
+Salvatore Sanfilippo in commit e22a1218:
+ Merge pull request #5126 from oranagra/slave_buf_memory_2
+Salvatore Sanfilippo in commit 28dd8dd1:
+ Merge pull request #5132 from soloestoy/propagate-xdel-correctly
+Oran Agra in commit bf680b6f:
+ slave buffers were wasteful and incorrectly counted causing eviction
+ 10 files changed, 182 insertions(+), 50 deletions(-)
+
+zhaozhao.zz in commit 73306c6f:
+ Streams: correctly propagate xdel if needed
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+antirez in commit 103c5a1a:
+ Add a few comments to streamIteratorRemoveEntry().
+ 1 file changed, 4 insertions(+)
+
+Salvatore Sanfilippo in commit a317f55d:
+ Merge pull request #5131 from soloestoy/optimize-xdel
+antirez in commit 185e0d9c:
+ Modify XINFO field from last-id to last-generated-id.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit 4215e74b:
+ Merge pull request #5129 from soloestoy/xinfo-show-last-id
+zhaozhao.zz in commit c9324f81:
+ Streams: free lp if all elements are deleted
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+paule in commit b6ce7d5d:
+ Update dict.c
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit b4ba5ac8:
+ Streams: show last id for streams and groups
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+peterpaule in commit 816fc6cb:
+ remove one ineffective loop in dictGetSomeKeys.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit b05a22e2:
+ bugfix in sdsReqType creating 64bit sds headers on 32bit systems
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+dejun.xdj in commit 491682a6:
+ Streams: using streamCompareID() instead of direct compare in block.c.
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+dejun.xdj in commit a2177cd2:
+ Streams: add streamCompareID() declaration in stream.h.
+ 1 file changed, 1 insertion(+)
+
+dejun.xdj in commit 0484dbcf:
+ Streams: using streamCompareID() instead of direct compare.
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+WuYunlong in commit 2d4366c5:
+ Accept write commands if persisting is disabled, event if we do have problems persisting on disk previously.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit ab33bcd3:
+ Merge pull request #5120 from andrewsensus/leap-year-comment-patch-1
+antirez in commit 2352a519:
+ Test: XDEL fuzz testing. Remove and check stage.
+ 1 file changed, 15 insertions(+)
+
+antirez in commit 3d7d20b7:
+ Test: fix lshuffle by providing the "K" combinator.
+ 1 file changed, 2 insertions(+)
+
+antirez in commit 967ad364:
+ Test: add lshuffle in the Tcl utility functions set.
+ 1 file changed, 14 insertions(+)
+
+antirez in commit d6efd5fc:
+ Test: XDEL fuzz testing, stream creation.
+ 1 file changed, 20 insertions(+)
+
+andrewsensus in commit 8dc08ae2:
+ update leap year comment
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 69997153:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit a93f8f09:
+ Test: XDEL basic test.
+ 1 file changed, 12 insertions(+)
+
+Salvatore Sanfilippo in commit a44a5934:
+ Merge pull request #5119 from trevor211/fixSlowlogConfig
+WuYunlong in commit d6ba4fd5:
+ Fix config set slowlog-log-slower-than and condition in createLatencyReport
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+WuYunlong in commit b3660be8:
+ Add test in slowlog.tcl
+ 1 file changed, 10 insertions(+)
+
+artix in commit d4182a0a:
+ Cluster Manager: more checks on --cluster-weight option.
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+artix in commit d222eda9:
+ Redis-trib deprecated: it no longer works and it outputs a warning to the user.
+ 1 file changed, 103 insertions(+), 1804 deletions(-)
+
+artix in commit 513eb572:
+ Cluster Manager: auth support (-a argument).
+ 1 file changed, 41 insertions(+), 19 deletions(-)
+
+Salvatore Sanfilippo in commit f3980bb9:
+ Merge pull request #5115 from shenlongxing/patch-1
+Shen Longxing in commit c2a85fb3:
+ Delete unused role checking.
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+Salvatore Sanfilippo in commit 4cb5bd4e:
+ Merge pull request #4820 from charpty/wip-serverc-simplify
+antirez in commit 8d6b7861:
+ Add regression test for #5111.
+ 1 file changed, 15 insertions(+)
+
+antirez in commit b6260a02:
+ Streams: when re-delivering because of SETID, reset deliveries counter.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit a7c180e5:
+ Simplify duplicated NACK #5112 fix.
+ 1 file changed, 18 insertions(+), 21 deletions(-)
+
+Salvatore Sanfilippo in commit bf4def0f:
+ Merge pull request #5112 from 0xtonyxia/fix-xreadgroup-crash-after-setid
+Salvatore Sanfilippo in commit 16770551:
+ Merge pull request #5114 from oranagra/defrag_32
+Oran Agra in commit 920158ec:
+ Active defrag fixes for 32bit builds (again)
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit f45e7901:
+ Merge pull request #4967 from JingchengLi/unstable
+tengfeng in commit 9505dd20:
+ fix repeat argument issue and reduce unnessary loop times for redis-cli.
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+antirez in commit 0420c327:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 28e95c7c:
+ Streams: fix typo "consumer".
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a8c1bb31:
+ Streams: fix new XREADGROUP sync logic.
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+antirez in commit 1a02b5f6:
+ Streams: make blocking for > a truly special case.
+ 1 file changed, 29 insertions(+), 4 deletions(-)
+
+antirez in commit a71e8148:
+ Streams: send an error to consumers blocked on non-existing group.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit 09327f11:
+ Streams: fix unblocking logic into a consumer group.
+ 1 file changed, 24 insertions(+), 14 deletions(-)
+
+dejun.xdj in commit 3f8a3efe:
+ Streams: fix xreadgroup crash after xgroup SETID is sent.
+ 1 file changed, 20 insertions(+), 15 deletions(-)
+
+Salvatore Sanfilippo in commit 7239e9ca:
+ Merge pull request #5095 from 0xtonyxia/fix-indentation
+dejun.xdj in commit 61f12973:
+ Bugfix: PEL is incorrect when consumer is blocked using xreadgroup with NOACK option.
+ 4 files changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit b67f0276:
+ redis-cli: fix #4990 additional argument in help.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 18d65849:
+ redis-cli: fix #5096 double error message.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 84620327:
+ redis-cli: cliConnect() flags CC_FORCE and CC_QUIET.
+ 1 file changed, 23 insertions(+), 13 deletions(-)
+
+Amit Dey in commit a3a5a25f:
+ fixing broken link in CONTRIBUTING
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 289d8d9c:
+ CLIENT UNBLOCK: fix client unblock help message.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+minkikim89 in commit 62a4a8c1:
+ fix whitespace in redis-cli.c
+ 1 file changed, 362 insertions(+), 362 deletions(-)
+
+WuYunlong in commit 0a5805d7:
+ fix compile warning in addReplySubcommandSyntaxError
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit cb78c842:
+ Use nolocks_localtime() for safer logging.
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit 81778d91:
+ Cache timezone and daylight active flag for safer logging.
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+antirez in commit 18d8205b:
+ Localtime: clarify is_leap_year() working with comments.
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit 29644144:
+ Localtime: fix comment about leap year.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0ea39aa4:
+ Localtime: fix daylight saving adjustment. Use * not +.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 6614d305:
+ Localtime: fix daylight time documentation and computation.
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+dejun.xdj in commit 46f5a2ca:
+ Fix indentation.
+ 2 files changed, 14 insertions(+), 14 deletions(-)
+
+antirez in commit 243c5a7a:
+ Localtime: add a test main() function to check the output.
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+antirez in commit c25ee35a:
+ Localtime: day of month is 1 based. Convert from 0 based "days".
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit b9f33830:
+ Localtime: fix timezone adjustment.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 0c12cbed:
+ Localtime: compute year, month and day of the month.
+ 1 file changed, 26 insertions(+)
+
+antirez in commit 06ca400f:
+ Localtime: basics initial calculations. Year missing.
+ 1 file changed, 30 insertions(+), 2 deletions(-)
+
+antirez in commit 6a529067:
+ Localtime function skeleton and file added.
+ 1 file changed, 44 insertions(+)
+
+Jack Drogon in commit 93238575:
+ Fix typo
+ 40 files changed, 99 insertions(+), 99 deletions(-)
+
+antirez in commit 94b3ee61:
+ Clarify the pending_querybuf field of clients.
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+antirez in commit 549b8b99:
+ Improve style of PR #5084.
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 526b30a7:
+ Merge pull request #5084 from chendq8/pending-querybuf
+antirez in commit 677d10b2:
+ Set repl_down_since to zero on state change.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit 02e38516:
+ Merge pull request #5081 from trevor211/fixClusterFailover
+chendianqiang in commit cbb2ac07:
+ Merge branch 'unstable' into pending-querybuf
+antirez in commit 2edcafb3:
+ addReplySubSyntaxError() renamed to addReplySubcommandSyntaxError().
+ 12 files changed, 14 insertions(+), 14 deletions(-)
+
+Salvatore Sanfilippo in commit bc6a0045:
+ Merge pull request #4998 from itamarhaber/module_command_help
+Salvatore Sanfilippo in commit ee09b5ed:
+ Merge pull request #5071 from akshaynagpal/patch-2
+Salvatore Sanfilippo in commit f03ad962:
+ Merge pull request #5068 from shenlongxing/fix-rename-command
+Salvatore Sanfilippo in commit e4881cd0:
+ Merge pull request #5090 from trevor211/test_helper_tcl
+WuYunlong in commit 2833cfbe:
+ fix tests/test_helper.tcl with --wait-server option. Issue #5063 added --wait-server option, but can not work.
+ 1 file changed, 1 deletion(-)
+
+chendianqiang in commit 7de1ada0:
+ limit the size of pending-querybuf in masterclient
+ 4 files changed, 48 insertions(+)
+
+WuYunlong in commit 2e167f7d:
+ fix server.repl_down_since resetting, so that slaves could failover automatically as expected.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+WuYunlong in commit aeb7bc3e:
+ cluster.tcl: Add master consecutively down test.
+ 1 file changed, 77 insertions(+)
+
+antirez in commit d751d98b:
+ Change CLIENT LIST TYPE help string.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit a0b05a04:
+ Merge pull request #5075 from soloestoy/client-list-types
+Salvatore Sanfilippo in commit aa2c390e:
+ Merge pull request #5074 from soloestoy/fix-compile-warning
+Salvatore Sanfilippo in commit a4ef94d2:
+ Merge pull request #5076 from 0xtonyxia/add-no-auth-warning-option
+dejun.xdj in commit 9f185626:
+ Check if password is used on command line interface.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit 1139070a:
+ Fix trailing white space.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+dejun.xdj in commit bbd0ca95:
+ Fix code format issue.
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+dejun.xdj in commit 7becf54e:
+ Don't output password warning message when --no-auth-warning is used.
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+dejun.xdj in commit bde05e9c:
+ Avoid -Woverlength-strings compile warning.
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+antirez in commit 5baf50d8:
+ Rax library updated (node callback).
+ 2 files changed, 19 insertions(+), 5 deletions(-)
+
+dejun.xdj in commit 0b74fd67:
+ Add --no-auth-warning help message.
+ 1 file changed, 2 insertions(+)
+
+zhaozhao.zz in commit b9cbd04b:
+ clients: add type option for client list
+ 4 files changed, 20 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit f5538642:
+ clients: show pubsub flag in client list
+ 1 file changed, 1 insertion(+)
+
+zhaozhao.zz in commit 1fcf2737:
+ fix some compile warnings
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+Akshay Nagpal in commit 007e3cbd:
+ Added link to Google Group
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit ab55f9da:
+ Make CLIENT HELP output nicer to the eyes.
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+antirez in commit 75f1a7bd:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 4a70ff74:
+ Add unblock in CLIENT HELP.
+ 1 file changed, 1 insertion(+)
+
+shenlongxing in commit 3c27db1c:
+ fix empty string for sentinel rename-command
+ 1 file changed, 5 insertions(+)
+
+Salvatore Sanfilippo in commit f7b21bc7:
+ Merge pull request #5066 from oranagra/defrag_jemalloc5_fix
+Salvatore Sanfilippo in commit 730a4cfa:
+ Merge pull request #5067 from mpaltun/mpaltun-doc-fix
+antirez in commit 2214043b:
+ CLIENT UNBLOCK: support unblocking by error.
+ 1 file changed, 22 insertions(+), 3 deletions(-)
+
+Mustafa Paltun in commit 010dc172:
+ Update t_stream.c
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Mustafa Paltun in commit 6d0acb33:
+ Update help.h
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit de495ee7:
+ minor fix in creating a stream NACK for rdb and defrag tests
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 71295ee3:
+ CLIENT UNBLOCK implemented.
+ 1 file changed, 22 insertions(+)
+
+antirez in commit fb39bfd7:
+ Take clients in a ID -> Client handle dictionary.
+ 3 files changed, 6 insertions(+)
+
+antirez in commit ed65d734:
+ CLIENT ID implemented.
+ 1 file changed, 4 insertions(+)
+
+Salvatore Sanfilippo in commit 345b4809:
+ Merge pull request #5063 from oranagra/test_suite_improvements
+Salvatore Sanfilippo in commit 35c5f3fa:
+ Merge pull request #5065 from oranagra/defrag_jemalloc5
+Oran Agra in commit 5616d4c6:
+ add active defrag support for streams
+ 6 files changed, 230 insertions(+), 25 deletions(-)
+
+Oran Agra in commit e8099cab:
+ add defrag hint support into jemalloc 5
+ 3 files changed, 43 insertions(+)
+
+Oran Agra in commit 751eea24:
+ test suite infra improvements and fix
+ 2 files changed, 19 insertions(+)
+
+Salvatore Sanfilippo in commit bb666d44:
+ Merge pull request #5027 from tigertv/unstable
+antirez in commit b9058c73:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 43831779:
+ Sentinel: test command renaming feature.
+ 1 file changed, 10 insertions(+)
+
+Salvatore Sanfilippo in commit eb052ba9:
+ Merge pull request #5059 from guybe7/fix_restore_warning
+antirez in commit 27178a3f:
+ Fix type of argslen in sendSynchronousCommand().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1f1e724f:
+ Remove black space.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit aa5eaad4:
+ Merge pull request #5037 from madolson/repl-auth-fix
+antirez in commit 3cf8dd2c:
+ Sentinel: fix SENTINEL SET error reporting.
+ 1 file changed, 18 insertions(+), 9 deletions(-)
+
+Madelyn Olson in commit 45731edc:
+ Addressed comments
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Madelyn Olson in commit e8d68b6b:
+ Fixed replication authentication with whitespace in password
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+antirez in commit fc0c9c80:
+ Sentinel: drop the renamed-command entry in a more natural way.
+ 1 file changed, 4 insertions(+), 7 deletions(-)
+
+antirez in commit 8ba670f5:
+ Sentinel command renaming: document it into sentinel.conf.
+ 1 file changed, 19 insertions(+)
+
+antirez in commit a8a76bda:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 2358de68:
+ Sentinel command renaming: use case sensitive hashing for the dict.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit a9c50088:
+ Sentinel command renaming: fix CONFIG SET event logging.
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+antirez in commit b72cecd7:
+ Sentinel command renaming: fix CONFIG SET after refactoring.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 91a384a5:
+ Sentinel command renaming: implement SENTINEL SET.
+ 1 file changed, 19 insertions(+)
+
+antirez in commit 903582dd:
+ Sentinel: make SENTINEL SET able to handle different arities.
+ 1 file changed, 19 insertions(+), 12 deletions(-)
+
+antirez in commit c303e768:
+ Sentinel command renaming: config rewriting.
+ 1 file changed, 12 insertions(+)
+
+antirez in commit 60df7dbe:
+ Sentinel command renaming: rename-command option parsing.
+ 1 file changed, 11 insertions(+)
+
+antirez in commit 72e8a33b:
+ Sentinel command renaming: base machanism implemented.
+ 1 file changed, 64 insertions(+), 15 deletions(-)
+
+Guy Benoish in commit dfcc20f4:
+ Fix compiler warning in restoreCommand
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit cf7fcdbe:
+ Merge pull request #4634 from soloestoy/special-auth
+Salvatore Sanfilippo in commit 70b7fa2c:
+ Merge pull request #5049 from youjiali1995/fix-load-rdb
+Salvatore Sanfilippo in commit 54d66d39:
+ Merge pull request #5053 from michael-grunder/zpopminmax-keypos
+Salvatore Sanfilippo in commit 199e704a:
+ Merge pull request #5050 from shenlongxing/fix-typo
+michael-grunder in commit db6b99f9:
+ Update ZPOPMIN/ZPOPMAX command declaration
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit a16aa03a:
+ Merge pull request #5051 from oranagra/streams_mem_estimate
+Oran Agra in commit 20e10dc7:
+ fix streams memory estimation, missing raxSeek
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+shenlongxing in commit ec55df11:
+ fix typo
+ 4 files changed, 4 insertions(+), 4 deletions(-)
+
+youjiali1995 in commit df6644fe:
+ Fix rdbLoadIntegerObject() to create shared objects when needed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit 1527bcad:
+ Merge pull request #5036 from bepahol/unstable
+Salvatore Sanfilippo in commit c1e82405:
+ Merge pull request #5039 from oranagra/rdb_dbsize_hint
+Salvatore Sanfilippo in commit 79f55eed:
+ Merge pull request #5040 from oranagra/memrev64ifbe_fix
+Salvatore Sanfilippo in commit c6f4118c:
+ Merge pull request #5045 from guybe7/restore_fix
+Guy Benoish in commit b5197f1f:
+ Enhance RESTORE with RDBv9 new features
+ 5 files changed, 100 insertions(+), 22 deletions(-)
+
+Salvatore Sanfilippo in commit c6fdebf5:
+ Merge pull request #5042 from oranagra/malloc_usable_size_libc
+Oran Agra in commit 482785ac:
+ add malloc_usable_size for libc malloc
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+Salvatore Sanfilippo in commit 4da29630:
+ Merge pull request #5023 from FX-HAO/unstable
+antirez in commit e7219025:
+ Test RDB stream encoding saving/loading.
+ 1 file changed, 17 insertions(+)
+
+Salvatore Sanfilippo in commit 5f5e1199:
+ Merge pull request #5041 from oranagra/redis-rdb-check_rdbLoadMillisecondTime
+antirez in commit 4848fbec:
+ Modules: convert hash to hash table for big objects.
+ 1 file changed, 3 insertions(+)
+
+Oran Agra in commit f31b0405:
+ fix redis-rdb-check to provide proper arguments to rdbLoadMillisecondTime
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+antirez in commit 333c98c4:
+ AOF: remove no longer used variable "now".
+ 1 file changed, 1 deletion(-)
+
+antirez in commit e94b2053:
+ Modify clusterRedirectClient() to handle ZPOP and XREAD.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+Oran Agra in commit 26229aa6:
+ use safe macro (non empty) in memrev64ifbe to eliminate empty if warning
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Oran Agra in commit 5cd3c952:
+ 64 bit RDB_OPCODE_RESIZEDB in rdb saving
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+antirez in commit ba92b517:
+ Remove AOF optimization to skip expired keys.
+ 1 file changed, 3 deletions(-)
+
+Benjamin Holst in commit 36524060:
+ Update README.md
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 44571088:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit 6967d0bd:
+ Revert fix #4976 just leaving the flush() part.
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+antirez in commit 0ed0dc3c:
+ Fix incrDecrCommand() to create shared objects when needed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit bd92389c:
+ Refactor createObjectFromLongLong() to be suitable for value objects.
+ 2 files changed, 33 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 3518bb66:
+ Merge pull request #5020 from shenlongxing/fix-config
+antirez in commit 20766608:
+ Streams: fix xreadGetKeys() for correctness.
+ 1 file changed, 19 insertions(+), 5 deletions(-)
+
+Salvatore Sanfilippo in commit e670ccff:
+ Merge pull request #4857 from youjiali1995/fix-command-getkeys
+antirez in commit a0b27dae:
+ Streams: fix xreadGetKeys() buffer overflow.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 62f9ac6f:
+ Streams: Change XADD MAXLEN handling of values <= 0.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Max Vetrov in commit d4c4f20a:
+ Update sort.c
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+antirez in commit 79a1c19a:
+ XADD MAXLEN should return an error for values < 0.
+ 1 file changed, 5 insertions(+)
+
+Salvatore Sanfilippo in commit 2e0ab4a8:
+ Merge pull request #4976 from trevor211/fixDebugLoadaof
+Salvatore Sanfilippo in commit 94658303:
+ Merge pull request #4758 from soloestoy/rdb-save-incremental-fsync
+antirez in commit 6a66b93b:
+ Sentinel: add an option to deny online script reconfiguration.
+ 2 files changed, 41 insertions(+)
+
+antirez in commit d353023a:
+ Merge branch 'unstable' of github.com:/antirez/redis into unstable
+antirez in commit d6e8fe77:
+ Fix infinite loop in dbRandomKey().
+ 1 file changed, 13 insertions(+)
+
+Salvatore Sanfilippo in commit 40d5df65:
+ Merge pull request #5008 from zwkno1/unstable
+Salvatore Sanfilippo in commit 8bc3ffcb:
+ Merge pull request #5021 from soloestoy/fix-exists
+Salvatore Sanfilippo in commit 6c7847a1:
+ Merge pull request #5018 from soloestoy/optimize-reply
+antirez in commit 1e92fde3:
+ Fix SCAN bug regression test, avoiding empty SREM call.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Fuxin Hao in commit a4f658b2:
+ Fix update_zmalloc_stat_alloc in zrealloc
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 5.0 RC3     Released Wed Jun 14 9:51:44 CEST 2018
 ================================================================================
 
