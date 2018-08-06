@@ -267,7 +267,7 @@ void *sds_malloc(size_t size);
 void *sds_realloc(void *ptr, size_t size);
 void sds_free(void *ptr);
 
-#ifdef REDIS_TEST
+#ifdef SDS_TEST_MAIN
 int sdsTest(int argc, char *argv[]);
 #endif
 
