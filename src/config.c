@@ -33,6 +33,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -236,6 +237,9 @@ void loadServerConfigFromString(char *config) {
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
+            if (strlen(argv[1]) >= sizeof(((struct sockaddr_un *) NULL)->sun_path)) {
+                err = "Unix-domain socket path is too long"; goto loaderr;
+            }
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
