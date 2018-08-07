@@ -3963,9 +3963,9 @@ int redisIsSupervised(int mode) {
         const char *notify_socket = getenv("NOTIFY_SOCKET");
 
         if (upstart_job) {
-            redisSupervisedUpstart();
+            return redisSupervisedUpstart();
         } else if (notify_socket) {
-            redisSupervisedSystemd();
+            return redisSupervisedSystemd();
         }
     } else if (mode == SUPERVISED_UPSTART) {
         return redisSupervisedUpstart();
