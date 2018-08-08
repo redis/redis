@@ -87,7 +87,9 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
           lzf_movsb (op, ip, ctrl);
 #else
 #pragma GCC diagnostic push
+#if __GNUC__ >= 7
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#endif
           switch (ctrl)
             {
               case 32: *op++ = *ip++; case 31: *op++ = *ip++; case 30: *op++ = *ip++; case 29: *op++ = *ip++;
