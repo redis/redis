@@ -405,7 +405,7 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
 }
 
 /* If 'p' points to an element of the listpack, calling lpPrev() will return
- * the pointer to the preivous element (the one on the left), or NULL if 'p'
+ * the pointer to the previous element (the one on the left), or NULL if 'p'
  * already pointed to the first element of the listpack. */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     if (p-lp == LP_HDR_SIZE) return NULL;

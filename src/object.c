@@ -185,7 +185,7 @@ robj *createStringObjectFromLongDouble(long double value, int humanfriendly) {
 /* Duplicate a string object, with the guarantee that the returned object
  * has the same encoding as the original one.
  *
- * This function also guarantees that duplicating a small integere object
+ * This function also guarantees that duplicating a small integer object
  * (or a string object that contains a representation of a small integer)
  * will always result in a fresh object that is unshared (refcount == 1).
  *

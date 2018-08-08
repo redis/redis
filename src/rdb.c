@@ -1930,7 +1930,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
         } else if (type == RDB_OPCODE_AUX) {
             /* AUX: generic string-string fields. Use to add state to RDB
              * which is backward compatible. Implementations of RDB loading
-             * are requierd to skip AUX fields they don't understand.
+             * are required to skip AUX fields they don't understand.
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
@@ -2099,7 +2099,7 @@ void backgroundSaveDoneHandlerDisk(int exitcode, int bysignal) {
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
-         * tirggering an error condition. */
+         * triggering an error condition. */
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = C_ERR;
     }
@@ -2327,7 +2327,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             /* Write the message to the parent. If we have no good slaves or
              * we are unable to transfer the message to the parent, we exit
              * with an error so that the parent will abort the replication
-             * process with all the childre that were waiting. */
+             * process with all the children that were waiting. */
             msglen = sizeof(uint64_t)*(1+2*numfds);
             if (*len == 0 ||
                 write(server.rdb_pipe_write_result_to_parent,msg,msglen)

@@ -623,7 +623,7 @@ int startBgsaveForReplication(int mincapa) {
     return retval;
 }
 
-/* SYNC and PSYNC command implemenation. */
+/* SYNC and PSYNC command implementation. */
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
@@ -1071,7 +1071,7 @@ void replicationEmptyDbCallback(void *privdata) {
     replicationSendNewlineToMaster();
 }
 
-/* Once we have a link with the master and the synchroniziation was
+/* Once we have a link with the master and the synchronization was
  * performed, this function materializes the master client we store
  * at server.master, starting from the specified file descriptor. */
 void replicationCreateMasterClient(int fd, int dbid) {
@@ -1915,7 +1915,7 @@ void replicationAbortSyncTransfer(void) {
  * If there was a replication handshake in progress 1 is returned and
  * the replication state (server.repl_state) set to REPL_STATE_CONNECT.
  *
- * Otherwise zero is returned and no operation is perforemd at all. */
+ * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(void) {
     if (server.repl_state == REPL_STATE_TRANSFER) {
         replicationAbortSyncTransfer();
@@ -1944,7 +1944,7 @@ void replicationSetMaster(char *ip, int port) {
     disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
 
     /* Force our slaves to resync with us as well. They may hopefully be able
-     * to partially resync with us, but we can notify the replid change. */
+     * to partially resync with us, but we can notify the replied change. */
     disconnectSlaves();
     cancelReplicationHandshake();
     /* Before destroying our master state, create a cached master using
@@ -2275,7 +2275,7 @@ void refreshGoodSlavesCount(void) {
  *
  * We don't care about taking a different cache for every different slave
  * since to fill the cache again is not very costly, the goal of this code
- * is to avoid that the same big script is trasmitted a big number of times
+ * is to avoid that the same big script is transmitted a big number of times
  * per second wasting bandwidth and processor speed, but it is not a problem
  * if we need to rebuild the cache from scratch from time to time, every used
  * script will need to be transmitted a single time to reappear in the cache.
@@ -2285,7 +2285,7 @@ void refreshGoodSlavesCount(void) {
  * 1) Every time a new slave connects, we flush the whole script cache.
  * 2) We only send as EVALSHA what was sent to the master as EVALSHA, without
  *    trying to convert EVAL into EVALSHA specifically for slaves.
- * 3) Every time we trasmit a script as EVAL to the slaves, we also add the
+ * 3) Every time we transmit a script as EVAL to the slaves, we also add the
  *    corresponding SHA1 of the script into the cache as we are sure every
  *    slave knows about the script starting from now.
  * 4) On SCRIPT FLUSH command, we replicate the command to all the slaves
@@ -2376,7 +2376,7 @@ int replicationScriptCacheExists(sds sha1) {
 
 /* This just set a flag so that we broadcast a REPLCONF GETACK command
  * to all the slaves in the beforeSleep() function. Note that this way
- * we "group" all the clients that want to wait for synchronouns replication
+ * we "group" all the clients that want to wait for synchronous replication
  * in a given event loop iteration, and send a single GETACK for them all. */
 void replicationRequestAckFromSlaves(void) {
     server.get_ack_from_slaves = 1;
@@ -2641,7 +2641,7 @@ void replicationCron(void) {
              *    be the same as our repl-id.
              * 3. We, yet as master, receive some updates, that will not
              *    increment the master_repl_offset.
-             * 4. Later we are turned into a slave, connecto to the new
+             * 4. Later we are turned into a slave, connect to the new
              *    master that will accept our PSYNC request by second
              *    replication ID, but there will be data inconsistency
              *    because we received writes. */

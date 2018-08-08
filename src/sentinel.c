@@ -123,13 +123,13 @@ typedef struct sentinelAddr {
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
  * same Sentinels, one per master, and we need to share the hiredis connections
- * among them. Oherwise if 5 Sentinels are monitoring 100 masters we create
+ * among them. Otherwise if 5 Sentinels are monitoring 100 masters we create
  * 500 outgoing connections instead of 5.
  *
  * So this structure represents a reference counted link in terms of the two
  * hiredis connections for commands and Pub/Sub, and the fields needed for
  * failure detection, since the ping/pong time are now local to the link: if
- * the link is available, the instance is avaialbe. This way we don't just
+ * the link is available, the instance is available. This way we don't just
  * have 5 connections instead of 500, we also send 5 pings instead of 500.
  *
  * Links are shared only for Sentinels: master and slave instances have
@@ -2603,7 +2603,7 @@ void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
  *
  * It is technically not needed since we send an update to every instance
  * with a period of SENTINEL_PUBLISH_PERIOD milliseconds, however when a
- * Sentinel upgrades a configuration it is a good idea to deliever an update
+ * Sentinel upgrades a configuration it is a good idea to deliver an update
  * to the other Sentinels ASAP. */
 int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master) {
     if (!(master->flags & SRI_MASTER)) return C_ERR;
@@ -3909,7 +3909,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
      * the following tasks:
      * 1) Reconfigure the instance according to the specified host/port params.
      * 2) Rewrite the configuration.
-     * 3) Disconnect all clients (but this one sending the commnad) in order
+     * 3) Disconnect all clients (but this one sending the command) in order
      *    to trigger the ask-master-on-reconnection protocol for connected
      *    clients.
      *
@@ -4458,7 +4458,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
  * difference bigger than SENTINEL_TILT_TRIGGER milliseconds if one of the
  * following conditions happen:
  *
- * 1) The Sentiel process for some time is blocked, for every kind of
+ * 1) The Sentinel process for some time is blocked, for every kind of
  * random reason: the load is huge, the computer was frozen for some time
  * in I/O or alike, the process was stopped by a signal. Everything.
  * 2) The system clock was altered significantly.

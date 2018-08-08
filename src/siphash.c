@@ -36,7 +36,7 @@
       perform a text transformation in some temporary buffer, which is costly.
    5. Remove debugging code.
    6. Modified the original test.c file to be a stand-alone function testing
-      the function in the new form (returing an uint64_t) using just the
+      the function in the new form (returning an uint64_t) using just the
       relevant test vector.
  */
 #include <assert.h>
@@ -46,7 +46,7 @@
 #include <ctype.h>
 
 /* Fast tolower() alike function that does not care about locale
- * but just returns a-z insetad of A-Z. */
+ * but just returns a-z instead of A-Z. */
 int siptlw(int c) {
     if (c >= 'A' && c <= 'Z') {
         return c+('a'-'A');

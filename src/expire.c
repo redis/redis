@@ -382,7 +382,7 @@ size_t getSlaveKeyWithExpireCount(void) {
  *
  * Note: technically we should handle the case of a single DB being flushed
  * but it is not worth it since anyway race conditions using the same set
- * of key names in a wriatable slave and in its master will lead to
+ * of key names in a writable slave and in its master will lead to
  * inconsistencies. This is just a best-effort thing we do. */
 void flushSlaveKeysWithExpireList(void) {
     if (slaveKeysWithExpire) {
@@ -396,7 +396,7 @@ void flushSlaveKeysWithExpireList(void) {
  *----------------------------------------------------------------------------*/
 
 /* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
- * and PEXPIREAT. Because the commad second argument may be relative or absolute
+ * and PEXPIREAT. Because the command second argument may be relative or absolute
  * the "basetime" argument is used to signal what the base time is (either 0
  * for *AT variants of the command, or the current time for relative expires).
  *

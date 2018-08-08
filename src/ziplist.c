@@ -317,7 +317,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
-/* Write the encoidng header of the entry in 'p'. If p is NULL it just returns
+/* Write the encoding header of the entry in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. Arguments:
  *
  * 'encoding' is the encoding we are using for the entry. It could be
@@ -914,7 +914,7 @@ unsigned char *ziplistMerge(unsigned char **first, unsigned char **second) {
     } else {
         /* !append == prepending to target */
         /* Move target *contents* exactly size of (source - [END]),
-         * then copy source into vacataed space (source - [END]):
+         * then copy source into vacated space (source - [END]):
          *   [SOURCE - END, TARGET - HEADER] */
         memmove(target + source_bytes - ZIPLIST_END_SIZE,
                 target + ZIPLIST_HEADER_SIZE,

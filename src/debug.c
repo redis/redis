@@ -960,7 +960,7 @@ void logCurrentClient(void) {
 
 #define MEMTEST_MAX_REGIONS 128
 
-/* A non destructive memory test executed during segfauls. */
+/* A non destructive memory test executed during segfaults. */
 int memtest_test_linux_anonymous_maps(void) {
     FILE *fp;
     char line[1024];
