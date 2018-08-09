@@ -189,7 +189,7 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
-    if (!dict_can_resize && d->ht[0].used/d->ht[0].size < dict_force_resize_ratio) return 0;
+    if (!dict_can_resize && (d->ht[0].used+d->ht[1].used)/d->ht[0].size < dict_force_resize_ratio) return 0;
 
     while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
