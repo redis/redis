@@ -2737,7 +2737,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * The master can be non failing if the request is flagged
      * with CLUSTERMSG_FLAG0_FORCEACK (manual failover). */
     if (nodeIsMaster(node) || master == NULL ||
-        (!nodeFailed(master) && !force_ack))
+        (!nodeFailing(master) && !force_ack))
     {
         if (nodeIsMaster(node)) {
             serverLog(LL_WARNING,
@@ -2747,7 +2747,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
             serverLog(LL_WARNING,
                     "Failover auth denied to %.40s: I don't know its master",
                     node->name);
-        } else if (!nodeFailed(master)) {
+        } else if (!nodeFailing(master)) {
             serverLog(LL_WARNING,
                     "Failover auth denied to %.40s: its master is up",
                     node->name);
