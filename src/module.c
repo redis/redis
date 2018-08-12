@@ -2259,7 +2259,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 /* Get fields from an hash value. This function is called using a variable
  * number of arguments, alternating a field name (as a StringRedisModule
  * pointer) with a pointer to a StringRedisModule pointer, that is set to the
- * value of the field if the field exist, or NULL if the field did not exist.
+ * value of the field if the field exists, or NULL if the field does not exist.
  * At the end of the field/value-ptr pairs, NULL must be specified as last
  * argument to signal the end of the arguments in the variadic function.
  *
@@ -2276,7 +2276,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * REDISMODULE_HASH_EXISTS: instead of setting the value of the field
  * expecting a RedisModuleString pointer to pointer, the function just
- * reports if the field esists or not and expects an integer pointer
+ * reports if the field exists or not and expects an integer pointer
  * as the second element of each pair.
  *
  * Example of REDISMODULE_HASH_CFIELD:
@@ -3155,8 +3155,8 @@ RedisModuleString *RM_LoadString(RedisModuleIO *io) {
  * RedisModule_Realloc() or RedisModule_Free().
  *
  * The size of the string is stored at '*lenptr' if not NULL.
- * The returned string is not automatically NULL termianted, it is loaded
- * exactly as it was stored inisde the RDB file. */
+ * The returned string is not automatically NULL terminated, it is loaded
+ * exactly as it was stored inside the RDB file. */
 char *RM_LoadStringBuffer(RedisModuleIO *io, size_t *lenptr) {
     return moduleLoadString(io,1,lenptr);
 }
@@ -3484,7 +3484,7 @@ void unblockClientFromModule(client *c) {
  *     reply_timeout:   called when the timeout is reached in order to send an
  *                      error to the client.
  *
- *     free_privdata:   called in order to free the privata data that is passed
+ *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
@@ -3731,9 +3731,9 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  *
  * To call non-reply APIs, the thread safe context must be prepared with:
  *
- *     RedisModule_ThreadSafeCallStart(ctx);
+ *     RedisModule_ThreadSafeContextLock(ctx);
  *     ... make your call here ...
- *     RedisModule_ThreadSafeCallStop(ctx);
+ *     RedisModule_ThreadSafeContextUnlock(ctx);
  *
  * This is not needed when using `RedisModule_Reply*` functions, assuming
  * that a blocked client was used when the context was created, otherwise
@@ -4260,7 +4260,7 @@ int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
  * (in milliseconds), and the private data pointer associated with the timer.
  * If the timer specified does not exist or belongs to a different module
  * no information is returned and the function returns REDISMODULE_ERR, otherwise
- * REDISMODULE_OK is returned. The argumnets remaining or data can be NULL if
+ * REDISMODULE_OK is returned. The arguments remaining or data can be NULL if
  * the caller does not need certain information. */
 int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remaining, void **data) {
     RedisModuleTimer *timer = raxFind(Timers,(unsigned char*)&id,sizeof(id));
