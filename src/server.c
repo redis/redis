@@ -3780,6 +3780,7 @@ static void sigShutdownHandler(int sig) {
         rdbRemoveTempFile(getpid());
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
+        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
         exit(0);
     }
 
