@@ -1017,7 +1017,7 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = 0;
+    mem = server.lua_scripts_mem;
     mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
         dictSlots(server.lua_scripts) * sizeof(dictEntry*);
     mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
