@@ -1152,9 +1152,8 @@ int processInlineBuffer(client *c) {
     if (querylen == 0 && c->flags & CLIENT_SLAVE)
         c->repl_ack_time = server.unixtime;
 
-    /* Leave data after the first line of the query in the buffer */
-    sdsrange(c->querybuf,c->qb_pos+querylen+linefeed_chars,-1);
-    c->qb_pos = 0;
+    /* Move querybuffer position to the next query in the buffer. */
+    c->qb_pos += querylen+linefeed_chars;
 
     /* Setup argv array on client structure */
     if (argc) {
