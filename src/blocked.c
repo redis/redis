@@ -269,7 +269,7 @@ void handleClientsBlockedOnKeys(void) {
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
-                                    LIST_HEAD : LIST_TAIL;
+                                     LIST_HEAD : LIST_TAIL;
                         robj *value = listTypePop(o,where);
 
                         if (value) {
@@ -285,7 +285,7 @@ void handleClientsBlockedOnKeys(void) {
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
-                                    listTypePush(o,value,where);
+                                listTypePush(o,value,where);
                             }
 
                             if (dstkey) decrRefCount(dstkey);
