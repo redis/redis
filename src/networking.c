@@ -1252,11 +1252,8 @@ int processMultibulkBuffer(client *c) {
         }
 
         c->qb_pos = (newline-c->querybuf)+2;
-        if (ll <= 0) {
-            sdsrange(c->querybuf,c->qb_pos,-1);
-            c->qb_pos = 0;
-            return C_OK;
-        }
+
+        if (ll <= 0) return C_OK;
 
         c->multibulklen = ll;
 
