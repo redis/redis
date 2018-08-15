@@ -460,6 +460,7 @@ start_server {tags {"scripting"}} {
 
     test {Correct handling of reused argv (issue #1939)} {
         r eval {
+              redis.replicate_commands()
               for i = 0, 10 do
                   redis.call('SET', 'a', '1')
                   redis.call('MGET', 'a', 'b', 'c')
