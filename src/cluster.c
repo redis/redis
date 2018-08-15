@@ -5224,7 +5224,7 @@ try_again:
             socket_error = 1;
             break;
         }
-        if ((password && buf0[0] == '-') ||
+        if ((password && buf0[0] == '-' && !strstr(buf0, "but no password is set")) ||
             (select && buf1[0] == '-') ||
             buf2[0] == '-')
         {
