@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/sendfile.h>
 
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
@@ -871,8 +872,8 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     client *slave = privdata;
     UNUSED(el);
     UNUSED(mask);
-    char buf[PROTO_IOBUF_LEN];
-    ssize_t nwritten, buflen;
+    ssize_t nwritten, len;
+    off_t rdboff;
 
     /* Before sending the RDB file, we send the preamble as configured by the
      * replication process. Currently the preamble is just the bulk count of
@@ -897,22 +898,17 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
-    if (buflen <= 0) {
-        serverLog(LL_WARNING,"Read error sending DB to slave: %s",
-            (buflen == 0) ? "premature EOF" : strerror(errno));
-        freeClient(slave);
-        return;
-    }
-    if ((nwritten = write(fd,buf,buflen)) == -1) {
-        if (errno != EAGAIN) {
-            serverLog(LL_WARNING,"Write error sending DB to slave: %s",
-                strerror(errno));
+    len = slave->repldbsize-slave->repldboff;
+    rdboff = slave->repldboff;
+    nwritten = sendfile64(fd, slave->repldbfd, &rdboff, (size_t)(PROTO_IOBUF_LEN < len)?PROTO_IOBUF_LEN:len);
+    if(nwritten < 0){
+        if(errno != EAGAIN){
+            serverLog(LL_WARNING,"Write error sending DB to slave: %s",strerror(errno));
             freeClient(slave);
         }
-        return;
+        return; 		
     }
+    
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
     if (slave->repldboff == slave->repldbsize) {
