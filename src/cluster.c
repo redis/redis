@@ -5184,6 +5184,16 @@ try_again:
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
         createDumpPayload(&payload,ov[j]);
+        if (sdslen(payload.io.buffer.ptr) > 512*1024*1024) {
+            addReplyErrorFormat(c,
+                "Protocol error: %s can't be migrated because"
+                " the serialized value length is larger than 512MB", 
+                (char *)kv[j]->ptr);
+            sdsfree(payload.io.buffer.ptr);
+            sdsfree(cmd.io.buffer.ptr);
+            zfree(ov); zfree(kv);
+            return;
+        }
         serverAssertWithInfo(c,NULL,
             rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                sdslen(payload.io.buffer.ptr)));
