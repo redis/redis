@@ -148,6 +148,8 @@ proc parse_options {} {
             set ::simulate_error 1
         } elseif {$opt eq {--valgrind}} {
             set ::valgrind 1
+        } elseif {$opt eq {--verbose}} {
+            set ::verbose 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"

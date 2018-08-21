@@ -164,6 +164,26 @@ proc ::redis_cluster::__method__close {id} {
     catch {interp alias {} ::redis_cluster::instance$id {}}
 }
 
+proc ::redis_cluster::__method__masternode_for_slot {id slot} {
+    # Get the node mapped to this slot.
+    set node_addr [dict get $::redis_cluster::slots($id) $slot]
+    if {$node_addr eq {}} {
+        error "No mapped node for slot $slot."
+    }
+    return [dict get $::redis_cluster::nodes($id) $node_addr]
+}
+
+proc ::redis_cluster::__method__masternode_notfor_slot {id slot} {
+    # Get the node mapped to this slot.
+    set node_addr [dict get $::redis_cluster::slots($id) $slot]
+    dict for {addr node} $::redis_cluster::nodes($id) {
+        if {$node_addr ne $addr} {
+            return $node
+        }
+    }
+    error "Slot $slot is everywhere"
+}
+
 proc ::redis_cluster::__dispatch__ {id method args} {
     if {[info command ::redis_cluster::__method__$method] eq {}} {
         # Get the keys from the command.
@@ -186,10 +206,15 @@ proc ::redis_cluster::__dispatch__ {id method args} {
 
         # Execute the command in the node we think is the slot owner.
         set retry 100
+        set asking 0
         while {[incr retry -1]} {
             if {$retry < 5} {after 100}
             set node [dict get $::redis_cluster::nodes($id) $node_addr]
             set link [dict get $node link]
+            if {$asking} {
+                $link ASKING
+                set asking 0
+            }
             if {[catch {$link $method {*}$args} e]} {
                 if {$link eq {} || \
                     [string range $e 0 4] eq {MOVED} || \
@@ -202,6 +227,7 @@ proc ::redis_cluster::__dispatch__ {id method args} {
                 } elseif {[string range $e 0 2] eq {ASK}} {
                     # ASK redirection.
                     set node_addr [lindex $e 2]
+                    set asking 1
                     continue
                 } else {
                     # Non redirecting error.
