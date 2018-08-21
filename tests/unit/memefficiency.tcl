@@ -201,7 +201,7 @@ start_server {tags {"defrag"}} {
                 assert {$frag < 1.1}
                 # due to high fragmentation, 10hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 75ms
-                assert {$max_latency <= 80}
+                assert {$max_latency <= 120}
             }
             # verify the data isn't corrupted or changed
             set newdigest [r debug digest]

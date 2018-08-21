@@ -143,9 +143,11 @@ start_server {tags {"maxmemory"}} {
     }
 }
 
-proc test_slave_buffers {cmd_count payload_len limit_memory pipeline} {
+proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
     start_server {tags {"maxmemory"}} {
         start_server {} {
+        set slave_pid [s process_id]
+        test "$test_name" {
             set slave [srv 0 client]
             set slave_host [srv 0 host]
             set slave_port [srv 0 port]
@@ -158,8 +160,10 @@ proc test_slave_buffers {cmd_count payload_len limit_memory pipeline} {
                 $master setrange "key:$j" 100000 asdf
             }
 
+            # make sure master doesn't disconnect slave because of timeout
+            $master config set repl-timeout 300 ;# 5 minutes
             $master config set maxmemory-policy allkeys-random
-            $master config set client-output-buffer-limit "slave 100000000 100000000 60"
+            $master config set client-output-buffer-limit "slave 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
             $slave slaveof $master_host $master_port
@@ -182,9 +186,9 @@ proc test_slave_buffers {cmd_count payload_len limit_memory pipeline} {
 
             # put the slave to sleep
             set rd_slave [redis_deferring_client]
-            $rd_slave debug sleep 300
+            exec kill -SIGSTOP $slave_pid
 
-            # send some 10mb woth of commands that don't increase the memory usage
+            # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
                 set rd_master [redis_deferring_client -1]
                 for {set k 0} {$k < $cmd_count} {incr k} {
@@ -218,19 +222,21 @@ proc test_slave_buffers {cmd_count payload_len limit_memory pipeline} {
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
             assert {$killed_slave_buf == 0}
             assert {$delta_no_repl > -50*1024 && $delta_no_repl < 50*1024} ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+
+        }
+        # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
+        exec kill -SIGCONT $slave_pid
         }
     }
 }
 
-test {slave buffer are counted correctly} {
-    # we wanna use many small commands, and we don't wanna wait long
-    # so we need to use a pipeline (redis_deferring_client)
-    # that may cause query buffer to fill and induce eviction, so we disable it
-    test_slave_buffers 1000000 10 0 1
-}
+# test that slave buffer are counted correctly
+# we wanna use many small commands, and we don't wanna wait long
+# so we need to use a pipeline (redis_deferring_client)
+# that may cause query buffer to fill and induce eviction, so we disable it
+test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 
-test {slave buffer don't induce eviction} {
-    # test again with fewer (and bigger) commands without pipeline, but with eviction
-    test_slave_buffers 100000 100 1 0
-}
+# test that slave buffer don't induce eviction
+# test again with fewer (and bigger) commands without pipeline, but with eviction
+test_slave_buffers "slave buffer don't induce eviction" 100000 100 1 0
 
