@@ -5,6 +5,8 @@ PORT=30000
 TIMEOUT=2000
 NODES=6
 REPLICAS=1
+DIR=`dirname $0`/../..
+REDISSERVER=$DIR/src/redis-server
 
 # You may want to put the above config parameters into config.sh in order to
 # override the defaults without modifying this script.
@@ -22,7 +24,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        ../../src/redis-server --port $PORT --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes
+        $REDISSERVER --port $PORT --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes
     done
     exit 0
 fi
@@ -34,7 +36,7 @@ then
         PORT=$((PORT+1))
         HOSTS="$HOSTS 127.0.0.1:$PORT"
     done
-    ../../src/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
+    $DIR/src/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
     exit 0
 fi
 
@@ -43,7 +45,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Stopping $PORT"
-        ../../src/redis-cli -p $PORT shutdown nosave
+        $DIR/src/redis-cli -p $PORT shutdown nosave
     done
     exit 0
 fi
@@ -54,7 +56,7 @@ then
     while [ 1 ]; do
         clear
         date
-        ../../src/redis-cli -p $PORT cluster nodes | head -30
+        $DIR/src/redis-cli -p $PORT cluster nodes | head -30
         sleep 1
     done
     exit 0
@@ -72,7 +74,7 @@ if [ "$1" == "call" ]
 then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        ../../src/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
+        $DIR/src/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
     done
     exit 0
 fi
