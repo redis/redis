@@ -560,10 +560,11 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
 
 /* LATENCY command implementations.
  *
- * LATENCY SAMPLES: return time-latency samples for the specified event.
+ * LATENCY HISTORY: return time-latency samples for the specified event.
  * LATENCY LATEST: return the latest latency for all the events classes.
  * LATENCY DOCTOR: returns an human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
+ * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  */
 void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
