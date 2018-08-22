@@ -2826,8 +2826,8 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                                            char **err)
 {
     int success = 1;
-    int do_fix = (config.cluster_manager_command.flags &
-                  CLUSTER_MANAGER_CMD_FLAG_FIX);
+    int replace_existing_keys = (config.cluster_manager_command.flags &
+            (CLUSTER_MANAGER_CMD_FLAG_FIX | CLUSTER_MANAGER_CMD_FLAG_REPLACE));
     while (1) {
         char *dots = NULL;
         redisReply *reply = NULL, *migrate_reply = NULL;
@@ -2858,13 +2858,14 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                                                          dots);
         if (migrate_reply == NULL) goto next;
         if (migrate_reply->type == REDIS_REPLY_ERROR) {
-            if (do_fix && strstr(migrate_reply->str, "BUSYKEY")) {
+            int is_busy = strstr(migrate_reply->str, "BUSYKEY") != NULL;
+            int not_served = strstr(migrate_reply->str, "slot not served") != NULL;
+            if (replace_existing_keys && (is_busy || not_served)) {
                 /* If the key already exists, try to migrate keys
                  * adding REPLACE option.
                  * If the key's slot is not served, try to assign slot
                  * to the target node. */
-                int is_busy = (strstr(migrate_reply->str, "BUSYKEY") != NULL);
-                if (strstr(migrate_reply->str, "slot not served") != NULL)
+                if (not_served)
                     clusterManagerSetSlot(source, target, slot, "node", NULL);
                 clusterManagerLogWarn("*** Target key exists. "
                                       "Replacing it for FIX.\n");
