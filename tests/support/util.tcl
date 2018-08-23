@@ -386,16 +386,16 @@ proc stop_write_load {handle} {
 
 proc K { x y } { set x } 
 
-# Shuffle a list. From Tcl wiki. Originally from Steve Cohen that improved
-# other versions. Code should be under public domain.
+# Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]
-    while {$n>0} {
+    while {$n>1} {
         set j [expr {int(rand()*$n)}]
-        lappend slist [lindex $list $j]
         incr n -1
-        set temp [lindex $list $n]
-        set list [lreplace [K $list [set list {}]] $j $j $temp]
+        if {$n==$j} continue
+        set v [lindex $list $j]
+        lset list $j [lindex $list $n]
+        lset list $n $v
     }
-    return $slist
+    return $list
 }

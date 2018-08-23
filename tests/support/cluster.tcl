@@ -176,8 +176,10 @@ proc ::redis_cluster::__method__masternode_for_slot {id slot} {
 proc ::redis_cluster::__method__masternode_notfor_slot {id slot} {
     # Get the node mapped to this slot.
     set node_addr [dict get $::redis_cluster::slots($id) $slot]
-    dict for {addr node} $::redis_cluster::nodes($id) {
-        if {$node_addr ne $addr} {
+    set addrs [dict keys $::redis_cluster::nodes($id)]
+    foreach addr [lshuffle $addrs] {
+        set node [dict get $::redis_cluster::nodes($id) $addr]
+        if {$node_addr ne $addr && [dict get $node slaveof] eq "-"} {
             return $node
         }
     }
