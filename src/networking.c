@@ -33,7 +33,7 @@
 #include <math.h>
 #include <ctype.h>
 
-static void setProtocolError(const char *errstr, client *c, long pos);
+static void setProtocolError(const char *errstr, client *c);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -1126,7 +1126,7 @@ int processInlineBuffer(client *c) {
     if (newline == NULL) {
         if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
             addReplyError(c,"Protocol error: too big inline request");
-            setProtocolError("too big inline request",c,0);
+            setProtocolError("too big inline request",c);
         }
         return C_ERR;
     }
@@ -1142,7 +1142,7 @@ int processInlineBuffer(client *c) {
     sdsfree(aux);
     if (argv == NULL) {
         addReplyError(c,"Protocol error: unbalanced quotes in request");
-        setProtocolError("unbalanced quotes in inline request",c,0);
+        setProtocolError("unbalanced quotes in inline request",c);
         return C_ERR;
     }
 
@@ -1174,10 +1174,10 @@ int processInlineBuffer(client *c) {
     return C_OK;
 }
 
-/* Helper function. Trims query buffer to make the function that processes
- * multi bulk requests idempotent. */
+/* Helper function. Record protocol erro details in server log,
+ * and set the client as CLIENT_CLOSE_AFTER_REPLY. */
 #define PROTO_DUMP_LEN 128
-static void setProtocolError(const char *errstr, client *c, long pos) {
+static void setProtocolError(const char *errstr, client *c) {
     if (server.verbosity <= LL_VERBOSE) {
         sds client = catClientInfoString(sdsempty(),c);
 
@@ -1202,8 +1202,6 @@ static void setProtocolError(const char *errstr, client *c, long pos) {
         sdsfree(client);
     }
     c->flags |= CLIENT_CLOSE_AFTER_REPLY;
-    sdsrange(c->querybuf,pos,-1);
-    c->qb_pos -= pos;
 }
 
 /* Process the query buffer for client 'c', setting up the client argument
@@ -1231,7 +1229,7 @@ int processMultibulkBuffer(client *c) {
         if (newline == NULL) {
             if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 addReplyError(c,"Protocol error: too big mbulk count string");
-                setProtocolError("too big mbulk count string",c,0);
+                setProtocolError("too big mbulk count string",c);
             }
             return C_ERR;
         }
@@ -1246,7 +1244,7 @@ int processMultibulkBuffer(client *c) {
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > 1024*1024) {
             addReplyError(c,"Protocol error: invalid multibulk length");
-            setProtocolError("invalid mbulk count",c,c->qb_pos);
+            setProtocolError("invalid mbulk count",c);
             return C_ERR;
         }
 
@@ -1270,7 +1268,7 @@ int processMultibulkBuffer(client *c) {
                 if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                     addReplyError(c,
                         "Protocol error: too big bulk count string");
-                    setProtocolError("too big bulk count string",c,0);
+                    setProtocolError("too big bulk count string",c);
                     return C_ERR;
                 }
                 break;
@@ -1284,14 +1282,14 @@ int processMultibulkBuffer(client *c) {
                 addReplyErrorFormat(c,
                     "Protocol error: expected '$', got '%c'",
                     c->querybuf[c->qb_pos]);
-                setProtocolError("expected $ but got something else",c,c->qb_pos);
+                setProtocolError("expected $ but got something else",c);
                 return C_ERR;
             }
 
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
                 addReplyError(c,"Protocol error: invalid bulk length");
-                setProtocolError("invalid bulk length",c,c->qb_pos);
+                setProtocolError("invalid bulk length",c);
                 return C_ERR;
             }
 
