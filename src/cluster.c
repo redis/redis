@@ -1015,7 +1015,7 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
     if (myself->configEpoch == 0 ||
         myself->configEpoch != maxEpoch)
     {
-        server.cluster->currentEpoch++;
+        server.cluster->currentEpoch = maxEpoch + 1;
         myself->configEpoch = server.cluster->currentEpoch;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_FSYNC_CONFIG);
@@ -1026,6 +1026,22 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
     } else {
         return C_ERR;
     }
+}
+
+/* This function is called to finish batch migration of slots.
+ * To not deal with possible epoch collisions, it is better to explicitely
+ * bump epoch after last importing slot was closed.
+ * redis-cli tool will send CLUSTER BUMPEPOCH BROADCAST. */
+void clusterBumpConfigEpochForConsensus(void) {
+    uint64_t maxEpoch = clusterGetMaxEpoch();
+
+    server.cluster->currentEpoch = maxEpoch + 1;
+    myself->configEpoch = server.cluster->currentEpoch;
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                         CLUSTER_TODO_FSYNC_CONFIG);
+    serverLog(LL_WARNING,
+        "New configEpoch set to %llu",
+        (unsigned long long) myself->configEpoch);
 }
 
 /* This function is called when this node is a master, and we receive from
@@ -4196,7 +4212,7 @@ void clusterCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "ADDSLOTS <slot> [slot ...] -- Assign slots to current node.",
-"BUMPEPOCH -- Advance the cluster config epoch.",
+"BUMPEPOCH [broadcast] -- Advance the cluster config epoch.",
 "COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
 "COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
 "DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
@@ -4418,13 +4434,24 @@ NULL
         }
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_UPDATE_STATE);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch") && c->argc == 2) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"bumpepoch") && (c->argc == 2 || c->argc == 3)) {
         /* CLUSTER BUMPEPOCH */
-        int retval = clusterBumpConfigEpochWithoutConsensus();
-        sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
-                (retval == C_OK) ? "BUMPED" : "STILL",
-                (unsigned long long) myself->configEpoch);
-        addReplySds(c,reply);
+        if (c->argc == 2) {
+            int retval = clusterBumpConfigEpochWithoutConsensus();
+            sds reply = sdscatprintf(sdsempty(),"+%s %llu\r\n",
+                    (retval == C_OK) ? "BUMPED" : "STILL",
+                    (unsigned long long) myself->configEpoch);
+            addReplySds(c,reply);
+        } else if (!strcasecmp(c->argv[2]->ptr, "broadcast")) {
+            clusterBumpConfigEpochForConsensus();
+            sds reply = sdscatprintf(sdsempty(),"+BUMPED %llu\r\n",
+                    (unsigned long long) myself->configEpoch);
+            clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+            addReplySds(c,reply);
+        } else {
+            addReplyError(c,
+                "Invalid CLUSTER BUMPEPOCH action or number of arguments. Try CLUSTER HELP");
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
         char *statestr[] = {"ok","fail","needhelp"};

@@ -4493,6 +4493,27 @@ static int clusterManagerCheckCluster(int quiet) {
         if (do_fix) {
             /* Fix open slots. */
             dictReleaseIterator(iter);
+            /* First, iterate through hosts and fix slots that should be
+               imported. */
+            listRewind(cluster_manager.nodes, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                clusterManagerNode *n = ln->value;
+                if (n->importing == NULL) {
+                    continue;
+                }
+                for (i = 0; i < n->importing_count; i += 2) {
+                    sds slot = n->importing[i];
+                    result = clusterManagerFixOpenSlot(atoi(slot));
+                    if (!result) break;
+                    dictDelete(open_slots, slot);
+                }
+                redisReply *reply = CLUSTER_MANAGER_COMMAND(n, "CLUSTER "
+                        "BUMPEPOCH BROADCAST");
+                // old version doesn't recognize BROADCAST,
+                // so doesn't check answer
+                if (reply) freeReplyObject(reply);
+            }
+
             iter = dictGetIterator(open_slots);
             while ((entry = dictNext(iter)) != NULL) {
                 sds slot = (sds) dictGetKey(entry);
