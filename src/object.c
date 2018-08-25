@@ -36,6 +36,11 @@
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
+#if defined(USE_JEMALLOC) && (USE_SYSTEM_JEMALLOC == yes)
+#define je_mallctl mallctl
+#define je_malloc_stats_print malloc_stats_print
+#endif
+
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObject(int type, void *ptr) {

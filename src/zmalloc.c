@@ -63,12 +63,22 @@ void zlibc_free(void *ptr) {
 #define realloc(ptr,size) tc_realloc(ptr,size)
 #define free(ptr) tc_free(ptr)
 #elif defined(USE_JEMALLOC)
+#if USE_SYSTEM_JEMALLOC == yes
+#define malloc(size) malloc(size)
+#define calloc(count,size) calloc(count,size)
+#define realloc(ptr,size) realloc(ptr,size)
+#define free(ptr) free(ptr)
+#define mallocx(size,flags) mallocx(size,flags)
+#define dallocx(ptr,flags) dallocx(ptr,flags)
+#define je_mallctl mallctl
+#else
 #define malloc(size) je_malloc(size)
 #define calloc(count,size) je_calloc(count,size)
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#endif
 #endif
 
 #define update_zmalloc_stat_alloc(__n) do { \
