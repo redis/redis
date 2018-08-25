@@ -149,7 +149,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned int quicklistCount(quicklist *ql) { return ql->count; }
+unsigned long quicklistCount(const quicklist *ql) { return ql->count; }
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -671,6 +671,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
         /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);
         entry.node->zl = ziplistInsert(entry.node->zl, entry.zi, data, sz);
+        quicklistNodeUpdateSz(entry.node);
         quicklistCompress(quicklist, entry.node);
         return 1;
     } else {
@@ -1191,12 +1192,12 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)node->zl;
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            quicklistLZF *lzf = (quicklistLZF *)current->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }
@@ -1372,7 +1373,7 @@ REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
     unsigned char *vstr;
     if (data) {
         vstr = zmalloc(sz);
-        memcpy(data, vstr, sz);
+        memcpy(vstr, data, sz);
         return vstr;
     }
     return NULL;
@@ -1635,7 +1636,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to tail of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushTail(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1643,7 +1644,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to head of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1757,7 +1758,8 @@ int quicklistTest(int argc, char *argv[]) {
 
         TEST("pop 1 string from 1") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, genstr("hello", 331), 32);
+            char *populate = genstr("hello", 331);
+            quicklistPushHead(ql, populate, 32);
             unsigned char *data;
             unsigned int sz;
             long long lv;
@@ -1765,6 +1767,9 @@ int quicklistTest(int argc, char *argv[]) {
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
             assert(data != NULL);
             assert(sz == 32);
+            if (strcmp(populate, (char *)data))
+                ERR("Pop'd value (%.*s) didn't equal original value (%s)", sz,
+                    data, populate);
             zfree(data);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
@@ -1797,6 +1802,9 @@ int quicklistTest(int argc, char *argv[]) {
                 assert(ret == 1);
                 assert(data != NULL);
                 assert(sz == 32);
+                if (strcmp(genstr("hello", 499 - i), (char *)data))
+                    ERR("Pop'd value (%.*s) didn't equal original value (%s)",
+                        sz, data, genstr("hello", 499 - i));
                 zfree(data);
             }
             ql_verify(ql, 0, 0, 0, 0);
@@ -1816,6 +1824,10 @@ int quicklistTest(int argc, char *argv[]) {
                     assert(ret == 1);
                     assert(data != NULL);
                     assert(sz == 32);
+                    if (strcmp(genstr("hello", 499 - i), (char *)data))
+                        ERR("Pop'd value (%.*s) didn't equal original value "
+                            "(%s)",
+                            sz, data, genstr("hello", 499 - i));
                     zfree(data);
                 } else {
                     assert(ret == 0);

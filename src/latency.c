@@ -33,15 +33,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
+#include "server.h"
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
-    REDIS_NOTUSED(privdata);
+    UNUSED(privdata);
     return strcmp(key1,key2) == 0;
 }
 
-unsigned int dictStringHash(const void *key) {
+uint64_t dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 
@@ -79,7 +79,7 @@ int THPIsEnabled(void) {
  * value of the function is non-zero, the process is being targeted by
  * THP support, and is likely to have memory usage / latency issues. */
 int THPGetAnonHugePagesSize(void) {
-    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+    return zmalloc_get_smap_bytes_by_field("AnonHugePages:",-1);
 }
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -109,6 +109,8 @@ void latencyAddSample(char *event, mstime_t latency) {
         dictAdd(server.latency_events,zstrdup(event),ts);
     }
 
+    if (latency > ts->max) ts->max = latency;
+
     /* If the previous sample is in the same second, we update our old sample
      * if this latency is > of the old one, or just return. */
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
@@ -120,7 +122,6 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     ts->samples[ts->idx].time = time(NULL);
     ts->samples[ts->idx].latency = latency;
-    if (latency > ts->max) ts->max = latency;
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
@@ -151,7 +152,7 @@ int latencyResetEvent(char *event_to_reset) {
 
 /* ------------------------ Latency reporting (doctor) ---------------------- */
 
-/* Analyze the samples avaialble for a given event and return a structure
+/* Analyze the samples available for a given event and return a structure
  * populate with different metrics, average, MAD, min, max, and so forth.
  * Check latency.h definition of struct latenctStat for more info.
  * If the specified event has no elements the structure is populate with
@@ -228,6 +229,7 @@ sds createLatencyReport(void) {
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
+    int advise_mass_eviction = 0;   /* Avoid mass eviction of keys. */
     int advise_relax_fsync_policy = 0; /* appendfsync always is slow. */
     int advise_disable_thp = 0;     /* AnonHugePages detected. */
     int advices = 0;
@@ -247,7 +249,7 @@ sds createLatencyReport(void) {
     dictEntry *de;
     int eventnum = 0;
 
-    di = dictGetIterator(server.latency_events);
+    di = dictGetSafeIterator(server.latency_events);
     while((de = dictNext(di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
@@ -292,7 +294,7 @@ sds createLatencyReport(void) {
 
         /* Potentially commands. */
         if (!strcasecmp(event,"command")) {
-            if (server.slowlog_log_slower_than == 0) {
+            if (server.slowlog_log_slower_than < 0) {
                 advise_slowlog_enabled = 1;
                 advices++;
             } else if (server.slowlog_log_slower_than/1000 >
@@ -364,8 +366,13 @@ sds createLatencyReport(void) {
         }
 
         /* Eviction cycle. */
-        if (!strcasecmp(event,"eviction-cycle")) {
+        if (!strcasecmp(event,"eviction-del")) {
             advise_large_objects = 1;
+            advices++;
+        }
+
+        if (!strcasecmp(event,"eviction-cycle")) {
+            advise_mass_eviction = 1;
             advices++;
         }
 
@@ -452,6 +459,10 @@ sds createLatencyReport(void) {
             report = sdscat(report,"- Deleting, expiring or evicting (because of maxmemory policy) large objects is a blocking operation. If you have very large objects that are often deleted, expired, or evicted, try to fragment those objects into multiple smaller objects.\n");
         }
 
+        if (advise_mass_eviction) {
+            report = sdscat(report,"- Sudden changes to the 'maxmemory' setting via 'CONFIG SET', or allocation of large objects via sets or sorted sets intersections, STORE option of SORT, Redis Cluster large keys migrations (RESTORE command), may create sudden memory pressure forcing the server to block trying to evict keys. \n");
+        }
+
         if (advise_disable_thp) {
             report = sdscat(report,"- I detected a non zero amount of anonymous huge pages used by your process. This creates very serious latency events in different conditions, especially when Redis is persisting on disk. To disable THP support use the command 'echo never > /sys/kernel/mm/transparent_hugepage/enabled', make sure to also add it into /etc/rc.local so that the command will be executed again after a reboot. Note that even if you have already disabled THP, you still need to restart the Redis process to get rid of the huge pages already created.\n");
         }
@@ -464,7 +475,7 @@ sds createLatencyReport(void) {
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
-void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts) {
+void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
     void *replylen = addDeferredMultiBulkLength(c);
     int samples = 0, j;
 
@@ -482,7 +493,7 @@ void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts
 
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
  * listing the last latency sample for every event type registered so far. */
-void latencyCommandReplyWithLatestEvents(redisClient *c) {
+void latencyCommandReplyWithLatestEvents(client *c) {
     dictIterator *di;
     dictEntry *de;
 
@@ -554,7 +565,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  * LATENCY DOCTOR: returns an human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  */
-void latencyCommand(redisClient *c) {
+void latencyCommand(client *c) {
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {

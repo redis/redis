@@ -52,7 +52,7 @@ start_server {tags {"other"}} {
     test {SELECT an out of range DB} {
         catch {r select 1000000} err
         set _ $err
-    } {*invalid*}
+    } {*index is out of range*}
 
     tags {consistency} {
         if {![catch {package require sha1}]} {
@@ -83,6 +83,7 @@ start_server {tags {"other"}} {
             } {1}
 
             test {Same dataset digest if saving/reloading as AOF?} {
+                r config set aof-use-rdb-preamble no
                 r bgrewriteaof
                 waitForBgrewriteaof r
                 r debug loadaof
@@ -126,6 +127,7 @@ start_server {tags {"other"}} {
     test {EXPIRES after AOF reload (without rewrite)} {
         r flushdb
         r config set appendonly yes
+        r config set aof-use-rdb-preamble no
         r set x somevalue
         r expire x 1000
         r setex y 2000 somevalue
@@ -194,6 +196,7 @@ start_server {tags {"other"}} {
     }
 
     test {APPEND basics} {
+        r del foo
         list [r append foo bar] [r get foo] \
              [r append foo 100] [r get foo]
     } {3 bar 6 bar100}

@@ -16,8 +16,10 @@ source ../support/server.tcl
 source ../support/test.tcl
 
 set ::verbose 0
+set ::valgrind 0
 set ::pause_on_error 0
 set ::simulate_error 0
+set ::failed 0
 set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
@@ -30,6 +32,25 @@ if {[catch {cd tmp}]} {
     puts "tmp directory not found."
     puts "Please run this test from the Redis source root."
     exit 1
+}
+
+# Execute the specified instance of the server specified by 'type', using
+# the provided configuration file. Returns the PID of the process.
+proc exec_instance {type cfgfile} {
+    if {$type eq "redis"} {
+        set prgname redis-server
+    } elseif {$type eq "sentinel"} {
+        set prgname redis-sentinel
+    } else {
+        error "Unknown instance type."
+    }
+
+    if {$::valgrind} {
+        set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
+    } else {
+        set pid [exec ../../../src/${prgname} $cfgfile &]
+    }
+    return $pid
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
@@ -58,14 +79,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
-        if {$type eq "redis"} {
-            set prgname redis-server
-        } elseif {$type eq "sentinel"} {
-            set prgname redis-sentinel
-        } else {
-            error "Unknown instance type."
-        }
-        set pid [exec ../../../src/${prgname} $cfgfile &]
+        set pid [exec_instance $type $cfgfile]
         lappend ::pids $pid
 
         # Check availability
@@ -85,8 +99,25 @@ proc spawn_instance {type base_port count {conf {}}} {
     }
 }
 
+proc log_crashes {} {
+    set start_pattern {*REDIS BUG REPORT START*}
+    set logs [glob */log.txt]
+    foreach log $logs {
+        set fd [open $log]
+        set found 0
+        while {[gets $fd line] >= 0} {
+            if {[string match $start_pattern $line]} {
+                puts "\n*** Crash report found in $log ***"
+                set found 1
+            }
+            if {$found} {puts $line}
+        }
+    }
+}
+
 proc cleanup {} {
     puts "Cleaning up..."
+    log_crashes
     foreach pid $::pids {
         catch {exec kill -9 $pid}
     }
@@ -96,8 +127,10 @@ proc cleanup {} {
 }
 
 proc abort_sentinel_test msg {
+    incr ::failed
     puts "WARNING: Aborting the test."
     puts ">>>>>>>> $msg"
+    if {$::pause_on_error} pause_on_error
     cleanup
     exit 1
 }
@@ -113,12 +146,15 @@ proc parse_options {} {
             set ::pause_on_error 1
         } elseif {$opt eq "--fail"} {
             set ::simulate_error 1
+        } elseif {$opt eq {--valgrind}} {
+            set ::valgrind 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--pause-on-error        Pause for manual inspection on error."
             puts "--fail                  Simulate a test failure."
+            puts "--valgrind              Run with valgrind."
             puts "--help                  Shows this help."
             exit 0
         } else {
@@ -215,6 +251,7 @@ proc test {descr code} {
     flush stdout
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
+        incr ::failed
         if {[string match "assertion:*" $error]} {
             set msg [string range $error 10 end]
             puts [colorstr red $msg]
@@ -230,6 +267,38 @@ proc test {descr code} {
     }
 }
 
+# Check memory leaks when running on OSX using the "leaks" utility.
+proc check_leaks instance_types {
+    if {[string match {*Darwin*} [exec uname -a]]} {
+        puts -nonewline "Testing for memory leaks..."; flush stdout
+        foreach type $instance_types {
+            foreach_instance_id [set ::${type}_instances] id {
+                if {[instance_is_killed $type $id]} continue
+                set pid [get_instance_attrib $type $id pid]
+                set output {0 leaks}
+                catch {exec leaks $pid} output
+                if {[string match {*process does not exist*} $output] ||
+                    [string match {*cannot examine*} $output]} {
+                    # In a few tests we kill the server process.
+                    set output "0 leaks"
+                } else {
+                    puts -nonewline "$type/$pid "
+                    flush stdout
+                }
+                if {![string match {*0 leaks*} $output]} {
+                    puts [colorstr red "=== MEMORY LEAK DETECTED ==="]
+                    puts "Instance type $type, ID $id:"
+                    puts $output
+                    puts "==="
+                    incr ::failed
+                }
+            }
+        }
+        puts ""
+    }
+}
+
+# Execute all the units inside the 'tests' directory.
 proc run_tests {} {
     set tests [lsort [glob ../tests/*]]
     foreach test $tests {
@@ -239,6 +308,18 @@ proc run_tests {} {
         if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
+        check_leaks {redis sentinel}
+    }
+}
+
+# Print a message and exists with 0 / 1 according to zero or more failures.
+proc end_tests {} {
+    if {$::failed == 0} {
+        puts "GOOD! No errors."
+        exit 0
+    } else {
+        puts "WARNING $::failed test(s) failed."
+        exit 1
     }
 }
 
@@ -360,15 +441,31 @@ proc get_instance_id_by_port {type port} {
 # The instance can be restarted with restart-instance.
 proc kill_instance {type id} {
     set pid [get_instance_attrib $type $id pid]
+    set port [get_instance_attrib $type $id port]
+
     if {$pid == -1} {
         error "You tried to kill $type $id twice."
     }
+
     exec kill -9 $pid
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
     # Remove the PID from the list of pids to kill at exit.
     set ::pids [lsearch -all -inline -not -exact $::pids $pid]
+
+    # Wait for the port it was using to be available again, so that's not
+    # an issue to start a new server ASAP with the same port.
+    set retry 10
+    while {[incr retry -1]} {
+        set port_is_free [catch {set s [socket 127.0.01 $port]}]
+        if {$port_is_free} break
+        catch {close $s}
+        after 1000
+    }
+    if {$retry == 0} {
+        error "Port $port does not return available after killing instance."
+    }
 }
 
 # Return true of the instance of the specified type/id is killed.
@@ -385,12 +482,7 @@ proc restart_instance {type id} {
 
     # Execute the instance with its old setup and append the new pid
     # file for cleanup.
-    if {$type eq "redis"} {
-        set prgname redis-server
-    } else {
-        set prgname redis-sentinel
-    }
-    set pid [exec ../../../src/${prgname} $cfgfile &]
+    set pid [exec_instance $type $cfgfile]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
@@ -403,5 +495,17 @@ proc restart_instance {type id} {
     set link [redis 127.0.0.1 $port]
     $link reconnect 1
     set_instance_attrib $type $id link $link
+
+    # Make sure the instance is not loading the dataset when this
+    # function returns.
+    while 1 {
+        catch {[$link ping]} retval
+        if {[string match {*LOADING*} $retval]} {
+            after 100
+            continue
+        } else {
+            break
+        }
+    }
 }
 

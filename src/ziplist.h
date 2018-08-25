@@ -28,6 +28,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _ZIPLIST_H
+#define _ZIPLIST_H
+
 #define ZIPLIST_HEAD 0
 #define ZIPLIST_TAIL 1
 
@@ -45,7 +48,10 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int sle
 unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip);
 unsigned int ziplistLen(unsigned char *zl);
 size_t ziplistBlobLen(unsigned char *zl);
+void ziplistRepr(unsigned char *zl);
 
 #ifdef REDIS_TEST
 int ziplistTest(int argc, char *argv[]);
 #endif
+
+#endif /* _ZIPLIST_H */

@@ -29,6 +29,7 @@
  */
 
 
+#include <sys/select.h>
 #include <string.h>
 
 typedef struct aeApiState {

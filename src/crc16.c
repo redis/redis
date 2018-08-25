@@ -1,4 +1,4 @@
-#include "redis.h"
+#include "server.h"
 
 /*
  * Copyright 2001-2010 Georges Menie (www.menie.org)
