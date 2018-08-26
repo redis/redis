@@ -35,7 +35,9 @@ endif
 distclean:
 	-(cd hiredis && $(MAKE) clean) > /dev/null || true
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
+ifneq ($(USE_SYSTEM_LUA),yes)
 	-(cd lua && $(MAKE) clean) > /dev/null || true
+endif
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(rm -f .make-*)
 
