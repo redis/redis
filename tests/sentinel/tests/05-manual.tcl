@@ -12,7 +12,7 @@ test "Manual failover works" {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
-            fail "At least one Sentinel did not received failover info"
+            fail "At least one Sentinel did not receive failover info"
         }
     }
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
