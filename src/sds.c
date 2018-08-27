@@ -97,11 +97,11 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     sh = s_malloc(hdrlen+initlen+1);
+    if (sh == NULL) return NULL;
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
         memset(sh, 0, hdrlen+initlen+1);
-    if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;
     fp = ((unsigned char*)s)-1;
     switch(type) {
@@ -685,9 +685,6 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
 
 /* Remove the part of the string from left and from right composed just of
  * contiguous characters found in 'cset', that is a null terminted C string.
- *
- * After the call, the modified sds string is no longer valid and all the
- * references must be substituted with the new pointer returned by the call.
  *
  * Example:
  *
