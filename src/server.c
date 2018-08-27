@@ -2594,14 +2594,14 @@ int processCommand(client *c) {
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
     if (server.maxmemory) {
-        int retval = freeMemoryIfNeeded();
+        int out_of_memory = freeMemoryIfNeeded() == C_ERR;
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
         /* It was impossible to free enough memory, and the command the client
          * is trying to execute is denied during OOM conditions? Error. */
-        if ((c->cmd->flags & CMD_DENYOOM) && retval == C_ERR) {
+        if ((c->cmd->flags & CMD_DENYOOM) && out_of_memory) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
             return C_OK;
