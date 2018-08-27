@@ -2593,8 +2593,13 @@ int processCommand(client *c) {
      *
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
-     * is returning an error. */
-    if (server.maxmemory) {
+     * is returning an error.
+     *
+     * But if we are in lua_timedout context, we should not do eviction,
+     * because freeMemoryIfNeeded() would propagate DEL before the lua
+     * script, that will break lua scripts atomicity, and lead to
+     * inconsistency between master and slave and AOF. */
+    if (server.maxmemory && !server.lua_timedout) {
         int out_of_memory = freeMemoryIfNeeded() == C_ERR;
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
