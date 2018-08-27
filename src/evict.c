@@ -444,6 +444,10 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
  * Otehrwise if we are over the memory limit, but not enough memory
  * was freed to return back under the limit, the function returns C_ERR. */
 int freeMemoryIfNeeded(void) {
+    /* By default slaves should ignore maxmemory and just be masters excat
+     * copies. */
+    if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
+
     size_t mem_reported, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency;
     long long delta;
