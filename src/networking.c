@@ -35,6 +35,21 @@
 
 static void setProtocolError(const char *errstr, client *c);
 
+/* Trim the querybuf to the position we have read, and if the client is a master
+ * all the data we have read will be propagate to the sub-slaves and to the
+ * replication backlog. It's safe because all redis no matter master or slave
+ * increment read_reploff only after processCommand succeed. */
+void trimQueryBufToPosition(client *c) {
+    if (c->qb_pos) {
+        if (c->flags & CLIENT_MASTER) {
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->querybuf, c->qb_pos);
+        }
+        sdsrange(c->querybuf,c->qb_pos,-1);
+        c->qb_pos = 0;
+    }
+}
+
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
  * the client output buffer size. */
@@ -1301,8 +1316,7 @@ int processMultibulkBuffer(client *c) {
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
                  * avoiding a large copy of data. */
-                sdsrange(c->querybuf,c->qb_pos,-1);
-                c->qb_pos = 0;
+                trimQueryBufToPosition(c);
                 qblen = sdslen(c->querybuf);
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
@@ -1412,10 +1426,7 @@ void processInputBuffer(client *c) {
     }
 
     /* Trim to pos */
-    if (c->qb_pos) {
-        sdsrange(c->querybuf,c->qb_pos,-1);
-        c->qb_pos = 0;
-    }
+    trimQueryBufToPosition(c);
 
     server.current_client = NULL;
 }
@@ -1458,12 +1469,6 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClient(c);
         return;
-    } else if (c->flags & CLIENT_MASTER) {
-        /* Append the query buffer to the pending (not applied) buffer
-         * of the master. We'll use this buffer later in order to have a
-         * copy of the string applied by the last command executed. */
-        c->pending_querybuf = sdscatlen(c->pending_querybuf,
-                                        c->querybuf+qblen,nread);
     }
 
     sdsIncrLen(c->querybuf,nread);
@@ -1487,18 +1492,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * was actually applied to the master state: this quantity, and its
      * corresponding part of the replication stream, will be propagated to
      * the sub-slaves and to the replication backlog. */
-    if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c);
-    } else {
-        size_t prev_offset = c->reploff;
-        processInputBuffer(c);
-        size_t applied = c->reploff - prev_offset;
-        if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
-    }
+    processInputBuffer(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
