@@ -33,7 +33,7 @@ start_server {tags {"dump"}} {
         set now [clock milliseconds]
         r restore foo [expr $now+3000] $encoded absttl
         set ttl [r pttl foo]
-        assert {$ttl >= 2998 && $ttl <= 3000}
+        assert {$ttl >= 2990 && $ttl <= 3000}
         r get foo
     } {bar}
     
@@ -44,7 +44,7 @@ start_server {tags {"dump"}} {
         r config set maxmemory-policy allkeys-lru
         r restore foo 0 $encoded idletime 1000
         set idle [r object idletime foo]
-        assert {$idle >= 1000 && $idle <= 1002}
+        assert {$idle >= 1000 && $idle <= 1010}
         r get foo
     } {bar}
     
