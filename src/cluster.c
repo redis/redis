@@ -1589,6 +1589,18 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         }
     }
 
+    if (dirty_slots_count) {
+        /* If we are here, we received an update message which removed
+         * ownership for certain slots we still have keys about, but still
+         * we are serving some slots, so this master node was not demoted to
+         * a slave.
+         *
+         * In order to maintain a consistent state between keys and slots
+         * we need to remove all the keys from the slots we lost. */
+        for (j = 0; j < dirty_slots_count; j++)
+            delKeysInSlot(dirty_slots[j]);
+    }
+
     /* If at least one slot was reassigned from a node to another node
      * with a greater configEpoch, it is possible that:
      * 1) We are a master left without slots. This means that we were
@@ -1604,16 +1616,6 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (dirty_slots_count) {
-        /* If we are here, we received an update message which removed
-         * ownership for certain slots we still have keys about, but still
-         * we are serving some slots, so this master node was not demoted to
-         * a slave.
-         *
-         * In order to maintain a consistent state between keys and slots
-         * we need to remove all the keys from the slots we lost. */
-        for (j = 0; j < dirty_slots_count; j++)
-            delKeysInSlot(dirty_slots[j]);
     }
 }
 
