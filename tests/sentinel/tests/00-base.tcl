@@ -17,7 +17,7 @@ test "Basic failover works if the master is down" {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
-            fail "At least one Sentinel did not received failover info"
+            fail "At least one Sentinel did not receive failover info"
         }
     }
     restart_instance redis $master_id
@@ -108,7 +108,7 @@ test "Failover works if we configure for absolute agreement" {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
-            fail "At least one Sentinel did not received failover info"
+            fail "At least one Sentinel did not receive failover info"
         }
     }
     restart_instance redis $master_id
