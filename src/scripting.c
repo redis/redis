@@ -1222,12 +1222,18 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed;
+    long long elapsed = mstime() - server.lua_time_start;
     UNUSED(ar);
     UNUSED(lua);
 
-    elapsed = mstime() - server.lua_time_start;
-    if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
+    /* The conditions to timeout are:
+     * 1. The caller is not our master.
+     * 2. The timeout was reached.
+     * 3. We are not already timed out. */
+    if (!(server.lua_caller->flags & CLIENT_MASTER) &&
+        elapsed >= server.lua_time_limit &&
+        server.lua_timedout == 0)
+    {
         serverLog(LL_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
