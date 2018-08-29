@@ -1169,6 +1169,7 @@ int redis_math_randomseed (lua_State *L) {
 sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
     char funcname[43];
     dictEntry *de;
+    int retval;
 
     funcname[0] = 'f';
     funcname[1] = '_';
@@ -1178,6 +1179,18 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
     if ((de = dictFind(server.lua_scripts,sha)) != NULL) {
         sdsfree(sha);
         return dictGetKey(de);
+    }
+
+    /* Push the pcall error handler function on the stack. */
+    lua_getglobal(lua, "__redis__err__handler");
+     /* Try to lookup the Lua function */
+    lua_getglobal(lua, funcname);
+    if (lua_isnil(lua,-1)) {
+        lua_pop(lua,2);
+    } else {
+        lua_pop(lua,2);
+        /* If the script has been already loaded, just add it to lua_scipts dict. */
+        goto just_add;
     }
 
     sds funcdef = sdsempty();
@@ -1210,10 +1223,11 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
         return NULL;
     }
 
+just_add:
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
-    int retval = dictAdd(server.lua_scripts,sha,body);
+    retval = dictAdd(server.lua_scripts,sha,body);
     serverAssertWithInfo(c ? c : server.lua_client,NULL,retval == DICT_OK);
     server.lua_scripts_mem += sdsAllocSize(sha) + sdsAllocSize(body->ptr);
     incrRefCount(body);
@@ -1301,31 +1315,37 @@ void evalGenericCommand(client *c, int evalsha) {
         funcname[42] = '\0';
     }
 
-    /* Push the pcall error handler function on the stack. */
-    lua_getglobal(lua, "__redis__err__handler");
-
-    /* Try to lookup the Lua function */
-    lua_getglobal(lua, funcname);
-    if (lua_isnil(lua,-1)) {
-        lua_pop(lua,1); /* remove the nil from the stack */
+    sds sha = sdsnewlen(funcname+2,40);
+    dictEntry *de = dictFind(server.lua_scripts,sha);
+    if (!de) {
         /* Function not defined... let's define it if we have the
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            sdsfree(sha);
             addReply(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,c->argv[1]) == NULL) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            sdsfree(sha);
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns NULL. */
             return;
         }
-        /* Now the following is guaranteed to return non nil */
-        lua_getglobal(lua, funcname);
-        serverAssert(!lua_isnil(lua,-1));
+        /* Run here, it means that it's the first time we meet the script
+         * by EVAL command, remove if from server.lua_scripts, we don't
+         * wanna EVAL command affect server.lua_scripts dict, just take
+         * EVAL as EVAL, not as SCRIPT LOAD. */
+        dictDelete(server.lua_scripts,sha);
+        sdsfree(sha);
     }
+
+    /* Push the pcall error handler function on the stack. */
+    lua_getglobal(lua, "__redis__err__handler");
+
+     /* Now the following is guaranteed to return non nil */
+    lua_getglobal(lua, funcname);
+    serverAssert(!lua_isnil(lua,-1));
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
