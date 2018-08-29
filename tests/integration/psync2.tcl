@@ -187,6 +187,7 @@ start_server {} {
         # Make sure to replicate the first EVAL while the salve is online
         # so that it's part of the scripts the master believes it's safe
         # to propagate as EVALSHA.
+        $R($master_id) SCRIPT LOAD {return redis.call("incr","__mycounter")}
         $R($master_id) EVAL {return redis.call("incr","__mycounter")} 0
         $R($master_id) EVALSHA e6e0b547500efcec21eddb619ac3724081afee89 0
 

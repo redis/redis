@@ -68,8 +68,9 @@ start_server {tags {"repl"}} {
                 set key "key:$j"
                 # Make sure to create scripts that have different SHA1s
                 set script "return redis.call('incr','$key')"
-                set sha1 [r eval "return redis.sha1hex(\"$script\")" 0]
+                set sha1 [r script load $script]
                 set oldsha($j) $sha1
+                r script load $script
                 r eval $script 0
                 set res [r evalsha $sha1 0]
                 assert {$res == 2}

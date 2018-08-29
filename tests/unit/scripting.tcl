@@ -44,6 +44,7 @@ start_server {tags {"scripting"}} {
     } {myval}
 
     test {EVALSHA - Can we call a SHA1 if already defined?} {
+        r script load {return redis.call('get',KEYS[1])}
         r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
@@ -288,7 +289,7 @@ start_server {tags {"scripting"}} {
     } {NOSCRIPT*}
 
     test {SCRIPT EXISTS - can detect already defined scripts?} {
-        r eval "return 1+1" 0
+        r script load "return 1+1"
         r script exists a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bd9 a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bda
     } {1 0}
 
@@ -541,10 +542,12 @@ foreach cmdrepl {0 1} {
                 # One with an error, but still executing a command.
                 # SHA is: 67164fc43fa971f76fd1aaeeaf60c1c178d25876
                 catch {
+                    r script load {redis.call('incr',KEYS[1]); redis.call('nonexisting')}
                     r eval {redis.call('incr',KEYS[1]); redis.call('nonexisting')} 1 x
                 }
                 # One command is correct:
                 # SHA is: 6f5ade10a69975e903c6d07b10ea44c6382381a5
+                r script load {return redis.call('incr',KEYS[1])}
                 r eval {return redis.call('incr',KEYS[1])} 1 x
             } {2}
 
@@ -594,6 +597,7 @@ foreach cmdrepl {0 1} {
 
             test "EVALSHA replication when first call is readonly $rt" {
                 r del x
+                r script load {if tonumber(ARGV[1]) > 0 then redis.call('incr', KEYS[1]) end}
                 r eval {if tonumber(ARGV[1]) > 0 then redis.call('incr', KEYS[1]) end} 1 x 0
                 r evalsha 6e0e2745aa546d0b50b801a20983b70710aef3ce 1 x 0
                 r evalsha 6e0e2745aa546d0b50b801a20983b70710aef3ce 1 x 1
