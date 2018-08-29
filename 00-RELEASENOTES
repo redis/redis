@@ -1237,6 +1237,14 @@ non-backward compatible changes introduced in the 5.0 release:
 
 * Certain log formats and sentences are different in Redis 5.0.
 
+* Now by default maxmemory is ignored by slaves, and used only once a slave
+  is promoted to master. It means that in setups where you want slaves to
+  enforce maxmemory in an independent way from the master (that will anyway
+  stream the key eviction DEL commands), you should active this feature manually
+  and make sure you understand that it breaks consistency if writes are not
+  always idempotent. TLDR: the new behavior is much better for 99.999% of use
+  cases, revert it if you really know what you are doing.
+
 --------------------------------------------------------------------------------
 
 Credits: For each release, a list of changes with the relative author is
