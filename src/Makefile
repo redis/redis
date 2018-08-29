@@ -120,9 +120,14 @@ ifeq ($(MALLOC),tcmalloc_minimal)
 endif
 
 ifeq ($(MALLOC),jemalloc)
+ifeq ($(USE_SYSTEM_JEMALLOC),yes)
+	FINAL_CFLAGS+= -DUSE_JEMALLOC -I/usr/include/jemalloc/include
+	FINAL_LIBS := -ljemalloc $(FINAL_LIBS)
+else
 	DEPENDENCY_TARGETS+= jemalloc
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
 	FINAL_LIBS := ../deps/jemalloc/lib/libjemalloc.a $(FINAL_LIBS)
+endif
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)

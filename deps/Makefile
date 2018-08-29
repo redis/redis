@@ -36,7 +36,9 @@ distclean:
 	-(cd hiredis && $(MAKE) clean) > /dev/null || true
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
 	-(cd lua && $(MAKE) clean) > /dev/null || true
+ifneq ($(USE_SYSTEM_JEMALLOC),yes)
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
+endif
 	-(rm -f .make-*)
 
 .PHONY: distclean
