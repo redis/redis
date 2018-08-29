@@ -1411,32 +1411,6 @@ void evalGenericCommand(client *c, int evalsha) {
             decrRefCount(propargv[0]);
         }
     }
-
-    /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
-     * we are sure that the script was already in the context of all the
-     * attached slaves *and* the current AOF file if enabled.
-     *
-     * To do so we use a cache of SHA1s of scripts that we already propagated
-     * as full EVAL, that's called the Replication Script Cache.
-     *
-     * For repliation, everytime a new slave attaches to the master, we need to
-     * flush our cache of scripts that can be replicated as EVALSHA, while
-     * for AOF we need to do so every time we rewrite the AOF file. */
-    if (evalsha && !server.lua_replicate_commands) {
-        if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
-            /* This script is not in our script cache, replicate it as
-             * EVAL, then add it into the script cache, as from now on
-             * slaves and AOF know about it. */
-            robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
-
-            replicationScriptCacheAdd(c->argv[1]->ptr);
-            serverAssertWithInfo(c,NULL,script != NULL);
-            rewriteClientCommandArgument(c,0,
-                resetRefCount(createStringObject("EVAL",4)));
-            rewriteClientCommandArgument(c,1,script);
-            forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
-        }
-    }
 }
 
 void evalCommand(client *c) {
@@ -1477,7 +1451,6 @@ NULL
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
-        replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
