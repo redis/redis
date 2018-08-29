@@ -1436,7 +1436,7 @@ void xreadCommand(client *c) {
                  * synchronously in case the group top item delivered is smaller
                  * than what the stream has inside. */
                 streamID *last = &groups[i]->last_id;
-                if (streamCompareID(&s->last_id, last) > 0) {
+                if (s->length && (streamCompareID(&s->last_id, last) > 0)) {
                     serve_synchronously = 1;
                     *gt = *last;
                 }
@@ -1444,7 +1444,7 @@ void xreadCommand(client *c) {
         } else {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
-            if (streamCompareID(&s->last_id, gt) > 0) {
+            if (s->length && (streamCompareID(&s->last_id, gt) > 0)) {
                 serve_synchronously = 1;
             }
         }
