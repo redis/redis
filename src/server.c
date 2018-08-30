@@ -2683,7 +2683,6 @@ int processCommand(client *c) {
 
     /* Lua script too slow? Only allow a limited number of commands. */
     if (server.lua_timedout &&
-          !(c->flags & CLIENT_MASTER) &&
           c->cmd->proc != authCommand &&
           c->cmd->proc != replconfCommand &&
         !(c->cmd->proc == shutdownCommand &&
