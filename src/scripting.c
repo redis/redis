@@ -1226,14 +1226,9 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     UNUSED(ar);
     UNUSED(lua);
 
-    /* The conditions to timeout are:
-     * 1. The caller is not our master.
-     * 2. The timeout was reached.
-     * 3. We are not already timed out. */
-    if (!(server.lua_caller->flags & CLIENT_MASTER) &&
-        elapsed >= server.lua_time_limit &&
-        server.lua_timedout == 0)
-    {
+    /* Set the timeout condition if not already set and the maximum
+     * execution time was reached. */
+    if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
         serverLog(LL_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
         server.lua_timedout = 1;
         /* Once the script timeouts we reenter the event loop to permit others
@@ -1351,9 +1346,7 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_caller = c;
     server.lua_time_start = mstime();
     server.lua_kill = 0;
-    if (server.lua_time_limit > 0 && server.masterhost == NULL &&
-        ldb.active == 0)
-    {
+    if (server.lua_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
     } else if (ldb.active) {
@@ -1503,6 +1496,8 @@ NULL
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
+        } else if (server.lua_caller->flags & CLIENT_MASTER) {
+            addReplySds(c,sdsnew("-UNKILLABLE The busy script was sent by a master instance in the context of replication and cannot be killed.\r\n"));
         } else if (server.lua_write_dirty) {
             addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
         } else {
