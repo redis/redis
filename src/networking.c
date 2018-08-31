@@ -1466,7 +1466,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     {
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
-        if (remaining < readlen) readlen = remaining;
+        if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
 
     qblen = sdslen(c->querybuf);
