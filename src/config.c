@@ -227,13 +227,23 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid backlog value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
-            int j, addresses = argc-1;
+            int j, k, addresses = 0;
 
-            if (addresses > CONFIG_BINDADDR_MAX) {
+            if (argc-1 > CONFIG_BINDADDR_MAX) {
                 err = "Too many bind addresses specified"; goto loaderr;
             }
-            for (j = 0; j < addresses; j++)
-                server.bindaddr[j] = zstrdup(argv[j+1]);
+            for (j = 0; j < argc-1; j++) {
+              char *addr = zstrdup(argv[j+1]);
+              for (k = 0; k < addresses; k++) {
+                if (!strcasecmp(server.bindaddr[k], addr)) {
+                  addr = NULL;
+                  break;
+                }
+              }
+              if (addr != NULL) {
+                server.bindaddr[addresses++] = addr;
+              }
+            }
             server.bindaddr_count = addresses;
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
