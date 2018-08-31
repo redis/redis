@@ -827,8 +827,7 @@ void freeClient(client *c) {
         serverLog(LL_WARNING,"Connection with master lost.");
         if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
                           CLIENT_CLOSE_ASAP|
-                          CLIENT_BLOCKED|
-                          CLIENT_UNBLOCKED)))
+                          CLIENT_BLOCKED)))
         {
             replicationCacheMaster(c);
             return;
