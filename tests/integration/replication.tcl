@@ -266,3 +266,47 @@ foreach dl {no yes} {
         }
     }
 }
+
+start_server {tags {"repl"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    set load_handle0 [start_write_load $master_host $master_port 3]
+    start_server {} {
+        test "Master stream is correctly processed while the slave has a script in -BUSY state" {
+            set slave [srv 0 client]
+            puts [srv 0 port]
+            $slave config set lua-time-limit 500
+            $slave slaveof $master_host $master_port
+
+            # Wait for the slave to be online
+            wait_for_condition 500 100 {
+                [lindex [$slave role] 3] eq {connected}
+            } else {
+                fail "Slave still not connected after some time"
+            }
+
+            # Wait some time to make sure the master is sending data
+            # to the slave.
+            after 5000
+
+            # Stop the ability of the slave to process data by sendig
+            # a script that will put it in BUSY state.
+            $slave eval {for i=1,3000000000 do end} 0
+
+            # Wait some time again so that more master stream will
+            # be processed.
+            after 2000
+
+            # Stop the write load
+            stop_write_load $load_handle0
+
+            # number of keys
+            wait_for_condition 500 100 {
+                [$master debug digest] eq [$slave debug digest]
+            } else {
+                fail "Different datasets between slave and master"
+            }
+        }
+    }
+}
