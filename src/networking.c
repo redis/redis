@@ -1336,6 +1336,10 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
+                if (c->flags & CLIENT_MASTER) {
+                    replicationFeedSlavesFromMasterStream(server.slaves,
+                            c->querybuf, sdslen(c->querybuf));
+                }
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
