@@ -126,7 +126,7 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBuffer(c);
+                processInputBufferAndReplicate(c);
             }
         }
     }
