@@ -221,22 +221,15 @@ int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy) {
     return geohashDecodeToLongLatType(hash, xy);
 }
 
-static void geohash_move_x(GeoHashBits *hash, int8_t d) {
+void static void geohash_move_x(GeoHashBits *hash, int8_t d) {  // 更改经度
     if (d == 0)
         return;
-
-    uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaULL;
-    uint64_t y = hash->bits & 0x5555555555555555ULL;
-
-    uint64_t zz = 0x5555555555555555ULL >> (64 - hash->step * 2);
-
-    if (d > 0) {
-        x = x + (zz + 1);
-    } else {
-        x = x | zz;
-        x = x - (zz + 1);
-    }
-
+    uint64_t x;
+    uint64_t y = hash->bits & 0x5555555555555555ULL; // 0b0101010101010101010101010101010101010101010101010101010101010101
+    if (d > 0)
+        x = (hash->bits | 0x5555555555555555ULL) + 1; // 使经度位二进制数加1,超出长度step则x=0
+    else
+        x = (hash->bits & 0xaaaaaaaaaaaaaaaaULL) - 1;// 0b1010101010101010101010101010101010101010101010101010101010101010
     x &= (0xaaaaaaaaaaaaaaaaULL >> (64 - hash->step * 2));
     hash->bits = (x | y);
 }
@@ -244,22 +237,17 @@ static void geohash_move_x(GeoHashBits *hash, int8_t d) {
 static void geohash_move_y(GeoHashBits *hash, int8_t d) {
     if (d == 0)
         return;
-
     uint64_t x = hash->bits & 0xaaaaaaaaaaaaaaaaULL;
-    uint64_t y = hash->bits & 0x5555555555555555ULL;
-
-    uint64_t zz = 0xaaaaaaaaaaaaaaaaULL >> (64 - hash->step * 2);
-    if (d > 0) {
-        y = y + (zz + 1);
-    } else {
-        y = y | zz;
-        y = y - (zz + 1);
-    }
+    uint64_t y ;
+    if (d > 0)
+        y = (hash->bits | 0xaaaaaaaaaaaaaaaaULL) + 1;
+    else
+        y = (hash->bits & 0x5555555555555555ULL) - 1;
     y &= (0x5555555555555555ULL >> (64 - hash->step * 2));
     hash->bits = (x | y);
 }
 
-void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors) {
+geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors) {
     neighbors->east = *hash;
     neighbors->west = *hash;
     neighbors->north = *hash;
