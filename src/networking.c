@@ -2134,9 +2134,9 @@ int clientsArePaused(void) {
         while ((ln = listNext(&li)) != NULL) {
             c = listNodeValue(ln);
 
-            /* Don't touch slaves and blocked clients. The latter pending
-             * requests be processed when unblocked. */
-            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
+            /* Don't touch slaves and blocked or unblocked clients.
+             * The latter pending requests be processed when unblocked. */
+            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED|CLIENT_UNBLOCKED)) continue;
             c->flags |= CLIENT_UNBLOCKED;
             listAddNodeTail(server.unblocked_clients,c);
         }

@@ -1367,7 +1367,7 @@ void evalGenericCommand(client *c, int evalsha) {
          * script timeout was detected. */
         aeCreateFileEvent(server.el,c->fd,AE_READABLE,
                           readQueryFromClient,c);
-        if (server.masterhost && server.master) {
+        if (server.masterhost && server.master && !(server.master->flags & CLIENT_UNBLOCKED)) {
             server.master->flags |= CLIENT_UNBLOCKED;
             listAddNodeTail(server.unblocked_clients,server.master);
         }
