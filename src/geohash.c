@@ -221,15 +221,15 @@ int geohashDecodeToLongLatWGS84(const GeoHashBits hash, double *xy) {
     return geohashDecodeToLongLatType(hash, xy);
 }
 
-void static void geohash_move_x(GeoHashBits *hash, int8_t d) {  // 更改经度
+void static void geohash_move_x(GeoHashBits *hash, int8_t d) {
     if (d == 0)
         return;
     uint64_t x;
-    uint64_t y = hash->bits & 0x5555555555555555ULL; // 0b0101010101010101010101010101010101010101010101010101010101010101
+    uint64_t y = hash->bits & 0x5555555555555555ULL;
     if (d > 0)
-        x = (hash->bits | 0x5555555555555555ULL) + 1; // 使经度位二进制数加1,超出长度step则x=0
+        x = (hash->bits | 0x5555555555555555ULL) + 1;
     else
-        x = (hash->bits & 0xaaaaaaaaaaaaaaaaULL) - 1;// 0b1010101010101010101010101010101010101010101010101010101010101010
+        x = (hash->bits & 0xaaaaaaaaaaaaaaaaULL) - 1;
     x &= (0xaaaaaaaaaaaaaaaaULL >> (64 - hash->step * 2));
     hash->bits = (x | y);
 }
