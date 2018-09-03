@@ -839,6 +839,7 @@ void freeClient(client *c) {
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
         serverLog(LL_WARNING,"Connection with master lost.");
+        undoReplicationBacklogIfNeeded();
         if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
                           CLIENT_CLOSE_ASAP|
                           CLIENT_BLOCKED|
