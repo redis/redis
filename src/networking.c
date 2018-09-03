@@ -35,6 +35,21 @@
 
 static void setProtocolError(const char *errstr, client *c);
 
+/* Trim the querybuf to the position we have read, and if the client is a master
+ * all the data we have read will be propagate to the sub-slaves and to the
+ * replication backlog. It's safe because all redis no matter master or slave
+ * increment read_reploff only after processCommand succeed. */
+void trimQueryBufToPosition(client *c) {
+    if (c->qb_pos) {
+        if (c->flags & CLIENT_MASTER) {
+            replicationFeedSlavesFromMasterStream(server.slaves,
+                    c->querybuf, c->qb_pos);
+        }
+        sdsrange(c->querybuf,c->qb_pos,-1);
+        c->qb_pos = 0;
+    }
+}
+
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
  * the client output buffer size. */
@@ -112,7 +127,6 @@ client *createClient(int fd) {
     c->bufpos = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
-    c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -825,6 +839,7 @@ void freeClient(client *c) {
      * some unexpected state, by checking its flags. */
     if (server.master && c->flags & CLIENT_MASTER) {
         serverLog(LL_WARNING,"Connection with master lost.");
+        undoReplicationBacklogIfNeeded();
         if (!(c->flags & (CLIENT_CLOSE_AFTER_REPLY|
                           CLIENT_CLOSE_ASAP|
                           CLIENT_BLOCKED)))
@@ -842,7 +857,6 @@ void freeClient(client *c) {
 
     /* Free the query buffer */
     sdsfree(c->querybuf);
-    sdsfree(c->pending_querybuf);
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
@@ -1294,19 +1308,21 @@ int processMultibulkBuffer(client *c) {
 
             c->qb_pos = newline-c->querybuf+2;
             if (ll >= PROTO_MBULK_BIG_ARG) {
-                size_t qblen;
-
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimize object creation
-                 * avoiding a large copy of data. */
-                sdsrange(c->querybuf,c->qb_pos,-1);
-                c->qb_pos = 0;
-                qblen = sdslen(c->querybuf);
-                /* Hint the sds library about the amount of bytes this string is
-                 * going to contain. */
-                if (qblen < (size_t)ll+2)
-                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
+                 * avoiding a large copy of data.
+                 *
+                 * But only when the data we have not parsed is less than
+                 * or equal to ll+2. If the data length is greater than
+                 * ll+2, trimming querybuf is just a waste of time, because
+                 * at this time the querybuf contains not only our bulk. */
+                if (sdslen(c->querybuf)-c->qb_pos <= (size_t)ll+2) {
+                    trimQueryBufToPosition(c);
+                    /* Hint the sds library about the amount of bytes this string is
+                     * going to contain. */
+                    c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+                }
             }
             c->bulklen = ll;
         }
@@ -1323,6 +1339,10 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
+                if (c->flags & CLIENT_MASTER) {
+                    replicationFeedSlavesFromMasterStream(server.slaves,
+                            c->querybuf, sdslen(c->querybuf));
+                }
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
@@ -1417,10 +1437,7 @@ void processInputBuffer(client *c) {
     }
 
     /* Trim to pos */
-    if (c->qb_pos) {
-        sdsrange(c->querybuf,c->qb_pos,-1);
-        c->qb_pos = 0;
-    }
+    trimQueryBufToPosition(c);
 
     server.current_client = NULL;
 }
@@ -1463,12 +1480,6 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         serverLog(LL_VERBOSE, "Client closed connection");
         freeClient(c);
         return;
-    } else if (c->flags & CLIENT_MASTER) {
-        /* Append the query buffer to the pending (not applied) buffer
-         * of the master. We'll use this buffer later in order to have a
-         * copy of the string applied by the last command executed. */
-        c->pending_querybuf = sdscatlen(c->pending_querybuf,
-                                        c->querybuf+qblen,nread);
     }
 
     sdsIncrLen(c->querybuf,nread);
@@ -1492,18 +1503,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * was actually applied to the master state: this quantity, and its
      * corresponding part of the replication stream, will be propagated to
      * the sub-slaves and to the replication backlog. */
-    if (!(c->flags & CLIENT_MASTER)) {
-        processInputBuffer(c);
-    } else {
-        size_t prev_offset = c->reploff;
-        processInputBuffer(c);
-        size_t applied = c->reploff - prev_offset;
-        if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
-                    c->pending_querybuf, applied);
-            sdsrange(c->pending_querybuf,applied,-1);
-        }
-    }
+    processInputBuffer(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,

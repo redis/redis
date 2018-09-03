@@ -119,6 +119,25 @@ void freeReplicationBacklog(void) {
     server.repl_backlog = NULL;
 }
 
+void undoReplicationBacklogIfNeeded(void) {
+    serverAssert(server.master != NULL && server.cached_master == NULL);
+    if (server.master->reploff != server.master_repl_offset) {
+        serverLog(LL_WARNING,"We have partial command in replication backlog, undo it.");
+        if (server.master->reploff+1 < server.repl_backlog_off ||
+            server.master->reploff+1 > (server.repl_backlog_off + server.repl_backlog_histlen)) {
+            serverLog(LL_WARNING,"Unable to undo, just free replication backlog.");
+            freeReplicationBacklog();
+        } else {
+            long long undo = server.master_repl_offset - server.master->reploff;
+            server.repl_backlog_histlen -= undo;
+            server.repl_backlog_idx -= undo;
+            if (server.repl_backlog_idx < 0) server.repl_backlog_idx += server.repl_backlog_size;
+        }
+        server.master_repl_offset = server.master->reploff;
+        disconnectSlaves();
+    }
+}
+
 /* Add data to the replication backlog.
  * This function also increments the global replication offset stored at
  * server.master_repl_offset, because there is no case where we want to feed
@@ -2144,7 +2163,6 @@ void replicationCacheMaster(client *c) {
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
-    sdsclear(server.master->pending_querybuf);
     server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     listEmpty(c->reply);
