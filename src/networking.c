@@ -1466,6 +1466,8 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     {
         ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
+        /* Note that the 'remaining' variable may be zero in some edge case,
+         * for example once we resume a blocked client after CLIENT PAUSE. */
         if (remaining > 0 && remaining < readlen) readlen = remaining;
     }
 
