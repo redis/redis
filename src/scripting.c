@@ -511,15 +511,20 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* If we reached the memory limit configured via maxmemory, commands that
      * could enlarge the memory usage are not allowed, but only if this is the
      * first write in the context of this script, otherwise we can't stop
-     * in the middle. */
-    if (server.maxmemory && server.lua_write_dirty == 0 &&
-        (cmd->flags & CMD_DENYOOM))
-    {
-        if (freeMemoryIfNeeded() == C_ERR) {
-            luaPushError(lua, shared.oomerr->ptr);
-            goto cleanup;
-        }
-    }
+     * in the middle.
+     * if (server.maxmemory && server.lua_write_dirty == 0 &&
+     *     (cmd->flags & CMD_DENYOOM))
+     * {
+     *    if (freeMemoryIfNeeded() == C_ERR) {
+     *        luaPushError(lua, shared.oomerr->ptr);
+     *        goto cleanup;
+     *    }
+     * }
+     * freeMemoryIfNeeded would propagate DEL before the lua script,
+     * it's not safe and may lead to inconsistency between master/slave
+     * and aof.
+     * Just marked the codes as annotation to forbid eviction among lua
+     * script, maybe we can solve the problem in a better way in future. */
 
     if (cmd->flags & CMD_RANDOM) server.lua_random_dirty = 1;
     if (cmd->flags & CMD_WRITE) server.lua_write_dirty = 1;
