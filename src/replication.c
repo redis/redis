@@ -617,9 +617,6 @@ int startBgsaveForReplication(int mincapa) {
         }
     }
 
-    /* Flush the script cache, since we need that slave differences are
-     * accumulated without requiring slaves to match our cached scripts. */
-    if (retval == C_OK) replicationScriptCacheFlush();
     return retval;
 }
 
@@ -1259,6 +1256,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             -1,
             server.repl_slave_lazy_flush ? EMPTYDB_ASYNC : EMPTYDB_NO_FLAGS,
             replicationEmptyDbCallback);
+        /* Note that after PSYNC2, lua scripts are regarded as a part of state,
+         * so if slave receive FULL RESYNC, it should reset scripting state,
+         * in case slave contains more lua scripts than master. */
+        scriptingReset();
         /* Before loading the DB into memory we need to delete the readable
          * handler, otherwise it will get called recursively since
          * rdbLoad() will call the event loop to process events from time to
@@ -2264,90 +2265,6 @@ void refreshGoodSlavesCount(void) {
     server.repl_good_slaves_count = good;
 }
 
-/* ----------------------- REPLICATION SCRIPT CACHE --------------------------
- * The goal of this code is to keep track of scripts already sent to every
- * connected slave, in order to be able to replicate EVALSHA as it is without
- * translating it to EVAL every time it is possible.
- *
- * We use a capped collection implemented by a hash table for fast lookup
- * of scripts we can send as EVALSHA, plus a linked list that is used for
- * eviction of the oldest entry when the max number of items is reached.
- *
- * We don't care about taking a different cache for every different slave
- * since to fill the cache again is not very costly, the goal of this code
- * is to avoid that the same big script is trasmitted a big number of times
- * per second wasting bandwidth and processor speed, but it is not a problem
- * if we need to rebuild the cache from scratch from time to time, every used
- * script will need to be transmitted a single time to reappear in the cache.
- *
- * This is how the system works:
- *
- * 1) Every time a new slave connects, we flush the whole script cache.
- * 2) We only send as EVALSHA what was sent to the master as EVALSHA, without
- *    trying to convert EVAL into EVALSHA specifically for slaves.
- * 3) Every time we trasmit a script as EVAL to the slaves, we also add the
- *    corresponding SHA1 of the script into the cache as we are sure every
- *    slave knows about the script starting from now.
- * 4) On SCRIPT FLUSH command, we replicate the command to all the slaves
- *    and at the same time flush the script cache.
- * 5) When the last slave disconnects, flush the cache.
- * 6) We handle SCRIPT LOAD as well since that's how scripts are loaded
- *    in the master sometimes.
- */
-
-/* Initialize the script cache, only called at startup. */
-void replicationScriptCacheInit(void) {
-    server.repl_scriptcache_size = 10000;
-    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
-    server.repl_scriptcache_fifo = listCreate();
-}
-
-/* Empty the script cache. Should be called every time we are no longer sure
- * that every slave knows about all the scripts in our set, or when the
- * current AOF "context" is no longer aware of the script. In general we
- * should flush the cache:
- *
- * 1) Every time a new slave reconnects to this master and performs a
- *    full SYNC (PSYNC does not require flushing).
- * 2) Every time an AOF rewrite is performed.
- * 3) Every time we are left without slaves at all, and AOF is off, in order
- *    to reclaim otherwise unused memory.
- */
-void replicationScriptCacheFlush(void) {
-    dictEmpty(server.repl_scriptcache_dict,NULL);
-    listRelease(server.repl_scriptcache_fifo);
-    server.repl_scriptcache_fifo = listCreate();
-}
-
-/* Add an entry into the script cache, if we reach max number of entries the
- * oldest is removed from the list. */
-void replicationScriptCacheAdd(sds sha1) {
-    int retval;
-    sds key = sdsdup(sha1);
-
-    /* Evict oldest. */
-    if (listLength(server.repl_scriptcache_fifo) == server.repl_scriptcache_size)
-    {
-        listNode *ln = listLast(server.repl_scriptcache_fifo);
-        sds oldest = listNodeValue(ln);
-
-        retval = dictDelete(server.repl_scriptcache_dict,oldest);
-        serverAssert(retval == DICT_OK);
-        listDelNode(server.repl_scriptcache_fifo,ln);
-    }
-
-    /* Add current. */
-    retval = dictAdd(server.repl_scriptcache_dict,key,NULL);
-    listAddNodeHead(server.repl_scriptcache_fifo,key);
-    serverAssert(retval == DICT_OK);
-}
-
-/* Returns non-zero if the specified entry exists inside the cache, that is,
- * if all the slaves are aware of this script SHA1. */
-int replicationScriptCacheExists(sds sha1) {
-    return dictFind(server.repl_scriptcache_dict,sha1) != NULL;
-}
-
 /* ----------------------- SYNCHRONOUS REPLICATION --------------------------
  * Redis synchronous replication design can be summarized in points:
  *
@@ -2653,16 +2570,6 @@ void replicationCron(void) {
                 "without connected slaves.",
                 (int) server.repl_backlog_time_limit);
         }
-    }
-
-    /* If AOF is disabled and we no longer have attached slaves, we can
-     * free our Replication Script Cache as there is no need to propagate
-     * EVALSHA at all. */
-    if (listLength(server.slaves) == 0 &&
-        server.aof_state == AOF_OFF &&
-        listLength(server.repl_scriptcache_fifo) != 0)
-    {
-        replicationScriptCacheFlush();
     }
 
     /* Start a BGSAVE good for replication if we have slaves in

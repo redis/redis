@@ -1017,16 +1017,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->aof_buffer = mem;
     mem_total+=mem;
 
-    mem = 0;
+    mem = server.lua_scripts_mem;
     mem += dictSize(server.lua_scripts) * sizeof(dictEntry) +
-        dictSlots(server.lua_scripts) * sizeof(dictEntry*);
-    mem += dictSize(server.repl_scriptcache_dict) * sizeof(dictEntry) +
-        dictSlots(server.repl_scriptcache_dict) * sizeof(dictEntry*);
-    if (listLength(server.repl_scriptcache_fifo) > 0) {
-        mem += listLength(server.repl_scriptcache_fifo) * (sizeof(listNode) + 
-            sdsZmallocSize(listNodeValue(listFirst(server.repl_scriptcache_fifo))));
-    }
-    mh->lua_caches = mem;
+           dictSlots(server.lua_scripts) * sizeof(dictEntry*) +
+           dictSize(server.lua_scripts) * sizeof(robj);
+    mh->lua_scripts = mem;
     mem_total+=mem;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -1338,8 +1333,8 @@ void memoryCommand(client *c) {
         addReplyBulkCString(c,"aof.buffer");
         addReplyLongLong(c,mh->aof_buffer);
 
-        addReplyBulkCString(c,"lua.caches");
-        addReplyLongLong(c,mh->lua_caches);
+        addReplyBulkCString(c,"lua.scripts");
+        addReplyLongLong(c,mh->lua_scripts);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];
