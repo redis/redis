@@ -121,7 +121,7 @@ void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range) {
 int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash) {
-    if (hash == NULL || step > 32 || step == 0 || lat_range == NULL || long_range == NULL ||
+    if (hash == NULL || step > 32 || step == 0 || RANGEPISZERO(lat_range) || RANGEPISZERO(long_range) ||
         latitude < lat_range->min || latitude > lat_range->max || longitude < long_range->min || longitude > long_range->max
     ) return 0;
 
