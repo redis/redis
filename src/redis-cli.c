@@ -1242,7 +1242,7 @@ static void usage(void) {
 "  --ldb              Used with --eval enable the Redis Lua debugger.\n"
 "  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
 "                     this mode the server is blocked and script changes are\n"
-"                     not rolled back from the server memory.\n"
+"                     are not rolled back from the server memory.\n"
 "  --help             Output this help and exit.\n"
 "  --version          Output version and exit.\n"
 "\n"
