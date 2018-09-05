@@ -616,7 +616,7 @@ void hincrbyfloatCommand(client *c) {
 
     value += incr;
 
-    char buf[256];
+    char buf[MAX_LONG_DOUBLE_CHARS];
     int len = ld2string(buf,sizeof(buf),value,1);
     new = sdsnewlen(buf,len);
     hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);

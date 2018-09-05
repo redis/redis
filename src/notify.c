@@ -29,8 +29,8 @@
 
 #include "server.h"
 
-/* This file implements keyspace events notification via Pub/Sub ad
- * described at http://redis.io/topics/keyspace-events. */
+/* This file implements keyspace events notification via Pub/Sub and
+ * described at https://redis.io/topics/notifications. */
 
 /* Turn a string representing notification classes into an integer
  * representing notification classes flags xored.
@@ -100,6 +100,12 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
+    /* If any modules are interested in events, notify the module system now. 
+     * This bypasses the notifications configuration, but the module engine
+     * will only call event subscribers if the event type matches the types
+     * they are interested in. */
+     moduleNotifyKeyspaceEvent(type, event, key, dbid);
+    
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
 
@@ -117,7 +123,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         decrRefCount(chanobj);
     }
 
-    /* __keyevente@<db>__:<event> <key> notifications. */
+    /* __keyevent@<db>__:<event> <key> notifications. */
     if (server.notify_keyspace_events & NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
         if (len == -1) len = ll2string(buf,sizeof(buf),dbid);

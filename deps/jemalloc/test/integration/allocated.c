@@ -9,8 +9,7 @@ static const bool config_stats =
     ;
 
 void *
-thd_start(void *arg)
-{
+thd_start(void *arg) {
 	int err;
 	void *p;
 	uint64_t a0, a1, d0, d1;
@@ -18,16 +17,18 @@ thd_start(void *arg)
 	size_t sz, usize;
 
 	sz = sizeof(a0);
-	if ((err = mallctl("thread.allocated", &a0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+	if ((err = mallctl("thread.allocated", (void *)&a0, &sz, NULL, 0))) {
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
 	sz = sizeof(ap0);
-	if ((err = mallctl("thread.allocatedp", &ap0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+	if ((err = mallctl("thread.allocatedp", (void *)&ap0, &sz, NULL, 0))) {
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
@@ -36,16 +37,19 @@ thd_start(void *arg)
 	    "storage");
 
 	sz = sizeof(d0);
-	if ((err = mallctl("thread.deallocated", &d0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+	if ((err = mallctl("thread.deallocated", (void *)&d0, &sz, NULL, 0))) {
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
 	sz = sizeof(dp0);
-	if ((err = mallctl("thread.deallocatedp", &dp0, &sz, NULL, 0))) {
-		if (err == ENOENT)
+	if ((err = mallctl("thread.deallocatedp", (void *)&dp0, &sz, NULL,
+	    0))) {
+		if (err == ENOENT) {
 			goto label_ENOENT;
+		}
 		test_fail("%s(): Error in mallctl(): %s", __func__,
 		    strerror(err));
 	}
@@ -57,9 +61,9 @@ thd_start(void *arg)
 	assert_ptr_not_null(p, "Unexpected malloc() error");
 
 	sz = sizeof(a1);
-	mallctl("thread.allocated", &a1, &sz, NULL, 0);
+	mallctl("thread.allocated", (void *)&a1, &sz, NULL, 0);
 	sz = sizeof(ap1);
-	mallctl("thread.allocatedp", &ap1, &sz, NULL, 0);
+	mallctl("thread.allocatedp", (void *)&ap1, &sz, NULL, 0);
 	assert_u64_eq(*ap1, a1,
 	    "Dereferenced \"thread.allocatedp\" value should equal "
 	    "\"thread.allocated\" value");
@@ -74,9 +78,9 @@ thd_start(void *arg)
 	free(p);
 
 	sz = sizeof(d1);
-	mallctl("thread.deallocated", &d1, &sz, NULL, 0);
+	mallctl("thread.deallocated", (void *)&d1, &sz, NULL, 0);
 	sz = sizeof(dp1);
-	mallctl("thread.deallocatedp", &dp1, &sz, NULL, 0);
+	mallctl("thread.deallocatedp", (void *)&dp1, &sz, NULL, 0);
 	assert_u64_eq(*dp1, d1,
 	    "Dereferenced \"thread.deallocatedp\" value should equal "
 	    "\"thread.deallocated\" value");
@@ -87,23 +91,20 @@ thd_start(void *arg)
 	    "Deallocated memory counter should increase by at least the amount "
 	    "explicitly deallocated");
 
-	return (NULL);
+	return NULL;
 label_ENOENT:
 	assert_false(config_stats,
 	    "ENOENT should only be returned if stats are disabled");
 	test_skip("\"thread.allocated\" mallctl not available");
-	return (NULL);
+	return NULL;
 }
 
-TEST_BEGIN(test_main_thread)
-{
-
+TEST_BEGIN(test_main_thread) {
 	thd_start(NULL);
 }
 TEST_END
 
-TEST_BEGIN(test_subthread)
-{
+TEST_BEGIN(test_subthread) {
 	thd_t thd;
 
 	thd_create(&thd, thd_start, NULL);
@@ -112,14 +113,12 @@ TEST_BEGIN(test_subthread)
 TEST_END
 
 int
-main(void)
-{
-
+main(void) {
 	/* Run tests multiple times to check for bad interactions. */
-	return (test(
+	return test(
 	    test_main_thread,
 	    test_subthread,
 	    test_main_thread,
 	    test_subthread,
-	    test_main_thread));
+	    test_main_thread);
 }
