@@ -1273,6 +1273,7 @@ void configGetCommand(client *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
+    config_get_string_field("appendfilename",server.aof_filename);
     config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
@@ -1391,6 +1392,8 @@ void configGetCommand(client *c) {
             server.repl_slave_lazy_flush);
     config_get_bool_field("dynamic-hz",
             server.dynamic_hz);
+    config_get_bool_field("always-show-logo",
+            server.always_show_logo);
 
     /* Enum values */
     config_get_enum_field("maxmemory-policy",
