@@ -677,6 +677,8 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0],"lua-replicate-commands") && argc == 2) {
+            server.lua_always_replicate_commands = yesnotoi(argv[1]);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {

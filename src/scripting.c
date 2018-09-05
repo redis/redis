@@ -917,7 +917,6 @@ void scriptingInit(int setup) {
         server.lua_client = NULL;
         server.lua_caller = NULL;
         server.lua_timedout = 0;
-        server.lua_always_replicate_commands = 0; /* Only DEBUG can change it.*/
         ldbInit();
     }
 

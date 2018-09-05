@@ -1715,6 +1715,12 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+
+    /* By default we want scripts to be always replicated by effects
+     * (single commands executed by the script), and not by sending the
+     * script to the slave / AOF. This is the new way starting from
+     * Redis 5. However it is possible to revert it via redis.conf. */
+    server.lua_always_replicate_commands = 1;
 }
 
 extern char **environ;
