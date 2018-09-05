@@ -1250,6 +1250,7 @@ void evalGenericCommand(client *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
+    long long initial_server_dirty = server.dirty;
     int delhook = 0, err;
 
     /* When we replicate whole scripts, we want the same PRNG sequence at
@@ -1432,9 +1433,21 @@ void evalGenericCommand(client *c, int evalsha) {
 
             replicationScriptCacheAdd(c->argv[1]->ptr);
             serverAssertWithInfo(c,NULL,script != NULL);
-            rewriteClientCommandArgument(c,0,
-                resetRefCount(createStringObject("EVAL",4)));
-            rewriteClientCommandArgument(c,1,script);
+
+            /* If the script did not produce any changes in the dataset we want
+             * just to replicate it as SCRIPT LOAD, otherwise we risk running
+             * an aborted script on slaves (that may then produce results there)
+             * or just running a CPU costly read-only script on the slaves. */
+            if (server.dirty == initial_server_dirty) {
+                rewriteClientCommandVector(c,3,
+                    resetRefCount(createStringObject("SCRIPT",6)),
+                    resetRefCount(createStringObject("LOAD",4)),
+                    script);
+            } else {
+                rewriteClientCommandArgument(c,0,
+                    resetRefCount(createStringObject("EVAL",4)));
+                rewriteClientCommandArgument(c,1,script);
+            }
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
