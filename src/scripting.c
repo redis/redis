@@ -554,6 +554,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     {
         execCommandPropagateMulti(server.lua_caller);
         server.lua_multi_emitted = 1;
+        c->flags |= CLIENT_MULTI;
     }
 
     /* Run the command */
