@@ -1245,6 +1245,14 @@ non-backward compatible changes introduced in the 5.0 release:
   always idempotent. TLDR: the new behavior is much better for 99.999% of use
   cases, revert it if you really know what you are doing.
 
+* Scripts are only replicated by their *effects* and not by sending EVAL/EVALSHA
+  to slaves or the AOF log itself. This is much better in the general case
+  and in the future we want to totally remove the other possiblity of propagating
+  scripts the old way (as EVAL). However you can still turn this back to the
+  default via the non-documented (if not here) Redis configuration directive
+  "lua-replicate-commands yes" or "DEBUG lua-always-replicate-commands 0".
+  However note that Redis 6 may completely remove such feature.
+
 --------------------------------------------------------------------------------
 
 Credits: For each release, a list of changes with the relative author is
