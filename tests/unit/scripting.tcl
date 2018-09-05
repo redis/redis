@@ -148,9 +148,11 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - Scripts can't run certain commands} {
         set e {}
+        r debug lua-always-replicate-commands 0
         catch {
             r eval "redis.pcall('randomkey'); return redis.pcall('set','x','ciao')" 0
         } e
+        r debug lua-always-replicate-commands 1
         set e
     } {*not allowed after*}
 
@@ -299,9 +301,12 @@ start_server {tags {"scripting"}} {
     } {b534286061d4b9e4026607613b95c06c06015ae8 loaded}
 
     test "In the context of Lua the output of random commands gets ordered" {
+        r debug lua-always-replicate-commands 0
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
-        r eval {return redis.call('smembers',KEYS[1])} 1 myset
+        set res [r eval {return redis.call('smembers',KEYS[1])} 1 myset]
+        r debug lua-always-replicate-commands 1
+        set res
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     test "SORT is normally not alpha re-ordered for the scripting engine" {
@@ -655,11 +660,13 @@ start_server {tags {"scripting repl"}} {
         } {1}
 
         test "Redis.set_repl() must be issued after replicate_commands()" {
+            r debug lua-always-replicate-commands 0
             catch {
                 r eval {
                     redis.set_repl(redis.REPL_ALL);
                 } 0
             } e
+            r debug lua-always-replicate-commands 1
             set e
         } {*only after turning on*}
 
