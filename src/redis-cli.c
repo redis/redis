@@ -1495,7 +1495,7 @@ static void usage(void) {
 "  --ldb              Used with --eval enable the Redis Lua debugger.\n"
 "  --ldb-sync-mode    Like --ldb but uses the synchronous Lua debugger, in\n"
 "                     this mode the server is blocked and script changes are\n"
-"                     are not rolled back from the server memory.\n"
+"                     not rolled back from the server memory.\n"
 "  --cluster <command> [args...] [opts...]\n"
 "                     Cluster Manager command and arguments (see below).\n"
 "  --verbose          Verbose mode.\n"
