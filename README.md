@@ -435,7 +435,7 @@ top comment inside `server.c`.
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
-There are tons of commands implementations inside th Redis source code
+There are tons of commands implementations inside the Redis source code
 that can serve as examples of actual commands implementations. To write
 a few toy commands can be a good exercise to familiarize with the code base.
 

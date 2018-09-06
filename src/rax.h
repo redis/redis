@@ -94,7 +94,7 @@ typedef struct raxNode {
      *
      * If the node has an associated key (iskey=1) and is not NULL
      * (isnull=0), then after the raxNode pointers poiting to the
-     * childen, an additional value pointer is present (as you can see
+     * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
     unsigned char data[];
@@ -119,6 +119,21 @@ typedef struct raxStack {
     int oom; /* True if pushing into this stack failed for OOM at some point. */
 } raxStack;
 
+/* Optional callback used for iterators and be notified on each rax node,
+ * including nodes not representing keys. If the callback returns true
+ * the callback changed the node pointer in the iterator structure, and the
+ * iterator implementation will have to replace the pointer in the radix tree
+ * internals. This allows the callback to reallocate the node to perform
+ * very special operations, normally not needed by normal applications.
+ *
+ * This callback is used to perform very low level analysis of the radix tree
+ * structure, scanning each possible node (but the root node), or in order to
+ * reallocate the nodes to reduce the allocation fragmentation (this is the
+ * Redis application for this callback).
+ *
+ * This is currently only supported in forward iterations (raxNext) */
+typedef int (*raxNodeCallback)(raxNode **noderef);
+
 /* Radix tree iterator state is encapsulated into this data structure. */
 #define RAX_ITER_STATIC_LEN 128
 #define RAX_ITER_JUST_SEEKED (1<<0) /* Iterator was just seeked. Return current
@@ -137,6 +152,7 @@ typedef struct raxIterator {
     unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
+    raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
 } raxIterator;
 
 /* A special pointer returned for not found items. */
@@ -145,6 +161,7 @@ extern void *raxNotFound;
 /* Exported API. */
 rax *raxNew(void);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
+int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
 void *raxFind(rax *rax, unsigned char *s, size_t len);
 void raxFree(rax *rax);
@@ -159,5 +176,9 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
+
+/* Internal API. May be used by the node callback in order to access rax nodes
+ * in a low level way, so this function is exported as well. */
+void raxSetData(raxNode *n, void *data);
 
 #endif

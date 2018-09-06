@@ -516,11 +516,7 @@ void spopWithCountCommand(client *c) {
             sdsfree(sdsele);
         }
 
-        /* Assign the new set as the key value. */
-        incrRefCount(set); /* Protect the old set value. */
-        dbOverwrite(c->db,c->argv[1],newset);
-
-        /* Tranfer the old set to the client and release it. */
+        /* Transfer the old set to the client. */
         setTypeIterator *si;
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&sdsele,&llele)) != -1) {
@@ -539,7 +535,9 @@ void spopWithCountCommand(client *c) {
             decrRefCount(objele);
         }
         setTypeReleaseIterator(si);
-        decrRefCount(set);
+
+        /* Assign the new set as the key value. */
+        dbOverwrite(c->db,c->argv[1],newset);
     }
 
     /* Don't propagate the command itself even if we incremented the

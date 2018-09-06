@@ -126,16 +126,43 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBuffer(c);
+                processInputBufferAndReplicate(c);
             }
         }
+    }
+}
+
+/* This function will schedule the client for reprocessing at a safe time.
+ *
+ * This is useful when a client was blocked for some reason (blocking opeation,
+ * CLIENT PAUSE, or whatever), because it may end with some accumulated query
+ * buffer that needs to be processed ASAP:
+ *
+ * 1. When a client is blocked, its readable handler is still active.
+ * 2. However in this case it only gets data into the query buffer, but the
+ *    query is not parsed or executed once there is enough to proceed as
+ *    usually (because the client is blocked... so we can't execute commands).
+ * 3. When the client is unblocked, without this function, the client would
+ *    have to write some query in order for the readable handler to finally
+ *    call processQueryBuffer*() on it.
+ * 4. With this function instead we can put the client in a queue that will
+ *    process it for queries ready to be executed at a safe time.
+ */
+void queueClientForReprocessing(client *c) {
+    /* The client may already be into the unblocked list because of a previous
+     * blocking operation, don't add back it into the list multiple times. */
+    if (!(c->flags & CLIENT_UNBLOCKED)) {
+        c->flags |= CLIENT_UNBLOCKED;
+        listAddNodeTail(server.unblocked_clients,c);
     }
 }
 
 /* Unblock a client calling the right function depending on the kind
  * of operation the client is blocking for. */
 void unblockClient(client *c) {
-    if (c->btype == BLOCKED_LIST || c->btype == BLOCKED_STREAM) {
+    if (c->btype == BLOCKED_LIST ||
+        c->btype == BLOCKED_ZSET ||
+        c->btype == BLOCKED_STREAM) {
         unblockClientWaitingData(c);
     } else if (c->btype == BLOCKED_WAIT) {
         unblockClientWaitingReplicas(c);
@@ -150,19 +177,16 @@ void unblockClient(client *c) {
     server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
-    /* The client may already be into the unblocked list because of a previous
-     * blocking operation, don't add back it into the list multiple times. */
-    if (!(c->flags & CLIENT_UNBLOCKED)) {
-        c->flags |= CLIENT_UNBLOCKED;
-        listAddNodeTail(server.unblocked_clients,c);
-    }
+    queueClientForReprocessing(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
  * send it a reply of some kind. After this function is called,
  * unblockClient() will be called with the same client as argument. */
 void replyToBlockedClientTimedOut(client *c) {
-    if (c->btype == BLOCKED_LIST || c->btype == BLOCKED_STREAM) {
+    if (c->btype == BLOCKED_LIST ||
+        c->btype == BLOCKED_ZSET ||
+        c->btype == BLOCKED_STREAM) {
         addReply(c,shared.nullmultibulk);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
@@ -200,14 +224,25 @@ void disconnectAllBlockedClients(void) {
 
 /* This function should be called by Redis every time a single command,
  * a MULTI/EXEC block, or a Lua script, terminated its execution after
- * being called by a client.
+ * being called by a client. It handles serving clients blocked in
+ * lists, streams, and sorted sets, via a blocking commands.
  *
  * All the keys with at least one client blocked that received at least
- * one new element via some PUSH/XADD operation are accumulated into
+ * one new element via some write operation are accumulated into
  * the server.ready_keys list. This function will run the list and will
  * serve clients accordingly. Note that the function will iterate again and
  * again as a result of serving BRPOPLPUSH we can have new blocking clients
- * to serve because of the PUSH side of BRPOPLPUSH. */
+ * to serve because of the PUSH side of BRPOPLPUSH.
+ *
+ * This function is normally "fair", that is, it will server clients
+ * using a FIFO behavior. However this fairness is violated in certain
+ * edge cases, that is, when we have clients blocked at the same time
+ * in a sorted set and in a list, for the same key (a very odd thing to
+ * do client side, indeed!). Because mismatching clients (blocking for
+ * a different type compared to the current key type) are moved in the
+ * other side of the linked list. However as long as the key starts to
+ * be used only for a single type, like virtually any Redis application will
+ * do, the function is already fair. */
 void handleClientsBlockedOnKeys(void) {
     while(listLength(server.ready_keys) != 0) {
         list *l;
@@ -244,7 +279,7 @@ void handleClientsBlockedOnKeys(void) {
                         client *receiver = clientnode->value;
 
                         if (receiver->btype != BLOCKED_LIST) {
-                            /* Put on the tail, so that at the next call
+                            /* Put at the tail, so that at the next call
                              * we'll not run into it again. */
                             listDelNode(clients,clientnode);
                             listAddNodeTail(clients,receiver);
@@ -254,7 +289,7 @@ void handleClientsBlockedOnKeys(void) {
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
-                                    LIST_HEAD : LIST_TAIL;
+                                     LIST_HEAD : LIST_TAIL;
                         robj *value = listTypePop(o,where);
 
                         if (value) {
@@ -270,7 +305,7 @@ void handleClientsBlockedOnKeys(void) {
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
-                                    listTypePush(o,value,where);
+                                listTypePush(o,value,where);
                             }
 
                             if (dstkey) decrRefCount(dstkey);
@@ -283,9 +318,57 @@ void handleClientsBlockedOnKeys(void) {
 
                 if (listTypeLength(o) == 0) {
                     dbDelete(rl->db,rl->key);
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",rl->key,rl->db->id);
                 }
                 /* We don't call signalModifiedKey() as it was already called
                  * when an element was pushed on the list. */
+            }
+
+            /* Serve clients blocked on sorted set key. */
+            else if (o != NULL && o->type == OBJ_ZSET) {
+                dictEntry *de;
+
+                /* We serve clients in the same order they blocked for
+                 * this key, from the first blocked to the last. */
+                de = dictFind(rl->db->blocking_keys,rl->key);
+                if (de) {
+                    list *clients = dictGetVal(de);
+                    int numclients = listLength(clients);
+                    unsigned long zcard = zsetLength(o);
+
+                    while(numclients-- && zcard) {
+                        listNode *clientnode = listFirst(clients);
+                        client *receiver = clientnode->value;
+
+                        if (receiver->btype != BLOCKED_ZSET) {
+                            /* Put at the tail, so that at the next call
+                             * we'll not run into it again. */
+                            listDelNode(clients,clientnode);
+                            listAddNodeTail(clients,receiver);
+                            continue;
+                        }
+
+                        int where = (receiver->lastcmd &&
+                                     receiver->lastcmd->proc == bzpopminCommand)
+                                     ? ZSET_MIN : ZSET_MAX;
+                        unblockClient(receiver);
+                        genericZpopCommand(receiver,&rl->key,1,where,1,NULL);
+                        zcard--;
+
+                        /* Replicate the command. */
+                        robj *argv[2];
+                        struct redisCommand *cmd = where == ZSET_MIN ?
+                                                   server.zpopminCommand :
+                                                   server.zpopmaxCommand;
+                        argv[0] = createStringObject(cmd->name,strlen(cmd->name));
+                        argv[1] = rl->key;
+                        incrRefCount(rl->key);
+                        propagate(cmd,receiver->db->id,
+                                  argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
+                        decrRefCount(argv[0]);
+                        decrRefCount(argv[1]);
+                    }
+                }
             }
 
             /* Serve clients blocked on stream key. */
@@ -307,16 +390,47 @@ void handleClientsBlockedOnKeys(void) {
                         if (receiver->btype != BLOCKED_STREAM) continue;
                         streamID *gt = dictFetchValue(receiver->bpop.keys,
                                                       rl->key);
-                        if (s->last_id.ms > gt->ms ||
-                            (s->last_id.ms == gt->ms &&
-                             s->last_id.seq > gt->seq))
-                        {
+
+                        /* If we blocked in the context of a consumer
+                         * group, we need to resolve the group and update the
+                         * last ID the client is blocked for: this is needed
+                         * because serving other clients in the same consumer
+                         * group will alter the "last ID" of the consumer
+                         * group, and clients blocked in a consumer group are
+                         * always blocked for the ">" ID: we need to deliver
+                         * only new messages and avoid unblocking the client
+                         * otherwise. */
+                        streamCG *group = NULL;
+                        if (receiver->bpop.xread_group) {
+                            group = streamLookupCG(s,
+                                    receiver->bpop.xread_group->ptr);
+                            /* If the group was not found, send an error
+                             * to the consumer. */
+                            if (!group) {
+                                addReplyError(receiver,
+                                    "-NOGROUP the consumer group this client "
+                                    "was blocked on no longer exists");
+                                unblockClient(receiver);
+                                continue;
+                            } else {
+                                *gt = group->last_id;
+                            }
+                        }
+
+                        if (streamCompareID(&s->last_id, gt) > 0) {
                             streamID start = *gt;
                             start.seq++; /* Can't overflow, it's an uint64_t */
-                            /* Note that after we unblock the client, 'gt'
-                             * is no longer valid, so we must do it after
-                             * we copied the ID into the 'start' variable. */
-                            unblockClient(receiver);
+
+                            /* Lookup the consumer for the group, if any. */
+                            streamConsumer *consumer = NULL;
+                            int noack = 0;
+
+                            if (group) {
+                                consumer = streamLookupConsumer(group,
+                                           receiver->bpop.xread_consumer->ptr,
+                                           1);
+                                noack = receiver->bpop.xread_group_noack;
+                            }
 
                             /* Emit the two elements sub-array consisting of
                              * the name of the stream and the data we
@@ -325,8 +439,20 @@ void handleClientsBlockedOnKeys(void) {
                             addReplyMultiBulkLen(receiver,1);
                             addReplyMultiBulkLen(receiver,2);
                             addReplyBulk(receiver,rl->key);
+
+                            streamPropInfo pi = {
+                                rl->key,
+                                receiver->bpop.xread_group
+                            };
                             streamReplyWithRange(receiver,s,&start,NULL,
-                                                 receiver->bpop.xread_count,0);
+                                                 receiver->bpop.xread_count,
+                                                 0, group, consumer, noack, &pi);
+
+                            /* Note that after we unblock the client, 'gt'
+                             * and other receiver->bpop stuff are no longer
+                             * valid, so we must do the setup above before
+                             * this call. */
+                            unblockClient(receiver);
                         }
                     }
                 }
@@ -341,8 +467,9 @@ void handleClientsBlockedOnKeys(void) {
     }
 }
 
-/* This is how the current blocking lists/streams work, we use BLPOP as
- * example, but the concept is the same for other list ops and XREAD.
+/* This is how the current blocking lists/sorted sets/streams work, we use
+ * BLPOP as example, but the concept is the same for other list ops, sorted
+ * sets and XREAD.
  * - If the user calls BLPOP and the key exists and contains a non empty list
  *   then LPOP is called instead. So BLPOP is semantically the same as LPOP
  *   if blocking is not required.
@@ -359,14 +486,14 @@ void handleClientsBlockedOnKeys(void) {
  *   to the number of elements we have in the ready list.
  */
 
-/* Set a client in blocking mode for the specified key (list or stream), with
- * the specified timeout. The 'type' argument is BLOCKED_LIST or BLOCKED_STREAM
- * depending on the kind of operation we are waiting for an empty key in
- * order to awake the client. The client is blocked for all the 'numkeys'
- * keys as in the 'keys' argument. When we block for stream keys, we also
- * provide an array of streamID structures: clients will be unblocked only
- * when items with an ID greater or equal to the specified one is appended
- * to the stream. */
+/* Set a client in blocking mode for the specified key (list, zset or stream),
+ * with the specified timeout. The 'type' argument is BLOCKED_LIST,
+ * BLOCKED_ZSET or BLOCKED_STREAM depending on the kind of operation we are
+ * waiting for an empty key in order to awake the client. The client is blocked
+ * for all the 'numkeys' keys as in the 'keys' argument. When we block for
+ * stream keys, we also provide an array of streamID structures: clients will
+ * be unblocked only when items with an ID greater or equal to the specified
+ * one is appended to the stream. */
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids) {
     dictEntry *de;
     list *l;
@@ -379,7 +506,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
 
     for (j = 0; j < numkeys; j++) {
         /* The value associated with the key name in the bpop.keys dictionary
-         * is NULL for lists, or the stream ID for streams. */
+         * is NULL for lists and sorted sets, or the stream ID for streams. */
         void *key_data = NULL;
         if (btype == BLOCKED_STREAM) {
             key_data = zmalloc(sizeof(streamID));
@@ -442,7 +569,9 @@ void unblockClientWaitingData(client *c) {
     }
     if (c->bpop.xread_group) {
         decrRefCount(c->bpop.xread_group);
+        decrRefCount(c->bpop.xread_consumer);
         c->bpop.xread_group = NULL;
+        c->bpop.xread_consumer = NULL;
     }
 }
 

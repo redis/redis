@@ -54,7 +54,8 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 }
 
 /* Private data freeing callback for HELLO.BLOCK command. */
-void HelloBlock_FreeData(void *privdata) {
+void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
+    REDISMODULE_NOT_USED(ctx);
     RedisModule_Free(privdata);
 }
 
@@ -71,6 +72,23 @@ void *HelloBlock_ThreadMain(void *arg) {
     *r = rand();
     RedisModule_UnblockClient(bc,r);
     return NULL;
+}
+
+/* An example blocked client disconnection callback.
+ *
+ * Note that in the case of the HELLO.BLOCK command, the blocked client is now
+ * owned by the thread calling sleep(). In this speciifc case, there is not
+ * much we can do, however normally we could instead implement a way to
+ * signal the thread that the client disconnected, and sleep the specified
+ * amount of seconds with a while loop calling sleep(1), so that once we
+ * detect the client disconnection, we can terminate the thread ASAP. */
+void HelloBlock_Disconnected(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc) {
+    RedisModule_Log(ctx,"warning","Blocked client %p disconnected!",
+        (void*)bc);
+
+    /* Here you should cleanup your state / threads, and if possible
+     * call RedisModule_UnblockClient(), or notify the thread that will
+     * call the function ASAP. */
 }
 
 /* HELLO.BLOCK <delay> <timeout> -- Block for <count> seconds, then reply with
@@ -91,6 +109,11 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+
+    /* Here we set a disconnection handler, however since this module will
+     * block in sleep() in a thread, there is not much we can do in the
+     * callback, so this is just to show you the API. */
+    RedisModule_SetDisconnectCallback(bc,HelloBlock_Disconnected);
 
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:

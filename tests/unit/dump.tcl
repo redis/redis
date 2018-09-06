@@ -25,6 +25,39 @@ start_server {tags {"dump"}} {
         assert {$ttl >= (2569591501-3000) && $ttl <= 2569591501}
         r get foo
     } {bar}
+    
+    test {RESTORE can set an absolute expire} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        set now [clock milliseconds]
+        r restore foo [expr $now+3000] $encoded absttl
+        set ttl [r pttl foo]
+        assert {$ttl >= 2990 && $ttl <= 3000}
+        r get foo
+    } {bar}
+    
+    test {RESTORE can set LRU} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r config set maxmemory-policy allkeys-lru
+        r restore foo 0 $encoded idletime 1000
+        set idle [r object idletime foo]
+        assert {$idle >= 1000 && $idle <= 1010}
+        r get foo
+    } {bar}
+    
+    test {RESTORE can set LFU} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r config set maxmemory-policy allkeys-lfu
+        r restore foo 0 $encoded freq 100
+        set freq [r object freq foo]
+        assert {$freq == 100}
+        r get foo
+    } {bar}
 
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
@@ -246,7 +279,7 @@ start_server {tags {"dump"}} {
         set e
     } {*empty string*}
 
-    test {MIGRATE with mutliple keys migrate just existing ones} {
+    test {MIGRATE with multiple keys migrate just existing ones} {
         set first [srv 0 client]
         r set key1 "v1"
         r set key2 "v2"

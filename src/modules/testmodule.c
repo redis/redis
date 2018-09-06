@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 #include <string.h>
 
@@ -124,6 +125,7 @@ int failTest(RedisModuleCtx *ctx, const char *msg) {
     RedisModule_ReplyWithError(ctx, msg);
     return REDISMODULE_ERR;
 }
+
 int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx);
     REDISMODULE_NOT_USED(argv);
@@ -153,80 +155,153 @@ int TestUnlink(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     
 }
 
+int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
+                   RedisModuleString *key) {
+  /* Increment a counter on the notifications: for each key notified we
+   * increment a counter */
+  RedisModule_Log(ctx, "notice", "Got event type %d, event %s, key %s", type,
+                  event, RedisModule_StringPtrLen(key, NULL));
+
+  RedisModule_Call(ctx, "HINCRBY", "csc", "notifications", key, "1");
+  return REDISMODULE_OK;
+}
+
+/* TEST.NOTIFICATIONS -- Test Keyspace Notifications. */
+int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+#define FAIL(msg, ...)                                                                       \
+    {                                                                                        \
+        RedisModule_Log(ctx, "warning", "Failed NOTIFY Test. Reason: " #msg, ##__VA_ARGS__); \
+        goto err;                                                                            \
+    }
+    RedisModule_Call(ctx, "FLUSHDB", "");
+
+    RedisModule_Call(ctx, "SET", "cc", "foo", "bar");
+    RedisModule_Call(ctx, "SET", "cc", "foo", "baz");
+    RedisModule_Call(ctx, "SADD", "cc", "bar", "x");
+    RedisModule_Call(ctx, "SADD", "cc", "bar", "y");
+
+    RedisModule_Call(ctx, "HSET", "ccc", "baz", "x", "y");
+    /* LPUSH should be ignored and not increment any counters */
+    RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
+    RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
+
+    size_t sz;
+    const char *rep;
+    RedisModuleCallReply *r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "foo");
+    if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
+        FAIL("Wrong or no reply for foo");
+    } else {
+        rep = RedisModule_CallReplyStringPtr(r, &sz);
+        if (sz != 1 || *rep != '2') {
+            FAIL("Got reply '%s'. expected '2'", RedisModule_CallReplyStringPtr(r, NULL));
+        }
+    }
+
+    r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "bar");
+    if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
+        FAIL("Wrong or no reply for bar");
+    } else {
+        rep = RedisModule_CallReplyStringPtr(r, &sz);
+        if (sz != 1 || *rep != '2') {
+            FAIL("Got reply '%s'. expected '2'", rep);
+        }
+    }
+
+    r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "baz");
+    if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_STRING) {
+        FAIL("Wrong or no reply for baz");
+    } else {
+        rep = RedisModule_CallReplyStringPtr(r, &sz);
+        if (sz != 1 || *rep != '1') {
+            FAIL("Got reply '%.*s'. expected '1'", sz, rep);
+        }
+    }
+    /* For l we expect nothing since we didn't subscribe to list events */
+    r = RedisModule_Call(ctx, "HGET", "cc", "notifications", "l");
+    if (r == NULL || RedisModule_CallReplyType(r) != REDISMODULE_REPLY_NULL) {
+        FAIL("Wrong reply for l");
+    }
+
+    RedisModule_Call(ctx, "FLUSHDB", "");
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+err:
+    RedisModule_Call(ctx, "FLUSHDB", "");
+
+    return RedisModule_ReplyWithSimpleString(ctx, "ERR");
+}
+
 /* TEST.CTXFLAGS -- Test GetContextFlags. */
 int TestCtxFlags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argc);
     REDISMODULE_NOT_USED(argv);
-  
+
     RedisModule_AutoMemory(ctx);
-  
+
     int ok = 1;
     const char *errString = NULL;
-  
-  #define FAIL(msg)    \
-    {                  \
-      ok = 0;          \
-      errString = msg; \
-      goto end;        \
+#undef FAIL
+#define FAIL(msg)        \
+    {                    \
+        ok = 0;          \
+        errString = msg; \
+        goto end;        \
     }
-  
+
     int flags = RedisModule_GetContextFlags(ctx);
     if (flags == 0) {
-      FAIL("Got no flags");
+        FAIL("Got no flags");
     }
-  
+
     if (flags & REDISMODULE_CTX_FLAGS_LUA) FAIL("Lua flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_MULTI) FAIL("Multi flag was set");
-  
+
     if (flags & REDISMODULE_CTX_FLAGS_AOF) FAIL("AOF Flag was set")
     /* Enable AOF to test AOF flags */
     RedisModule_Call(ctx, "config", "ccc", "set", "appendonly", "yes");
     flags = RedisModule_GetContextFlags(ctx);
-    if (!(flags & REDISMODULE_CTX_FLAGS_AOF))
-      FAIL("AOF Flag not set after config set");
-  
+    if (!(flags & REDISMODULE_CTX_FLAGS_AOF)) FAIL("AOF Flag not set after config set");
+
     if (flags & REDISMODULE_CTX_FLAGS_RDB) FAIL("RDB Flag was set");
     /* Enable RDB to test RDB flags */
     RedisModule_Call(ctx, "config", "ccc", "set", "save", "900 1");
     flags = RedisModule_GetContextFlags(ctx);
-    if (!(flags & REDISMODULE_CTX_FLAGS_RDB))
-      FAIL("RDB Flag was not set after config set");
-  
+    if (!(flags & REDISMODULE_CTX_FLAGS_RDB)) FAIL("RDB Flag was not set after config set");
+
     if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) FAIL("Master flag was not set");
     if (flags & REDISMODULE_CTX_FLAGS_SLAVE) FAIL("Slave flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_READONLY) FAIL("Read-only flag was set");
     if (flags & REDISMODULE_CTX_FLAGS_CLUSTER) FAIL("Cluster flag was set");
-  
+
     if (flags & REDISMODULE_CTX_FLAGS_MAXMEMORY) FAIL("Maxmemory flag was set");
-    ;
+
     RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "100000000");
     flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_MAXMEMORY))
-      FAIL("Maxmemory flag was not set after config set");
-  
+        FAIL("Maxmemory flag was not set after config set");
+
     if (flags & REDISMODULE_CTX_FLAGS_EVICT) FAIL("Eviction flag was set");
-    RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory-policy",
-                     "allkeys-lru");
+    RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory-policy", "allkeys-lru");
     flags = RedisModule_GetContextFlags(ctx);
-    if (!(flags & REDISMODULE_CTX_FLAGS_EVICT))
-      FAIL("Eviction flag was not set after config set");
-  
-  end:
+    if (!(flags & REDISMODULE_CTX_FLAGS_EVICT)) FAIL("Eviction flag was not set after config set");
+
+end:
     /* Revert config changes */
     RedisModule_Call(ctx, "config", "ccc", "set", "appendonly", "no");
     RedisModule_Call(ctx, "config", "ccc", "set", "save", "");
     RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory", "0");
     RedisModule_Call(ctx, "config", "ccc", "set", "maxmemory-policy", "noeviction");
-  
-    if (!ok) {
-      RedisModule_Log(ctx, "warning", "Failed CTXFLAGS Test. Reason: %s",
-                      errString);
-      return RedisModule_ReplyWithSimpleString(ctx, "ERR");
-    }
-  
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
-  }
 
+    if (!ok) {
+        RedisModule_Log(ctx, "warning", "Failed CTXFLAGS Test. Reason: %s", errString);
+        return RedisModule_ReplyWithSimpleString(ctx, "ERR");
+    }
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 
 /* ----------------------------- Test framework ----------------------------- */
 
@@ -310,6 +385,9 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     T("test.string.printf", "cc", "foo", "bar");
     if (!TestAssertStringReply(ctx,reply,"Got 3 args. argv[1]: foo, argv[2]: bar",38)) goto fail;
 
+    T("test.notify", "");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
+
     RedisModule_ReplyWithSimpleString(ctx,"ALL TESTS PASSED");
     return REDISMODULE_OK;
 
@@ -352,6 +430,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.it",
         TestIt,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    RedisModule_SubscribeToKeyspaceEvents(ctx,
+                                            REDISMODULE_NOTIFY_HASH |
+                                            REDISMODULE_NOTIFY_SET |
+                                            REDISMODULE_NOTIFY_STRING,
+                                        NotifyCallback);
+    if (RedisModule_CreateCommand(ctx,"test.notify",
+        TestNotifications,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
