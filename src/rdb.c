@@ -1828,7 +1828,8 @@ void stopLoading(void) {
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
-    if (server.loading_process_events_interval_bytes && len > 0)
+    if (server.loading_process_events_interval_bytes && 
+		(r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
     {
         /* The DB can take some non trivial amount of time to load. Update
          * our cached time since it is used to create and update the last
