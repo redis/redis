@@ -121,22 +121,12 @@ void geohashGetCoordRange(GeoHashRange *long_range, GeoHashRange *lat_range) {
 int geohashEncode(const GeoHashRange *long_range, const GeoHashRange *lat_range,
                   double longitude, double latitude, uint8_t step,
                   GeoHashBits *hash) {
-    /* Check basic arguments sanity. */
-    if (hash == NULL || step > 32 || step == 0 ||
-        RANGEPISZERO(lat_range) || RANGEPISZERO(long_range)) return 0;
-
-    /* Return an error when trying to index outside the supported
-     * constraints. */
-    if (longitude > 180 || longitude < -180 ||
-        latitude > 85.05112878 || latitude < -85.05112878) return 0;
+    if (hash == NULL || step > 32 || step == 0 || RANGEPISZERO(lat_range) || RANGEPISZERO(long_range) ||
+        latitude < lat_range->min || latitude > lat_range->max || longitude < long_range->min || longitude > long_range->max
+    ) return 0;
 
     hash->bits = 0;
     hash->step = step;
-
-    if (latitude < lat_range->min || latitude > lat_range->max ||
-        longitude < long_range->min || longitude > long_range->max) {
-        return 0;
-    }
 
     double lat_offset =
         (latitude - lat_range->min) / (lat_range->max - lat_range->min);
