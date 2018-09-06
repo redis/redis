@@ -12,6 +12,213 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0 RC5     Released Thu Sep 06 12:54:29 CEST 2018
+================================================================================
+
+Upgrade urgency HIGH: Several imporant bugs fixed.
+
+Hi all,
+
+This is the release candidate number five, and has a lot of bug fixes inside,
+together with a few big changes to the Redis behavior from the point of view
+of replication of scripts and handling of the maxmemory directive in slaves.
+Make sure to read the whole list!
+
+* BREAKING BEHAVIOR: Slaves now ignore maxmemory by default.
+* BREAKING BEHAVIOR: Now scripts are always replicated for their effects, and
+                     never sending the script itself to slaves/AOF.
+* Improvement: Big pipelining performances improved significantly.
+* Fix: Rewrite BRPOPLPUSH as RPOPLPUSH to propagate.
+* Fix: False positives in tests.
+* Fix: Certain command flags were modified because not correct.
+* Fix: Fix blocking XREAD for streams that are empty.
+* Improvement: Allow scripts to timeout on slaves as well.
+* Fix: Different corner cases due to CLIENT PAUSE are now fixed.
+* Improvement: Optimize parsing large bulk greater than 32k.
+* Fix: Propagate read-only scripts as SCRIPT LOAD, not as EVAL.
+
+The following is the list of commits, so that you can read the details and
+check the credits of the commits.
+
+antirez in commit 1d1bf7f0:
+ Document that effects replication is Redis 5 default.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit cfd969c7:
+ Fix scripting tests now that we default to commands repl.
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+antirez in commit 3e1fb5ff:
+ Use commands (effects) replication by default in scripts.
+ 3 files changed, 8 insertions(+), 1 deletion(-)
+
+antirez in commit c6c71abe:
+ Safer script stop condition on OOM.
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+antirez in commit dfbce91a:
+ Propagate read-only scripts as SCRIPT LOAD.
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+antirez in commit 1705e42e:
+ Don't perform eviction when re-entering the event loop.
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit a0dd6f82:
+ Clarify why remaining may be zero in readQueryFromClient().
+ 1 file changed, 2 insertions(+)
+
+zhaozhao.zz in commit 2eed31a5:
+ networking: fix unexpected negative or zero readlen
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 37fb606c:
+ Merge branch '5.0' of github.com:/antirez/redis into 5.0
+zhaozhao.zz in commit 1898e6ce:
+ networking: optimize parsing large bulk greater than 32k
+ 1 file changed, 13 insertions(+), 10 deletions(-)
+
+antirez in commit 82fc63d1:
+ Unblocked clients API refactoring. See #4418.
+ 4 files changed, 33 insertions(+), 15 deletions(-)
+
+zhaozhao.zz in commit 839bb52c:
+ if master is already unblocked, do not unblock it twice
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 2e1cd82d:
+ fix multiple unblock for clientsArePaused()
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+antirez in commit 17233080:
+ Make pending buffer processing safe for CLIENT_MASTER client.
+ 3 files changed, 22 insertions(+), 13 deletions(-)
+
+antirez in commit 42bce87a:
+ Test: processing of master stream in slave -BUSY state.
+ 1 file changed, 44 insertions(+)
+
+antirez in commit 8bf42f60:
+ After slave Lua script leaves busy state, re-process the master buffer.
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+antirez in commit c2b104c7:
+ While the slave is busy, just accumulate master input.
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit 7b75f4ae:
+ Allow scripts to timeout even if from the master instance.
+ 1 file changed, 6 insertions(+), 11 deletions(-)
+
+antirez in commit adc4e031:
+ Allow scripts to timeout on slaves as well.
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+dejun.xdj in commit 20ec1f0c:
+ Revise the comments of latency command.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Chris Lamb in commit 8e5423eb:
+ Correct "did not received" -> "did not receive" typos/grammar.
+ 6 files changed, 10 insertions(+), 10 deletions(-)
+
+zhaozhao.zz in commit 395063d7:
+ remove duplicate bind in sentinel.conf
+ 1 file changed, 10 deletions(-)
+
+Salvatore Sanfilippo in commit b221ca41:
+ Merge pull request #5300 from SaschaRoland/xread-block-5299
+Sascha Roland in commit eea0d3c5:
+ #5299 Fix blocking XREAD for streams that ran dry
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 4cb9ee11:
+ Add maxmemory slave behavior change in the change log.
+ 1 file changed, 8 insertions(+)
+
+zhaozhao.zz in commit 5ad888ba:
+ Supplement to PR #4835, just take info/memory/command as random commands
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit d928487f:
+ some commands' flags should be set correctly, issue #4834
+ 1 file changed, 14 insertions(+), 14 deletions(-)
+
+Oran Agra in commit af675f0a:
+ Fix unstable tests on slow machines.
+ 3 files changed, 23 insertions(+), 17 deletions(-)
+
+antirez in commit f2cd16be:
+ Document slave-ignore-maxmemory in redis.conf.
+ 1 file changed, 20 insertions(+)
+
+antirez in commit 02d729b4:
+ Make slave-ignore-maxmemory configurable.
+ 1 file changed, 9 insertions(+)
+
+antirez in commit 447da44d:
+ Introduce repl_slave_ignore_maxmemory flag internally.
+ 3 files changed, 7 insertions(+)
+
+antirez in commit 868b2925:
+ Better variable meaning in processCommand().
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 319f2ee6:
+ Re-apply rebased #2358.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 22c166da:
+ block: format code
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit c03c5913:
+ block: rewrite BRPOPLPUSH as RPOPLPUSH to propagate
+ 3 files changed, 5 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit fcd5ef16:
+ networking: make setProtocolError simple and clear
+ 1 file changed, 11 insertions(+), 13 deletions(-)
+
+zhaozhao.zz in commit 656e4b2f:
+ networking: just move qb_pos instead of sdsrange in processInlineBuffer
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+zhaozhao.zz in commit 2c7972ce:
+ networking: just return C_OK if multibulk processing saw a <= 0 length.
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit 1203a04f:
+ adjust qbuf to 26 in test case for client list
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit aff86fa1:
+ pipeline: do not sdsrange querybuf unless all commands processed
+ 2 files changed, 48 insertions(+), 40 deletions(-)
+
+Chris Lamb in commit 45a6c5be:
+ Use SOURCE_DATE_EPOCH over unreproducible uname + date calls.
+ 1 file changed, 3 insertions(+)
+
+Chris Lamb in commit 186df148:
+ Make some defaults explicit in the sentinel.conf for package maintainers
+ 1 file changed, 25 insertions(+)
+
+dejun.xdj in commit b59f04a0:
+ Streams: ID of xclaim command starts from the sixth argument.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+shenlongxing in commit a3f2437b:
+ Fix stream command paras
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+antirez in commit df911235:
+ Fix AOF comment to report the current behavior.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+
+
+================================================================================
 Redis 5.0 RC4     Released Fri Aug 03 13:51:02 CEST 2018
 ================================================================================
 
