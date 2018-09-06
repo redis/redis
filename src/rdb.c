@@ -1029,7 +1029,7 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     /* Make sure data will not remain on the OS's output buffers */
     if (fflush(fp) == EOF) goto werr;
     if (fsync(fileno(fp)) == -1) goto werr;
-    if (fclose(fp) == EOF) goto werr;
+    if (fclose(fp) == EOF) goto werr2;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -1053,8 +1053,9 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
     fclose(fp);
+werr2:
+    serverLog(LL_WARNING,"Write error saving DB on disk: %s", strerror(errno));
     unlink(tmpfile);
     return C_ERR;
 }
