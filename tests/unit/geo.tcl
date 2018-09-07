@@ -87,7 +87,7 @@ start_server {tags {"geo"}} {
 
     test {Check geoset values} {
         r zrange nyc 0 -1 withscores
-    } {{wtc one} 1791873972053020 {union square} 1791875485187452 {central park n/q/r} 1791875761332224 4545 1791875796750882 {lic market} 1791875804419201 q4 1791875830079666 jfk 1791895905559723}
+    } {{wtc one} 1790792717967708 {union square} 1790794228219197 {central park n/q/r} 1790794506182737 4545 1790794539058999 {lic market} 1790794547385489 q4 1790794583519667 jfk 1790816808657070}
 
     test {GEORADIUS simple (sorted)} {
         r georadius nyc -73.9798091 40.7598464 3 km asc
@@ -95,7 +95,7 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUS withdist (sorted)} {
         r georadius nyc -73.9798091 40.7598464 3 km withdist asc
-    } {{{central park n/q/r} 0.7750} {4545 2.3651} {{union square} 2.7697}}
+    } {{{central park n/q/r} 0.7750} {4545 2.3652} {{union square} 2.7695}}
 
     test {GEORADIUS with COUNT} {
         r georadius nyc -73.9798091 40.7598464 10 km COUNT 3
@@ -121,7 +121,7 @@ start_server {tags {"geo"}} {
 
     test {GEORADIUSBYMEMBER withdist (sorted)} {
         r georadiusbymember nyc "wtc one" 7 km withdist
-    } {{{wtc one} 0.0000} {{union square} 3.2544} {{central park n/q/r} 6.7000} {4545 6.1975} {{lic market} 6.8969}}
+    } {{{wtc one} 0.0000} {{union square} 3.2545} {{central park n/q/r} 6.7000} {4545 6.1974} {{lic market} 6.8969}}
 
     test {GEOHASH is able to return geohash strings} {
         # Example from Wikipedia.
