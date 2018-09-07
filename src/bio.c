@@ -204,14 +204,14 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
         zfree(job);
 
-        /* Unblock threads blocked on bioWaitStepOfType() if any. */
-        pthread_cond_broadcast(&bio_step_cond[type]);
-
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
+
+        /* Unblock threads blocked on bioWaitStepOfType() if any. */
+        pthread_cond_broadcast(&bio_step_cond[type]);
     }
 }
 
