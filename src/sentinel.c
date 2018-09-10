@@ -1687,16 +1687,18 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->leader_epoch = strtoull(argv[2],NULL,10);
-    } else if (!strcasecmp(argv[0],"known-slave") && argc == 4) {
+    } else if ((!strcasecmp(argv[0],"known-slave") ||
+                !strcasecmp(argv[0],"known-replica")) && argc == 4)
+    {
         sentinelRedisInstance *slave;
 
-        /* known-slave <name> <ip> <port> */
+        /* known-replica <name> <ip> <port> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
                     atoi(argv[3]), ri->quorum, ri)) == NULL)
         {
-            return "Wrong hostname or port for slave.";
+            return "Wrong hostname or port for replica.";
         }
     } else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
@@ -1854,7 +1856,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             if (sentinelAddrIsEqual(slave_addr,master_addr))
                 slave_addr = master->addr;
             line = sdscatprintf(sdsempty(),
-                "sentinel known-slave %s %s %d",
+                "sentinel known-replica %s %s %d",
                 master->name, slave_addr->ip, slave_addr->port);
             rewriteConfigRewriteLine(state,"sentinel",line,1);
         }
@@ -2978,8 +2980,10 @@ void sentinelCommand(client *c) {
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2]))
             == NULL) return;
         addReplySentinelRedisInstance(c,ri);
-    } else if (!strcasecmp(c->argv[1]->ptr,"slaves")) {
-        /* SENTINEL SLAVES <master-name> */
+    } else if (!strcasecmp(c->argv[1]->ptr,"slaves") ||
+               !strcasecmp(c->argv[1]->ptr,"replicas"))
+    {
+        /* SENTINEL REPLICAS <master-name> */
         sentinelRedisInstance *ri;
 
         if (c->argc != 3) goto numargserr;
@@ -3079,7 +3083,7 @@ void sentinelCommand(client *c) {
             return;
         }
         if (sentinelSelectSlave(ri) == NULL) {
-            addReplySds(c,sdsnew("-NOGOODSLAVE No suitable slave to promote\r\n"));
+            addReplySds(c,sdsnew("-NOGOODSLAVE No suitable replica to promote\r\n"));
             return;
         }
         serverLog(LL_WARNING,"Executing user requested FAILOVER of '%s'",
@@ -3261,7 +3265,7 @@ void sentinelCommand(client *c) {
                 sentinel.simfailure_flags |=
                     SENTINEL_SIMFAILURE_CRASH_AFTER_PROMOTION;
                 serverLog(LL_WARNING,"Failure simulation: this Sentinel "
-                    "will crash after promoting the selected slave to master");
+                    "will crash after promoting the selected replica to master");
             } else if (!strcasecmp(c->argv[j]->ptr,"help")) {
                 addReplyMultiBulkLen(c,2);
                 addReplyBulkCString(c,"crash-after-election");
