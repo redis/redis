@@ -1998,7 +1998,7 @@ void ttlCommand(client *c);
 void touchCommand(client *c);
 void pttlCommand(client *c);
 void persistCommand(client *c);
-void slaveofCommand(client *c);
+void replicaofCommand(client *c);
 void roleCommand(client *c);
 void debugCommand(client *c);
 void msetCommand(client *c);
