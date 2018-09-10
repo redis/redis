@@ -777,7 +777,7 @@ int luaRedisSetReplCommand(lua_State *lua) {
 
     flags = lua_tonumber(lua,-1);
     if ((flags & ~(PROPAGATE_AOF|PROPAGATE_REPL)) != 0) {
-        lua_pushstring(lua, "Invalid replication flags. Use REPL_AOF, REPL_SLAVE, REPL_ALL or REPL_NONE.");
+        lua_pushstring(lua, "Invalid replication flags. Use REPL_AOF, REPL_REPLICA, REPL_ALL or REPL_NONE.");
         return lua_error(lua);
     }
     server.lua_repl = flags;
@@ -995,6 +995,10 @@ void scriptingInit(int setup) {
     lua_settable(lua,-3);
 
     lua_pushstring(lua,"REPL_SLAVE");
+    lua_pushnumber(lua,PROPAGATE_REPL);
+    lua_settable(lua,-3);
+
+    lua_pushstring(lua,"REPL_REPLICA");
     lua_pushnumber(lua,PROPAGATE_REPL);
     lua_settable(lua,-3);
 
@@ -1484,7 +1488,7 @@ void scriptCommand(client *c) {
         const char *help[] = {
 "DEBUG (yes|sync|no) -- Set the debug mode for subsequent scripts executed.",
 "EXISTS <sha1> [<sha1> ...] -- Return information about the existence of the scripts in the script cache.",
-"FLUSH -- Flush the Lua scripts cache. Very dangerous on slaves.",
+"FLUSH -- Flush the Lua scripts cache. Very dangerous on replicas.",
 "KILL -- Kill the currently executing Lua script.",
 "LOAD <script> -- Load a script into the scripts cache, without executing it.",
 NULL
