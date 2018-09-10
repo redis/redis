@@ -215,7 +215,7 @@ void disconnectAllBlockedClients(void) {
         if (c->flags & CLIENT_BLOCKED) {
             addReplySds(c,sdsnew(
                 "-UNBLOCKED force unblock from blocking operation, "
-                "instance state changed (master -> slave?)\r\n"));
+                "instance state changed (master -> replica?)\r\n"));
             unblockClient(c);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
