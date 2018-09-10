@@ -355,8 +355,8 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
     if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
-        char* to = c->flags & CLIENT_MASTER? "master": "slave";
-        char* from = c->flags & CLIENT_MASTER? "slave": "master";
+        char* to = c->flags & CLIENT_MASTER? "master": "replica";
+        char* from = c->flags & CLIENT_MASTER? "replica": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
@@ -836,7 +836,7 @@ void freeClient(client *c) {
 
     /* Log link disconnection with slave */
     if ((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
-        serverLog(LL_WARNING,"Connection with slave %s lost.",
+        serverLog(LL_WARNING,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
 
@@ -1654,10 +1654,10 @@ void clientCommand(client *c) {
 "kill <ip:port>         -- Kill connection made from <ip:port>.",
 "kill <option> <value> [option value ...] -- Kill connections. Options are:",
 "     addr <ip:port>                      -- Kill connection made from <ip:port>",
-"     type (normal|master|slave|pubsub)   -- Kill connections by type.",
+"     type (normal|master|replica|pubsub) -- Kill connections by type.",
 "     skipme (yes|no)   -- Skip killing current connection (default: yes).",
 "list [options ...]     -- Return information about client connections. Options:",
-"     type (normal|master|slave|pubsub)   -- Return clients of specified type.",
+"     type (normal|master|replica|pubsub) -- Return clients of specified type.",
 "pause <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
 "reply (on|off|skip)    -- Control the replies sent to the current connection.",
 "setname <name>         -- Assign the name <name> to the current connection.",
