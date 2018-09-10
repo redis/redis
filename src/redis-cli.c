@@ -1154,7 +1154,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         }
 
         if (config.slave_mode) {
-            printf("Entering slave output mode...  (press Ctrl-C to quit)\n");
+            printf("Entering replica output mode...  (press Ctrl-C to quit)\n");
             slaveMode();
             config.slave_mode = 0;
             zfree(argvlen);
