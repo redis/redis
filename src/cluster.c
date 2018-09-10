@@ -1230,7 +1230,7 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
         serverLog(LL_NOTICE,
             "Clear FAIL state for node %.40s: %s is reachable again.",
                 node->name,
-                nodeIsSlave(node) ? "slave" : "master without slots");
+                nodeIsSlave(node) ? "replica" : "master without slots");
         node->flags &= ~CLUSTER_NODE_FAIL;
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
     }
@@ -2059,7 +2059,7 @@ int clusterProcessPacket(clusterLink *link) {
         server.cluster->mf_end = mstime() + CLUSTER_MF_TIMEOUT;
         server.cluster->mf_slave = sender;
         pauseClients(mstime()+(CLUSTER_MF_TIMEOUT*2));
-        serverLog(LL_WARNING,"Manual failover requested by slave %.40s.",
+        serverLog(LL_WARNING,"Manual failover requested by replica %.40s.",
             sender->name);
     } else if (type == CLUSTERMSG_TYPE_UPDATE) {
         clusterNode *n; /* The node the update is about. */
@@ -2873,7 +2873,7 @@ void clusterLogCantFailover(int reason) {
     switch(reason) {
     case CLUSTER_CANT_FAILOVER_DATA_AGE:
         msg = "Disconnected from master for longer than allowed. "
-              "Please check the 'cluster-slave-validity-factor' configuration "
+              "Please check the 'cluster-replica-validity-factor' configuration "
               "option.";
         break;
     case CLUSTER_CANT_FAILOVER_WAITING_DELAY:
@@ -3054,7 +3054,7 @@ void clusterHandleSlaveFailover(void) {
             server.cluster->failover_auth_time += added_delay;
             server.cluster->failover_auth_rank = newrank;
             serverLog(LL_WARNING,
-                "Slave rank updated to #%d, added %lld milliseconds of delay.",
+                "Replica rank updated to #%d, added %lld milliseconds of delay.",
                 newrank, added_delay);
         }
     }
@@ -4187,7 +4187,7 @@ void clusterCommand(client *c) {
 "COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
 "COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
 "DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
-"FAILOVER [force|takeover] -- Promote current slave node to being a master.",
+"FAILOVER [force|takeover] -- Promote current replica node to being a master.",
 "FORGET <node-id> -- Remove a node from the cluster.",
 "GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
 "FLUSHSLOTS -- Delete current node own slots information.",
@@ -4197,11 +4197,11 @@ void clusterCommand(client *c) {
 "MYID -- Return the node id.",
 "NODES -- Return cluster configuration seen by node. Output format:",
 "    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
-"REPLICATE <node-id> -- Configure current node as slave to <node-id>.",
+"REPLICATE <node-id> -- Configure current node as replica to <node-id>.",
 "RESET [hard|soft] -- Reset current node (default: soft).",
 "SET-config-epoch <epoch> - Set config epoch of current node.",
 "SETSLOT <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
-"SLAVES <node-id> -- Return <node-id> slaves.",
+"REPLICAS <node-id> -- Return <node-id> replicas.",
 "SLOTS -- Return information about slots range mappings. Each range is made of:",
 "    start, end, master and replicas IP addresses, ports and ids",
 NULL
@@ -4578,7 +4578,7 @@ NULL
 
         /* Can't replicate a slave. */
         if (nodeIsSlave(n)) {
-            addReplyError(c,"I can only replicate a master, not a slave.");
+            addReplyError(c,"I can only replicate a master, not a replica.");
             return;
         }
 
@@ -4597,7 +4597,8 @@ NULL
         clusterSetMaster(n);
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"slaves") && c->argc == 3) {
+    } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
+                !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
         int j;
@@ -4651,10 +4652,10 @@ NULL
 
         /* Check preconditions. */
         if (nodeIsMaster(myself)) {
-            addReplyError(c,"You should send CLUSTER FAILOVER to a slave");
+            addReplyError(c,"You should send CLUSTER FAILOVER to a replica");
             return;
         } else if (myself->slaveof == NULL) {
-            addReplyError(c,"I'm a slave but my master is unknown to me");
+            addReplyError(c,"I'm a replica but my master is unknown to me");
             return;
         } else if (!force &&
                    (nodeFailed(myself->slaveof) ||
