@@ -1282,6 +1282,8 @@ static int parseOptions(int argc, char **argv) {
             config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
+        } else if (!strcmp(argv[i],"--replica")) {
+            config.slave_mode = 1;
         } else if (!strcmp(argv[i],"--stat")) {
             config.stat_mode = 1;
         } else if (!strcmp(argv[i],"--scan")) {
@@ -1478,7 +1480,7 @@ static void usage(void) {
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
-"  --slave            Simulate a slave showing commands received from the master.\n"
+"  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
