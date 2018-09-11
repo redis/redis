@@ -365,7 +365,7 @@ void serverLogRaw(int level, const char *msg) {
         } else if (pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
-            role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
+            role_char = (server.masterhost ? 'S':'R'); /* Slave or Master. */
         }
         fprintf(fp,"%d:%c %s %c %s\n",
             (int)getpid(),role_char, buf,c[level],msg);
