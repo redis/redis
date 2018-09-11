@@ -29,7 +29,7 @@ start_server {} {
         set m_usedmemory [info_memory $master used_memory]
         set s_usedmemory [info_memory $slave used_memory]
         if { $s_usedmemory > $m_usedmemory + 10*1024*1024 } {
-            fail "the used_memory of slave is too larger than master.Master:$m_usedmemory Slave:$s_usedmemory"
+            fail "the used_memory of replica is much larger than master. Master:$m_usedmemory Replica:$s_usedmemory"
         }
     }  
 }}
