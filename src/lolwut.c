@@ -88,7 +88,7 @@ void lwFreeCanvas(lwCanvas *canvas) {
  * dot will be displyed, and 1 means dot will be displayed.
  * Coordinates are arranged so that left-top corner is 0,0. You can write
  * out of the size of the canvas without issues. */
-void lwPutPixel(lwCanvas *canvas, int x, int y, int color) {
+void lwDrawPixel(lwCanvas *canvas, int x, int y, int color) {
     if (x < 0 || x >= canvas->width ||
         y < 0 || y >= canvas->height) return;
     canvas->pixels[x+y*canvas->width] = color;
@@ -99,6 +99,29 @@ int lwGetPixel(lwCanvas *canvas, int x, int y) {
     if (x < 0 || x >= canvas->width ||
         y < 0 || y >= canvas->height) return 0;
     return canvas->pixels[x+y*canvas->width];
+}
+
+/* Draw a line from x1,y1 to x2,y2 using the Bresenham algorithm. */
+void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color) {
+    int dx = abs(x2-x1);
+    int dy = abs(y2-y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx-dy, e2;
+
+    while(1) {
+        lwDrawPixel(canvas,x1,y1,color);
+        if (x1 == x2 && y1 == y2) break;
+        e2 = err*2;
+        if (e2 > -dy) {
+            err -= dy;
+            x1 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y1 += sy;
+        }
+    }
 }
 
 /* Converts the canvas to an SDS string representing the UTF8 characters to
@@ -133,8 +156,9 @@ sds lwRenderCanvas(lwCanvas *canvas) {
 int main(void) {
     lwCanvas *c = lwCreateCanvas(80,80);
     for (int i = 0; i < 40; i++) {
-        lwPutPixel(c,i,i,1);
+        lwDrawPixel(c,i,i,1);
     }
+    lwDrawLine(c,10,10,60,30,1);
     sds rendered = lwRenderCanvas(c);
     printf("%s\n", rendered);
 }
