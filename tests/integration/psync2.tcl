@@ -95,7 +95,7 @@ start_server {} {
                     if {$disconnect} {
                         $R($slave_id) client kill type master
                         if {$debug_msg} {
-                            puts "+++ Breaking link for slave #$slave_id"
+                            puts "+++ Breaking link for replica #$slave_id"
                         }
                     }
                 }
@@ -158,7 +158,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) connected_slaves] == 4
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
     }
 
@@ -173,13 +173,13 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) connected_slaves] == 4
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
         set new_sync_count [status $R($master_id) sync_full]
         assert {$sync_count == $new_sync_count}
     }
 
-    test "PSYNC2: Slave RDB restart with EVALSHA in backlog issue #4483" {
+    test "PSYNC2: Replica RDB restart with EVALSHA in backlog issue #4483" {
         # Pick a random slave
         set slave_id [expr {($master_id+1)%5}]
         set sync_count [status $R($master_id) sync_full]
@@ -194,7 +194,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R($master_id) debug digest] == [$R($slave_id) debug digest]
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
 
         # Prevent the slave from receiving master updates, and at
@@ -228,7 +228,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [status $R($master_id) connected_slaves] == 4
         } else {
-            fail "Slave not reconnecting"
+            fail "Replica not reconnecting"
         }
         set new_sync_count [status $R($master_id) sync_full]
         assert {$sync_count == $new_sync_count}
@@ -238,7 +238,7 @@ start_server {} {
         wait_for_condition 50 1000 {
             [$R($master_id) debug digest] == [$R($slave_id) debug digest]
         } else {
-            fail "Debug digest mismatch between master and slave in post-restart handshake"
+            fail "Debug digest mismatch between master and replica in post-restart handshake"
         }
     }
 
