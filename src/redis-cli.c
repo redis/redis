@@ -1088,6 +1088,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
     output_raw = 0;
     if (!strcasecmp(command,"info") ||
+        !strcasecmp(command,"lolwut") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
                        !strcasecmp(argv[1],"htstats")) ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
