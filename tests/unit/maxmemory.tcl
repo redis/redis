@@ -163,7 +163,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             # make sure master doesn't disconnect slave because of timeout
             $master config set repl-timeout 300 ;# 5 minutes
             $master config set maxmemory-policy allkeys-random
-            $master config set client-output-buffer-limit "slave 100000000 100000000 300"
+            $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
 
             $slave slaveof $master_host $master_port
@@ -238,5 +238,5 @@ test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 
 # test that slave buffer don't induce eviction
 # test again with fewer (and bigger) commands without pipeline, but with eviction
-test_slave_buffers "slave buffer don't induce eviction" 100000 100 1 0
+test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
