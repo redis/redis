@@ -236,17 +236,40 @@ sds lwRenderCanvas(lwCanvas *canvas) {
     return text;
 }
 
-int main(void) {
-#if 0
-    lwCanvas *c = lwCreateCanvas(80,80);
-    for (int i = 0; i < 40; i++) {
-        lwDrawPixel(c,i,i,1);
-    }
-    lwDrawLine(c,10,10,60,30,1);
-    lwDrawSquare(c,40,40,40,0.5);
-    lwDrawSquare(c,50,40,10,1);
-#endif
-    lwCanvas *c = lwDrawSchotter(80,6,10);
-    sds rendered = lwRenderCanvas(c);
-    printf("%s\n", rendered);
+/* The LOLWUT command:
+ *
+ * LOLWUT [terminal columns] [squares-per-row] [squares-per-col]
+ *
+ * By default the command uses 80 columns, 6 squares per row, 10 squares
+ * per column.
+ */
+void lolwutCommand(client *c) {
+    long cols = 80;
+    long squares_per_row = 6;
+    long squares_per_col = 10;
+
+    /* Parse the optional arguments if any. */
+    if (c->argc > 1 &&
+        getLongFromObjectOrReply(c,c->argv[1],&cols,NULL) != C_OK)
+        return;
+
+    if (c->argc > 2 &&
+        getLongFromObjectOrReply(c,c->argv[2],&squares_per_row,NULL) != C_OK)
+        return;
+
+    if (c->argc > 3 &&
+        getLongFromObjectOrReply(c,c->argv[3],&squares_per_col,NULL) != C_OK)
+        return;
+
+    if (cols < 1) cols = 1;
+    if (squares_per_row < 1) squares_per_row = 1;
+    if (squares_per_col < 1) squares_per_col = 1;
+
+    /* Generate some computer art and reply. */
+    lwCanvas *canvas = lwDrawSchotter(cols,squares_per_row,squares_per_col);
+    sds rendered = lwRenderCanvas(canvas);
+    rendered = sdscat(rendered,
+        "\nGeorg Ness - Schotter, Plotter on paper, 1968.\n");
+    addReplyBulkSds(c,rendered);
+    lwFreeCanvas(canvas);
 }
