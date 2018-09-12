@@ -197,8 +197,8 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
                 if (rand() % 2) r2 = -r2;
                 if (rand() % 2) r3 = -r3;
                 angle = r1;
-                sx += r2*square_side/4;
-                sy += r3*square_side/4;
+                sx += r2*square_side/3;
+                sy += r3*square_side/3;
             }
             lwDrawSquare(canvas,sx,sy,square_side,angle);
         }
