@@ -36,7 +36,7 @@
 #include "server.h"
 #include <math.h>
 
-/* This function represents our canvas. Drawing functions will take a pointer
+/* This structure represents our canvas. Drawing functions will take a pointer
  * to a canvas to write to it. Later the canvas can be rendered to a string
  * suitable to be printed on the screen, using unicode Braille characters. */
 typedef struct lwCanvas {
