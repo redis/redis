@@ -197,8 +197,8 @@ lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_
                 if (rand() % 2) r2 = -r2;
                 if (rand() % 2) r3 = -r3;
                 angle = r1;
-                sx += r2*square_side/5;
-                sy += r3*square_side/5;
+                sx += r2*square_side/4;
+                sy += r3*square_side/4;
             }
             lwDrawSquare(canvas,sx,sy,square_side,angle);
         }
@@ -240,13 +240,13 @@ sds lwRenderCanvas(lwCanvas *canvas) {
  *
  * LOLWUT [terminal columns] [squares-per-row] [squares-per-col]
  *
- * By default the command uses 80 columns, 6 squares per row, 10 squares
+ * By default the command uses 66 columns, 8 squares per row, 12 squares
  * per column.
  */
 void lolwutCommand(client *c) {
-    long cols = 80;
-    long squares_per_row = 6;
-    long squares_per_col = 10;
+    long cols = 66;
+    long squares_per_row = 8;
+    long squares_per_col = 12;
 
     /* Parse the optional arguments if any. */
     if (c->argc > 1 &&
