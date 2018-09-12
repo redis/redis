@@ -34,6 +34,7 @@
  */
 
 #include "server.h"
+#include <math.h>
 
 /* This function represents our canvas. Drawing functions will take a pointer
  * to a canvas to write to it. Later the canvas can be rendered to a string
@@ -124,6 +125,47 @@ void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color) {
     }
 }
 
+/* Draw a square centered at the specified x,y coordinates, with the specified
+ * rotation angle and size. In order to write a rotated square, we use the
+ * trivial fact that the parametric equation:
+ *
+ *  x = sin(k)
+ *  y = cos(k)
+ *
+ * Describes a circle for values going from 0 to 2*PI. So basically if we start
+ * at 45 degrees, that is k = PI/4, with the first point, and then we find
+ * the other three points incrementing K by PI/2 (90 degrees), we'll have the
+ * points of the square. In order to rotate the square, we just start with
+ * k = PI/4 + rotation_angle, and we are done.
+ *
+ * Of course the vanilla equations above will descrive the square inside a
+ * circle of radius 1, so in order to draw larger squares we'll have to
+ * multiply the obtained coordinates, and then translate them. However this
+ * is much simpler than implementing the abstract concept of 2D shape and then
+ * performing the rotation/translation transformation, so for LOLWUT it's
+ * a good approach. */
+void lwDrawSquare(lwCanvas *canvas, int x, int y, float size, float angle) {
+    int px[4], py[4];
+
+    /* Adjust the desired size according to the fact that the square inscribed
+     * into a circle of radius 1 has the side of length SQRT(2). This way
+     * size becomes a simple multiplication factor we can use with our
+     * coordinates to magnify them. */
+    size /= 1.4142;
+
+    /* Compute the four points. */
+    float k = M_PI/4 + angle;
+    for (int j = 0; j < 4; j++) {
+        px[j] = sin(k) * size + x;
+        py[j] = cos(k) * size + y;
+        k += M_PI/2;
+    }
+
+    /* Draw the square. */
+    for (int j = 0; j < 4; j++)
+        lwDrawLine(canvas,px[j],py[j],px[(j+1)%4],py[(j+1)%4],1);
+}
+
 /* Converts the canvas to an SDS string representing the UTF8 characters to
  * print to the terminal in order to obtain a graphical representaiton of the
  * logical canvas. The actual returned string will require a terminal that is
@@ -159,6 +201,8 @@ int main(void) {
         lwDrawPixel(c,i,i,1);
     }
     lwDrawLine(c,10,10,60,30,1);
+    lwDrawSquare(c,40,40,40,0.5);
+    lwDrawSquare(c,50,40,10,1);
     sds rendered = lwRenderCanvas(c);
     printf("%s\n", rendered);
 }
