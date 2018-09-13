@@ -69,7 +69,7 @@ int ListCommand_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         RedisModule_ReplyWithLongLong(ctx,port);
     }
     RedisModule_FreeClusterNodesList(ids);
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
 }
 
 /* Callback for message MSGTYPE_PING */
