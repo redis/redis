@@ -138,7 +138,7 @@ void lwDrawLine(lwCanvas *canvas, int x1, int y1, int x2, int y2, int color) {
  * points of the square. In order to rotate the square, we just start with
  * k = PI/4 + rotation_angle, and we are done.
  *
- * Of course the vanilla equations above will descrive the square inside a
+ * Of course the vanilla equations above will describe the square inside a
  * circle of radius 1, so in order to draw larger squares we'll have to
  * multiply the obtained coordinates, and then translate them. However this
  * is much simpler than implementing the abstract concept of 2D shape and then
