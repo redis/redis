@@ -261,9 +261,14 @@ void lolwutCommand(client *c) {
         getLongFromObjectOrReply(c,c->argv[3],&squares_per_col,NULL) != C_OK)
         return;
 
+    /* Limits. We want LOLWUT to be always reasonably fast and cheap to execute
+     * so we have maximum number of columns, rows, and output resulution. */
     if (cols < 1) cols = 1;
+    if (cols > 1000) cols = 1000;
     if (squares_per_row < 1) squares_per_row = 1;
+    if (squares_per_row > 200) squares_per_row = 200;
     if (squares_per_col < 1) squares_per_col = 1;
+    if (squares_per_col > 200) squares_per_col = 200;
 
     /* Generate some computer art and reply. */
     lwCanvas *canvas = lwDrawSchotter(cols,squares_per_row,squares_per_col);
