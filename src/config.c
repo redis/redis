@@ -1199,12 +1199,22 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "slave-priority",server.slave_priority,0,INT_MAX) {
     } config_set_numerical_field(
+      "replica-priority",server.slave_priority,0,INT_MAX) {
+    } config_set_numerical_field(
       "slave-announce-port",server.slave_announce_port,0,65535) {
+    } config_set_numerical_field(
+      "replica-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "min-slaves-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
+      "min-replicas-to-write",server.repl_min_slaves_to_write,0,INT_MAX) {
+        refreshGoodSlavesCount();
+    } config_set_numerical_field(
       "min-slaves-max-lag",server.repl_min_slaves_max_lag,0,INT_MAX) {
+        refreshGoodSlavesCount();
+    } config_set_numerical_field(
+      "min-replicas-max-lag",server.repl_min_slaves_max_lag,0,INT_MAX) {
         refreshGoodSlavesCount();
     } config_set_numerical_field(
       "cluster-node-timeout",server.cluster_node_timeout,0,LLONG_MAX) {
