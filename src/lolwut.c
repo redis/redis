@@ -177,7 +177,7 @@ void lwDrawSquare(lwCanvas *canvas, int x, int y, float size, float angle) {
 lwCanvas *lwDrawSchotter(int console_cols, int squares_per_row, int squares_per_col) {
     /* Calculate the canvas size. */
     int canvas_width = console_cols*2;
-    int padding = 2;
+    int padding = console_cols > 2 ? 2 : 0;
     float square_side = (float)(canvas_width-padding*2) / squares_per_row;
     int canvas_height = square_side * squares_per_col + padding*2;
     lwCanvas *canvas = lwCreateCanvas(canvas_width, canvas_height);
