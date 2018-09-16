@@ -77,7 +77,7 @@ void *HelloBlock_ThreadMain(void *arg) {
 /* An example blocked client disconnection callback.
  *
  * Note that in the case of the HELLO.BLOCK command, the blocked client is now
- * owned by the thread calling sleep(). In this speciifc case, there is not
+ * owned by the thread calling sleep(). In this specific case, there is not
  * much we can do, however normally we could instead implement a way to
  * signal the thread that the client disconnected, and sleep the specified
  * amount of seconds with a while loop calling sleep(1), so that once we
