@@ -474,7 +474,7 @@ void moduleHandlePropagationAfterCommandCallback(RedisModuleCtx *ctx) {
     if (c->flags & CLIENT_LUA) return;
 
     /* Handle the replication of the final EXEC, since whatever a command
-     * emits is always wrappered around MULTI/EXEC. */
+     * emits is always wrapped around MULTI/EXEC. */
     if (ctx->flags & REDISMODULE_CTX_MULTI_EMITTED) {
         robj *propargv[1];
         propargv[0] = createStringObject("EXEC",4);
@@ -2989,7 +2989,7 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
 }
 
 /* Assuming RedisModule_KeyType() returned REDISMODULE_KEYTYPE_MODULE on
- * the key, returns the moduel type pointer of the value stored at key.
+ * the key, returns the module type pointer of the value stored at key.
  *
  * If the key is NULL, is not associated with a module type, or is empty,
  * then NULL is returned instead. */
@@ -3289,7 +3289,7 @@ void RM_DigestAddLongLong(RedisModuleDigest *md, long long ll) {
     mixDigest(md->o,buf,len);
 }
 
-/* See the doucmnetation for `RedisModule_DigestAddElement()`. */
+/* See the documentation for `RedisModule_DigestAddElement()`. */
 void RM_DigestEndSequence(RedisModuleDigest *md) {
     xorDigest(md->x,md->o,sizeof(md->o));
     memset(md->o,0,sizeof(md->o));
@@ -3486,7 +3486,7 @@ void unblockClientFromModule(client *c) {
  *     reply_timeout:   called when the timeout is reached in order to send an
  *                      error to the client.
  *
- *     free_privdata:   called in order to free the privata data that is passed
+ *     free_privdata:   called in order to free the private data that is passed
  *                      by RedisModule_UnblockClient() call.
  */
 RedisModuleBlockedClient *RM_BlockClient(RedisModuleCtx *ctx, RedisModuleCmdFunc reply_callback, RedisModuleCmdFunc timeout_callback, void (*free_privdata)(RedisModuleCtx*,void*), long long timeout_ms) {
@@ -3683,7 +3683,7 @@ void moduleBlockedClientTimedOut(client *c) {
     bc->timeout_callback(&ctx,(void**)c->argv,c->argc);
     moduleFreeContext(&ctx);
     /* For timeout events, we do not want to call the disconnect callback,
-     * because the blocekd client will be automatically disconnected in
+     * because the blocked client will be automatically disconnected in
      * this case, and the user can still hook using the timeout callback. */
     bc->disconnect_callback = NULL;
 }
@@ -3700,7 +3700,7 @@ int RM_IsBlockedTimeoutRequest(RedisModuleCtx *ctx) {
     return (ctx->flags & REDISMODULE_CTX_BLOCKED_TIMEOUT) != 0;
 }
 
-/* Get the privata data set by RedisModule_UnblockClient() */
+/* Get the private data set by RedisModule_UnblockClient() */
 void *RM_GetBlockedClientPrivateData(RedisModuleCtx *ctx) {
     return ctx->blocked_privdata;
 }
@@ -4086,7 +4086,7 @@ size_t RM_GetClusterSize(void) {
  *
  * * REDISMODULE_NODE_MYSELF        This node
  * * REDISMODULE_NODE_MASTER        The node is a master
- * * REDISMODULE_NODE_SLAVE         The ndoe is a slave
+ * * REDISMODULE_NODE_SLAVE         The node is a replica
  * * REDISMODULE_NODE_PFAIL         We see the node as failing
  * * REDISMODULE_NODE_FAIL          The cluster agrees the node is failing
  * * REDISMODULE_NODE_NOFAILOVER    The slave is configured to never failover
@@ -4245,7 +4245,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
 }
 
 /* Stop a timer, returns REDISMODULE_OK if the timer was found, belonged to the
- * calling module, and was stoped, otherwise REDISMODULE_ERR is returned.
+ * calling module, and was stopped, otherwise REDISMODULE_ERR is returned.
  * If not NULL, the data pointer is set to the value of the data argument when
  * the timer was created. */
 int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
@@ -4262,7 +4262,7 @@ int RM_StopTimer(RedisModuleCtx *ctx, RedisModuleTimerID id, void **data) {
  * (in milliseconds), and the private data pointer associated with the timer.
  * If the timer specified does not exist or belongs to a different module
  * no information is returned and the function returns REDISMODULE_ERR, otherwise
- * REDISMODULE_OK is returned. The argumnets remaining or data can be NULL if
+ * REDISMODULE_OK is returned. The arguments remaining or data can be NULL if
  * the caller does not need certain information. */
 int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remaining, void **data) {
     RedisModuleTimer *timer = raxFind(Timers,(unsigned char*)&id,sizeof(id));
@@ -4477,7 +4477,7 @@ int moduleUnload(sds name) {
 
     moduleUnregisterCommands(module);
 
-    /* Remvoe any noification subscribers this module might have */
+    /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
 
     /* Unregister all the hooks. TODO: Yet no hooks support here. */
