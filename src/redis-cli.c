@@ -3729,6 +3729,7 @@ static int clusterManagerFixOpenSlot(int slot) {
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *n = ln->value;
         if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        int is_migrating = 0, is_importing = 0;
         if (n->migrating) {
             for (int i = 0; i < n->migrating_count; i += 2) {
                 sds migrating_slot = n->migrating[i];
@@ -3737,11 +3738,12 @@ static int clusterManagerFixOpenSlot(int slot) {
                     migrating_str = sdscatfmt(migrating_str, "%s%S:%u",
                                               sep, n->ip, n->port);
                     listAddNodeTail(migrating, n);
+                    is_migrating = 1;
                     break;
                 }
             }
         }
-        if (n->importing) {
+        if (!is_migrating && n->importing) {
             for (int i = 0; i < n->importing_count; i += 2) {
                 sds importing_slot = n->importing[i];
                 if (atoi(importing_slot) == slot) {
@@ -3749,9 +3751,26 @@ static int clusterManagerFixOpenSlot(int slot) {
                     importing_str = sdscatfmt(importing_str, "%s%S:%u",
                                               sep, n->ip, n->port);
                     listAddNodeTail(importing, n);
+                    is_importing = 1;
                     break;
                 }
             }
+        }
+        /* If the node is neither migrating nor importing and it's not
+         * the owner, then is added to the importing list in case
+         * it has keys in the slot. */
+        if (!is_migrating && !is_importing && n != owner) {
+            redisReply *r = CLUSTER_MANAGER_COMMAND(n,
+                "CLUSTER COUNTKEYSINSLOT %d", slot);
+            success = clusterManagerCheckRedisReply(n, r, NULL);
+            if (success && r->integer > 0) {
+                clusterManagerLogWarn("*** Found keys about slot %d "
+                                      "in node %s:%d!\n", slot, n->ip,
+                                      n->port);
+                listAddNodeTail(importing, n);
+            }
+            if (r) freeReplyObject(r);
+            if (!success) goto cleanup;
         }
     }
     printf("Set as migrating in: %s\n", migrating_str);
