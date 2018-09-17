@@ -1173,16 +1173,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             } else if (!strcasecmp(command,"auth") && argc == 2) {
                 cliSelect();
             }
-
-
-            /*  Issue the command again if we got redirected in cluster mode  */
-            if  (config.cluster_mode  &&  config.cluster_reissue_command)  {
-                cliConnect(CC_FORCE);
-                config.cluster_reissue_command  =  0;
-                /* for a '-MOVED' or '-ASK' response, we need to issue the command again, so
-                 * add repeat by 1. */
-                repeat++;
-            }
         }
         if (config.interval) usleep(config.interval);
         fflush(stdout); /* Make it grep friendly */
@@ -1563,8 +1553,13 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
-        } else
-            break;
+         }
+         /* Issue the command again if we got redirected in cluster mode */
+         if (config.cluster_mode && config.cluster_reissue_command) {
+            cliConnect(CC_FORCE);
+         } else {
+             break;
+        }
     }
     return REDIS_OK;
 }
