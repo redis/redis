@@ -644,26 +644,20 @@ int clientHasPendingReplies(client *c) {
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
     client *c;
-    if ((c = createClient(fd)) == NULL) {
-        serverLog(LL_WARNING,
-            "Error registering fd event for the new client: %s (fd=%d)",
-            strerror(errno),fd);
-        close(fd); /* May be already closed, just ignore errors */
-        return;
-    }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
-    if (listLength(server.clients) > server.maxclients) {
+    if (listLength(server.clients) >= server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
+        anetNonBlock(NULL,fd);
         if (write(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
+        close(fd);
         server.stat_rejected_conn++;
-        freeClient(c);
         return;
     }
 
@@ -699,15 +693,22 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "4) Setup a bind address or an authentication password. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
+            anetNonBlock(NULL,fd);
             if (write(c->fd,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
+            close(fd);
             server.stat_rejected_conn++;
-            freeClient(c);
             return;
         }
     }
-
+    if ((c = createClient(fd)) == NULL) {
+        serverLog(LL_WARNING,
+            "Error registering fd event for the new client: %s (fd=%d)",
+            strerror(errno),fd);
+        close(fd); /* May be already closed, just ignore errors */
+        return;
+    }
     server.stat_numconnections++;
     c->flags |= flags;
 }
