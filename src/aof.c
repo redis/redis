@@ -96,29 +96,33 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
     ssize_t nwritten;
+    mstime_t latency;
     UNUSED(el);
     UNUSED(fd);
     UNUSED(privdata);
     UNUSED(mask);
 
+    latencyStartMonitor(latency);
     while(1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
             aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
                               AE_WRITABLE);
-            return;
+            break;
         }
         if (block->used > 0) {
             nwritten = write(server.aof_pipe_write_data_to_child,
                              block->buf,block->used);
-            if (nwritten <= 0) return;
+            if (nwritten <= 0) break;
             memmove(block->buf,block->buf+nwritten,block->used-nwritten);
             block->used -= nwritten;
             block->free += nwritten;
         }
         if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("aof-rewrite-write-data-to-child",latency);
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
