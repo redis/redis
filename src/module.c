@@ -241,9 +241,11 @@ typedef struct RedisModuleKeyspaceSubscriber {
 /* The module keyspace notification subscribers list */
 static list *moduleKeyspaceSubscribers;
 
-/* Static client recycled for all notification clients, to avoid allocating
- * per round. */
-static client *moduleKeyspaceSubscribersClient;
+/* Static client recycled for when we need to provide a context with a client
+ * in a situation where there is no client to provide. This avoidsallocating
+ * a new client per round. For instance this is used in the keyspace
+ * notifications, timers and cluster messages callbacks. */
+static client *moduleFreeContextReusedClient;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -3875,7 +3877,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         if ((sub->event_mask & type) && sub->active == 0) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = sub->module;
-            ctx.client = moduleKeyspaceSubscribersClient;
+            ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, dbid);
 
             /* mark the handler as active to avoid reentrant loops.
@@ -3938,7 +3940,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
         if (r->module_id == module_id) {
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
             ctx.module = r->module;
-            ctx.client = moduleKeyspaceSubscribersClient;
+            ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, 0);
             r->callback(&ctx,sender_id,type,payload,len);
             moduleFreeContext(&ctx);
@@ -4184,7 +4186,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
             ctx.module = timer->module;
-            ctx.client = moduleKeyspaceSubscribersClient;
+            ctx.client = moduleFreeContextReusedClient;
             selectDb(ctx.client, 0);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
@@ -4342,8 +4344,8 @@ void moduleInitModulesSystem(void) {
 
     /* Set up the keyspace notification susbscriber list and static client */
     moduleKeyspaceSubscribers = listCreate();
-    moduleKeyspaceSubscribersClient = createClient(-1);
-    moduleKeyspaceSubscribersClient->flags |= CLIENT_MODULE;
+    moduleFreeContextReusedClient = createClient(-1);
+    moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
