@@ -730,6 +730,96 @@ start_server {tags {"scripting repl"}} {
                 fail "Time key does not match between master and slave"
             }
         }
+
+        test { Trailing zeros test} {
+            r eval {
+                local decimalNumbers = {1,2,4,8,16,32,64,128,256}
+                local function returnTrailingZeroes(number)
+                    local zeros =  hash.trailing_zeros(number)
+                    return zeros
+                end
+                local function trailingZeroesTest()
+                    local trailingZeros = {}
+                    for i, decimalNumber in ipairs(decimalNumbers) do
+                        trailingZeros[i] = returnTrailingZeroes(decimalNumber)
+                    end
+                    return trailingZeros
+                end
+                return trailingZeroesTest()
+            } 0
+        } {0 1 2 3 4 5 6 7 8}
+
+	test { Hash test} {
+            r eval {
+                local usersTable = {
+                        "5B95A1F4C43J778DE84B70F0F2BA25A8",
+                        "646AE496188D78890C783C4BH64A52D1",
+                        "5D79A54310D05F3768886B4BF7W7282F",
+                        "EA4BF3F77E49C4634EE64780K28EE2F6",
+                        "1106EBDAF64CE6172C58901FFG546855"
+                }
+                local Hash = {seed = 666}
+                function Hash:hash(value)
+                        hash.set_seed(self.seed)
+                        local hashValue = hash.murmur2(value)
+                        return hashValue
+                end
+                function Hash:new(o)
+                        o = o or {}
+                        setmetatable(o, self)
+                        self.__index = self
+                        return o
+                end
+                local function initHashFunctions()
+                    local Hashes = {
+                        Hash:new{seed=13},
+                        Hash:new{seed=766549},
+                        Hash:new{seed=2545},
+                        Hash:new{seed=9587},
+                        Hash:new{seed=12355}
+                    }
+                    return Hashes
+                end
+                local function returnHashesForSingleUser(user)
+                    local hashesTable = {}
+                    local hashFunctions = initHashFunctions()
+                    for i, hashFuction in ipairs(hashFunctions) do
+                       hashesTable[i] = hashFuction:hash(user)
+                    end
+                    return hashesTable
+                end
+                local function stringHashesForAllUsers()
+                    local allUsersHashes = {}
+                    local testString = ""
+                    for i, user in ipairs(usersTable) do
+                        allUsersHashes[i] = returnHashesForSingleUser(user)
+                    end
+                    for k, userHashes in ipairs(allUsersHashes) do
+                        for userHashesKey, userHashesValue in ipairs(userHashes) do
+                                testString = testString .. " " .. userHashesValue
+                        end
+                    end
+                    testString = testString:sub(2)
+                    return testString
+                end
+                local function hashesForAllUsers()
+                    local allUsersHashes = {}
+                    local allValues = {}
+                    for i, user in ipairs(usersTable) do
+                        allUsersHashes[i] = returnHashesForSingleUser(user)
+                    end
+                    local key = 1
+                    for k, userHashes in ipairs(allUsersHashes) do
+                        for userHashesKey, userHashesValue in ipairs(userHashes) do
+                                allValues[key] = userHashesValue
+                                key = key + 1
+                        end
+                    end
+                    return allValues
+                end
+                return hashesForAllUsers()
+            } 0
+        } {2070577590 1683413848 1538977285 1799460716 1415667753 826855859 411702632 840706588 144520212 1712744384 403088975 686990534 1582252031 455070482 2139102168 1543081441 991987314 298096 303081626 1842839926 1939650949 1854708601 294596930 261634175 1274090177}
     }
 }
 
