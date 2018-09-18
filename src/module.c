@@ -4184,6 +4184,8 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
             ctx.module = timer->module;
+            ctx.client = moduleKeyspaceSubscribersClient;
+            selectDb(ctx.client, 0);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
