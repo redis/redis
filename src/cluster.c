@@ -1589,6 +1589,12 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         }
     }
 
+    /* After updating the slots configuration, don't do any actual change
+     * in the state of the server if a module disabled Redis Cluster
+     * keys redirections. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return;
+
     /* If at least one slot was reassigned from a node to another node
      * with a greater configEpoch, it is possible that:
      * 1) We are a master left without slots. This means that we were
@@ -5434,6 +5440,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     multiState *ms, _ms;
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
+
+    /* Allow any key to be set if a module disabled cluster redirections. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return myself;
 
     /* Set error code optimistically for the base case. */
     if (error_code) *error_code = CLUSTER_REDIR_NONE;

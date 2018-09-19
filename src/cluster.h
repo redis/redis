@@ -103,9 +103,9 @@ typedef struct clusterLink {
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
  * system on top of Redis Cluster message bus, using modules. */
-#define MODULE_CLUSTER_FLAG_NONE 0
-#define MODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
-#define MODULE_CLUSTER_FLAG_NO_REDIRECTION (1<<2)
+#define CLUSTER_MODULE_FLAG_NONE 0
+#define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
+#define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
