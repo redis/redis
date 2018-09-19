@@ -4151,6 +4151,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *                  Slots informations will still be propagated across the
  *                  cluster, but without effects. */
 void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
+    UNUSED(ctx);
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_FAILOVER;
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION)
