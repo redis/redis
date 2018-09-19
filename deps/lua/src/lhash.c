@@ -51,7 +51,6 @@ unsigned int TrailingZeros(unsigned int v)
     }
 
     return c;
-
 }
 
 static int lua_murmurHash64A (lua_State *L)

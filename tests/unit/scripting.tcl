@@ -733,7 +733,14 @@ start_server {tags {"scripting repl"}} {
 
         test { Trailing zeros test} {
             r eval {
-                local decimalNumbers = {1,2,4,8,16,32,64,128,256}
+                local decimalNumbers = {
+			1,2,4,6,8,12,16,24,32,44,64,101,128,162,192,256,264,
+			400,512,604,1024,1104,2048,3008,4096,5504,8192,9024,
+			16384,17206,32768,33312,65536,80560,131072,202016,
+			262144,500007,524288,1048576,2097152,4194304,
+			8388608,16777216,33554432,67108864,134217728,
+			268435456,536870912,1073741824,2147483648
+		}
                 local function returnTrailingZeroes(number)
                     local zeros =  hash.trailing_zeros(number)
                     return zeros
@@ -747,7 +754,7 @@ start_server {tags {"scripting repl"}} {
                 end
                 return trailingZeroesTest()
             } 0
-        } {0 1 2 3 4 5 6 7 8}
+        } {0 1 2 1 3 2 4 3 5 2 6 0 7 1 6 8 3 4 9 2 10 4 11 6 12 7 13 6 14 1 15 5 16 4 17 5 18 0 19 20 21 22 23 24 25 26 27 28 29 30 31}
 
 	test { Hash test} {
             r eval {
