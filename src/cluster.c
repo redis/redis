@@ -3877,6 +3877,11 @@ int verifyClusterConfigWithData(void) {
     int j;
     int update_config = 0;
 
+    /* Return ASAP if a module disabled cluster redirections. In that case
+     * every master can store keys about every possible hash slot. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return C_OK;
+
     /* If this node is a slave, don't perform the check at all as we
      * completely depend on the replication stream. */
     if (nodeIsSlave(myself)) return C_OK;

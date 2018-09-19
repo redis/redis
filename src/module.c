@@ -4132,6 +4132,31 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
     return REDISMODULE_OK;
 }
 
+/* Set Redis Cluster flags in order to change the normal behavior of
+ * Redis Cluster, especially with the goal of disabling certain functions.
+ * This is useful for modules that use the Cluster API in order to create
+ * a different distributed system, but still want to use the Redis Cluster
+ * message bus. Flags that can be set:
+ *
+ *  CLUSTER_MODULE_FLAG_NO_FAILOVER
+ *  CLUSTER_MODULE_FLAG_NO_REDIRECTION
+ *
+ * With the following effects:
+ *
+ *  NO_FAILOVER: prevent Redis Cluster slaves to failover a failing master.
+ *               Also disables the replica migration feature.
+ *
+ *  NO_REDIRECTION: Every node will accept any key, without trying to perform
+ *                  partitioning according to the user Redis Cluster algorithm.
+ *                  Slots informations will still be propagated across the
+ *                  cluster, but without effects. */
+void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
+    if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
+        server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_FAILOVER;
+    if (flags & REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION)
+        server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
+}
+
 /* --------------------------------------------------------------------------
  * Modules Timers API
  *
@@ -4708,4 +4733,5 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockedClientDisconnected);
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
+    REGISTER_API(SetClusterFlags);
 }
