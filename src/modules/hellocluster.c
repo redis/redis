@@ -77,6 +77,7 @@ void PingReceiver(RedisModuleCtx *ctx, const char *sender_id, uint8_t type, cons
     RedisModule_Log(ctx,"notice","PING (type %d) RECEIVED from %.*s: '%.*s'",
         type,REDISMODULE_NODE_ID_LEN,sender_id,(int)len, payload);
     RedisModule_SendClusterMessage(ctx,NULL,MSGTYPE_PONG,(unsigned char*)"Ohi!",4);
+    RedisModule_Call(ctx, "INCR", "c", "pings_received");
 }
 
 /* Callback for message MSGTYPE_PONG. */
@@ -102,6 +103,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         ListCommand_RedisCommand,"readonly",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    /* Disable Redis Cluster sharding and redirections. This way every node
+     * will be able to access every possible key, regardless of the hash slot.
+     * This way the PING message handler will be able to increment a specific
+     * variable. Normally you do that in order for the distributed system
+     * you create as a module to have total freedom in the keyspace
+     * manipulation. */
+    RedisModule_SetClusterFlags(ctx,REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION);
+
+    /* Register our handlers for different message types. */
     RedisModule_RegisterClusterMessageReceiver(ctx,MSGTYPE_PING,PingReceiver);
     RedisModule_RegisterClusterMessageReceiver(ctx,MSGTYPE_PONG,PongReceiver);
     return REDISMODULE_OK;
