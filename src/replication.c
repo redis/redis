@@ -1814,6 +1814,13 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
+    /* Stop background saving for obsolete database state. */
+    server.dirty = 0;
+    if (server.rdb_child_pid != -1) {
+        kill(server.rdb_child_pid,SIGUSR1);
+        rdbRemoveTempFile(server.rdb_child_pid);
+    }
+
     /* Prepare a suitable temp file for bulk transfer */
     while(maxtries--) {
         snprintf(tmpfile,256,
