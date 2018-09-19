@@ -903,6 +903,7 @@ void configSetCommand(client *c) {
     robj *o;
     long long ll;
     int err;
+    int old_maxmemory_policy = server.maxmemory_policy;
     serverAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
     serverAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
@@ -1265,6 +1266,7 @@ void configSetCommand(client *c) {
       "loglevel",server.verbosity,loglevel_enum) {
     } config_set_enum_field(
       "maxmemory-policy",server.maxmemory_policy,maxmemory_policy_enum) {
+        if (server.maxmemory_policy != old_maxmemory_policy) evictionPoolReset();
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
 

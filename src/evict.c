@@ -256,6 +256,21 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     }
 }
 
+/* Reset the eviction pool. */
+void evictionPoolReset(void) {
+    struct evictionPoolEntry *pool = EvictionPoolLRU;
+    int i;
+    for (i = 0; i < EVPOOL_SIZE; i++) {
+        if (pool[i].key == NULL) continue;
+
+        /* Remove the entry from the pool. */
+        if (pool[i].key != pool[i].cached)
+            sdsfree(pool[i].key);
+        pool[i].key = NULL;
+        pool[i].idle = 0;
+    }
+}
+
 /* ----------------------------------------------------------------------------
  * LFU (Least Frequently Used) implementation.
 
