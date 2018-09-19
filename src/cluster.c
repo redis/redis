@@ -3216,7 +3216,8 @@ void clusterHandleSlaveMigration(int max_slaves) {
      * the natural slaves of this instance to advertise their switch from
      * the old master to the new one. */
     if (target && candidate == myself &&
-        (mstime()-target->orphaned_time) > CLUSTER_SLAVE_MIGRATION_DELAY)
+        (mstime()-target->orphaned_time) > CLUSTER_SLAVE_MIGRATION_DELAY &&
+       !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
     {
         serverLog(LL_WARNING,"Migrating to orphaned master %.40s",
             target->name);
@@ -3569,7 +3570,8 @@ void clusterCron(void) {
 
     if (nodeIsSlave(myself)) {
         clusterHandleManualFailover();
-        clusterHandleSlaveFailover();
+        if (!(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER))
+            clusterHandleSlaveFailover();
         /* If there are orphaned slaves, and we are a slave among the masters
          * with the max number of non-failing slaves, consider migrating to
          * the orphaned masters. Note that it does not make sense to try
