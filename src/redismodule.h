@@ -117,6 +117,10 @@
 #define REDISMODULE_NODE_FAIL       (1<<4)
 #define REDISMODULE_NODE_NOFAILOVER (1<<5)
 
+#define REDISMODULE_CLUSTER_FLAG_NONE 0
+#define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
+#define REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION (1<<2)
+
 #define REDISMODULE_NOT_USED(V) ((void) V)
 
 /* This type represents a timer handle, and is returned when a timer is
