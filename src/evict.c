@@ -175,6 +175,14 @@ void evictionPoolAlloc(void) {
     EvictionPoolLRU = ep;
 }
 
+/* Remove the entry from the pool. */
+void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
+    if (pool[i].key != pool[i].cached)
+        sdsfree(pool[i].key);
+    pool[i].key = NULL;
+    pool[i].idle = 0;
+}
+
 /* Insert the element inside the pool. */
 void evictionPoolInsert(int dbid, sds key, unsigned long long idle, struct evictionPoolEntry *pool) {
     int k = 0;
@@ -262,12 +270,50 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     }
 }
 
-/* Remove the entry from the pool. */
-void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
-    if (pool[i].key != pool[i].cached)
-        sdsfree(pool[i].key);
-    pool[i].key = NULL;
-    pool[i].idle = 0;
+/* Update the cache of possible candidates in the evictionPool,
+ * in case the old candidates is not the best, imagine that:
+ *
+ * Time1: we need free memory and populate some keys to evictionPool
+ *        like that: A:10,B:9,C:8
+ * Time2: we delete the bestkey A and free enough memory, then keys
+ *        in evictionPool are: B:9,C:8
+ * Time3: we need free memory again, and the idle time of B is 3,
+ *        but B is already in evctionPool and idle time is 9, so
+ *        we take it as the bestkey to delete, but it is not the
+ *        correct bestkey.
+ *
+ * Also we should update evictionPool in case maxmemory-policy changed,
+ * because LRU, LFU and TTL has different meanings. */
+void evictionPoolUpdate(struct evictionPoolEntry *pool) {
+    dict *dict;
+    dictEntry *de;
+    int j, count = 0;
+    unsigned long long idle;
+    struct evictionPoolEntry samples[EVPOOL_SIZE];
+    for (j = 0; j < EVPOOL_SIZE; j++) {
+        if (pool[j].key == NULL) break;
+        samples[j].dbid = pool[j].dbid;
+        samples[j].key = sdsdup(pool[j].key);
+        removeEntryFromPool(pool,j);
+        count++;
+    }
+
+    for (j = 0; j < count; j++) {
+        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
+                server.db[samples[j].dbid].dict : server.db[samples[j].dbid].expires;
+        de = dictFind(dict, samples[j].key);
+        if (de == NULL) {
+            sdsfree(samples[j].key);
+            continue;
+        }
+        if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL &&
+            dict == server.db[samples[j].dbid].expires) {
+            de = dictFind(server.db[samples[j].dbid].dict, samples[j].key);
+        }
+        idle = getEvictionIdleTime(dictGetVal(de));
+        evictionPoolInsert(samples[j].dbid, samples[j].key, idle, pool);
+        sdsfree(samples[j].key);
+    }
 }
 
 /* ----------------------------------------------------------------------------
@@ -480,6 +526,12 @@ int freeMemoryIfNeeded(void) {
         goto cant_free; /* We need to free memory, but policy forbids. */
 
     latencyStartMonitor(latency);
+    struct evictionPoolEntry *pool = EvictionPoolLRU;
+    if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
+        server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
+    {
+        evictionPoolUpdate(pool);
+    }
     while (mem_freed < mem_tofree) {
         int j, k, i, keys_freed = 0;
         static unsigned int next_db = 0;
@@ -492,8 +544,6 @@ int freeMemoryIfNeeded(void) {
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
-            struct evictionPoolEntry *pool = EvictionPoolLRU;
-
             while(bestkey == NULL) {
                 unsigned long total_keys = 0, keys;
 
