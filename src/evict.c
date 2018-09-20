@@ -150,6 +150,60 @@ void evictionPoolAlloc(void) {
     EvictionPoolLRU = ep;
 }
 
+/* Insert the element inside the pool. */
+void evictionPoolInsert(int dbid, sds key, unsigned long long idle, struct evictionPoolEntry *pool) {
+    int k = 0;
+    /* First, find the first empty bucket or the first populated
+     * bucket that has an idle time smaller than our idle time. */
+    while (k < EVPOOL_SIZE &&
+           pool[k].key &&
+           pool[k].idle < idle) k++;
+    if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
+        /* Can't insert if the element is < the worst element we have
+         * and there are no empty buckets. */
+        return;
+    } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
+        /* Inserting into empty position. No setup needed before insert. */
+    } else {
+        /* Inserting in the middle. Now k points to the first element
+         * greater than the element to insert.  */
+        if (pool[EVPOOL_SIZE-1].key == NULL) {
+            /* Free space on the right? Insert at k shifting
+             * all the elements from k to end to the right. */
+
+            /* Save SDS before overwriting. */
+            sds cached = pool[EVPOOL_SIZE-1].cached;
+            memmove(pool+k+1,pool+k,
+                sizeof(pool[0])*(EVPOOL_SIZE-k-1));
+            pool[k].cached = cached;
+        } else {
+            /* No free space on right? Insert at k-1 */
+            k--;
+            /* Shift all elements on the left of k (included) to the
+             * left, so we discard the element with smaller idle time. */
+            sds cached = pool[0].cached; /* Save SDS before overwriting. */
+            if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
+            memmove(pool,pool+1,sizeof(pool[0])*k);
+            pool[k].cached = cached;
+        }
+    }
+
+    /* Try to reuse the cached SDS string allocated in the pool entry,
+     * because allocating and deallocating this object is costly
+     * (according to the profiler, not my fantasy. Remember:
+     * premature optimizbla bla bla bla. */
+    int klen = sdslen(key);
+    if (klen > EVPOOL_CACHED_SDS_SIZE) {
+        pool[k].key = sdsdup(key);
+    } else {
+        memcpy(pool[k].cached,key,klen+1);
+        sdssetlen(pool[k].cached,klen);
+        pool[k].key = pool[k].cached;
+    }
+    pool[k].idle = idle;
+    pool[k].dbid = dbid;
+}
+
 /* This is an helper function for freeMemoryIfNeeded(), it is used in order
  * to populate the evictionPool with a few entries every time we want to
  * expire a key. Keys with idle time smaller than one of the current
@@ -158,9 +212,8 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-
 void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
-    int j, k, count;
+    int j, count;
     dictEntry *samples[server.maxmemory_samples];
 
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
@@ -202,58 +255,16 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
             serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
 
-        /* Insert the element inside the pool.
-         * First, find the first empty bucket or the first populated
-         * bucket that has an idle time smaller than our idle time. */
-        k = 0;
-        while (k < EVPOOL_SIZE &&
-               pool[k].key &&
-               pool[k].idle < idle) k++;
-        if (k == 0 && pool[EVPOOL_SIZE-1].key != NULL) {
-            /* Can't insert if the element is < the worst element we have
-             * and there are no empty buckets. */
-            continue;
-        } else if (k < EVPOOL_SIZE && pool[k].key == NULL) {
-            /* Inserting into empty position. No setup needed before insert. */
-        } else {
-            /* Inserting in the middle. Now k points to the first element
-             * greater than the element to insert.  */
-            if (pool[EVPOOL_SIZE-1].key == NULL) {
-                /* Free space on the right? Insert at k shifting
-                 * all the elements from k to end to the right. */
-
-                /* Save SDS before overwriting. */
-                sds cached = pool[EVPOOL_SIZE-1].cached;
-                memmove(pool+k+1,pool+k,
-                    sizeof(pool[0])*(EVPOOL_SIZE-k-1));
-                pool[k].cached = cached;
-            } else {
-                /* No free space on right? Insert at k-1 */
-                k--;
-                /* Shift all elements on the left of k (included) to the
-                 * left, so we discard the element with smaller idle time. */
-                sds cached = pool[0].cached; /* Save SDS before overwriting. */
-                if (pool[0].key != pool[0].cached) sdsfree(pool[0].key);
-                memmove(pool,pool+1,sizeof(pool[0])*k);
-                pool[k].cached = cached;
-            }
-        }
-
-        /* Try to reuse the cached SDS string allocated in the pool entry,
-         * because allocating and deallocating this object is costly
-         * (according to the profiler, not my fantasy. Remember:
-         * premature optimizbla bla bla bla. */
-        int klen = sdslen(key);
-        if (klen > EVPOOL_CACHED_SDS_SIZE) {
-            pool[k].key = sdsdup(key);
-        } else {
-            memcpy(pool[k].cached,key,klen+1);
-            sdssetlen(pool[k].cached,klen);
-            pool[k].key = pool[k].cached;
-        }
-        pool[k].idle = idle;
-        pool[k].dbid = dbid;
+        evictionPoolInsert(dbid, key, idle, pool);
     }
+}
+
+/* Remove the entry from the pool. */
+void removeEntryFromPool(struct evictionPoolEntry *pool, int i) {
+    if (pool[i].key != pool[i].cached)
+        sdsfree(pool[i].key);
+    pool[i].key = NULL;
+    pool[i].idle = 0;
 }
 
 /* ----------------------------------------------------------------------------
@@ -511,10 +522,7 @@ int freeMemoryIfNeeded(void) {
                     }
 
                     /* Remove the entry from the pool. */
-                    if (pool[k].key != pool[k].cached)
-                        sdsfree(pool[k].key);
-                    pool[k].key = NULL;
-                    pool[k].idle = 0;
+                    removeEntryFromPool(pool,k);
 
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
