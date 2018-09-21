@@ -247,6 +247,13 @@ static list *moduleKeyspaceSubscribers;
  * notifications, timers and cluster messages callbacks. */
 static client *moduleFreeContextReusedClient;
 
+/* Data structures related to the exported dictionary data structure. */
+typedef struct RedisModuleDict {
+    RedisModuleCtx *ctx;            /* May be NULL for dictionaries created
+                                       out of a module context. */
+    rax *rax;                       /* The radix tree. */
+} RedisModuleDict;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -802,7 +809,6 @@ RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t 
     autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
 }
-
 
 /* Create a new module string object from a printf format and arguments.
  * The returned string must be freed with RedisModule_FreeString(), unless
@@ -4308,6 +4314,92 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (data) *data = timer->data;
     return REDISMODULE_OK;
 }
+
+/* --------------------------------------------------------------------------
+ * Modules Dictionary API
+ *
+ * Implements a sorted dictionary (actually backed by a radix tree) with
+ * the usual get / set / del / num-items API, together with an iterator
+ * capable of going back and forth.
+ * -------------------------------------------------------------------------- */
+
+/* Create a new dictionary. The 'ctx' may be NULL if the dictionary is created
+ * in a situation where a context is not available. However in such case
+ * certain future features (yet not implemented) may not be available, so if
+ * possible create the dictionary passing the context. */
+RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
+    struct RedisModuleDict *d = zmalloc(sizeof(*d));
+    d->ctx = ctx;
+    d->rax = raxNew();
+    return d;
+}
+
+/* Free a dictionary created with RM_CreateDict(). */
+void RM_FreeDict(RedisModuleDict *d) {
+    raxFree(d->rax);
+    zfree(d);
+}
+
+/* Return the size of the dictionary (number of keys). */
+uint64_t RM_DictSize(RedisModuleDict *d) {
+    return raxSize(d->rax);
+}
+
+/* Store the specified key into the dictionary, setting its value to the
+ * pointer 'ptr'. If the key was added with success, since it did not
+ * already exist, REDISMODULE_OK is returned. Otherwise if the key already
+ * exists the function returns REDISMODULE_ERR. */
+int RM_DictSet(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+    int retval = raxTryInsert(d->rax,key,keylen,ptr,NULL);
+    return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictSet() but will replace the key with the new
+ * value if the key already exists. */
+int RM_DictReplace(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+    int retval = raxInsert(d->rax,key,keylen,ptr,NULL);
+    return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictSet() but takes the key as a RedisModuleString. */
+int RM_DictSetString(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictSet(d,key->ptr,sdslen(key->ptr),ptr);
+}
+
+/* Like RedisModule_DictReplace() but takes the key as a RedisModuleString. */
+int RM_DictReplaceString(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictReplace(d,key->ptr,sdslen(key->ptr),ptr);
+}
+
+/* Return the value stored at the specified key. The function returns NULL
+ * both in the case the key does not exist, or if you actually stored
+ * NULL at key. So, optionally, if the 'nokey' pointer is not NULL, it will
+ * be set by reference to 1 if the key does not exist, or to 0 if the key
+ * exists. */
+void *RM_DictGet(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
+    void *res = raxFind(d->rax,key,keylen);
+    if (nokey) *nokey = (res == raxNotFound);
+    return res;
+}
+
+/* Like RedisModule_DictGet() but takes the key as a RedisModuleString. */
+void *RM_DictGetString(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
+    return RM_DictGet(d,key->ptr,sdslen(key->ptr),nokey);
+}
+
+/* TODO
+
+    RM_DictDel();
+    RM_DictDelStr();
+    RM_DictIteratorStart();
+    RM_DictIteratorStartStr();
+    RM_DictIteratorReseek();
+    RM_DictIteratorReseekStr();
+    RM_DictNext();
+    RM_DictPrev();
+    RM_DictIteratorStop();
+
+*/
 
 /* --------------------------------------------------------------------------
  * Modules utility APIs
