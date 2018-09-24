@@ -808,10 +808,15 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
  * with RedisModule_FreeString(), unless automatic memory is enabled.
  *
  * The string is created by copying the `len` bytes starting
- * at `ptr`. No reference is retained to the passed buffer. */
+ * at `ptr`. No reference is retained to the passed buffer.
+ *
+ * The module context 'ctx' is optional and may be NULL if you want to create
+ * a string out of the context scope. However in that case, the automatic
+ * memory management will not be available, and the string memory must be
+ * managed manually. */
 RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t len) {
     RedisModuleString *o = createStringObject(ptr,len);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
 }
 
@@ -819,7 +824,10 @@ RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t 
  * The returned string must be freed with RedisModule_FreeString(), unless
  * automatic memory is enabled.
  *
- * The string is created using the sds formatter function sdscatvprintf(). */
+ * The string is created using the sds formatter function sdscatvprintf().
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, ...) {
     sds s = sdsempty();
 
@@ -829,7 +837,7 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
     va_end(ap);
 
     RedisModuleString *o = createObject(OBJ_STRING, s);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
 
     return o;
 }
@@ -839,7 +847,10 @@ RedisModuleString *RM_CreateStringPrintf(RedisModuleCtx *ctx, const char *fmt, .
  * integer instead of taking a buffer and its length.
  *
  * The returned string must be released with RedisModule_FreeString() or by
- * enabling automatic memory management. */
+ * enabling automatic memory management.
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll) {
     char buf[LONG_STR_SIZE];
     size_t len = ll2string(buf,sizeof(buf),ll);
@@ -850,10 +861,13 @@ RedisModuleString *RM_CreateStringFromLongLong(RedisModuleCtx *ctx, long long ll
  * RedisModuleString.
  *
  * The returned string must be released with RedisModule_FreeString() or by
- * enabling automatic memory management. */
+ * enabling automatic memory management.
+ *
+ * The passed context 'ctx' may be NULL if necessary, see the
+ * RedisModule_CreateString() documentation for more info. */
 RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str) {
     RedisModuleString *o = dupStringObject(str);
-    autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
 }
 
@@ -862,10 +876,16 @@ RedisModuleString *RM_CreateStringFromString(RedisModuleCtx *ctx, const RedisMod
  *
  * It is possible to call this function even when automatic memory management
  * is enabled. In that case the string will be released ASAP and removed
- * from the pool of string to release at the end. */
+ * from the pool of string to release at the end.
+ *
+ * If the string was created with a NULL context 'ctx', it is also possible to
+ * pass ctx as NULL when releasing the string (but passing a context will not
+ * create any issue). Strings created with a context should be freed also passing
+ * the context, so if you want to free a string out of context later, make sure
+ * to create it using a NULL context. */
 void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
     decrRefCount(str);
-    autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
+    if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str);
 }
 
 /* Every call to this function, will make the string 'str' requiring
@@ -889,9 +909,11 @@ void RM_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * Note that when memory management is turned off, you don't need
  * any call to RetainString() since creating a string will always result
  * into a string that lives after the callback function returns, if
- * no FreeString() call is performed. */
+ * no FreeString() call is performed.
+ *
+ * It is possible to call this function with a NULL context. */
 void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    if (!autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
+    if (ctx == NULL || !autoMemoryFreed(ctx,REDISMODULE_AM_STRING,str)) {
         /* Increment the string reference counting only if we can't
          * just remove the object from the list of objects that should
          * be reclaimed. Why we do that, instead of just incrementing
@@ -4472,7 +4494,6 @@ int RM_DictIteratorReseekStr(RedisModuleDictIter *di, const char *op, RedisModul
     RM_DictPrev();
     RM_DictNextStr();
     RM_DictPrevStr();
-    Change the string API to make the context optional.
 */
 
 /* --------------------------------------------------------------------------
