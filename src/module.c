@@ -254,6 +254,11 @@ typedef struct RedisModuleDict {
     rax *rax;                       /* The radix tree. */
 } RedisModuleDict;
 
+typedef struct RedisModuleDictIter {
+    RedisModuleDict *dict;
+    raxIterator ri;
+} RedisModuleDictIter;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -4404,6 +4409,40 @@ int RM_DictDelStr(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
     return RM_DictDel(d,key->ptr,sdslen(key->ptr),oldval);
 }
 
+/* Return an interator, setup in order to start iterating from the specified
+ * key by applying the operator 'op', which is just a string specifying the
+ * comparison operator to use in order to seek the first element. The
+ * operators avalable are:
+ *
+ * "^"   -- Seek the first (lexicographically smaller) key.
+ * "$"   -- Seek the last  (lexicographically biffer) key.
+ * ">"   -- Seek the first element greter than the specified key.
+ * ">="  -- Seek the first element greater or equal than the specified key.
+ * "<"   -- Seek the first element smaller than the specified key.
+ * "<="  -- Seek the first element smaller or equal than the specified key.
+ * "=="  -- Seek the first element matching exactly the specified key.
+ *
+ * Note that for "^" and "$" the passed key is not used, and the user may
+ * just pass NULL with a length of 0.
+ *
+ * If the element to start the iteration cannot be seeked based on the
+ * key and operator passed, RedisModule_DictNext() / Prev() will just return
+ * REDISMODULE_ERR at the first call, otherwise they'll produce elements.
+ */
+RedisModuleDictIter *RM_DictIteratorStart(RedisModuleDict *d, const char *op, void *key, size_t keylen) {
+    RedisModuleDictIter *di = zmalloc(sizeof(*di));
+    di->dict = d;
+    raxStart(&di->ri,d->rax);
+    raxSeek(&di->ri,op,key,keylen);
+    return di;
+}
+
+/* Exactly like RedisModule_DictIteratorStart, but the key is passed as a
+ * RedisModuleString. */
+RedisModuleDictIter *RM_DictIteratorStartStr(RedisModuleDict *d, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorStart(d,op,key->ptr,sdslen(key->ptr));
+}
+
 /* TODO
 
     RM_DictIteratorStart();
@@ -4412,8 +4451,9 @@ int RM_DictDelStr(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
     RM_DictIteratorReseekStr();
     RM_DictNext();
     RM_DictPrev();
+    RM_DictNextStr();
+    RM_DictPrevStr();
     RM_DictIteratorStop();
-
 */
 
 /* --------------------------------------------------------------------------
