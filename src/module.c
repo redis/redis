@@ -4443,17 +4443,36 @@ RedisModuleDictIter *RM_DictIteratorStartStr(RedisModuleDict *d, const char *op,
     return RM_DictIteratorStart(d,op,key->ptr,sdslen(key->ptr));
 }
 
-/* TODO
+/* Release the iterator created with RedisModule_DictIteratorStart(). This call
+ * is mandatory otherwise a memory leak is introduced in the module. */
+void RM_DictIteratorStop(RedisModuleDictIter *di) {
+    raxStop(&di->ri);
+    zfree(di);
+}
 
-    RM_DictIteratorStart();
-    RM_DictIteratorStartStr();
-    RM_DictIteratorReseek();
-    RM_DictIteratorReseekStr();
+/* After its creation with RedisModule_DictIteratorStart(), it is possible to
+ * change the currently selected element of the iterator by using this
+ * API call. The result based on the operator and key is exactly like
+ * the function RedisModule_DictIteratorStart(), however in this case the
+ * return value is just REDISMODULE_OK in case the seeked element was found,
+ * or REDISMODULE_ERR in case it was not possible to seek the specified
+ * element. It is possible to reseek an iterator as many times as you want. */
+int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
+    return raxSeek(&di->ri,op,key,keylen);
+}
+
+/* Like RedisModule_DictIteratorReseek() but takes the key as as a
+ * RedisModuleString. */
+int RM_DictIteratorReseekStr(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorReseek(di,op,key->ptr,sdslen(key->ptr));
+}
+
+/* TODO
     RM_DictNext();
     RM_DictPrev();
     RM_DictNextStr();
     RM_DictPrevStr();
-    RM_DictIteratorStop();
+    Change the string API to make the context optional.
 */
 
 /* --------------------------------------------------------------------------
