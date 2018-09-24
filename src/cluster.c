@@ -1360,8 +1360,9 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         node = clusterLookupNode(g->nodename);
         if (node) {
             /* We already know this node.
-               Handle failure reports, only when the sender is a master. */
-            if (sender && nodeIsMaster(sender) && node != myself) {
+               Handle failure reports, only when the sender is a master
+               with at least one slot. */
+            if (sender && nodeIsMaster(sender) && sender->numslots && node != myself) {
                 if (flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) {
                     if (clusterNodeAddFailureReport(node,sender)) {
                         serverLog(LL_VERBOSE,
