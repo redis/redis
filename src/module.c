@@ -4387,10 +4387,25 @@ void *RM_DictGetString(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
     return RM_DictGet(d,key->ptr,sdslen(key->ptr),nokey);
 }
 
+/* Remove the specified key from the dictionary, returning REDISMODULE_OK if
+ * the key was found and delted, or REDISMODULE_ERR if instead there was
+ * no such key in the dictionary. When the operation is successful, if
+ * 'oldval' is not NULL, then '*oldval' is set to the value stored at the
+ * key before it was deleted. Using this feature it is possible to get
+ * a pointer to the value (for instance in order to release it), without
+ * having to call RedisModule_DictGet() before deleting the key. */
+int RM_DictDel(RedisModuleDict *d, void *key, size_t keylen, void *oldval) {
+    int retval = raxRemove(d->rax,key,keylen,oldval);
+    return retval ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Like RedisModule_DictDel() but gets the key as a RedisModuleString. */
+int RM_DictDelStr(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
+    return RM_DictDel(d,key->ptr,sdslen(key->ptr),oldval);
+}
+
 /* TODO
 
-    RM_DictDel();
-    RM_DictDelStr();
     RM_DictIteratorStart();
     RM_DictIteratorStartStr();
     RM_DictIteratorReseek();
