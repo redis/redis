@@ -1641,7 +1641,7 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
  * ----------------------------------------------------------------------- */
 
 /* XGROUP CREATE <key> <groupname> <id or $>
- * XGROUP SETID <key> <id or $>
+ * XGROUP SETID <key> <groupname> <id or $>
  * XGROUP DESTROY <key> <groupname>
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
 void xgroupCommand(client *c) {
