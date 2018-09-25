@@ -4544,12 +4544,29 @@ void *RM_DictPrevC(RedisModuleDictIter *di, size_t *keylen, void **dataptr) {
     return di->ri.key;
 }
 
-/*  TODO
-    RM_DictNextC();
-    RM_DictPrevC();
-    RM_DictNext();
-    RM_DictPrev();
-*/
+/* Like RedisModuleNextC(), but instead of returning an internally allocated
+ * buffer and key length, it returns directly a module string object allocated
+ * in the specified context 'ctx' (that may be NULL exactly like for the main
+ * API RedisModule_CreateString).
+ *
+ * The returned string object should be deallocated after use, either manually
+ * or by using a context that has automatic memory management active. */
+RedisModuleString *RM_DictNext(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr) {
+    size_t keylen;
+    void *key = RM_DictNextC(di,&keylen,dataptr);
+    if (key == NULL) return NULL;
+    return RM_CreateString(ctx,key,keylen);
+}
+
+/* Like RedisModule_DictNext() but after returning the currently selected
+ * element in the iterator, it selects the previous element (laxicographically
+ * smaller) instead of the next one. */
+RedisModuleString *RM_DictPrev(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr) {
+    size_t keylen;
+    void *key = RM_DictPrevC(di,&keylen,dataptr);
+    if (key == NULL) return NULL;
+    return RM_CreateString(ctx,key,keylen);
+}
 
 /* --------------------------------------------------------------------------
  * Modules utility APIs
