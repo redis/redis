@@ -64,6 +64,7 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_STRING 1
 #define REDISMODULE_AM_REPLY 2
 #define REDISMODULE_AM_FREED 3 /* Explicitly freed by user already. */
+#define REDISMODULE_AM_DICT 4
 
 /* The pool allocator block. Redis Modules can allocate memory via this special
  * allocator that will automatically release it all once the callback returns.
@@ -270,6 +271,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
+void RM_FreeDict(RedisModuleDict *d);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -791,6 +793,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_STRING: decrRefCount(ptr); break;
         case REDISMODULE_AM_REPLY: RM_FreeCallReply(ptr); break;
         case REDISMODULE_AM_KEY: RM_CloseKey(ptr); break;
+        case REDISMODULE_AM_DICT: RM_FreeDict(ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -4350,19 +4353,30 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
  * capable of going back and forth.
  * -------------------------------------------------------------------------- */
 
-/* Create a new dictionary. The 'ctx' may be NULL if the dictionary is created
- * in a situation where a context is not available. However in such case
- * certain future features (yet not implemented) may not be available, so if
- * possible create the dictionary passing the context. */
+/* Create a new dictionary. The 'ctx' pointer can be the current module context
+ * or NULL, depending on what you want. Please follow the following rules:
+ *
+ * 1. Use a NULL context if you plan to retain a reference to this dictionary
+ *    that will survive the time of the module callback where you created it.
+ * 2. Use a NULL context if no context is available at the time you are creating
+ *    the dictionary (of course...).
+ * 3. However use the current callback context as 'ctx' argument if the
+ *    dictionary time to live is just limited to the callback scope. In this
+ *    case, if enabled, you can enjoy the automatic memory management that will
+ *    reclaim the dictionary memory, as well as the strings returned by the
+ *    Next / Prev dictionary iterator calls.
+ */
 RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
     struct RedisModuleDict *d = zmalloc(sizeof(*d));
     d->ctx = ctx;
     d->rax = raxNew();
+    if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
     return d;
 }
 
 /* Free a dictionary created with RM_CreateDict(). */
 void RM_FreeDict(RedisModuleDict *d) {
+    if (d->ctx != NULL) autoMemoryFreed(d->ctx,REDISMODULE_AM_DICT,d);
     raxFree(d->rax);
     zfree(d);
 }
@@ -4489,11 +4503,11 @@ int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleSt
     return RM_DictIteratorReseekC(di,op,key->ptr,sdslen(key->ptr));
 }
 
-/* TODO
+/*  TODO
+    RM_DictNextC();
+    RM_DictPrevC();
     RM_DictNext();
     RM_DictPrev();
-    RM_DictNextStr();
-    RM_DictPrevStr();
 */
 
 /* --------------------------------------------------------------------------
