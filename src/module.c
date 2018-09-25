@@ -250,8 +250,6 @@ static client *moduleFreeContextReusedClient;
 
 /* Data structures related to the exported dictionary data structure. */
 typedef struct RedisModuleDict {
-    RedisModuleCtx *ctx;            /* May be NULL for dictionaries created
-                                       out of a module context. */
     rax *rax;                       /* The radix tree. */
 } RedisModuleDict;
 
@@ -271,7 +269,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
 void moduleReplicateMultiIfNeeded(RedisModuleCtx *ctx);
 void RM_ZsetRangeStop(RedisModuleKey *kp);
 static void zsetKeyReset(RedisModuleKey *key);
-void RM_FreeDict(RedisModuleDict *d);
+void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
 
 /* --------------------------------------------------------------------------
  * Heap allocation raw functions
@@ -793,7 +791,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_STRING: decrRefCount(ptr); break;
         case REDISMODULE_AM_REPLY: RM_FreeCallReply(ptr); break;
         case REDISMODULE_AM_KEY: RM_CloseKey(ptr); break;
-        case REDISMODULE_AM_DICT: RM_FreeDict(ptr); break;
+        case REDISMODULE_AM_DICT: RM_FreeDict(NULL,ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -4368,15 +4366,16 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
  */
 RedisModuleDict *RM_CreateDict(RedisModuleCtx *ctx) {
     struct RedisModuleDict *d = zmalloc(sizeof(*d));
-    d->ctx = ctx;
     d->rax = raxNew();
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_DICT,d);
     return d;
 }
 
-/* Free a dictionary created with RM_CreateDict(). */
-void RM_FreeDict(RedisModuleDict *d) {
-    if (d->ctx != NULL) autoMemoryFreed(d->ctx,REDISMODULE_AM_DICT,d);
+/* Free a dictionary created with RM_CreateDict(). You need to pass the
+ * context pointer 'ctx' only if the dictionary was created using the
+ * context instead of passing NULL. */
+void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d) {
+    if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_DICT,d);
     raxFree(d->rax);
     zfree(d);
 }
