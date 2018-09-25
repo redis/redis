@@ -4502,6 +4502,48 @@ int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleSt
     return RM_DictIteratorReseekC(di,op,key->ptr,sdslen(key->ptr));
 }
 
+/* Return the current item of the dictionary iterator 'di' and steps to the
+ * next element. If the iterator already yield the last element and there
+ * are no other elements to return, NULL is returned, otherwise a pointer
+ * to a string representing the key is provided, and the '*keylen' length
+ * is set by reference (if keylen is not NULL). The '*dataptr', if not NULL
+ * is set to the value of the pointer stored at the returned key as auxiliary
+ * data (as set by the RedisModule_DictSet API).
+ *
+ * Usage example:
+ *
+ *      ... create the iterator here ...
+ *      char *key;
+ *      void *data;
+ *      while((key = RedisModule_DictNextC(iter,&keylen,&data)) != NULL) {
+ *          printf("%.*s %p\n", (int)keylen, key, data);
+ *      }
+ *
+ * The returned pointer is of type void because sometimes it makes sense
+ * to cast it to a char* sometimes to an unsigned char* depending on the
+ * fact it contains or not binary data, so this API ends being more
+ * comfortable to use.
+ *
+ * The validity of the returned pointer is until the next call to the
+ * next/prev iterator step. Also the pointer is no longer valid once the
+ * iterator is released. */
+void *RM_DictNextC(RedisModuleDictIter *di, size_t *keylen, void **dataptr) {
+    if (!raxNext(&di->ri)) return NULL;
+    if (keylen) *keylen = di->ri.key_len;
+    if (dataptr) *dataptr = di->ri.data;
+    return di->ri.key;
+}
+
+/* This function is exactly like RedisModule_DictNext() but after returning
+ * the currently selected element in the iterator, it selects the previous
+ * element (laxicographically smaller) instead of the next one. */
+void *RM_DictPrevC(RedisModuleDictIter *di, size_t *keylen, void **dataptr) {
+    if (!raxPrev(&di->ri)) return NULL;
+    if (keylen) *keylen = di->ri.key_len;
+    if (dataptr) *dataptr = di->ri.data;
+    return di->ri.key;
+}
+
 /*  TODO
     RM_DictNextC();
     RM_DictPrevC();
