@@ -4376,26 +4376,26 @@ uint64_t RM_DictSize(RedisModuleDict *d) {
  * pointer 'ptr'. If the key was added with success, since it did not
  * already exist, REDISMODULE_OK is returned. Otherwise if the key already
  * exists the function returns REDISMODULE_ERR. */
-int RM_DictSet(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+int RM_DictSetC(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
     int retval = raxTryInsert(d->rax,key,keylen,ptr,NULL);
     return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Like RedisModule_DictSet() but will replace the key with the new
+/* Like RedisModule_DictSetC() but will replace the key with the new
  * value if the key already exists. */
-int RM_DictReplace(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
+int RM_DictReplaceC(RedisModuleDict *d, void *key, size_t keylen, void *ptr) {
     int retval = raxInsert(d->rax,key,keylen,ptr,NULL);
     return (retval == 1) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Like RedisModule_DictSet() but takes the key as a RedisModuleString. */
-int RM_DictSetString(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
-    return RM_DictSet(d,key->ptr,sdslen(key->ptr),ptr);
+/* Like RedisModule_DictSetC() but takes the key as a RedisModuleString. */
+int RM_DictSet(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictSetC(d,key->ptr,sdslen(key->ptr),ptr);
 }
 
-/* Like RedisModule_DictReplace() but takes the key as a RedisModuleString. */
-int RM_DictReplaceString(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
-    return RM_DictReplace(d,key->ptr,sdslen(key->ptr),ptr);
+/* Like RedisModule_DictReplaceC() but takes the key as a RedisModuleString. */
+int RM_DictReplace(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
+    return RM_DictReplaceC(d,key->ptr,sdslen(key->ptr),ptr);
 }
 
 /* Return the value stored at the specified key. The function returns NULL
@@ -4403,15 +4403,15 @@ int RM_DictReplaceString(RedisModuleDict *d, RedisModuleString *key, void *ptr) 
  * NULL at key. So, optionally, if the 'nokey' pointer is not NULL, it will
  * be set by reference to 1 if the key does not exist, or to 0 if the key
  * exists. */
-void *RM_DictGet(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
+void *RM_DictGetC(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
     void *res = raxFind(d->rax,key,keylen);
     if (nokey) *nokey = (res == raxNotFound);
     return res;
 }
 
-/* Like RedisModule_DictGet() but takes the key as a RedisModuleString. */
-void *RM_DictGetString(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
-    return RM_DictGet(d,key->ptr,sdslen(key->ptr),nokey);
+/* Like RedisModule_DictGetC() but takes the key as a RedisModuleString. */
+void *RM_DictGet(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
+    return RM_DictGetC(d,key->ptr,sdslen(key->ptr),nokey);
 }
 
 /* Remove the specified key from the dictionary, returning REDISMODULE_OK if
@@ -4421,14 +4421,14 @@ void *RM_DictGetString(RedisModuleDict *d, RedisModuleString *key, int *nokey) {
  * key before it was deleted. Using this feature it is possible to get
  * a pointer to the value (for instance in order to release it), without
  * having to call RedisModule_DictGet() before deleting the key. */
-int RM_DictDel(RedisModuleDict *d, void *key, size_t keylen, void *oldval) {
+int RM_DictDelC(RedisModuleDict *d, void *key, size_t keylen, void *oldval) {
     int retval = raxRemove(d->rax,key,keylen,oldval);
     return retval ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Like RedisModule_DictDel() but gets the key as a RedisModuleString. */
-int RM_DictDelStr(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
-    return RM_DictDel(d,key->ptr,sdslen(key->ptr),oldval);
+/* Like RedisModule_DictDelC() but gets the key as a RedisModuleString. */
+int RM_DictDel(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
+    return RM_DictDelC(d,key->ptr,sdslen(key->ptr),oldval);
 }
 
 /* Return an interator, setup in order to start iterating from the specified
@@ -4451,7 +4451,7 @@ int RM_DictDelStr(RedisModuleDict *d, RedisModuleString *key, void *oldval) {
  * key and operator passed, RedisModule_DictNext() / Prev() will just return
  * REDISMODULE_ERR at the first call, otherwise they'll produce elements.
  */
-RedisModuleDictIter *RM_DictIteratorStart(RedisModuleDict *d, const char *op, void *key, size_t keylen) {
+RedisModuleDictIter *RM_DictIteratorStartC(RedisModuleDict *d, const char *op, void *key, size_t keylen) {
     RedisModuleDictIter *di = zmalloc(sizeof(*di));
     di->dict = d;
     raxStart(&di->ri,d->rax);
@@ -4459,10 +4459,10 @@ RedisModuleDictIter *RM_DictIteratorStart(RedisModuleDict *d, const char *op, vo
     return di;
 }
 
-/* Exactly like RedisModule_DictIteratorStart, but the key is passed as a
+/* Exactly like RedisModule_DictIteratorStartC, but the key is passed as a
  * RedisModuleString. */
-RedisModuleDictIter *RM_DictIteratorStartStr(RedisModuleDict *d, const char *op, RedisModuleString *key) {
-    return RM_DictIteratorStart(d,op,key->ptr,sdslen(key->ptr));
+RedisModuleDictIter *RM_DictIteratorStart(RedisModuleDict *d, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorStartC(d,op,key->ptr,sdslen(key->ptr));
 }
 
 /* Release the iterator created with RedisModule_DictIteratorStart(). This call
@@ -4479,14 +4479,14 @@ void RM_DictIteratorStop(RedisModuleDictIter *di) {
  * return value is just REDISMODULE_OK in case the seeked element was found,
  * or REDISMODULE_ERR in case it was not possible to seek the specified
  * element. It is possible to reseek an iterator as many times as you want. */
-int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
+int RM_DictIteratorReseekC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
     return raxSeek(&di->ri,op,key,keylen);
 }
 
-/* Like RedisModule_DictIteratorReseek() but takes the key as as a
+/* Like RedisModule_DictIteratorReseekC() but takes the key as as a
  * RedisModuleString. */
-int RM_DictIteratorReseekStr(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
-    return RM_DictIteratorReseek(di,op,key->ptr,sdslen(key->ptr));
+int RM_DictIteratorReseek(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
+    return RM_DictIteratorReseekC(di,op,key->ptr,sdslen(key->ptr));
 }
 
 /* TODO
