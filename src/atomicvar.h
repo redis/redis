@@ -1,7 +1,7 @@
 /* This file implements atomic counters using __atomic or __sync macros if
  * available, otherwise synchronizing different threads using a mutex.
  *
- * The exported interaface is composed of three macros:
+ * The exported interface is composed of three macros:
  *
  * atomicIncr(var,count) -- Increment the atomic counter
  * atomicGetIncr(var,oldvalue_var,count) -- Get and increment the atomic counter
@@ -21,7 +21,7 @@
  *
  * Never use return value from the macros, instead use the AtomicGetIncr()
  * if you need to get the current value and increment it atomically, like
- * in the followign example:
+ * in the following example:
  *
  *  long oldvalue;
  *  atomicGetIncr(myvar,oldvalue,1);
