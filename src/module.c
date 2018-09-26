@@ -4994,4 +4994,24 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
+    REGISTER_API(CreateDict);
+    REGISTER_API(FreeDict);
+    REGISTER_API(DictSize);
+    REGISTER_API(DictSetC);
+    REGISTER_API(DictReplaceC);
+    REGISTER_API(DictSet);
+    REGISTER_API(DictReplace);
+    REGISTER_API(DictGetC);
+    REGISTER_API(DictGet);
+    REGISTER_API(DictDelC);
+    REGISTER_API(DictDel);
+    REGISTER_API(DictIteratorStartC);
+    REGISTER_API(DictIteratorStart);
+    REGISTER_API(DictIteratorStop);
+    REGISTER_API(DictIteratorReseekC);
+    REGISTER_API(DictIteratorReseek);
+    REGISTER_API(DictNextC);
+    REGISTER_API(DictPrevC);
+    REGISTER_API(DictNext);
+    REGISTER_API(DictPrev);
 }
