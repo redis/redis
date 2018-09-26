@@ -37,9 +37,6 @@
 #include <ctype.h>
 #include <string.h>
 
-#define MSGTYPE_PING 1
-#define MSGTYPE_PONG 2
-
 /* Timer callback. */
 void timerHandler(RedisModuleCtx *ctx, void *data) {
     REDISMODULE_NOT_USED(ctx);
