@@ -1,4 +1,4 @@
-/* Helloworld cluster -- A ping/pong cluster API example.
+/* Timer API example -- Register and handle timer events
  *
  * -----------------------------------------------------------------------------
  *
