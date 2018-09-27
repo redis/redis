@@ -4586,6 +4586,14 @@ int RM_DictCompareC(RedisModuleDictIter *di, const char *op, void *key, size_t k
     return res ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+/* Like RedisModule_DictCompareC but gets the key to compare with the current
+ * iterator key as a RedisModuleString. */
+int RM_DictCompare(RedisModuleDictIter *di, const char *op, RedisModuleString *key) {
+    if (raxEOF(&di->ri)) return REDISMODULE_ERR;
+    int res = raxCompare(&di->ri,op,key->ptr,sdslen(key->ptr));
+    return res ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
 /* --------------------------------------------------------------------------
  * Modules utility APIs
  * -------------------------------------------------------------------------- */
