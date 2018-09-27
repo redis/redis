@@ -5040,4 +5040,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictPrevC);
     REGISTER_API(DictNext);
     REGISTER_API(DictPrev);
+    REGISTER_API(DictCompareC);
+    REGISTER_API(DictCompare);
 }
