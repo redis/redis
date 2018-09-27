@@ -715,7 +715,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
@@ -863,7 +863,7 @@ struct redisCommand redisCommandTable[] = {
      "no-script @keyspace",
      0,NULL,0,0,0,0,0,0},
 
-    {"command",commandCommand,0,
+    {"command",commandCommand,-1,
      "ok-loading ok-stale random @connection",
      0,NULL,0,0,0,0,0,0},
 
