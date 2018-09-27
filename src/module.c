@@ -4568,6 +4568,24 @@ RedisModuleString *RM_DictPrev(RedisModuleCtx *ctx, RedisModuleDictIter *di, voi
     return RM_CreateString(ctx,key,keylen);
 }
 
+/* Compare the element currently pointed by the iterator to the specified
+ * element given by key/keylen, according to the operator 'op' (the set of
+ * valid operators are the same valid for RedisModule_DictIteratorStart).
+ * If the comparision is successful the command returns REDISMODULE_OK
+ * otherwise REDISMODULE_ERR is returned.
+ *
+ * This is useful when we want to just emit a lexicographical range, so
+ * in the loop, as we iterate elements, we can also check if we are still
+ * on range.
+ *
+ * The function returne REDISMODULE_ERR if the iterator reached the
+ * end of elements condition as well. */
+int RM_DictCompareC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
+    if (raxEOF(&di->ri)) return REDISMODULE_ERR;
+    int res = raxCompare(&di->ri,op,key,keylen);
+    return res ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
 /* --------------------------------------------------------------------------
  * Modules utility APIs
  * -------------------------------------------------------------------------- */
