@@ -1245,6 +1245,12 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (eof_reached) {
         int aof_is_enabled = server.aof_state != AOF_OFF;
 
+        /* Ensure background save doesn't overwrite synced data */
+        if (server.rdb_child_pid != -1) {
+            kill(server.rdb_child_pid,SIGUSR1);
+            rdbRemoveTempFile(server.rdb_child_pid);
+        }
+
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> REPLICA synchronization: %s", strerror(errno));
             cancelReplicationHandshake();
@@ -1812,13 +1818,6 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
                 strerror(errno));
             goto error;
         }
-    }
-
-    /* Stop background saving for obsolete database state. */
-    server.dirty = 0;
-    if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
     }
 
     /* Prepare a suitable temp file for bulk transfer */
