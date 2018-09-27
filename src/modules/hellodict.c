@@ -54,6 +54,20 @@ int cmd_SET(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/* HELLODICT.GET <key>
+ *
+ * Return the value of the specified key, or a null reply if the key
+ * is not defined. */
+int cmd_GET(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModuleString *val = RedisModule_DictGet(Keyspace,argv[1],NULL);
+    if (val == NULL) {
+        return RedisModule_ReplyWithNull(ctx);
+    } else {
+        return RedisModule_ReplyWithString(ctx, val);
+    }
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -65,6 +79,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"hellodict.set",
         cmd_SET,"write deny-oom",1,1,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"hellodict.get",
+        cmd_GET,"readonly",1,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     /* Create our global dictionray. Here we'll set our keys and values. */
