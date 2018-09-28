@@ -596,7 +596,7 @@ void rpoplpushCommand(client *c) {
         signalModifiedKey(c->db,touchedkey);
         decrRefCount(touchedkey);
         server.dirty++;
-        if (c->lastcmd->proc == brpoplpushCommand) {
+        if (c->cmd->proc == brpoplpushCommand) {
             rewriteClientCommandVector(c,3,shared.rpoplpush,c->argv[1],c->argv[2]);
         }
     }
