@@ -653,7 +653,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
 
         /* That's a best effort error message, don't check write errors */
         anetNonBlock(NULL,fd);
-        if (write(c->fd,err,strlen(err)) == -1) {
+        if (write(fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
         close(fd);
@@ -694,7 +694,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
             anetNonBlock(NULL,fd);
-            if (write(c->fd,err,strlen(err)) == -1) {
+            if (write(fd,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
             close(fd);
