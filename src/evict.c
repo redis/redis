@@ -270,6 +270,22 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     }
 }
 
+/* Compare two evictionPoolEntry, if key is NULL,
+ * we take it as maximum. */
+int evictionPoolEntryCompare(const void *p1, const void *p2) {
+    const struct evictionPoolEntry *a = p1;
+    const struct evictionPoolEntry *b = p2;
+    if (a->key == NULL && b->key == NULL) {
+        return 0;
+    } else if (a->key == NULL) {
+        return 1;
+    } else if (b->key == NULL) {
+        return -1;
+    } else {
+        return a->idle - b->idle;
+    }
+}
+
 /* Update the cache of possible candidates in the evictionPool,
  * in case the old candidates is not the best, imagine that:
  *
@@ -288,32 +304,24 @@ void evictionPoolUpdate(struct evictionPoolEntry *pool) {
     dict *dict;
     dictEntry *de;
     int j, count = 0;
-    unsigned long long idle;
-    struct evictionPoolEntry samples[EVPOOL_SIZE];
     for (j = 0; j < EVPOOL_SIZE; j++) {
         if (pool[j].key == NULL) break;
-        samples[j].dbid = pool[j].dbid;
-        samples[j].key = sdsdup(pool[j].key);
-        removeEntryFromPool(pool,j);
+        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
+                server.db[pool[j].dbid].dict : server.db[pool[j].dbid].expires;
+        de = dictFind(dict, pool[j].key);
+        if (de == NULL) {
+            removeEntryFromPool(pool,j);
+        } else {
+            if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL &&
+                dict == server.db[pool[j].dbid].expires) {
+                de = dictFind(server.db[pool[j].dbid].dict, pool[j].key);
+            }
+            pool[j].idle = getEvictionIdleTime(dictGetVal(de));
+        }
         count++;
     }
 
-    for (j = 0; j < count; j++) {
-        dict = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) ?
-                server.db[samples[j].dbid].dict : server.db[samples[j].dbid].expires;
-        de = dictFind(dict, samples[j].key);
-        if (de == NULL) {
-            sdsfree(samples[j].key);
-            continue;
-        }
-        if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL &&
-            dict == server.db[samples[j].dbid].expires) {
-            de = dictFind(server.db[samples[j].dbid].dict, samples[j].key);
-        }
-        idle = getEvictionIdleTime(dictGetVal(de));
-        evictionPoolInsert(samples[j].dbid, samples[j].key, idle, pool);
-        sdsfree(samples[j].key);
-    }
+    if (count > 1) qsort(pool, count, sizeof(pool[0]), evictionPoolEntryCompare);
 }
 
 /* ----------------------------------------------------------------------------
