@@ -580,6 +580,18 @@ void loadServerConfigFromString(char *config) {
                 err = "active-defrag-max-scan-fields must be positive";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"force-repl-lru") && argc == 2) {
+            if ((server.force_repl_lru = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"repl-touch-cmd-ratio") && argc == 2) {
+            server.repl_touch_cmd_ratio = strtoll(argv[1],NULL,10);
+            if (server.repl_touch_cmd_ratio < 0) {
+                err = "repl-touch-cmd-ratio must be positive";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"repl-touch-max-rate") && argc == 2) {
+            server.repl_touch_max_rate = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -1065,6 +1077,8 @@ void configSetCommand(client *c) {
     /* Boolean fields.
      * config_set_bool_field(name,var). */
     } config_set_bool_field(
+      "force-repl-lru", server.force_repl_lru ) {
+    } config_set_bool_field(
       "rdbcompression", server.rdb_compression) {
     } config_set_bool_field(
       "repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay) {
@@ -1154,6 +1168,10 @@ void configSetCommand(client *c) {
       "active-defrag-cycle-max",server.active_defrag_cycle_max,1,99) {
     } config_set_numerical_field(
       "active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,1,LONG_MAX) {
+    } config_set_numerical_field(
+      "repl-touch-cmd-ratio",server.repl_touch_cmd_ratio,0,LONG_MAX) {
+    } config_set_memory_field(
+      "repl-touch-max-rate",server.repl_touch_max_rate) {
     } config_set_numerical_field(
       "auto-aof-rewrite-percentage",server.aof_rewrite_perc,0,INT_MAX){
     } config_set_numerical_field(
@@ -1355,6 +1373,8 @@ void configGetCommand(client *c) {
     config_get_numerical_field("active-defrag-cycle-min",server.active_defrag_cycle_min);
     config_get_numerical_field("active-defrag-cycle-max",server.active_defrag_cycle_max);
     config_get_numerical_field("active-defrag-max-scan-fields",server.active_defrag_max_scan_fields);
+    config_get_numerical_field("repl-touch-cmd-ratio",server.repl_touch_cmd_ratio);
+    config_get_numerical_field("repl-touch-max-rate",server.repl_touch_max_rate);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
@@ -1438,6 +1458,7 @@ void configGetCommand(client *c) {
     config_get_bool_field("stop-writes-on-bgsave-error",
             server.stop_writes_on_bgsave_err);
     config_get_bool_field("daemonize", server.daemonize);
+    config_get_bool_field("force-repl-lru", server.force_repl_lru);
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
@@ -2176,6 +2197,9 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"active-defrag-cycle-min",server.active_defrag_cycle_min,CONFIG_DEFAULT_DEFRAG_CYCLE_MIN);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-max",server.active_defrag_cycle_max,CONFIG_DEFAULT_DEFRAG_CYCLE_MAX);
     rewriteConfigNumericalOption(state,"active-defrag-max-scan-fields",server.active_defrag_max_scan_fields,CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS);
+    rewriteConfigYesNoOption(state,"force-repl-lru", server.force_repl_lru, 0);
+    rewriteConfigNumericalOption(state,"repl-touch-cmd-ratio",server.repl_touch_cmd_ratio,CONFIG_DEFAULT_REPL_TOUCH_CMD_RATIO);
+    rewriteConfigBytesOption(state,"repl-touch-max-rate",server.repl_touch_max_rate,CONFIG_DEFAULT_REPL_TOUCH_MAX_RATE);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);

@@ -1008,6 +1008,8 @@ size_t rdbSavedObjectLen(robj *o) {
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime) {
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
+    if (!savelru && !savelfu && server.force_repl_lru)
+        savelru = 1;
 
     /* Save the expire time */
     if (expiretime != -1) {

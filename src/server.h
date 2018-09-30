@@ -166,6 +166,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
+#define CONFIG_DEFAULT_REPL_TOUCH_CMD_RATIO 100 /* Send TOUCH commands to slaves once in every 100 read commands */
+#define CONFIG_DEFAULT_REPL_TOUCH_MAX_RATE (32*1024) /* Maximum TOUCH bytes / sec */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -178,7 +180,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
 #define STATS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_COUNT 3
+#define STATS_METRIC_REPL_BYTES 3   /* Bytes written to slaves. */
+#define STATS_METRIC_REPL_TOUCH 4   /* Bytes written to slaves for TOUCH cmds. */
+#define STATS_METRIC_COUNT 5
 
 /* Protocol and I/O related defines */
 #define PROTO_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -1000,6 +1004,8 @@ struct redisServer {
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
+    long long stat_repl_touch_keys;         /* total number of touch keys replicated to slaves */
+    long long stat_repl_touch_bytes;        /* total number of touch bytes replicated to slaves */
     long long stat_active_defrag_hits;      /* number of allocations moved */
     long long stat_active_defrag_misses;    /* number of allocations scanned but not moved */
     long long stat_active_defrag_key_hits;  /* number of keys with moved allocations */
@@ -1041,6 +1047,9 @@ struct redisServer {
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
+    int repl_touch_cmd_ratio;       /* ratio for sending of TOUCH commands to slaves. (every N read commands) */
+    int repl_touch_max_rate;        /* maximum rate of TOUCH bytes to slaves. (bytes/sec) */
+    int force_repl_lru;             /* force saving LRU to rdb (when noeviction)*/
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int supervised;                 /* 1 if supervised, 0 otherwise. */
