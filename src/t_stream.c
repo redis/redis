@@ -2245,7 +2245,7 @@ void xtrimCommand(client *c) {
     addReplyLongLong(c,deleted);
 }
 
-/* XINFO CONSUMERS key group
+/* XINFO CONSUMERS <key> <group>
  * XINFO GROUPS <key>
  * XINFO STREAM <key>
  * XINFO HELP. */
