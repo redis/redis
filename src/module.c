@@ -4419,7 +4419,7 @@ int RM_DictReplace(RedisModuleDict *d, RedisModuleString *key, void *ptr) {
 void *RM_DictGetC(RedisModuleDict *d, void *key, size_t keylen, int *nokey) {
     void *res = raxFind(d->rax,key,keylen);
     if (nokey) *nokey = (res == raxNotFound);
-    return res;
+    return (res == raxNotFound) ? NULL : res;
 }
 
 /* Like RedisModule_DictGetC() but takes the key as a RedisModuleString. */
