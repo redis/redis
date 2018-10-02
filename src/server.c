@@ -3269,7 +3269,7 @@ sds genRedisInfoString(char *section) {
             total_system_hmem,
             memory_lua,
             used_memory_lua_hmem,
-            mh->lua_caches,
+            (long long) mh->lua_caches,
             used_memory_scripts_hmem,
             dictSize(server.lua_scripts),
             server.maxmemory,
