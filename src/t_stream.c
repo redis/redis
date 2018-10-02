@@ -349,7 +349,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     lp = lpAppendInteger(lp,lp_count);
 
     /* Insert back into the tree in order to update the listpack pointer. */
-    raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
+    if (ri.data != lp)
+        raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
     s->length++;
     s->last_id = id;
     if (added_id) *added_id = id;
