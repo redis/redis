@@ -103,7 +103,7 @@ void activeExpireCycle(int type) {
 
     int j, iteration = 0;
     int dbs_per_call = CRON_DBS_PER_CALL;
-    long long start = ustime(), timelimit;
+    long long start = ustime(), timelimit, elapsed;
 
     /* When clients are paused the dataset should be static not just from the
      * POV of clients not being able to write, but also from the POV of
@@ -111,8 +111,8 @@ void activeExpireCycle(int type) {
     if (clientsArePaused()) return;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
-        /* Don't start a fast cycle if the previous cycle did not exited
-         * for time limt. Also don't repeat a fast cycle for the same period
+        /* Don't start a fast cycle if the previous cycle did not exit
+         * for time limit. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
         if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
@@ -140,7 +140,13 @@ void activeExpireCycle(int type) {
     if (type == ACTIVE_EXPIRE_CYCLE_FAST)
         timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
 
-    for (j = 0; j < dbs_per_call; j++) {
+    /* Accumulate some global stats as we expire keys, to have some idea
+     * about the number of keys that are already logically expired, but still
+     * existing inside the database. */
+    long total_sampled = 0;
+    long total_expired = 0;
+
+    for (j = 0; j < dbs_per_call && timelimit_exit == 0; j++) {
         int expired;
         redisDb *db = server.db+(current_db % server.dbnum);
 
@@ -155,6 +161,7 @@ void activeExpireCycle(int type) {
             unsigned long num, slots;
             long long now, ttl_sum;
             int ttl_samples;
+            iteration++;
 
             /* If there is nothing to expire try next DB ASAP. */
             if ((num = dictSize(db->expires)) == 0) {
@@ -191,7 +198,9 @@ void activeExpireCycle(int type) {
                     ttl_sum += ttl;
                     ttl_samples++;
                 }
+                total_sampled++;
             }
+            total_expired += expired;
 
             /* Update the average TTL stats for this database. */
             if (ttl_samples) {
@@ -207,18 +216,31 @@ void activeExpireCycle(int type) {
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
-            iteration++;
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                long long elapsed = ustime()-start;
-
-                latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
-                if (elapsed > timelimit) timelimit_exit = 1;
+                elapsed = ustime()-start;
+                if (elapsed > timelimit) {
+                    timelimit_exit = 1;
+                    server.stat_expired_time_cap_reached_count++;
+                    break;
+                }
             }
-            if (timelimit_exit) return;
             /* We don't repeat the cycle if there are less than 25% of keys
              * found expired in the current DB. */
         } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
     }
+
+    elapsed = ustime()-start;
+    latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
+
+    /* Update our estimate of keys existing but yet to be expired.
+     * Running average with this sample accounting for 5%. */
+    double current_perc;
+    if (total_sampled) {
+        current_perc = (double)total_expired/total_sampled;
+    } else
+        current_perc = 0;
+    server.stat_expired_stale_perc = (current_perc*0.05)+
+                                     (server.stat_expired_stale_perc*0.95);
 }
 
 /*-----------------------------------------------------------------------------

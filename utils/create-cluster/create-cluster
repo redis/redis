@@ -34,7 +34,7 @@ then
         PORT=$((PORT+1))
         HOSTS="$HOSTS 127.0.0.1:$PORT"
     done
-    ../../src/redis-trib.rb create --replicas $REPLICAS $HOSTS
+    ../../src/redis-cli --cluster create $HOSTS --cluster-replicas $REPLICAS
     exit 0
 fi
 
@@ -94,7 +94,7 @@ fi
 
 echo "Usage: $0 [start|create|stop|watch|tail|clean]"
 echo "start       -- Launch Redis Cluster instances."
-echo "create      -- Create a cluster using redis-trib create."
+echo "create      -- Create a cluster using redis-cli --cluster create."
 echo "stop        -- Stop Redis Cluster instances."
 echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
 echo "tail <id>   -- Run tail -f of instance at base port + ID."

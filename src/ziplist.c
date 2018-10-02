@@ -27,7 +27,7 @@
  * traversal.
  *
  * <uint16_t zllen> is the number of entries. When there are more than
- * 2^16-2 entires, this value is set to 2^16-1 and we need to traverse the
+ * 2^16-2 entries, this value is set to 2^16-1 and we need to traverse the
  * entire list to know how many items it holds.
  *
  * <uint8_t zlend> is a special entry representing the end of the ziplist.
@@ -53,20 +53,20 @@
  * <prevlen> <encoding>
  *
  * The length of the previous entry, <prevlen>, is encoded in the following way:
- * If this length is smaller than 255 bytes, it will only consume a single
+ * If this length is smaller than 254 bytes, it will only consume a single
  * byte representing the length as an unsinged 8 bit integer. When the length
- * is greater than or equal to 255, it will consume 5 bytes. The first byte is
- * set to 255 (FF) to indicate a larger value is following. The remaining 4
+ * is greater than or equal to 254, it will consume 5 bytes. The first byte is
+ * set to 254 (FE) to indicate a larger value is following. The remaining 4
  * bytes take the length of the previous entry as value.
  *
  * So practically an entry is encoded in the following way:
  *
- * <prevlen from 0 to 254> <encoding> <entry>
+ * <prevlen from 0 to 253> <encoding> <entry>
  *
- * Or alternatively if the previous entry length is greater than 254 bytes
+ * Or alternatively if the previous entry length is greater than 253 bytes
  * the following encoding is used:
  *
- * 0xFF <4 bytes unsigned little endian prevlen> <encoding> <entry>
+ * 0xFE <4 bytes unsigned little endian prevlen> <encoding> <entry>
  *
  * The encoding field of the entry depends on the content of the
  * entry. When the entry is a string, the first 2 bits of the encoding first
@@ -256,7 +256,7 @@
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
 
 /* Increment the number of items field in the ziplist header. Note that this
- * macro should never overflow the unsigned 16 bit integer, since entires are
+ * macro should never overflow the unsigned 16 bit integer, since entries are
  * always pushed one at a time. When UINT16_MAX is reached we want the count
  * to stay there to signal that a full scan is needed to get the number of
  * items inside the ziplist. */
@@ -269,7 +269,7 @@
  * Note that this is not how the data is actually encoded, is just what we
  * get filled by a function in order to operate more easily. */
 typedef struct zlentry {
-    unsigned int prevrawlensize; /* Bytes used to encode the previos entry len*/
+    unsigned int prevrawlensize; /* Bytes used to encode the previous entry len*/
     unsigned int prevrawlen;     /* Previous entry len. */
     unsigned int lensize;        /* Bytes used to encode this entry type/len.
                                     For example strings have a 1, 2 or 5 bytes
@@ -431,7 +431,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
 /* Return the length of the previous element, and the number of bytes that
  * are used in order to encode the previous element length.
  * 'ptr' must point to the prevlen prefix of an entry (that encodes the
- * length of the previos entry in order to navigate the elements backward).
+ * length of the previous entry in order to navigate the elements backward).
  * The length of the previous entry is stored in 'prevlen', the number of
  * bytes needed to encode the previous entry length are stored in
  * 'prevlensize'. */
@@ -440,7 +440,7 @@ unsigned int zipStorePrevEntryLength(unsigned char *p, unsigned int len) {
     if ((prevlensize) == 1) {                                                  \
         (prevlen) = (ptr)[0];                                                  \
     } else if ((prevlensize) == 5) {                                           \
-        assert(sizeof((prevlensize)) == 4);                                    \
+        assert(sizeof((prevlen)) == 4);                                    \
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
         memrev32ifbe(&prevlen);                                                \
     }                                                                          \

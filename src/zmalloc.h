@@ -63,6 +63,11 @@
 
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
+#ifdef __GLIBC__
+#include <malloc.h>
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) malloc_usable_size(p)
+#endif
 #endif
 
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
@@ -79,8 +84,8 @@ void zfree(void *ptr);
 char *zstrdup(const char *s);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
-float zmalloc_get_fragmentation_ratio(size_t rss);
 size_t zmalloc_get_rss(void);
+int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident);
 size_t zmalloc_get_private_dirty(long pid);
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
 size_t zmalloc_get_memory_size(void);
@@ -93,6 +98,13 @@ void *zmalloc_no_tcache(size_t size);
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
+size_t zmalloc_usable(void *ptr);
+#else
+#define zmalloc_usable(p) zmalloc_size(p)
+#endif
+
+#ifdef REDIS_TEST
+int zmalloc_test(int argc, char **argv);
 #endif
 
 #endif /* __ZMALLOC_H */

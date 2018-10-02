@@ -140,7 +140,17 @@ void slowlogReset(void) {
 /* The SLOWLOG command. Implements all the subcommands needed to handle the
  * Redis slow log. */
 void slowlogCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"GET [count] -- Return top entries from the slowlog (default: 10)."
+"    Entries are made of:",
+"    id, timestamp, time in microseconds, arguments array, client IP and port, client name",
+"LEN -- Return the length of the slowlog.",
+"RESET -- Reset the slowlog.",
+NULL
+        };
+        addReplyHelp(c, help);
+    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"reset")) {
         slowlogReset();
         addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"len")) {
@@ -177,7 +187,6 @@ void slowlogCommand(client *c) {
         }
         setDeferredMultiBulkLength(c,totentries,sent);
     } else {
-        addReplyError(c,
-            "Unknown SLOWLOG subcommand or wrong # of args. Try GET, RESET, LEN.");
+        addReplySubcommandSyntaxError(c);
     }
 }

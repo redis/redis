@@ -116,7 +116,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         r->io.file.buffered >= r->io.file.autosync)
     {
         fflush(r->io.file.fp);
-        aof_fsync(fileno(r->io.file.fp));
+        redis_fsync(fileno(r->io.file.fp));
         r->io.file.buffered = 0;
     }
     return retval;
@@ -310,7 +310,7 @@ void rioSetAutoSync(rio *r, off_t bytes) {
  * generating the Redis protocol for the Append Only File. */
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
-size_t rioWriteBulkCount(rio *r, char prefix, int count) {
+size_t rioWriteBulkCount(rio *r, char prefix, long count) {
     char cbuf[128];
     int clen;
 
