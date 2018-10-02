@@ -726,7 +726,8 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         lp = lpReplaceInteger(lp,&p,aux+1);
 
         /* Update the listpack with the new pointer. */
-        raxInsert(si->stream->rax,si->ri.key,si->ri.key_len,lp,NULL);
+        if (si->lp != lp)
+            raxInsert(si->stream->rax,si->ri.key,si->ri.key_len,lp,NULL);
     }
 
     /* Update the number of entries counter. */
