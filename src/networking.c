@@ -54,17 +54,6 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
-/* Return approximate memory used by the sds string at object->ptr
- * for a string object. This method does not include internal fragmentation. */
-size_t getStringObjectSize(robj *o) {
-    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
-    switch(o->encoding) {
-    case OBJ_ENCODING_RAW: return sdsAllocSize(o->ptr);
-    case OBJ_ENCODING_EMBSTR: return sdsAllocSize(o->ptr);
-    default: return 0; /* Just integer encoding for now. */
-    }
-}
-
 /* Client.reply list dup and free methods. */
 void *dupClientReplyValue(void *o) {
     clientReplyBlock *old = o;
@@ -1177,9 +1166,10 @@ int processInlineBuffer(client *c) {
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
-        if (sdslen(argv[j])) {
+        size_t arglen = sdslen(argv[j]);
+        if (arglen) {
             c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
-            c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
+            c->argv_bytes += arglen;
             c->argc++;
         } else {
             sdsfree(argv[j]);
@@ -1344,7 +1334,7 @@ int processMultibulkBuffer(client *c) {
                 sdslen(c->querybuf) == (size_t)(c->bulklen+2))
             {
                 c->argv[c->argc] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
+                c->argv_bytes += c->bulklen;
                 c->argc++;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one
@@ -1354,7 +1344,7 @@ int processMultibulkBuffer(client *c) {
             } else {
                 c->argv[c->argc] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
-                c->argv_bytes += getStringObjectSize(c->argv[c->argc]);
+                c->argv_bytes += c->bulklen;
                 c->argc++;
                 c->qb_pos += c->bulklen+2;
             }
@@ -1932,7 +1922,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     c->argv_bytes = 0;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
-            c->argv_bytes += getStringObjectSize(c->argv[j]);
+            c->argv_bytes += getStringObjectSdsUsedMemory(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
@@ -1948,7 +1938,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     c->argv_bytes = 0;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
-            c->argv_bytes += getStringObjectSize(c->argv[j]);
+            c->argv_bytes += getStringObjectSdsUsedMemory(c->argv[j]);
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
@@ -1973,8 +1963,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
-    if (oldval) c->argv_bytes -= getStringObjectSize(oldval);
-    if (newval) c->argv_bytes += getStringObjectSize(newval);
+    if (oldval) c->argv_bytes -= getStringObjectSdsUsedMemory(oldval);
+    if (newval) c->argv_bytes += getStringObjectSdsUsedMemory(newval);
     c->argv[i] = newval;
     incrRefCount(newval);
     if (oldval) decrRefCount(oldval);
