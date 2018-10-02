@@ -1633,7 +1633,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) zmalloc_size(client->argv) + client->argv_bytes,
         (unsigned long long) client->bufpos,
         (unsigned long long) listLength(client->reply),
-        (unsigned long long) getClientOutputBufferMemoryUsage(client) + sizeof(client->buf),
+        (unsigned long long) getClientOutputBufferMemoryUsage(client),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
