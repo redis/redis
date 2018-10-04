@@ -2063,9 +2063,9 @@ void xclaimCommand(client *c) {
          * do some sanity check on it, and set the deliverytime to now
          * (which is a sane choice usually) if the value is bogus.
          * To raise an error here is not wise because clients may compute
-         * the idle time doing some math startin from their local time,
+         * the idle time doing some math starting from their local time,
          * and this is not a good excuse to fail in case, for instance,
-         * the computed time is a bit in the future from our POV. */
+         * the computer time is a bit in the future from our POV. */
         if (deliverytime < 0 || deliverytime > now) deliverytime = now;
     } else {
         /* If no IDLE/TIME option was passed, we want the last delivery
