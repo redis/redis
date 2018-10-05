@@ -769,6 +769,10 @@ struct saveparam {
     int changes;
 };
 
+struct net_ip{
+    char ip[INET6_ADDRSTRLEN];
+};
+
 struct moduleLoadQueueEntry {
     sds path;
     int argc;
@@ -1179,6 +1183,9 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
+    dict *admin_iplist_dict;            /* Dictionary of adminstrative ip */
+    struct net_ip *admin_iplist;        /* List of adminstrative ip*/
+    int admin_ip_len;                   /* Number of administrative ip */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
@@ -1792,6 +1799,8 @@ sds keyspaceEventsFlagsToString(int flags);
 void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
+void appendServerAdminIp(const char *ip);
+void resetServerAdminIp(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 int rewriteConfig(char *path);

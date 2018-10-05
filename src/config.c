@@ -155,6 +155,20 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+void appendServerAdminIp(const char *ip) {
+    server.admin_iplist = zrealloc(server.admin_iplist, sizeof(struct net_ip)*(server.admin_ip_len+1));
+    int ip_len = strlen(ip);
+    memcpy(server.admin_iplist[server.admin_ip_len].ip, ip, ip_len);
+    server.admin_iplist[server.admin_ip_len].ip[ip_len]='\0';
+    server.admin_ip_len++;
+}
+
+void resetServerAdminIp(void) {
+    zfree(server.admin_iplist);
+    server.admin_iplist = NULL;
+    server.admin_ip_len = 0;
+}
+
 void queueLoadModule(sds path, sds *argv, int argc) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
@@ -253,6 +267,11 @@ void loadServerConfigFromString(char *config) {
                 appendServerSaveParams(seconds,changes);
             } else if (argc == 2 && !strcasecmp(argv[1],"")) {
                 resetServerSaveParams();
+            }
+        } else if (!strcasecmp(argv[0], "admin-ip")) {
+            for (int i = 1; i < argc; i++) {
+                appendServerAdminIp(argv[i]);
+                dictAdd(server.admin_iplist_dict, sdsnew(server.admin_iplist[server.admin_ip_len-1].ip), NULL);
             }
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
             if (chdir(argv[1]) == -1) {
@@ -1000,6 +1019,15 @@ void configSetCommand(client *c) {
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
+     } config_set_special_field("admin-ip") {
+        int vlen, j;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1, &vlen);
+        resetServerAdminIp();
+        dictEmpty(server.admin_iplist_dict, NULL);
+        for (j = 0; j < vlen; j++) {
+            appendServerAdminIp(v[j]);
+            dictAdd(server.admin_iplist_dict, sdsnew(server.admin_iplist[server.admin_ip_len-1].ip), NULL);
+        }
     } config_set_special_field("dir") {
         if (chdir((char*)o->ptr) == -1) {
             addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
@@ -1571,6 +1599,17 @@ void configGetCommand(client *c) {
         sdsfree(aux);
         matches++;
     }
+    if (stringmatch(pattern, "admin-ip", 1)) {
+        sds buf = sdsempty();
+        addReplyBulkCString(c, "admin-ip");
+        for (int i = 0; i < server.admin_ip_len; i++) {
+            buf = sdscat(buf, server.admin_iplist[i].ip);
+            if (i != server.admin_ip_len-1)buf = sdscat(buf, " ");
+        }
+        addReplyBulkCString(c, buf);
+        sdsfree(buf);
+        matches++;
+    }
     setDeferredMultiBulkLength(c,replylen,matches*2);
 }
 
@@ -1889,6 +1928,21 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"save");
 }
 
+/* Rewrite the admin-ip option. */
+void rewriteConfigAdminIpOption(struct rewriteConfigState *state) {
+    int j;
+    sds line;
+
+    line = sdsnew("admin-ip");
+    line = sdscatlen(line, " ", 1);
+    for (j = 0; j < server.admin_ip_len; j++) {
+        line = sdscat(line, server.admin_iplist[j].ip);
+        if (j != server.admin_ip_len-1)line = sdscatlen(line, " ", 1);
+    }
+
+    rewriteConfigRewriteLine(state,"admin-ip",line,1);
+}
+
 /* Rewrite the dir option, always using absolute paths.*/
 void rewriteConfigDirOption(struct rewriteConfigState *state) {
     char cwd[1024];
@@ -2138,6 +2192,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
     rewriteConfigSyslogfacilityOption(state);
     rewriteConfigSaveOption(state);
+    rewriteConfigAdminIpOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);
     rewriteConfigYesNoOption(state,"rdbcompression",server.rdb_compression,CONFIG_DEFAULT_RDB_COMPRESSION);

@@ -587,7 +587,7 @@ dictType objectKeyHeapPointerValueDictType = {
     dictVanillaFree            /* val destructor */
 };
 
-/* Set dictionary type. Keys are SDS strings, values are ot used. */
+/* Set dictionary type. Keys are SDS strings, values are not used. */
 dictType setDictType = {
     dictSdsHash,               /* hash function */
     NULL,                      /* key dup */
@@ -1722,6 +1722,12 @@ void initServerConfig(void) {
      * script to the slave / AOF. This is the new way starting from
      * Redis 5. However it is possible to revert it via redis.conf. */
     server.lua_always_replicate_commands = 1;
+
+    /* Administrative IP */
+    resetServerAdminIp();
+    server.admin_iplist_dict = dictCreate(&setDictType,NULL);
+    //appendServerAdminIp("127.0.0.1");
+    //dictAdd(server.admin_iplist_dict, sdsnew(server.admin_iplist[server.admin_ip_len-1].ip), NULL);
 }
 
 extern char **environ;

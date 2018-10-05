@@ -656,15 +656,23 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
-        char *err = "-ERR max number of clients reached\r\n";
+        char ip[INET6_ADDRSTRLEN];
+        int port;
+        dictEntry *entry;
+        anetPeerToString(c->fd, ip, sizeof(ip), &port);
+        entry = dictFind(server.admin_iplist_dict, sdsnew(ip));
 
-        /* That's a best effort error message, don't check write errors */
-        if (write(c->fd,err,strlen(err)) == -1) {
+        if (!entry) {
+            char *err = "-ERR max number of clients reached\r\n";
+
+            /* That's a best effort error message, don't check write errors */
+            if (write(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
+            }
+            server.stat_rejected_conn++;
+            freeClient(c);
+            return;
         }
-        server.stat_rejected_conn++;
-        freeClient(c);
-        return;
     }
 
     /* If the server is running in protected mode (the default) and there
