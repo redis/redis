@@ -691,6 +691,10 @@ failed_socket_error:
 }
 
 static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
+    if (server.masterhost != NULL && args->errmsg == NULL) {
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.");
+    }
+
     if (args->client != NULL) {
         client *c = args->client;
         if (args->errmsg != NULL) {
@@ -700,7 +704,7 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
         }
     }
 
-    if (!args->copy) {
+    if (server.masterhost == NULL && !args->copy) {
         int migrated_keys = 0;
         robj **propargv = zmalloc(sizeof(propargv[0]) * (1 + args->num_keys));
         for (int j = 0; j < args->num_keys; j++) {
@@ -984,6 +988,10 @@ static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
 }
 
 static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
+    if (server.masterhost != NULL && args->errmsg == NULL) {
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.");
+    }
+
     client *c = args->client;
     if (args->errmsg != NULL) {
         if (c != NULL) {
