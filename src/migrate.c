@@ -220,6 +220,7 @@ typedef struct {
     struct {
         int fd;
         sds sendbuf;
+        size_t sendbuf_maxlen;
     } io;
     struct {
         robj *key;
@@ -233,9 +234,6 @@ typedef struct {
             goto rio_failed_cleanup; \
         }                            \
     } while (0)
-
-#define RIO_IOBUF_MAX_LEN (64LL * 1024 * 1024)
-#define RIO_IOBUF_AUTO_FLUSH_THRESHOLD (RIO_IOBUF_MAX_LEN - 1024)
 
 static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
     if (sdslen(cmd->io.sendbuf) != 0) {
@@ -292,7 +290,7 @@ rio_fragment_payload:
     cmd->io.sendbuf = rio->io.buffer.ptr;
     sdsclear(cmd->payload);
 
-    if (sdslen(cmd->io.sendbuf) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) < cmd->io.sendbuf_maxlen) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
@@ -310,7 +308,7 @@ static size_t _rioMigrateObjectWrite(rio *r, const void *buf, size_t len) {
     if (!cmd->non_blocking) {
         return 1;
     }
-    if (sdslen(cmd->io.sendbuf) + sdslen(cmd->payload) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) + sdslen(cmd->payload) < cmd->io.sendbuf_maxlen) {
         return 1;
     }
     return _rioMigrateObjectFlushNonBlockingFragment(cmd);
@@ -361,7 +359,7 @@ static int _rioMigrateObjectFlush(rio *r) {
     cmd->seq_num++;
     cmd->io.sendbuf = rio->io.buffer.ptr;
 
-    if (sdslen(cmd->io.sendbuf) < RIO_IOBUF_AUTO_FLUSH_THRESHOLD) {
+    if (sdslen(cmd->io.sendbuf) < cmd->io.sendbuf_maxlen) {
         return 1;
     }
     return rioMigrateCommandFlushIOBuffer(cmd);
@@ -434,6 +432,8 @@ struct _migrateCommandArgs {
         int num_fragments;
         int success;
     } * kvpairs;
+
+    size_t socket_iobuf_len;
 
     migrateCachedSocket *socket;
     sds errmsg;
@@ -549,6 +549,7 @@ parsed_options:
         addReplySds(c, sdsnew("+NOKEY\r\n"));
         goto failed_cleanup;
     }
+    args->socket_iobuf_len = server.migrate_socket_iobuf_len;
 
     migrateCachedSocket *cs = migrateGetSocketOrReply(c, args->host, args->port, args->auth, args->timeout);
     if (cs == NULL) {
@@ -596,9 +597,11 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
         cs->last_dbid = args->dbid;
     }
 
+#define MAX_RIO_CMD_HDR_LEN 512
+
     rioMigrateCommand _cmd = {
         .rio = _rioMigrateObjectIO,
-        .payload = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
+        .payload = sdsMakeRoomFor(sdsempty(), args->socket_iobuf_len),
         .seq_num = 0,
         .timeout = args->timeout,
         .replace = args->replace,
@@ -606,7 +609,8 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
         .io =
             {
                 .fd = cs->fd,
-                .sendbuf = sdsMakeRoomFor(sdsempty(), RIO_IOBUF_MAX_LEN),
+                .sendbuf = sdsMakeRoomFor(sdsempty(), args->socket_iobuf_len + MAX_RIO_CMD_HDR_LEN),
+                .sendbuf_maxlen = args->socket_iobuf_len,
             },
     };
     rioMigrateCommand *cmd = &_cmd;

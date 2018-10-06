@@ -1650,6 +1650,7 @@ void initServerConfig(void) {
     /* Migration related */
     server.migrate_socket_cache_items = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS;
     server.migrate_socket_cache_timeout = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT;
+    server.migrate_socket_iobuf_len = CONFIG_DEFAULT_MIGRATE_SOCKET_IOBUF_LEN;
 
     /* Replication related */
     server.masterauth = NULL;

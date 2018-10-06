@@ -167,7 +167,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
 #define CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS 64
-#define CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT 10 /* In seconds. */
+#define CONFIG_MIGRATE_SOCKET_CACHE_ITEMS_MAX     128
+#define CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT 10     /* In seconds. */
+#define CONFIG_MIGRATE_SOCKET_CACHE_TIMEOUT_MAX     (60 * 60 * 24)
+#define CONFIG_DEFAULT_MIGRATE_SOCKET_IOBUF_LEN  (1024LL * 1024 * 64)  /*  64MB */
+#define CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN      (1024LL * 32)         /*  32KB */
+#define CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX      (1024LL * 1024 * 256) /* 256MB */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -1194,6 +1199,7 @@ struct redisServer {
     /* Migration socket cache. */
     int migrate_socket_cache_items;     /* Max number of cached sockets for migration. */
     int migrate_socket_cache_timeout;   /* Timeout after N seconds of socket idle. */
+    long long migrate_socket_iobuf_len; /* Socket buffer for data migration.*/
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
