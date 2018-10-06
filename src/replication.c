@@ -1245,11 +1245,6 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (eof_reached) {
         int aof_is_enabled = server.aof_state != AOF_OFF;
 
-        if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
-            serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> REPLICA synchronization: %s", strerror(errno));
-            cancelReplicationHandshake();
-            return;
-        }
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
         /* We need to stop any AOFRW fork before flusing and parsing
          * RDB, otherwise we'll create a copy-on-write disaster. */
@@ -1266,12 +1261,19 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        if (rdbLoad(server.rdb_filename,&rsi) != C_OK) {
+        if (rdbLoad(server.repl_transfer_tmpfile,&rsi) != C_OK) {
             serverLog(LL_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
             cancelReplicationHandshake();
             /* Re-enable the AOF if we disabled it earlier, in order to restore
              * the original configuration. */
             if (aof_is_enabled) restartAOF();
+            return;
+        }
+        serverLog(LL_NOTICE, "MASTER <-> SLAVE sync: Renaming %s file to %s",
+                  server.repl_transfer_tmpfile, server.rdb_filename);
+        if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
+            serverLog(LL_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", strerror(errno));
+            cancelReplicationHandshake();
             return;
         }
         /* Final setup of the connected slave <- master link */
