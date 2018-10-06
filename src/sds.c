@@ -691,7 +691,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  *
  * Example:
  *
- * s = sdsnew("AA...AA.a.aa.aHelloWorld     :::");
+ * s = sdsnew("AA...AA.a.aa.aHello World     :::");
  * s = sdstrim(s,"Aa. :");
  * printf("%s\n", s);
  *
