@@ -480,6 +480,11 @@ static void freeMigrateCommandArgs(migrateCommandArgs *args) {
 // MIGRATE host port ""  dbid timeout [COPY] [REPLACE] [ASYNC] [AUTH password]
 //         KEYS key1 key2 ... keyN
 static migrateCommandArgs *initMigrateCommandArgsOrReply(client *c) {
+    if (server.masterhost != NULL) {
+        addReplySds(c, sdsnew("-ERR Not master.\r\n"));
+        return NULL;
+    }
+
     migrateCommandArgs *args = zcalloc(sizeof(*args));
     int first_key = 3;
     int num_keys = 1;
@@ -692,9 +697,8 @@ failed_socket_error:
 
 static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
     if (server.masterhost != NULL && args->errmsg == NULL) {
-        args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.");
+        args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.\r\n");
     }
-
     if (args->client != NULL) {
         client *c = args->client;
         if (args->errmsg != NULL) {
@@ -988,10 +992,6 @@ static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
 }
 
 static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
-    if (server.masterhost != NULL && args->errmsg == NULL) {
-        args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.");
-    }
-
     client *c = args->client;
     if (args->errmsg != NULL) {
         if (c != NULL) {
