@@ -1933,6 +1933,7 @@ void freeRestoreCommandArgsFromFreeClient(client *c);
 void migrateCloseTimedoutSockets(void);
 void restoreCloseTimedoutCommands(void);
 int migrateNeedsRedirectClient(client *c);
+size_t migrateCommandThreadJobs(void);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);

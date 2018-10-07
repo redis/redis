@@ -1478,3 +1478,15 @@ static void migrateCommandThreadAddRestoreJobTail(restoreCommandArgs *restore_ar
     }
     pthread_mutex_unlock(&p->mutex);
 }
+
+size_t migrateCommandThreadJobs(void) {
+    migrateCommandThread *p = &migrate_command_threads[0];
+    size_t jobs = 0;
+    pthread_mutex_lock(&p->mutex);
+    {
+        jobs += listLength(p->migrate.jobs) + listLength(p->migrate.done);
+        jobs += listLength(p->restore.jobs) + listLength(p->restore.done);
+    }
+    pthread_mutex_unlock(&p->mutex);
+    return jobs;
+}
