@@ -1306,6 +1306,7 @@ typedef struct {
     struct {
         list *jobs;
         list *done;
+        void *processing;
     } migrate, restore;  // Should be guarded by mutex.
     int pipe_fds[2];     // pipe_fds[0]: read by master thread
                          // pipe_fds[1]: written by worker thread
@@ -1336,10 +1337,12 @@ static void *migrateCommandThreadMain(void *privdata) {
             if (listLength(p->migrate.jobs) != 0) {
                 migrate_args = listNodeValue(listFirst(p->migrate.jobs));
                 listDelNode(p->migrate.jobs, listFirst(p->migrate.jobs));
+                p->migrate.processing = migrate_args;
             }
             if (listLength(p->restore.jobs) != 0) {
                 restore_args = listNodeValue(listFirst(p->restore.jobs));
                 listDelNode(p->restore.jobs, listFirst(p->restore.jobs));
+                p->restore.processing = restore_args;
             }
         }
         pthread_mutex_unlock(&p->mutex);
@@ -1357,9 +1360,11 @@ static void *migrateCommandThreadMain(void *privdata) {
         {
             if (migrate_args != NULL) {
                 listAddNodeTail(p->migrate.done, migrate_args);
+                p->migrate.processing = NULL;
             }
             if (restore_args != NULL) {
                 listAddNodeTail(p->restore.done, restore_args);
+                p->restore.processing = NULL;
             }
         }
         pthread_mutex_unlock(&p->mutex);
@@ -1427,8 +1432,10 @@ static void migrateCommandThreadInit(migrateCommandThread *p) {
 
     p->migrate.jobs = listCreate();
     p->migrate.done = listCreate();
+    p->migrate.processing = NULL;
     p->restore.jobs = listCreate();
     p->restore.done = listCreate();
+    p->restore.processing = NULL;
 
     if (pipe(p->pipe_fds) != 0) {
         serverPanic("Fatal: create pipe '%s'.", strerror(errno));
@@ -1484,8 +1491,8 @@ size_t migrateCommandThreadJobs(void) {
     size_t jobs = 0;
     pthread_mutex_lock(&p->mutex);
     {
-        jobs += listLength(p->migrate.jobs) + listLength(p->migrate.done);
-        jobs += listLength(p->restore.jobs) + listLength(p->restore.done);
+        jobs += listLength(p->migrate.jobs) + listLength(p->migrate.done) + (p->migrate.processing != NULL ? 1 : 0);
+        jobs += listLength(p->restore.jobs) + listLength(p->restore.done) + (p->restore.processing != NULL ? 1 : 0);
     }
     pthread_mutex_unlock(&p->mutex);
     return jobs;
