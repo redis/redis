@@ -3833,7 +3833,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
             if (n == owner) continue;
-            reply = CLUSTER_MANAGER_COMMAND(n, "CLUSTER DELSLOT %d", slot);
+            reply = CLUSTER_MANAGER_COMMAND(n, "CLUSTER DELSLOTS %d", slot);
             success = clusterManagerCheckRedisReply(n, reply, NULL);
             if (reply) freeReplyObject(reply);
             if (!success) goto cleanup;
