@@ -317,3 +317,49 @@ start_server {
         assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
     }
 }
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with MAXLEN > xlen can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN 200 * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with ~ MAXLEN can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN ~ $j * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XTRIM with ~ MAXLEN can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN ~ 85
+        assert {[r xlen mystream] == 89}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == 90}
+    }
+}
