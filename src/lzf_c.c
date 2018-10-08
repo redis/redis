@@ -42,7 +42,7 @@
  * don't play with this unless you benchmark!
  * the data format is not dependent on the hash function.
  * the hash function might seem strange, just believe me,
- * it works ;)
+ * it works :)
  */
 #ifndef FRST
 # define FRST(p) (((p[0]) << 8) | p[1])
