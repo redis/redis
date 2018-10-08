@@ -2410,13 +2410,25 @@ void call(client *c, int flags) {
     int client_old_flags = c->flags;
     struct redisCommand *real_cmd = c->cmd;
 
-    /* Sent the command to clients in MONITOR mode, only if the commands are
+    /* Send the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
     if (listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     {
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    }
+
+    /* If the client is in the context of a transaction, reply with
+     * +QUEUED and just accumulate the command in the client transaction
+     * commands vector. */
+    if (c->flags & CLIENT_MULTI &&
+        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
+        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
+    {
+        queueMultiCommand(c);
+        addReply(c,shared.queued);
+        return;
     }
 
     /* Initialization: clear the flags that must be set by the command on
@@ -2714,18 +2726,9 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
-    if (c->flags & CLIENT_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
-        c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
-    {
-        queueMultiCommand(c);
-        addReply(c,shared.queued);
-    } else {
-        call(c,CMD_CALL_FULL);
-        c->woff = server.master_repl_offset;
-        if (listLength(server.ready_keys))
-            handleClientsBlockedOnKeys();
-    }
+    call(c,CMD_CALL_FULL);
+    c->woff = server.master_repl_offset;
+    if (listLength(server.ready_keys)) handleClientsBlockedOnKeys();
     return C_OK;
 }
 
