@@ -3775,7 +3775,7 @@ static int clusterManagerFixOpenSlot(int slot) {
     }
     printf("Set as migrating in: %s\n", migrating_str);
     printf("Set as importing in: %s\n", importing_str);
-    /* If there is no slot owner, set as owner the slot with the biggest
+    /* If there is no slot owner, set as owner the node with the biggest
      * number of keys, among the set of migrating / importing nodes. */
     if (owner == NULL) {
         clusterManagerLogInfo(">>> Nobody claims ownership, "
@@ -3848,8 +3848,8 @@ static int clusterManagerFixOpenSlot(int slot) {
         if (!success) goto cleanup;
     }
     int move_opts = CLUSTER_MANAGER_OPT_VERBOSE;
-    /* Case 1: The slot is in migrating state in one slot, and in
-     *         importing state in 1 slot. That's trivial to address. */
+    /* Case 1: The slot is in migrating state in one node, and in
+     *         importing state in 1 node. That's trivial to address. */
     if (listLength(migrating) == 1 && listLength(importing) == 1) {
         clusterManagerNode *src = listFirst(migrating)->value;
         clusterManagerNode *dst = listFirst(importing)->value;
