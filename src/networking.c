@@ -829,6 +829,13 @@ void unlinkClient(client *c) {
 void freeClient(client *c) {
     listNode *ln;
 
+    /* If a client is protected, yet we need to free it right now, make sure
+     * to at least use asynchronous freeing. */
+    if (c->flags & CLIENT_PROTECTED) {
+        freeClientAsync(c);
+        return;
+    }
+
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
