@@ -532,7 +532,7 @@ void hsetCommand(client *c) {
     robj *o;
 
     if ((c->argc % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for HMSET");
+        addReplyError(c,"wrong number of arguments for HSET");
         return;
     }
 
