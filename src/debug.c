@@ -345,9 +345,9 @@ NULL
             return;
         }
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
+        protectClient(c);
         int ret = rdbLoad(server.rdb_filename,NULL);
-        aeCreateFileEvent(server.el,c->fd,AE_READABLE,readQueryFromClient,c);
+        unprotectClient(c);
         if (ret != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
             return;
@@ -357,9 +357,9 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
+        protectClient(c);
         int ret = loadAppendOnlyFile(server.aof_filename);
-        aeCreateFileEvent(server.el,c->fd,AE_READABLE,readQueryFromClient,c);
+        unprotectClient(c);
         if (ret != C_OK) {
             addReply(c,shared.err);
             return;
