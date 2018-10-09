@@ -314,6 +314,7 @@ struct redisCommand redisCommandTable[] = {
     {"xread",xreadCommand,-4,"rs",0,xreadGetKeys,1,1,1,0,0},
     {"xreadgroup",xreadCommand,-7,"ws",0,xreadGetKeys,1,1,1,0,0},
     {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0},
+    {"xstream",xstreamCommand,-2,"wmFR",0,NULL,2,2,1,0,0},
     {"xack",xackCommand,-4,"wF",0,NULL,1,1,1,0,0},
     {"xpending",xpendingCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"xclaim",xclaimCommand,-6,"wF",0,NULL,1,1,1,0,0},
