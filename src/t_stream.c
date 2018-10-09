@@ -1808,6 +1808,10 @@ NULL
             s->last_id = id;
             dbAdd(c->db,c->argv[2],o);
 
+            robj *idarg = createObjectFromStreamID(&id);
+            rewriteClientCommandArgument(c,3,idarg);
+            decrRefCount(idarg);
+
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xstream-create",
