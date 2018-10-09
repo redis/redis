@@ -560,7 +560,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Run the command */
-    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS;
+    int call_flags = CMD_CALL_SLOWLOG | CMD_CALL_STATS | CMD_CALL_NOQUEUE;
     if (server.lua_replicate_commands) {
         /* Set flags according to redis.set_repl() settings. */
         if (server.lua_repl & PROPAGATE_AOF)

@@ -2421,8 +2421,15 @@ void call(client *c, int flags) {
 
     /* If the client is in the context of a transaction, reply with
      * +QUEUED and just accumulate the command in the client transaction
-     * commands vector. */
-    if (c->flags & CLIENT_MULTI &&
+     * commands vector.
+     *
+     * Note that CALL_NOQUEUE can override this check and execute the command
+     * straight away even if the client is in "MULTI" state. This is useful
+     * every time we want to actually execute commands even if the client is
+     * in MULTI state, like in scripting.c or in the implementation of EXEC
+     * itself. */
+    if (!(flags & CMD_CALL_NOQUEUE) &&
+        c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {

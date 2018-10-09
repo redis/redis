@@ -158,7 +158,7 @@ void execCommand(client *c) {
             must_propagate = 1;
         }
 
-        call(c,CMD_CALL_FULL);
+        call(c,CMD_CALL_FULL|CMD_CALL_NOQUEUE);
 
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;
