@@ -402,3 +402,26 @@ start_server {tags {"xstream command"}} {
         set _ $err
     } {ERR no such key}
 }
+
+start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    test {Empty stream can be rewrite into AOF correctly} {
+        r XSTREAM CREATE mystream 0
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {Stream can be rewrite into AOF correctly after XDEL lastid} {
+        r XADD mystream 1-1 a b
+        r XADD mystream 2-2 a b
+        assert {[dict get [r xinfo stream mystream] length] == 2}
+        r XDEL mystream 2-2
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 1}
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
