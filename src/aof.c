@@ -778,7 +778,9 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            serverLog(LL_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
+            serverLog(LL_WARNING,
+                "Unknown command '%s' reading the append only file",
+                (char*)argv[0]->ptr);
             exit(1);
         }
 
@@ -786,14 +788,18 @@ int loadAppendOnlyFile(char *filename) {
 
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        if (fakeClient->flags & CLIENT_MULTI && fakeClient->cmd->proc != execCommand) {
+        if (fakeClient->flags & CLIENT_MULTI &&
+            fakeClient->cmd->proc != execCommand)
+        {
             queueMultiCommand(fakeClient);
         } else {
             cmd->proc(fakeClient);
         }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 &&
+                     listLength(fakeClient->reply) == 0);
+
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
@@ -809,7 +815,8 @@ int loadAppendOnlyFile(char *filename) {
      * a short read, even if technically the protocol is correct: we want
      * to remove the unprocessed tail and continue. */
     if (fakeClient->flags & CLIENT_MULTI) {
-        serverLog(LL_WARNING,"!!! Warning: we lost EXEC in the middle of transaction, discard !!!");
+        serverLog(LL_WARNING,
+            "Revert incomplete MULTI/EXEC transaction in AOF file");
         valid_up_to = valid_before_multi;
         goto uxeof;
     }
