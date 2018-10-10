@@ -12,6 +12,470 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0-rc6     Released Wed Oct 10 11:03:54 CEST 2018
+================================================================================
+
+Upgrade urgency HIGH: Many bugs fixed especially in the context of streams.
+
+This is probably the last release candidate of Redis 5. The Redis 5 GA version
+will be released 17th of October. The main highlights of this release are:
+
+* Critical AOF bug, as old as AOF itself: if an open MULTI/EXEC block is at
+  the end of the AOF file, Redis would still read the half-transaction when
+  reloading back the AOF.
+* The slave name was removed from logs and documentation, now replica is used
+  instead.
+* LOLWUT command added.
+* New modules APIs: Disable Redis Cluster redirection.
+* New modules APIs: Sorted dictionaries data type.
+* Modules APIs fixes: timer / cluster messages callback now can call RM_Call().
+* Fix for #5024 - commandstats for multi-exec were logged as EXEC.
+* A number of optimizations and fixes for the stream data type.
+* Many other stability improvements.
+
+This is the list of comments and contributors:
+
+antirez in commit 9a6fa7d0:
+ changelog.tcl: get optional argument for number of commits.
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+antirez in commit 101e419f:
+ Free protected clients asynchronously.
+ 1 file changed, 7 insertions(+)
+
+antirez in commit 726debb8:
+ Actually use the protectClient() API where needed.
+ 2 files changed, 8 insertions(+), 9 deletions(-)
+
+antirez in commit 0b87f78a:
+ Introduce protectClient() + some refactoring.
+ 2 files changed, 60 insertions(+), 18 deletions(-)
+
+zhaozhao.zz in commit 6aa8ac70:
+ debug: avoid free client unexpectedly when reload & loadaof
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit 48040b02:
+ aof.c: improve indentation and change warning message.
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+zhaozhao.zz in commit 7cc20569:
+ AOF: discard if we lost EXEC when loading aof
+ 2 files changed, 14 insertions(+), 3 deletions(-)
+
+antirez in commit 2007d30c:
+ Refactoring of XADD / XTRIM MAXLEN rewriting.
+ 1 file changed, 15 insertions(+), 22 deletions(-)
+
+zhaozhao.zz in commit 6a298110:
+ Streams: add test cases for XADD/XTRIM maxlen
+ 1 file changed, 46 insertions(+)
+
+zhaozhao.zz in commit 041161b7:
+ Streams: propagate specified MAXLEN instead of approximated
+ 1 file changed, 35 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit f04d799b:
+ Streams: reset approx_maxlen in every maxlen loop
+ 1 file changed, 2 insertions(+)
+
+zhaozhao.zz in commit affd9365:
+ Streams: XTRIM  will return an error if MAXLEN with a count < 0
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit 4c405ad0:
+ Streams: propagate original MAXLEN argument in XADD context
+ 1 file changed, 3 insertions(+), 12 deletions(-)
+
+antirez in commit 5c6d4b4a:
+ Fix typo in replicationCron() comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit a67a8dbf:
+ Fix typo in design comment of bio.c.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit c4ab5a05:
+ xclaimCommand(): fix comment typos.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit dc0b628a:
+ streamAppendItem(): Update the radix tree pointer only if changed.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 4566fbc7:
+ Listpack: optionally force reallocation on inserts.
+ 1 file changed, 20 insertions(+)
+
+antirez in commit 5eca170c:
+ Fix printf type mismatch in genRedisInfoString().
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 260b53a2:
+ streamIteratorRemoveEntry(): set back lp only if pointer changed.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit 5d12f9d9:
+ Streams: update listpack with new pointer in XDEL
+ 1 file changed, 3 insertions(+)
+
+zhaozhao.zz in commit 6b7ad838:
+ bugfix: replace lastcmd with cmd when rewrite BRPOPLPUSH as RPOPLPUSH
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 3454a043:
+ script cache memory in INFO and MEMORY includes both script code and overheads
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+Oran Agra in commit d6aeca86:
+ fix #5024 - commandstats for multi-exec were logged as EXEC.
+ 2 files changed, 63 insertions(+), 2 deletions(-)
+
+antirez in commit a996b2a2:
+ Fix XINFO comment for consistency.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Bruce Merry in commit 1a8447b6:
+ Fix invalid use of sdsZmallocSize on an embedded string
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Bruce Merry in commit 8dde46ad:
+ Fix incorrect memory usage accounting in zrealloc
+ 3 files changed, 24 insertions(+), 2 deletions(-)
+
+Hamid Alaei in commit b362a1b7:
+ fix dict get on not found
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 55e9df8a:
+ Try to avoid issues with GCC pragmas and older compilers.
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+antirez in commit b0d22702:
+ Modules: hellodict example WIP #3: KEYRANGE.
+ 1 file changed, 40 insertions(+)
+
+antirez in commit af2f6682:
+ Modules: Modules: dictionary API WIP #13: Compare API exported.
+ 2 files changed, 6 insertions(+)
+
+antirez in commit f9a3e6ef:
+ Modules: Modules: dictionary API WIP #12: DictCompare API.
+ 1 file changed, 8 insertions(+)
+
+antirez in commit 01e0341a:
+ Modules: Modules: dictionary API WIP #11: DictCompareC API.
+ 1 file changed, 18 insertions(+)
+
+antirez in commit f9b3ce9a:
+ Modules: hellodict example WIP #1: GET command.
+ 1 file changed, 18 insertions(+)
+
+antirez in commit 36e66d86:
+ Modules: hellodict example WIP #1: SET command.
+ 1 file changed, 74 insertions(+)
+
+antirez in commit e33fdbe8:
+ Modules: remove useless defines in hellotimer.c
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+antirez in commit 1c8b2248:
+ Modules: fix top comment of hellotimer.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Guy Korland in commit 7ded552d:
+ add missing argument to function doc
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Pavel Skuratovich in commit f92b3273:
+ Fix typo in comment
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 57b6c343:
+ Modules: dictionary API WIP #10: export API to modules.
+ 2 files changed, 60 insertions(+)
+
+antirez in commit 3f82e59c:
+ Modules: dictionary API WIP #9: iterator returning string object.
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+antirez in commit 6a73aca3:
+ Modules: dictionary API WIP #8: Iterator next/prev.
+ 1 file changed, 42 insertions(+)
+
+antirez in commit ef8413db:
+ Modules: dictionary API WIP #7: don't store the context.
+ 1 file changed, 7 insertions(+), 8 deletions(-)
+
+antirez in commit 05579e38:
+ Modules: dictionary API WIP #6: implement automatic memory management.
+ 1 file changed, 21 insertions(+), 7 deletions(-)
+
+antirez in commit 11c53f8c:
+ Modules: dictionary API work in progress #5: rename API for consistency.
+ 1 file changed, 25 insertions(+), 25 deletions(-)
+
+antirez in commit 0bd7091b:
+ Modules: change RedisModuleString API to allow NULL context.
+ 1 file changed, 33 insertions(+), 12 deletions(-)
+
+antirez in commit 5fc16f17:
+ Modules: dictionary API work in progress #4: reseek API.
+ 1 file changed, 25 insertions(+), 6 deletions(-)
+
+antirez in commit 45b7f779:
+ Modules: dictionary API work in progress #3: Iterator creation.
+ 1 file changed, 41 insertions(+), 1 deletion(-)
+
+antirez in commit 8576b0ae:
+ Modules: dictionary API work in progress #2: Del API.
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+antirez in commit 4b0fa7a7:
+ Modules: dictionary API work in progress #1.
+ 2 files changed, 95 insertions(+), 1 deletion(-)
+
+antirez in commit 28210760:
+ Module cluster flags: use RM_SetClusterFlags() in the example.
+ 2 files changed, 11 insertions(+)
+
+antirez in commit 18c5ab93:
+ Module cluster flags: add RM_SetClusterFlags() API.
+ 3 files changed, 33 insertions(+)
+
+antirez in commit 4ce6bff2:
+ Module cluster flags: add hooks for NO_FAILOVER flag.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+antirez in commit 2ba52889:
+ Module cluster flags: add hooks for NO_REDIRECTION flag.
+ 3 files changed, 14 insertions(+), 4 deletions(-)
+
+antirez in commit 6a39ece6:
+ Module cluster flags: initial vars / defines added.
+ 5 files changed, 20 insertions(+)
+
+antirez in commit 0ff35370:
+ Modules: rename the reused static client to something more general.
+ 1 file changed, 10 insertions(+), 8 deletions(-)
+
+antirez in commit 2d11ee95:
+ Modules: associate a fake client to timer context callback.
+ 1 file changed, 2 insertions(+)
+
+antirez in commit 851b2ed3:
+ Modules: associate a fake client to cluster message context callback.
+ 1 file changed, 2 insertions(+)
+
+artix in commit 148e4911:
+ Cluster Manager: clusterManagerFixOpenSlot now counts node's keys in slot if node is neither migrating nor importing.
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+Guy Korland in commit 8afca145:
+ No need to return "OK"
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Guy Korland in commit 9a278db2:
+ typo fix
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 26479036:
+ Revert "fix repeat argument issue and reduce unnessary loop times for redis-cli."
+ 1 file changed, 7 insertions(+), 12 deletions(-)
+
+Guy Korland in commit 27b7fb5a:
+ Fix few typos
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+Guy Korland in commit 233aa2d3:
+ RedisModule_HashSet call must end with NULL
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit a8494072:
+ Sentinel: document how to undo a renamed command.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit 6c8a8f2e:
+ LOLWUT: split the command from version-specific implementations.
+ 3 files changed, 297 insertions(+), 241 deletions(-)
+
+antirez in commit 5c758406:
+ Slave removal: add a few forgotten aliases for CONFIG SET.
+ 1 file changed, 10 insertions(+)
+
+antirez in commit 2da823c4:
+ LOLWUT: add Redis version in the output.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit bfcba420:
+ LOLWUT: Ness -> Nees.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit efed898a:
+ LOLWUT: Limit maximum CPU effort.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit eb0fbd71:
+ LOLWUT: change padding conditional to a more direct one.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Slobodan Mišković in commit ed08feb7:
+ Fix spelling descrive -> describe
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 2ffb4413:
+ LOLWUT: fix crash when col < 2.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 55dae693:
+ LOLWUT: fix structure typo in comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 9b3098b9:
+ LOLWUT: Fix license copyright year.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 263dbadc:
+ LOLWUT: increase the translation factor.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit a622f6c0:
+ LOLWUT: change default size to fit a normal terminal better.
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+antirez in commit 38b0d25a:
+ LOLWUT: wrap it into a proper command.
+ 4 files changed, 40 insertions(+), 15 deletions(-)
+
+antirez in commit 34ebd898:
+ LOLWUT: draw Schotter by Georg Nees.
+ 1 file changed, 47 insertions(+), 3 deletions(-)
+
+antirez in commit 46286e64:
+ LOLWUT: draw rotated squares using trivial trigonometry.
+ 1 file changed, 44 insertions(+)
+
+antirez in commit 2d4143fd:
+ LOLWUT: draw lines using Bresenham algorithm.
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+antirez in commit 3546d9ce:
+ LOLWUT: Rendering of the virtual canvas to a string.
+ 1 file changed, 78 insertions(+), 7 deletions(-)
+
+antirez in commit b404a6ce:
+ LOLWUT: show the output verbatim in redis-cli.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit e30ba94f:
+ LOLWUT: canvas structure and BSD license on top.
+ 1 file changed, 46 insertions(+)
+
+antirez in commit 9c771145:
+ LOLWUT: Emit Braille unicode according to pixel pattern.
+ 1 file changed, 23 insertions(+)
+
+Jakub Vrana in commit 4a1d6c7d:
+ Slave removal: capitalize Replica
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 72e0368a:
+ Slave removal: remove slave from integration tests descriptions.
+ 8 files changed, 36 insertions(+), 36 deletions(-)
+
+antirez in commit c7841c2b:
+ Slave removal: remove slave from top-level tests descriptions.
+ 3 files changed, 12 insertions(+), 12 deletions(-)
+
+antirez in commit 1b9b19ba:
+ Slave removal: remove slave from object.c.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 7da266e6:
+ Slave removal: remove slave from the README.
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+antirez in commit 93d803c9:
+ Slave removal: server.c logs fixed.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 89434032:
+ Slave removal: remove slave from sentinel.conf when possible.
+ 1 file changed, 18 insertions(+), 18 deletions(-)
+
+antirez in commit 7673d88d:
+ Slave removal: replace very few things in Sentinel.
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+antirez in commit f1de29b3:
+ Slave removal: scripting.c logs and other stuff fixed.
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+antirez in commit 53fe558e:
+ Slave removal: replication.c logs fixed.
+ 1 file changed, 35 insertions(+), 35 deletions(-)
+
+antirez in commit c92b02dd:
+ Slave removal: networking.c logs fixed.
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit be76ed0c:
+ Slave removal: blocked.c logs fixed.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 3fd73151:
+ Slave removal: Make obvious in redis.conf what a replica is.
+ 1 file changed, 5 insertions(+)
+
+antirez in commit a22168e4:
+ Slave removal: slave mode -> replica mode text in redis-cli.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 0e222fbe:
+ Slave removal: fix typo of replicaof.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 34a5615e:
+ Slave removal: slave -> replica in redis.conf and output buffer option.
+ 3 files changed, 132 insertions(+), 129 deletions(-)
+
+antirez in commit 1d2fcf6f:
+ Slave removal: Convert cluster.c log messages and command names.
+ 1 file changed, 12 insertions(+), 11 deletions(-)
+
+antirez in commit 2546158d:
+ Slave removal: config.c converted + config rewriting hacks.
+ 1 file changed, 117 insertions(+), 38 deletions(-)
+
+antirez in commit c0952c0d:
+ Slave removal: redis-cli --slave -> --replica.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit 1f37f1dd:
+ Slave removal: SLAVEOF -> REPLICAOF. SLAVEOF is now an alias.
+ 3 files changed, 4 insertions(+), 3 deletions(-)
+
+Amin Mesbah in commit 7928f578:
+ Use geohash limit defines in constraint check
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Jeffrey Lovitz in commit bb2bed78:
+ CLI Help text loop verifies arg count
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+youjiali1995 in commit 246980d0:
+ sentinel: fix randomized sentinelTimer.
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+youjiali1995 in commit fa7de8c4:
+ bio: fix bioWaitStepOfType.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Weiliang Li in commit 7642f9d5:
+ fix usage typo in redis-cli
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 5.0 RC5     Released Thu Sep 06 12:54:29 CEST 2018
 ================================================================================
 
