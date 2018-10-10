@@ -96,4 +96,43 @@ start_server {
         set c [llength [lindex [r xreadgroup group g1 c2 streams events >] 0 1]]
         assert {$c == 5}
     }
+
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {Consumer group last ID propagation to slave} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+
+            $master del stream
+            $master xadd stream * a 1
+            $master xadd stream * a 2
+            $master xadd stream * a 3
+            $master xgroup create stream mygroup 0
+
+            # Consume the first two items on the master
+            for {set j 0} {$j < 2} {incr j} {
+                set item [$master xreadgroup group mygroup myconsumer COUNT 1 STREAMS stream >]
+                set id [lindex $item 0 1 0 0]
+                assert {[$master xack stream mygroup $id] eq "1"}
+            }
+
+            # Turn slave into master
+            $slave slaveof no one
+            set master $slave
+
+            set item [$master xreadgroup group mygroup myconsumer COUNT 1 STREAMS stream >]
+
+            # The consumed enty should be the third
+            set myentry [lindex $item 0 1 0 1]
+            assert {$myentry eq {a 3}}
+        }
+    }
 }
