@@ -2192,7 +2192,7 @@ void xclaimCommand(client *c) {
             arraylen++;
 
             /* Propagate this change. */
-            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[3],c->argv[j],nack);
+            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
             server.dirty++;
         }
     }
