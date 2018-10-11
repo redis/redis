@@ -274,7 +274,7 @@ void lolwut5Command(client *c) {
     lwCanvas *canvas = lwDrawSchotter(cols,squares_per_row,squares_per_col);
     sds rendered = lwRenderCanvas(canvas);
     rendered = sdscat(rendered,
-        "\nGeorg nees - schotter, plotter on paper, 1968. Redis ver. ");
+        "\nGeorg Nees - schotter, plotter on paper, 1968. Redis ver. ");
     rendered = sdscat(rendered,REDIS_VERSION);
     rendered = sdscatlen(rendered,"\n",1);
     addReplyBulkSds(c,rendered);
