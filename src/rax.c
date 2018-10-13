@@ -1,6 +1,6 @@
 /* Rax -- A radix tree implementation.
  *
- * Copyright (c) 2017, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2017-2018, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,20 +51,34 @@ void *raxNotFound = (void*)"rax-not-found-pointer";
 
 void raxDebugShowNode(const char *msg, raxNode *n);
 
-/* Turn debugging messages on/off. */
-#if 0
+/* Turn debugging messages on/off by compiling with RAX_DEBUG_MSG macro on.
+ * When RAX_DEBUG_MSG is defined by default Rax operations will emit a lot
+ * of debugging info to the standard output, however you can still turn
+ * debugging on/off in order to enable it only when you suspect there is an
+ * operation causing a bug using the function raxSetDebugMsg(). */
+#ifdef RAX_DEBUG_MSG
 #define debugf(...)                                                            \
-    do {                                                                       \
+    if (raxDebugMsg) {                                                         \
         printf("%s:%s:%d:\t", __FILE__, __FUNCTION__, __LINE__);               \
         printf(__VA_ARGS__);                                                   \
         fflush(stdout);                                                        \
-    } while (0);
+    }
 
 #define debugnode(msg,n) raxDebugShowNode(msg,n)
 #else
 #define debugf(...)
 #define debugnode(msg,n)
 #endif
+
+/* By default log debug info if RAX_DEBUG_MSG is defined. */
+static int raxDebugMsg = 1;
+
+/* When debug messages are enabled, turn them on/off dynamically. By
+ * default they are enabled. Set the state to 0 to disable, and 1 to
+ * re-enable. */
+void raxSetDebugMsg(int onoff) {
+    raxDebugMsg = onoff;
+}
 
 /* ------------------------- raxStack functions --------------------------
  * The raxStack is a simple stack of pointers that is capable of switching
@@ -134,12 +148,43 @@ static inline void raxStackFree(raxStack *ts) {
  * Radix tree implementation
  * --------------------------------------------------------------------------*/
 
+/* Return the padding needed in the characters section of a node having size
+ * 'nodesize'. The padding is needed to store the child pointers to aligned
+ * addresses. Note that we add 4 to the node size because the node has a four
+ * bytes header. */
+#define raxPadding(nodesize) ((sizeof(void*)-((nodesize+4) % sizeof(void*))) & (sizeof(void*)-1))
+
+/* Return the pointer to the last child pointer in a node. For the compressed
+ * nodes this is the only child pointer. */
+#define raxNodeLastChildPtr(n) ((raxNode**) ( \
+    ((char*)(n)) + \
+    raxNodeCurrentLength(n) - \
+    sizeof(raxNode*) - \
+    (((n)->iskey && !(n)->isnull) ? sizeof(void*) : 0) \
+))
+
+/* Return the pointer to the first child pointer. */
+#define raxNodeFirstChildPtr(n) ((raxNode**) ( \
+    (n)->data + \
+    (n)->size + \
+    raxPadding((n)->size)))
+
+/* Return the current total size of the node. Note that the second line
+ * computes the padding after the string of characters, needed in order to
+ * save pointers to aligned addresses. */
+#define raxNodeCurrentLength(n) ( \
+    sizeof(raxNode)+(n)->size+ \
+    raxPadding((n)->size)+ \
+    ((n)->iscompr ? sizeof(raxNode*) : sizeof(raxNode*)*(n)->size)+ \
+    (((n)->iskey && !(n)->isnull)*sizeof(void*)) \
+)
+
 /* Allocate a new non compressed node with the specified number of children.
  * If datafiled is true, the allocation is made large enough to hold the
  * associated data pointer.
  * Returns the new node pointer. On out of memory NULL is returned. */
 raxNode *raxNewNode(size_t children, int datafield) {
-    size_t nodesize = sizeof(raxNode)+children+
+    size_t nodesize = sizeof(raxNode)+children+raxPadding(children)+
                       sizeof(raxNode*)*children;
     if (datafield) nodesize += sizeof(void*);
     raxNode *node = rax_malloc(nodesize);
@@ -166,13 +211,6 @@ rax *raxNew(void) {
         return rax;
     }
 }
-
-/* Return the current total size of the node. */
-#define raxNodeCurrentLength(n) ( \
-    sizeof(raxNode)+(n)->size+ \
-    ((n)->iscompr ? sizeof(raxNode*) : sizeof(raxNode*)*(n)->size)+ \
-    (((n)->iskey && !(n)->isnull)*sizeof(void*)) \
-)
 
 /* realloc the node to make room for auxiliary data in order
  * to store an item in that node. On out of memory NULL is returned. */
@@ -216,18 +254,17 @@ void *raxGetData(raxNode *n) {
 raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode ***parentlink) {
     assert(n->iscompr == 0);
 
-    size_t curlen = sizeof(raxNode)+
-                    n->size+
-                    sizeof(raxNode*)*n->size;
-    size_t newlen;
+    size_t curlen = raxNodeCurrentLength(n);
+    n->size++;
+    size_t newlen = raxNodeCurrentLength(n);
+    n->size--; /* For now restore the orignal size. We'll update it only on
+                  success at the end. */
 
     /* Alloc the new child we will link to 'n'. */
     raxNode *child = raxNewNode(0,0);
     if (child == NULL) return NULL;
 
     /* Make space in the original node. */
-    if (n->iskey) curlen += sizeof(void*);
-    newlen = curlen+sizeof(raxNode*)+1; /* Add 1 char and 1 pointer. */
     raxNode *newn = rax_realloc(n,newlen);
     if (newn == NULL) {
         rax_free(child);
@@ -235,14 +272,34 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
     }
     n = newn;
 
-    /* After the reallocation, we have 5/9 (depending on the system
-     * pointer size) bytes at the end, that is, the additional char
-     * in the 'data' section, plus one pointer to the new child:
+    /* After the reallocation, we have up to 8/16 (depending on the system
+     * pointer size, and the required node padding) bytes at the end, that is,
+     * the additional char in the 'data' section, plus one pointer to the new
+     * child, plus the padding needed in order to store addresses into aligned
+     * locations.
      *
-     * [numc][abx][ap][bp][xp]|auxp|.....
+     * So if we start with the following node, having "abde" edges.
+     *
+     * Note:
+     * - We assume 4 bytes pointer for simplicity.
+     * - Each space below corresponds to one byte
+     *
+     * [HDR*][abde][Aptr][Bptr][Dptr][Eptr]|AUXP|
+     *
+     * After the reallocation we need: 1 byte for the new edge character
+     * plus 4 bytes for a new child pointer (assuming 32 bit machine).
+     * However after adding 1 byte to the edge char, the header + the edge
+     * characters are no longer aligned, so we also need 3 bytes of padding.
+     * In total the reallocation will add 1+4+3 bytes = 8 bytes:
+     *
+     * (Blank bytes are represented by ".")
+     *
+     * [HDR*][abde][Aptr][Bptr][Dptr][Eptr]|AUXP|[....][....]
      *
      * Let's find where to insert the new child in order to make sure
-     * it is inserted in-place lexicographically. */
+     * it is inserted in-place lexicographically. Assuming we are adding
+     * a child "c" in our case pos will be = 2 after the end of the following
+     * loop. */
     int pos;
     for (pos = 0; pos < n->size; pos++) {
         if (n->data[pos] > c) break;
@@ -252,54 +309,80 @@ raxNode *raxAddChild(raxNode *n, unsigned char c, raxNode **childptr, raxNode **
      * so that we can mess with the other data without overwriting it.
      * We will obtain something like that:
      *
-     * [numc][abx][ap][bp][xp].....|auxp| */
-    unsigned char *src;
+     * [HDR*][abde][Aptr][Bptr][Dptr][Eptr][....][....]|AUXP|
+     */
+    unsigned char *src, *dst;
     if (n->iskey && !n->isnull) {
-        src = n->data+n->size+sizeof(raxNode*)*n->size;
-        memmove(src+1+sizeof(raxNode*),src,sizeof(void*));
+        src = ((unsigned char*)n+curlen-sizeof(void*));
+        dst = ((unsigned char*)n+newlen-sizeof(void*));
+        memmove(dst,src,sizeof(void*));
     }
 
-    /* Now imagine we are adding a node with edge 'c'. The insertion
-     * point is between 'b' and 'x', so the 'pos' variable value is
-     * To start, move all the child pointers after the insertion point
-     * of 1+sizeof(pointer) bytes on the right, to obtain:
+    /* Compute the "shift", that is, how many bytes we need to move the
+     * pointers section forward because of the addition of the new child
+     * byte in the string section. Note that if we had no padding, that
+     * would be always "1", since we are adding a single byte in the string
+     * section of the node (where now there is "abde" basically).
      *
-     * [numc][abx][ap][bp].....[xp]|auxp| */
-    src = n->data+n->size+sizeof(raxNode*)*pos;
-    memmove(src+1+sizeof(raxNode*),src,sizeof(raxNode*)*(n->size-pos));
+     * However we have padding, so it could be zero, or up to 8.
+     *
+     * Another way to think at the shift is, how many bytes we need to
+     * move child pointers forward *other than* the obvious sizeof(void*)
+     * needed for the additional pointer itself. */
+    size_t shift = newlen - curlen - sizeof(void*);
+
+    /* We said we are adding a node with edge 'c'. The insertion
+     * point is between 'b' and 'd', so the 'pos' variable value is
+     * the index of the first child pointer that we need to move forward
+     * to make space for our new pointer.
+     *
+     * To start, move all the child pointers after the insertion point
+     * of shift+sizeof(pointer) bytes on the right, to obtain:
+     *
+     * [HDR*][abde][Aptr][Bptr][....][....][Dptr][Eptr]|AUXP|
+     */
+    src = n->data+n->size+
+          raxPadding(n->size)+
+          sizeof(raxNode*)*pos;
+    memmove(src+shift+sizeof(raxNode*),src,sizeof(raxNode*)*(n->size-pos));
+
+    /* Move the pointers to the left of the insertion position as well. Often
+     * we don't need to do anything if there was already some padding to use. In
+     * that case the final destination of the pointers will be the same, however
+     * in our example there was no pre-existing padding, so we added one byte
+     * plus thre bytes of padding. After the next memmove() things will look
+     * like thata:
+     *
+     * [HDR*][abde][....][Aptr][Bptr][....][Dptr][Eptr]|AUXP|
+     */
+    if (shift) {
+        src = (unsigned char*) raxNodeFirstChildPtr(n);
+        memmove(src+shift,src,sizeof(raxNode*)*pos);
+    }
 
     /* Now make the space for the additional char in the data section,
-     * but also move the pointers before the insertion point in the right
-     * by 1 byte, in order to obtain the following:
+     * but also move the pointers before the insertion point to the right
+     * by shift bytes, in order to obtain the following:
      *
-     * [numc][ab.x][ap][bp]....[xp]|auxp| */
+     * [HDR*][ab.d][e...][Aptr][Bptr][....][Dptr][Eptr]|AUXP|
+     */
     src = n->data+pos;
-    memmove(src+1,src,n->size-pos+sizeof(raxNode*)*pos);
+    memmove(src+1,src,n->size-pos);
 
     /* We can now set the character and its child node pointer to get:
      *
-     * [numc][abcx][ap][bp][cp]....|auxp|
-     * [numc][abcx][ap][bp][cp][xp]|auxp| */
+     * [HDR*][abcd][e...][Aptr][Bptr][....][Dptr][Eptr]|AUXP|
+     * [HDR*][abcd][e...][Aptr][Bptr][Cptr][Dptr][Eptr]|AUXP|
+     */
     n->data[pos] = c;
     n->size++;
-    raxNode **childfield = (raxNode**)(n->data+n->size+sizeof(raxNode*)*pos);
+    src = (unsigned char*) raxNodeFirstChildPtr(n);
+    raxNode **childfield = (raxNode**)(src+sizeof(raxNode*)*pos);
     memcpy(childfield,&child,sizeof(child));
     *childptr = child;
     *parentlink = childfield;
     return n;
 }
-
-/* Return the pointer to the last child pointer in a node. For the compressed
- * nodes this is the only child pointer. */
-#define raxNodeLastChildPtr(n) ((raxNode**) ( \
-    ((char*)(n)) + \
-    raxNodeCurrentLength(n) - \
-    sizeof(raxNode*) - \
-    (((n)->iskey && !(n)->isnull) ? sizeof(void*) : 0) \
-))
-
-/* Return the pointer to the first child pointer. */
-#define raxNodeFirstChildPtr(n) ((raxNode**)((n)->data+(n)->size))
 
 /* Turn the node 'n', that must be a node without any children, into a
  * compressed node representing a set of nodes linked one after the other
@@ -321,7 +404,7 @@ raxNode *raxCompressNode(raxNode *n, unsigned char *s, size_t len, raxNode **chi
     if (*child == NULL) return NULL;
 
     /* Make space in the parent node. */
-    newsize = sizeof(raxNode)+len+sizeof(raxNode*);
+    newsize = sizeof(raxNode)+len+raxPadding(len)+sizeof(raxNode*);
     if (n->iskey) {
         data = raxGetData(n); /* To restore it later. */
         if (!n->isnull) newsize += sizeof(void*);
@@ -619,13 +702,14 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         raxNode *postfix = NULL;
 
         if (trimmedlen) {
-            nodesize = sizeof(raxNode)+trimmedlen+sizeof(raxNode*);
+            nodesize = sizeof(raxNode)+trimmedlen+raxPadding(trimmedlen)+
+                       sizeof(raxNode*);
             if (h->iskey && !h->isnull) nodesize += sizeof(void*);
             trimmed = rax_malloc(nodesize);
         }
 
         if (postfixlen) {
-            nodesize = sizeof(raxNode)+postfixlen+
+            nodesize = sizeof(raxNode)+postfixlen+raxPadding(postfixlen)+
                        sizeof(raxNode*);
             postfix = rax_malloc(nodesize);
         }
@@ -701,11 +785,12 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
 
         /* Allocate postfix & trimmed nodes ASAP to fail for OOM gracefully. */
         size_t postfixlen = h->size - j;
-        size_t nodesize = sizeof(raxNode)+postfixlen+sizeof(raxNode*);
+        size_t nodesize = sizeof(raxNode)+postfixlen+raxPadding(postfixlen)+
+                          sizeof(raxNode*);
         if (data != NULL) nodesize += sizeof(void*);
         raxNode *postfix = rax_malloc(nodesize);
 
-        nodesize = sizeof(raxNode)+j+sizeof(raxNode*);
+        nodesize = sizeof(raxNode)+j+raxPadding(j)+sizeof(raxNode*);
         if (h->iskey && !h->isnull) nodesize += sizeof(void*);
         raxNode *trimmed = rax_malloc(nodesize);
 
@@ -875,7 +960,7 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
         return parent;
     }
 
-    /* Otherwise we need to scan for the children pointer and memmove()
+    /* Otherwise we need to scan for the child pointer and memmove()
      * accordingly.
      *
      * 1. To start we seek the first element in both the children
@@ -900,13 +985,21 @@ raxNode *raxRemoveChild(raxNode *parent, raxNode *child) {
     debugf("raxRemoveChild tail len: %d\n", taillen);
     memmove(e,e+1,taillen);
 
-    /* Since we have one data byte less, also child pointers start one byte
-     * before now. */
-    memmove(((char*)cp)-1,cp,(parent->size-taillen-1)*sizeof(raxNode**));
+    /* Compute the shift, that is the amount of bytes we should move our
+     * child pointers to the left, since the removal of one edge character
+     * and the corresponding padding change, may change the layout.
+     * We just check if in the old version of the node there was at the
+     * end just a single byte and all padding: in that case removing one char
+     * will remove a whole sizeof(void*) word. */
+    size_t shift = ((parent->size+4) % sizeof(void*)) == 1 ? sizeof(void*) : 0;
 
-    /* Move the remaining "tail" pointer at the right position as well. */
+    /* Move the children pointers before the deletion point. */
+    if (shift)
+        memmove(((char*)cp)-shift,cp,(parent->size-taillen-1)*sizeof(raxNode**));
+
+    /* Move the remaining "tail" pointers at the right position as well. */
     size_t valuelen = (parent->iskey && !parent->isnull) ? sizeof(void*) : 0;
-    memmove(((char*)c)-1,c+1,taillen*sizeof(raxNode**)+valuelen);
+    memmove(((char*)c)-shift,c+1,taillen*sizeof(raxNode**)+valuelen);
 
     /* 4. Update size. */
     parent->size--;
@@ -1072,7 +1165,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
         if (nodes > 1) {
             /* If we can compress, create the new node and populate it. */
             size_t nodesize =
-                sizeof(raxNode)+comprsize+sizeof(raxNode*);
+                sizeof(raxNode)+comprsize+raxPadding(comprsize)+sizeof(raxNode*);
             raxNode *new = rax_malloc(nodesize);
             /* An out of memory here just means we cannot optimize this
              * node, but the tree is left in a consistent state. */
@@ -1793,6 +1886,7 @@ void raxShow(rax *rax) {
 
 /* Used by debugnode() macro to show info about a given node. */
 void raxDebugShowNode(const char *msg, raxNode *n) {
+    if (raxDebugMsg == 0) return;
     printf("%s: %p [%.*s] key:%d size:%d children:",
         msg, (void*)n, (int)n->size, (char*)n->data, n->iskey, n->size);
     int numcld = n->iscompr ? 1 : n->size;
@@ -1807,4 +1901,43 @@ void raxDebugShowNode(const char *msg, raxNode *n) {
     fflush(stdout);
 }
 
+/* Touch all the nodes of a tree returning a check sum. This is useful
+ * in order to make Valgrind detect if there is something wrong while
+ * reading the data structure.
+ *
+ * This function was used in order to identify Rax bugs after a big refactoring
+ * using this technique:
+ *
+ * 1. The rax-test is executed using Valgrind, adding a printf() so that for
+ *    the fuzz tester we see what iteration in the loop we are in.
+ * 2. After every modification of the radix tree made by the fuzz tester
+ *    in rax-test.c, we add a call to raxTouch().
+ * 3. Now as soon as an operation will corrupt the tree, raxTouch() will
+ *    detect it (via Valgrind) immediately. We can add more calls to narrow
+ *    the state.
+ * 4. At this point a good idea is to enable Rax debugging messages immediately
+ *    before the moment the tree is corrupted, to see what happens.
+ */
+unsigned long raxTouch(raxNode *n) {
+    debugf("Touching %p\n", (void*)n);
+    unsigned long sum = 0;
+    if (n->iskey) {
+        sum += (unsigned long)raxGetData(n);
+    }
 
+    int numchildren = n->iscompr ? 1 : n->size;
+    raxNode **cp = raxNodeFirstChildPtr(n);
+    int count = 0;
+    for (int i = 0; i < numchildren; i++) {
+        if (numchildren > 1) {
+            sum += (long)n->data[i];
+        }
+        raxNode *child;
+        memcpy(&child,cp,sizeof(child));
+        if (child == (void*)0x65d1760) count++;
+        if (count > 1) exit(1);
+        sum += raxTouch(child);
+        cp++;
+    }
+    return sum;
+}
