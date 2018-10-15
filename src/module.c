@@ -2675,15 +2675,19 @@ fmterr:
 /* Exported API to call any Redis command from modules.
  *
  * * **cmdname**: The Redis command to call.
- * * **fmt**: A format specifier for the command's arguments. Valid format
- *   specifications are:
+ * * **fmt**: A format specifier string for the command's arguments. Each
+ *   of the arguments should be specified by a valid type specification:
+ *   b    The argument is a buffer and is immediately followed by another
+ *        argument that is the buffer's length.
+ *   c    The argument is a pointer to a plain C string (null-terminated).
+ *   l    The argument is long long integer.
+ *   s    The argument is a RedisModuleString.
+ *   v    The argument(s) is a vector of RedisModuleString.
  * 
- *   c
- *   s
- *   b
- *   l
- *   v
- *   
+ *   The format specifier can also include flags. The only valid flag is:
+ *   !    Sends the Redis command and its arguments to replicas.
+ * * **...**: The actual arguments to the Redis command.
+ * 
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
  *
