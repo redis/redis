@@ -737,7 +737,12 @@ static int cliSelect(void) {
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
         int result = REDIS_OK;
-        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
+        if (reply->type == REDIS_REPLY_ERROR) {
+            result = REDIS_ERR;
+            // log error message and reset config.dbnum to zero
+            fprintf(stderr, "%s\n", reply->str);
+            config.dbnum = 0;
+        }
         freeReplyObject(reply);
         return result;
     }
