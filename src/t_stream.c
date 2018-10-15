@@ -2134,7 +2134,6 @@ void xclaimCommand(client *c) {
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
     void *arraylenptr = addDeferredMultiBulkLength(c);
     size_t arraylen = 0;
-    long long dirty = server.dirty;
     for (int j = 5; j <= last_id_arg; j++) {
         streamID id;
         unsigned char buf[sizeof(streamID)];
@@ -2199,10 +2198,11 @@ void xclaimCommand(client *c) {
 
             /* Propagate this change. */
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
+            propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
             server.dirty++;
         }
     }
-    if (server.dirty == dirty && propagate_last_id) {
+    if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
     }
