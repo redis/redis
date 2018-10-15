@@ -4221,6 +4221,7 @@ typedef struct RedisModuleTimer {
     RedisModule *module;                /* Module reference. */
     RedisModuleTimerProc callback;      /* The callback to invoke on expire. */
     void *data;                         /* Private data for the callback. */
+    int dbid;                           /* Database number selected by the original client. */
 } RedisModuleTimer;
 
 /* This is the timer handler that is called by the main event loop. We schedule
@@ -4247,7 +4248,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
 
             ctx.module = timer->module;
             ctx.client = moduleFreeContextReusedClient;
-            selectDb(ctx.client, 0);
+            selectDb(ctx.client, timer->dbid);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
@@ -4272,6 +4273,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->module = ctx->module;
     timer->callback = callback;
     timer->data = data;
+    timer->dbid = ctx->client->db->id;
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
