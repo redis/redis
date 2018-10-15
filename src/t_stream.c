@@ -896,7 +896,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamIterator si;
     int64_t numfields;
     streamID id;
-    int lastid_updated = 0;
+    int propagate_last_id = 0;
 
     /* If a group was passed, we check if the request is about messages
      * never delivered so far (normally this happens when ">" ID is passed).
@@ -918,7 +918,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
             group->last_id = id;
-            lastid_updated = 1;
+            propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -983,7 +983,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 decrRefCount(idarg);
             }
         } else {
-            if (lastid_updated)
+            if (propagate_last_id)
                 streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
         }
 
@@ -2076,7 +2076,7 @@ void xclaimCommand(client *c) {
      * are trailing options. */
     time_t now = mstime();
     streamID last_id = {0,0};
-    int lastid_updated = 0;
+    int propagate_last_id = 0;
     for (; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
@@ -2111,7 +2111,7 @@ void xclaimCommand(client *c) {
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
         group->last_id = last_id;
-        lastid_updated = 1;
+        propagate_last_id = 1;
     }
 
     if (deliverytime != -1) {
@@ -2202,7 +2202,7 @@ void xclaimCommand(client *c) {
             server.dirty++;
         }
     }
-    if (server.dirty == dirty && lastid_updated) {
+    if (server.dirty == dirty && propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
     }
