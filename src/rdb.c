@@ -1073,10 +1073,10 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
     int aof_preamble = (flags & RDB_SAVE_AOF_PREAMBLE) != 0;
 
     /* Add a few fields about the state when the RDB was created. */
-    if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
-    if (rdbSaveAuxFieldStrInt(rdb,"used-mem",zmalloc_used_memory()) == -1) return -1;
+    if (rdbSaveAuxFieldStrStr(rdb,"%redis-ver",REDIS_VERSION) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"%redis-bits",redis_bits) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"%ctime",time(NULL)) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"%used-mem",zmalloc_used_memory()) == -1) return -1;
 
     /* Handle saving options that generate aux fields. */
     if (rsi) {
@@ -1087,7 +1087,7 @@ int rdbSaveInfoAuxFields(rio *rdb, int flags, rdbSaveInfo *rsi) {
         if (rdbSaveAuxFieldStrInt(rdb,"repl-offset",server.master_repl_offset)
             == -1) return -1;
     }
-    if (rdbSaveAuxFieldStrInt(rdb,"aof-preamble",aof_preamble) == -1) return -1;
+    if (rdbSaveAuxFieldStrInt(rdb,"%aof-preamble",aof_preamble) == -1) return -1;
     return 1;
 }
 
@@ -1942,7 +1942,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                  * information fields and are logged at startup with a log
                  * level of NOTICE. */
                 serverLog(LL_NOTICE,"RDB '%s': %s",
-                    (char*)auxkey->ptr,
+                    ((char*)auxkey->ptr)+1,
                     (char*)auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"repl-stream-db")) {
                 if (rsi) rsi->repl_stream_db = atoi(auxval->ptr);
