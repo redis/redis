@@ -2075,6 +2075,8 @@ void xclaimCommand(client *c) {
     /* If we stopped because some IDs cannot be parsed, perhaps they
      * are trailing options. */
     time_t now = mstime();
+    streamID last_id = {0,0};
+    int lastid_updated = 0;
     for (; j < c->argc; j++) {
         int moreargs = (c->argc-1) - j; /* Number of additional arguments. */
         char *opt = c->argv[j]->ptr;
@@ -2100,16 +2102,16 @@ void xclaimCommand(client *c) {
                 != C_OK) return;
         } else if (!strcasecmp(opt,"LASTID") && moreargs) {
             j++;
-            streamID id;
-            if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
-            /* Technically it could be more correct to update that only after
-             * checking for syntax errors, but this option is only used by
-             * the replication command that outputs correct syntax. */
-            if (streamCompareID(&id,&group->last_id) > 0) group->last_id = id;
+            if (streamParseStrictIDOrReply(c,c->argv[j],&last_id,0) != C_OK) return;
         } else {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             return;
         }
+    }
+
+    if (streamCompareID(&last_id,&group->last_id) > 0) {
+        group->last_id = last_id;
+        lastid_updated = 1;
     }
 
     if (deliverytime != -1) {
@@ -2132,10 +2134,12 @@ void xclaimCommand(client *c) {
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr,1);
     void *arraylenptr = addDeferredMultiBulkLength(c);
     size_t arraylen = 0;
+    long long dirty = server.dirty;
     for (int j = 5; j <= last_id_arg; j++) {
         streamID id;
         unsigned char buf[sizeof(streamID)];
-        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK) return;
+        if (streamParseStrictIDOrReply(c,c->argv[j],&id,0) != C_OK)
+            serverPanic("StreamID invalid after check. Should not be possible.");
         streamEncodeID(buf,&id);
 
         /* Lookup the ID in the group PEL. */
@@ -2165,8 +2169,10 @@ void xclaimCommand(client *c) {
 
         if (nack != raxNotFound) {
             /* We need to check if the minimum idle time requested
-             * by the caller is satisfied by this entry. */
-            if (minidle) {
+             * by the caller is satisfied by this entry.
+             * Note that if nack->consumer is NULL, means the NACK
+             * is created by FORCE, we should ignore minidle. */
+            if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
             }
@@ -2192,9 +2198,13 @@ void xclaimCommand(client *c) {
             arraylen++;
 
             /* Propagate this change. */
-            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[3],c->argv[j],nack);
+            streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],c->argv[j],nack);
             server.dirty++;
         }
+    }
+    if (server.dirty == dirty && lastid_updated) {
+        streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
+        server.dirty++;
     }
     setDeferredMultiBulkLength(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
