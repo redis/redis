@@ -2169,8 +2169,10 @@ void xclaimCommand(client *c) {
         if (nack != raxNotFound) {
             /* We need to check if the minimum idle time requested
              * by the caller is satisfied by this entry.
-             * Note that if nack->consumer is NULL, means the NACK
-             * is created by FORCE, we should ignore minidle. */
+             *
+             * Note that the nack could be created by FORCE, in this
+             * case there was no pre-existing entry and minidle should
+             * be ignored, but in that case nick->consumer is NULL. */
             if (nack->consumer && minidle) {
                 mstime_t this_idle = now - nack->delivery_time;
                 if (this_idle < minidle) continue;
