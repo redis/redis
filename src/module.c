@@ -2673,6 +2673,17 @@ fmterr:
 }
 
 /* Exported API to call any Redis command from modules.
+ *
+ * * **cmdname**: The Redis command to call.
+ * * **fmt**: A format specifier for the command's arguments. Valid format
+ *   specifications are:
+ * 
+ *   c
+ *   s
+ *   b
+ *   l
+ *   v
+ *   
  * On success a RedisModuleCallReply object is returned, otherwise
  * NULL is returned and errno is set to the following values:
  *
