@@ -313,6 +313,7 @@ void msetGenericCommand(client *c, int nx) {
         for (j = 1; j < c->argc; j += 2) {
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
                 busykeys++;
+                break;
             }
         }
         if (busykeys) {
