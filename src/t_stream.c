@@ -1775,73 +1775,23 @@ NULL
     }
 }
 
-/* XSTREAM CREATE <key> <id or *>
- * XSTREAM SETID <key> <id or $> */
-void xstreamCommand(client *c) {
-    const char *help[] = {
-"CREATE <key> <id or *>  -- Create a new empty stream.",
-"SETID  <key> <id or $>  -- Set the current stream ID.",
-"HELP                    -- Prints this help.",
-NULL
-    };
-    stream *s = NULL;
-    char *opt = c->argv[1]->ptr; /* Subcommand name. */
+/* Set the internal "last ID" of a stream. */
+void xsetidCommand(client *c) {
+    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
+    if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
 
-    /* Dispatch the different subcommands. */
-    if (!strcasecmp(opt,"CREATE") && c->argc == 4) {
-        robj *o = lookupKeyWrite(c->db,c->argv[2]);
-        if (o) {
-            addReplySds(c,
-                sdsnew("-BUSYSTREAM Stream already exists\r\n"));
-            return;
-        } else {
-            streamID id;
-            if (!strcmp(c->argv[3]->ptr,"*")) {
-                id.ms = mstime();
-                id.seq = 0;
-            } else if (streamParseStrictIDOrReply(c,c->argv[3],&id,0) != C_OK) {
-                return;
-            }
-
-            o = createStreamObject();
-            s = o->ptr;
-            s->last_id = id;
-            dbAdd(c->db,c->argv[2],o);
-
-            robj *idarg = createObjectFromStreamID(&id);
-            rewriteClientCommandArgument(c,3,idarg);
-            decrRefCount(idarg);
-
-            addReply(c,shared.ok);
-            server.dirty++;
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xstream-create",
-                                c->argv[2],c->db->id);
-        }
-    } else if (!strcasecmp(opt,"SETID") && c->argc == 4) {
-        robj *o = lookupKeyWriteOrReply(c,c->argv[2],shared.nokeyerr);
-        if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
-        s = o->ptr;
-        streamID id;
-        if (!strcmp(c->argv[3]->ptr,"$")) {
-            id = s->last_id;
-        } else if (streamParseStrictIDOrReply(c,c->argv[3],&id,0) != C_OK) {
-            return;
-        }
-        if (streamCompareID(&id,&s->last_id) < 0) {
-            addReplyError(c,"The ID specified in XSTREAM SETID is smaller than the "
-                            "target stream top item");
-            return;
-        }
-        s->last_id = id;
-        addReply(c,shared.ok);
-        server.dirty++;
-        notifyKeyspaceEvent(NOTIFY_STREAM,"xstream-setid",
-                            c->argv[2],c->db->id);
-    } else if (!strcasecmp(opt,"HELP")) {
-        addReplyHelp(c, help);
-    } else {
-        addReplySubcommandSyntaxError(c);
+    stream *s = o->ptr;
+    streamID id;
+    if (streamParseStrictIDOrReply(c,c->argv[3],&id,0) != C_OK) return;
+    if (streamCompareID(&id,&s->last_id) < 0) {
+        addReplyError(c,"The ID specified in XSETID is smaller than the "
+                        "target stream top item");
+        return;
     }
+    s->last_id = id;
+    addReply(c,shared.ok);
+    server.dirty++;
+    notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
