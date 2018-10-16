@@ -1782,11 +1782,24 @@ void xsetidCommand(client *c) {
 
     stream *s = o->ptr;
     streamID id;
-    if (streamParseStrictIDOrReply(c,c->argv[3],&id,0) != C_OK) return;
-    if (streamCompareID(&id,&s->last_id) < 0) {
-        addReplyError(c,"The ID specified in XSETID is smaller than the "
-                        "target stream top item");
-        return;
+    if (streamParseStrictIDOrReply(c,c->argv[2],&id,0) != C_OK) return;
+
+    /* If the stream has at least one item, we want to check that the user
+     * is setting a last ID that is equal or greater than the current top
+     * item, otherwise the fundamental ID monotonicity assumption is violated. */
+    if (s->length > 0) {
+        streamID maxid;
+        streamIterator si;
+        streamIteratorStart(&si,s,NULL,NULL,1);
+        int64_t numfields;
+        streamIteratorGetID(&si,&maxid,&numfields);
+        streamIteratorStop(&si);
+
+        if (streamCompareID(&id,&maxid) < 0) {
+            addReplyError(c,"The ID specified in XSETID is smaller than the "
+                            "target stream top item");
+            return;
+        }
     }
     s->last_id = id;
     addReply(c,shared.ok);
