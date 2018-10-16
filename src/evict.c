@@ -364,7 +364,7 @@ size_t freeMemoryGetNotCountedMemory(void) {
         }
     }
     if (server.aof_state != AOF_OFF) {
-        overhead += sdslen(server.aof_buf)+aofRewriteBufferSize();
+        overhead += sdsalloc(server.aof_buf)+aofRewriteBufferSize();
     }
     return overhead;
 }
