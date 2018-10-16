@@ -1167,7 +1167,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         if (rioWriteBulkObject(r,key) == 0) return 0;
         if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
         if (rioWriteBulkString(r,"0",1) == 0) return 0;
-        if (rioWriteBulkString(r,"*",1) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
         if (rioWriteBulkString(r,"x",1) == 0) return 0;
         if (rioWriteBulkString(r,"y",1) == 0) return 0;
     }
