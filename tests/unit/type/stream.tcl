@@ -363,3 +363,65 @@ start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 
         assert {[r xlen mystream] == 90}
     }
 }
+
+start_server {tags {"xstream command"}} {
+    test {XSTREAM can CREATE an empty stream} {
+        r XSTREAM CREATE mystream *
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {XSTREAM cannot CREATE on an busy stream} {
+        catch {r XSTREAM CREATE mystream *} err
+        set _ $err
+    } {BUSY*}
+
+    test {XSTREAM can CREATE an empty stream with specific ID} {
+        r del mystream
+        r XSTREAM CREATE mystream "100-100"
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "100-100"}
+    }
+
+    test {XSTREAM can SETID with $} {
+        r XSTREAM SETID mystream $
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "100-100"}
+    }
+
+    test {XSTREAM can SETID with specific ID} {
+        r XSTREAM SETID mystream "200-0"
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
+    }
+
+    test {XSTREAM cannot SETID with smaller ID} {
+        catch {r XSTREAM SETID mystream "0-0"} err
+        set _ $err
+    } {ERR*smaller*}
+
+    test {XSTREAM cannot SETID on non-existent key} {
+        catch {r XSTREAM SETID stream $} err
+        set _ $err
+    } {ERR no such key}
+}
+
+start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    test {Empty stream can be rewrite into AOF correctly} {
+        r XSTREAM CREATE mystream 0
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {Stream can be rewrite into AOF correctly after XDEL lastid} {
+        r XADD mystream 1-1 a b
+        r XADD mystream 2-2 a b
+        assert {[dict get [r xinfo stream mystream] length] == 2}
+        r XDEL mystream 2-2
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 1}
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}
