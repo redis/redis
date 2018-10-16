@@ -375,14 +375,14 @@ start_server {tags {"xsetid"}} {
         assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
     }
 
-    test {XSTREAM cannot SETID with smaller ID} {
+    test {XSETID cannot SETID with smaller ID} {
         r XADD mystream * a b
         catch {r XSETID mystream "1-1"} err
         r XADD mystream MAXLEN 0 * a b
         set err
     } {ERR*smaller*}
 
-    test {XSTREAM cannot SETID on non-existent key} {
+    test {XSETID cannot SETID on non-existent key} {
         catch {r XSETID stream 1-1} err
         set _ $err
     } {ERR no such key}
