@@ -39,8 +39,8 @@ To start a quick recap of what's new in Redis 5:
 15. We no longer use the "slave" word if not for API backward compatibility.
 16. Differnet optimizations in the networking layer.
 17. Lua improvements:
-    - Better propagation of Lua scripts to slaves / AOF.
-    - Lua scripts can now timeout and get in -BUSY state in the slave as well.
+    - Better propagation of Lua scripts to replicas / AOF.
+    - Lua scripts can now timeout and get in -BUSY state in the replica as well.
 18. Dynamic HZ to balance idle CPU usage with responsiveness.
 19. The Redis core was refactored and improved in many ways.
 
