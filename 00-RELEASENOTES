@@ -12,6 +12,209 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.0     Released Wed Oct 17 13:28:26 CEST 2018
+================================================================================
+
+Upgrade urgency CRITICAL: Several fixes to streams AOF and replication.
+
+Hi all and welcome to the first stable release of Redis 5! \o/
+
+To start a quick recap of what's new in Redis 5:
+
+1. The new Stream data type. https://redis.io/topics/streams-intro
+2. New Redis modules APIs: Timers, Cluster and Dictionary APIs.
+3. RDB now store LFU and LRU information.
+4. The cluster manager was ported from Ruby (redis-trib.rb) to C code
+   inside redis-cli. Check `redis-cli --cluster help` for more info.
+5. New sorted set commands: ZPOPMIN/MAX and blocking variants.
+6. Active defragmentation version 2.
+7. Improvemenets in HyperLogLog implementations.
+8. Better memory reporting capabilities.
+9. Many commands with sub-commands now have an HELP subcommand.
+10. Better performances when clients connect and disconnect often.
+11. Many bug fixes and other random improvements.
+12. Jemalloc was upgraded to version 5.1
+13. CLIENT UNBLOCK and CLIENT ID.
+14. The LOLWUT command was added. http://antirez.com/news/123
+15. We no longer use the "slave" word if not for API backward compatibility.
+16. Differnet optimizations in the networking layer.
+17. Lua improvements:
+    - Better propagation of Lua scripts to slaves / AOF.
+    - Lua scripts can now timeout and get in -BUSY state in the slave as well.
+18. Dynamic HZ to balance idle CPU usage with responsiveness.
+19. The Redis core was refactored and improved in many ways.
+
+However the list above really does not do justice to the changes of Redis 5
+since the core was improved in many ways during the development of the new
+version. However certain changes were back ported into Redis 4 once they were
+sensed as safe, because many improvements were hard to distinguish from fixes.
+
+The most important user facing improvement is without doubts the introduction
+of the new general purpose data type after years: the streams.
+
+Note that we worked to improve and fix streams till a few hours ago, so while
+we are not aware of critical bugs in this release, surely there is to handle it
+with some care for the first weeks. Bug reporting will be highly appreciated and
+we are ready to work immediately to release 5.0.1 once there is enough important
+stuff to justify a new release (probably soon).
+
+People not using the streams can have probably a better production-ready
+experience with Redis 5, also because many internals are shared with Redis 4
+so the jump is not as big as it was between 3.2 and 4 in terms of how things
+internally work.
+
+Well, many thanks to the Redis community and the developers that made
+this release possible, contributing bug reports, patches, new features, working
+on the clients, sometimes debugging problems for days. Also thank to everybody
+that adopted Redis for their use cases making things work for users worldwide.
+
+The list of commits in this release follows.
+
+Cheers,
+Salvatore
+
+antirez in commit bcc0916d:
+ Fix conditional in XGROUP.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1b2f23f3:
+ Update help.h for redis-cli.
+ 1 file changed, 57 insertions(+), 7 deletions(-)
+
+antirez in commit de0ae56c:
+ Tests for XGROUP CREATE MKSTREAM.
+ 1 file changed, 11 insertions(+)
+
+antirez in commit 56c3dfa1:
+ Fix XGROUP CREATE MKSTREAM handling of .
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+antirez in commit 2687f228:
+ Process MKSTREAM option of XGROUP CREATE at a later time.
+ 1 file changed, 28 insertions(+), 17 deletions(-)
+
+zhaozhao.zz in commit cfbaf8f1:
+ Scripting & Streams: some commands need right flags
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+antirez in commit 4e4099b9:
+ XGROUP CREATE: MKSTREAM option for automatic stream creation.
+ 1 file changed, 29 insertions(+), 5 deletions(-)
+
+zhaozhao.zz in commit 6dd4d864:
+ Streams: Tests modified XSTREAM -> XSETID
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit 3aff0e8c:
+ Streams: rewrite empty streams with certain lastid
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 880b563e:
+ Tests modified to use XADD MAXLEN 0 + XSETID.
+ 1 file changed, 12 insertions(+), 26 deletions(-)
+
+antirez in commit 83c87835:
+ Streams: rewrite empty streams with XADD MAXLEN 0. Use XSETID.
+ 1 file changed, 18 insertions(+), 12 deletions(-)
+
+antirez in commit fd22e3ac:
+ XSETID: accept IDs based on last entry.
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+antirez in commit dfab3cba:
+ Streams: XSTREAM SETID -> XSETID.
+ 3 files changed, 17 insertions(+), 67 deletions(-)
+
+zhaozhao.zz in commit a3fb28ed:
+ Streams: rewrite id in XSTREAM CREATE *
+ 1 file changed, 4 insertions(+)
+
+zhaozhao.zz in commit f4b4db13:
+ Streams: add tests for aof rewrite
+ 1 file changed, 23 insertions(+)
+
+zhaozhao.zz in commit d22f1ef0:
+ Stream & AOF: rewrite stream in correct way
+ 1 file changed, 32 insertions(+), 16 deletions(-)
+
+zhaozhao.zz in commit 6455274d:
+ Streams: add tests for XSTREAM command
+ 1 file changed, 39 insertions(+)
+
+zhaozhao.zz in commit 0edbe953:
+ Streams: add a new command XTREAM
+ 3 files changed, 67 insertions(+)
+
+Hamid Alaei in commit 9714bba2:
+ fix timer context selected database
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit eb53f15a:
+ Make comment about nack->consumer test for minidle more obvious.
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+antirez in commit a77f836e:
+ Streams: use propagate_last_id itself as streamPropagateGroupID trigger.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 0f0610eb:
+ Streams: better naming: lastid_updated -> propagate_last_id.
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit a745e423:
+ Streams: panic if streamID invalid after check, should not be possible.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit 9974be13:
+ Streams: propagate lastid in XCLAIM when it has effect
+ 1 file changed, 13 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit 69a628d0:
+ Streams: XCLAIM ignore minidle if NACK is created by FORCE
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+zhaozhao.zz in commit a04b43c7:
+ Streams: bugfix XCLAIM should propagate group name not consumer name
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Sergey Chupov in commit 8977a90c:
+ fixed typos in readme
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 3a745674:
+ redis.conf typo fixed: ingore -> ignore.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 22770d76:
+ Rax: radix tree updated to latest version from antirez/rax.
+ 2 files changed, 233 insertions(+), 68 deletions(-)
+
+antirez in commit fbac534f:
+ Test: avoid time related false positive in RESTORE test.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 49872337:
+ LOLWUT: capitalize Nees.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 80c471f5:
+ Test: cgroup propagation test also for NOACK variant.
+ 1 file changed, 39 insertions(+), 29 deletions(-)
+
+antirez in commit 8defa5da:
+ Test: consumer group last ID slave propagation test.
+ 1 file changed, 39 insertions(+)
+
+zhaozhao.zz in commit e1e3eaca:
+ Avoid recreate write handler for protected client.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit b501fd5d:
+ Fix propagation of consumer groups last ID.
+ 3 files changed, 56 insertions(+), 9 deletions(-)
+
+
+================================================================================
 Redis 5.0-rc6     Released Wed Oct 10 11:03:54 CEST 2018
 ================================================================================
 
@@ -1860,7 +2063,7 @@ with the implementation of new data types and operations on top of existing
 types. The following are the major features of this release:
 
 1. The new Stream data type. https://redis.io/topics/streams-intro
-2. New Redis modules APIs: Timers and Cluster API.
+2. New Redis modules APIs: Timers, Cluster and Dictionary APIs.
 3. RDB now store LFU and LRU information.
 4. The cluster manager was ported from Ruby (redis-trib.rb) to C code
    inside redis-cli. Check `redis-cli --cluster help` for more info.
@@ -1872,6 +2075,15 @@ types. The following are the major features of this release:
 10. Better performances when clients connect and disconnect often.
 11. Many bug fixes and other random improvements.
 12. Jemalloc was upgraded to version 5.1
+13. CLIENT UNBLOCK and CLIENT ID.
+14. The LOLWUT command was added. http://antirez.com/news/123
+15. We no longer use the "slave" word if not for API backward compatibility.
+16. Differnet optimizations in the networking layer.
+17. Lua improvements:
+    - Better propagation of Lua scripts to slaves / AOF.
+    - Lua scripts can now timeout and get in -BUSY state in the slave as well.
+18. Dynamic HZ to balance idle CPU usage with responsiveness.
+19. The Redis core was refactored and improved in many ways.
 
 Thanks to all the users and developers who made this release possible.
 We'll follow up with more RC releases, until the code looks production ready
