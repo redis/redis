@@ -1898,7 +1898,7 @@ void xackCommand(client *c) {
     addReplyLongLong(c,acknowledged);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count>] [<consumer>]
+/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
