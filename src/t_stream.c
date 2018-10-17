@@ -1716,7 +1716,7 @@ NULL
     }
 
     /* Everything but the "HELP" option requires a key and group name. */
-    if (c->argc > 4) {
+    if (c->argc >= 4) {
         o = lookupKeyWrite(c->db,c->argv[2]);
         if (o) s = o->ptr;
         grpname = c->argv[3]->ptr;
