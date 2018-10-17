@@ -2619,8 +2619,11 @@ int processCommand(client *c) {
         if (server.current_client == NULL) return C_ERR;
 
         /* It was impossible to free enough memory, and the command the client
-         * is trying to execute is denied during OOM conditions? Error. */
-        if ((c->cmd->flags & CMD_DENYOOM) && out_of_memory) {
+         * is trying to execute is denied during OOM conditions or the client
+         * is in MULTI/EXEC context? Error. */
+        if (out_of_memory &&
+            (c->cmd->flags & CMD_DENYOOM ||
+             (c->flags & CLIENT_MULTI && c->cmd->proc != execCommand))) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
             return C_OK;
