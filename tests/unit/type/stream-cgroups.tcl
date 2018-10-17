@@ -9,6 +9,17 @@ start_server {
         set err
     } {BUSYGROUP*}
 
+    test {XGROUP CREATE: automatic stream creation fails without MKSTREAM} {
+        r DEL mystream
+        catch {r XGROUP CREATE mystream mygroup $} err
+        set err
+    } {ERR*}
+
+    test {XGROUP CREATE: automatic stream creation works with MKSTREAM} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+    } {OK}
+
     test {XREADGROUP will return only new elements} {
         r XADD mystream * a 1
         r XADD mystream * b 2
