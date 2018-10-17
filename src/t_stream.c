@@ -1751,14 +1751,19 @@ NULL
     if (!strcasecmp(opt,"CREATE") && (c->argc == 5 || c->argc == 6)) {
         streamID id;
         if (!strcmp(c->argv[4]->ptr,"$")) {
-            id = s->last_id;
+            if (s) {
+                id = s->last_id;
+            } else {
+                id.ms = 0;
+                id.seq = 0;
+            }
         } else if (streamParseStrictIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
 
         /* Handle the MKSTREAM option now that the command can no longer fail. */
         if (s == NULL && mkstream) {
-            robj *o = createStreamObject();
+            o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
         }
