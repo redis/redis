@@ -777,8 +777,8 @@ int streamDeleteItem(stream *s, streamID *id) {
  * in the standard <ms>-<seq> format, using the simple string protocol
  * of REPL. */
 void addReplyStreamID(client *c, streamID *id) {
-    sds replyid = sdscatfmt(sdsempty(),"+%U-%U\r\n",id->ms,id->seq);
-    addReplySds(c,replyid);
+    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
+    addReplyBulkSds(c,replyid);
 }
 
 /* Similar to the above function, but just creates an object, usually useful
@@ -2456,11 +2456,11 @@ NULL
             if (idle < 0) idle = 0;
 
             addReplyMultiBulkLen(c,6);
-            addReplyStatus(c,"name");
+            addReplyBulkCString(c,"name");
             addReplyBulkCBuffer(c,consumer->name,sdslen(consumer->name));
-            addReplyStatus(c,"pending");
+            addReplyBulkCString(c,"pending");
             addReplyLongLong(c,raxSize(consumer->pel));
-            addReplyStatus(c,"idle");
+            addReplyBulkCString(c,"idle");
             addReplyLongLong(c,idle);
         }
         raxStop(&ri);
@@ -2478,28 +2478,28 @@ NULL
         while(raxNext(&ri)) {
             streamCG *cg = ri.data;
             addReplyMultiBulkLen(c,8);
-            addReplyStatus(c,"name");
+            addReplyBulkCString(c,"name");
             addReplyBulkCBuffer(c,ri.key,ri.key_len);
-            addReplyStatus(c,"consumers");
+            addReplyBulkCString(c,"consumers");
             addReplyLongLong(c,raxSize(cg->consumers));
-            addReplyStatus(c,"pending");
+            addReplyBulkCString(c,"pending");
             addReplyLongLong(c,raxSize(cg->pel));
-            addReplyStatus(c,"last-delivered-id");
+            addReplyBulkCString(c,"last-delivered-id");
             addReplyStreamID(c,&cg->last_id);
         }
         raxStop(&ri);
     } else if (!strcasecmp(opt,"STREAM") && c->argc == 3) {
         /* XINFO STREAM <key> (or the alias XINFO <key>). */
         addReplyMultiBulkLen(c,14);
-        addReplyStatus(c,"length");
+        addReplyBulkCString(c,"length");
         addReplyLongLong(c,s->length);
-        addReplyStatus(c,"radix-tree-keys");
+        addReplyBulkCString(c,"radix-tree-keys");
         addReplyLongLong(c,raxSize(s->rax));
-        addReplyStatus(c,"radix-tree-nodes");
+        addReplyBulkCString(c,"radix-tree-nodes");
         addReplyLongLong(c,s->rax->numnodes);
-        addReplyStatus(c,"groups");
+        addReplyBulkCString(c,"groups");
         addReplyLongLong(c,s->cgroups ? raxSize(s->cgroups) : 0);
-        addReplyStatus(c,"last-generated-id");
+        addReplyBulkCString(c,"last-generated-id");
         addReplyStreamID(c,&s->last_id);
 
         /* To emit the first/last entry we us the streamReplyWithRange()
@@ -2508,11 +2508,11 @@ NULL
         streamID start, end;
         start.ms = start.seq = 0;
         end.ms = end.seq = UINT64_MAX;
-        addReplyStatus(c,"first-entry");
+        addReplyBulkCString(c,"first-entry");
         count = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
                                      STREAM_RWR_RAWENTRIES,NULL);
         if (!count) addReply(c,shared.nullbulk);
-        addReplyStatus(c,"last-entry");
+        addReplyBulkCString(c,"last-entry");
         count = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
                                      STREAM_RWR_RAWENTRIES,NULL);
         if (!count) addReply(c,shared.nullbulk);
