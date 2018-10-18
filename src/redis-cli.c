@@ -1066,6 +1066,10 @@ static int cliReadReply(int output_raw_strings) {
                 out = sdscat(out,"\n");
             }
         }
+        if (reply->type == REDIS_REPLY_ERROR && !config.interactive) {
+            fwrite(out,sdslen(out),1,stderr);
+            exit(1);
+        }
         fwrite(out,sdslen(out),1,stdout);
         sdsfree(out);
     }
