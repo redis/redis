@@ -28,7 +28,7 @@ To start a quick recap of what's new in Redis 5:
    inside redis-cli. Check `redis-cli --cluster help` for more info.
 5. New sorted set commands: ZPOPMIN/MAX and blocking variants.
 6. Active defragmentation version 2.
-7. Improvemenets in HyperLogLog implementations.
+7. Improvements in HyperLogLog implementations.
 8. Better memory reporting capabilities.
 9. Many commands with sub-commands now have an HELP subcommand.
 10. Better performances when clients connect and disconnect often.
@@ -37,7 +37,7 @@ To start a quick recap of what's new in Redis 5:
 13. CLIENT UNBLOCK and CLIENT ID.
 14. The LOLWUT command was added. http://antirez.com/news/123
 15. We no longer use the "slave" word if not for API backward compatibility.
-16. Differnet optimizations in the networking layer.
+16. Different optimizations in the networking layer.
 17. Lua improvements:
     - Better propagation of Lua scripts to replicas / AOF.
     - Lua scripts can now timeout and get in -BUSY state in the replica as well.
