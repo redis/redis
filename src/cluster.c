@@ -5181,6 +5181,10 @@ try_again:
             }
             if (ttl < 1) ttl = 1;
         }
+
+        /* Relocate valid (non expired) keys into the array in successive
+         * positions to remove holes created by the keys that were present
+         * in the first lookup but are now expired after the second lookup. */
         kv[non_expired++] = kv[j];
 
         serverAssertWithInfo(c,NULL,
@@ -5209,6 +5213,8 @@ try_again:
         if (replace)
             serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
     }
+
+    /* Fix the actual number of keys we are migrating. */
     num_keys = non_expired;
 
     /* Transfer the query to the other node in 64K chunks. */
