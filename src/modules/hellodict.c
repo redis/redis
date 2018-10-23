@@ -125,7 +125,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         cmd_KEYRANGE,"readonly",1,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    /* Create our global dictionray. Here we'll set our keys and values. */
+    /* Create our global dictionary. Here we'll set our keys and values. */
     Keyspace = RedisModule_CreateDict(NULL);
 
     return REDISMODULE_OK;
