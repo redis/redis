@@ -1161,18 +1161,17 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
-    if (!keyIsExpired(db,key)) {
-        return 0;
-    } else if (server.masterhost != NULL) {
-        /* If we are running in the context of a slave, return ASAP:
-         * the slave key expiration is controlled by the master that will
-         * send us synthesized DEL operations for expired keys.
-         *
-         * Still we try to return the right information to the caller,
-         * that is, 0 if we think the key should be still valid, 1 if
-         * we think the key is expired at this time. */
-        return 1;
-    }
+    if (!keyIsExpired(db,key)) return 0;
+
+    /* If we are running in the context of a slave, instead of
+     * evicting the expired key from the database, we return ASAP:
+     * the slave key expiration is controlled by the master that will
+     * send us synthesized DEL operations for expired keys.
+     *
+     * Still we try to return the right information to the caller,
+     * that is, 0 if we think the key should be still valid, 1 if
+     * we think the key is expired at this time. */
+    if (server.masterhost != NULL) return 1;
 
     /* Delete the key */
     server.stat_expiredkeys++;
