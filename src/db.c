@@ -38,6 +38,8 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+int keyIsExpired(redisDb *db, robj *key);
+
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
@@ -543,7 +545,7 @@ void keysCommand(client *c) {
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
-            if (expireIfNeeded(c->db,keyobj) == 0) {
+            if (!keyIsExpired(c->db,keyobj)) {
                 addReplyBulk(c,keyobj);
                 numkeys++;
             }
@@ -1120,6 +1122,25 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
+/* Check if the key is expired. */
+int keyIsExpired(redisDb *db, robj *key) {
+    mstime_t when = getExpire(db,key);
+
+    if (when < 0) return 0; /* No expire for this key */
+
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading) return 0;
+
+    /* If we are in the context of a Lua script, we pretend that time is
+     * blocked to when the Lua script started. This way a key can expire
+     * only the first time it is accessed and not in the middle of the
+     * script execution, making propagation to slaves / AOF consistent.
+     * See issue #1525 on Github for more information. */
+    mstime_t now = server.lua_caller ? server.lua_time_start : mstime();
+
+    return now > when;
+}
+
 /* This function is called when we are going to perform some operation
  * in a given key, but such key may be already logically expired even if
  * it still exists in the database. The main way this function is called
@@ -1140,32 +1161,18 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
-    mstime_t when = getExpire(db,key);
-    mstime_t now;
-
-    if (when < 0) return 0; /* No expire for this key */
-
-    /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
-
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    now = server.lua_caller ? server.lua_time_start : mstime();
-
-    /* If we are running in the context of a slave, return ASAP:
-     * the slave key expiration is controlled by the master that will
-     * send us synthesized DEL operations for expired keys.
-     *
-     * Still we try to return the right information to the caller,
-     * that is, 0 if we think the key should be still valid, 1 if
-     * we think the key is expired at this time. */
-    if (server.masterhost != NULL) return now > when;
-
-    /* Return when this key has not expired */
-    if (now <= when) return 0;
+    if (!keyIsExpired(db,key)) {
+        return 0;
+    } else if (server.masterhost != NULL) {
+        /* If we are running in the context of a slave, return ASAP:
+         * the slave key expiration is controlled by the master that will
+         * send us synthesized DEL operations for expired keys.
+         *
+         * Still we try to return the right information to the caller,
+         * that is, 0 if we think the key should be still valid, 1 if
+         * we think the key is expired at this time. */
+        return 1;
+    }
 
     /* Delete the key */
     server.stat_expiredkeys++;
