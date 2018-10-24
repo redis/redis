@@ -120,7 +120,7 @@ const char *configEnumGetName(configEnum *ce, int val) {
     return NULL;
 }
 
-/* Wrapper for configEnumGetName() returning "unknown" insetad of NULL if
+/* Wrapper for configEnumGetName() returning "unknown" instead of NULL if
  * there is no match. */
 const char *configEnumGetNameOrUnknown(configEnum *ce, int val) {
     const char *name = configEnumGetName(ce,val);
