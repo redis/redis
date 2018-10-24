@@ -849,7 +849,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
 
 /* Send the specified range to the client 'c'. The range the client will
  * receive is between start and end inclusive, if 'count' is non zero, no more
- * than 'count' elemnets are sent. The 'end' pointer can be NULL to mean that
+ * than 'count' elements are sent. The 'end' pointer can be NULL to mean that
  * we want all the elements from 'start' till the end of the stream. If 'rev'
  * is non zero, elements are produced in reversed order from end to start.
  *
