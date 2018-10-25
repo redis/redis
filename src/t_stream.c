@@ -1260,7 +1260,7 @@ void xrangeGenericCommand(client *c, int rev) {
     robj *o;
     stream *s;
     streamID startid, endid;
-    long long count = 0;
+    long long count = -1;
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
 
@@ -1287,7 +1287,13 @@ void xrangeGenericCommand(client *c, int rev) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
         || checkType(c,o,OBJ_STREAM)) return;
     s = o->ptr;
-    streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL);
+
+    if (count == 0) {
+        addReply(c,shared.nullmultibulk);
+    } else {
+        if (count == -1) count = 0;
+        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL);
+    }
 }
 
 /* XRANGE key start end [COUNT <n>] */
