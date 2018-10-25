@@ -149,7 +149,7 @@ REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
 }
 
 /* Return cached quicklist count */
-unsigned int quicklistCount(const quicklist *ql) { return ql->count; }
+unsigned long quicklistCount(const quicklist *ql) { return ql->count; }
 
 /* Free entire quicklist. */
 void quicklistRelease(quicklist *quicklist) {
@@ -1192,12 +1192,12 @@ quicklist *quicklistDup(quicklist *orig) {
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
-        if (node->encoding == QUICKLIST_NODE_ENCODING_LZF) {
-            quicklistLZF *lzf = (quicklistLZF *)node->zl;
+        if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
+            quicklistLZF *lzf = (quicklistLZF *)current->zl;
             size_t lzf_sz = sizeof(*lzf) + lzf->sz;
             node->zl = zmalloc(lzf_sz);
             memcpy(node->zl, current->zl, lzf_sz);
-        } else if (node->encoding == QUICKLIST_NODE_ENCODING_RAW) {
+        } else if (current->encoding == QUICKLIST_NODE_ENCODING_RAW) {
             node->zl = zmalloc(current->sz);
             memcpy(node->zl, current->zl, current->sz);
         }
@@ -1636,7 +1636,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to tail of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushTail(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }
@@ -1644,7 +1644,7 @@ int quicklistTest(int argc, char *argv[]) {
         TEST("add to head of empty list") {
             quicklist *ql = quicklistNew(-2, options[_i]);
             quicklistPushHead(ql, "hello", 6);
-            /* 1 for head and 1 for tail beacuse 1 node = head = tail */
+            /* 1 for head and 1 for tail because 1 node = head = tail */
             ql_verify(ql, 1, 1, 1, 1);
             quicklistRelease(ql);
         }

@@ -85,7 +85,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
     setKey(c->db,key,val);
     server.dirty++;
-    if (expire) setExpire(c->db,key,mstime()+milliseconds);
+    if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(NOTIFY_GENERIC,
         "expire",key,c->db->id);
@@ -301,23 +301,21 @@ void mgetCommand(client *c) {
 }
 
 void msetGenericCommand(client *c, int nx) {
-    int j, busykeys = 0;
+    int j;
 
     if ((c->argc % 2) == 0) {
         addReplyError(c,"wrong number of arguments for MSET");
         return;
     }
+
     /* Handle the NX flag. The MSETNX semantic is to return zero and don't
-     * set nothing at all if at least one already key exists. */
+     * set anything if at least one key alerady exists. */
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
             if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
-                busykeys++;
+                addReply(c, shared.czero);
+                return;
             }
-        }
-        if (busykeys) {
-            addReply(c, shared.czero);
-            return;
         }
     }
 
@@ -361,7 +359,7 @@ void incrDecrCommand(client *c, long long incr) {
         new = o;
         o->ptr = (void*)((long)value);
     } else {
-        new = createStringObjectFromLongLong(value);
+        new = createStringObjectFromLongLongForValue(value);
         if (o) {
             dbOverwrite(c->db,c->argv[1],new);
         } else {

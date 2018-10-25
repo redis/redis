@@ -52,6 +52,10 @@
 #endif
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 5
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#endif
 unsigned int
 lzf_decompress (const void *const in_data,  unsigned int in_len,
                 void             *out_data, unsigned int out_len)
@@ -163,17 +167,17 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 
                 break;
 
-              case 9: *op++ = *ref++;
-              case 8: *op++ = *ref++;
-              case 7: *op++ = *ref++;
-              case 6: *op++ = *ref++;
-              case 5: *op++ = *ref++;
-              case 4: *op++ = *ref++;
-              case 3: *op++ = *ref++;
-              case 2: *op++ = *ref++;
-              case 1: *op++ = *ref++;
+              case 9: *op++ = *ref++; /* fall-thru */
+              case 8: *op++ = *ref++; /* fall-thru */
+              case 7: *op++ = *ref++; /* fall-thru */
+              case 6: *op++ = *ref++; /* fall-thru */
+              case 5: *op++ = *ref++; /* fall-thru */
+              case 4: *op++ = *ref++; /* fall-thru */
+              case 3: *op++ = *ref++; /* fall-thru */
+              case 2: *op++ = *ref++; /* fall-thru */
+              case 1: *op++ = *ref++; /* fall-thru */
               case 0: *op++ = *ref++; /* two octets more */
-                      *op++ = *ref++;
+                      *op++ = *ref++; /* fall-thru */
             }
 #endif
         }
@@ -182,4 +186,6 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 
   return op - (u8 *)out_data;
 }
-
+#if defined(__GNUC__) && __GNUC__ >= 5
+#pragma GCC diagnostic pop
+#endif

@@ -35,10 +35,10 @@
  */
 #include "test/jemalloc_test.h"
 
-#define	BLOCK_SIZE 10000
-#define	BLOCK_SIZE64 (BLOCK_SIZE / 2)
-#define	COUNT_1 1000
-#define	COUNT_2 700
+#define BLOCK_SIZE 10000
+#define BLOCK_SIZE64 (BLOCK_SIZE / 2)
+#define COUNT_1 1000
+#define COUNT_2 700
 
 static const uint32_t init_gen_rand_32_expected[] = {
 	3440181298U, 1564997079U, 1510669302U, 2930277156U, 1452439940U,
@@ -1449,8 +1449,7 @@ static const uint64_t init_by_array_64_expected[] = {
 	KQU(15570163926716513029), KQU(13356980519185762498)
 };
 
-TEST_BEGIN(test_gen_rand_32)
-{
+TEST_BEGIN(test_gen_rand_32) {
 	uint32_t array32[BLOCK_SIZE] JEMALLOC_ATTR(aligned(16));
 	uint32_t array32_2[BLOCK_SIZE] JEMALLOC_ATTR(aligned(16));
 	int i;
@@ -1484,8 +1483,7 @@ TEST_BEGIN(test_gen_rand_32)
 }
 TEST_END
 
-TEST_BEGIN(test_by_array_32)
-{
+TEST_BEGIN(test_by_array_32) {
 	uint32_t array32[BLOCK_SIZE] JEMALLOC_ATTR(aligned(16));
 	uint32_t array32_2[BLOCK_SIZE] JEMALLOC_ATTR(aligned(16));
 	int i;
@@ -1520,8 +1518,7 @@ TEST_BEGIN(test_by_array_32)
 }
 TEST_END
 
-TEST_BEGIN(test_gen_rand_64)
-{
+TEST_BEGIN(test_gen_rand_64) {
 	uint64_t array64[BLOCK_SIZE64] JEMALLOC_ATTR(aligned(16));
 	uint64_t array64_2[BLOCK_SIZE64] JEMALLOC_ATTR(aligned(16));
 	int i;
@@ -1556,8 +1553,7 @@ TEST_BEGIN(test_gen_rand_64)
 }
 TEST_END
 
-TEST_BEGIN(test_by_array_64)
-{
+TEST_BEGIN(test_by_array_64) {
 	uint64_t array64[BLOCK_SIZE64] JEMALLOC_ATTR(aligned(16));
 	uint64_t array64_2[BLOCK_SIZE64] JEMALLOC_ATTR(aligned(16));
 	int i;
@@ -1594,12 +1590,10 @@ TEST_BEGIN(test_by_array_64)
 TEST_END
 
 int
-main(void)
-{
-
-	return (test(
+main(void) {
+	return test(
 	    test_gen_rand_32,
 	    test_by_array_32,
 	    test_gen_rand_64,
-	    test_by_array_64));
+	    test_by_array_64);
 }

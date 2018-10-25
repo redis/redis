@@ -1,7 +1,7 @@
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
-    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
+    } {*addr=*:* fd=* age=* idle=* flags=N db=9 sub=0 psub=0 multi=-1 qbuf=26 qbuf-free=* obl=0 oll=0 omem=0 events=r cmd=client*}
 
     test {MONITOR can log executed commands} {
         set rd [redis_deferring_client]

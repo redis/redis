@@ -4,7 +4,7 @@ set ::valgrind_errors {}
 
 proc start_server_error {config_file error} {
     set err {}
-    append err "Cant' start the Redis server\n"
+    append err "Can't start the Redis server\n"
     append err "CONFIGURATION:"
     append err [exec cat $config_file]
     append err "\nERROR:"
@@ -276,9 +276,15 @@ proc start_server {options {code undefined}} {
             error_and_quit $config_file $line
         }
 
+        if {$::wait_server} {
+            set msg "server started PID: [dict get $srv "pid"]. press any key to continue..."
+            puts $msg
+            read stdin 1
+        }
+
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec grep "ready to accept" | wc -l < $stdout] > 0} {
+            if {[exec grep -i "Ready to accept" | wc -l < $stdout] > 0} {
                 break
             }
             after 10

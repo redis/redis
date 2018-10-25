@@ -1,0 +1,36 @@
+# Appveyor configuration file for CI build of hiredis on Windows (under Cygwin)
+environment:
+    matrix:
+        - CYG_ROOT: C:\cygwin64
+          CYG_SETUP: setup-x86_64.exe
+          CYG_MIRROR: http://cygwin.mirror.constant.com
+          CYG_CACHE: C:\cygwin64\var\cache\setup
+          CYG_BASH: C:\cygwin64\bin\bash
+          CC: gcc
+        - CYG_ROOT: C:\cygwin
+          CYG_SETUP: setup-x86.exe
+          CYG_MIRROR: http://cygwin.mirror.constant.com
+          CYG_CACHE: C:\cygwin\var\cache\setup
+          CYG_BASH: C:\cygwin\bin\bash
+          CC: gcc
+          TARGET: 32bit
+          TARGET_VARS: 32bit-vars
+
+# Cache Cygwin files to speed up build
+cache:
+    - '%CYG_CACHE%'
+clone_depth: 1
+
+# Attempt to ensure we don't try to convert line endings to Win32 CRLF as this will cause build to fail
+init:
+    - git config --global core.autocrlf input
+
+# Install needed build dependencies
+install:
+    - ps: 'Start-FileDownload "http://cygwin.com/$env:CYG_SETUP" -FileName "$env:CYG_SETUP"'
+    - '%CYG_SETUP% --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages automake,bison,gcc-core,libtool,make,gettext-devel,gettext,intltool,pkg-config,clang,llvm > NUL 2>&1'
+    - '%CYG_BASH% -lc "cygcheck -dc cygwin"'
+
+build_script:
+    - 'echo building...'
+    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER; exec 0</dev/null; make LDFLAGS=$LDFLAGS CC=$CC $TARGET CFLAGS=$CFLAGS && make LDFLAGS=$LDFLAGS CC=$CC $TARGET_VARS hiredis-example"'

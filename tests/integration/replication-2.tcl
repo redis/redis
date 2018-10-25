@@ -2,9 +2,12 @@ start_server {tags {"repl"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            after 1000
-            s -1 role
-        } {slave}
+            wait_for_condition 50 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
 
         test {If min-slaves-to-write is honored, write is accepted} {
             r config set min-slaves-to-write 1
@@ -13,7 +16,7 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {12345}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
@@ -31,7 +34,7 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {12345}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
@@ -57,7 +60,7 @@ start_server {tags {"repl"}} {
             wait_for_condition 50 100 {
                 [r -1 get foo] eq {aaabbb}
             } else {
-                fail "Write did not reached slave"
+                fail "Write did not reached replica"
             }
         }
 
@@ -78,7 +81,7 @@ start_server {tags {"repl"}} {
                 set fd [open /tmp/repldump2.txt w]
                 puts -nonewline $fd $csv2
                 close $fd
-                puts "Master - Slave inconsistency"
+                puts "Master - Replica inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
             }
             assert_equal [r debug digest] [r -1 debug digest]
