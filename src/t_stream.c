@@ -1821,7 +1821,9 @@ NULL
     }
 }
 
-/* Set the internal "last ID" of a stream. */
+/* XSETID <stream> <groupname> <id>
+ *
+ * Set the internal "last ID" of a stream. */
 void xsetidCommand(client *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_STREAM)) return;
