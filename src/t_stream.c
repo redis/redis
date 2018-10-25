@@ -1892,7 +1892,7 @@ void xackCommand(client *c) {
     addReplyLongLong(c,acknowledged);
 }
 
-/* XPENDING <key> <group> [<start> <stop> <count>] [<consumer>]
+/* XPENDING <key> <group> [<start> <stop> <count> [<consumer>]]
  *
  * If start and stop are omitted, the command just outputs information about
  * the amount of pending messages for the key/group pair, together with
@@ -1921,6 +1921,7 @@ void xpendingCommand(client *c) {
     if (c->argc >= 6) {
         if (getLongLongFromObjectOrReply(c,c->argv[5],&count,NULL) == C_ERR)
             return;
+        if (count < 0) count = 0;
         if (streamParseIDOrReply(c,c->argv[3],&startid,0) == C_ERR)
             return;
         if (streamParseIDOrReply(c,c->argv[4],&endid,UINT64_MAX) == C_ERR)
