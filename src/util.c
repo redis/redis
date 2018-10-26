@@ -652,6 +652,24 @@ sds getAbsolutePath(char *filename) {
     return abspath;
 }
 
+/*
+ * Gets the proper timezone in a more portable fashion
+ * i.e timezone variables are linux specific.
+ */
+
+unsigned long getTimeZone(void) {
+#ifdef __linux__
+    return timezone;
+#else
+    struct timeval tv;
+    struct timezone tz;
+
+    gettimeofday(&tv, &tz);
+
+    return tz.tz_minuteswest * 60UL;
+#endif
+}
+
 /* Return true if the specified path is just a file basename without any
  * relative or absolute path. This function just checks that no / or \
  * character exists inside the specified path, that's enough in the
