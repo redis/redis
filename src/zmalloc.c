@@ -205,6 +205,13 @@ void zfree(void *ptr) {
 #endif
 }
 
+void zbzero(void *ptr, size_t size) {
+    size_t i;
+    volatile unsigned char *p = (volatile unsigned char *)ptr;
+
+    for(i = 0; i < size; i ++) p[i] = '\0';
+}
+
 char *zstrdup(const char *s) {
     size_t l = strlen(s)+1;
     char *p = zmalloc(l);

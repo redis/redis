@@ -26,6 +26,7 @@ A million repetitions of "a"
 #include <stdint.h>
 #include "solarisfixes.h"
 #include "sha1.h"
+#include "zmalloc.h"
 #include "config.h"
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
@@ -192,8 +193,8 @@ void SHA1Final(unsigned char digest[20], SHA1_CTX* context)
          ((context->state[i>>2] >> ((3-(i & 3)) * 8) ) & 255);
     }
     /* Wipe variables */
-    memset(context, '\0', sizeof(*context));
-    memset(&finalcount, '\0', sizeof(finalcount));
+    zbzero(context, sizeof(*context));
+    zbzero(&finalcount, sizeof(finalcount));
 }
 /* ================ end of sha1.c ================ */
 
