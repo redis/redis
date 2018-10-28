@@ -33,7 +33,7 @@ start_server {tags {"dump"}} {
         set now [clock milliseconds]
         r restore foo [expr $now+3000] $encoded absttl
         set ttl [r pttl foo]
-        assert {$ttl >= 2990 && $ttl <= 3000}
+        assert {$ttl >= 2900 && $ttl <= 3100}
         r get foo
     } {bar}
     

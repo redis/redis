@@ -17,7 +17,7 @@
  *
  * The design is trivial, we have a structure representing a job to perform
  * and a different thread and job queue for every job type.
- * Every thread wait for new jobs in its queue, and process every job
+ * Every thread waits for new jobs in its queue, and process every job
  * sequentially.
  *
  * Jobs of the same type are guaranteed to be processed from the least

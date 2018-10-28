@@ -345,7 +345,10 @@ NULL
             return;
         }
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        if (rdbLoad(server.rdb_filename,NULL) != C_OK) {
+        protectClient(c);
+        int ret = rdbLoad(server.rdb_filename,NULL);
+        unprotectClient(c);
+        if (ret != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
             return;
         }
@@ -354,7 +357,10 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        if (loadAppendOnlyFile(server.aof_filename) != C_OK) {
+        protectClient(c);
+        int ret = loadAppendOnlyFile(server.aof_filename);
+        unprotectClient(c);
+        if (ret != C_OK) {
             addReply(c,shared.err);
             return;
         }

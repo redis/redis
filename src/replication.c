@@ -2641,7 +2641,7 @@ void replicationCron(void) {
              *    be the same as our repl-id.
              * 3. We, yet as master, receive some updates, that will not
              *    increment the master_repl_offset.
-             * 4. Later we are turned into a slave, connecto to the new
+             * 4. Later we are turned into a slave, connect to the new
              *    master that will accept our PSYNC request by second
              *    replication ID, but there will be data inconsistency
              *    because we received writes. */
