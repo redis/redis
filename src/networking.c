@@ -1691,7 +1691,8 @@ int processMultibulkBuffer(client *c) {
             }
 
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
-            if (!ok || ll < 0 || ll > server.proto_max_bulk_len) {
+            if (!ok || ll < 0 ||
+                (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 addReplyError(c,"Protocol error: invalid bulk length");
                 setProtocolError("invalid bulk length",c);
                 return C_ERR;
