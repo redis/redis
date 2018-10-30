@@ -1248,7 +1248,10 @@ void configSetCommand(client *c) {
             if (server.maxmemory < zmalloc_used_memory()) {
                 serverLog(LL_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in key eviction and/or the inability to accept new write commands depending on the maxmemory-policy.");
             }
-            freeMemoryIfNeeded();
+            if (freeMemoryIfNeeded() != C_OK) {
+                addReplyErrorFormat(c,"CONFIG SET maxmemory failed! Can not freeMemory!");
+                return;
+            }
         }
     } config_set_memory_field(
       "proto-max-bulk-len",server.proto_max_bulk_len) {
