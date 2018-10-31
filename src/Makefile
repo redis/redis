@@ -23,7 +23,7 @@ NODEPS:=clean distclean
 ifeq (,$(findstring clang,$(CC)))
   STD=-std=c99 -pedantic -DREDIS_STATIC=''
 else
-  STD=-std=c11 -pedantic -DREDIS_STATIC=''
+  STD=-std=c99 -Wno-c11-extensions -pedantic -DREDIS_STATIC=''
 endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
