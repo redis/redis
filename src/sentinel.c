@@ -452,7 +452,8 @@ struct redisCommand sentinelcmds[] = {
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
     {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
+    {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
@@ -1942,12 +1943,25 @@ werr:
 /* Send the AUTH command with the specified master password if needed.
  * Note that for slaves the password set for the master is used.
  *
+ * In case this Sentinel requires a password as well, via the "requirepass"
+ * configuration directive, we assume we should use the local password in
+ * order to authenticate when connecting with the other Sentinels as well.
+ * So basically all the Sentinels share the same password and use it to
+ * authenticate reciprocally.
+ *
  * We don't check at all if the command was successfully transmitted
  * to the instance as if it fails Sentinel will detect the instance down,
  * will disconnect and reconnect the link and so forth. */
 void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
-    char *auth_pass = (ri->flags & SRI_MASTER) ? ri->auth_pass :
-                                                 ri->master->auth_pass;
+    char *auth_pass = NULL;
+
+    if (ri->flags & SRI_MASTER) {
+        auth_pass = ri->auth_pass;
+    } else if (ri->flags & SRI_SLAVE) {
+        auth_pass = ri->master->auth_pass;
+    } else if (ri->flags & SRI_SENTINEL) {
+        if (server.requirepass) auth_pass = server.requirepass;
+    }
 
     if (auth_pass) {
         if (redisAsyncCommand(c, sentinelDiscardReplyCallback, ri, "%s %s",
