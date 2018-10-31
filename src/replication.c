@@ -1247,6 +1247,12 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Ensure background save doesn't overwrite synced data */
         if (server.rdb_child_pid != -1) {
+            serverLog(LL_NOTICE,
+                "Replica is about to load the RDB file received from the "
+                "master, but there is a pending RDB child running. "
+                "Killing process %ld and removing its temp file to avoid "
+                "any race",
+                    (long) server.rdb_child_pid);
             kill(server.rdb_child_pid,SIGUSR1);
             rdbRemoveTempFile(server.rdb_child_pid);
         }
