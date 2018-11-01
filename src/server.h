@@ -366,6 +366,7 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* List defaults */
 #define OBJ_LIST_MAX_ZIPLIST_SIZE -2
+#define OBJ_LIST_MAX_SIZE -1
 #define OBJ_LIST_COMPRESS_DEPTH 0
 
 /* HyperLogLog defines */
@@ -782,7 +783,7 @@ struct sharedObjectsStruct {
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
-    *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
+    *busykeyerr, *oomerr, *fullerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *zpopmin, *zpopmax, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
@@ -1209,6 +1210,7 @@ struct redisServer {
     int64_t stream_node_max_entries;
     /* List parameters */
     int list_max_ziplist_size;
+    int list_max_size;
     int list_compress_depth;
     /* time cache */
     time_t unixtime;    /* Unix time sampled every cron cycle. */

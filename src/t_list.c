@@ -33,6 +33,15 @@
  * List API
  *----------------------------------------------------------------------------*/
 
+int checkListIsFull(robj *list) {
+    /* Check list is reach limit or not */
+    if (server.list_max_size > 0 && 
+            (int)listTypeLength(list) >= server.list_max_size) {
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /* The function pushes an element to the specified list object 'subject',
  * at head or tail position as specified by 'where'.
  *
@@ -210,6 +219,10 @@ void pushGenericCommand(client *c, int where) {
                                 server.list_compress_depth);
             dbAdd(c->db,c->argv[1],lobj);
         }
+        if (checkListIsFull(lobj) == C_ERR) {
+            addReply(c,shared.fullerr);
+            return;
+        }
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
@@ -239,6 +252,10 @@ void pushxGenericCommand(client *c, int where) {
         checkType(c,subject,OBJ_LIST)) return;
 
     for (j = 2; j < c->argc; j++) {
+        if (checkListIsFull(subject) == C_ERR) {
+            addReply(c,shared.fullerr);
+            return;
+        }
         listTypePush(subject,c->argv[j],where);
         pushed++;
     }
@@ -556,6 +573,10 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c->db,dstkey);
+    if (checkListIsFull(dstobj) == C_ERR) {
+        addReply(c,shared.fullerr);
+        return;
+    }
     listTypePush(dstobj,value,LIST_HEAD);
     notifyKeyspaceEvent(NOTIFY_LIST,"lpush",dstkey,c->db->id);
     /* Always send the pushed value to the client. */

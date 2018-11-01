@@ -594,6 +594,8 @@ void loadServerConfigFromString(char *config) {
             /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-size") && argc == 2) {
             server.list_max_ziplist_size = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"list-max-size") && argc == 2) {
+            server.list_max_size = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"list-compress-depth") && argc == 2) {
             server.list_compress_depth = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
@@ -1167,6 +1169,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "list-max-ziplist-size",server.list_max_ziplist_size,INT_MIN,INT_MAX) {
     } config_set_numerical_field(
+      "list-max-size",server.list_max_size,INT_MIN,INT_MAX) {
+    } config_set_numerical_field(
       "list-compress-depth",server.list_compress_depth,0,INT_MAX) {
     } config_set_numerical_field(
       "set-max-intset-entries",server.set_max_intset_entries,0,LONG_MAX) {
@@ -1369,6 +1373,8 @@ void configGetCommand(client *c) {
             server.stream_node_max_entries);
     config_get_numerical_field("list-max-ziplist-size",
             server.list_max_ziplist_size);
+    config_get_numerical_field("list-max-size",
+            server.list_max_size);
     config_get_numerical_field("list-compress-depth",
             server.list_compress_depth);
     config_get_numerical_field("set-max-intset-entries",
@@ -2199,6 +2205,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"stream-node-max-bytes",server.stream_node_max_bytes,OBJ_STREAM_NODE_MAX_BYTES);
     rewriteConfigNumericalOption(state,"stream-node-max-entries",server.stream_node_max_entries,OBJ_STREAM_NODE_MAX_ENTRIES);
     rewriteConfigNumericalOption(state,"list-max-ziplist-size",server.list_max_ziplist_size,OBJ_LIST_MAX_ZIPLIST_SIZE);
+    rewriteConfigNumericalOption(state,"list-max-size",server.list_max_size,OBJ_LIST_MAX_SIZE);
     rewriteConfigNumericalOption(state,"list-compress-depth",server.list_compress_depth,OBJ_LIST_COMPRESS_DEPTH);
     rewriteConfigNumericalOption(state,"set-max-intset-entries",server.set_max_intset_entries,OBJ_SET_MAX_INTSET_ENTRIES);
     rewriteConfigNumericalOption(state,"zset-max-ziplist-entries",server.zset_max_ziplist_entries,OBJ_ZSET_MAX_ZIPLIST_ENTRIES);

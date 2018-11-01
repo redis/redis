@@ -1467,6 +1467,8 @@ void createSharedObjects(void) {
         "-NOREPLICAS Not enough good replicas to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
         "-BUSYKEY Target key name already exists.\r\n"));
+    shared.fullerr = createObject(OBJ_STRING,sdsnew(
+        "-FULL Target collection is full.\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
@@ -1604,6 +1606,7 @@ void initServerConfig(void) {
     server.hash_max_ziplist_entries = OBJ_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = OBJ_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_size = OBJ_LIST_MAX_ZIPLIST_SIZE;
+    server.list_max_size = OBJ_LIST_MAX_SIZE;
     server.list_compress_depth = OBJ_LIST_COMPRESS_DEPTH;
     server.set_max_intset_entries = OBJ_SET_MAX_INTSET_ENTRIES;
     server.zset_max_ziplist_entries = OBJ_ZSET_MAX_ZIPLIST_ENTRIES;
