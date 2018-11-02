@@ -3307,8 +3307,8 @@ static sds clusterManagerGetConfigSignature(clusterManagerNode *node) {
                 nodename = token;
                 tot_size = (p - token);
                 name_len = tot_size++; // Make room for ':' in tot_size
-            } else if (i == 8) break;
-            i++;
+            }
+            if (++i == 8) break;
         }
         if (i != 8) continue;
         if (nodename == NULL) continue;
@@ -3347,7 +3347,7 @@ static sds clusterManagerGetConfigSignature(clusterManagerNode *node) {
             char *sp = cfg + name_len;
             *(sp++) = ':';
             for (i = 0; i < c; i++) {
-                if (i > 0) *(sp++) = '|';
+                if (i > 0) *(sp++) = ',';
                 int slen = strlen(slots[i]);
                 memcpy(sp, slots[i], slen);
                 sp += slen;
