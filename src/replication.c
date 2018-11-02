@@ -867,12 +867,27 @@ void putSlaveOnline(client *slave) {
         replicationGetSlaveName(slave));
 }
 
+void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask);
+
+int sendBulkToSlaveCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    client *slave = clientData;
+    UNUSED(eventLoop);
+    UNUSED(id);
+
+    if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE, sendBulkToSlave, slave) == AE_ERR) {
+        freeClient(slave);
+    }
+    return AE_DELETED_EVENT_ID;
+}
+
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     client *slave = privdata;
     UNUSED(el);
     UNUSED(mask);
     char buf[PROTO_IOBUF_LEN];
     ssize_t nwritten, buflen;
+    int send_rate = PROTO_IOBUF_LEN;
+    long long now = mstime();
 
     /* Before sending the RDB file, we send the preamble as configured by the
      * replication process. Currently the preamble is just the bulk count of
@@ -896,9 +911,33 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
+    /**
+     * Check redis send rate reach limit
+     * if current time is equal last_send_bulk_time, 
+     *     we will del write event on slave and wait a moment for next try.
+     * else we will compute the rate for send_rate,
+     *     then read send_rate size file and send it to slave
+     */
+    if (server.max_send_bulk_rate) {
+        if (!slave->last_send_bulk_time) {
+            slave->last_send_bulk_time = now;
+            serverLog(LL_WARNING,"Send bulk limit, max_send_bulk_rate:%d bytes/s", 
+                server.max_send_bulk_rate);
+            return;
+        }
+        if (slave->last_send_bulk_time == now) {
+            aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
+            aeCreateTimeEvent(server.el,1,sendBulkToSlaveCron,slave,NULL);
+            return ;
+        }
+        send_rate = server.max_send_bulk_rate / 1000; 
+        slave->last_send_bulk_time = now;
+    }
+
     /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    buflen = read(slave->repldbfd,buf,send_rate);
+    
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
             (buflen == 0) ? "premature EOF" : strerror(errno));

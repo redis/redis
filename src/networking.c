@@ -135,6 +135,7 @@ client *createClient(int fd) {
     c->slave_capa = SLAVE_CAPA_NONE;
     c->reply = listCreate();
     c->reply_bytes = 0;
+    c->last_send_bulk_time = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);

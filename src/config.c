@@ -710,6 +710,13 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
             server.slowlog_max_len = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0],"max-send-bulk-rate") && argc == 2) {
+            int send_bulk_rate = atoi(argv[1]);
+            if (send_bulk_rate < 1000 || send_bulk_rate > PROTO_IOBUF_LEN * 1000) {
+                err = "max-send-bulk-rate not valid";
+                goto loaderr;
+            }
+            server.max_send_bulk_rate = send_bulk_rate;
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
@@ -1061,7 +1068,13 @@ void configSetCommand(client *c) {
     {
         zfree(server.slave_announce_ip);
         server.slave_announce_ip = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-
+    } config_set_special_field("max-send-bulk-rate") {
+        if (getLongLongFromObject(o,&ll) == C_ERR || ll < 1) goto badfmt;
+        if (ll < 1000 || ll > PROTO_IOBUF_LEN * 1000) {
+            goto badfmt;
+        }
+        server.max_send_bulk_rate = ll;
+        
     /* Boolean fields.
      * config_set_bool_field(name,var). */
     } config_set_bool_field(
@@ -1386,6 +1399,8 @@ void configGetCommand(client *c) {
             server.latency_monitor_threshold);
     config_get_numerical_field("slowlog-max-len",
             server.slowlog_max_len);
+    config_get_numerical_field("max-send-bulk-rate",
+            server.max_send_bulk_rate);
     config_get_numerical_field("port",server.port);
     config_get_numerical_field("cluster-announce-port",server.cluster_announce_port);
     config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
@@ -2193,6 +2208,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"slowlog-log-slower-than",server.slowlog_log_slower_than,CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN);
     rewriteConfigNumericalOption(state,"latency-monitor-threshold",server.latency_monitor_threshold,CONFIG_DEFAULT_LATENCY_MONITOR_THRESHOLD);
     rewriteConfigNumericalOption(state,"slowlog-max-len",server.slowlog_max_len,CONFIG_DEFAULT_SLOWLOG_MAX_LEN);
+    rewriteConfigNumericalOption(state,"max-send-bulk-rate",server.max_send_bulk_rate,CONFIG_DEFAULT_MAX_SEND_BULK_RATE);
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-entries",server.hash_max_ziplist_entries,OBJ_HASH_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-value",server.hash_max_ziplist_value,OBJ_HASH_MAX_ZIPLIST_VALUE);
