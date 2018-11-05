@@ -2278,8 +2278,9 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                streamReplyWithRange(c,o->ptr,&id,NULL,1,0,NULL,NULL,
-                                     STREAM_RWR_RAWENTRIES,NULL);
+                size_t emitted = streamReplyWithRange(c,o->ptr,&id,&id,1,0,
+                                    NULL,NULL,STREAM_RWR_RAWENTRIES,NULL);
+                if (!emitted) addReply(c,shared.nullbulk);
             }
             arraylen++;
 
