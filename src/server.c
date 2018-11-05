@@ -1529,7 +1529,7 @@ void initServerConfig(void) {
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
     server.configfile = NULL;
     server.executable = NULL;
-    server.config_hz = CONFIG_DEFAULT_HZ;
+    server.hz = server.config_hz = CONFIG_DEFAULT_HZ;
     server.dynamic_hz = CONFIG_DEFAULT_DYNAMIC_HZ;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = CONFIG_DEFAULT_SERVER_PORT;
