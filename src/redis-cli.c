@@ -3749,7 +3749,7 @@ static int clusterManagerFixOpenSlot(int slot) {
     clusterManagerLogInfo(">>> Fixing open slot %d\n", slot);
     /* Try to obtain the current slot owner, according to the current
      * nodes configuration. */
-    int success = 1, keys_in_multiple_nodes = 0;
+    int success = 1;
     list *owners = listCreate();
     list *migrating = listCreate();
     list *importing = listCreate();
@@ -3772,7 +3772,6 @@ static int clusterManagerFixOpenSlot(int slot) {
                                       "in non-owner node %s:%d!\n", slot,
                                       n->ip, n->port);
                 listAddNodeTail(owners, n);
-                keys_in_multiple_nodes = 1;
             }
             if (r) freeReplyObject(r);
             if (!success) goto cleanup;
