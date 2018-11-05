@@ -2,7 +2,7 @@
  *
  * Specification of this CRC64 variant follows:
  * Name: crc-64-jones
- * Width: 64 bites
+ * Width: 64 bits
  * Poly: 0xad93d23594c935a9
  * Reflected In: True
  * Xor_In: 0xffffffffffffffff
