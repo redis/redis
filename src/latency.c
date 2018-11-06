@@ -562,11 +562,21 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  *
  * LATENCY HISTORY: return time-latency samples for the specified event.
  * LATENCY LATEST: return the latest latency for all the events classes.
- * LATENCY DOCTOR: returns an human readable analysis of instance latency.
+ * LATENCY DOCTOR: returns a human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  */
 void latencyCommand(client *c) {
+    const char *help[] = {
+"DOCTOR              -- Returns a human readable latency analysis report.",
+"GRAPH   <event>     -- Returns an ASCII latency graph for the event class.",
+"HISTORY <event>     -- Returns time-latency samples for the event class.",
+"LATEST              -- Returns the latest latency samples for all events.",
+"RESET   [event ...] -- Resets latency data of one or more event classes.",
+"                       (default: reset all data for all event classes)",
+"HELP                -- Prints this help.",
+NULL
+    };
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
@@ -611,8 +621,10 @@ void latencyCommand(client *c) {
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc >= 2) {
+        addReplyHelp(c, help);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
     }
     return;
 
