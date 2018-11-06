@@ -1236,16 +1236,24 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply) {
 /* Object command allows to inspect the internals of an Redis Object.
  * Usage: OBJECT <refcount|encoding|idletime|freq> <key> */
 void objectCommand(client *c) {
+    const char *help[] = {
+"ENCODING <key>",
+"    Return the kind of internal representation used in order to store the value",
+"    associated with a `key`.",
+"FREQ <key>",
+"    Return the access frequency index of the `key`. The returned integer is",
+"    proportional to the logarithm of the recent access frequency of the key.",
+"IDLETIME <key>",
+"    Return the idle time of the `key`, that is the approximated number of",
+"    seconds elapsed since the last access to the key.",
+"REFCOUNT <key>",
+"    Return the number of references of the value associated with the specified",
+"    `key`.",
+NULL
+    };
     robj *o;
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"ENCODING <key> -- Return the kind of internal representation used in order to store the value associated with a key.",
-"FREQ <key> -- Return the access frequency index of the key. The returned integer is proportional to the logarithm of the recent access frequency of the key.",
-"IDLETIME <key> -- Return the idle time of the key, that is the approximated number of seconds elapsed since the last access to the key.",
-"REFCOUNT <key> -- Return the number of references of the value associated with the specified key.",
-NULL
-        };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
@@ -1285,17 +1293,23 @@ NULL
  *
  * Usage: MEMORY usage <key> */
 void memoryCommand(client *c) {
+    const char *help[] = {
+"DOCTOR",
+"    Return memory problems reports.",
+"MALLOC-STATS"
+"    Return internal statistics report from the memory allocator.",
+"PURGE",
+"    Attempt to purge dirty pages for reclamation by the allocator.",
+"STATS",
+"    Return information about the memory usage of the server.",
+"USAGE <key> [SAMPLES <count>]",
+"    Return memory in bytes used by `key` and its value. Nested values are",
+"    sampled up to `count` times (default: 5).",
+NULL
+    };
     robj *o;
 
     if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
-        const char *help[] = {
-"DOCTOR - Return memory problems reports.",
-"MALLOC-STATS -- Return internal statistics report from the memory allocator.",
-"PURGE -- Attempt to purge dirty pages for reclamation by the allocator.",
-"STATS -- Return information about the memory usage of the server.",
-"USAGE <key> [SAMPLES <count>] -- Return memory in bytes used by <key> and its value. Nested values are sampled up to <count> times (default: 5).",
-NULL
-        };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
         long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
@@ -1445,6 +1459,6 @@ NULL
         /* Nothing to do for other allocators. */
 #endif
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try MEMORY HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }

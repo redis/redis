@@ -1699,12 +1699,16 @@ uint64_t streamDelConsumer(streamCG *cg, sds name) {
  * XGROUP DELCONSUMER <key> <groupname> <consumername> */
 void xgroupCommand(client *c) {
     const char *help[] = {
-"CREATE      <key> <groupname> <id or $> [opt] -- Create a new consumer group.",
-"            option MKSTREAM: create the empty stream if it does not exist.",
-"SETID       <key> <groupname> <id or $>  -- Set the current group ID.",
-"DESTROY     <key> <groupname>            -- Remove the specified group.",
-"DELCONSUMER <key> <groupname> <consumer> -- Remove the specified consumer.",
-"HELP                                     -- Prints this help.",
+"CREATE <key> <groupname> <id|$> [option]",
+"    Create a new consumer group. Options are:",
+"    * MKSTREAM",
+"      Create the empty stream if it does not exist.",
+"DELCONSUMER <key> <groupname> <consumer>",
+"    Remove the specified consumer.",
+"DESTROY <key> <groupname>"
+"    Remove the specified group.",
+"SETID <key> <groupname> <id|$>",
+"    Set the current group ID.",
 NULL
     };
     stream *s = NULL;
@@ -2419,10 +2423,12 @@ void xtrimCommand(client *c) {
  * XINFO HELP. */
 void xinfoCommand(client *c) {
     const char *help[] = {
-"CONSUMERS <key> <groupname>  -- Show consumer groups of group <groupname>.",
-"GROUPS <key>                 -- Show the stream consumer groups.",
-"STREAM <key>                 -- Show information about the stream.",
-"HELP                         -- Print this help.",
+"CONSUMERS <key> <groupname>",
+"    Show consumer groups of group `groupname`.",
+"GROUPS <key>",
+"    Show the stream consumer groups.",
+"STREAM <key>",
+"    Show information about the stream.",
 NULL
     };
     stream *s = NULL;
@@ -2434,7 +2440,7 @@ NULL
         addReplyHelp(c, help);
         return;
     } else if (c->argc < 3) {
-        addReplyError(c,"syntax error, try 'XINFO HELP'");
+        addReplySubcommandSyntaxError(c);
         return;
     }
 

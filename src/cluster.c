@@ -4188,37 +4188,61 @@ void clusterReplyMultiBulkSlots(client *c) {
 }
 
 void clusterCommand(client *c) {
+    const char *help[] = {
+"ADDSLOTS <slot> [slot ...]",
+"    Assign one or more slots to current node.",
+"BUMPEPOCH",
+"    Advance the cluster config epoch.",
+"COUNT-FAILURE-REPORTS <node-id>",
+"    Return number of failure reports for `node-id`.",
+"COUNTKEYSINSLOT <slot>",
+"    Return the number of keys in `slot`.",
+"DELSLOTS <slot> [slot ...]",
+"    Delete slots information from current node.",
+"FAILOVER [FORCE|TAKEOVER]"
+"    Promote current replica node to being a master.",
+"FORGET <node-id>",
+"    Remove a node from the cluster.",
+"GETKEYSINSLOT <slot> <count>",
+"    Return up to `count` key names stored by current node in `slot`.",
+"FLUSHSLOTS",
+"    Delete current node own slots information.",
+"INFO",
+"    Return information about the cluster.",
+"KEYSLOT <key>",
+"    Return the hash slot for `key`.",
+"MEET <ip> <port> [bus-port]",
+"    Connect nodes into a working cluster.",
+"MYID",
+"    Return the node id.",
+"NODES",
+"    Return cluster configuration seen by node. Output format:",
+"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot>"
+"    [<slot> ...]",
+"REPLICATE <node-id>",
+"    Configure current node as replica to `node-id`.",
+"RESET [HARD|SOFT]",
+"    Reset current node (default: SOFT).",
+"SAVECONFIG",
+"    Force current node to save cluster state on disk.",
+"SET-CONFIG-EPOCH <epoch>",
+"    Set config epoch of current node.",
+"SETSLOT <slot> (IMPORTING|MIGRATING|STABLE|NODE <node-id>)",
+"    Set slot state.",
+"REPLICAS <node-id>",
+"    Return `node-id`'s replicas.",
+"SLOTS",
+"    Return information about slots range mappings. Each range is made of:",
+"    start, end, master and replicas IP addresses, ports and ids",
+NULL
+    };
+
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
         return;
     }
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"ADDSLOTS <slot> [slot ...] -- Assign slots to current node.",
-"BUMPEPOCH -- Advance the cluster config epoch.",
-"COUNT-failure-reports <node-id> -- Return number of failure reports for <node-id>.",
-"COUNTKEYSINSLOT <slot> - Return the number of keys in <slot>.",
-"DELSLOTS <slot> [slot ...] -- Delete slots information from current node.",
-"FAILOVER [force|takeover] -- Promote current replica node to being a master.",
-"FORGET <node-id> -- Remove a node from the cluster.",
-"GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
-"FLUSHSLOTS -- Delete current node own slots information.",
-"INFO - Return onformation about the cluster.",
-"KEYSLOT <key> -- Return the hash slot for <key>.",
-"MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
-"MYID -- Return the node id.",
-"NODES -- Return cluster configuration seen by node. Output format:",
-"    <id> <ip:port> <flags> <master> <pings> <pongs> <epoch> <link> <slot> ... <slot>",
-"REPLICATE <node-id> -- Configure current node as replica to <node-id>.",
-"RESET [hard|soft] -- Reset current node (default: soft).",
-"SET-config-epoch <epoch> - Set config epoch of current node.",
-"SETSLOT <slot> (importing|migrating|stable|node <node-id>) -- Set slot state.",
-"REPLICAS <node-id> -- Return <node-id> replicas.",
-"SLOTS -- Return information about slots range mappings. Each range is made of:",
-"    start, end, master and replicas IP addresses, ports and ids",
-NULL
-        };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"meet") && (c->argc == 4 || c->argc == 5)) {
         /* CLUSTER MEET <ip> <port> [cport] */

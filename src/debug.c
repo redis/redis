@@ -283,31 +283,59 @@ void computeDatasetDigest(unsigned char *final) {
 }
 
 void debugCommand(client *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"ASSERT -- Crash by assertion failed.",
-"CHANGE-REPL-ID -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
-"CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
-"DIGEST -- Output a hex signature representing the current DB content.",
-"ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
-"LOG <message> -- write message to the server log.",
-"HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
-"HTSTATS-KEY <key> -- Like htstats but for the hash table stored as key's value.",
-"LOADAOF -- Flush the AOF buffers on disk and reload the AOF in memory.",
-"LUA-ALWAYS-REPLICATE-COMMANDS <0|1> -- Setting it to 1 makes Lua replication defaulting to replicating single commands, without the script having to enable effects replication.",
-"OBJECT <key> -- Show low level info about key and associated value.",
-"PANIC -- Crash the server simulating a panic.",
-"POPULATE <count> [prefix] [size] -- Create <count> string keys named key:<num>. If a prefix is specified is used instead of the 'key' prefix.",
-"RELOAD -- Save the RDB on disk and reload it back in memory.",
-"RESTART -- Graceful restart: save config, db, restart.",
-"SDSLEN <key> -- Show low level SDS string info representing key and value.",
-"SEGFAULT -- Crash the server with sigsegv.",
-"SET-ACTIVE-EXPIRE <0|1> -- Setting it to 0 disables expiring keys in background when they are not accessed (otherwise the Redis behavior). Setting it to 1 reenables back the default.",
-"SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
-"STRUCTSIZE -- Return the size of different Redis core C structures.",
-"ZIPLIST <key> -- Show low level info about the ziplist encoding.",
+    const char *help[] = {
+"ASSERT",
+"    Crash by assertion failed.",
+"CHANGE-REPL-ID"
+"    Change the replication IDs of the instance.",
+"    Dangerous: should be used only for testing the replication subsystem.",
+"CRASH-AND-RECOVER <milliseconds>",
+"    Hard crash and restart after `milliseconds` delay.",
+"DIGEST",
+"    Output a hex signature representing the current DB content.",
+"ERROR <string>",
+"    Return a Redis protocol error with `string` as message. Useful for clients",
+"    unit tests to simulate Redis errors.",
+"LOG <message>",
+"    Write `message` to the server log.",
+"HTSTATS <dbid>",
+"    Return hash table statistics of the specified Redis database.",
+"HTSTATS-KEY <key>",
+"    Like HTSTATS but for the hash table stored at `key`'s value.",
+"LOADAOF",
+"    Flush the AOF buffers on disk and reload the AOF in memory.",
+"LUA-ALWAYS-REPLICATE-COMMANDS <0|1>",
+"    Setting it to 1 makes Lua replication defaulting to replicating single",
+"    commands, without the script having to enable effects replication.",
+"OBJECT <key>",
+"    Show low level info about `key` and associated value.",
+"PANIC",
+"    Crash the server simulating a panic.",
+"POPULATE <count> [prefix] [size]",
+"    Create `count` string keys named key:<num>. If a prefix is specified is",
+"    used instead of the `key` prefix.",
+"RELOAD",
+"    Save the RDB on disk and reload it back in memory.",
+"RESTART",
+"    Graceful restart: save config, db, restart.",
+"SDSLEN <key>",
+"    Show low level SDS string info representing `key` and value.",
+"SEGFAULT",
+"    Crash the server with sigsegv.",
+"SET-ACTIVE-EXPIRE <0|1>",
+"    Setting it to 0 disables expiring keys in background when they are not",
+"    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
+"    default.",
+"SLEEP <seconds>",
+"    Stop the server for `seconds`. Decimals allowed.",
+"STRUCTSIZE",
+"    Return the size of different Redis core C structures.",
+"ZIPLIST <key>",
+"    Show low level info about the ziplist encoding of `key`.",
 NULL
-        };
+    };
+
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';

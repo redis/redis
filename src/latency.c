@@ -568,13 +568,17 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  */
 void latencyCommand(client *c) {
     const char *help[] = {
-"DOCTOR              -- Returns a human readable latency analysis report.",
-"GRAPH   <event>     -- Returns an ASCII latency graph for the event class.",
-"HISTORY <event>     -- Returns time-latency samples for the event class.",
-"LATEST              -- Returns the latest latency samples for all events.",
-"RESET   [event ...] -- Resets latency data of one or more event classes.",
-"                       (default: reset all data for all event classes)",
-"HELP                -- Prints this help.",
+"DOCTOR",
+"    Return a human readable latency analysis report.",
+"GRAPH <event>",
+"    Return an ASCII latency graph for the `event` class.",
+"HISTORY <event>",
+"    Return time-latency samples for the `event` class.",
+"LATEST",
+"    Return the latest latency samples for all events.",
+"RESET [event ...]",
+"    Reset latency data of one or more `event` classes.",
+"    (default: reset all data for all event classes)",
 NULL
     };
     struct latencyTimeSeries *ts;

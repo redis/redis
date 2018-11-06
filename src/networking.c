@@ -602,7 +602,7 @@ void addReplyBulkLongLong(client *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
-/* Add an array of C strings as status replies with a heading.
+/* Add a templated array of C strings as status.
  * This function is typically invoked by from commands that support
  * subcommands in response to the 'help' subcommand. The help array
  * is terminated by NULL sentinel. */
@@ -613,12 +613,16 @@ void addReplyHelp(client *c, const char **help) {
 
     sdstoupper(cmd);
     addReplyStatusFormat(c,
-        "%s <subcommand> arg arg ... arg. Subcommands are:",cmd);
+        "%s <subcommand> [<arg> [value] [opt] ...]. Subcommands are:",cmd);
     sdsfree(cmd);
 
     while (help[blen]) addReplyStatus(c,help[blen++]);
 
-    blen++;  /* Account for the header line(s). */
+    addReplyStatus(c,"HELP");
+    addReplyStatus(c,"    Prints this help.");
+
+    blen += 1;  /* Account for the header. */
+    blen += 2;  /* Account for the footer. */
     setDeferredMultiBulkLength(c,blenp,blen);
 }
 
@@ -1693,27 +1697,40 @@ sds getAllClientsInfoString(int type) {
 }
 
 void clientCommand(client *c) {
+    const char *help[] = {
+"ID",
+"    Return the id of the current connection.",
+"GETNAME",
+"    Return the name of the current connection.",
+"KILL <ip:port>",
+"    Kill connection made from `ip:port`.",
+"KILL <option> <value> [option value ...]",
+"    Kill connections. Options are:",
+"    * ADDR <ip:port>",
+"      Kill connection made from ip:port`.",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"      Kill connections by type.",
+"    * SKIPME (YES|NO)",
+"      Skip killing the current connection (default: YES).",
+"LIST [option value]",
+"    Return information about client connections. Options are:",
+"    * TYPE (NORMAL|MASTER|REPLICA|PUBSUB)",
+"      Return clients of specified type.",
+"PAUSE <timeout>",
+"    Suspend all Redis clients for `timeout` milliseconds.",
+"REPLY (ON|OFF|SKIP)",
+"    Control the replies sent to the current connection.",
+"SETNAME <name>",
+"    Assign the name `name` to the current connection.",
+"UNBLOCK <client-id> [TIMEOUT|ERROR]",
+"    Unblock the specified blocked client.",
+NULL
+    };
     listNode *ln;
     listIter li;
     client *client;
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-        const char *help[] = {
-"id                     -- Return the ID of the current connection.",
-"getname                -- Return the name of the current connection.",
-"kill <ip:port>         -- Kill connection made from <ip:port>.",
-"kill <option> <value> [option value ...] -- Kill connections. Options are:",
-"     addr <ip:port>                      -- Kill connection made from <ip:port>",
-"     type (normal|master|replica|pubsub) -- Kill connections by type.",
-"     skipme (yes|no)   -- Skip killing current connection (default: yes).",
-"list [options ...]     -- Return information about client connections. Options:",
-"     type (normal|master|replica|pubsub) -- Return clients of specified type.",
-"pause <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
-"reply (on|off|skip)    -- Control the replies sent to the current connection.",
-"setname <name>         -- Assign the name <name> to the current connection.",
-"unblock <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-NULL
-        };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"id") && c->argc == 2) {
         /* CLIENT ID */
@@ -1908,7 +1925,7 @@ NULL
         pauseClients(duration);
         addReply(c,shared.ok);
     } else {
-        addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
+        addReplySubcommandSyntaxError(c);
     }
 }
 
