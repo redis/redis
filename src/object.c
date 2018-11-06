@@ -1287,8 +1287,7 @@ NULL
 void memoryCommand(client *c) {
     robj *o;
 
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
-
+    if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc == 2) {
         const char *help[] = {
 "DOCTOR - Return memory problems reports.",
 "MALLOC-STATS -- Return internal statistics report from the memory allocator.",
