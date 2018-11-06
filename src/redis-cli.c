@@ -4157,7 +4157,7 @@ static clusterManagerNode *clusterNodeForResharding(char *id,
 static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
     list *moved = listCreate();
     int src_count = listLength(sources), i = 0, tot_slots = 0, j;
-    clusterManagerNode **sorted = zmalloc(src_count * sizeof(**sorted));
+    clusterManagerNode **sorted = zmalloc(src_count * sizeof(*sorted));
     listIter li;
     listNode *ln;
     listRewind(sources, &li);
