@@ -469,16 +469,15 @@ void setDeferredMultiBulkLength(client *c, void *node, long length) {
 
 /* Add a double as a bulk reply */
 void addReplyDouble(client *c, double d) {
-    char dbuf[128], sbuf[128];
-    int dlen, slen;
     if (isinf(d)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
          * different way, so better to handle it in an explicit way. */
-        addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
+        addReplyString(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
+                          d > 0 ? 6 : 7);
     } else {
-        dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-        slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-        addReplyString(c,sbuf,slen);
+        char dbuf[MAX_LONG_DOUBLE_CHARS+3];
+        int dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
+        addReplyString(c,dbuf,dlen);
     }
 }
 
@@ -486,9 +485,11 @@ void addReplyDouble(client *c, double d) {
  * of the double instead of exposing the crude behavior of doubles to the
  * dear user. */
 void addReplyHumanLongDouble(client *c, long double d) {
-    robj *o = createStringObjectFromLongDouble(d,1);
-    addReplyBulk(c,o);
-    decrRefCount(o);
+    char buf[MAX_LONG_DOUBLE_CHARS];
+    int len = ld2string(buf,sizeof(buf),d,1);
+    addReplyString(c,",",1);
+    addReplyString(c,buf,len);
+    addReplyString(c,"\r\n",2);
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -524,11 +525,35 @@ void addReplyLongLong(client *c, long long ll) {
         addReplyLongLongWithPrefix(c,ll,':');
 }
 
-void addReplyMultiBulkLen(client *c, long length) {
-    if (length < OBJ_SHARED_BULKHDR_LEN)
+void addReplyAggregateLen(client *c, long length, int prefix) {
+    if (prefix == '*' && length < OBJ_SHARED_BULKHDR_LEN)
         addReply(c,shared.mbulkhdr[length]);
     else
-        addReplyLongLongWithPrefix(c,length,'*');
+        addReplyLongLongWithPrefix(c,length,prefix);
+}
+
+void addReplyArrayLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'*');
+}
+
+void addReplyMapLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'%');
+}
+
+void addReplySetLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'~');
+}
+
+void addReplyAttributeLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'|');
+}
+
+void addReplyPushLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'>');
+}
+
+void addReplyHelloLen(client *c, long length) {
+    addReplyAggregateLen(c,length,'@');
 }
 
 /* Create the length prefix of a bulk reply, example: $2234 */
