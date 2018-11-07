@@ -684,7 +684,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if ((!strcasecmp(argv[0],"cluster-slave-no-failover") ||
-                    !strcasecmp(argv[0],"cluster-replica-no-failiver")) &&
+                    !strcasecmp(argv[0],"cluster-replica-no-failover")) &&
                    argc == 2)
         {
             server.cluster_slave_no_failover = yesnotoi(argv[1]);
