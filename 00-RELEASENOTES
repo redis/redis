@@ -12,6 +12,215 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.1     Released Wed Nov 07 13:09:30 CET 2018
+================================================================================
+
+Upgrade urgency: URGENT if you use Redis Streams. MODERATE otherwise.
+
+Hi all, this is the first patch level release of Redis 5. It contains
+both fixes and improvements. Here there is a list of the major ones, however
+read the commit messages at the end of the changelog if you want to know
+more about the smaller things. Let's start with the new features:
+
+* Sentinel now supports authentication! Check the Sentinel official doc
+  for more info.
+
+* Redis-cli cluster "fix" is now able to fix a big number of clusters put
+  in a bad condition. Previously many corner cases were not covered.
+
+Now the critical fixes:
+
+1. Fix RESTORE mismatch reply when certain keys already expired.
+2. Fix an XCLAIM non trivial issue: sometimes the command returned a wrong
+   entry or desynchronized the protocol.
+
+And now the other fixes:
+
+3. Stack trace generation on the Raspberry PI (and 32bit ARM) fixed.
+4. Don't evict expired keys when the KEYS command is called, in order to
+   avoid a mass deletion event. However expired keys are not displayed
+   by KEYS as usually.
+5. Improvements in the computation of the memory used, when estimating
+   the AOF buffers.
+6. XRANGE COUNT of 0 fixed.
+7. "key misses" stats accounting fixed. Many cache misses were not counted.
+8. When in MULTI state, return OOM while accumulating commands and there
+   is no longer memory available.
+9. Fix build on FreeBSD and possibly others.
+10. Fix a crash in Redis modules, thread safe context reply accumulation.
+11. Fix a race condition when producing the RDB file for full SYNC.
+12. Disable protected mode in Sentinel.
+13. More commands now have the HELP subcommand.
+14. Fixed an issue about adaptive server HZ timer.
+15. Fix cluster-replica-no-failover option name.
+
+Finally, this is the list of commits. Enjoy Redis 5.0.1!
+
+antirez in commit c801283f:
+ Fix cluster-replica-no-failover option name.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 4c4f50e1:
+ MEMORY command: make strcasecmp() conditional like the following.
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+Itamar Haber in commit a7b46e0e:
+ Uppercases subcommands in MEMORY HELP
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+Itamar Haber in commit 80e129d9:
+ Standardizes `MEMORY HELP` subcommand
+ 1 file changed, 13 insertions(+), 14 deletions(-)
+
+valentino in commit 88805cbb:
+ fix short period of server.hz being uninitialized
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Itamar Haber in commit 6b402733:
+ Adds HELP to LATENCY
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+yongman in commit 1c637de9:
+ fix malloc in clusterManagerComputeReshardTable
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+artix in commit 90b52fde:
+ Cluster Manager: removed unused var.
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+artix in commit 89cbb5df:
+ Cluster Manager: further improvements to "fix": - clusterManagerFixOpenSlot: ensure that the   slot is unassigned before ADDSLOTS - clusterManagerFixSlotsCoverage: after cold   migration, the slot configuration   is now updated on all the nodes.
+ 1 file changed, 49 insertions(+), 10 deletions(-)
+
+artix in commit 175515c9:
+ Cluster Manager: fixed string parsing issue in clusterManagerGetConfigSignature
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+artix in commit 3997dd6e:
+ Cluster Manager: better fix subcommand.
+ 1 file changed, 78 insertions(+), 20 deletions(-)
+
+artix in commit bd80291c:
+ Cluster Manager: fixed typos in comments.
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+artix in commit 4369cbce:
+ Cluster Manager: fixed 'DELSLOT' subcommand typo.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1ed821e2:
+ Fix XCLAIM missing entry bug.
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+michael-grunder in commit b49bcd01:
+ Use typedef'd mstime_t instead of time_t
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 09d1849e:
+ Improve streamReplyWithRange() top comment.
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+antirez in commit bdf6306f:
+ Add support for Sentinel authentication.
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+antirez in commit 50222af5:
+ Disable protected mode in Sentinel mode.
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 643ee6e3:
+ When replica kills a pending RDB save during SYNC, log it.
+ 1 file changed, 6 insertions(+)
+
+Andrey Bugaevskiy in commit 8b609c99:
+ Move child termination to readSyncBulkPayload
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+Andrey Bugaevskiy in commit 27102605:
+ Prevent RDB autosave from overwriting full resync results
+ 1 file changed, 7 insertions(+)
+
+antirez in commit a677923d:
+ asyncCloseClientOnOutputBufferLimitReached(): don't free fake clients.
+ 1 file changed, 1 insertion(+)
+
+David Carlier in commit 427e440a:
+ needs it for the global
+ 1 file changed, 1 insertion(+)
+
+David Carlier in commit 28f9ca4e:
+ Fix non Linux build.
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit 4bf9efe2:
+ MULTI: OOM err if cannot free enough memory in MULTI/EXEC context
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+antirez in commit 4fbd7a39:
+ Add command fingerprint comment for XSETID.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+Itamar Haber in commit 2480db53:
+ Plugs a potential underflow
+ 1 file changed, 1 insertion(+)
+
+Itamar Haber in commit e5e4d2ef:
+ Corrects inline documentation of syntax
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 713800d2:
+ if we read a expired key, misses++
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit e79ee263:
+ Fix XRANGE COUNT option for value of 0.
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+antirez in commit 505cc70f:
+ Fix typo in streamReplyWithRange() top comment.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Damien Tournoud in commit 3c36561d:
+ Overhead is the allocated size of the AOF buffer, not its length
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit 3761582f:
+ Simplify part of the #5470 patch.
+ 1 file changed, 11 insertions(+), 12 deletions(-)
+
+zhaozhao.zz in commit edc47a3a:
+ do not delete expired keys in KEYS command
+ 1 file changed, 34 insertions(+), 27 deletions(-)
+
+antirez in commit 9872af6d:
+ Use guide comments to make changes in #5462 more obvious.
+ 1 file changed, 6 insertions(+)
+
+youjiali1995 in commit 3f399c3b:
+ migrate: fix mismatch of RESTORE reply when some keys have expired.
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+hujie in commit eaaff621:
+ fix typo in config.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+hujiecs in commit 43ebb7ee:
+ several typos fixed, optimize MSETNX to avoid unnecessary loop
+ 4 files changed, 4 insertions(+), 4 deletions(-)
+
+antirez in commit de8fdaac:
+ Remove useless complexity from MSET implementation.
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+antirez in commit dc8f1112:
+ Fix again stack generation on the Raspberry Pi.
+ 1 file changed, 4 insertions(+)
+
+antirez in commit 83a6e81d:
+ Get rid of the word slave in the release note of Redis 5.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+================================================================================
 Redis 5.0.0     Released Wed Oct 17 13:28:26 CEST 2018
 ================================================================================
 
