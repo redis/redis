@@ -2339,11 +2339,20 @@ non-backward compatible changes introduced in the 5.0 release:
 
 * Scripts are only replicated by their *effects* and not by sending EVAL/EVALSHA
   to slaves or the AOF log itself. This is much better in the general case
-  and in the future we want to totally remove the other possiblity of propagating
-  scripts the old way (as EVAL). However you can still turn this back to the
-  default via the non-documented (if not here) Redis configuration directive
-  "lua-replicate-commands yes" or "DEBUG lua-always-replicate-commands 0".
-  However note that Redis 6 may completely remove such feature.
+  and in the future we want to totally remove the other possiblity of
+  propagating scripts the old way (as EVAL). However you can still turn this
+  back to the default via the non-documented (if not here) Redis configuration
+  directive "lua-replicate-commands yes" or
+  "DEBUG lua-always-replicate-commands 0". However note that Redis 6 may
+  completely remove such feature.
+
+* Because of the above change related to scripts replication, certain Redis
+  commands that in Redis 4 had their result ordered lexicographically before
+  being passed to Lua via the return value of redis.call(), now have a behavior
+  more similar to calling the commands directly from a normal client. For
+  instance the ordering of elements returned by SMEMBERS or SDIFF is now
+  undetermined in Lua, exactly as it is by default when calling the commands
+  from a non-scripting context.
 
 --------------------------------------------------------------------------------
 
