@@ -43,7 +43,7 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj *port, robj *auth, mstime_t timeout) {
+static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj *port, robj *auth, mstime_t endtime) {
     sds name = migrateSocketName(host, port, auth);
     migrateCachedSocket *cs = dictFetchValue(server.migrate_cached_sockets, name);
     if (cs != NULL) {
@@ -78,6 +78,10 @@ static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj 
     }
     anetEnableTcpNoDelay(server.neterr, fd);
 
+    mstime_t timeout = endtime - mstime();
+    if (timeout <= 0) {
+        timeout = 10;
+    }
     if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
         sdsfree(name);
         close(fd);
@@ -102,7 +106,7 @@ static migrateCachedSocket *migrateGetSocketOrReply(client *c, robj *host, robj 
 
 #define SYNC_WRITE_IOBUF_LEN (64 * 1024)
 
-static int syncWriteBuffer(int fd, sds buffer, mstime_t timeout) {
+static int syncWriteBuffer(int fd, sds buffer, mstime_t endtime) {
     ssize_t pos = 0;
     ssize_t len = sdslen(buffer);
     while (pos != len) {
@@ -110,7 +114,7 @@ static int syncWriteBuffer(int fd, sds buffer, mstime_t timeout) {
         if (towrite > SYNC_WRITE_IOBUF_LEN) {
             towrite = SYNC_WRITE_IOBUF_LEN;
         }
-        ssize_t written = syncWrite(fd, buffer + pos, towrite, timeout);
+        ssize_t written = syncWrite(fd, buffer + pos, towrite, endtime - mstime());
         if (written != towrite) {
             return C_ERR;
         }
@@ -119,7 +123,7 @@ static int syncWriteBuffer(int fd, sds buffer, mstime_t timeout) {
     return C_OK;
 }
 
-static int syncPingCommand(int fd, mstime_t timeout, sds *reterr) {
+static int syncPingCommand(int fd, mstime_t endtime, sds *reterr) {
     rio cmd;
     rioInitWithBuffer(&cmd, sdsempty());
 
@@ -129,7 +133,7 @@ static int syncPingCommand(int fd, mstime_t timeout, sds *reterr) {
 
     serverAssert(reterr != NULL && *reterr == NULL);
 
-    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
+    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, endtime) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
@@ -137,7 +141,7 @@ static int syncPingCommand(int fd, mstime_t timeout, sds *reterr) {
     sdsfree(cmd.io.buffer.ptr);
 
     char buf[4096];
-    if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
+    if (syncReadLine(fd, buf, sizeof(buf), endtime - mstime()) <= 0) {
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
     }
@@ -148,7 +152,7 @@ static int syncPingCommand(int fd, mstime_t timeout, sds *reterr) {
     return C_OK;
 }
 
-static int syncAuthCommand(int fd, mstime_t timeout, sds password, sds *reterr) {
+static int syncAuthCommand(int fd, mstime_t endtime, sds password, sds *reterr) {
     rio cmd;
     rioInitWithBuffer(&cmd, sdsempty());
 
@@ -159,7 +163,7 @@ static int syncAuthCommand(int fd, mstime_t timeout, sds password, sds *reterr) 
 
     serverAssert(reterr != NULL && *reterr == NULL);
 
-    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
+    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, endtime) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
@@ -167,7 +171,7 @@ static int syncAuthCommand(int fd, mstime_t timeout, sds password, sds *reterr) 
     sdsfree(cmd.io.buffer.ptr);
 
     char buf[4096];
-    if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
+    if (syncReadLine(fd, buf, sizeof(buf), endtime - mstime()) <= 0) {
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
     }
@@ -178,7 +182,7 @@ static int syncAuthCommand(int fd, mstime_t timeout, sds password, sds *reterr) 
     return C_OK;
 }
 
-static int syncSelectCommand(int fd, mstime_t timeout, int dbid, sds *reterr) {
+static int syncSelectCommand(int fd, mstime_t endtime, int dbid, sds *reterr) {
     rio cmd;
     rioInitWithBuffer(&cmd, sdsempty());
 
@@ -189,7 +193,7 @@ static int syncSelectCommand(int fd, mstime_t timeout, int dbid, sds *reterr) {
 
     serverAssert(reterr != NULL && *reterr == NULL);
 
-    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, timeout) != C_OK) {
+    if (syncWriteBuffer(fd, cmd.io.buffer.ptr, endtime) != C_OK) {
         sdsfree(cmd.io.buffer.ptr);
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, sending error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
@@ -197,7 +201,7 @@ static int syncSelectCommand(int fd, mstime_t timeout, int dbid, sds *reterr) {
     sdsfree(cmd.io.buffer.ptr);
 
     char buf[4096];
-    if (syncReadLine(fd, buf, sizeof(buf), timeout) <= 0) {
+    if (syncReadLine(fd, buf, sizeof(buf), endtime - mstime()) <= 0) {
         *reterr = sdscatfmt(sdsempty(), "-IOERR Command %s failed, reading error '%s'.\r\n", cmd_name, strerror(errno));
         return C_ERR;
     }
@@ -214,7 +218,7 @@ typedef struct {
     rio rio;
     sds payload;
     int seq_num;
-    mstime_t timeout;
+    mstime_t endtime;
     int replace;
     int non_blocking;
     struct {
@@ -237,7 +241,7 @@ typedef struct {
 
 static int rioMigrateCommandFlushIOBuffer(rioMigrateCommand *cmd) {
     if (sdslen(cmd->io.sendbuf) != 0) {
-        if (syncWriteBuffer(cmd->io.fd, cmd->io.sendbuf, cmd->timeout) != C_OK) {
+        if (syncWriteBuffer(cmd->io.fd, cmd->io.sendbuf, cmd->endtime) != C_OK) {
             return 0;
         }
         sdsclear(cmd->io.sendbuf);
@@ -418,7 +422,7 @@ struct _migrateCommandArgs {
     robj *port;
     robj *auth;
     int dbid;
-    mstime_t timeout;
+    mstime_t endtime;
 
     int copy;
     int replace;
@@ -530,9 +534,12 @@ parsed_options:
         getLongFromObjectOrReply(c, c->argv[5], &timeout, NULL) != C_OK) {
         goto failed_cleanup;
     }
+    if (timeout < 1000) {
+        timeout = 1000;
+    }
 
     args->dbid = (int)dbid;
-    args->timeout = (timeout <= 0 ? 1000 : timeout);
+    args->endtime = mstime() + timeout;
 
     args->kvpairs = zcalloc(sizeof(args->kvpairs[0]) * num_keys);
 
@@ -556,7 +563,7 @@ parsed_options:
     }
     args->socket_iobuf_len = server.migrate_socket_iobuf_len;
 
-    migrateCachedSocket *cs = migrateGetSocketOrReply(c, args->host, args->port, args->auth, args->timeout);
+    migrateCachedSocket *cs = migrateGetSocketOrReply(c, args->host, args->port, args->auth, args->endtime);
     if (cs == NULL) {
         goto failed_cleanup;
     }
@@ -584,11 +591,11 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
     migrateCachedSocket *cs = args->socket;
     if (!cs->authenticated) {
         if (cs->auth != NULL) {
-            if (syncAuthCommand(cs->fd, args->timeout, cs->auth, &args->errmsg) != C_OK) {
+            if (syncAuthCommand(cs->fd, args->endtime, cs->auth, &args->errmsg) != C_OK) {
                 goto failed_socket_error;
             }
         } else {
-            if (syncPingCommand(cs->fd, args->timeout, &args->errmsg) != C_OK) {
+            if (syncPingCommand(cs->fd, args->endtime, &args->errmsg) != C_OK) {
                 goto failed_socket_error;
             }
         }
@@ -596,7 +603,7 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
     }
 
     if (cs->last_dbid != args->dbid) {
-        if (syncSelectCommand(cs->fd, args->timeout, args->dbid, &args->errmsg) != C_OK) {
+        if (syncSelectCommand(cs->fd, args->endtime, args->dbid, &args->errmsg) != C_OK) {
             goto failed_socket_error;
         }
         cs->last_dbid = args->dbid;
@@ -608,7 +615,7 @@ static int migrateGenericCommandSendRequests(migrateCommandArgs *args) {
         .rio = _rioMigrateObjectIO,
         .payload = sdsMakeRoomFor(sdsempty(), args->socket_iobuf_len),
         .seq_num = 0,
-        .timeout = args->timeout,
+        .endtime = args->endtime,
         .replace = args->replace,
         .non_blocking = args->non_blocking,
         .io =
@@ -665,7 +672,7 @@ static int migrateGenericCommandFetchReplies(migrateCommandArgs *args) {
         int errors = 0;
         for (int i = 0; i < args->kvpairs[j].num_fragments; i++) {
             char buf[4096];
-            if (syncReadLine(cs->fd, buf, sizeof(buf), args->timeout) <= 0) {
+            if (syncReadLine(cs->fd, buf, sizeof(buf), args->endtime - mstime()) <= 0) {
                 goto failed_socket_error;
             }
             if (buf[0] != '+') {
