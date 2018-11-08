@@ -21,6 +21,11 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-std=c99 -pedantic -DREDIS_STATIC=''
+ifneq (,$(findstring clang,$(CC)))
+ifneq (,$(findstring FreeBSD,$(uname_S)))
+  STD+=-Wno-c11-extensions
+endif
+endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
