@@ -1189,6 +1189,8 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
+#else
+    (void)secret;
 #endif
     UNUSED(info);
     UNUSED(sig);
