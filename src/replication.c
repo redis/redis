@@ -263,7 +263,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
          * or are already in sync with the master. */
 
         /* Add the multi bulk length. */
-        addReplyMultiBulkLen(slave,argc);
+        addReplyArrayLen(slave,argc);
 
         /* Finally any additional argument that was not stored inside the
          * static buffer if any (from j to argc). */
@@ -2062,10 +2062,10 @@ void roleCommand(client *c) {
         void *mbcount;
         int slaves = 0;
 
-        addReplyMultiBulkLen(c,3);
+        addReplyArrayLen(c,3);
         addReplyBulkCBuffer(c,"master",6);
         addReplyLongLong(c,server.master_repl_offset);
-        mbcount = addDeferredMultiBulkLength(c);
+        mbcount = addReplyDeferredLen(c);
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             client *slave = ln->value;
@@ -2077,17 +2077,17 @@ void roleCommand(client *c) {
                 slaveip = ip;
             }
             if (slave->replstate != SLAVE_STATE_ONLINE) continue;
-            addReplyMultiBulkLen(c,3);
+            addReplyArrayLen(c,3);
             addReplyBulkCString(c,slaveip);
             addReplyBulkLongLong(c,slave->slave_listening_port);
             addReplyBulkLongLong(c,slave->repl_ack_off);
             slaves++;
         }
-        setDeferredMultiBulkLength(c,mbcount,slaves);
+        setDeferredArrayLen(c,mbcount,slaves);
     } else {
         char *slavestate = NULL;
 
-        addReplyMultiBulkLen(c,5);
+        addReplyArrayLen(c,5);
         addReplyBulkCBuffer(c,"slave",5);
         addReplyBulkCString(c,server.masterhost);
         addReplyLongLong(c,server.masterport);
@@ -2116,7 +2116,7 @@ void replicationSendAck(void) {
 
     if (c != NULL) {
         c->flags |= CLIENT_MASTER_FORCE_REPLY;
-        addReplyMultiBulkLen(c,3);
+        addReplyArrayLen(c,3);
         addReplyBulkCString(c,"REPLCONF");
         addReplyBulkCString(c,"ACK");
         addReplyBulkLongLong(c,c->reploff);
