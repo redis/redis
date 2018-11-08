@@ -385,7 +385,7 @@ proc signal_idle_client fd {
 # The the_end function gets called when all the test units were already
 # executed, so the test finished.
 proc the_end {} {
-    # TODO: print the status, exit with the rigth exit code.
+    # TODO: print the status, exit with the right exit code.
     puts "\n                   The End\n"
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
