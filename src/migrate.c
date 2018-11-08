@@ -706,6 +706,7 @@ static void migrateGenericCommandReplyAndPropagate(migrateCommandArgs *args) {
     if (server.masterhost != NULL && args->errmsg == NULL) {
         args->errmsg = sdscatfmt(sdsempty(), "-ERR Not master.\r\n");
     }
+
     if (args->client != NULL) {
         client *c = args->client;
         if (args->errmsg != NULL) {
@@ -999,26 +1000,24 @@ static int restoreGenericCommandExtractPayload(restoreCommandArgs *args) {
 }
 
 static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
+    if (args->client == NULL) {
+        return;
+    }
+
     client *c = args->client;
     if (args->errmsg != NULL) {
-        if (c != NULL) {
-            addReplySds(c, sdsdup(args->errmsg));
-        }
+        addReplySds(c, sdsdup(args->errmsg));
         return;
     }
 
     if (dictFind(args->db->migrating_keys, args->key) != NULL) {
-        if (c != NULL) {
-            addReplySds(c, sdscatfmt(sdsempty(), "-RETRYLATER %S is busy.\r\n", args->key->ptr));
-        }
+        addReplySds(c, sdscatfmt(sdsempty(), "-RETRYLATER %S is busy.\r\n", args->key->ptr));
         return;
     }
 
     if (lookupKeyWrite(args->db, args->key) != NULL) {
         if (!args->replace) {
-            if (c != NULL) {
-                addReply(c, shared.busykeyerr);
-            }
+            addReply(c, shared.busykeyerr);
             return;
         }
         dbDelete(args->db, args->key);
@@ -1034,10 +1033,9 @@ static void restoreGenericCommandReplyAndPropagate(restoreCommandArgs *args) {
     signalModifiedKey(args->db, args->key);
     server.dirty++;
 
-    if (c != NULL) {
-        addReply(c, shared.ok);
-    }
-    if (c != NULL && !args->non_blocking) {
+    addReply(c, shared.ok);
+
+    if (!args->non_blocking) {
         preventCommandPropagation(c);
     }
 
