@@ -571,6 +571,9 @@ void scanCallback(void *privdata, const dictEntry *de) {
     if (o == NULL) {
         sds sdskey = dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
+        if ((long)pd[2]) {
+            val = createStringObjectFromLongLongForValue(dictGetSignedIntegerVal(de));
+        }
     } else if (o->type == OBJ_SET) {
         sds keysds = dictGetKey(de);
         key = createStringObject(keysds,sdslen(keysds));
@@ -628,6 +631,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     long count = 10;
     sds pat = NULL;
     int patlen = 0, use_pattern = 0;
+    long escan = !strcasecmp(c->argv[0]->ptr, "escan") ? 1 : 0;
     dict *ht;
 
     /* Object must be NULL (to iterate keys names), or the type of the object
@@ -680,7 +684,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        ht = c->db->dict;
+        ht = escan ? c->db->expires : c->db->dict;
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
@@ -693,7 +697,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     if (ht) {
-        void *privdata[2];
+        void *privdata[3];
         /* We set the max number of iterations to ten times the specified
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
@@ -705,6 +709,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
          * it is possible to fetch more data in a type-dependent way. */
         privdata[0] = keys;
         privdata[1] = o;
+        privdata[2] = (void *)escan;
         do {
             cursor = dictScan(ht, cursor, scanCallback, NULL, privdata);
         } while (cursor &&
@@ -766,10 +771,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
             listDelNode(keys, node);
         }
 
-        /* If this is a hash or a sorted set, we have a flat list of
+        /* If we are scanning the expires dict,
+         * or this is a hash or a sorted set, we have a flat list of
          * key-value elements, so if this element was filtered, remove the
          * value, or skip it if it was not filtered: we only match keys. */
-        if (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH)) {
+        if (escan || (o && (o->type == OBJ_ZSET || o->type == OBJ_HASH))) {
             node = nextnode;
             nextnode = listNextNode(node);
             if (filter) {
