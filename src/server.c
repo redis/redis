@@ -2940,7 +2940,7 @@ void timeCommand(client *c) {
     /* gettimeofday() can only fail if &tv is a bad address so we
      * don't check for errors. */
     gettimeofday(&tv,NULL);
-    addReplyMultiBulkLen(c,2);
+    addReplyArrayLen(c,2);
     addReplyBulkLongLong(c,tv.tv_sec);
     addReplyBulkLongLong(c,tv.tv_usec);
 }
@@ -2960,12 +2960,12 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReply(c, shared.nullbulk);
     } else {
         /* We are adding: command name, arg count, flags, first, last, offset */
-        addReplyMultiBulkLen(c, 6);
+        addReplyArrayLen(c, 6);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
 
         int flagcount = 0;
-        void *flaglen = addDeferredMultiBulkLength(c);
+        void *flaglen = addReplyDeferredLen(c);
         flagcount += addReplyCommandFlag(c,cmd,CMD_WRITE, "write");
         flagcount += addReplyCommandFlag(c,cmd,CMD_READONLY, "readonly");
         flagcount += addReplyCommandFlag(c,cmd,CMD_DENYOOM, "denyoom");
@@ -2985,7 +2985,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;
         }
-        setDeferredMultiBulkLength(c, flaglen, flagcount);
+        setDeferredSetLen(c, flaglen, flagcount);
 
         addReplyLongLong(c, cmd->firstkey);
         addReplyLongLong(c, cmd->lastkey);
@@ -3008,7 +3008,7 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (c->argc == 1) {
-        addReplyMultiBulkLen(c, dictSize(server.commands));
+        addReplyArrayLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             addReplyCommand(c, dictGetVal(de));
@@ -3016,7 +3016,7 @@ NULL
         dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
         int i;
-        addReplyMultiBulkLen(c, c->argc-2);
+        addReplyArrayLen(c, c->argc-2);
         for (i = 2; i < c->argc; i++) {
             addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
         }
@@ -3043,7 +3043,7 @@ NULL
         if (!keys) {
             addReplyError(c,"Invalid arguments specified for command");
         } else {
-            addReplyMultiBulkLen(c,numkeys);
+            addReplyArrayLen(c,numkeys);
             for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
             getKeysFreeResult(keys);
         }
