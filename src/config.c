@@ -1324,7 +1324,7 @@ badfmt: /* Bad format errors */
 
 void configGetCommand(client *c) {
     robj *o = c->argv[2];
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen = addReplyDeferredLen(c);
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
@@ -1571,7 +1571,7 @@ void configGetCommand(client *c) {
         sdsfree(aux);
         matches++;
     }
-    setDeferredMultiBulkLength(c,replylen,matches*2);
+    setDeferredMapLen(c,replylen,matches);
 }
 
 /*-----------------------------------------------------------------------------
