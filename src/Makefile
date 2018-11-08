@@ -20,10 +20,11 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
 
 # Default settings
-ifeq (,$(findstring clang,$(CC)))
-  STD=-std=c99 -pedantic -DREDIS_STATIC=''
-else
-  STD=-std=c99 -Wno-c11-extensions -pedantic -DREDIS_STATIC=''
+STD=-std=c99 -pedantic -DREDIS_STATIC=''
+ifneq (,$(findstring clang,$(CC)))
+ifneq (,$(findstring FreeBSD,$(uname_S)))
+  STD+=-Wno-c11-extensions
+endif
 endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
