@@ -693,7 +693,7 @@ void hmgetCommand(client *c) {
         return;
     }
 
-    addReplyMultiBulkLen(c, c->argc-2);
+    addReplyMapLen(c, c->argc-2);
     for (i = 2; i < c->argc; i++) {
         addHashFieldToReply(c, o, c->argv[i]->ptr);
     }
@@ -766,17 +766,19 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
 void genericHgetallCommand(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
-    int multiplier = 0;
     int length, count = 0;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
         || checkType(c,o,OBJ_HASH)) return;
 
-    if (flags & OBJ_HASH_KEY) multiplier++;
-    if (flags & OBJ_HASH_VALUE) multiplier++;
-
-    length = hashTypeLength(o) * multiplier;
-    addReplyMultiBulkLen(c, length);
+    /* We return a map if the user requested keys and values, like in the
+     * HGETALL case. Otherwise to use a flat array makes more sense. */
+    length = hashTypeLength(o);
+    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
+        addReplyMapLen(c, length);
+    } else {
+        addReplyArrayLen(c, length);
+    }
 
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != C_ERR) {
