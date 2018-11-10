@@ -614,8 +614,10 @@ error:
  * (matches for ":"), the ip is surrounded by []. IP and port are just
  * separated by colons. This the standard to display addresses within Redis. */
 int anetFormatAddr(char *buf, size_t buf_len, char *ip, int port) {
+    char _port[6];  /* strlen("65535") */
+    snprintf(_port, 6, "%d", port);
     return snprintf(buf,buf_len, strchr(ip,':') ?
-           "[%s]:%d" : "%s:%d", ip, port);
+           "[%s]:%s" : "%s:%s", ip, _port);
 }
 
 /* Like anetFormatAddr() but extract ip and port from the socket's peer. */
