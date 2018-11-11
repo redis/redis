@@ -144,6 +144,8 @@ start_server {
                     }
                 }
 
+                wait_for_ofs_sync $master $slave
+
                 # Turn slave into master
                 $slave slaveof no one
 
