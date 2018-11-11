@@ -90,6 +90,7 @@ start_server {tags {"defrag"}} {
         test "Active defrag big keys" {
             r flushdb
             r config resetstat
+            r config set save "" ;# prevent bgsave from interfereing with save below
             r config set activedefrag no
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
