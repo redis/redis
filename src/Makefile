@@ -107,9 +107,14 @@ ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
 	FINAL_LIBS+= -lpthread
 else
+ifeq ($(uname_S),DragonFly)
+	# FreeBSD
+	FINAL_LIBS+= -lpthread
+else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
+endif
 endif
 endif
 endif
