@@ -826,8 +826,10 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
     stopLoading();
-    aofUpdateCurrentSize();
-    server.aof_rewrite_base_size = server.aof_current_size;
+    if (server.aof_state == AOF_ON) {
+        aofUpdateCurrentSize();
+        server.aof_rewrite_base_size = server.aof_current_size;
+    }
     return C_OK;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */

@@ -1661,6 +1661,7 @@ void initServerConfig(void) {
     server.repl_timeout = CONFIG_DEFAULT_REPL_TIMEOUT;
     server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE;
     server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
+    server.repl_aof_sync = CONFIG_DEFAULT_REPL_AOF_SYNC; 
     server.slave_priority = CONFIG_DEFAULT_SLAVE_PRIORITY;
     server.slave_announce_ip = CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP;
     server.slave_announce_port = CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT;
