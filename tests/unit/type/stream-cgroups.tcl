@@ -147,6 +147,54 @@ start_server {
         assert {[lindex $res 0 1 1] == {2-0 {field1 B}}}
     }
 
+    test {XCLAIM can claim PEL items from another consumer} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        r XGROUP CREATE mystream mygroup 0
+
+        # Client 1 reads item 1 from the stream without acknowledgements.
+        # Client 2 then claims pending item 1 from the PEL of client 1
+        set reply [
+            r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >
+        ]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        r debug sleep 0.2
+        set reply [
+            r XCLAIM mystream mygroup client2 10 $id1
+        ]
+        assert {[llength [lindex $reply 0 1]] == 2}
+        assert {[lindex $reply 0 1] eq {a 1}}
+
+        # Client 1 reads another 2 items from stream
+        r XREADGROUP GROUP mygroup client1 count 2 STREAMS mystream >
+        r debug sleep 0.2
+
+        # Delete item 2 from the stream. Now client 1 has PEL that contains
+        # only item 3. Try to use client 2 to claim the deleted item 2
+        # from the PEL of client 1, this should return nil
+        r XDEL mystream $id2
+        set reply [
+            r XCLAIM mystream mygroup client2 10 $id2
+        ]
+        assert {[llength $reply] == 1}
+        assert_equal "" [lindex $reply 0]
+
+        # Delete item 3 from the stream. Now client 1 has PEL that is empty.
+        # Try to use client 2 to claim the deleted item 3 from the PEL
+        # of client 1, this should return nil
+        r debug sleep 0.2
+        r XDEL mystream $id3
+        set reply [
+            r XCLAIM mystream mygroup client2 10 $id3
+        ]
+        assert {[llength $reply] == 1}
+        assert_equal "" [lindex $reply 0]
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
