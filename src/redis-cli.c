@@ -149,7 +149,7 @@ int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253
 int *spectrum_palette;
 int spectrum_palette_size;
 
-/* The pager */
+/* The pager to use to display results. */
 int opt_nopager=1;
 sds pager;
 FILE *PAGER;
@@ -1778,10 +1778,12 @@ static void repl(void) {
                     }
 
                     elapsed = mstime()-start_time;
-                    if (elapsed >= 500 &&
+                    if (elapsed >= 1000 &&
                         config.output == OUTPUT_STANDARD)
                     {
                         printf("(%.2fs)\n",(double)elapsed/1000);
+                    } else {
+                        printf("(%ldms)\n", elapsed);
                     }
                 }
             }
