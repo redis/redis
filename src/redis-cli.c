@@ -1783,7 +1783,7 @@ static void repl(void) {
                     {
                         printf("(%.2fs)\n",(double)elapsed/1000);
                     } else {
-                        printf("(%ldms)\n", elapsed);
+                        printf("(%lldms)\n", elapsed);
                     }
                 }
             }
