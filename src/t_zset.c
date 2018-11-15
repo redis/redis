@@ -2527,9 +2527,13 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     robj *zobj;
     long offset = 0, limit = -1;
     int withscores = 0;
+    int withstore = 0;
+    robj *dstkey = NULL;
+    robj *dstobj = NULL;
     unsigned long rangelen = 0;
     void *replylen = NULL;
     int minidx, maxidx;
+    int touched = 0;
 
     /* Parse the range arguments. */
     if (reverse) {
@@ -2555,6 +2559,11 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             if (remaining >= 1 && !strcasecmp(c->argv[pos]->ptr,"withscores")) {
                 pos++; remaining--;
                 withscores = 1;
+            } else if (remaining >= 2 && !strcasecmp(c->argv[pos]->ptr,"store")) {
+                dstkey = c->argv[pos + 1];
+                pos += 2;
+                remaining -= 2;
+                withstore = 1;
             } else if (remaining >= 3 && !strcasecmp(c->argv[pos]->ptr,"limit")) {
                 if ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL)
                         != C_OK) ||
@@ -2575,6 +2584,15 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
+    /* If we were asked to store the result, delete the old key (if any) */
+    if (withstore) {
+      if (dbDelete(c->db,dstkey)) {
+        signalModifiedKey(c->db,dstkey);
+        touched = 1;
+        server.dirty++;
+      }
+    }
+
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
@@ -2582,6 +2600,11 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         unsigned int vlen;
         long long vlong;
         double score;
+
+        if (withstore) {
+          dstobj = createZsetZiplistObject();
+          dbAdd(c->db,dstkey,dstobj);
+        }
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
@@ -2592,7 +2615,14 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
-            addReply(c, shared.emptymultibulk);
+            if (withstore) {
+                addReply(c, shared.czero);
+                if (touched) {
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+                }
+            } else {
+                addReply(c, shared.emptymultibulk);
+            }
             return;
         }
 
@@ -2603,7 +2633,9 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        if (!withstore) {
+          replylen = addDeferredMultiBulkLength(c);
+        }
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2629,13 +2661,34 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
+
             if (vstr == NULL) {
-                addReplyBulkLongLong(c,vlong);
+                if (withstore) {
+                    double newscore;
+                    int retflags;
+                    sds ele = sdsfromlonglong(vlong);
+                    int retval = zsetAdd(dstobj, score, ele, &retflags, &newscore);
+                    if (retval == 0) {
+                        addReplyError(c,"yikers");
+                    }
+                } else {
+                    addReplyBulkLongLong(c,vlong);
+                }
             } else {
-                addReplyBulkCBuffer(c,vstr,vlen);
+                if (withstore) {
+                    double newscore;
+                    int retflags;
+                    sds ele = sdsnewlen(vstr,vlen);
+                    int retval = zsetAdd(dstobj, score, ele, &retflags, &newscore);
+                    if (retval == 0) {
+                        addReplyError(c,"yikers");
+                    }
+                } else {
+                    addReplyBulkCBuffer(c,vstr,vlen);
+                }
             }
 
-            if (withscores) {
+            if (withscores && !withstore) {
                 addReplyDouble(c,score);
             }
 
@@ -2651,6 +2704,11 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
 
+        if (withstore) {
+          dstobj = createZsetObject();
+          dbAdd(c->db,dstkey,dstobj);
+        }
+
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
             ln = zslLastInRange(zsl,&range);
@@ -2660,14 +2718,23 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReply(c, shared.emptymultibulk);
+            if (withstore) {
+                addReply(c, shared.czero);
+                if (touched) {
+                    notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+                }
+            } else {
+                addReply(c, shared.emptymultibulk);
+            }
             return;
         }
 
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        if (!withstore) {
+            replylen = addDeferredMultiBulkLength(c);
+        }
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2688,9 +2755,18 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             rangelen++;
-            addReplyBulkCBuffer(c,ln->ele,sdslen(ln->ele));
+            if (withstore) {
+                double newscore;
+                int retflags;
+                int retval = zsetAdd(dstobj, ln->score, ln->ele, &retflags, &newscore);
+                if (retval == 0) {
+                    addReplyError(c,"yikers");
+                }
+            } else {
+                addReplyBulkCBuffer(c,ln->ele,sdslen(ln->ele));
+            }
 
-            if (withscores) {
+            if (withscores && !withstore) {
                 addReplyDouble(c,ln->score);
             }
 
@@ -2709,7 +2785,25 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         rangelen *= 2;
     }
 
-    setDeferredMultiBulkLength(c, replylen, rangelen);
+    if (withstore) {
+        if (rangelen > 0) {
+            addReplyLongLong(c,rangelen);
+            if (!touched) {
+                signalModifiedKey(c->db,dstkey);
+            }
+            notifyKeyspaceEvent(NOTIFY_ZSET,
+                (reverse == 1) ? "zrevrangebyscore" : "zrangebyscore",
+                dstkey,c->db->id);
+            server.dirty++;
+        } else {
+            addReply(c,shared.czero);
+            if (touched) {
+              notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
+            }
+        }
+    } else {
+        setDeferredMultiBulkLength(c, replylen, rangelen);
+    }
 }
 
 void zrangebyscoreCommand(client *c) {

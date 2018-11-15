@@ -1,0 +1,11 @@
+ZADD myzset 1 "one"
+ZADD myzset 2 "two"
+ZADD myzset 3 "three"
+ZADD myzset 4 "four"
+ZADD myzset 5 "five"
+ZRANGEBYSCORE myzset -inf +inf
+ZRANGEBYSCORE myzset 2 4 withscores
+ZRANGEBYSCORE myzset 2 4 store twotofour
+ZRANGEBYSCORE twotofour -inf +inf withscores
+ZREVRANGEBYSCORE twotofour +inf -inf store fourtotwo withscores
+ZRANGEBYSCORE fourtotwo -inf +inf withscores
