@@ -300,7 +300,7 @@ void touchWatchedKeysOnFlush(int dbid) {
     listIter li1, li2;
     listNode *ln;
 
-    /* For every client, check all the waited keys */
+    /* For every client, check watched keys */
     listRewind(server.clients,&li1);
     while((ln = listNext(&li1))) {
         client *c = listNodeValue(ln);
@@ -308,12 +308,14 @@ void touchWatchedKeysOnFlush(int dbid) {
         while((ln = listNext(&li2))) {
             watchedKey *wk = listNodeValue(ln);
 
-            /* For every watched key matching the specified DB, if the
+            /* For watched key matching the specified DB, if the
              * key exists, mark the client as dirty, as the key will be
              * removed. */
             if (dbid == -1 || wk->db->id == dbid) {
-                if (dictFind(wk->db->dict, wk->key->ptr) != NULL)
+                if (dictFind(wk->db->dict, wk->key->ptr) != NULL) {
                     c->flags |= CLIENT_DIRTY_CAS;
+                    break;
+                }
             }
         }
     }
