@@ -2829,7 +2829,7 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
             if (err != NULL) {
                 *err = zmalloc((reply->len + 1) * sizeof(char));
                 strcpy(*err, reply->str);
-                CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, err);
+                CLUSTER_MANAGER_PRINT_REPLY_ERROR(source, *err);
             }
             goto next;
         }
@@ -2947,7 +2947,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
                 if (err != NULL) {
                     *err = zmalloc((r->len + 1) * sizeof(char));
                     strcpy(*err, r->str);
-                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, err);
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(n, *err);
                 }
             }
             freeReplyObject(r);
@@ -5196,10 +5196,13 @@ static int clusterManagerCommandSetTimeout(int argc, char **argv) {
                               n->port);
         ok_count++;
         continue;
-reply_err:
+reply_err:;
+        int need_free = 0;
         if (err == NULL) err = "";
+        else need_free = 1;
         clusterManagerLogErr("ERR setting node-timeot for %s:%d: %s\n", n->ip,
                              n->port, err);
+        if (need_free) zfree(err);
         err_count++;
     }
     clusterManagerLogInfo(">>> New node timeout set. %d OK, %d ERR.\n",
