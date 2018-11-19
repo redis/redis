@@ -1475,7 +1475,8 @@ void xreadCommand(client *c) {
         streamID *gt = ids+i; /* ID must be greater than this. */
         int serve_synchronously = 0;
 
-        /* Check if there are the conditions to serve the client synchronously. */
+        /* Check if there are the conditions to serve the client
+         * synchronously. */
         if (groups) {
             /* If the consumer is blocked on a group, we always serve it
              * synchronously (serving its local history) if the ID specified
