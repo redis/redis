@@ -1025,7 +1025,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
-        if (streamReplyWithRange(c,s,&thisid,NULL,1,0,NULL,NULL,
+        if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,NULL,NULL,
                                  STREAM_RWR_RAWENTRIES,NULL) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
