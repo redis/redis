@@ -108,6 +108,30 @@ start_server {
         assert {$c == 5}
     }
 
+    test {XREADGROUP will not report data on empty history. Bug #5577} {
+        r del events
+        r xadd events * a 1
+        r xadd events * b 2
+        r xadd events * c 3
+        r xgroup create events mygroup 0
+
+        # Current local PEL should be empty
+        set res [r xpending events mygroup - + 10]
+        assert {[llength $res] == 0}
+
+        # So XREADGROUP should read an empty history as well
+        set res [r xreadgroup group mygroup myconsumer count 3 streams events 0]
+        assert {[llength [lindex $res 0 1]] == 0}
+
+        # We should fetch all the elements in the stream asking for >
+        set res [r xreadgroup group mygroup myconsumer count 3 streams events >]
+        assert {[llength [lindex $res 0 1]] == 3}
+
+        # Now the history is populated with three not acked entries
+        set res [r xreadgroup group mygroup myconsumer count 3 streams events 0]
+        assert {[llength [lindex $res 0 1]] == 3}
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
