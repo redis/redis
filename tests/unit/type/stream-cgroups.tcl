@@ -132,6 +132,21 @@ start_server {
         assert {[llength [lindex $res 0 1]] == 3}
     }
 
+    test {XREADGROUP history reporting of deleted entries. Bug #5570} {
+        r del mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 1 field1 A
+        r XREADGROUP GROUP mygroup myconsumer STREAMS mystream >
+        r XADD mystream MAXLEN 1 2 field1 B
+        r XREADGROUP GROUP mygroup myconsumer STREAMS mystream >
+
+        # Now we have two pending entries, however one should be deleted
+        # and one should be ok (we should only see "B")
+        set res [r XREADGROUP GROUP mygroup myconsumer STREAMS mystream 0-1]
+        assert {[lindex $res 0 1 0] == {1-0 {}}}
+        assert {[lindex $res 0 1 1] == {2-0 {field1 B}}}
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]
