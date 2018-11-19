@@ -15,6 +15,8 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
+gcc := $(shell $(CC) --version 2>/dev/null | egrep -o ^g?cc)
+cc_major_ver := $(shell $(CC) -dumpversion 2>/dev/null | grep -oP '[0-9]+' | head -1)
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 NODEPS:=clean distclean
@@ -39,6 +41,18 @@ ifneq ($(uname_M),armv6l)
 ifneq ($(uname_M),armv7l)
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
+endif
+endif
+endif
+
+# Enable more aggressive optimisation on s390 to avoid false positives when testing active defragmentation with gcc 4.8
+ifeq ($(uname_M), s390x)
+# To ensure that we're not running clang
+ifneq ($(gcc), )
+ifeq ($(cc_major_ver), 4)
+ifeq ($(MALLOC), jemalloc)
+OPTIMIZATION=-O3
+endif
 endif
 endif
 endif
