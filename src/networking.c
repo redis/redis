@@ -473,23 +473,25 @@ void setDeferredArrayLen(client *c, void *node, long length) {
 }
 
 void setDeferredMapLen(client *c, void *node, long length) {
-    setDeferredAggregateLen(c,node,length,'%');
+    int prefix = c->resp == 2 ? '*' : '%';
+    if (c->resp == 2) length *= 2;
+    setDeferredAggregateLen(c,node,length,prefix);
 }
 
 void setDeferredSetLen(client *c, void *node, long length) {
-    setDeferredAggregateLen(c,node,length,'~');
+    int prefix = c->resp == 2 ? '*' : '~';
+    setDeferredAggregateLen(c,node,length,prefix);
 }
 
 void setDeferredAttributeLen(client *c, void *node, long length) {
-    setDeferredAggregateLen(c,node,length,'|');
+    int prefix = c->resp == 2 ? '*' : '|';
+    if (c->resp == 2) length *= 2;
+    setDeferredAggregateLen(c,node,length,prefix);
 }
 
 void setDeferredPushLen(client *c, void *node, long length) {
-    setDeferredAggregateLen(c,node,length,'>');
-}
-
-void setDeferredHelloLen(client *c, void *node, long length) {
-    setDeferredAggregateLen(c,node,length,'@');
+    int prefix = c->resp == 2 ? '*' : '>';
+    setDeferredAggregateLen(c,node,length,prefix);
 }
 
 /* Add a double as a bulk reply */
@@ -497,12 +499,24 @@ void addReplyDouble(client *c, double d) {
     if (isinf(d)) {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
          * different way, so better to handle it in an explicit way. */
-        addReplyString(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
-                          d > 0 ? 6 : 7);
+        if (c->resp == 2) {
+            addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
+        } else {
+            addReplyString(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
+                              d > 0 ? 6 : 7);
+        }
     } else {
-        char dbuf[MAX_LONG_DOUBLE_CHARS+3];
-        int dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
-        addReplyString(c,dbuf,dlen);
+        char dbuf[MAX_LONG_DOUBLE_CHARS+3],
+             sbuf[MAX_LONG_DOUBLE_CHARS+32];
+        int dlen, slen;
+        if (c->resp == 2) {
+            dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+            slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
+            addReplyString(c,sbuf,slen);
+        } else {
+            dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
+            addReplyString(c,dbuf,dlen);
+        }
     }
 }
 
@@ -510,11 +524,17 @@ void addReplyDouble(client *c, double d) {
  * of the double instead of exposing the crude behavior of doubles to the
  * dear user. */
 void addReplyHumanLongDouble(client *c, long double d) {
-    char buf[MAX_LONG_DOUBLE_CHARS];
-    int len = ld2string(buf,sizeof(buf),d,1);
-    addReplyString(c,",",1);
-    addReplyString(c,buf,len);
-    addReplyString(c,"\r\n",2);
+    if (c->resp == 2) {
+        robj *o = createStringObjectFromLongDouble(d,1);
+        addReplyBulk(c,o);
+        decrRefCount(o);
+    } else {
+        char buf[MAX_LONG_DOUBLE_CHARS];
+        int len = ld2string(buf,sizeof(buf),d,1);
+        addReplyString(c,",",1);
+        addReplyString(c,buf,len);
+        addReplyString(c,"\r\n",2);
+    }
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -563,6 +583,7 @@ void addReplyArrayLen(client *c, long length) {
 
 void addReplyMapLen(client *c, long length) {
     int prefix = c->resp == 2 ? '*' : '%';
+    if (c->resp == 2) length *= 2;
     addReplyAggregateLen(c,length,prefix);
 }
 
@@ -573,6 +594,7 @@ void addReplySetLen(client *c, long length) {
 
 void addReplyAttributeLen(client *c, long length) {
     int prefix = c->resp == 2 ? '*' : '|';
+    if (c->resp == 2) length *= 2;
     addReplyAggregateLen(c,length,prefix);
 }
 
