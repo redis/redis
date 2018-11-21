@@ -1456,7 +1456,6 @@ void addReplyMapLen(client *c, long length);
 void addReplySetLen(client *c, long length);
 void addReplyAttributeLen(client *c, long length);
 void addReplyPushLen(client *c, long length);
-void addReplyHelloLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
 void copyClientOutputBuffer(client *dst, client *src);

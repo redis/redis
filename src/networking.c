@@ -562,23 +562,23 @@ void addReplyArrayLen(client *c, long length) {
 }
 
 void addReplyMapLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'%');
+    int prefix = c->resp == 2 ? '*' : '%';
+    addReplyAggregateLen(c,length,prefix);
 }
 
 void addReplySetLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'~');
+    int prefix = c->resp == 2 ? '*' : '~';
+    addReplyAggregateLen(c,length,prefix);
 }
 
 void addReplyAttributeLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'|');
+    int prefix = c->resp == 2 ? '*' : '|';
+    addReplyAggregateLen(c,length,prefix);
 }
 
 void addReplyPushLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'>');
-}
-
-void addReplyHelloLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'@');
+    int prefix = c->resp == 2 ? '*' : '>';
+    addReplyAggregateLen(c,length,prefix);
 }
 
 /* Create the length prefix of a bulk reply, example: $2234 */
