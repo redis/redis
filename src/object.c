@@ -1326,7 +1326,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(25+mh->num_dbs)*2);
+        addReplyMapLen(c,25+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1356,7 +1356,7 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMultiBulkLen(c,4);
+            addReplyMapLen(c,2);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
