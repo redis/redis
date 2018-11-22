@@ -12,6 +12,77 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.2     Released Thu Nov 22 11:22:37 CET 2018
+================================================================================
+
+Upgrade urgency: CRITICAL if you use streams and consumer groups.
+                 HIGH if you use redis-cli with Redis Cluster.
+                 LOW otherwise.
+
+Welcome to Redis 5.0.2. This release fixes two issues with Streams consumer
+groups, where items could be returned duplicated by XREADGROUP when accessing
+the history, and another bug where XREADGROUP can report some history even
+if the comsumer pending list is empty. Both problems were addressed and unit
+tests to avoid regressions implemented. Moreover this release fixes some
+issue with redis-cli when in cluster mode. Finally some FreeBSD and DragonFly
+build problems are now resolved. The list of the commits is below.
+
+Enjoy,
+Salvatore
+
+David Carlier in commit e8b4291a:
+ DragonFlyBSD little build fix
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+yongman in commit 8fcfd374:
+ skip slave nodes when sending cluster setslot command
+ 1 file changed, 1 insertion(+)
+
+yongman in commit d7089ddd:
+ Fix pointer access and memory leak in redis-cli.
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+antirez in commit 17b4cd83:
+ Test: regression test for #5570.
+ 1 file changed, 15 insertions(+)
+
+antirez in commit 45123169:
+ Stream: fix XREADGROUP history reading of deleted messages.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+David Carlier in commit 5ad588f0:
+ only FreeBSD change/little warning addressing
+ 2 files changed, 7 insertions(+), 4 deletions(-)
+
+David Carlier in commit 11801e1a:
+ tweak form feedback
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+David Carlier in commit c1f13575:
+ allow flavors
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+David Carlier in commit 275a2d49:
+ Fix clang build.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit 44ad5141:
+ Test: regression test for #5577.
+ 1 file changed, 24 insertions(+)
+
+antirez in commit c7951f43:
+ Streams: fix XREADGROUP history reading when CG last_id is low.
+ 1 file changed, 12 insertions(+), 9 deletions(-)
+
+antirez in commit a69bc5be:
+ t_stream.c comment resized to 80 cols.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 5314099d:
+ Redis 5 changelog: don't expect Lua replies to be ordered.
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+================================================================================
 Redis 5.0.1     Released Wed Nov 07 13:09:30 CET 2018
 ================================================================================
 
