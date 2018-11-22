@@ -36,6 +36,9 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <ifaddrs.h>
+#include <sys/socket.h>
+#include <netdb.h>
 
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
@@ -2029,6 +2032,37 @@ void replicaofCommand(client *c) {
             addReplySds(c,sdsnew("+OK Already connected to specified master\r\n"));
             return;
         }
+
+        if (server.port == port && server.bindaddr_count){
+            for (int i = 0; i < server.bindaddr_count; i++) {
+                if (!strcmp(server.bindaddr[i], c->argv[1]->ptr)) {
+                    addReplySds(c, sdsnew("-ERR You can't slaveof yourself\r\n"));
+                    return ;
+                }
+            }
+        } else if (server.port == port && !server.bindaddr_count) {
+            if (!strcmp("127.0.0.1", c->argv[1]->ptr) || !strcmp("0.0.0.0", c->argv[1]->ptr)){
+                addReplySds(c, sdsnew("-ERR You can't slaveof yourself\r\n"));
+                return ;
+            }
+
+            struct ifaddrs *ifaddr;
+            char ip[INET6_ADDRSTRLEN];
+            if (getifaddrs(&ifaddr) == -1) {
+                serverLog(LL_WARNING,"Fatal: call getifaddrs failed!");
+            } else {
+                for (;ifaddr != NULL; ifaddr=ifaddr->ifa_next){
+                    if (ifaddr->ifa_addr->sa_family == AF_INET){
+                        getnameinfo(ifaddr->ifa_addr, sizeof(struct sockaddr_in), ip, INET6_ADDRSTRLEN, NULL, 0, NI_NUMERICHOST);
+                        if (!strcmp(ip, c->argv[1]->ptr)){
+                            addReplySds(c, sdsnew("-ERR You can't slaveof yourself\r\n"));
+                            return ;
+                        }
+                    }
+                }
+            }
+        }
+
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
