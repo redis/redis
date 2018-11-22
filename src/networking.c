@@ -67,6 +67,16 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
+/* This function links the client to the global linked list of clients.
+ * unlinkClient() does the opposite, among other things. */
+void linkClient(client *c) {
+    listAddNodeTail(server.clients,c);
+    /* Note that we remember the linked list node where the client is stored,
+     * this way removing the client in unlinkClient() will not require
+     * a linear scan, but just a constant time operation. */
+    c->client_list_node = listLast(server.clients);
+}
+
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -133,9 +143,10 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (fd != -1) listAddNodeTail(server.clients,c);
+    if (fd != -1) linkClient(c);
     initClientMultiState(c);
     return c;
 }
@@ -752,9 +763,10 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        ln = listSearchKey(server.clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients,ln);
+        if (c->client_list_node) {
+            listDelNode(server.clients,c->client_list_node);
+            c->client_list_node = NULL;
+        }
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
