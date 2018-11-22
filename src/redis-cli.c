@@ -3962,6 +3962,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         while ((ln = listNext(&li)) != NULL) {
             clusterManagerNode *n = ln->value;
             if (n == owner) continue;
+            if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
             redisReply *r = CLUSTER_MANAGER_COMMAND(n,
                 "CLUSTER SETSLOT %d %s %s", slot, "NODE", owner->name);
             success = clusterManagerCheckRedisReply(n, r, NULL);
