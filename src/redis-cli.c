@@ -3505,7 +3505,7 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
     return node;
 }
 
-/* This fucntion returns a random master node, return NULL if none */
+/* This function returns a random master node, return NULL if none */
 
 static clusterManagerNode *clusterManagerNodeMasterRandom() {
     int master_count = 0;
