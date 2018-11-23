@@ -1765,6 +1765,10 @@ int listenToPort(int port, int *fds, int *count) {
                 "Creating Server TCP listening socket %s:%d: %s",
                 server.bindaddr[j] ? server.bindaddr[j] : "*",
                 port, server.neterr);
+                if (errno == ENOPROTOOPT     || errno == EPROTONOSUPPORT ||
+                    errno == ESOCKTNOSUPPORT || errno == EPFNOSUPPORT ||
+                    errno == EAFNOSUPPORT    || errno == EADDRNOTAVAIL)
+                    continue;
             return C_ERR;
         }
         anetNonBlock(NULL,fds[*count]);
