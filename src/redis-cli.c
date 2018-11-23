@@ -3505,6 +3505,34 @@ static clusterManagerNode *clusterManagerNodeWithLeastReplicas() {
     return node;
 }
 
+/* This fucntion returns a random master node, return NULL if none */
+
+static clusterManagerNode *clusterManagerNodeMasterRandom() {
+    int master_count = 0;
+    int idx;
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        master_count++;
+    }
+
+    srand(time(NULL));
+    idx = rand() % master_count;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
+        if (!idx--) {
+            return n;
+        }
+    }
+    /* Can not be reached */
+    return NULL;
+}
+
 static int clusterManagerFixSlotsCoverage(char *all_slots) {
     int i, fixed = 0;
     list *none = NULL, *single = NULL, *multi = NULL;
@@ -3577,16 +3605,12 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                "across the cluster:\n");
         clusterManagerPrintSlotsList(none);
         if (confirmWithYes("Fix these slots by covering with a random node?")){
-            srand(time(NULL));
             listIter li;
             listNode *ln;
             listRewind(none, &li);
             while ((ln = listNext(&li)) != NULL) {
                 sds slot = ln->value;
-                long idx = (long) (rand() % listLength(cluster_manager.nodes));
-                listNode *node_n = listIndex(cluster_manager.nodes, idx);
-                assert(node_n != NULL);
-                clusterManagerNode *n = node_n->value;
+                clusterManagerNode *n = clusterManagerNodeMasterRandom();
                 clusterManagerLogInfo(">>> Covering slot %s with %s:%d\n",
                                       slot, n->ip, n->port);
                 /* Ensure the slot is not already assigned. */
