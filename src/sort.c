@@ -505,7 +505,7 @@ void sortCommand(client *c) {
         addReplyError(c,"One or more scores can't be converted into double");
     } else if (storekey == NULL) {
         /* STORE option not specified, sent the sorting result to client */
-        addReplyMultiBulkLen(c,outputlen);
+        addReplyArrayLen(c,outputlen);
         for (j = start; j <= end; j++) {
             listNode *ln;
             listIter li;

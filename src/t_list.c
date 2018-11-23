@@ -421,7 +421,7 @@ void lrangeCommand(client *c) {
     rangelen = (end-start)+1;
 
     /* Return the result in form of a multi-bulk reply */
-    addReplyMultiBulkLen(c,rangelen);
+    addReplyArrayLen(c,rangelen);
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         listTypeIterator *iter = listTypeInitIterator(o, start, LIST_TAIL);
 
@@ -639,10 +639,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
             db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
 
         /* BRPOP/BLPOP */
-        addReplyMultiBulkLen(receiver,2);
+        addReplyArrayLen(receiver,2);
         addReplyBulk(receiver,key);
         addReplyBulk(receiver,value);
-        
+
         /* Notify event. */
         char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
         notifyKeyspaceEvent(NOTIFY_LIST,event,key,receiver->db->id);
@@ -704,7 +704,7 @@ void blockingPopGenericCommand(client *c, int where) {
                     robj *value = listTypePop(o,where);
                     serverAssert(value != NULL);
 
-                    addReplyMultiBulkLen(c,2);
+                    addReplyArrayLen(c,2);
                     addReplyBulk(c,c->argv[j]);
                     addReplyBulk(c,value);
                     decrRefCount(value);

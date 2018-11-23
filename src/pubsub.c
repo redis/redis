@@ -343,7 +343,7 @@ NULL
         long mblen = 0;
         void *replylen;
 
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
         while((de = dictNext(di)) != NULL) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
@@ -356,12 +356,12 @@ NULL
             }
         }
         dictReleaseIterator(di);
-        setDeferredMultiBulkLength(c,replylen,mblen);
+        setDeferredArrayLen(c,replylen,mblen);
     } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
         /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
 
-        addReplyMultiBulkLen(c,(c->argc-2)*2);
+        addReplyArrayLen(c,(c->argc-2)*2);
         for (j = 2; j < c->argc; j++) {
             list *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
 
