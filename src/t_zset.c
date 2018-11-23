@@ -2446,6 +2446,7 @@ void zrangeGenericCommand(client *c, int reverse) {
     rangelen = (end-start)+1;
 
     /* Return the result in form of a multi-bulk reply */
+    if (withscores && c->resp == 2) rangelen *= 2;
     addReplyArrayLen(c, rangelen);
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -2467,7 +2468,7 @@ void zrangeGenericCommand(client *c, int reverse) {
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
-            if (withscores) addReplyArrayLen(c,2);
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             if (vstr == NULL)
                 addReplyBulkLongLong(c,vlong);
             else
@@ -2500,7 +2501,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
             ele = ln->ele;
-            if (withscores) addReplyArrayLen(c,2);
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             addReplyBulkCBuffer(c,ele,sdslen(ele));
             if (withscores) addReplyDouble(c,ln->score);
             ln = reverse ? ln->backward : ln->level[0].forward;
@@ -2628,7 +2629,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
-            if (withscores) addReplyArrayLen(c,2);
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             if (vstr == NULL) {
                 addReplyBulkLongLong(c,vlong);
             } else {
@@ -2685,7 +2686,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             rangelen++;
-            if (withscores) addReplyArrayLen(c,2);
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             addReplyBulkCBuffer(c,ln->ele,sdslen(ln->ele));
             if (withscores) addReplyDouble(c,ln->score);
 
@@ -2700,6 +2701,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         serverPanic("Unknown sorted set encoding");
     }
 
+    if (withscores && c->resp == 2) rangelen *= 2;
     setDeferredArrayLen(c, replylen, rangelen);
 }
 
