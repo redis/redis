@@ -105,11 +105,11 @@ ifeq ($(uname_S),OpenBSD)
 else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
-	FINAL_LIBS+= -lpthread
+	FINAL_LIBS+= -lpthread -lexecinfo
 else
 ifeq ($(uname_S),DragonFly)
 	# FreeBSD
-	FINAL_LIBS+= -lpthread
+	FINAL_LIBS+= -lpthread -lexecinfo
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
