@@ -102,6 +102,12 @@ else
 ifeq ($(uname_S),OpenBSD)
 	# OpenBSD
 	FINAL_LIBS+= -lpthread
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/local/include
+	    FINAL_LDFLAGS+= -L/usr/local/lib
+	    FINAL_LIBS+= -lexecinfo
+    	endif
+
 else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
