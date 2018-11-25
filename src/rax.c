@@ -856,6 +856,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
                 comprsize = RAX_NODE_MAX_SIZE;
             raxNode *newh = raxCompressNode(h,s+i,comprsize,&child);
             if (newh == NULL) goto oom;
+	    if(h != newh) rax_free(h);
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
             parentlink = raxNodeLastChildPtr(h);
@@ -865,6 +866,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             raxNode **new_parentlink;
             raxNode *newh = raxAddChild(h,s[i],&child,&new_parentlink);
             if (newh == NULL) goto oom;
+	    if(h != newh) rax_free(h);
             h = newh;
             memcpy(parentlink,&h,sizeof(h));
             parentlink = new_parentlink;
@@ -875,6 +877,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
     }
     raxNode *newh = raxReallocForData(h,data);
     if (newh == NULL) goto oom;
+    if(h != newh) rax_free(h);
     h = newh;
     if (!h->iskey) rax->numele++;
     raxSetData(h,data);
