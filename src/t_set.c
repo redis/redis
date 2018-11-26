@@ -455,7 +455,7 @@ void spopWithCountCommand(client *c) {
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
     propargv[1] = c->argv[1];
-    addReplyMultiBulkLen(c,count);
+    addReplySetLen(c,count);
 
     /* Common iteration vars. */
     sds sdsele;
@@ -647,7 +647,7 @@ void srandmemberWithCountCommand(client *c) {
      * This case is trivial and can be served without auxiliary data
      * structures. */
     if (!uniq) {
-        addReplyMultiBulkLen(c,count);
+        addReplySetLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -737,7 +737,7 @@ void srandmemberWithCountCommand(client *c) {
         dictIterator *di;
         dictEntry *de;
 
-        addReplyMultiBulkLen(c,count);
+        addReplySetLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
             addReplyBulk(c,dictGetKey(de));
@@ -833,7 +833,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * to the output list and save the pointer to later modify it with the
      * right length */
     if (!dstkey) {
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
@@ -911,7 +911,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
-        setDeferredMultiBulkLength(c,replylen,cardinality);
+        setDeferredSetLen(c,replylen,cardinality);
     }
     zfree(sets);
 }
@@ -1057,7 +1057,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
-        addReplyMultiBulkLen(c,cardinality);
+        addReplySetLen(c,cardinality);
         si = setTypeInitIterator(dstset);
         while((ele = setTypeNextObject(si)) != NULL) {
             addReplyBulkCBuffer(c,ele,sdslen(ele));
