@@ -123,7 +123,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     uint64_t v3 = 0x7465646279746573ULL;
     uint64_t k0 = U8TO64_LE(k);
     uint64_t k1 = U8TO64_LE(k + 8);
-    uint64_t m;
+    uint64_t m = 0;
     const uint8_t *end = in + inlen - (inlen % sizeof(uint64_t));
     const int left = inlen & 7;
     uint64_t b = ((uint64_t)inlen) << 56;
@@ -133,7 +133,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     v0 ^= k0;
 
     for (; in != end; in += 8) {
-        m = U8TO64_LE(in);
+        memcpy(&m, &U8TO64_LE(in), sizeof(*in));
         v3 ^= m;
 
         SIPROUND;
