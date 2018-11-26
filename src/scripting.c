@@ -315,7 +315,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
             sdsfree(ok);
             lua_pop(lua,1);
         } else {
-            void *replylen = addDeferredMultiBulkLength(c);
+            void *replylen = addReplyDeferredLen(c);
             int j = 1, mbulklen = 0;
 
             lua_pop(lua,1); /* Discard the 'ok' field value we popped */
@@ -330,7 +330,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
                 luaReplyToRedisReply(c, lua);
                 mbulklen++;
             }
-            setDeferredMultiBulkLength(c,replylen,mbulklen);
+            setDeferredArrayLen(c,replylen,mbulklen);
         }
         break;
     default:
@@ -1501,7 +1501,7 @@ NULL
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
-        addReplyMultiBulkLen(c, c->argc-2);
+        addReplyArrayLen(c, c->argc-2);
         for (j = 2; j < c->argc; j++) {
             if (dictFind(server.lua_scripts,c->argv[j]->ptr))
                 addReply(c,shared.cone);
