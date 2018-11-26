@@ -42,7 +42,7 @@ char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
-char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply);
+char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply, int atype);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void ldbInit(void);
@@ -132,7 +132,9 @@ char *redisProtocolToLuaType(lua_State *lua, char* reply) {
     case '$': p = redisProtocolToLuaType_Bulk(lua,reply); break;
     case '+': p = redisProtocolToLuaType_Status(lua,reply); break;
     case '-': p = redisProtocolToLuaType_Error(lua,reply); break;
-    case '*': p = redisProtocolToLuaType_MultiBulk(lua,reply); break;
+    case '*': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
+    case '%': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
+    case '~': p = redisProtocolToLuaType_MultiBulk(lua,reply,*p); break;
     }
     return p;
 }
@@ -180,22 +182,38 @@ char *redisProtocolToLuaType_Error(lua_State *lua, char *reply) {
     return p+2;
 }
 
-char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
+char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply, int atype) {
     char *p = strchr(reply+1,'\r');
     long long mbulklen;
     int j = 0;
 
     string2ll(reply+1,p-reply-1,&mbulklen);
-    p += 2;
-    if (mbulklen == -1) {
-        lua_pushboolean(lua,0);
-        return p;
-    }
-    lua_newtable(lua);
-    for (j = 0; j < mbulklen; j++) {
-        lua_pushnumber(lua,j+1);
-        p = redisProtocolToLuaType(lua,p);
-        lua_settable(lua,-3);
+    if (server.lua_caller->resp == 2 || atype == '*') {
+        p += 2;
+        if (mbulklen == -1) {
+            lua_pushboolean(lua,0);
+            return p;
+        }
+        lua_newtable(lua);
+        for (j = 0; j < mbulklen; j++) {
+            lua_pushnumber(lua,j+1);
+            p = redisProtocolToLuaType(lua,p);
+            lua_settable(lua,-3);
+        }
+    } else if (server.lua_caller->resp == 3) {
+        /* Here we handle only Set and Map replies in RESP3 mode, since arrays
+         * follow the above RESP2 code path. */
+        p += 2;
+        lua_newtable(lua);
+        for (j = 0; j < mbulklen; j++) {
+            p = redisProtocolToLuaType(lua,p);
+            if (atype == '%') {
+                p = redisProtocolToLuaType(lua,p);
+            } else {
+                lua_pushboolean(lua,1);
+            }
+            lua_settable(lua,-3);
+        }
     }
     return p;
 }
