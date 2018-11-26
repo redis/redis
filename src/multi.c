@@ -332,6 +332,10 @@ void watchCommand(client *c) {
 }
 
 void unwatchCommand(client *c) {
+    if (c->flags & CLIENT_MULTI) {
+        addReplyError(c,"UNWATCH inside MULTI is not allowed");
+        return;
+    }
     unwatchAllKeys(c);
     c->flags &= (~CLIENT_DIRTY_CAS);
     addReply(c,shared.ok);
