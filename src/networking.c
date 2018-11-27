@@ -603,6 +603,14 @@ void addReplyPushLen(client *c, long length) {
     addReplyAggregateLen(c,length,prefix);
 }
 
+void addReplyNull(client *c) {
+    if (c->resp == 2) {
+        addReplyString(c,"$-1\r\n",5);
+    } else {
+        addReplyString(c,"_\r\n",3);
+    }
+}
+
 /* Create the length prefix of a bulk reply, example: $2234 */
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len;

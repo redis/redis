@@ -2954,7 +2954,7 @@ int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply)
 /* Output the representation of a Redis command. Used by the COMMAND command. */
 void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
-        addReply(c, shared.nullbulk);
+        addReplyNull(c);
     } else {
         /* We are adding: command name, arg count, flags, first, last, offset */
         addReplyArrayLen(c, 6);
