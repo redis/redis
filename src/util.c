@@ -606,7 +606,7 @@ void getRandomHexChars(char *p, size_t len) {
  * already, this will be detected and handled correctly.
  *
  * The function does not try to normalize everything, but only the obvious
- * case of one or more "../" appearning at the start of "filename"
+ * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
