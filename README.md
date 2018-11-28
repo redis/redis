@@ -15,10 +15,10 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
-* There is much more inside the Redis official documentation. http://redis.io/documentation
+* Introduction to Redis data types. https://redis.io/topics/data-types-intro
+* Try Redis directly inside your browser. https://try.redis.io
+* The full list of Redis commands. https://redis.io/commands
+* There is much more inside the Redis official documentation. https://redis.io/documentation
 
 Building Redis
 --------------
@@ -145,7 +145,7 @@ then in another terminal try the following:
     (integer) 2
     redis>
 
-You can find the list of all the available commands at http://redis.io/commands.
+You can find the list of all the available commands at https://redis.io/commands.
 
 Installing Redis
 -----------------
@@ -406,13 +406,13 @@ Other C files
 
 * `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c` and `t_zset.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client commands implementations for these data types.
 * `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check http://github.com/antirez/sds for more information.
+* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
 * `scripting.c` implements Lua scripting. It is completely self contained from the rest of the Redis implementation and is simple enough to understand if you are familar with the Lua API.
 * `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][3].
 
-[3]: http://redis.io/topics/cluster-spec
+[3]: https://redis.io/topics/cluster-spec
 
 Anatomy of a Redis command
 ---
