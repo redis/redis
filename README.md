@@ -15,9 +15,9 @@ Another good example is to think of Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. http://redis.io/topics/data-types-intro
+* Introduction to Redis data types. https://redis.io/topics/data-types-intro
 * Try Redis directly inside your browser. http://try.redis.io
-* The full list of Redis commands. http://redis.io/commands
+* The full list of Redis commands. https://redis.io/commands
 * There is much more inside the Redis official documentation. http://redis.io/documentation
 
 Building Redis
