@@ -1645,6 +1645,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
              * node: the entries inside the listpack itself are delta-encoded
              * relatively to this ID. */
             sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (nodekey == NULL) {
+                rdbExitReportCorruptRDB("Stream master ID loading failed: invalid encoding or I/O error.");
+            }
             if (sdslen(nodekey) != sizeof(streamID)) {
                 rdbExitReportCorruptRDB("Stream node key entry is not the "
                                         "size of a stream ID");
