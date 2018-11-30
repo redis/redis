@@ -468,8 +468,7 @@ int masterTryPartialResynchronization(client *c) {
     {
         /* Run id "?" is used by slaves that want to force a full resync. */
         if (master_replid[0] != '?') {
-            if (strcasecmp(master_replid, server.replid) &&
-                strcasecmp(master_replid, server.replid2))
+            if (strcasecmp(master_replid, server.replid2))
             {
                 serverLog(LL_NOTICE,"Partial resynchronization not accepted: "
                     "Replication ID mismatch (Replica asked for '%s', my "
