@@ -519,7 +519,7 @@ void sortCommand(client *c) {
 
                 if (sop->type == SORT_OP_GET) {
                     if (!val) {
-                        addReply(c,shared.nullbulk);
+                        addReplyNull(c);
                     } else {
                         addReplyBulk(c,val);
                         decrRefCount(val);

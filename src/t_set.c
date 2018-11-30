@@ -415,13 +415,13 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* If count is zero, serve an empty multibulk ASAP to avoid special
      * cases later. */
     if (count == 0) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
 
@@ -566,8 +566,8 @@ void spopCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* Get a random element from the set */
     encoding = setTypeRandomElement(set,&sdsele,&llele);
@@ -632,13 +632,13 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
 
@@ -760,8 +760,8 @@ void srandmemberCommand(client *c) {
         return;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+        == NULL || checkType(c,set,OBJ_SET)) return;
 
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == OBJ_ENCODING_INTSET) {
@@ -813,7 +813,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 }
                 addReply(c,shared.czero);
             } else {
-                addReply(c,shared.emptymultibulk);
+                addReplyNull(c);
             }
             return;
         }

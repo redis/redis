@@ -641,7 +641,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
     int ret;
 
     if (o == NULL) {
-        addReply(c, shared.nullbulk);
+        addReplyNull(c);
         return;
     }
 
@@ -652,7 +652,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
 
         ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
         if (ret < 0) {
-            addReply(c, shared.nullbulk);
+            addReplyNull(c);
         } else {
             if (vstr) {
                 addReplyBulkCBuffer(c, vstr, vlen);
@@ -664,7 +664,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value = hashTypeGetFromHashTable(o, field);
         if (value == NULL)
-            addReply(c, shared.nullbulk);
+            addReplyNull(c);
         else
             addReplyBulkCBuffer(c, value, sdslen(value));
     } else {
@@ -675,7 +675,7 @@ static void addHashFieldToReply(client *c, robj *o, sds field) {
 void hgetCommand(client *c) {
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
     addHashFieldToReply(c, o, c->argv[2]->ptr);
@@ -768,7 +768,7 @@ void genericHgetallCommand(client *c, int flags) {
     hashTypeIterator *hi;
     int length, count = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
         || checkType(c,o,OBJ_HASH)) return;
 
     /* We return a map if the user requested keys and values, like in the

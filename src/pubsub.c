@@ -189,7 +189,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
     if (notify && count == 0) {
         addReply(c,shared.mbulkhdr[3]);
         addReply(c,shared.unsubscribebulk);
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
                        listLength(c->pubsub_patterns));
     }
@@ -214,7 +214,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
         /* We were subscribed to nothing? Still reply to the client. */
         addReply(c,shared.mbulkhdr[3]);
         addReply(c,shared.punsubscribebulk);
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
                        listLength(c->pubsub_patterns));
     }

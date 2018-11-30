@@ -1468,6 +1468,12 @@ void createSharedObjects(void) {
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
 
+    /* The shared NULL depends on the protocol version. */
+    shared.null[0] = NULL;
+    shared.null[1] = NULL;
+    shared.null[2] = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
+    shared.null[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
+
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
         int dictid_len;

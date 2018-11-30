@@ -312,7 +312,7 @@ void llenCommand(client *c) {
 }
 
 void lindexCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
+    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = NULL;
@@ -331,7 +331,7 @@ void lindexCommand(client *c) {
             addReplyBulk(c,value);
             decrRefCount(value);
         } else {
-            addReply(c,shared.nullbulk);
+            addReplyNull(c);
         }
     } else {
         serverPanic("Unknown list encoding");
@@ -365,12 +365,12 @@ void lsetCommand(client *c) {
 }
 
 void popGenericCommand(client *c, int where) {
-    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
+    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
 
     robj *value = listTypePop(o,where);
     if (value == NULL) {
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
     } else {
         char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
 
@@ -402,7 +402,7 @@ void lrangeCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
          || checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
@@ -414,7 +414,7 @@ void lrangeCommand(client *c) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
     if (end >= llen) end = llen-1;
@@ -564,13 +564,13 @@ void rpoplpushHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value) {
 
 void rpoplpushCommand(client *c) {
     robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,sobj,OBJ_LIST)) return;
+    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+        == NULL || checkType(c,sobj,OBJ_LIST)) return;
 
     if (listTypeLength(sobj) == 0) {
         /* This may only happen after loading very old RDB files. Recent
          * versions of Redis delete keys of empty lists. */
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
     } else {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
         robj *touchedkey = c->argv[1];
@@ -731,7 +731,7 @@ void blockingPopGenericCommand(client *c, int where) {
     /* If we are inside a MULTI/EXEC and the list is empty the only thing
      * we can do is treating it as a timeout (even with timeout 0). */
     if (c->flags & CLIENT_MULTI) {
-        addReply(c,shared.nullmultibulk);
+        addReplyNull(c);
         return;
     }
 
@@ -759,7 +759,7 @@ void brpoplpushCommand(client *c) {
         if (c->flags & CLIENT_MULTI) {
             /* Blocking against an empty list in a multi state
              * returns immediately. */
-            addReply(c, shared.nullbulk);
+            addReplyNull(c);
         } else {
             /* The list is empty and the client blocks. */
             blockForKeys(c,BLOCKED_LIST,c->argv + 1,1,timeout,c->argv[2],NULL);

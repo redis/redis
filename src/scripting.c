@@ -300,7 +300,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
-        addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.nullbulk);
+        addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.null[c->resp]);
         break;
     case LUA_TNUMBER:
         addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
@@ -352,7 +352,7 @@ void luaReplyToRedisReply(client *c, lua_State *lua) {
         }
         break;
     default:
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
     }
     lua_pop(lua,1);
 }

@@ -134,7 +134,7 @@ void execCommand(client *c) {
      * in the second an EXECABORT error is returned. */
     if (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) {
         addReply(c, c->flags & CLIENT_DIRTY_EXEC ? shared.execaborterr :
-                                                  shared.nullmultibulk);
+                                                   shared.null[c->resp]);
         discardTransaction(c);
         goto handle_monitor;
     }
