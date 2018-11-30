@@ -348,7 +348,6 @@ NULL
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
-        if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
