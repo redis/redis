@@ -1123,10 +1123,10 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
-            addDeferredMultiBulkLength(c);
+            addReplyDeferredLen(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyMultiBulkLen(c,len);
+        addReplyArrayLen(c,len);
     }
     return REDISMODULE_OK;
 }
@@ -1169,7 +1169,7 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
             return;
     }
     ctx->postponed_arrays_count--;
-    setDeferredMultiBulkLength(c,
+    setDeferredArrayLen(c,
             ctx->postponed_arrays[ctx->postponed_arrays_count],
             len);
     if (ctx->postponed_arrays_count == 0) {
@@ -1205,7 +1205,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReply(c,shared.nullbulk);
+    addReplyNull(c);
     return REDISMODULE_OK;
 }
 
@@ -4868,11 +4868,11 @@ NULL
         dictIterator *di = dictGetIterator(modules);
         dictEntry *de;
 
-        addReplyMultiBulkLen(c,dictSize(modules));
+        addReplyArrayLen(c,dictSize(modules));
         while ((de = dictNext(di)) != NULL) {
             sds name = dictGetKey(de);
             struct RedisModule *module = dictGetVal(de);
-            addReplyMultiBulkLen(c,4);
+            addReplyMapLen(c,2);
             addReplyBulkCString(c,"name");
             addReplyBulkCBuffer(c,name,sdslen(name));
             addReplyBulkCString(c,"ver");
