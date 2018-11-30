@@ -1471,8 +1471,13 @@ void createSharedObjects(void) {
     /* The shared NULL depends on the protocol version. */
     shared.null[0] = NULL;
     shared.null[1] = NULL;
-    shared.null[2] = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
+    shared.null[2] = createObject(OBJ_STRING,sdsnew("$-1\r\n"));
     shared.null[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
+
+    shared.nullarray[0] = NULL;
+    shared.nullarray[1] = NULL;
+    shared.nullarray[2] = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
+    shared.nullarray[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
 
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
