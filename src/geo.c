@@ -763,12 +763,12 @@ void geoposCommand(client *c) {
     for (j = 2; j < c->argc; j++) {
         double score;
         if (!zobj || zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
-            addReplyNull(c);
+            addReplyNullArray(c);
         } else {
             /* Decode... */
             double xy[2];
             if (!decodeGeohash(score,xy)) {
-                addReplyNull(c);
+                addReplyNullArray(c);
                 continue;
             }
             addReplyArrayLen(c,2);
