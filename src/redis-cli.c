@@ -1846,7 +1846,7 @@ static int evalMode(int argc, char **argv) {
         if (eval_ldb) {
             if (!config.eval_ldb) {
                 /* If the debugging session ended immediately, there was an
-                 * error compiling the script. Show it and don't enter
+                 * error compiling the script. Show it and they don't enter
                  * the REPL at all. */
                 printf("Eval debugging session can't start:\n");
                 cliReadReply(0);
@@ -4043,6 +4043,73 @@ static int clusterManagerFixOpenSlot(int slot) {
             success = clusterManagerSetSlot(n, owner, slot, "NODE", NULL);
             if (!success) goto cleanup;
         }
+    }
+    /* Case 3: The slot is in migrating state in one node but multiple
+     * other nodes claim to be in importing state and don't have any key in
+     * the slot. We search for the importing node having the same ID as
+     * the destination node of the migrating node.
+     * In that case we move the slot from the migrating node to this node and
+     * we close the importing states on all the other importing nodes.
+     * If no importing node has the same ID as the destination node of the
+     * migrating node, the slot's state is closed on both the migrating node
+     * and the importing nodes. */
+    else if (listLength(migrating) == 1 && listLength(importing) > 1) {
+        int try_to_fix = 1;
+        clusterManagerNode *src = listFirst(migrating)->value;
+        clusterManagerNode *dst = NULL;
+        sds target_id = NULL;
+        for (int i = 0; i < src->migrating_count; i += 2) {
+            sds migrating_slot = src->migrating[i];
+            if (atoi(migrating_slot) == slot) {
+                target_id = src->migrating[i + 1];
+                break;
+            }
+        }
+        assert(target_id != NULL);
+        listIter li;
+        listNode *ln;
+        listRewind(importing, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerNode *n = ln->value;
+            int count = clusterManagerCountKeysInSlot(n, slot);
+            if (count > 0) {
+                try_to_fix = 0;
+                break;
+            }
+            if (strcmp(n->name, target_id) == 0) dst = n;
+        }
+        if (!try_to_fix) goto unhandled_case;
+        if (dst != NULL) {
+            clusterManagerLogInfo(">>> Case 3: Moving slot %d from %s:%d to "
+                                  "%s:%d and closing it on all the other "
+                                  "importing nodes.\n",
+                                  slot, src->ip, src->port,
+                                  dst->ip, dst->port);
+            /* Move the slot to the destination node. */
+            success = clusterManagerMoveSlot(src, dst, slot, move_opts, NULL);
+            if (!success) goto cleanup;
+            /* Close slot on all the other importing nodes. */
+            listRewind(importing, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                clusterManagerNode *n = ln->value;
+                if (dst == n) continue;
+                success = clusterManagerClearSlotStatus(n, slot);
+                if (!success) goto cleanup;
+            }
+        } else {
+            clusterManagerLogInfo(">>> Case 3: Closing slot %d on both "
+                                  "migrating and importing nodes.\n", slot);
+            /* Close the slot on both the migrating node and the importing
+             * nodes. */
+            success = clusterManagerClearSlotStatus(src, slot);
+            if (!success) goto cleanup;
+            listRewind(importing, &li);
+            while ((ln = listNext(&li)) != NULL) {
+                clusterManagerNode *n = ln->value;
+                success = clusterManagerClearSlotStatus(n, slot);
+                if (!success) goto cleanup;
+            }
+        }
     } else {
         int try_to_close_slot = (listLength(importing) == 0 &&
                                  listLength(migrating) == 1);
@@ -4059,13 +4126,13 @@ static int clusterManagerFixOpenSlot(int slot) {
                 if (!success) goto cleanup;
             }
         }
-    /* Case 3: There are no slots claiming to be in importing state, but
-     * there is a migrating node that actually don't have any key or is the
-     * slot owner. We can just close the slot, probably a reshard interrupted 
-     * in the middle. */
+        /* Case 4: There are no slots claiming to be in importing state, but
+         * there is a migrating node that actually don't have any key or is the
+         * slot owner. We can just close the slot, probably a reshard
+         * interrupted in the middle. */
         if (try_to_close_slot) {
             clusterManagerNode *n = listFirst(migrating)->value;
-            clusterManagerLogInfo(">>> Case 3: Closing slot %d on %s:%d\n",
+            clusterManagerLogInfo(">>> Case 4: Closing slot %d on %s:%d\n",
                                   slot, n->ip, n->port);
             redisReply *r = CLUSTER_MANAGER_COMMAND(n, "CLUSTER SETSLOT %d %s",
                                                     slot, "STABLE");
@@ -4073,6 +4140,7 @@ static int clusterManagerFixOpenSlot(int slot) {
             if (r) freeReplyObject(r);
             if (!success) goto cleanup;
         } else {
+unhandled_case:
             success = 0;
             clusterManagerLogErr("[ERR] Sorry, redis-cli can't fix this slot "
                                  "yet (work in progress). Slot is set as "
