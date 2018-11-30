@@ -611,6 +611,18 @@ void addReplyNull(client *c) {
     }
 }
 
+/* A null array is a concept that no longer exists in RESP3. However
+ * RESP2 had it, so API-wise we have this call, that will emit the correct
+ * RESP2 protocol, however for RESP3 the reply will always be just the
+ * Null type "_\r\n". */
+void addReplyNullArray(client *c) {
+    if (c->resp == 2) {
+        addReplyString(c,"*-1\r\n",5);
+    } else {
+        addReplyString(c,"_\r\n",3);
+    }
+}
+
 /* Create the length prefix of a bulk reply, example: $2234 */
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len;
