@@ -367,6 +367,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define OBJ_LIST_MAX_ZIPLIST_SIZE -2
 #define OBJ_LIST_COMPRESS_DEPTH 0
 
+/* String defaults */
+#define OBJ_STRING_GET_MAX_BYTES 512*1024*1024
+
 /* HyperLogLog defines */
 #define CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES 3000
 
@@ -1215,6 +1218,8 @@ struct redisServer {
     /* List parameters */
     int list_max_ziplist_size;
     int list_compress_depth;
+    /* String parameters */
+    size_t string_get_max_bytes;
     /* time cache */
     time_t unixtime;    /* Unix time sampled every cron cycle. */
     time_t timezone;    /* Cached timezone. As set by tzset(). */

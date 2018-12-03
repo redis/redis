@@ -623,7 +623,9 @@ void loadServerConfigFromString(char *config) {
             server.zset_max_ziplist_value = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hll-sparse-max-bytes") && argc == 2) {
             server.hll_sparse_max_bytes = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
+        } else if (!strcasecmp(argv[0], "string-get-max-bytes") && argc == 2) { 
+            server.string_get_max_bytes = memtoll(argv[1], NULL);
+        }else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommand(argv[1]);
             int retval;
 
@@ -1203,6 +1205,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "zset-max-ziplist-value",server.zset_max_ziplist_value,0,LONG_MAX) {
     } config_set_numerical_field(
+      "string-get-max-bytes",server.string_get_max_bytes,0,OBJ_STRING_GET_MAX_BYTES){
+    } config_set_numerical_field(
       "hll-sparse-max-bytes",server.hll_sparse_max_bytes,0,LONG_MAX) {
     } config_set_numerical_field(
       "lua-time-limit",server.lua_time_limit,0,LONG_MAX) {
@@ -1407,6 +1411,8 @@ void configGetCommand(client *c) {
             server.zset_max_ziplist_value);
     config_get_numerical_field("hll-sparse-max-bytes",
             server.hll_sparse_max_bytes);
+    config_get_numerical_field("string-get-max-bytes",
+            server.string_get_max_bytes);
     config_get_numerical_field("lua-time-limit",server.lua_time_limit);
     config_get_numerical_field("slowlog-log-slower-than",
             server.slowlog_log_slower_than);
@@ -2259,6 +2265,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"zset-max-ziplist-entries",server.zset_max_ziplist_entries,OBJ_ZSET_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"zset-max-ziplist-value",server.zset_max_ziplist_value,OBJ_ZSET_MAX_ZIPLIST_VALUE);
     rewriteConfigNumericalOption(state,"hll-sparse-max-bytes",server.hll_sparse_max_bytes,CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES);
+    rewriteConfigNumericalOption(state, "string-get-max-bytes",server.string_get_max_bytes,OBJ_STRING_GET_MAX_BYTES);
     rewriteConfigYesNoOption(state,"activerehashing",server.activerehashing,CONFIG_DEFAULT_ACTIVE_REHASHING);
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigYesNoOption(state,"protected-mode",server.protected_mode,CONFIG_DEFAULT_PROTECTED_MODE);

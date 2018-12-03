@@ -164,8 +164,14 @@ int getGenericCommand(client *c) {
         addReply(c,shared.wrongtypeerr);
         return C_ERR;
     } else {
-        addReplyBulk(c,o);
-        return C_OK;
+        size_t size;
+        if ((size = stringObjectLen(o)) >= server.string_get_max_bytes) {
+            addReplyError(c, "-ERR The value size is greater than string-get-max-size");
+            return C_ERR;
+        } else {
+            addReplyBulk(c,o);
+            return C_OK;
+        }
     }
 }
 
@@ -277,6 +283,9 @@ void getrangeCommand(client *c) {
      * nothing can be returned is: start > end. */
     if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
+    } else if (end - start >= (long long)server.string_get_max_bytes) {
+        addReplyError(c, "-ERR The value size is greater than string-get-max-size");
+        return;
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }

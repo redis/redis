@@ -1610,6 +1610,7 @@ void initServerConfig(void) {
     server.hll_sparse_max_bytes = CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES;
     server.stream_node_max_bytes = OBJ_STREAM_NODE_MAX_BYTES;
     server.stream_node_max_entries = OBJ_STREAM_NODE_MAX_ENTRIES;
+    server.string_get_max_bytes = OBJ_STRING_GET_MAX_BYTES;
     server.shutdown_asap = 0;
     server.cluster_enabled = 0;
     server.cluster_node_timeout = CLUSTER_DEFAULT_NODE_TIMEOUT;
