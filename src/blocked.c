@@ -436,8 +436,12 @@ void handleClientsBlockedOnKeys(void) {
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
                              * array, since we have just one key. */
-                            addReplyArrayLen(receiver,1);
-                            addReplyArrayLen(receiver,2);
+                            if (receiver->resp == 2) {
+                                addReplyArrayLen(receiver,1);
+                                addReplyArrayLen(receiver,2);
+                            } else {
+                                addReplyMapLen(receiver,1);
+                            }
                             addReplyBulk(receiver,rl->key);
 
                             streamPropInfo pi = {
