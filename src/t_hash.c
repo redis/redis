@@ -693,7 +693,7 @@ void hmgetCommand(client *c) {
         return;
     }
 
-    addReplyMapLen(c, c->argc-2);
+    addReplyArrayLen(c, c->argc-2);
     for (i = 2; i < c->argc; i++) {
         addHashFieldToReply(c, o, c->argv[i]->ptr);
     }
