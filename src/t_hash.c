@@ -793,6 +793,9 @@ void genericHgetallCommand(client *c, int flags) {
     }
 
     hashTypeReleaseIterator(hi);
+
+    /* Make sure we returned the right number of elements. */
+    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) count /= 2;
     serverAssert(count == length);
 }
 
