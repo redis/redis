@@ -2445,9 +2445,13 @@ void zrangeGenericCommand(client *c, int reverse) {
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
 
-    /* Return the result in form of a multi-bulk reply */
-    if (withscores && c->resp == 2) rangelen *= 2;
-    addReplyArrayLen(c, rangelen);
+    /* Return the result in form of a multi-bulk reply. RESP3 clients
+     * will receive sub arrays with score->element, while RESP2 returned
+     * a flat array. */
+    if (withscores && c->resp == 2)
+        addReplyArrayLen(c, rangelen*2);
+    else
+        addReplyArrayLen(c, rangelen);
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
