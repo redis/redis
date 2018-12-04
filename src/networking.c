@@ -365,7 +365,7 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * Where the master must propagate the first change even if the second
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
-    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
         char* to = c->flags & CLIENT_MASTER? "master": "replica";
         char* from = c->flags & CLIENT_MASTER? "replica": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
