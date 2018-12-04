@@ -40,9 +40,9 @@
 #include "sds.h" /* for sds */
 
 #define HIREDIS_MAJOR 0
-#define HIREDIS_MINOR 13
-#define HIREDIS_PATCH 3
-#define HIREDIS_SONAME 0.13
+#define HIREDIS_MINOR 14
+#define HIREDIS_PATCH 0
+#define HIREDIS_SONAME 0.14
 
 /* Connection type can be blocking or non-blocking and is set in the
  * least significant bit of the flags field in redisContext. */
@@ -79,30 +79,6 @@
 /* number of times we retry to connect in the case of EADDRNOTAVAIL and
  * SO_REUSEADDR is being used. */
 #define REDIS_CONNECT_RETRIES  10
-
-/* strerror_r has two completely different prototypes and behaviors
- * depending on system issues, so we need to operate on the error buffer
- * differently depending on which strerror_r we're using. */
-#ifndef _GNU_SOURCE
-/* "regular" POSIX strerror_r that does the right thing. */
-#define __redis_strerror_r(errno, buf, len)                                    \
-    do {                                                                       \
-        strerror_r((errno), (buf), (len));                                     \
-    } while (0)
-#else
-/* "bad" GNU strerror_r we need to clean up after. */
-#define __redis_strerror_r(errno, buf, len)                                    \
-    do {                                                                       \
-        char *err_str = strerror_r((errno), (buf), (len));                     \
-        /* If return value _isn't_ the start of the buffer we passed in,       \
-         * then GNU strerror_r returned an internal static buffer and we       \
-         * need to copy the result into our private buffer. */                 \
-        if (err_str != (buf)) {                                                \
-            strncpy((buf), err_str, ((len) - 1));                              \
-            buf[(len)-1] = '\0';                                               \
-        }                                                                      \
-    } while (0)
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -158,6 +134,9 @@ typedef struct redisContext {
         char *path;
     } unix_sock;
 
+    /* For non-blocking connect */
+    struct sockadr *saddr;
+    size_t addrlen;
 } redisContext;
 
 redisContext *redisConnect(const char *ip, int port);
