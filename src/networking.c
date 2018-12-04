@@ -1998,6 +1998,54 @@ NULL
     }
 }
 
+/* HELLO <protocol-version> [AUTH <user> <password>] */
+void helloCommand(client *c) {
+    long long ver;
+
+    if (getLongLongFromObject(c->argv[1],&ver) != C_OK ||
+        ver < 2 || ver > 3)
+    {
+        addReplyError(c,"-NOPROTO unsupported protocol version");
+        return;
+    }
+
+    /* Switching to protocol v2 is not allowed. But we send a specific
+     * error message in this case. */
+    if (ver == 2) {
+        addReplyError(c,"Switching to RESP version 2 is not allowed.");
+        return;
+    }
+
+    /* Let's switch to RESP3 mode. */
+    c->resp = 3;
+    addReplyMapLen(c,7);
+
+    addReplyBulkCString(c,"server");
+    addReplyBulkCString(c,"redis");
+
+    addReplyBulkCString(c,"version");
+    addReplyBulkCString(c,REDIS_VERSION);
+
+    addReplyBulkCString(c,"proto");
+    addReplyLongLong(c,3);
+
+    addReplyBulkCString(c,"id");
+    addReplyLongLong(c,c->id);
+
+    addReplyBulkCString(c,"mode");
+    if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
+    if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
+    else addReplyBulkCString(c,"standalone");
+
+    if (!server.sentinel_mode) {
+        addReplyBulkCString(c,"role");
+        addReplyBulkCString(c,server.masterhost ? "replica" : "master");
+    }
+
+    addReplyBulkCString(c,"modules");
+    addReplyLoadedModules(c);
+}
+
 /* This callback is bound to POST and "Host:" command names. Those are not
  * really commands, but are used in security attacks in order to talk to
  * Redis instances via HTTP, with a technique called "cross protocol scripting"

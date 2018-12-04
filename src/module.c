@@ -4818,6 +4818,25 @@ int moduleUnload(sds name) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for the MODULE and HELLO command: send the list of the
+ * loaded modules to the client. */
+void addReplyLoadedModules(client *c) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    addReplyArrayLen(c,dictSize(modules));
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+        addReplyMapLen(c,2);
+        addReplyBulkCString(c,"name");
+        addReplyBulkCBuffer(c,name,sdslen(name));
+        addReplyBulkCString(c,"ver");
+        addReplyLongLong(c,module->ver);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Redis MODULE command.
  *
  * MODULE LOAD <path> [args...] */
@@ -4865,20 +4884,7 @@ NULL
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
-        dictIterator *di = dictGetIterator(modules);
-        dictEntry *de;
-
-        addReplyArrayLen(c,dictSize(modules));
-        while ((de = dictNext(di)) != NULL) {
-            sds name = dictGetKey(de);
-            struct RedisModule *module = dictGetVal(de);
-            addReplyMapLen(c,2);
-            addReplyBulkCString(c,"name");
-            addReplyBulkCBuffer(c,name,sdslen(name));
-            addReplyBulkCString(c,"ver");
-            addReplyLongLong(c,module->ver);
-        }
-        dictReleaseIterator(di);
+        addReplyLoadedModules(c);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

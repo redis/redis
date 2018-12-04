@@ -453,7 +453,8 @@ struct redisCommand sentinelcmds[] = {
     {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0}
+    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
+    {"hello",helloCommand,-2,"sF",0,NULL,0,0,0,0,0}
 };
 
 /* This function overwrites a few normal Redis config default with Sentinel
