@@ -21,6 +21,11 @@ NODEPS:=clean distclean
 
 # Default settings
 STD=-std=c99 -pedantic -DREDIS_STATIC=''
+ifneq (,$(findstring clang,$(CC)))
+ifneq (,$(findstring FreeBSD,$(uname_S)))
+  STD+=-Wno-c11-extensions
+endif
+endif
 WARN=-Wall -W -Wno-missing-field-initializers
 OPT=$(OPTIMIZATION)
 
@@ -97,14 +102,25 @@ else
 ifeq ($(uname_S),OpenBSD)
 	# OpenBSD
 	FINAL_LIBS+= -lpthread
+	ifeq ($(USE_BACKTRACE),yes)
+	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/local/include
+	    FINAL_LDFLAGS+= -L/usr/local/lib
+	    FINAL_LIBS+= -lexecinfo
+    	endif
+
 else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
-	FINAL_LIBS+= -lpthread
+	FINAL_LIBS+= -lpthread -lexecinfo
+else
+ifeq ($(uname_S),DragonFly)
+	# FreeBSD
+	FINAL_LIBS+= -lpthread -lexecinfo
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
+endif
 endif
 endif
 endif
