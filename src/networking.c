@@ -611,6 +611,14 @@ void addReplyNull(client *c) {
     }
 }
 
+void addReplyBool(client *c, int b) {
+    if (c->resp == 3) {
+        addReply(c, b ? shared.cone : shared.czero);
+    } else {
+        addReplyString(c, b ? "#t\r\n" : "#f\r\n",4);
+    }
+}
+
 /* A null array is a concept that no longer exists in RESP3. However
  * RESP2 had it, so API-wise we have this call, that will emit the correct
  * RESP2 protocol, however for RESP3 the reply will always be just the
