@@ -2211,8 +2211,14 @@ static int clusterManagerExecTransaction(clusterManagerNode *node,
         size_t i;
         for (i = 0; i < reply->elements; i++) {
             redisReply *r = reply->element[i];
-            success = clusterManagerCheckRedisReply(node, r, NULL);
+            char *err = NULL;
+            success = clusterManagerCheckRedisReply(node, r, &err);
             if (!success && onerror) success = onerror(r, i);
+            if (err) {
+                if (!success)
+                    CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+                zfree(err);
+            }
             if (!success) break;
         }
     }
@@ -2792,10 +2798,15 @@ static int clusterManagerDelSlot(clusterManagerNode *node, int slot,
 {
     redisReply *reply = CLUSTER_MANAGER_COMMAND(node,
         "CLUSTER DELSLOTS %d", slot);
-    int success = clusterManagerCheckRedisReply(node, reply, NULL);
+    char *err = NULL;
+    int success = clusterManagerCheckRedisReply(node, reply, &err);
     if (!success && reply && reply->type == REDIS_REPLY_ERROR &&
         ignore_unassigned_err &&
         strstr(reply->str, "already unassigned") != NULL) success = 1;
+    if (!success && err != NULL) {
+        CLUSTER_MANAGER_PRINT_REPLY_ERROR(node, err);
+        zfree(err);
+    }
     if (reply) freeReplyObject(reply);
     return success;
 }
@@ -2842,7 +2853,7 @@ static int clusterManagerSetSlotOwner(clusterManagerNode *owner,
     int success = clusterManagerStartTransaction(owner);
     if (!success) return 0;
     /* Ensure the slot is not already assigned. */
-    clusterManagerDelSlot(owner, slot, 0);
+    clusterManagerDelSlot(owner, slot, 1);
     /* Add the slot and bump epoch. */
     clusterManagerAddSlot(owner, slot);
     if (do_clear) clusterManagerClearSlotStatus(owner, slot);
@@ -3747,7 +3758,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
 
     /*  Handle case "2": keys only in one node. */
     if (listLength(single) > 0) {
-        printf("The following uncovered slots  have keys in just one node:\n");
+        printf("The following uncovered slots have keys in just one node:\n");
         clusterManagerPrintSlotsList(single);
         if (confirmWithYes("Fix these slots by covering with those nodes?")){
             listIter li;
@@ -4012,6 +4023,7 @@ static int clusterManagerFixOpenSlot(int slot) {
         clusterManagerLogInfo(">>> Case 1: Moving slot %d from "
                               "%s:%d to %s:%d\n", slot,
                               src->ip, src->port, dst->ip, dst->port);
+        move_opts |= CLUSTER_MANAGER_OPT_UPDATE;
         success = clusterManagerMoveSlot(src, dst, slot, move_opts, NULL);
     }
     /* Case 2: There are multiple nodes that claim the slot as importing,
@@ -4166,7 +4178,7 @@ static int clusterManagerFixMultipleSlotOwners(int slot, list *owners) {
                                                                         slot,
                                                                         NULL);
     if (!owner) owner = listFirst(owners)->value;
-    clusterManagerLogInfo(">>> Setting slot %d owner: %s:%d",
+    clusterManagerLogInfo(">>> Setting slot %d owner: %s:%d\n",
                           slot, owner->ip, owner->port);
     /* Set the slot owner. */
     if (!clusterManagerSetSlotOwner(owner, slot, 0)) return 0;
