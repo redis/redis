@@ -820,8 +820,17 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
         out = sdscat(out,"(nil)\n");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_MAP:
+    case REDIS_REPLY_SET:
         if (r->elements == 0) {
-            out = sdscat(out,"(empty list or set)\n");
+            if (r->type == REDIS_REPLY_ARRAY)
+                out = sdscat(out,"(empty array)\n");
+            else if (r->type == REDIS_REPLY_MAP)
+                out = sdscat(out,"(empty hash)\n");
+            else if (r->type == REDIS_REPLY_SET)
+                out = sdscat(out,"(empty set)\n");
+            else
+                out = sdscat(out,"(empty aggregate type)\n");
         } else {
             unsigned int i, idxlen = 0;
             char _prefixlen[16];
@@ -831,6 +840,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
 
             /* Calculate chars needed to represent the largest index */
             i = r->elements;
+            if (r->type == REDIS_REPLY_MAP) i /= 2;
             do {
                 idxlen++;
                 i /= 10;
@@ -842,17 +852,35 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             _prefix = sdscat(sdsnew(prefix),_prefixlen);
 
             /* Setup prefix format for every entry */
-            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%ud) ",idxlen);
+            char numsep;
+            if (r->type == REDIS_REPLY_SET) numsep = '~';
+            else if (r->type == REDIS_REPLY_MAP) numsep = '#';
+            else numsep = ')';
+            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%ud%c ",idxlen,numsep);
 
             for (i = 0; i < r->elements; i++) {
+                unsigned int human_idx = (r->type == REDIS_REPLY_MAP) ?
+                                         i/2 : i;
+                human_idx++; /* Make it 1-based. */
+
                 /* Don't use the prefix for the first element, as the parent
                  * caller already prepended the index number. */
-                out = sdscatprintf(out,_prefixfmt,i == 0 ? "" : prefix,i+1);
+                out = sdscatprintf(out,_prefixfmt,i == 0 ? "" : prefix,human_idx);
 
                 /* Format the multi bulk entry */
                 tmp = cliFormatReplyTTY(r->element[i],_prefix);
                 out = sdscatlen(out,tmp,sdslen(tmp));
                 sdsfree(tmp);
+
+                /* For maps, format the value as well. */
+                if (r->type == REDIS_REPLY_MAP) {
+                    i++;
+                    sdsrange(out,0,-2);
+                    out = sdscat(out," => ");
+                    tmp = cliFormatReplyTTY(r->element[i],_prefix);
+                    out = sdscatlen(out,tmp,sdslen(tmp));
+                    sdsfree(tmp);
+                }
             }
             sdsfree(_prefix);
         }
