@@ -82,6 +82,8 @@ void freeReplyObject(void *reply) {
     case REDIS_REPLY_INTEGER:
         break; /* Nothing to free */
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_MAP:
+    case REDIS_REPLY_SET:
         if (r->element != NULL) {
             for (j = 0; j < r->elements; j++)
                 freeReplyObject(r->element[j]);
@@ -134,7 +136,7 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
 static void *createArrayObject(const redisReadTask *task, int elements) {
     redisReply *r, *parent;
 
-    r = createReplyObject(REDIS_REPLY_ARRAY);
+    r = createReplyObject(task->type);
     if (r == NULL)
         return NULL;
 
