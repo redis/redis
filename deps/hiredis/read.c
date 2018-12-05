@@ -243,7 +243,9 @@ static void moveToNextTask(redisReader *r) {
 
         cur = &(r->rstack[r->ridx]);
         prv = &(r->rstack[r->ridx-1]);
-        assert(prv->type == REDIS_REPLY_ARRAY);
+        assert(prv->type == REDIS_REPLY_ARRAY ||
+               prv->type == REDIS_REPLY_MAP ||
+               prv->type == REDIS_REPLY_SET);
         if (cur->idx == prv->elements-1) {
             r->ridx--;
         } else {
