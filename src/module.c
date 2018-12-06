@@ -577,6 +577,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"admin")) flags |= CMD_ADMIN;
         else if (!strcasecmp(t,"deny-oom")) flags |= CMD_DENYOOM;
         else if (!strcasecmp(t,"deny-script")) flags |= CMD_NOSCRIPT;
+        else if (!strcasecmp(t,"deny-multi")) flags |= CMD_NOMULTI;
         else if (!strcasecmp(t,"allow-loading")) flags |= CMD_LOADING;
         else if (!strcasecmp(t,"pubsub")) flags |= CMD_PUBSUB;
         else if (!strcasecmp(t,"random")) flags |= CMD_RANDOM;

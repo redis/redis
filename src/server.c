@@ -112,6 +112,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    results. For instance SPOP and RANDOMKEY are two random commands.
  * S: Sort command output array if called from script, so that the output
  *    is deterministic.
+ * x: command not allowed in multi/exec.
  * l: Allow command while loading the database.
  * t: Allow command while a slave has stale data but is not allowed to
  *    server this data. Normally no command is accepted in this condition
@@ -242,14 +243,14 @@ struct redisCommand redisCommandTable[] = {
     {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,-1,"as",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"aslt",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"asltx",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0},
-    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
+    {"sync",syncCommand,1,"arsx",0,NULL,0,0,0,0,0},
+    {"psync",syncCommand,3,"arsx",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
@@ -260,8 +261,8 @@ struct redisCommand redisCommandTable[] = {
     {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"rFR",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"slaveof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"replicaof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
+    {"slaveof",replicaofCommand,3,"astx",0,NULL,0,0,0,0,0},
+    {"replicaof",replicaofCommand,3,"astx",0,NULL,0,0,0,0,0},
     {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"last",0,NULL,0,0,0,0,0},
@@ -1467,6 +1468,8 @@ void createSharedObjects(void) {
         "-NOREPLICAS Not enough good replicas to write.\r\n"));
     shared.busykeyerr = createObject(OBJ_STRING,sdsnew(
         "-BUSYKEY Target key name already exists.\r\n"));
+    shared.nomultierr = createObject(OBJ_STRING,sdsnew(
+        "-ERR This Redis command is not allowed in multi/exec.\r\n"));
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
@@ -2202,6 +2205,7 @@ void populateCommandTable(void) {
             case 's': c->flags |= CMD_NOSCRIPT; break;
             case 'R': c->flags |= CMD_RANDOM; break;
             case 'S': c->flags |= CMD_SORT_FOR_SCRIPT; break;
+            case 'x': c->flags |= CMD_NOMULTI; break;
             case 'l': c->flags |= CMD_LOADING; break;
             case 't': c->flags |= CMD_STALE; break;
             case 'M': c->flags |= CMD_SKIP_MONITOR; break;
@@ -2722,6 +2726,12 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    if (c->flags & CLIENT_MULTI && c->cmd->flags & CMD_NOMULTI) {
+        flagTransaction(c);
+        addReply(c, shared.nomultierr);
+        return C_OK;
+    }
+
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
@@ -2978,6 +2988,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         flagcount += addReplyCommandFlag(c,cmd,CMD_NOSCRIPT, "noscript");
         flagcount += addReplyCommandFlag(c,cmd,CMD_RANDOM, "random");
         flagcount += addReplyCommandFlag(c,cmd,CMD_SORT_FOR_SCRIPT,"sort_for_script");
+        flagcount += addReplyCommandFlag(c,cmd,CMD_NOMULTI,"nomulti");
         flagcount += addReplyCommandFlag(c,cmd,CMD_LOADING, "loading");
         flagcount += addReplyCommandFlag(c,cmd,CMD_STALE, "stale");
         flagcount += addReplyCommandFlag(c,cmd,CMD_SKIP_MONITOR, "skip_monitor");

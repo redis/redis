@@ -211,13 +211,14 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CMD_NOSCRIPT (1<<6)         /* "s" flag */
 #define CMD_RANDOM (1<<7)           /* "R" flag */
 #define CMD_SORT_FOR_SCRIPT (1<<8)  /* "S" flag */
-#define CMD_LOADING (1<<9)          /* "l" flag */
-#define CMD_STALE (1<<10)           /* "t" flag */
-#define CMD_SKIP_MONITOR (1<<11)    /* "M" flag */
-#define CMD_ASKING (1<<12)          /* "k" flag */
-#define CMD_FAST (1<<13)            /* "F" flag */
-#define CMD_MODULE_GETKEYS (1<<14)  /* Use the modules getkeys interface. */
-#define CMD_MODULE_NO_CLUSTER (1<<15) /* Deny on Redis Cluster. */
+#define CMD_NOMULTI (1<<9)          /* "x" flag */
+#define CMD_LOADING (1<<10)         /* "l" flag */
+#define CMD_STALE (1<<11)           /* "t" flag */
+#define CMD_SKIP_MONITOR (1<<12)    /* "M" flag */
+#define CMD_ASKING (1<<13)          /* "k" flag */
+#define CMD_FAST (1<<14)            /* "F" flag */
+#define CMD_MODULE_GETKEYS (1<<15)  /* Use the modules getkeys interface. */
+#define CMD_MODULE_NO_CLUSTER (1<<16) /* Deny on Redis Cluster. */
 
 /* AOF states */
 #define AOF_OFF 0             /* AOF is off */
@@ -782,7 +783,7 @@ struct sharedObjectsStruct {
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
-    *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
+    *busykeyerr, *oomerr, *nomultierr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *unlink,
     *rpop, *lpop, *lpush, *rpoplpush, *zpopmin, *zpopmax, *emptyscan,
     *select[PROTO_SHARED_SELECT_CMDS],
