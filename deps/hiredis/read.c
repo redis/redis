@@ -304,7 +304,7 @@ static int processLineItem(redisReader *r) {
                         return REDIS_ERR;
                     }
                 }
-                obj = r->fn->createDouble(cur,d);
+                obj = r->fn->createDouble(cur,d,buf,len);
             } else {
                 obj = (void*)REDIS_REPLY_DOUBLE;
             }

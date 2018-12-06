@@ -47,7 +47,7 @@ static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
 static void *createArrayObject(const redisReadTask *task, int elements);
 static void *createIntegerObject(const redisReadTask *task, long long value);
-static void *createDoubleObject(const redisReadTask *task, double value);
+static void *createDoubleObject(const redisReadTask *task, double value, char *str, size_t len);
 static void *createNilObject(const redisReadTask *task);
 
 /* Default set of functions to build the reply. Keep in mind that such a
@@ -95,6 +95,7 @@ void freeReplyObject(void *reply) {
     case REDIS_REPLY_ERROR:
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_STRING:
+    case REDIS_REPLY_DOUBLE:
         free(r->str);
         break;
     }
@@ -181,7 +182,7 @@ static void *createIntegerObject(const redisReadTask *task, long long value) {
     return r;
 }
 
-static void *createDoubleObject(const redisReadTask *task, double value) {
+static void *createDoubleObject(const redisReadTask *task, double value, char *str, size_t len) {
     redisReply *r, *parent;
 
     r = createReplyObject(REDIS_REPLY_DOUBLE);
@@ -189,6 +190,19 @@ static void *createDoubleObject(const redisReadTask *task, double value) {
         return NULL;
 
     r->dval = value;
+    r->str = malloc(len+1);
+    if (r->str == NULL) {
+        freeReplyObject(r);
+        return NULL;
+    }
+
+    /* The double reply also has the original protocol string representing a
+     * double as a null terminated string. This way the caller does not need
+     * to format back for string conversion, especially since Redis does efforts
+     * to make the string more human readable avoiding the calssical double
+     * decimal string conversion artifacts. */
+    memcpy(r->str, str, len);
+    r->str[len] = '\0';
 
     if (task->parent) {
         parent = task->parent->obj;
