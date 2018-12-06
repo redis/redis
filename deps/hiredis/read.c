@@ -308,6 +308,11 @@ static int processLineItem(redisReader *r) {
             } else {
                 obj = (void*)REDIS_REPLY_DOUBLE;
             }
+        } else if (cur->type == REDIS_REPLY_NIL) {
+            if (r->fn && r->fn->createNil)
+                obj = r->fn->createNil(cur);
+            else
+                obj = (void*)REDIS_REPLY_NIL;
         } else {
             /* Type will be error or status. */
             if (r->fn && r->fn->createString)
@@ -493,6 +498,9 @@ static int processItem(redisReader *r) {
             case ',':
                 cur->type = REDIS_REPLY_DOUBLE;
                 break;
+            case '_':
+                cur->type = REDIS_REPLY_NIL;
+                break;
             case '$':
                 cur->type = REDIS_REPLY_STRING;
                 break;
@@ -521,6 +529,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_INTEGER:
     case REDIS_REPLY_DOUBLE:
+    case REDIS_REPLY_NIL:
         return processLineItem(r);
     case REDIS_REPLY_STRING:
         return processBulkItem(r);
