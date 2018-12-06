@@ -47,6 +47,7 @@ static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
 static void *createArrayObject(const redisReadTask *task, int elements);
 static void *createIntegerObject(const redisReadTask *task, long long value);
+static void *createDoubleObject(const redisReadTask *task, double value);
 static void *createNilObject(const redisReadTask *task);
 
 /* Default set of functions to build the reply. Keep in mind that such a
@@ -55,6 +56,7 @@ static redisReplyObjectFunctions defaultFunctions = {
     createStringObject,
     createArrayObject,
     createIntegerObject,
+    createDoubleObject,
     createNilObject,
     freeReplyObject
 };
@@ -168,6 +170,25 @@ static void *createIntegerObject(const redisReadTask *task, long long value) {
         return NULL;
 
     r->integer = value;
+
+    if (task->parent) {
+        parent = task->parent->obj;
+        assert(parent->type == REDIS_REPLY_ARRAY ||
+               parent->type == REDIS_REPLY_MAP ||
+               parent->type == REDIS_REPLY_SET);
+        parent->element[task->idx] = r;
+    }
+    return r;
+}
+
+static void *createDoubleObject(const redisReadTask *task, double value) {
+    redisReply *r, *parent;
+
+    r = createReplyObject(REDIS_REPLY_DOUBLE);
+    if (r == NULL)
+        return NULL;
+
+    r->dval = value;
 
     if (task->parent) {
         parent = task->parent->obj;

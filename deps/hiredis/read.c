@@ -29,7 +29,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include "fmacros.h"
 #include <string.h>
 #include <stdlib.h>
@@ -40,6 +39,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <limits.h>
+#include <math.h>
 
 #include "read.h"
 #include "sds.h"
@@ -278,6 +278,36 @@ static int processLineItem(redisReader *r) {
             } else {
                 obj = (void*)REDIS_REPLY_INTEGER;
             }
+        } else if (cur->type == REDIS_REPLY_DOUBLE) {
+            if (r->fn && r->fn->createDouble) {
+                char buf[326], *eptr;
+                double d;
+
+                if ((size_t)len-1 >= sizeof(buf)) {
+                    __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                            "Double value is too large");
+                    return REDIS_ERR;
+                }
+
+                memcpy(buf,p+1,len-1);
+                buf[len-1] = '\0';
+
+                if (strcasecmp(buf,",inf") == 0) {
+                    d = 1.0/0.0; /* Positive infinite. */
+                } else if (strcasecmp(buf,",-inf") == 0) {
+                    d = -1.0/0.0; /* Nevative infinite. */
+                } else {
+                    d = strtod((char*)buf,&eptr);
+                    if (eptr[0] != '\0' || isnan(d)) {
+                        __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
+                                "Bad double value");
+                        return REDIS_ERR;
+                    }
+                }
+                obj = r->fn->createDouble(cur,d);
+            } else {
+                obj = (void*)REDIS_REPLY_DOUBLE;
+            }
         } else {
             /* Type will be error or status. */
             if (r->fn && r->fn->createString)
@@ -460,6 +490,9 @@ static int processItem(redisReader *r) {
             case ':':
                 cur->type = REDIS_REPLY_INTEGER;
                 break;
+            case ',':
+                cur->type = REDIS_REPLY_DOUBLE;
+                break;
             case '$':
                 cur->type = REDIS_REPLY_STRING;
                 break;
@@ -487,6 +520,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_ERROR:
     case REDIS_REPLY_STATUS:
     case REDIS_REPLY_INTEGER:
+    case REDIS_REPLY_DOUBLE:
         return processLineItem(r);
     case REDIS_REPLY_STRING:
         return processBulkItem(r);

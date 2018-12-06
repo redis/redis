@@ -810,6 +810,9 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"(integer) %lld\n",r->integer);
     break;
+    case REDIS_REPLY_DOUBLE:
+        out = sdscatprintf(out,"(double) %.17g\n",r->dval);
+    break;
     case REDIS_REPLY_STRING:
         /* If you are producing output for the standard output we want
         * a more interesting output with quoted characters and so forth */
