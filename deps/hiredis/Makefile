@@ -51,7 +51,7 @@ DYLIB_MAJOR_NAME=$(LIBNAME).$(DYLIBSUFFIX).$(HIREDIS_MAJOR)
 DYLIBNAME=$(LIBNAME).$(DYLIBSUFFIX)
 DYLIB_MAKE_CMD=$(CC) -shared -Wl,-soname,$(DYLIB_MINOR_NAME) -o $(DYLIBNAME) $(LDFLAGS)
 STLIBNAME=$(LIBNAME).$(STLIBSUFFIX)
-STLIB_MAKE_CMD=ar rcs $(STLIBNAME)
+STLIB_MAKE_CMD=$(AR) rcs $(STLIBNAME)
 
 # Platform-specific overrides
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
