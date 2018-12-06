@@ -1943,6 +1943,44 @@ int cancelReplicationHandshake(void) {
     return 1;
 }
 
+/* Mass-unblock clients because something changed in the instance that makes
+ * blocking no longer safe. For example clients blocked in list operations
+ * in an instance which turns from master to replica is unsafe, so this function
+ * is called when a master turns into a replica.
+ *
+ * Transcation is not safe nether after an instance turns from master to replica,
+ * for example:
+ * MULTI
+ * SET A B
+ * master turns to replica
+ * EXEC, now SET A B can be executed, but that will break data consistency.
+ *
+ * The semantics is to send an -UNBLOCKED or -ABORT error to the client,
+ * disconnecting it at the same time. */
+void disconnectAllBlockedAndMultiClients(void) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.clients,&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+
+        if (c->flags & CLIENT_BLOCKED) {
+            addReplySds(c,sdsnew(
+                "-UNBLOCKED force unblock from blocking operation, "
+                "instance state changed (master -> replica?)\r\n"));
+            unblockClient(c);
+            c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+        } else if (c->flags & CLIENT_MULTI) {
+            addReplySds(c,sdsnew(
+                "-ABORT force abort from multi state, "
+                "instance state changed (master -> replica?)\r\n"));
+            flagTransaction(c);
+            c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+        }
+    }
+}
+
 /* Set replication to the specified master address and port. */
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
@@ -1953,7 +1991,7 @@ void replicationSetMaster(char *ip, int port) {
     if (server.master) {
         freeClient(server.master);
     }
-    disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
+    disconnectAllBlockedAndMultiClients(); /* Clients blocked or inside multi/exec in master, now slave. */
 
     /* Force our slaves to resync with us as well. They may hopefully be able
      * to partially resync with us, but we can notify the replid change. */
