@@ -283,14 +283,14 @@ static int processLineItem(redisReader *r) {
                 char buf[326], *eptr;
                 double d;
 
-                if ((size_t)len-1 >= sizeof(buf)) {
+                if ((size_t)len >= sizeof(buf)) {
                     __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
                             "Double value is too large");
                     return REDIS_ERR;
                 }
 
-                memcpy(buf,p+1,len-1);
-                buf[len-1] = '\0';
+                memcpy(buf,p,len);
+                buf[len] = '\0';
 
                 if (strcasecmp(buf,",inf") == 0) {
                     d = 1.0/0.0; /* Positive infinite. */
@@ -298,7 +298,7 @@ static int processLineItem(redisReader *r) {
                     d = -1.0/0.0; /* Nevative infinite. */
                 } else {
                     d = strtod((char*)buf,&eptr);
-                    if (eptr[0] != '\0' || isnan(d)) {
+                    if (buf[0] == '\0' || eptr[0] != '\0' || isnan(d)) {
                         __redisReaderSetError(r,REDIS_ERR_PROTOCOL,
                                 "Bad double value");
                         return REDIS_ERR;
