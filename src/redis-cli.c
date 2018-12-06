@@ -811,7 +811,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
         out = sdscatprintf(out,"(integer) %lld\n",r->integer);
     break;
     case REDIS_REPLY_DOUBLE:
-        out = sdscatprintf(out,"(double) %.17g\n",r->dval);
+        out = sdscatprintf(out,"(double) %s\n",r->str);
     break;
     case REDIS_REPLY_STRING:
         /* If you are producing output for the standard output we want
