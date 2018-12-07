@@ -864,11 +864,11 @@ struct redisMemOverhead {
     float dataset_perc;
     float peak_perc;
     float total_frag;
-    size_t total_frag_bytes;
+    ssize_t total_frag_bytes;
     float allocator_frag;
-    size_t allocator_frag_bytes;
+    ssize_t allocator_frag_bytes;
     float allocator_rss;
-    size_t allocator_rss_bytes;
+    ssize_t allocator_rss_bytes;
     float rss_extra;
     size_t rss_extra_bytes;
     size_t num_dbs;
