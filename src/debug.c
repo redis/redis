@@ -517,7 +517,7 @@ NULL
         sdsfree(d);
     } else if (!strcasecmp(c->argv[1]->ptr,"digest-value") && c->argc >= 2) {
         /* DEBUG DIGEST-VALUE key key key ... key. */
-        addReplyMultiBulkLen(c,c->argc-2);
+        addReplyArrayLen(c,c->argc-2);
         for (int j = 2; j < c->argc; j++) {
             unsigned char digest[20];
             memset(digest,0,20); /* Start with a clean result */
