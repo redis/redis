@@ -304,6 +304,7 @@ void debugCommand(client *c) {
 "CHANGE-REPL-ID -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
 "CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
 "DIGEST -- Output a hex signature representing the current DB content.",
+"DIGEST-VALUE <key-1> ... <key-N>-- Output a hex signature of the values of all the specified keys.",
 "ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
 "LOG <message> -- write message to the server log.",
 "HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
@@ -506,15 +507,28 @@ NULL
         }
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"digest") && c->argc == 2) {
+        /* DEBUG DIGEST (form without keys specified) */
         unsigned char digest[20];
         sds d = sdsempty();
-        int j;
 
         computeDatasetDigest(digest);
-        for (j = 0; j < 20; j++)
-            d = sdscatprintf(d, "%02x",digest[j]);
+        for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
         addReplyStatus(c,d);
         sdsfree(d);
+    } else if (!strcasecmp(c->argv[1]->ptr,"digest-value") && c->argc >= 2) {
+        /* DEBUG DIGEST-VALUE key key key ... key. */
+        addReplyMultiBulkLen(c,c->argc-2);
+        for (int j = 2; j < c->argc; j++) {
+            unsigned char digest[20];
+            memset(digest,0,20); /* Start with a clean result */
+            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH);
+            if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
+
+            sds d = sdsempty();
+            for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
+            addReplyStatus(c,d);
+            sdsfree(d);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
