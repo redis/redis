@@ -5404,7 +5404,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
         if (status != REDIS_OK || reply == NULL )
             printf("%s:%d: Failed!\n", n->ip, n->port);
         else {
-            sds formatted_reply = cliFormatReplyTTY(reply, "");
+            sds formatted_reply = cliFormatReplyRaw(reply);
             printf("%s:%d: %s\n", n->ip, n->port, (char *) formatted_reply);
             sdsfree(formatted_reply);
         }
