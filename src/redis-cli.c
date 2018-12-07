@@ -67,6 +67,7 @@
 #define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
 #define REDIS_CLI_RCFILE_ENV "REDISCLI_RCFILE"
 #define REDIS_CLI_RCFILE_DEFAULT ".redisclirc"
+#define REDIS_CLI_AUTH_ENV "REDISCLI_AUTH"
 
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
@@ -1419,6 +1420,14 @@ static int parseOptions(int argc, char **argv) {
     return i;
 }
 
+static void parseEnv() {
+    /* Set auth from env, but do not overwrite CLI arguments if passed */
+    char *auth = getenv(REDIS_CLI_AUTH_ENV);
+    if (auth != NULL && config.auth == NULL) {
+        config.auth = auth;
+    }
+}
+
 static sds readArgFromStdin(void) {
     char buf[1024];
     sds arg = sdsempty();
@@ -1446,6 +1455,9 @@ static void usage(void) {
 "  -p <port>          Server port (default: 6379).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
 "  -a <password>      Password to use when connecting to the server.\n"
+"                     You can also use the " REDIS_CLI_AUTH_ENV " environment\n"
+"                     variable to pass this password more safely\n"
+"                     (if both are used, this argument takes predecence).\n"
 "  -u <uri>           Server URI.\n"
 "  -r <repeat>        Execute specified command N times.\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
@@ -6780,6 +6792,8 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    parseEnv();
 
     /* Cluster Manager mode */
     if (CLUSTER_MANAGER_MODE()) {
