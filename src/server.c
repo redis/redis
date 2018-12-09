@@ -4040,6 +4040,7 @@ int main(int argc, char **argv) {
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
+    srandom(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
 
     char hashseed[16];
