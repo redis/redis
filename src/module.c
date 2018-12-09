@@ -47,7 +47,16 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    list *usedBy;   /* list of modules names using this module api. */
+    list *using;    /* list of modules names that this module is using thier api . */
+    list *exportedFunctions;   /* list of function names exported by this module. */
 };
+
+struct ModuleExportedApi {
+    void* funcPointer;
+    struct RedisModule* module;
+};
+
 typedef struct RedisModule RedisModule;
 
 static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
@@ -700,6 +709,9 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->usedBy = listCreate();
+    module->using = listCreate();
+    module->exportedFunctions = listCreate();
     ctx->module = module;
 }
 
@@ -4621,6 +4633,59 @@ void RM_GetRandomHexChars(char *dst, size_t len) {
     getRandomHexChars(dst,len);
 }
 
+/* Used to register an api to be used by other modules. */
+int RM_RegisterApi(RedisModuleCtx *ctx, const char *funcname, void *funcptr) {
+    struct ModuleExportedApi* eapi = zmalloc(sizeof(*eapi));
+    eapi->module = ctx->module;
+    eapi->funcPointer = funcptr;
+    if(dictAdd(server.exportedapi, (char*)funcname, eapi) != DICT_OK){
+        zfree(eapi);
+        return REDISMODULE_ERR;
+    }
+    listAddNodeHead(ctx->module->exportedFunctions, (char*)funcname);
+    return REDISMODULE_OK;
+}
+
+static inline int IsModuleInList(list *l, const char* moduleName){
+    listIter *iter = listGetIterator(l, AL_START_HEAD);
+    listNode *node = NULL;
+    while((node = listNext(iter))){
+        char* name = listNodeValue(node);
+        if(strcmp(name, moduleName) == 0){
+            listReleaseIterator(iter);
+            return 1;
+        }
+    }
+    listReleaseIterator(iter);
+    return 0;
+}
+
+static inline void RemoveFromList(list *l, const char* moduleName){
+    listIter *iter = listGetIterator(l, AL_START_HEAD);
+    listNode *node = NULL;
+    while((node = listNext(iter))){
+        char* name = listNodeValue(node);
+        if(strcmp(name, moduleName) == 0){
+            listDelNode(l, node);
+            return;
+        }
+    }
+    listReleaseIterator(iter);
+}
+
+void* RM_GetExportedApi(RedisModuleCtx *ctx, const char *funcname) {
+    dictEntry* entry = dictFind(server.exportedapi, funcname);
+    if(!entry){
+        return NULL;
+    }
+    struct ModuleExportedApi* eapi = dictGetVal(entry);
+    if(!IsModuleInList(eapi->module->usedBy, ctx->module->name)){
+        listAddNodeHead(eapi->module->usedBy, ctx->module->name);
+        listAddNodeHead(ctx->module->using, eapi->module->name);
+    }
+    return eapi->funcPointer;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -4741,6 +4806,28 @@ void moduleUnregisterCommands(struct RedisModule *module) {
     dictReleaseIterator(di);
 }
 
+void moduleUnregisterApi(struct RedisModule *module) {
+    listIter *iter = listGetIterator(module->exportedFunctions, AL_START_HEAD);
+    listNode* node = NULL;
+    while((node = listNext(iter))){
+        char* functionName = listNodeValue(node);
+        struct ModuleExportedApi* eapi = dictFetchValue(server.exportedapi, functionName);
+        serverAssert(eapi);
+        zfree(eapi);
+        dictDelete(server.exportedapi, functionName);
+    }
+    listReleaseIterator(iter);
+    iter = listGetIterator(module->using, AL_START_HEAD);
+    node = NULL;
+    while((node = listNext(iter))){
+        char* moduleName = listNodeValue(node);
+        struct RedisModule* usingModule = dictFetchValue(modules, moduleName);
+        serverAssert(usingModule);
+        RemoveFromList(usingModule->usedBy, module->name);
+    }
+    listReleaseIterator(iter);
+}
+
 /* Load a module and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc) {
@@ -4800,6 +4887,12 @@ int moduleUnload(sds name) {
         return REDISMODULE_ERR;
     }
 
+    if (listLength(module->usedBy)) {
+        errno = EPERM;
+        return REDISMODULE_ERR;
+    }
+
+    moduleUnregisterApi(module);
     moduleUnregisterCommands(module);
 
     /* Remove any notification subscribers this module might have */
@@ -4832,6 +4925,7 @@ void moduleCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(subcmd,"help")) {
         const char *help[] = {
 "LIST -- Return a list of loaded modules.",
+"LISTAPI <module-name> -- Return a list of exported api.",
 "LOAD <path> [arg ...] -- Load a module library from <path>.",
 "UNLOAD <name> -- Unload a module.",
 NULL
@@ -4864,6 +4958,9 @@ NULL
             case EBUSY:
                 errmsg = "the module exports one or more module-side data types, can't unload";
                 break;
+            case EPERM:
+                errmsg = "the module api is used by other modules, please unload them first and try again.";
+                break;
             default:
                 errmsg = "operation not possible.";
                 break;
@@ -4885,6 +4982,21 @@ NULL
             addReplyLongLong(c,module->ver);
         }
         dictReleaseIterator(di);
+    } else if (!strcasecmp(subcmd,"listapi") && c->argc == 3) {
+        char *moduleName = c->argv[2]->ptr;
+        struct RedisModule* module = dictFetchValue(modules, moduleName);
+        if(!module){
+            addReplyErrorFormat(c,"Error listing module api: no such module %s", moduleName);
+            return;
+        }
+        addReplyMultiBulkLen(c,listLength(module->exportedFunctions));
+        listIter *iter = listGetIterator(module->exportedFunctions, AL_START_HEAD);
+        listNode* node = NULL;
+        while((node = listNext(iter))){
+            char* functionName = listNodeValue(node);
+            addReplyBulkCString(c,functionName);
+        }
+        listReleaseIterator(iter);
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -4900,6 +5012,7 @@ size_t moduleCount(void) {
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    server.exportedapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
@@ -5050,4 +5163,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictPrev);
     REGISTER_API(DictCompareC);
     REGISTER_API(DictCompare);
+    REGISTER_API(RegisterApi);
+    REGISTER_API(GetExportedApi);
 }

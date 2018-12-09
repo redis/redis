@@ -335,6 +335,8 @@ void REDISMODULE_API_FUNC(RedisModule_GetRandomBytes)(unsigned char *dst, size_t
 void REDISMODULE_API_FUNC(RedisModule_GetRandomHexChars)(char *dst, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback);
 void REDISMODULE_API_FUNC(RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags);
+int REDISMODULE_API_FUNC(RedisModule_RegisterApi)(RedisModuleCtx *ctx, const char *funcname, void *funcptr);
+void* REDISMODULE_API_FUNC(RedisModule_GetExportedApi)(RedisModuleCtx *ctx, const char *funcname);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -495,6 +497,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
     REDISMODULE_GET_API(SetClusterFlags);
+    REDISMODULE_GET_API(RegisterApi);
+    REDISMODULE_GET_API(GetExportedApi);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
