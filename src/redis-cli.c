@@ -822,6 +822,9 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     case REDIS_REPLY_NIL:
         out = sdscat(out,"(nil)\n");
     break;
+    case REDIS_REPLY_BOOL:
+        out = sdscat(out,r->integer ? "(true)\n" : "(false)\n");
+    break;
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_MAP:
     case REDIS_REPLY_SET:
