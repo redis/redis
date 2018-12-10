@@ -529,6 +529,49 @@ NULL
             addReplyStatus(c,d);
             sdsfree(d);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"protocol") && c->argc == 3) {
+        /* DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|
+         *                 attrib|push|verbatim|true|false|state|err|bloberr] */
+        char *name = c->argv[2]->ptr;
+        if (strcasecmp(name,"string")) {
+            addReplyBulkCString(c,"Hello World");
+        } else if (strcasecmp(name,"integer")) {
+            addReplyLongLong(c,12345);
+        } else if (strcasecmp(name,"double")) {
+            addReplyDouble(c,3.14159265359);
+        } else if (strcasecmp(name,"bignum")) {
+            addReplyString(c,"(1234567999999999999999999999999999999\r\n",40);
+        } else if (strcasecmp(name,"null")) {
+            addReplyNull(c);
+        } else if (strcasecmp(name,"array")) {
+            addReplyArrayLen(c,3);
+            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+        } else if (strcasecmp(name,"set")) {
+            addReplySetLen(c,3);
+            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+        } else if (strcasecmp(name,"map")) {
+            addReplyMapLen(c,3);
+            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+        } else if (strcasecmp(name,"attrib")) {
+            addReplyAttributeLen(c,1);
+            addReplyBulkCString(c,"key-popularity");
+            addReplyArrayLen(c,2);
+            addReplyBulkCString(c,"key:123");
+            addReplyLongLong(c,90);
+            /* Attributes are not real replies, so a well formed reply should
+             * also have a normal reply type after the attribute. */
+            addReplyBulkCString(c,"Some real reply following the attribute");
+        } else if (strcasecmp(name,"push")) {
+            addReplyPushLen(c,2);
+            addReplyBulkCString(c,"server-cpu-usage");
+            addReplyLongLong(c,42);
+            /* Push replies are not synchronous replies, so we emit also a
+             * normal reply in order for blocking clients just discarding the
+             * push reply, to actually consume the reply and continue. */
+            addReplyBulkCString(c,"Some real reply following the push reply");
+        } else {
+            addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false|state|err|bloberr");
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
