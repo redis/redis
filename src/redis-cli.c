@@ -117,6 +117,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_REPLACE        1 << 6
 #define CLUSTER_MANAGER_CMD_FLAG_COPY           1 << 7
 #define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
+#define CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS   1 << 9
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -1378,6 +1379,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-use-empty-masters")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_EMPTYMASTER;
+        } else if (!strcmp(argv[i],"--cluster-search-multiple-owners")) {
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS;
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
             printf("redis-cli %s\n", version);
@@ -1991,14 +1995,17 @@ typedef struct clusterManagerCommandDef {
 clusterManagerCommandDef clusterManagerCommands[] = {
     {"create", clusterManagerCommandCreate, -2, "host1:port1 ... hostN:portN",
      "replicas <arg>"},
-    {"check", clusterManagerCommandCheck, -1, "host:port", NULL},
+    {"check", clusterManagerCommandCheck, -1, "host:port",
+     "search-multiple-owners"},
     {"info", clusterManagerCommandInfo, -1, "host:port", NULL},
-    {"fix", clusterManagerCommandFix, -1, "host:port", NULL},
+    {"fix", clusterManagerCommandFix, -1, "host:port",
+     "search-multiple-owners"},
     {"reshard", clusterManagerCommandReshard, -1, "host:port",
-     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>"},
+     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
+     "replace"},
     {"rebalance", clusterManagerCommandRebalance, -1, "host:port",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>"},
+     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -4320,7 +4327,9 @@ static int clusterManagerCheckCluster(int quiet) {
             if (fixed > 0) result = 1;
         }
     }
-    if (!consistent) {
+    int search_multiple_owners = config.cluster_manager_command.flags &
+                                 CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS;
+    if (search_multiple_owners) {
         /* Check whether there are multiple owners, even when slots are
          * fully covered and there are no open slots. */
         clusterManagerLogInfo(">>> Check for multiple slot owners...\n");
