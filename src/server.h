@@ -1440,6 +1440,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReplyNull(client *c);
 void addReplyNullArray(client *c);
 void addReplyBool(client *c, int b);
+void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext);
 void addReplyString(client *c, const char *s, size_t len);
 void addReplyBulk(client *c, robj *obj);
 void addReplyBulkCString(client *c, const char *s);

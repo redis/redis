@@ -696,6 +696,35 @@ void addReplyBulkLongLong(client *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
+/* Reply with a verbatim type having the specified extension.
+ *
+ * The 'ext' is the "extension" of the file, actually just a three
+ * character type that describes the format of the verbatim string.
+ * For instance "txt" means it should be interpreted as a text only
+ * file by the receiver, "md " as markdown, and so forth. Only the
+ * three first characters of the extension are used, and if the
+ * provided one is shorter than that, the remaining is filled with
+ * spaces. */
+void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
+    if (c->resp == 2) {
+        addReplyBulkCBuffer(c,s,len);
+    } else {
+        char buf[32];
+        size_t preflen = snprintf(buf,sizeof(buf),"=%zu\r\nxxx:",len+4);
+        char *p = buf+preflen-4;
+        for (int i = 0; i < 3; i++) {
+            if (*ext == '\0') {
+                p[i] = ' ';
+            } else {
+                p[i] = *ext++;
+            }
+        }
+        addReplyString(c,buf,preflen);
+        addReplyString(c,s,len);
+        addReplyString(c,"\r\n",2);
+    }
+}
+
 /* Add an array of C strings as status replies with a heading.
  * This function is typically invoked by from commands that support
  * subcommands in response to the 'help' subcommand. The help array
