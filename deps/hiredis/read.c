@@ -313,6 +313,12 @@ static int processLineItem(redisReader *r) {
                 obj = r->fn->createNil(cur);
             else
                 obj = (void*)REDIS_REPLY_NIL;
+        } else if (cur->type == REDIS_REPLY_BOOL) {
+            int bval = p[0] == 't' || p[0] == 'T';
+            if (r->fn && r->fn->createBool)
+                obj = r->fn->createBool(cur,bval);
+            else
+                obj = (void*)REDIS_REPLY_BOOL;
         } else {
             /* Type will be error or status. */
             if (r->fn && r->fn->createString)
@@ -513,6 +519,9 @@ static int processItem(redisReader *r) {
             case '~':
                 cur->type = REDIS_REPLY_SET;
                 break;
+            case '#':
+                cur->type = REDIS_REPLY_BOOL;
+                break;
             default:
                 __redisReaderSetErrorProtocolByte(r,*p);
                 return REDIS_ERR;
@@ -530,6 +539,7 @@ static int processItem(redisReader *r) {
     case REDIS_REPLY_INTEGER:
     case REDIS_REPLY_DOUBLE:
     case REDIS_REPLY_NIL:
+    case REDIS_REPLY_BOOL:
         return processLineItem(r);
     case REDIS_REPLY_STRING:
         return processBulkItem(r);
