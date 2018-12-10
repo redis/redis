@@ -572,6 +572,10 @@ NULL
              * normal reply in order for blocking clients just discarding the
              * push reply, to actually consume the reply and continue. */
             addReplyBulkCString(c,"Some real reply following the push reply");
+        } else if (!strcasecmp(name,"true")) {
+            addReplyBool(c,1);
+        } else if (!strcasecmp(name,"false")) {
+            addReplyBool(c,0);
         } else {
             addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false|state|err|bloberr");
         }
