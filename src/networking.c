@@ -612,7 +612,7 @@ void addReplyNull(client *c) {
 }
 
 void addReplyBool(client *c, int b) {
-    if (c->resp == 3) {
+    if (c->resp == 2) {
         addReply(c, b ? shared.cone : shared.czero);
     } else {
         addReplyString(c, b ? "#t\r\n" : "#f\r\n",4);

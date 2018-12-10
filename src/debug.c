@@ -551,7 +551,10 @@ NULL
             for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
         } else if (!strcasecmp(name,"map")) {
             addReplyMapLen(c,3);
-            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+            for (int j = 0; j < 3; j++) {
+                addReplyLongLong(c,j);
+                addReplyBool(c, j == 1);
+            }
         } else if (!strcasecmp(name,"attrib")) {
             addReplyAttributeLen(c,1);
             addReplyBulkCString(c,"key-popularity");
