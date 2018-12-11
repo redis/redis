@@ -11,6 +11,30 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.12     Released Tue Dec 11 18:06:12 CEST 2018
+================================================================================
+
+This backports the following Redis 5 fixes back into Redis 4.
+Please check the Redis 5 changelog or see the full commit messages
+for more information. Note that there are important fixes to the AOF
+implementation so Redis 4.0.12 should be considered as a worthwhile
+upgrade in production environments where AOF is used and there is the
+idea of sticking with Redis 4 for some time.
+
+b6cd3b3c asyncCloseClientOnOutputBufferLimitReached(): don't free fake clients.
+e16402b0 Don't call sdscmp() with shared.maxstring or shared.minstring
+49d9f411 Fix stringmatchlen() read past buffer bug.
+97192e2d Merge pull request #5569 from maximebedard/backport-4497
+1908aba7 add linkClient(): adds the client and caches the list node.
+239b0857 networking: optimize unlinkClient() in freeClient()
+54b17f98 When replica kills a pending RDB save during SYNC, log it.
+b31c08db Move child termination to readSyncBulkPayload
+21971ac8 Prevent RDB autosave from overwriting full resync results
+3a91fcbc aof.c: improve indentation and change warning message.
+e6f287d5 AOF: discard if we lost EXEC when loading aof
+e0d4c66a Fix AOF comment to report the current behavior.
+
+================================================================================
 Redis 4.0.11     Released Fri Aug 03 17:09:24 CEST 2018
 ================================================================================
 
