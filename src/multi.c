@@ -144,7 +144,7 @@ void execCommand(client *c) {
      * was initiated when the instance was a master or a writable replica and
      * then the configuration changed (for example instance was turned into
      * a replica). */
-    if (server.masterhost && server.repl_slave_ro &&
+    if (!server.loading && server.masterhost && server.repl_slave_ro &&
         !(c->flags & CLIENT_MASTER) && c->mstate.cmd_flags & CMD_WRITE)
     {
         addReplyError(c,
