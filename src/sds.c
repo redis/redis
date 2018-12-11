@@ -695,7 +695,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  * s = sdstrim(s,"Aa. :");
  * printf("%s\n", s);
  *
- * Output will be just "Hello World".
+ * Output will be just "HelloWorld".
  */
 sds sdstrim(sds s, const char *cset) {
     char *start, *end, *sp, *ep;
