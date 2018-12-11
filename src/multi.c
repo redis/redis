@@ -149,7 +149,7 @@ void execCommand(client *c) {
     {
         addReplyError(c,
             "Transaction contains write commands but instance "
-            "is now a read-only slave. EXEC aborted.");
+            "is now a read-only replica. EXEC aborted.");
         discardTransaction(c);
         goto handle_monitor;
     }
