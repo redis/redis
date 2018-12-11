@@ -891,7 +891,7 @@ int clusterAddNode(clusterNode *node) {
     return (retval == DICT_OK) ? C_OK : C_ERR;
 }
 
-/* Remove a node from the cluster. The functio performs the high level
+/* Remove a node from the cluster. The function performs the high level
  * cleanup, calling freeClusterNode() for the low level cleanup.
  * Here we do the following:
  *
@@ -1531,7 +1531,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     int j;
     clusterNode *curmaster, *newmaster = NULL;
     /* The dirty slots list is a list of slots for which we lose the ownership
-     * while having still keys inside. This usually happens after a failover
+     * while still having keys inside. This usually happens after a failover
      * or after a manual cluster reconfiguration operated by the admin.
      *
      * If the update message is not able to demote a master to slave (in this
@@ -2465,7 +2465,7 @@ void clusterSendPing(clusterLink *link, int type) {
         dictReleaseIterator(di);
     }
 
-    /* Ready to send... fix the totlen fiend and queue the message in the
+    /* Ready to send... fix the totlen field and queue the message in the
      * output buffer. */
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
@@ -2655,7 +2655,7 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * SLAVE node specific functions
  * -------------------------------------------------------------------------- */
 
-/* This function sends a FAILOVE_AUTH_REQUEST message to every node in order to
+/* This function sends a FAILOVER_AUTH_REQUEST message to every node in order to
  * see if there is the quorum for this slave instance to failover its failing
  * master.
  *
@@ -2938,7 +2938,7 @@ void clusterFailoverReplaceYourMaster(void) {
 /* This function is called if we are a slave node and our master serving
  * a non-zero amount of hash slots is in FAIL state.
  *
- * The gaol of this function is:
+ * The goal of this function is:
  * 1) To check if we are able to perform a failover, is our data updated?
  * 2) Try to get elected by masters.
  * 3) Perform the failover informing all the other nodes.
@@ -3250,11 +3250,11 @@ void clusterHandleSlaveMigration(int max_slaves) {
  * the PAUSED flag, so that the slave will set mf_master_offset when receiving
  * a packet from the master with this flag set.
  *
- * The gaol of the manual failover is to perform a fast failover without
+ * The goal of the manual failover is to perform a fast failover without
  * data loss due to the asynchronous master-slave replication.
  * -------------------------------------------------------------------------- */
 
-/* Reset the manual failover state. This works for both masters and slavesa
+/* Reset the manual failover state. This works for both masters and slaves
  * as all the state about manual failover is cleared.
  *
  * The function can be used both to initialize the manual failover state at
@@ -3565,7 +3565,7 @@ void clusterCron(void) {
         replicationSetMaster(myself->slaveof->ip, myself->slaveof->port);
     }
 
-    /* Abourt a manual failover if the timeout is reached. */
+    /* Abort a manual failover if the timeout is reached. */
     manualFailoverCheckTimeout();
 
     if (nodeIsSlave(myself)) {
@@ -3670,8 +3670,8 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
          * target for replicas migration, if and only if at least one of
          * the other masters has slaves right now.
          *
-         * Normally masters are valid targerts of replica migration if:
-         * 1. The used to have slaves (but no longer have).
+         * Normally masters are valid targets of replica migration if:
+         * 1. They used to have slaves (but no longer have).
          * 2. They are slaves failing over a master that used to have slaves.
          *
          * However new masters with slots assigned are considered valid
@@ -4204,7 +4204,7 @@ void clusterCommand(client *c) {
 "FORGET <node-id> -- Remove a node from the cluster.",
 "GETKEYSINSLOT <slot> <count> -- Return key names stored by current node in a slot.",
 "FLUSHSLOTS -- Delete current node own slots information.",
-"INFO - Return onformation about the cluster.",
+"INFO - Return information about the cluster.",
 "KEYSLOT <key> -- Return the hash slot for <key>.",
 "MEET <ip> <port> [bus-port] -- Connect nodes into a working cluster.",
 "MYID -- Return the node id.",
@@ -4384,7 +4384,7 @@ NULL
             }
             /* If this slot is in migrating status but we have no keys
              * for it assigning the slot to another node will clear
-             * the migratig status. */
+             * the migrating status. */
             if (countKeysInSlot(slot) == 0 &&
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;

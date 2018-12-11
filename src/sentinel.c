@@ -123,7 +123,7 @@ typedef struct sentinelAddr {
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
  * same Sentinels, one per master, and we need to share the hiredis connections
- * among them. Oherwise if 5 Sentinels are monitoring 100 masters we create
+ * among them. Otherwise if 5 Sentinels are monitoring 100 masters we create
  * 500 outgoing connections instead of 5.
  *
  * So this structure represents a reference counted link in terms of the two

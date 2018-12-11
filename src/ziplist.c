@@ -54,7 +54,7 @@
  *
  * The length of the previous entry, <prevlen>, is encoded in the following way:
  * If this length is smaller than 254 bytes, it will only consume a single
- * byte representing the length as an unsinged 8 bit integer. When the length
+ * byte representing the length as an unsigned 8 bit integer. When the length
  * is greater than or equal to 254, it will consume 5 bytes. The first byte is
  * set to 254 (FE) to indicate a larger value is following. The remaining 4
  * bytes take the length of the previous entry as value.
@@ -86,7 +86,7 @@
  * |10000000|qqqqqqqq|rrrrrrrr|ssssssss|tttttttt| - 5 bytes
  *      String value with length greater than or equal to 16384 bytes.
  *      Only the 4 bytes following the first byte represents the length
- *      up to 32^2-1. The 6 lower bits of the first byte are not used and
+ *      up to 2^32-1. The 6 lower bits of the first byte are not used and
  *      are set to zero.
  *      IMPORTANT: The 32 bit number is stored in big endian.
  * |11000000| - 3 bytes
@@ -194,7 +194,7 @@
 #define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
                                the "prevlen" field prefixing each entry, to be
                                represented with just a single byte. Otherwise
-                               it is represented as FF AA BB CC DD, where
+                               it is represented as FE AA BB CC DD, where
                                AA BB CC DD are a 4 bytes unsigned integer
                                representing the previous entry len. */
 
@@ -317,7 +317,7 @@ unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
-/* Write the encoidng header of the entry in 'p'. If p is NULL it just returns
+/* Write the encoding header of the entry in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. Arguments:
  *
  * 'encoding' is the encoding we are using for the entry. It could be
@@ -325,7 +325,7 @@ unsigned int zipIntSize(unsigned char encoding) {
  * for single-byte small immediate integers.
  *
  * 'rawlen' is only used for ZIP_STR_* encodings and is the length of the
- * srting that this entry represents.
+ * string that this entry represents.
  *
  * The function returns the number of bytes used by the encoding/length
  * header stored in 'p'. */

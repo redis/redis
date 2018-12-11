@@ -346,7 +346,7 @@ uint64_t lpDecodeBacklen(unsigned char *p) {
 }
 
 /* Encode the string element pointed by 's' of size 'len' in the target
- * buffer 's'. The function should be called with 'buf' having always enough
+ * buffer 'buf'. The function should be called with 'buf' having always enough
  * space for encoding the string. This is done by calling lpEncodeGetType()
  * before calling this function. */
 void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {

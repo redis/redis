@@ -1112,7 +1112,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     /* Static vars used to hold the EOF mark, and the last bytes received
-     * form the server: when they match, we reached the end of the transfer. */
+     * from the server: when they match, we reached the end of the transfer. */
     static char eofmark[CONFIG_RUN_ID_SIZE];
     static char lastbytes[CONFIG_RUN_ID_SIZE];
     static int usemark = 0;
@@ -2181,13 +2181,13 @@ void replicationCacheMaster(client *c) {
     replicationHandleMasterDisconnection();
 }
 
-/* This function is called when a master is turend into a slave, in order to
+/* This function is called when a master is turned into a slave, in order to
  * create from scratch a cached master for the new client, that will allow
  * to PSYNC with the slave that was promoted as the new master after a
  * failover.
  *
  * Assuming this instance was previously the master instance of the new master,
- * the new master will accept its replication ID, and potentiall also the
+ * the new master will accept its replication ID, and potential also the
  * current offset if no data was lost during the failover. So we use our
  * current replication ID and offset in order to synthesize a cached master. */
 void replicationCacheMasterUsingMyself(void) {
@@ -2221,7 +2221,7 @@ void replicationDiscardCachedMaster(void) {
  * passed as argument as the socket for the new master.
  *
  * This function is called when successfully setup a partial resynchronization
- * so the stream of data that we'll receive will start from were this
+ * so the stream of data that we'll receive will start from where this
  * master left. */
 void replicationResurrectCachedMaster(int newfd) {
     server.master = server.cached_master;
@@ -2287,7 +2287,7 @@ void refreshGoodSlavesCount(void) {
  *
  * We don't care about taking a different cache for every different slave
  * since to fill the cache again is not very costly, the goal of this code
- * is to avoid that the same big script is trasmitted a big number of times
+ * is to avoid that the same big script is transmitted a big number of times
  * per second wasting bandwidth and processor speed, but it is not a problem
  * if we need to rebuild the cache from scratch from time to time, every used
  * script will need to be transmitted a single time to reappear in the cache.

@@ -123,7 +123,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify) {
     return retval;
 }
 
-/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
+/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 
+ * 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
     int retval = 0;
 
@@ -145,8 +146,8 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
     return retval;
 }
 
-/* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
- * 0 if the client was not subscribed to the specified channel. */
+/* Unsubscribe a client from a pattern. Returns 1 if the operation succeeded, or
+ * 0 if the client was not subscribed to the specified pattern. */
 int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     listNode *ln;
     pubsubPattern pat;
@@ -198,7 +199,7 @@ int pubsubUnsubscribeAllChannels(client *c, int notify) {
 }
 
 /* Unsubscribe from all the patterns. Return the number of patterns the
- * client was subscribed from. */
+ * client was subscribed to. */
 int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     listNode *ln;
     listIter li;
@@ -246,7 +247,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
-    /* Send to clients listening to matching channels */
+    /* Send to clients listening to matching patterns */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);

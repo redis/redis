@@ -262,8 +262,9 @@ void handleClientsBlockedOnKeys(void) {
              * we can safely call signalKeyAsReady() against this key. */
             dictDelete(rl->db->ready_keys,rl->key);
 
-            /* Serve clients blocked on list key. */
             robj *o = lookupKeyWrite(rl->db,rl->key);
+
+            /* Serve clients blocked on list key. */
             if (o != NULL && o->type == OBJ_LIST) {
                 dictEntry *de;
 
@@ -581,7 +582,7 @@ void unblockClientWaitingData(client *c) {
  * the same key again and again in the list in case of multiple pushes
  * made by a script or in the context of MULTI/EXEC.
  *
- * The list will be finally processed by handleClientsBlockedOnLists() */
+ * The list will be finally processed by handleClientsBlockedOnKeys() */
 void signalKeyAsReady(redisDb *db, robj *key) {
     readyList *rl;
 

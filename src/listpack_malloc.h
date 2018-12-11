@@ -31,7 +31,7 @@
 
 /* Allocator selection.
  *
- * This file is used in order to change the Rax allocator at compile time.
+ * This file is used in order to change the Listpack allocator at compile time.
  * Just define the following defines to what you want to use. Also add
  * the include of your alternate allocator if needed (not needed in order
  * to use the default libc allocator). */

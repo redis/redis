@@ -4580,7 +4580,7 @@ RedisModuleString *RM_DictPrev(RedisModuleCtx *ctx, RedisModuleDictIter *di, voi
  * in the loop, as we iterate elements, we can also check if we are still
  * on range.
  *
- * The function returne REDISMODULE_ERR if the iterator reached the
+ * The function returns REDISMODULE_ERR if the iterator reached the
  * end of elements condition as well. */
 int RM_DictCompareC(RedisModuleDictIter *di, const char *op, void *key, size_t keylen) {
     if (raxEOF(&di->ri)) return REDISMODULE_ERR;
@@ -4779,7 +4779,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
  * C_OK is returned, otherwise C_ERR is returned and errno is set
  * to the following values depending on the type of error:
  *
- * * ENONET: No such module having the specified name.
+ * * ENOENT: No such module having the specified name.
  * * EBUSY: The module exports a new data type and can only be reloaded. */
 int moduleUnload(sds name) {
     struct RedisModule *module = dictFetchValue(modules,name);
