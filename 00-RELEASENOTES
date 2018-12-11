@@ -12,6 +12,214 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.3     Released Tue Dec 11 18:17:26 CET 2018
+================================================================================
+
+Upgrade urgency HIGH: Redis 5 is consolidating, upgrading is a good idea.
+                      However there is nothing very critical here, but certain
+                      issues resolved could lead to very rare crashes.
+
+Welcome to Redis 5.0.3, several interesting bug fixes here:
+
+* Redis no longer panics when you send data to a replica-mode connection that
+  is in MONITOR or SYNC mode.
+
+* Fixes to certain sorted set edge cases. You are unlikely to ever notice those
+  issues, but now it is more correct.
+
+* Certain BSD variants now are better supported: build & register logging
+  on crash.
+
+* The networking core now recovers if an IPv6 address is listed in bind but
+  is actually not able to work because there is no such protocol in the
+  system.
+
+* redis-cli cluster mode improved in many ways. Especially the fix subcommand
+  work was enhanced to cover other edge cases that were still not covered
+  after the work done for Redis 5.
+
+* MEMORY USAGE is now more accurate.
+
+* DEBUG DIGEST-VALUE added in case you want to make sure a given set of keys
+  (and not the whole DB) are excatly the same between two instances.
+
+* Fix a potential crash in the networking code related to recent changes
+  to the way the reply is consumed.
+
+* Reject EXEC containing write commands against an instance that changed role
+  from master to replica during our transaction.
+
+* Fix a crash in KEYS and other commands using pattern matching, in an edge
+  case where the pattern contains a zero byte.
+
+* Fix eviction during AOF loading due to maxmemory triggered by commands
+  executed in loading state.
+
+The following is the list of commmits if you want to check credits or dig
+further in the details.
+
+commit 2c6ee0f9b3d9ca48c6da8bd18796186784216bff
+Author: antirez <antirez@gmail.com>
+Date:   Wed Dec 12 11:37:15 2018 +0100
+
+    freeMemoryIfNeeded() small refactoring.
+
+    Related to issue #5686 and PR #5689.
+
+commit 107e93e75acfd5def0252efb6870751940816395
+Author: zhaozhao.zz <zhaozhao.zz@alibaba-inc.com>
+Date:   Wed Dec 12 00:25:24 2018 +0800
+
+    evict: don't care about mem if loading
+
+    When loading data, we call processEventsWhileBlocked
+    to process events and execute commands.
+    But if we are loading AOF it's dangerous, because
+    processCommand would call freeMemoryIfNeeded to evict,
+    and that will break data consistency, see issue #5686.
+
+antirez in commit ee93dc0b:
+ Crashing is too much in addReplyErrorLength().
+ 1 file changed, 6 deletions(-)
+
+hdmg in commit c55254a5:
+ fix comments fault discription
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+lsytj0413 in commit dfd25013:
+ fix a typo: craeted -> created
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 392a2566:
+ stringmatchlen() fuzz test added.
+ 3 files changed, 22 insertions(+)
+
+antirez in commit 7602f695:
+ Fix stringmatchlen() read past buffer bug.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit c4f3585e:
+ multi: ignore multiState's cmd_flags when loading AOF
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit d037e987:
+ Reject EXEC containing write commands against RO replica.
+ 2 files changed, 20 insertions(+)
+
+artix in commit e00ab324:
+ Cluster Manager: - Multiple owners checking in 'fix'/'check' commands is
+ now optional (using --cluster-search-multiple-owners). - Updated help.
+ 1 file changed, 14 insertions(+), 5 deletions(-)
+
+artix in commit 94f64de3:
+ Cluster Manager: FixOpenSlot now correctly updates in-memory cluster
+ configuration. Improved output messages.
+ 1 file changed, 17 insertions(+), 5 deletions(-)
+
+artix in commit 752d636f:
+ Cluster Manager: 'fix' command now handles open slots with migrating state
+ in one node and importing state in multiple nodes.
+ 1 file changed, 74 insertions(+), 6 deletions(-)
+
+artix in commit 552091f9:
+ Cluster Manager: setting new slot owner is now handled atomically in
+ 'fix' command.
+ 1 file changed, 72 insertions(+), 31 deletions(-)
+
+artix in commit 2280f4f7:
+ Cluster Manager: code cleanup.
+ 1 file changed, 41 insertions(+), 87 deletions(-)
+
+artix in commit e084b8cc:
+ Cluster Manager: check/fix commands now handle multiple owners even
+ if all slots are covered and not open.
+ 1 file changed, 129 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit fa726e2a:
+ remove useless tryObjectEncoding in debug assert
+ 1 file changed, 1 deletion(-)
+
+Oran Agra in commit 40244b10:
+ fix #5580, display fragmentation and rss overhead bytes as signed
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+zhaozhao.zz in commit beab3151:
+ networking: current_client should not be NULL when trim qb_pos
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 07ccb642:
+ Remove no longer relevant comment in processCommand().
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+antirez in commit 60fdaf07:
+ DEBUG DIGEST-VALUE implemented.
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+antirez in commit 48b31b0d:
+ DEBUG DIGEST refactoring: extract function to digest a value.
+ 1 file changed, 142 insertions(+), 131 deletions(-)
+
+yura in commit ef3ff402:
+ redis-cli reshard/rebalance: ability to force replacement on existing keys
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Thomas Orozco in commit ee223fb8:
+ cli: pass auth through REDISCLI_AUTH
+ 1 file changed, 14 insertions(+)
+
+yongman in commit 41295e55:
+ Fix cluster call reply format readable
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit 0ed3970f:
+ fix small test suite race conditions
+ 3 files changed, 11 insertions(+)
+
+zhaozhao.zz in commit 605dddbb:
+ MEMORY command: make USAGE more accurate
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+yongman in commit 1f43bf29:
+ Fix choose a random master node for slot assignment
+ 1 file changed, 29 insertions(+), 5 deletions(-)
+
+Weiliang Li in commit 69f0c678:
+ fix comment typo in util.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Chris Lamb in commit bc53a3ab:
+ Clarify the "Creating Server TCP listening socket" error.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Chris Lamb in commit fefe5460:
+ Don't treat unsupported protocols as fatal errors
+ 1 file changed, 4 insertions(+)
+
+David Carlier in commit a8862972:
+ OpenBSD support.
+ 3 files changed, 74 insertions(+), 1 deletion(-)
+
+David Carlier in commit 5e86daf9:
+ Backtrace/register dump on BSD.
+ 3 files changed, 97 insertions(+), 3 deletions(-)
+
+Guy Benoish in commit 7c8cf5ac:
+ Don't call sdscmp() with shared.maxstring or shared.minstring
+ 2 files changed, 23 insertions(+), 9 deletions(-)
+
+Qu Chen in commit 39e9eda3:
+ Add unit test for stream XCLAIM command.
+ 1 file changed, 48 insertions(+)
+
+antirez in commit 62485232:
+ Abort instead of crashing when loading bad stream master key.
+ 1 file changed, 3 insertions(+)
+
+Madelyn Olson in commit a5487309:
+ Fixed a serverPanic when sending an invalid command to a monitor client
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+================================================================================
 Redis 5.0.2     Released Thu Nov 22 11:22:37 CET 2018
 ================================================================================
 
