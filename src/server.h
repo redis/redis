@@ -654,6 +654,9 @@ typedef struct multiCmd {
 typedef struct multiState {
     multiCmd *commands;     /* Array of MULTI commands */
     int count;              /* Total number of MULTI commands */
+    int cmd_flags;          /* The accumulated command flags OR-ed together.
+                               So if at least a command has a given flag, it
+                               will be set in this field. */
     int minreplicas;        /* MINREPLICAS for synchronous replication */
     time_t minreplicas_timeout; /* MINREPLICAS timeout as unixtime. */
 } multiState;
