@@ -40,6 +40,7 @@
 
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
 int stringmatch(const char *p, const char *s, int nocase);
+int stringmatchlen_fuzz_test(void);
 long long memtoll(const char *p, int *err);
 uint32_t digits10(uint64_t v);
 uint32_t sdigits10(int64_t v);

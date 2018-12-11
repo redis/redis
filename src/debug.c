@@ -322,6 +322,7 @@ void debugCommand(client *c) {
 "SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
+"STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
 NULL
         };
         addReplyHelp(c, help);
@@ -619,6 +620,10 @@ NULL
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"stringmatch-test") && c->argc == 2)
+    {
+        stringmatchlen_fuzz_test();
+        addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else {
         addReplySubcommandSyntaxError(c);
         return;
