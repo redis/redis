@@ -275,7 +275,6 @@ start_server {tags {"repl"}} {
     start_server {} {
         test "Master stream is correctly processed while the replica has a script in -BUSY state" {
             set slave [srv 0 client]
-            puts [srv 0 port]
             $slave config set lua-time-limit 500
             $slave slaveof $master_host $master_port
 
