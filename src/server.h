@@ -1702,6 +1702,7 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
 size_t freeMemoryGetNotCountedMemory();
 int freeMemoryIfNeeded(void);
+int freeMemoryIfNeededAndSafe(void);
 int processCommand(client *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);

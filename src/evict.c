@@ -445,14 +445,8 @@ int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *lev
  * was freed to return back under the limit, the function returns C_ERR. */
 int freeMemoryIfNeeded(void) {
     /* By default replicas should ignore maxmemory
-     * and just be masters exact copies.
-     *
-     * And don't care about mem if loading. */
-    if (server.loading ||
-        (server.masterhost && server.repl_slave_ignore_maxmemory))
-    {
-        return C_OK;
-    }
+     * and just be masters exact copies. */
+    if (server.masterhost && server.repl_slave_ignore_maxmemory) return C_OK;
 
     size_t mem_reported, mem_tofree, mem_freed;
     mstime_t latency, eviction_latency;
@@ -628,3 +622,14 @@ cant_free:
     return C_ERR;
 }
 
+/* This is a wrapper for freeMemoryIfNeeded() that only really calls the
+ * function if right now there are the conditions to do so safely:
+ *
+ * - There must be no script in timeout condition.
+ * - Nor we are loading data right now.
+ *
+ */
+int freeMemoryIfNeededAndSafe(void) {
+    if (server.lua_timedout || server.loading) return C_OK;
+    return freeMemoryIfNeeded();
+}
