@@ -35,7 +35,7 @@ It is as simple as:
 
     % make
 
-You can run a 32 bit Redis binary using:
+You can build a 32 bit Redis binary using:
 
     % make 32bit
 
