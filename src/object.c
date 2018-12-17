@@ -246,6 +246,13 @@ robj *createHashObject(void) {
     return o;
 }
 
+robj *createHashDictObject(void) {
+    dict *dict = dictCreate(&hashDictType, NULL);
+    robj *o = createObject(OBJ_HASH, dict);
+    o->encoding = OBJ_ENCODING_HT;
+    return o;
+}
+
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;

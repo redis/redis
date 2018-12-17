@@ -1544,6 +1544,7 @@ robj *createZiplistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
+robj *createHashDictObject(void);
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 robj *createStreamObject(void);
