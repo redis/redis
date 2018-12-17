@@ -1494,11 +1494,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         len = rdbLoadLen(rdb, NULL);
         if (len == RDB_LENERR) return NULL;
 
-        o = createHashObject();
-
-        /* Too many entries? Use a hash table. */
-        if (len > server.hash_max_ziplist_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT);
+        if (len > server.hash_max_ziplist_entries) {
+            o = createHashDictObject();
+            // avoid rehashing
+            if (len > DICT_HT_INITIAL_SIZE) {
+                dictExpand(o->ptr, len);
+            }
+        } else {
+            o = createHashObject();
+        }
 
         /* Load every field and value into the ziplist */
         while (o->encoding == OBJ_ENCODING_ZIPLIST && len > 0) {
