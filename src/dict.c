@@ -973,6 +973,7 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
         return -1;
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
+        if (table == 0 && idx < d->rehashidx) continue; 
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
@@ -1018,6 +1019,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
     if (d->ht[0].used + d->ht[1].used == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
+        if (table == 0 && idx < d->rehashidx) continue;
         heref = &d->ht[table].table[idx];
         he = *heref;
         while(he) {
