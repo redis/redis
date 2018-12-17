@@ -296,7 +296,7 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
-        addReplyString(slave,buf,buflen);
+        addReplyProto(slave,buf,buflen);
     }
 }
 

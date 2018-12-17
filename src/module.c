@@ -3669,8 +3669,8 @@ void moduleHandleBlockedClients(void) {
          * free the temporary client we just used for the replies. */
         if (c) {
             if (bc->reply_client->bufpos)
-                addReplyString(c,bc->reply_client->buf,
-                                 bc->reply_client->bufpos);
+                addReplyProto(c,bc->reply_client->buf,
+                                bc->reply_client->bufpos);
             if (listLength(bc->reply_client->reply))
                 listJoin(c->reply,bc->reply_client->reply);
             c->reply_bytes += bc->reply_client->reply_bytes;

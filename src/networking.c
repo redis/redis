@@ -253,7 +253,7 @@ int _addReplyToBuffer(client *c, const char *s, size_t len) {
     return C_OK;
 }
 
-void _addReplyStringToList(client *c, const char *s, size_t len) {
+void _addReplyProtoToList(client *c, const char *s, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     listNode *ln = listLast(c->reply);
@@ -300,7 +300,7 @@ void addReply(client *c, robj *obj) {
 
     if (sdsEncodedObject(obj)) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != C_OK)
-            _addReplyStringToList(c,obj->ptr,sdslen(obj->ptr));
+            _addReplyProtoToList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
          * using our optimized function, and attach the resulting string
@@ -308,7 +308,7 @@ void addReply(client *c, robj *obj) {
         char buf[32];
         size_t len = ll2string(buf,sizeof(buf),(long)obj->ptr);
         if (_addReplyToBuffer(c,buf,len) != C_OK)
-            _addReplyStringToList(c,buf,len);
+            _addReplyProtoToList(c,buf,len);
     } else {
         serverPanic("Wrong obj->encoding in addReply()");
     }
@@ -323,7 +323,7 @@ void addReplySds(client *c, sds s) {
         return;
     }
     if (_addReplyToBuffer(c,s,sdslen(s)) != C_OK)
-        _addReplyStringToList(c,s,sdslen(s));
+        _addReplyProtoToList(c,s,sdslen(s));
     sdsfree(s);
 }
 
@@ -333,12 +333,12 @@ void addReplySds(client *c, sds s) {
  *
  * It is efficient because does not create an SDS object nor an Redis object
  * if not needed. The object will only be created by calling
- * _addReplyStringToList() if we fail to extend the existing tail object
+ * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
-void addReplyString(client *c, const char *s, size_t len) {
+void addReplyProto(client *c, const char *s, size_t len) {
     if (prepareClientToWrite(c) != C_OK) return;
     if (_addReplyToBuffer(c,s,len) != C_OK)
-        _addReplyStringToList(c,s,len);
+        _addReplyProtoToList(c,s,len);
 }
 
 /* Low level function called by the addReplyError...() functions.
@@ -352,9 +352,9 @@ void addReplyString(client *c, const char *s, size_t len) {
 void addReplyErrorLength(client *c, const char *s, size_t len) {
     /* If the string already starts with "-..." then the error code
      * is provided by the caller. Otherwise we use "-ERR". */
-    if (!len || s[0] != '-') addReplyString(c,"-ERR ",5);
-    addReplyString(c,s,len);
-    addReplyString(c,"\r\n",2);
+    if (!len || s[0] != '-') addReplyProto(c,"-ERR ",5);
+    addReplyProto(c,s,len);
+    addReplyProto(c,"\r\n",2);
 
     /* Sometimes it could be normal that a slave replies to a master with
      * an error and this function gets called. Actually the error will never
@@ -397,9 +397,9 @@ void addReplyErrorFormat(client *c, const char *fmt, ...) {
 }
 
 void addReplyStatusLength(client *c, const char *s, size_t len) {
-    addReplyString(c,"+",1);
-    addReplyString(c,s,len);
-    addReplyString(c,"\r\n",2);
+    addReplyProto(c,"+",1);
+    addReplyProto(c,s,len);
+    addReplyProto(c,"\r\n",2);
 }
 
 void addReplyStatus(client *c, const char *status) {
@@ -502,7 +502,7 @@ void addReplyDouble(client *c, double d) {
         if (c->resp == 2) {
             addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
         } else {
-            addReplyString(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
+            addReplyProto(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
                               d > 0 ? 6 : 7);
         }
     } else {
@@ -512,10 +512,10 @@ void addReplyDouble(client *c, double d) {
         if (c->resp == 2) {
             dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
             slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-            addReplyString(c,sbuf,slen);
+            addReplyProto(c,sbuf,slen);
         } else {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
-            addReplyString(c,dbuf,dlen);
+            addReplyProto(c,dbuf,dlen);
         }
     }
 }
@@ -531,9 +531,9 @@ void addReplyHumanLongDouble(client *c, long double d) {
     } else {
         char buf[MAX_LONG_DOUBLE_CHARS];
         int len = ld2string(buf,sizeof(buf),d,1);
-        addReplyString(c,",",1);
-        addReplyString(c,buf,len);
-        addReplyString(c,"\r\n",2);
+        addReplyProto(c,",",1);
+        addReplyProto(c,buf,len);
+        addReplyProto(c,"\r\n",2);
     }
 }
 
@@ -558,7 +558,7 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
     buf[len+2] = '\n';
-    addReplyString(c,buf,len+3);
+    addReplyProto(c,buf,len+3);
 }
 
 void addReplyLongLong(client *c, long long ll) {
@@ -605,9 +605,9 @@ void addReplyPushLen(client *c, long length) {
 
 void addReplyNull(client *c) {
     if (c->resp == 2) {
-        addReplyString(c,"$-1\r\n",5);
+        addReplyProto(c,"$-1\r\n",5);
     } else {
-        addReplyString(c,"_\r\n",3);
+        addReplyProto(c,"_\r\n",3);
     }
 }
 
@@ -615,7 +615,7 @@ void addReplyBool(client *c, int b) {
     if (c->resp == 2) {
         addReply(c, b ? shared.cone : shared.czero);
     } else {
-        addReplyString(c, b ? "#t\r\n" : "#f\r\n",4);
+        addReplyProto(c, b ? "#t\r\n" : "#f\r\n",4);
     }
 }
 
@@ -625,9 +625,9 @@ void addReplyBool(client *c, int b) {
  * Null type "_\r\n". */
 void addReplyNullArray(client *c) {
     if (c->resp == 2) {
-        addReplyString(c,"*-1\r\n",5);
+        addReplyProto(c,"*-1\r\n",5);
     } else {
-        addReplyString(c,"_\r\n",3);
+        addReplyProto(c,"_\r\n",3);
     }
 }
 
@@ -667,7 +667,7 @@ void addReplyBulk(client *c, robj *obj) {
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReplyLongLongWithPrefix(c,len,'$');
-    addReplyString(c,p,len);
+    addReplyProto(c,p,len);
     addReply(c,shared.crlf);
 }
 
@@ -719,9 +719,9 @@ void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext) {
                 p[i] = *ext++;
             }
         }
-        addReplyString(c,buf,preflen);
-        addReplyString(c,s,len);
-        addReplyString(c,"\r\n",2);
+        addReplyProto(c,buf,preflen);
+        addReplyProto(c,s,len);
+        addReplyProto(c,"\r\n",2);
     }
 }
 

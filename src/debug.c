@@ -540,7 +540,7 @@ NULL
         } else if (!strcasecmp(name,"double")) {
             addReplyDouble(c,3.14159265359);
         } else if (!strcasecmp(name,"bignum")) {
-            addReplyString(c,"(1234567999999999999999999999999999999\r\n",40);
+            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
         } else if (!strcasecmp(name,"null")) {
             addReplyNull(c);
         } else if (!strcasecmp(name,"array")) {
