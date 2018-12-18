@@ -1927,6 +1927,18 @@ void securityWarningCommand(client *c) {
     freeClientAsync(c);
 }
 
+/* Completely replace the client command vector with the provided one. */
+void replaceClientCommandVector(client *c, int argc, robj **argv) {
+    /* We free the objects in the original vector, before that we should
+     * make sure that the same objects are reused in the new vector the
+     * refcount gets incremented before it gets decremented. */
+    freeClientArgv(c);
+    c->argv = argv;
+    c->argc = argc;
+    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
+    serverAssertWithInfo(c,NULL,c->cmd != NULL);
+}
+
 /* Rewrite the command vector of the client. All the new objects ref count
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */
@@ -1944,25 +1956,9 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
         argv[j] = a;
         incrRefCount(a);
     }
-    /* We free the objects in the original vector at the end, so we are
-     * sure that if the same objects are reused in the new vector the
-     * refcount gets incremented before it gets decremented. */
-    freeClientArgv(c);
     /* Replace argv and argc with our new versions. */
-    c->argv = argv;
-    c->argc = argc;
-    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
-    serverAssertWithInfo(c,NULL,c->cmd != NULL);
+    replaceClientCommandVector(c,argc,argv);
     va_end(ap);
-}
-
-/* Completely replace the client command vector with the provided one. */
-void replaceClientCommandVector(client *c, int argc, robj **argv) {
-    freeClientArgv(c);
-    c->argv = argv;
-    c->argc = argc;
-    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
-    serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
 
 /* Rewrite a single item in the command vector.
