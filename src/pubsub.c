@@ -221,6 +221,25 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
+/* Send a pubsub message of type "message" to the client. */
+void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
+    addReply(c,shared.mbulkhdr[3]);
+    addReply(c,shared.messagebulk);
+    addReplyBulk(c,channel);
+    addReplyBulk(c,msg);
+}
+
+/* Send a pubsub message of type "pmessage" to the client. The difference
+ * with the "message" type delivered by addReplyPubsubMessage() is that
+ * this message format also includes the pattern that matched the message. */
+void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
+    addReply(c,shared.mbulkhdr[4]);
+    addReply(c,shared.pmessagebulk);
+    addReplyBulk(c,pat);
+    addReplyBulk(c,channel);
+    addReplyBulk(c,msg);
+}
+
 /* Publish a message */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
@@ -238,11 +257,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         listRewind(list,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
-
-            addReply(c,shared.mbulkhdr[3]);
-            addReply(c,shared.messagebulk);
-            addReplyBulk(c,channel);
-            addReplyBulk(c,message);
+            addReplyPubsubMessage(c,channel,message);
             receivers++;
         }
     }
@@ -256,12 +271,10 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             if (stringmatchlen((char*)pat->pattern->ptr,
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) {
-                addReply(pat->client,shared.mbulkhdr[4]);
-                addReply(pat->client,shared.pmessagebulk);
-                addReplyBulk(pat->client,pat->pattern);
-                addReplyBulk(pat->client,channel);
-                addReplyBulk(pat->client,message);
+                                sdslen(channel->ptr),0))
+            {
+                addReplyPubsubPatMessage(pat->client,
+                    pat->pattern,channel,message);
                 receivers++;
             }
         }
