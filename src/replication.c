@@ -165,63 +165,10 @@ void feedReplicationBacklogWithObject(robj *o) {
     feedReplicationBacklog(p,len);
 }
 
-/* Propagate write commands to slaves, and populate the replication backlog
- * as well. This function is used if the instance is a master: we use
- * the commands received by our clients in order to create the replication
- * stream. Instead if the instance is a slave and has sub-slaves attached,
- * we use replicationFeedSlavesFromMaster() */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
+void replicationFeedSlavesOriginalCommand(list *slaves, robj **argv, int argc) {
     listNode *ln;
     listIter li;
     int j, len;
-    char llstr[LONG_STR_SIZE];
-
-    /* If the instance is not a top level master, return ASAP: we'll just proxy
-     * the stream of data we receive from our master instead, in order to
-     * propagate *identical* replication stream. In this way this slave can
-     * advertise the same replication ID as the master (since it shares the
-     * master replication history and has the same backlog and offsets). */
-    if (server.masterhost != NULL) return;
-
-    /* If there aren't slaves, and there is no backlog buffer to populate,
-     * we can return ASAP. */
-    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
-
-    /* We can't have slaves attached and no backlog. */
-    serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
-
-    /* Send SELECT command to every slave if needed. */
-    if (server.slaveseldb != dictid) {
-        robj *selectcmd;
-
-        /* For a few DBs we have pre-computed SELECT command. */
-        if (dictid >= 0 && dictid < PROTO_SHARED_SELECT_CMDS) {
-            selectcmd = shared.select[dictid];
-        } else {
-            int dictid_len;
-
-            dictid_len = ll2string(llstr,sizeof(llstr),dictid);
-            selectcmd = createObject(OBJ_STRING,
-                sdscatprintf(sdsempty(),
-                "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
-                dictid_len, llstr));
-        }
-
-        /* Add the SELECT command into the backlog. */
-        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
-
-        /* Send it to slaves. */
-        listRewind(slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
-            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
-            addReply(slave,selectcmd);
-        }
-
-        if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
-            decrRefCount(selectcmd);
-    }
-    server.slaveseldb = dictid;
 
     /* Write the command to the replication backlog if any. */
     if (server.repl_backlog) {
@@ -272,15 +219,119 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 }
 
-/* This function is used in order to proxy what we receive from our master
- * to our sub-slaves. */
-#include <ctype.h>
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen) {
+/* Propagate write commands to slaves, and populate the replication backlog
+ * as well. This function is used if the instance is a master: we use
+ * the commands received by our clients in order to create the replication
+ * stream. Instead if the instance is a slave and has sub-slaves attached,
+ * we use replicationFeedSlavesFromMaster() */
+void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
+    char llstr[LONG_STR_SIZE];
+
+    /* If the instance is not a top level master, return ASAP: we'll just proxy
+     * the stream of data we receive from our master instead, in order to
+     * propagate *identical* replication stream. In this way this slave can
+     * advertise the same replication ID as the master (since it shares the
+     * master replication history and has the same backlog and offsets). */
+    if (server.masterhost != NULL) return;
+
+    /* If there aren't slaves, and there is no backlog buffer to populate,
+     * we can return ASAP. */
+    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
+
+    /* We can't have slaves attached and no backlog. */
+    serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
+
+    /* Send SELECT command to every slave if needed. */
+    if (server.slaveseldb != dictid) {
+        robj *selectcmd;
+
+        /* For a few DBs we have pre-computed SELECT command. */
+        if (dictid >= 0 && dictid < PROTO_SHARED_SELECT_CMDS) {
+            selectcmd = shared.select[dictid];
+        } else {
+            int dictid_len;
+
+            dictid_len = ll2string(llstr,sizeof(llstr),dictid);
+            selectcmd = createObject(OBJ_STRING,
+                sdscatprintf(sdsempty(),
+                "*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
+                dictid_len, llstr));
+        }
+
+        /* Add the SELECT command into the backlog. */
+        if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
+
+        /* Send it to slaves. */
+        listRewind(slaves,&li);
+        while((ln = listNext(&li))) {
+            client *slave = ln->value;
+            if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
+            addReply(slave,selectcmd);
+        }
+
+        if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
+            decrRefCount(selectcmd);
+    }
+    server.slaveseldb = dictid;
+
+    replicationFeedSlavesOriginalCommand(slaves,argv,argc);
+}
+
+/* ================================ REPLICATION MASTER STREAM ============================== */
+
+/* Master stream initialization */
+void initMasterStream(client *c) {
+    c->mstream.commands = NULL;
+    c->mstream.count = 0;
+}
+
+/* Release all the resources associated with master stream */
+void freeMasterStream(client *c) {
+    int j;
+
+    for (j = 0; j < c->mstream.count; j++) {
+        int i;
+        masterCmd *mc = c->mstream.commands+j;
+
+        for (i = 0; i < mc->argc; i++)
+            decrRefCount(mc->argv[i]);
+        zfree(mc->argv);
+    }
+    zfree(c->mstream.commands);
+}
+
+/* Add a new command into the master stream */
+void queueMasterCommand(client *c) {
+    masterCmd *mc;
+    int j;
+
+    c->mstream.commands = zrealloc(c->mstream.commands,
+            sizeof(masterCmd)*(c->mstream.count+1));
+    mc = c->mstream.commands+c->mstream.count;
+    mc->argc = c->argc;
+    mc->argv = zmalloc(sizeof(robj*)*c->argc);
+    memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
+    for (j = 0; j < c->argc; j++)
+        incrRefCount(mc->argv[j]);
+    c->mstream.count++;
+}
+
+void resetMasterStream(client *c) {
+    freeMasterStream(c);
+    initMasterStream(c);
+}
+
+/* This function is used in order to proxy what we receive from our master
+ * to our sub-replicas. */
+#include <ctype.h>
+void replicationFeedSlavesFromMasterStream(list *slaves, masterStream *mstream) {
+    int j;
 
     /* Debugging: this is handy to see the stream sent from master
      * to slaves. Disabled with if(0). */
+#if 0
     if (0) {
         printf("%zu:",buflen);
         for (size_t j = 0; j < buflen; j++) {
@@ -288,16 +339,14 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
         }
         printf("\n");
     }
+#endif
 
-    if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
-    listRewind(slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
-
-        /* Don't feed slaves that are still waiting for BGSAVE to start */
-        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
-        addReplyString(slave,buf,buflen);
+    for (j = 0; j < mstream->count; j++) {
+        replicationFeedSlavesOriginalCommand(slaves,mstream->commands[j].argv,mstream->commands[j].argc);
     }
+
+    serverAssert(&server.master->mstream == mstream);
+    resetMasterStream(server.master);
 }
 
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
@@ -1079,7 +1128,6 @@ void replicationCreateMasterClient(int fd, int dbid) {
     server.master->flags |= CLIENT_MASTER;
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
-    server.master->read_reploff = server.master->reploff;
     memcpy(server.master->replid, server.master_replid,
         sizeof(server.master_replid));
     /* If master offset is set to -1, this master is old and is not
@@ -2157,8 +2205,8 @@ void replicationCacheMaster(client *c) {
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
     sdsclear(server.master->pending_querybuf);
-    server.master->read_reploff = server.master->reploff;
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
+    resetMasterStream(c);
     listEmpty(c->reply);
     c->sentlen = 0;
     c->reply_bytes = 0;

@@ -707,6 +707,17 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+/* Master original command */
+typedef struct masterCmd {
+    robj **argv;
+    int argc;
+} masterCmd;
+
+typedef struct masterStream {
+    masterCmd *commands;    /* Array of MASTER commands in replication stream */
+    int count;              /* Total number of master commands */
+} masterStream;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
@@ -762,6 +773,7 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
+    masterStream mstream;   /* MASTER stream */
 
     /* Response buffer */
     int bufpos;
@@ -1427,7 +1439,6 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void *addDeferredMultiBulkLength(client *c);
 void setDeferredMultiBulkLength(client *c, void *node, long length);
 void processInputBuffer(client *c);
-void processInputBufferAndReplicate(client *c);
 void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -1572,8 +1583,12 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
+void initMasterStream(client *c);
+void freeMasterStream(client *c);
+void queueMasterCommand(client *c);
+void resetMasterStream(client *c);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
+void replicationFeedSlavesFromMasterStream(list *slaves, masterStream *mstream);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
