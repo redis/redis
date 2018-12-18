@@ -1496,10 +1496,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         if (len > server.hash_max_ziplist_entries) {
             o = createHashDictObject();
-            // avoid rehashing
-            if (len > DICT_HT_INITIAL_SIZE) {
-                dictExpand(o->ptr, len);
-            }
         } else {
             o = createHashObject();
         }
