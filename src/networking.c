@@ -760,6 +760,8 @@ static void freeClientArgv(client *c) {
     int j;
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
+    zfree(c->argv);
+    c->argv = NULL;
     c->argc = 0;
     c->cmd = NULL;
 }
@@ -914,7 +916,6 @@ void freeClient(client *c) {
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
-    zfree(c->argv);
     freeClientMultiState(c);
     sdsfree(c->peerid);
     zfree(c);
@@ -1946,8 +1947,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     /* We free the objects in the original vector at the end, so we are
      * sure that if the same objects are reused in the new vector the
      * refcount gets incremented before it gets decremented. */
-    for (j = 0; j < c->argc; j++) decrRefCount(c->argv[j]);
-    zfree(c->argv);
+    freeClientArgv(c);
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
@@ -1959,7 +1959,6 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 /* Completely replace the client command vector with the provided one. */
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     freeClientArgv(c);
-    zfree(c->argv);
     c->argv = argv;
     c->argc = argc;
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
