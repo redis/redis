@@ -2204,7 +2204,6 @@ void replicationCacheMaster(client *c) {
      * offsets, including pending transactions, already populated arguments,
      * pending outputs to the master. */
     sdsclear(server.master->querybuf);
-    sdsclear(server.master->pending_querybuf);
     if (c->flags & CLIENT_MULTI) discardTransaction(c);
     resetMasterStream(c);
     listEmpty(c->reply);

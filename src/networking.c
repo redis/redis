@@ -112,7 +112,6 @@ client *createClient(int fd) {
     c->bufpos = 0;
     c->qb_pos = 0;
     c->querybuf = sdsempty();
-    c->pending_querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -854,7 +853,6 @@ void freeClient(client *c) {
 
     /* Free the query buffer */
     sdsfree(c->querybuf);
-    sdsfree(c->pending_querybuf);
     c->querybuf = NULL;
 
     /* Deallocate structures used to block on blocking ops. */
