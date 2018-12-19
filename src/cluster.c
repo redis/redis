@@ -4563,8 +4563,8 @@ NULL
 
         if (clusterNodeExists(c->argv[2]->ptr,port) != 0) {
             addReplyErrorFormat(c,"Node already known: %s:%s",
-                                        (char*)c->argv[2]->ptr, (char*)c->argv[3]->ptr);
-                    return;
+                            (char*)c->argv[2]->ptr, (char*)c->argv[3]->ptr);
+            return;
         }
 
         if (clusterStartHandshake(c->argv[2]->ptr,port,cport) == 0 &&
