@@ -37,7 +37,10 @@ int clientSubscriptionsCount(client *c);
 
 /* Send a pubsub message of type "message" to the client. */
 void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
-    addReply(c,shared.mbulkhdr[3]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[3]);
+    else
+        addReplyPushLen(c,3);
     addReply(c,shared.messagebulk);
     addReplyBulk(c,channel);
     addReplyBulk(c,msg);
@@ -47,7 +50,10 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg) {
  * with the "message" type delivered by addReplyPubsubMessage() is that
  * this message format also includes the pattern that matched the message. */
 void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
-    addReply(c,shared.mbulkhdr[4]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[4]);
+    else
+        addReplyPushLen(c,4);
     addReply(c,shared.pmessagebulk);
     addReplyBulk(c,pat);
     addReplyBulk(c,channel);
@@ -56,7 +62,10 @@ void addReplyPubsubPatMessage(client *c, robj *pat, robj *channel, robj *msg) {
 
 /* Send the pubsub subscription notification to the client. */
 void addReplyPubsubSubscribed(client *c, robj *channel) {
-    addReply(c,shared.mbulkhdr[3]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[3]);
+    else
+        addReplyPushLen(c,3);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
     addReplyLongLong(c,clientSubscriptionsCount(c));
@@ -67,7 +76,10 @@ void addReplyPubsubSubscribed(client *c, robj *channel) {
  * unsubscribe command but there are no channels to unsubscribe from: we
  * still send a notification. */
 void addReplyPubsubUnsubscribed(client *c, robj *channel) {
-    addReply(c,shared.mbulkhdr[3]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[3]);
+    else
+        addReplyPushLen(c,3);
     addReply(c,shared.unsubscribebulk);
     if (channel)
         addReplyBulk(c,channel);
@@ -78,7 +90,10 @@ void addReplyPubsubUnsubscribed(client *c, robj *channel) {
 
 /* Send the pubsub pattern subscription notification to the client. */
 void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
-    addReply(c,shared.mbulkhdr[3]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[3]);
+    else
+        addReplyPushLen(c,3);
     addReply(c,shared.psubscribebulk);
     addReplyBulk(c,pattern);
     addReplyLongLong(c,clientSubscriptionsCount(c));
@@ -89,7 +104,10 @@ void addReplyPubsubPatSubscribed(client *c, robj *pattern) {
  * punsubscribe command but there are no pattern to unsubscribe from: we
  * still send a notification. */
 void addReplyPubsubPatUnsubscribed(client *c, robj *pattern) {
-    addReply(c,shared.mbulkhdr[3]);
+    if (c->resp == 2)
+        addReply(c,shared.mbulkhdr[3]);
+    else
+        addReplyPushLen(c,3);
     addReply(c,shared.punsubscribebulk);
     if (pattern)
         addReplyBulk(c,pattern);
