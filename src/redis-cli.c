@@ -2993,6 +2993,8 @@ static int clusterManagerCompareKeysValues(clusterManagerNode *n1,
 cleanup:
     if (r1) freeReplyObject(r1);
     if (r2) freeReplyObject(r2);
+    zfree(argv);
+    zfree(argv_len);
     return success;
 }
 
