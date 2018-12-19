@@ -3149,48 +3149,47 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                  *  - In other cases (ie. reshard), proceed only if the user
                  *    launched the command with the --cluster-replace option.*/
                 if (is_busy) {
-                    clusterManagerLogWarn("\n*** Target key exists, "
-                                          "checking values...\n");
-                    list *diffs = listCreate();
-                    success = clusterManagerCompareKeysValues(source,
-                        target, reply, diffs);
-                    if (!success && (do_fix || !do_replace)) {
-                        listRelease(diffs);
-                        clusterManagerLogErr("*** Value check failed!\n");
-                        goto next;
-                    }
-                    if (listLength(diffs) > 0 && (do_fix || !do_replace)) {
-                        success = 0;
-                        clusterManagerLogErr(
-                            "*** Found %d key(s) in both source node and "
-                            "target node having different values.\n"
-                            "    Source node: %s:%d\n"
-                            "    Target node: %s:%d\n"
-                            "    Keys(s):\n",
-                            listLength(diffs),
-                            source->ip, source->port,
-                            target->ip, target->port);
-                        listIter dli;
-                        listNode *dln;
-                        listRewind(diffs, &dli);
-                        while((dln = listNext(&dli)) != NULL) {
-                            char *k = dln->value;
-                            clusterManagerLogErr("    - %s\n", k);
+                    clusterManagerLogWarn("\n*** Target key exists\n");
+                    if (!do_replace) {
+                        clusterManagerLogWarn("*** Checking key values on "
+                                              "both nodes...\n");
+                        list *diffs = listCreate();
+                        success = clusterManagerCompareKeysValues(source,
+                            target, reply, diffs);
+                        if (!success) {
+                            clusterManagerLogErr("*** Value check failed!\n");
+                            listRelease(diffs);
+                            goto next;
                         }
-                        clusterManagerLogErr("Please fix the above key(s) "
-                                             "manually ");
-                        if (do_fix)
-                            clusterManagerLogErr("and try again!\n");
-                        else {
-                            clusterManagerLogErr("or relaunch the command "
+                        if (listLength(diffs) > 0) {
+                            success = 0;
+                            clusterManagerLogErr(
+                                "*** Found %d key(s) in both source node and "
+                                "target node having different values.\n"
+                                "    Source node: %s:%d\n"
+                                "    Target node: %s:%d\n"
+                                "    Keys(s):\n",
+                                listLength(diffs),
+                                source->ip, source->port,
+                                target->ip, target->port);
+                            listIter dli;
+                            listNode *dln;
+                            listRewind(diffs, &dli);
+                            while((dln = listNext(&dli)) != NULL) {
+                                char *k = dln->value;
+                                clusterManagerLogErr("    - %s\n", k);
+                            }
+                            clusterManagerLogErr("Please fix the above key(s) "
+                                                 "manually and try again "
+                                                 "or relaunch the command \n"
                                                  "with --cluster-replace "
                                                  "option to force key "
                                                  "overriding.\n");
+                            listRelease(diffs);
+                            goto next;
                         }
                         listRelease(diffs);
-                        goto next;
                     }
-                    listRelease(diffs);
                     clusterManagerLogWarn("*** Replacing target keys...\n");
                 }
                 freeReplyObject(migrate_reply);
