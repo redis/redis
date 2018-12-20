@@ -955,7 +955,6 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     /* Modules */
     dict *moduleapi;            /* Exported APIs dictionary for modules. */
-    dict *exportedapi;          /* Api exported by other modules. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
                                    client blocked on a module command needs
