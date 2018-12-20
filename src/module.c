@@ -47,8 +47,20 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    list *usedby;   /* List of modules using APIs from this one. */
+    list *using;    /* List of modules we use some APIs of. */
 };
 typedef struct RedisModule RedisModule;
+
+/* This represents a shared API. Shared APIs will be used to populate
+ * the server.sharedapi dictionary, mapping names of APIs exported by
+ * modules for other modules to use, to their structure specifying the
+ * function pointer that can be called. */
+struct RedisModuleSharedAPI {
+    void *func;
+    RedisModule *module;
+};
+typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
 static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
@@ -700,6 +712,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->usedby = listCreate();
+    module->using = listCreate();
     ctx->module = module;
 }
 
@@ -4622,6 +4636,77 @@ void RM_GetRandomHexChars(char *dst, size_t len) {
 }
 
 /* --------------------------------------------------------------------------
+ * Modules API exporting / importing
+ * -------------------------------------------------------------------------- */
+
+/* This function is called by a module in order to export some API with a
+ * given name. Other modules will be able to use this API by calling the
+ * symmetrical function RM_GetSharedAPI() and casting the return value to
+ * the right function pointer.
+ *
+ * The function will return REDISMODULE_OK if the name is not already taken,
+ * otherwise REDISMODULE_ERR will be returned and no operation will be
+ * performed.
+ *
+ * IMPORTANT: the apiname argument should be a string literal with static
+ * lifetime. The API relies on the fact that it will always be valid in
+ * the future. */
+int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
+    RedisModuleSharedAPI *sapi = zmalloc(sizeof(*sapi));
+    sapi->module = ctx->module;
+    sapi->func = func;
+    if (dictAdd(server.sharedapi, (char*)apiname, sapi) != DICT_OK) {
+        zfree(sapi);
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+/* Request an exported API pointer. The return value is just a void pointer
+ * that the caller of this function will be required to cast to the right
+ * function pointer, so this is a private contract between modules.
+ *
+ * If the requested API is not available then NULL is returned. Because
+ * modules can be loaded at different times with different order, this
+ * function calls should be put inside some module generic API registering
+ * step, that is called every time a module attempts to execute a
+ * command that requires external APIs: if some API cannot be resolved, the
+ * command should return an error.
+ *
+ * Here is an exmaple:
+ *
+ *     int ... myCommandImplementation() {
+ *        if (getExternalAPIs() == 0) {
+ *             reply with an error here if we cannot have the APIs
+ *        }
+ *        // Use the API:
+ *        myFunctionPointer(foo);
+ *     }
+ *
+ * And the function registerAPI() is:
+ *
+ *     int getExternalAPIs(void) {
+ *         static int api_loaded = 0;
+ *         if (api_loaded != 0) return 1; // APIs already resolved.
+ *
+ *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         if (myFunctionPointer == NULL) return 0;
+ *
+ *         return 1;
+ *     }
+ */
+void *RM_GetSharedAPI(RedisModuleCtx *ctx, const char *apiname) {
+    dictEntry *de = dictFind(server.sharedapi, apiname);
+    if (de == NULL) return NULL;
+    RedisModuleSharedAPI *sapi = dictGetVal(de);
+    if (listSearchKey(sapi->module->usedby,ctx->module) == NULL) {
+        listAddNodeTail(sapi->module->usedby,ctx->module);
+        listAddNodeTail(ctx->module->using,sapi->module);
+    }
+    return sapi->func;
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -4900,6 +4985,7 @@ size_t moduleCount(void) {
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
