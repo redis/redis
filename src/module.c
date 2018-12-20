@@ -5190,4 +5190,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictPrev);
     REGISTER_API(DictCompareC);
     REGISTER_API(DictCompare);
+    REGISTER_API(ExportSharedAPI);
+    REGISTER_API(GetSharedAPI);
 }
