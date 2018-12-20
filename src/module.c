@@ -4729,6 +4729,27 @@ int moduleUnregisterSharedAPI(RedisModule *module) {
     return count;
 }
 
+/* Remove the specified module as an user of APIs of ever other module.
+ * This is usually called when a module is unloaded.
+ *
+ * Returns the number of modules this module was using APIs from. */
+int moduleUnregisterUsedAPI(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->using,&li);
+    while((ln = listNext(&li))) {
+        RedisModule *used = ln->value;
+        listNode *ln = listSearchKey(used->usedby,module);
+        if (ln) {
+            listDelNode(module->using,ln);
+            count++;
+        }
+    }
+    return count;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -4873,6 +4894,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
             moduleUnregisterSharedAPI(ctx.module);
+            moduleUnregisterUsedAPI(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         dlclose(handle);
@@ -4912,6 +4934,7 @@ int moduleUnload(sds name) {
 
     moduleUnregisterCommands(module);
     moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
