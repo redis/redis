@@ -92,6 +92,7 @@ ifeq ($(uname_S),SunOS)
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin
+	FINAL_CFLAGS+= -DUSE_ARC4RANDOM
 	FINAL_LIBS+= -ldl
 else
 ifeq ($(uname_S),AIX)
@@ -101,6 +102,7 @@ ifeq ($(uname_S),AIX)
 else
 ifeq ($(uname_S),OpenBSD)
 	# OpenBSD
+	FINAL_CFLAGS+= -DUSE_ARC4RANDOM
 	FINAL_LIBS+= -lpthread
 	ifeq ($(USE_BACKTRACE),yes)
 	    FINAL_CFLAGS+= -DUSE_BACKTRACE -I/usr/local/include
@@ -111,13 +113,16 @@ ifeq ($(uname_S),OpenBSD)
 else
 ifeq ($(uname_S),FreeBSD)
 	# FreeBSD
+	FINAL_CFLAGS+= -DUSE_ARC4RANDOM
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 ifeq ($(uname_S),DragonFly)
 	# FreeBSD
+	FINAL_CFLAGS+= -DUSE_ARC4RANDOM
 	FINAL_LIBS+= -lpthread -lexecinfo
 else
 	# All the other OSes (notably Linux)
+	FINAL_CFLAGS+= -DUSE_GETRANDOM
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+=-ldl -pthread -lrt
 endif

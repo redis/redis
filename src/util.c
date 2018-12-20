@@ -41,6 +41,15 @@
 #include <errno.h>
 #include <time.h>
 
+#ifdef USE_GETRANDOM
+# include <sys/syscall.h>
+# ifndef __NR_getrandom
+#  undef USE_GETRANDOM
+# else
+#  include <sys/random.h>
+# endif
+#endif
+
 #include "util.h"
 #include "sha1.h"
 
@@ -572,20 +581,35 @@ void getRandomBytes(unsigned char *p, size_t len) {
          * the same seed with a progressive counter. For the goals of this
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
-        FILE *fp = fopen("/dev/urandom","r");
-        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
-            /* Revert to a weaker seed, and in this case reseed again
-             * at every call.*/
-            for (unsigned int j = 0; j < sizeof(seed); j++) {
-                struct timeval tv;
-                gettimeofday(&tv,NULL);
-                pid_t pid = getpid();
-                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
-            }
-        } else {
-            seed_initialized = 1;
-        }
-        if (fp) fclose(fp);
+#ifdef USE_ARC4RANDOM
+	arc4random_buf(&seed, sizeof(seed));
+	seed_initialized = 1;
+#else
+	static int urandom = 1;
+#ifdef USE_GETRANDOM
+	syscall(__NR_getrandom, &seed, sizeof(seed), 0);
+	if (!errno) {
+		urandom = 0;
+		seed_initialized = 1;
+	}
+#endif
+	if (urandom) {
+		FILE *fp = fopen("/dev/urandom","r");
+		if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
+			/* Revert to a weaker seed, and in this case reseed again
+			 * at every call.*/
+			for (unsigned int j = 0; j < sizeof(seed); j++) {
+				struct timeval tv;
+				gettimeofday(&tv,NULL);
+				pid_t pid = getpid();
+				seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
+			}
+		} else {
+			seed_initialized = 1;
+		}
+		if (fp) fclose(fp);
+	}
+#endif
     }
 
     while(len) {
