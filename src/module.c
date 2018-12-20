@@ -4706,6 +4706,29 @@ void *RM_GetSharedAPI(RedisModuleCtx *ctx, const char *apiname) {
     return sapi->func;
 }
 
+/* Remove all the APIs registered by the specified module. Usually you
+ * want this when the module is going to be unloaded. This function
+ * assumes that's caller responsibility to make sure the APIs are not
+ * used by other modules.
+ *
+ * The number of unregistered APIs is returned. */
+int moduleUnregisterSharedAPI(RedisModule *module) {
+    int count = 0;
+    dictIterator *di = dictGetSafeIterator(server.sharedapi);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        const char *apiname = dictGetKey(de);
+        RedisModuleSharedAPI *sapi = dictGetVal(de);
+        if (sapi->module == module) {
+            dictDelete(server.sharedapi,apiname);
+            zfree(sapi);
+            count++;
+        }
+    }
+    dictReleaseIterator(di);
+    return count;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -4849,6 +4872,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
+            moduleUnregisterSharedAPI(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         dlclose(handle);
@@ -4886,6 +4910,7 @@ int moduleUnload(sds name) {
     }
 
     moduleUnregisterCommands(module);
+    moduleUnregisterSharedAPI(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
