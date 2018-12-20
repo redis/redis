@@ -4902,10 +4902,11 @@ int moduleUnload(sds name) {
     if (module == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
-    }
-
-    if (listLength(module->types)) {
+    } else if (listLength(module->types)) {
         errno = EBUSY;
+        return REDISMODULE_ERR;
+    } else if (listLength(module->usedby)) {
+        errno = EPERM;
         return REDISMODULE_ERR;
     }
 
@@ -4972,7 +4973,12 @@ NULL
                 errmsg = "no such module with that name";
                 break;
             case EBUSY:
-                errmsg = "the module exports one or more module-side data types, can't unload";
+                errmsg = "the module exports one or more module-side data "
+                         "types, can't unload";
+                break;
+            case EPERM:
+                errmsg = "the module exports APIs used by other modules. "
+                         "Please unload them first and try again";
                 break;
             default:
                 errmsg = "operation not possible.";
