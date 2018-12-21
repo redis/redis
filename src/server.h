@@ -1648,6 +1648,9 @@ void closeChildInfoPipe(void);
 void sendChildInfo(int process_type);
 void receiveChildInfo(void);
 
+/* acl.c -- Authentication related prototypes. */
+int ACLCheckUserCredentials(robj *username, robj *password);
+
 /* Sorted sets data type */
 
 /* Input flags. */
