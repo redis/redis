@@ -2053,6 +2053,15 @@ void helloCommand(client *c) {
         return;
     }
 
+    /* At this point we need to be authenticated to continue. */
+    if (!c->authenticated) {
+        addReplyError(c,"-NOAUTH HELLO must be called with the client already "
+                        "authenticated, otherwise the HELLO AUTH <user> <pass> "
+                        "option can be used to authenticate the client and "
+                        "select the RESP protocol version at the same time");
+        return;
+    }
+
     /* Let's switch to RESP3 mode. */
     c->resp = 3;
     addReplyMapLen(c,7);
