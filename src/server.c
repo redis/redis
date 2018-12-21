@@ -2582,7 +2582,9 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (server.requirepass &&
+        !c->authenticated &&
+        (c->cmd->proc != authCommand || c->cmd->proc == helloCommand))
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
@@ -2715,6 +2717,7 @@ int processCommand(client *c) {
     /* Lua script too slow? Only allow a limited number of commands. */
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
+          c->cmd->proc != helloCommand &&
           c->cmd->proc != replconfCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
