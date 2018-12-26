@@ -61,6 +61,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define OUTPUT_CONFIG 3
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -995,6 +996,66 @@ static sds cliFormatReplyCSV(redisReply *r) {
     return out;
 }
 
+/* Format the reply of 'config get' command to make it more readable. */
+static sds cliFormatReplyConfig(redisReply *r, unsigned int index) {
+    sds out = sdsempty();
+    switch (r->type) {
+    case REDIS_REPLY_ERROR:
+        out = sdscatprintf(out,"\n(error) %s\n", r->str);
+        break;
+    case REDIS_REPLY_STATUS:
+        out = sdscatprintf(out,"\n%s\n", r->str);
+        break;
+    case REDIS_REPLY_INTEGER:
+        out = sdscatprintf(out,"%lld\n",r->integer);
+        break;
+    case REDIS_REPLY_STRING:
+        if (index%2 == 0) { // means configuration name
+            out = sdscatprintf(out,"%s: ",r->str);
+        } else {            // means configuration value
+            out = sdscatrepr(out,r->str,r->len);
+            out = sdscat(out,"\n");
+        }
+        break;
+    case REDIS_REPLY_NIL:
+        out = sdscat(out,"(nil)\n");
+        break;
+    case REDIS_REPLY_ARRAY:
+        if (r->elements == 0) {
+            out = sdscat(out,"(empty list or set)\n");
+        } else {
+            unsigned int i, idxlen = 0;
+            char _prefixfmt[16];
+            sds tmp;
+
+            /* Calculate chars needed to represent the largest index */
+            i = r->elements/2;
+            do {
+                idxlen++;
+                i /= 10;
+            } while(i);
+            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%%ud) ",idxlen);
+
+            for (i = 0; i < r->elements; i++) {
+                if (i%2 == 0) {
+                    /* The element with an even index is the configuration name */
+                    out = sdscatprintf(out,_prefixfmt,i/2+1);
+                }
+
+                /* Format the multi bulk entry */
+                tmp = cliFormatReplyConfig(r->element[i],i);
+                out = sdscatlen(out,tmp,sdslen(tmp));
+                sdsfree(tmp);
+            }
+        }
+        break;
+    default:
+        fprintf(stderr,"Unknown reply type: %d\n", r->type);
+        exit(1);
+    }
+    return out;
+}
+
 static int cliReadReply(int output_raw_strings) {
     void *_reply;
     redisReply *reply;
@@ -1066,6 +1127,8 @@ static int cliReadReply(int output_raw_strings) {
             } else if (config.output == OUTPUT_CSV) {
                 out = cliFormatReplyCSV(reply);
                 out = sdscat(out,"\n");
+            } else if (config.output == OUTPUT_CONFIG) {
+                out = cliFormatReplyConfig(reply,-1);
             }
         }
         fwrite(out,sdslen(out),1,stdout);
@@ -1079,6 +1142,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     char *command = argv[0];
     size_t *argvlen;
     int j, output_raw;
+    int original_output = config.output;
 
     if (!config.eval_ldb && /* In debugging mode, let's pass "help" to Redis. */
         (!strcasecmp(command,"help") || !strcasecmp(command,"?"))) {
@@ -1120,7 +1184,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
 
     /* When the user manually calls SCRIPT DEBUG, setup the activation of
      * debugging mode on the next eval if needed. */
-    if (argc == 3 && !strcasecmp(argv[0],"script") &&
+    if (argc == 3 && !strcasecmp(command,"script") &&
                      !strcasecmp(argv[1],"debug"))
     {
         if (!strcasecmp(argv[2],"yes") || !strcasecmp(argv[2],"sync")) {
@@ -1134,6 +1198,11 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (!strcasecmp(command,"eval") && config.enable_ldb_on_eval) {
         config.eval_ldb = 1;
         config.output = OUTPUT_RAW;
+    }
+
+    if (argc >= 2 && !strcasecmp(command,"config") &&
+                     !strcasecmp(argv[1],"get")) {
+        config.output = OUTPUT_CONFIG;
     }
 
     /* Setup argument length */
@@ -1181,6 +1250,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     }
 
     zfree(argvlen);
+    config.output = original_output;
     return REDIS_OK;
 }
 
