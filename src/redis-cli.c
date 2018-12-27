@@ -722,7 +722,7 @@ static void freeHintsCallback(void *ptr) {
 /* Send AUTH command to the server */
 static int cliAuth(void) {
     redisReply *reply;
-    if (config.auth == NULL) return REDIS_OK;
+    if (config.auth == NULL || strlen(config.auth) == 0) return REDIS_OK;
 
     reply = redisCommand(context,"AUTH %s",config.auth);
     if (reply != NULL) {
@@ -1486,7 +1486,7 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
-    if (!config.no_auth_warning && config.auth != NULL) {
+    if (!config.no_auth_warning && config.auth && strlen(config.auth) > 0) {
         fputs("Warning: Using a password with '-a' or '-u' option on the command"
               " line interface may not be safe.\n", stderr);
     }
@@ -1798,7 +1798,7 @@ static void repl(void) {
                         config.output = OUTPUT_RAW;
                         return; /* Return to evalMode to restart the session. */
                     } else {
-                        printf("Use 'restart' only in Lua debugging mode.");
+                        printf("Use 'restart' only in Lua debugging mode.\n");
                     }
                 } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
                     sdsfree(config.hostip);
@@ -2321,7 +2321,7 @@ static int clusterManagerNodeConnect(clusterManagerNode *node) {
      * commands. At the same time this improves the detection of real
      * errors. */
     anetKeepAlive(NULL, node->context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
-    if (config.auth) {
+    if (config.auth && strlen(config.auth) > 0) {
         redisReply *reply = redisCommand(node->context,"AUTH %s",config.auth);
         int ok = clusterManagerCheckRedisReply(node, reply, NULL);
         if (reply != NULL) freeReplyObject(reply);
