@@ -2608,16 +2608,12 @@ int processCommand(client *c) {
 
     /* Handle the maxmemory directive.
      *
-     * First we try to free some memory if possible (if there are volatile
-     * keys in the dataset). If there are not the only thing we can do
-     * is returning an error.
-     *
      * Note that we do not want to reclaim memory if we are here re-entering
      * the event loop since there is a busy Lua script running in timeout
-     * condition, to avoid mixing the propagation of scripts with the propagation
-     * of DELs due to eviction. */
+     * condition, to avoid mixing the propagation of scripts with the
+     * propagation of DELs due to eviction. */
     if (server.maxmemory && !server.lua_timedout) {
-        int out_of_memory = freeMemoryIfNeeded() == C_ERR;
+        int out_of_memory = freeMemoryIfNeededAndSafe() == C_ERR;
         /* freeMemoryIfNeeded may flush slave output buffers. This may result
          * into a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
@@ -3247,11 +3243,11 @@ sds genRedisInfoString(char *section) {
             "allocator_frag_ratio:%.2f\r\n"
             "allocator_frag_bytes:%zu\r\n"
             "allocator_rss_ratio:%.2f\r\n"
-            "allocator_rss_bytes:%zu\r\n"
+            "allocator_rss_bytes:%zd\r\n"
             "rss_overhead_ratio:%.2f\r\n"
-            "rss_overhead_bytes:%zu\r\n"
+            "rss_overhead_bytes:%zd\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_fragmentation_bytes:%zu\r\n"
+            "mem_fragmentation_bytes:%zd\r\n"
             "mem_not_counted_for_evict:%zu\r\n"
             "mem_replication_backlog:%zu\r\n"
             "mem_clients_slaves:%zu\r\n"

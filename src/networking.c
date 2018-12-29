@@ -365,19 +365,13 @@ void addReplyErrorLength(client *c, const char *s, size_t len) {
      * Where the master must propagate the first change even if the second
      * will produce an error. However it is useful to log such events since
      * they are rare and may hint at errors in a script or a bug in Redis. */
-    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE)) {
+    if (c->flags & (CLIENT_MASTER|CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)) {
         char* to = c->flags & CLIENT_MASTER? "master": "replica";
         char* from = c->flags & CLIENT_MASTER? "replica": "master";
         char *cmdname = c->lastcmd ? c->lastcmd->name : "<unknown>";
         serverLog(LL_WARNING,"== CRITICAL == This %s is sending an error "
                              "to its %s: '%s' after processing the command "
                              "'%s'", from, to, s, cmdname);
-        /* Here we want to panic because when a master is sending an
-         * error to some slave in the context of replication, this can
-         * only create some kind of offset or data desynchronization. Better
-         * to catch it ASAP and crash instead of continuing. */
-        if (c->flags & CLIENT_SLAVE)
-            serverPanic("Continuing is unsafe: replication protocol violation.");
     }
 }
 
@@ -1470,7 +1464,7 @@ void processInputBuffer(client *c) {
     }
 
     /* Trim to pos */
-    if (c->qb_pos) {
+    if (server.current_client != NULL && c->qb_pos) {
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
     }
