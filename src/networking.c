@@ -2092,3 +2092,103 @@ int processEventsWhileBlocked(void) {
     }
     return count;
 }
+sds getAllChannelList(){
+    dictIterator *di = dictGetSafeIterator(server.pubsub_channels);
+    dictEntry *de;
+    sds o = sdsnewlen(SDS_NOINIT,100*listLength(server.clients));
+    sdsclear(o);
+    while ((de = dictNext(di)) != NULL) {
+        robj *cobj = dictGetKey(de);
+        sds channel = cobj->ptr;
+        o = sdscatfmt(o,
+        "%s\n",
+        channel);
+    }
+    return o;
+}
+
+/* Concatenate a string representing the channellist of a client in an human
+ * readable format, into the sds string 's'. */
+sds catClientChannelString(sds s, client *client) {
+    dictIterator *di = dictGetSafeIterator(client->pubsub_channels);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        robj *cobj = dictGetKey(de);
+        sds channel = cobj->ptr;
+        s = sdscatfmt(s,
+        "id=%U addr=%s channel=%s",
+        (unsigned long long) client->id,
+        getClientPeerId(client),
+        channel
+        );
+    }
+    return s;
+}
+
+sds getAllClientsChannelString() {
+    listNode *ln;
+    listIter li;
+    client *client;
+    sds o = sdsnewlen(SDS_NOINIT,400*listLength(server.clients));
+    sdsclear(o);
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client = listNodeValue(ln);
+        o = catClientChannelString(o,client);
+        o = sdscatlen(o,"\n",1);
+    }
+    return o;
+}
+
+void channelCommand(client *c){
+    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
+        const char *help[] = {
+"list     -- Return information of all channels.",
+"listall [options ...]     -- Return information about channel subscribtions. Options:",
+"     type (normal|master|replica|pubsub) -- Return clients of specified channel.",
+NULL
+        };
+        addReplyHelp(c, help);
+    }else if (!strcasecmp(c->argv[1]->ptr,"list")) {
+        sds o = getAllChannelList();
+        addReplyBulkCBuffer(c,o,sdslen(o));
+        sdsfree(o);
+    }else if (!strcasecmp(c->argv[1]->ptr,"listall")) {
+        robj *channel = NULL;
+        /* CLIENT CHANNELLIST */
+        if (c->argc == 2){
+            sds o = getAllClientsChannelString();
+            addReplyBulkCBuffer(c,o,sdslen(o));
+            sdsfree(o);
+        }else if (c->argc == 3){
+        /* SPECIFIC CHANNEL */
+            channel = c->argv[2]; 
+            dictEntry *de;
+            list *clients = NULL;
+            de = dictFind(server.pubsub_channels,channel);
+            if (de == NULL){
+                addReplyErrorFormat(c,"Unknown channel '%s'",
+                    (char*) c->argv[2]->ptr);
+                return;
+            }else{
+                listNode *ln;
+                listIter li;
+                client *client;
+                clients = dictGetVal(de);
+                sds o = sdsnewlen(SDS_NOINIT,200*listLength(clients));
+                sdsclear(o);
+                listRewind(clients,&li);
+                while ((ln = listNext(&li)) != NULL) {
+                  client = listNodeValue(ln);
+                  o = catClientInfoString(o,client);
+                  o = sdscatlen(o,"\n",1);
+                }
+                addReplyBulkCBuffer(c,o,sdslen(o));
+                sdsfree(o);
+            }
+       }else{
+            addReply(c,shared.syntaxerr);
+            return;
+       }
+    }
+}

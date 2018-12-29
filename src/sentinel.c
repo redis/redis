@@ -433,6 +433,7 @@ struct redisCommand sentinelcmds[] = {
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
     {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
+    {"channel",channelCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
 };
 

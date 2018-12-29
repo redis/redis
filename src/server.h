@@ -1387,6 +1387,9 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
 char *getClientPeerId(client *client);
 sds catClientInfoString(sds s, client *client);
 sds getAllClientsInfoString(void);
+sds getAllChannelList();
+sds getAllClientsChannelString();
+sds catClientChannelString(sds s, client *client);
 void rewriteClientCommandVector(client *c, int argc, ...);
 void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
@@ -1990,6 +1993,7 @@ void dumpCommand(client *c);
 void objectCommand(client *c);
 void memoryCommand(client *c);
 void clientCommand(client *c);
+void channelCommand(client *c);
 void evalCommand(client *c);
 void evalShaCommand(client *c);
 void scriptCommand(client *c);
