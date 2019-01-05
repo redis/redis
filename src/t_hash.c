@@ -528,7 +528,7 @@ void hsetnxCommand(client *c) {
 }
 
 void hsetexCommand(client *c) {
-    int i, created = 0;
+    int created = 0;
     robj *o;
 
     if ((c->argc) != 5) {
@@ -537,7 +537,7 @@ void hsetexCommand(client *c) {
     }
 
     long long when;
-    *param = c->argv[4];
+    robj *param = c->argv[4];
     if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
         return;
 
@@ -551,12 +551,12 @@ void hsetexCommand(client *c) {
 
     // set expire
     when = mstime() + when * 1000;
-    setExpire(c,c->db,key,when);
+    setExpire(c,c->db,c->argv[1],when);
 
     addReplyLongLong(c, created);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
-    notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
 
     server.dirty++;
     return;
