@@ -203,6 +203,7 @@ struct redisCommand redisCommandTable[] = {
     {"bzpopmin",bzpopminCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
     {"bzpopmax",bzpopmaxCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
     {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
+    {"hsetex",hseextCommand,5,"wmF",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"hmset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},

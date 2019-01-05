@@ -527,6 +527,41 @@ void hsetnxCommand(client *c) {
     }
 }
 
+void hsetexCommand(client *c) {
+    int i, created = 0;
+    robj *o;
+
+    if ((c->argc) != 5) {
+        addReplyError(c,"wrong number of arguments for hsetex");
+        return;
+    }
+
+    long long when;
+    *param = c->argv[4];
+    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != C_OK)
+        return;
+
+    // get object
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+
+    hashTypeTryConversion(o,c->argv,2,c->argc-1);
+
+    // insert key
+    created += !hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+
+    // set expire
+    when = mstime() + when * 1000;
+    setExpire(c,c->db,key,when);
+
+    addReplyLongLong(c, created);
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
+
+    server.dirty++;
+    return;
+}
+
 void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
