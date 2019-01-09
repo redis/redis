@@ -1208,10 +1208,6 @@ void objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
          * below statement will expand to lru_idle*1000/1000. */
         lru_idle = lru_idle*1000/LRU_CLOCK_RESOLUTION;
         val->lru = lru_clock - lru_idle;
-        /* If the lru field overflows (since LRU it is a wrapping
-         * clock), the best we can do is to provide the maximum
-         * representable idle time. */
-        if (val->lru < 0) val->lru = lru_clock+1;
     }
 }
 
