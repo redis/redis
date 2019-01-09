@@ -2547,7 +2547,7 @@ void replicationCron(void) {
     }
 
     /* Check if we should connect to a MASTER */
-    if (server.repl_state == REPL_STATE_CONNECT) {
+    if (server.repl_state == REPL_STATE_CONNECT && migrateCommandThreadJobs() == 0) {
         serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
             server.masterhost, server.masterport);
         if (connectWithMaster() == C_OK) {

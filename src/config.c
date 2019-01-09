@@ -799,6 +799,36 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"migrate-socket-cache-items") && argc == 2) {
+            server.migrate_socket_cache_items = atoi(argv[1]);
+            if (server.migrate_socket_cache_items < 0) {
+                err = "migrate-socket-cache-items can't be negative";
+                goto loaderr;
+            }
+            if (server.migrate_socket_cache_items > CONFIG_MIGRATE_SOCKET_CACHE_ITEMS_MAX) {
+                server.migrate_socket_cache_items = CONFIG_MIGRATE_SOCKET_CACHE_ITEMS_MAX;
+            }
+        } else if (!strcasecmp(argv[0],"migrate-socket-cache-timeout") && argc == 2) {
+            server.migrate_socket_cache_timeout = atoi(argv[1]);
+            if (server.migrate_socket_cache_timeout <= 0) {
+                err = "migrate-socket-cache-timeout can't be negative or zero";
+                goto loaderr;
+            }
+            if (server.migrate_socket_cache_timeout > CONFIG_MIGRATE_SOCKET_CACHE_TIMEOUT_MAX) {
+                server.migrate_socket_cache_timeout = CONFIG_MIGRATE_SOCKET_CACHE_TIMEOUT_MAX;
+            }
+        } else if (!strcasecmp(argv[0], "migrate-socket-iobuf-len") && argc == 2) {
+            server.migrate_socket_iobuf_len = strtoll(argv[1], NULL, 10);
+            if (server.migrate_socket_iobuf_len <= 0) {
+                err = "migrate-socket-iobuf-len can't be negative or zero";
+                goto loaderr;
+            }
+            if (server.migrate_socket_iobuf_len < CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN) {
+                server.migrate_socket_iobuf_len = CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN;
+            }
+            if (server.migrate_socket_iobuf_len > CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX) {
+                server.migrate_socket_iobuf_len = CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX;
+            }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -1229,6 +1259,18 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "cluster-replica-validity-factor",server.cluster_slave_validity_factor,0,INT_MAX) {
     } config_set_numerical_field(
+      "migrate-socket-cache-items",server.migrate_socket_cache_items,0,CONFIG_MIGRATE_SOCKET_CACHE_ITEMS_MAX) {
+    } config_set_numerical_field(
+      "migrate-socket-cache-timeout",server.migrate_socket_cache_timeout,1,CONFIG_MIGRATE_SOCKET_CACHE_TIMEOUT_MAX) {
+    } config_set_memory_field(
+      "migrate-socket-iobuf-len",server.migrate_socket_iobuf_len) {
+        if (server.migrate_socket_iobuf_len < CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN) {
+            server.migrate_socket_iobuf_len = CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN;
+        }
+        if (server.migrate_socket_iobuf_len > CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX) {
+            server.migrate_socket_iobuf_len = CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX;
+        }
+    } config_set_numerical_field(
       "hz",server.config_hz,0,INT_MAX) {
         /* Hz is more an hint from the user, so we accept values out of range
          * but cap them to reasonable values. */
@@ -1413,6 +1455,9 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-replica-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
+    config_get_numerical_field("migrate-socket-cache-items",server.migrate_socket_cache_items);
+    config_get_numerical_field("migrate-socket-cache-timeout",server.migrate_socket_cache_timeout);
+    config_get_numerical_field("migrate-socket-iobuf-len",server.migrate_socket_iobuf_len);
 
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",
@@ -2219,6 +2264,9 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"replica-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
     rewriteConfigYesNoOption(state,"dynamic-hz",server.dynamic_hz,CONFIG_DEFAULT_DYNAMIC_HZ);
+    rewriteConfigNumericalOption(state,"migrate-socket-cache-items",server.migrate_socket_cache_items,CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS);
+    rewriteConfigNumericalOption(state,"migrate-socket-cache-timeout",server.migrate_socket_cache_timeout,CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT);
+    rewriteConfigBytesOption(state,"migrate-socket-iobuf-len",server.migrate_socket_iobuf_len,CONFIG_DEFAULT_MIGRATE_SOCKET_IOBUF_LEN);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

@@ -166,6 +166,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
+#define CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS 64
+#define CONFIG_MIGRATE_SOCKET_CACHE_ITEMS_MAX     128
+#define CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT 10     /* In seconds. */
+#define CONFIG_MIGRATE_SOCKET_CACHE_TIMEOUT_MAX     (60 * 60 * 24)
+#define CONFIG_DEFAULT_MIGRATE_SOCKET_IOBUF_LEN  (1024LL * 1024 * 64)  /*  64MB */
+#define CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MIN      (1024LL * 32)         /*  32KB */
+#define CONFIG_MIGRATE_SOCKET_IOBUF_LEN_MAX      (1024LL * 1024 * 256) /* 256MB */
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
@@ -266,7 +273,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define BLOCKED_MODULE 3  /* Blocked by a loadable module. */
 #define BLOCKED_STREAM 4  /* XREAD. */
 #define BLOCKED_ZSET 5    /* BZPOP et al. */
-#define BLOCKED_NUM 6     /* Number of blocked states. */
+#define BLOCKED_MIGRATE 6 /* Blocked by MIGRATE-ASYNC. */
+#define BLOCKED_RESTORE 7 /* Blocked by RESTORE-ASYNC. */
+#define BLOCKED_NUM 8     /* Number of blocked states. */
 
 /* Client request types */
 #define PROTO_REQ_INLINE 1
@@ -639,6 +648,7 @@ typedef struct redisDb {
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    dict *migrating_keys;       /* Keys are being migrated. */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     list *defrag_later;         /* List of key names to attempt to defrag one by one, gradually. */
@@ -707,6 +717,9 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+typedef struct _migrateCommandArgs migrateCommandArgs;
+typedef struct _restoreCommandArgs restoreCommandArgs;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
@@ -762,6 +775,10 @@ typedef struct client {
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
+
+    /* Arguments for non-blocking migration */
+    migrateCommandArgs *migrate_command_args;
+    restoreCommandArgs *restore_command_args;
 
     /* Response buffer */
     int bufpos;
@@ -994,7 +1011,7 @@ struct redisServer {
                         *lpopCommand, *rpopCommand, *zpopminCommand,
                         *zpopmaxCommand, *sremCommand, *execCommand,
                         *expireCommand, *pexpireCommand, *xclaimCommand,
-                        *xgroupCommand;
+                        *xgroupCommand, *restoreCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -1182,6 +1199,10 @@ struct redisServer {
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
+    /* Migration socket cache. */
+    int migrate_socket_cache_items;     /* Max number of cached sockets for migration. */
+    int migrate_socket_cache_timeout;   /* Timeout after N seconds of socket idle. */
+    long long migrate_socket_iobuf_len; /* Socket buffer for data migration.*/
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
@@ -1521,6 +1542,8 @@ void execCommandPropagateMulti(client *c);
 /* Redis object implementation */
 void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
+void decrRefCountLazyfree(robj *o);
+void decrRefcountLazyfreeVoid(void *o);
 void incrRefCount(robj *o);
 robj *makeObjectShared(robj *o);
 robj *resetRefCount(robj *obj);
@@ -1869,7 +1892,6 @@ unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
 void clusterCron(void);
 void clusterPropagatePublish(robj *channel, robj *message);
-void migrateCloseTimedoutSockets(void);
 void clusterBeforeSleep(void);
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, unsigned char *payload, uint32_t len);
 
@@ -1903,6 +1925,19 @@ void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, robj *target, streamID *ids);
+
+/* migarte.c -- non-blocking migartion */
+void migrateBackgroundThreadInit(void);
+void migrateAsyncCommand(client *c);
+void restoreAsyncCommand(client *c);
+void unblockClientFromMigrate(client *c);
+void unblockClientFromRestore(client *c);
+void freeMigrateCommandArgsFromFreeClient(client *c);
+void freeRestoreCommandArgsFromFreeClient(client *c);
+void migrateCloseTimedoutSockets(void);
+void restoreCloseTimedoutCommands(void);
+int migrateNeedsRedirectClient(client *c);
+size_t migrateCommandThreadJobs(void);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);

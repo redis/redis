@@ -277,6 +277,8 @@ struct redisCommand redisCommandTable[] = {
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
     {"migrate",migrateCommand,-6,"wR",0,migrateGetKeys,0,0,0,0,0},
+    {"restore-async",restoreAsyncCommand,-2,"wsm",0,NULL,1,1,1,0,0},
+    {"restore-async-asking",restoreAsyncCommand,-2,"wsmk",0,NULL,1,1,1,0,0},
     {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
@@ -1330,6 +1332,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
+    /* Cleanup expired RESTORE cached fragments. */
+    run_with_period(1000) {
+        restoreCloseTimedoutCommands();
+    }
+
     /* Start a scheduled BGSAVE if the corresponding flag is set. This is
      * useful when we are forced to postpone a BGSAVE because an AOF
      * rewrite is in progress.
@@ -1640,6 +1647,11 @@ void initServerConfig(void) {
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
 
+    /* Migration related */
+    server.migrate_socket_cache_items = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_ITEMS;
+    server.migrate_socket_cache_timeout = CONFIG_DEFAULT_MIGRATE_SOCKET_CACHE_TIMEOUT;
+    server.migrate_socket_iobuf_len = CONFIG_DEFAULT_MIGRATE_SOCKET_IOBUF_LEN;
+
     /* Replication related */
     server.masterauth = NULL;
     server.masterhost = NULL;
@@ -1704,6 +1716,7 @@ void initServerConfig(void) {
     server.pexpireCommand = lookupCommandByCString("pexpire");
     server.xclaimCommand = lookupCommandByCString("xclaim");
     server.xgroupCommand = lookupCommandByCString("xgroup");
+    server.restoreCommand = lookupCommandByCString("restore");
 
     /* Slow log */
     server.slowlog_log_slower_than = CONFIG_DEFAULT_SLOWLOG_LOG_SLOWER_THAN;
@@ -2080,6 +2093,7 @@ void initServer(void) {
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+        server.db[j].migrating_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
@@ -2178,6 +2192,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    migrateBackgroundThreadInit();
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
@@ -2584,13 +2599,21 @@ int processCommand(client *c) {
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
      * 2) The command has no key arguments. */
-    if (server.cluster_enabled &&
-        !(c->flags & CLIENT_MASTER) &&
-        !(c->flags & CLIENT_LUA &&
-          server.lua_caller->flags & CLIENT_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 &&
-          c->cmd->proc != execCommand))
-    {
+    int check_keys = !(c->flags & CLIENT_MASTER) &&
+                     !(c->flags & CLIENT_LUA && server.lua_caller->flags & CLIENT_MASTER) &&
+                     !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0 && c->cmd->proc != execCommand);
+
+    if (check_keys && migrateNeedsRedirectClient(c)) {
+        if (c->cmd->proc == execCommand) {
+            discardTransaction(c);
+        } else {
+            flagTransaction(c);
+        }
+        addReplySds(c, sdsnew("-TRYAGAIN The specific keys are being migrated.\r\n"));
+        return C_OK;
+    }
+
+    if (check_keys && server.cluster_enabled) {
         int hashslot;
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
