@@ -102,6 +102,31 @@ start_server {tags {"string"}} {
         assert_equal 20 [r get x]
     }
 
+    test "SETNE target key missing" {
+        r del novar
+        assert_equal 1 [r setne novar foobared]
+        assert_equal "foobared" [r get novar]
+    }
+
+    test "SETNE target value different" {
+        r set foo foobared
+        assert_equal 1 [r setne foo blabla]
+        assert_equal "blabla" [r get foo]
+    }
+
+    test "SETNE target value same" {
+        r set foo foobared
+        assert_equal 0 [r setne foo foobared]
+        assert_equal "foobared" [r get foo]
+    }
+
+    test "SETNE on other type" {
+        r del foo
+        r hset foo bar foobared
+        assert_equal 1 [r setne foo foobared]
+        assert_equal "foobared" [r get foo]
+    }
+
     test {MGET} {
         r flushdb
         r set foo BAR

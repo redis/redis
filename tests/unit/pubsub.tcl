@@ -266,6 +266,21 @@ start_server {tags {"pubsub"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: setne" {
+        r config set notify-keyspace-events EA
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r set foo bar
+        r setne foo bar
+        r set bar xxx
+        r set bar yyy
+        assert_equal {pmessage * __keyevent@9__:set foo} [$rd1 read]
+        # No notification for setne.
+        assert_equal {pmessage * __keyevent@9__:set bar} [$rd1 read]
+        assert_equal {pmessage * __keyevent@9__:set bar} [$rd1 read]
+        $rd1 close
+    }
+
     test "Keyspace notifications: general events test" {
         r config set notify-keyspace-events KEg
         set rd1 [redis_deferring_client]
