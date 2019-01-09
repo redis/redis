@@ -1352,6 +1352,14 @@ typedef struct {
     dictIterator *di;
 } setTypeIterator;
 
+/* This structure represents a Redis user. This is useful for ACLs, the
+ * user is associated to the connection after the connection is authenticated.
+ * If there is no associated user, the connection uses the default user. */
+#define USER_MAX_COMMAND_BIT 1024
+typedef struct user {
+    uint64_t allowed_commands[USER_MAX_COMMAND_BIT/64];
+} user;
+
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
@@ -1655,6 +1663,7 @@ void receiveChildInfo(void);
 
 /* acl.c -- Authentication related prototypes. */
 int ACLCheckUserCredentials(robj *username, robj *password);
+unsigned long ACLGetCommandID(const char *cmdname);
 
 /* Sorted sets data type */
 

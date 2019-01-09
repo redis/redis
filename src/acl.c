@@ -93,3 +93,20 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
         return C_ERR;
     }
 }
+
+/* For ACL purposes, every user has a bitmap with the commands that such
+ * user is allowed to execute. In order to populate the bitmap, every command
+ * should have an assigned ID (that is used to index the bitmap). This function
+ * creates such an ID: it uses sequential IDs, reusing the same ID for the same
+ * command name, so that a command retains the same ID in case of modules that
+ * are unloaded and later reloaded. */
+unsigned long ACLGetCommandID(const char *cmdname) {
+    static rax *map = NULL;
+    unsigned long nextid = 0;
+
+    if (map == NULL) map = raxNew();
+    void *id = raxFind(map,(unsigned char*)cmdname,strlen(cmdname));
+    if (id != raxNotFound) return (unsigned long)id;
+    raxInsert(map,(unsigned char*)cmdname,strlen(cmdname),(void*)nextid,NULL);
+    return nextid++;
+}

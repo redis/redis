@@ -2224,8 +2224,7 @@ void populateCommandTable(void) {
             f++;
         }
 
-        c->id = j; /* Sequential ID for each command. Used for ACLs. */
-
+        c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
