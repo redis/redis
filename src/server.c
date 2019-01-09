@@ -2202,6 +2202,8 @@ void populateCommandTable(void) {
         char *f = c->sflags;
         int retval1, retval2;
 
+        /* Translate the command string flags description into an actual
+         * set of flags. */
         while(*f != '\0') {
             switch(*f) {
             case 'w': c->flags |= CMD_WRITE; break;
@@ -2221,6 +2223,8 @@ void populateCommandTable(void) {
             }
             f++;
         }
+
+        c->id = j; /* Sequential ID for each command. Used for ACLs. */
 
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
