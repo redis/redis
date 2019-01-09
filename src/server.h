@@ -2062,6 +2062,7 @@ void strlenCommand(client *c);
 void zrankCommand(client *c);
 void zrevrankCommand(client *c);
 void hsetCommand(client *c);
+void hsetexCommand(client *c);
 void hsetnxCommand(client *c);
 void hgetCommand(client *c);
 void hmsetCommand(client *c);
