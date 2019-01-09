@@ -1994,6 +1994,15 @@ static dictType clusterManagerDictType = {
     dictSdsDestructor          /* val destructor */
 };
 
+static dictType clusterManagerLinkDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    dictSdsDestructor,         /* key destructor */
+    dictListDestructor         /* val destructor */
+};
+
 typedef int clusterManagerCommandProc(int argc, char **argv);
 typedef int (*clusterManagerOnReplyError)(redisReply *reply,
     clusterManagerNode *n, int bulk_idx);
@@ -3889,7 +3898,7 @@ static list *clusterManagerGetDisconnectedLinks(clusterManagerNode *node) {
                             (strstr(link_status, "disconnected")));
         int handshaking = (strstr(flags, "handshake") != NULL);
         if (disconnected || handshaking) {
-            clusterManagerLink *link = zmalloc(sizeof(*link)); 
+            clusterManagerLink *link = zmalloc(sizeof(*link));
             link->node_name = sdsnew(nodename);
             link->node_addr = sdsnew(addr);
             link->connected = 0;
@@ -3902,15 +3911,12 @@ cleanup:
     return links;
 }
 
-/* Check for disconnected cluster links. It returns a dict whose keys 
- * are the unreachable node addresses and the values are lists of 
+/* Check for disconnected cluster links. It returns a dict whose keys
+ * are the unreachable node addresses and the values are lists of
  * node addresses that cannot reach the unreachable node. */
 static dict *clusterManagerGetLinkStatus(void) {
     if (cluster_manager.nodes == NULL) return NULL;
-    dictType dtype = clusterManagerDictType;
-    dtype.keyDestructor = dictSdsDestructor;
-    dtype.valDestructor = dictListDestructor;
-    dict *status = dictCreate(&dtype, NULL);
+    dict *status = dictCreate(&clusterManagerLinkDictType, NULL);
     listIter li;
     listNode *ln;
     listRewind(cluster_manager.nodes, &li);
