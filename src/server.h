@@ -1305,6 +1305,11 @@ struct redisCommand {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
+    int id;     /* Command ID. This is a progressive ID starting from 0 that
+                   is assigned at runtime, and is used in order to check
+                   ACLs. A connection is able to execute a given command if
+                   the user associated to the connection has this command
+                   bit set in the bitmap of allowed commands. */
 };
 
 struct redisFunctionSym {
