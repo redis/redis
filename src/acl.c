@@ -102,7 +102,7 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
  * are unloaded and later reloaded. */
 unsigned long ACLGetCommandID(const char *cmdname) {
     static rax *map = NULL;
-    unsigned long nextid = 0;
+    static unsigned long nextid = 0;
 
     if (map == NULL) map = raxNew();
     void *id = raxFind(map,(unsigned char*)cmdname,strlen(cmdname));
