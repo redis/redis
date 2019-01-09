@@ -2867,7 +2867,7 @@ int writeCommandsDeniedByDiskError(void) {
 void authCommand(client *c) {
     if (!server.requirepass) {
         addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (ACLCheckUserCredentials(NULL,c->argv[1]->ptr)) {
+    } else if (ACLCheckUserCredentials(NULL,c->argv[1]) == C_OK) {
       c->authenticated = 1;
       addReply(c,shared.ok);
     } else {
