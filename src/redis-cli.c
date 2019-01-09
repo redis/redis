@@ -5184,9 +5184,10 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
         if (!success) return 0;
     }
 
-    // Finally shutdown the node
-    clusterManagerLogInfo(">>> SHUTDOWN the node.\n");
-    redisReply *r = redisCommand(node->context, "SHUTDOWN");
+    /* Finally send CLUSTER RESET to the node. */
+    clusterManagerLogInfo(">>> Sending CLUSTER RESET SOFT to the "
+                          "deleted node.\n");
+    redisReply *r = redisCommand(node->context, "CLUSTER RESET %s", "SOFT");
     success = clusterManagerCheckRedisReply(node, r, NULL);
     if (r) freeReplyObject(r);
     return success;
