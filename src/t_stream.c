@@ -1164,9 +1164,10 @@ void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
     decrRefCount(maxlen_obj);
 }
 
-/* XADD key [MAXLEN [~|=] <count>] <ID or *> [field value] [field value] ... */
+/* XADD key [EXPECTLAST <ID>] [MAXLEN [~|=] <count>] <ID or *> field value [field value] ... */
 void xaddCommand(client *c) {
-    streamID id;
+    streamID id, expected_last;
+    int expected_last_given = 0; /* Was EXPECTLAST value specified? */
     int id_given = 0; /* Was an ID different than "*" specified? */
     long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
@@ -1202,6 +1203,11 @@ void xaddCommand(client *c) {
             }
             i++;
             maxlen_arg_idx = i;
+        } else if (!strcasecmp(opt,"expectlast") && moreargs) {
+            if (streamParseStrictIDOrReply(c,c->argv[i+1],&expected_last,0)
+                != C_OK) return;
+            expected_last_given = 1;
+            i++;
         } else {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&id,0) != C_OK) return;
@@ -1222,6 +1228,18 @@ void xaddCommand(client *c) {
     stream *s;
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
+
+    streamID last_id = s->last_id;    
+    if (expected_last_given && streamCompareID(&expected_last, &last_id)) {
+        if (s->length) {
+            streamReplyWithRange(c, s, &last_id, &last_id, 1, 0, NULL, NULL,
+                STREAM_RWR_NOACK | STREAM_RWR_RAWENTRIES, NULL);
+        } else {
+            addReplyArrayLen(c,1);
+            addReplyStreamID(c,&last_id);
+        }
+        return;
+    }
 
     /* Append using the low level function and return the ID. */
     if (streamAppendItem(s,c->argv+field_pos,(c->argc-field_pos)/2,

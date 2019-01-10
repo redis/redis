@@ -61,6 +61,27 @@ start_server {
         assert_equal [lindex $items 1 1] {item 2 value b}
     }
 
+    test {XADD adds into a stream if EXPECTLAST value is equal to the last ID in the stream} {
+        r DEL mystream
+        set id1 [r XADD mystream EXPECTLAST 0 * item 1 value a]
+        r XADD mystream EXPECTLAST $id1 * item 2 value b
+        assert_equal [r XLEN mystream] 2
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
+    test {XADD returns the last entry of the stream, if EXPECTLAST value differs from last entry's ID} {
+        set res [r XADD mystream EXPECTLAST 0 * item 3 value c]
+        assert_equal [dict get $res [dict keys $res]] {item 2 value b}
+    }
+
+    test {XADD returns zero entry, if the stream is empty, but EXPECTLAST value is not 0-0} {
+        r DEL mystream
+        set id [r XADD mystream EXPECTLAST 1 * item 1 value a]
+        assert {[streamCompareID $id 0-0] == 0}
+    }
+
     test {XADD IDs are incremental} {
         set id1 [r XADD mystream * item 1 value a]
         set id2 [r XADD mystream * item 2 value b]
