@@ -85,6 +85,26 @@ int time_independent_strcmp(char *a, char *b) {
  * Low level ACL API
  * ==========================================================================*/
 
+/* Create a new user with the specified name, store it in the list
+ * of users (the Users global radix tree), and returns a reference to
+ * the structure representing the user.
+ *
+ * If the user with such name already exists NULL is returned. */
+user *ACLcreateUser(const char *name, size_t namelen) {
+    if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
+    user *u = zmalloc(sizeof(*u));
+    u->flags = 0;
+    u->allowed_subcommands = NULL;
+    u->passwords = listCreate();
+    u->patterns = NULL; /* Just created users cannot access to any key, however
+                           if the "~*" directive was enabled to match all the
+                           keys, the user will be flagged with the ALLKEYS
+                           flag. */
+    memset(u->allowed_commands,0,sizeof(u->allowed_commands));
+    raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
+    return u;
+}
+
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();

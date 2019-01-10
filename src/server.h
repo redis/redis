@@ -712,6 +712,7 @@ typedef struct readyList {
  * If there is no associated user, the connection uses the default user. */
 #define USER_MAX_COMMAND_BIT 1024
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
+#define USER_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
 typedef struct user {
     uint64_t flags; /* See USER_FLAG_* */
 
@@ -731,7 +732,9 @@ typedef struct user {
      * set to NULL to avoid allocating USER_MAX_COMMAND_BIT pointers. */
     sds **allowed_subcommands;
     list *passwords; /* A list of SDS valid passwords for this user. */
-    list *patterns;  /* A list of allowed key patterns. */
+    list *patterns;  /* A list of allowed key patterns. If this field is NULL
+                        the user cannot mention any key in a command, unless
+                        the flag ALLKEYS is set in the user. */
 } user;
 
 /* With multiplexing we need to take per-client state.
