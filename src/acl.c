@@ -29,6 +29,10 @@
 
 #include "server.h"
 
+/* =============================================================================
+ * Helper functions for the rest of the ACL implementation
+ * ==========================================================================*/
+
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
@@ -70,6 +74,10 @@ int time_independent_strcmp(char *a, char *b) {
     diff |= alen ^ blen;
     return diff; /* If zero strings are the same. */
 }
+
+/* =============================================================================
+ * Low level ACL API
+ * ==========================================================================*/
 
 /* Check the username and password pair and return C_OK if they are valid,
  * otherwise C_ERR is returned and errno is set to:
@@ -115,3 +123,7 @@ unsigned long ACLGetCommandID(const char *cmdname) {
 user *ACLGetUserByName(const char *name, size_t namelen) {
     return NULL;
 }
+
+/* =============================================================================
+ * ACL related commands
+ * ==========================================================================*/
