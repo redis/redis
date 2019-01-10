@@ -132,7 +132,9 @@ unsigned long ACLGetCommandID(const char *cmdname) {
 
 /* Return an username by its name, or NULL if the user does not exist. */
 user *ACLGetUserByName(const char *name, size_t namelen) {
-    return NULL;
+    void *myuser = raxFind(Users,(unsigned char*)name,namelen);
+    if (myuser == raxNotFound) return NULL;
+    return myuser;
 }
 
 /* =============================================================================
