@@ -30,6 +30,12 @@
 #include "server.h"
 
 /* =============================================================================
+ * Global state for ACLs
+ * ==========================================================================*/
+
+rax *Users; /* Table mapping usernames to user structures. */
+
+/* =============================================================================
  * Helper functions for the rest of the ACL implementation
  * ==========================================================================*/
 
@@ -78,6 +84,11 @@ int time_independent_strcmp(char *a, char *b) {
 /* =============================================================================
  * Low level ACL API
  * ==========================================================================*/
+
+/* Initialization of the ACL subsystem. */
+void ACLInit(void) {
+    Users = raxNew();
+}
 
 /* Check the username and password pair and return C_OK if they are valid,
  * otherwise C_ERR is returned and errno is set to:
