@@ -119,6 +119,7 @@ client *createClient(int fd) {
     c->argc = 0;
     c->argv = NULL;
     c->cmd = c->lastcmd = NULL;
+    c->user = ACLGetUserByName("default",7);
     c->multibulklen = 0;
     c->bulklen = -1;
     c->sentlen = 0;

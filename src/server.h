@@ -707,6 +707,33 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+/* This structure represents a Redis user. This is useful for ACLs, the
+ * user is associated to the connection after the connection is authenticated.
+ * If there is no associated user, the connection uses the default user. */
+#define USER_MAX_COMMAND_BIT 1024
+#define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
+typedef struct user {
+    uint64_t flags; /* See USER_FLAG_* */
+
+    /* The bit in allowed_commands is set if this user has the right to
+     * execute this command. In commands having subcommands, if this bit is
+     * set, then all the subcommands are also available.
+     *
+     * If the bit for a given command is NOT set and the command has
+     * subcommands, Redis will also check allowed_subcommands in order to
+     * understand if the command can be executed. */
+    uint64_t allowed_commands[USER_MAX_COMMAND_BIT/64];
+
+    /* This array points, for each command ID (corresponding to the command
+     * bit set in allowed_commands), to an array of SDS strings, terminated by
+     * a NULL pointer, with all the sub commands that can be executed for
+     * this command. When no subcommands matching is used, the field is just
+     * set to NULL to avoid allocating USER_MAX_COMMAND_BIT pointers. */
+    sds **allowed_subcommands;
+    list *passwords; /* A list of SDS valid passwords for this user. */
+    list *patterns;  /* A list of allowed key patterns. */
+} user;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
@@ -725,6 +752,7 @@ typedef struct client {
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    user *user;             /* User associated with this connection. */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
@@ -1352,33 +1380,6 @@ typedef struct {
     dictIterator *di;
 } setTypeIterator;
 
-/* This structure represents a Redis user. This is useful for ACLs, the
- * user is associated to the connection after the connection is authenticated.
- * If there is no associated user, the connection uses the default user. */
-#define USER_MAX_COMMAND_BIT 1024
-#define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
-typedef struct user {
-    uint64_t flags; /* See USER_FLAG_* */
-
-    /* The bit in allowed_commands is set if this user has the right to
-     * execute this command. In commands having subcommands, if this bit is
-     * set, then all the subcommands are also available.
-     *
-     * If the bit for a given command is NOT set and the command has
-     * subcommands, Redis will also check allowed_subcommands in order to
-     * understand if the command can be executed. */
-    uint64_t allowed_commands[USER_MAX_COMMAND_BIT/64];
-
-    /* This array points, for each command ID (corresponding to the command
-     * bit set in allowed_commands), to an array of SDS strings, terminated by
-     * a NULL pointer, with all the sub commands that can be executed for
-     * this command. When no subcommands matching is used, the field is just
-     * set to NULL to avoid allocating USER_MAX_COMMAND_BIT pointers. */
-    sds **allowed_subcommands;
-    list *passwords; /* A list of SDS valid passwords for this user. */
-    list *patterns;  /* A list of allowed key patterns. */
-} user;
-
 /* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
@@ -1683,6 +1684,7 @@ void receiveChildInfo(void);
 /* acl.c -- Authentication related prototypes. */
 int ACLCheckUserCredentials(robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
+user *ACLGetUserByName(const char *name, size_t namelen);
 
 /* Sorted sets data type */
 
