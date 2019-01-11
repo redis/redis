@@ -34,6 +34,10 @@
  * ==========================================================================*/
 
 rax *Users; /* Table mapping usernames to user structures. */
+user *DefaultUser;   /* Global reference to the default user.
+                        Every new connection is associated to it, if no
+                        AUTH or HELLO is used to authenticate with a
+                        different user. */
 
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
@@ -90,7 +94,7 @@ int time_independent_strcmp(char *a, char *b) {
  * the structure representing the user.
  *
  * If the user with such name already exists NULL is returned. */
-user *ACLcreateUser(const char *name, size_t namelen) {
+user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->flags = 0;
@@ -108,6 +112,7 @@ user *ACLcreateUser(const char *name, size_t namelen) {
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();
+    DefaultUser = ACLCreateUser("default",7);
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
