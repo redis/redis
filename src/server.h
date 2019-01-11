@@ -1685,6 +1685,7 @@ void sendChildInfo(int process_type);
 void receiveChildInfo(void);
 
 /* acl.c -- Authentication related prototypes. */
+extern user *DefaultUser;
 void ACLInit(void);
 int ACLCheckUserCredentials(robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
