@@ -127,15 +127,38 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  *                          disabled command. Note that this form is not
  *                          allowed as negative like -DEBUG|SEGFAULT, but
  *                          only additive starting with "+".
- * ~<pattern>   Set a pattern of keys that can be mentioned as part of
+ * ~<pattern>   Add a pattern of keys that can be mentioned as part of
  *              commands. For instance ~* allows all the keys. The pattern
  *              is a glob-style pattern like the one of KEYS.
+ *              It is possible to specify multiple patterns.
  * ><password>  Add this passowrd to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  * <<password>  Remove this password from the list of valid passwords.
+ * allkeys      Alias for ~*
  * resetpass    Flush the list of allowed passwords.
+ * resetkeys    Flush the list of allowed keys patterns.
+ * reset        Performs the following actions: resetpass, resetkeys, off,
+ *              -@all. The user returns to the same state it has immediately
+ *              after its creation.
+ *
+ * The function returns C_OK if the action to perform was understood because
+ * the 'op' string made sense. Otherwise C_ERR is returned if the operation
+ * is unknown or has some syntax error.
  */
-void ACLSetUser(user *u, const char *op) {
+int ACLSetUser(user *u, const char *op) {
+    if (!strcasecmp(op,"on")) {
+        u->flags |= USER_FLAG_ENABLED;
+    } else if (!strcasecmp(op,"off")) {
+        u->flags &= ~USER_FLAG_ENABLED;
+    } else if (!strcasecmp(op,"allkeys") ||
+               !strcasecmp(op,"~*"))
+    {
+        memset(u->allowed_subcommands,255,sizeof(u->allowed_commands));
+        u->flags |= USER_FLAG_ALLKEYS;
+    } else {
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* Initialization of the ACL subsystem. */
