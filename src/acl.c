@@ -109,10 +109,41 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     return u;
 }
 
+/* Set user properties according to the string "op". The following
+ * is a description of what different strings will do:
+ *
+ * on           Enable the user
+ * off          Disable the user
+ * +<command>   Allow the execution of that command
+ * -<command>   Disallow the execution of that command
+ * +@<category> Allow the execution of all the commands in such category
+ *              with valid categories being @set, @sortedset, @list, @hash,
+ *                                          @string, @bitmap, @hyperloglog,
+ *                                          @stream, @admin, @readonly,
+ *                                          @readwrite, @fast, @slow,
+ *                                          @pubsub.
+ *              The special category @all means all the commands.
+ * +<command>|subcommand    Allow a specific subcommand of an otherwise
+ *                          disabled command. Note that this form is not
+ *                          allowed as negative like -DEBUG|SEGFAULT, but
+ *                          only additive starting with "+".
+ * ~<pattern>   Set a pattern of keys that can be mentioned as part of
+ *              commands. For instance ~* allows all the keys. The pattern
+ *              is a glob-style pattern like the one of KEYS.
+ * ><password>  Add this passowrd to the list of valid password for the user.
+ *              For example >mypass will add "mypass" to the list.
+ * <<password>  Remove this password from the list of valid passwords.
+ * resetpass    Flush the list of allowed passwords.
+ */
+void ACLSetUser(user *u, const char *op) {
+}
+
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();
     DefaultUser = ACLCreateUser("default",7);
+    ACLSetUser(DefaultUser,"+@all");
+    ACLSetUser(DefaultUser,"on");
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
