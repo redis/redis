@@ -2185,7 +2185,6 @@ void initServer(void) {
     if (server.cluster_enabled) clusterInit();
     replicationScriptCacheInit();
     scriptingInit(1);
-    ACLInit();
     slowlogInit();
     latencyMonitorInit();
     bioInit();
@@ -4023,6 +4022,9 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+
+    /* ACLInit should run before calling moduleInitModulesSystem */
+    ACLInit();
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order
