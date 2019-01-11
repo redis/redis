@@ -4022,9 +4022,8 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
-
-    /* ACLInit should run before calling moduleInitModulesSystem */
-    ACLInit();
+    ACLInit(); /* The ACL subsystem must be initialized ASAP because the
+                  basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order
