@@ -153,7 +153,7 @@ int ACLSetUser(user *u, const char *op) {
     } else if (!strcasecmp(op,"allkeys") ||
                !strcasecmp(op,"~*"))
     {
-        memset(u->allowed_subcommands,255,sizeof(u->allowed_commands));
+        memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLKEYS;
     } else {
         return C_ERR;
@@ -165,7 +165,7 @@ int ACLSetUser(user *u, const char *op) {
 void ACLInit(void) {
     Users = raxNew();
     DefaultUser = ACLCreateUser("default",7);
-    ACLSetUser(DefaultUser,"+@all");
+    ACLSetUser(DefaultUser,"allkeys");
     ACLSetUser(DefaultUser,"on");
 }
 
