@@ -2578,6 +2578,12 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
+    /* For invalid offset, return directly. */
+    if (offset > 0 && offset >= zsetLength(zobj)) {
+        addReplyNull(c);
+        return;
+    }
+
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
