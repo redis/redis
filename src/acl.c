@@ -134,6 +134,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  * ><password>  Add this passowrd to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  * <<password>  Remove this password from the list of valid passwords.
+ * allcommands  Alias for +@all
  * allkeys      Alias for ~*
  * resetpass    Flush the list of allowed passwords.
  * resetkeys    Flush the list of allowed keys patterns.
