@@ -1693,6 +1693,7 @@ void ACLInit(void);
 int ACLCheckUserCredentials(robj *username, robj *password);
 unsigned long ACLGetCommandID(const char *cmdname);
 user *ACLGetUserByName(const char *name, size_t namelen);
+int ACLCheckCommandPerm(client *c);
 
 /* Sorted sets data type */
 

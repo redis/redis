@@ -2690,7 +2690,7 @@ int processCommand(client *c) {
     /* Check if the user can run this command according to the current
      * ACLs. */
     if (ACLCheckCommandPerm(c) == C_ERR) {
-        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", cmd->name);
+        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", c->cmd->name);
     }
 
     /* Only allow a subset of commands in the context of Pub/Sub if the
