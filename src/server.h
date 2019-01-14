@@ -713,6 +713,7 @@ typedef struct readyList {
 #define USER_MAX_COMMAND_BIT 1024
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
 #define USER_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
+#define USER_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
 typedef struct user {
     uint64_t flags; /* See USER_FLAG_* */
 
@@ -755,7 +756,9 @@ typedef struct client {
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
-    user *user;             /* User associated with this connection. */
+    user *user;             /* User associated with this connection. If the
+                               user is set to NULL the connection can do
+                               anything (admin). */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
