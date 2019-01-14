@@ -222,6 +222,29 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
+/* Check if the command ready to be excuted in the client 'c', and already
+ * referenced by c->cmd, can be executed by this client according to the
+ * ACls associated to the client user c->user.
+ *
+ * If the user can execute the command C_OK is returned, otherwise
+ * C_ERR is returned. */
+int ACLCheckCommandPerm(client *c) {
+    /* If there is no associated user, the connection can run anything. */
+    if (c->user == NULL) return C_OK;
+
+    /* Check if the user can execute this command. */
+    if (!(c->user->flags & USER_FLAG_ALLCOMMANDS)) {
+    }
+
+    /* Check if the user can execute touch this keys. */
+    if (!(c->user->flags & USER_FLAG_ALLKEYS)) {
+    }
+
+    /* If we survived all the above checks, the user can execute the
+     * command. */
+    return C_OK;
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/
