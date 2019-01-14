@@ -229,15 +229,41 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * If the user can execute the command C_OK is returned, otherwise
  * C_ERR is returned. */
 int ACLCheckCommandPerm(client *c) {
+    user *u = c->user;
+    uint64_t id = c->cmd->id;
+
     /* If there is no associated user, the connection can run anything. */
-    if (c->user == NULL) return C_OK;
+    if (u == NULL) return C_OK;
+
+    /* We have to deny every command with an ID that overflows the Redis
+     * internal structures. Very unlikely to happen. */
+    if (c->cmd->id >= USER_MAX_COMMAND_BIT) return C_ERR;
 
     /* Check if the user can execute this command. */
-    if (!(c->user->flags & USER_FLAG_ALLCOMMANDS)) {
+    if (!(u->flags & USER_FLAG_ALLCOMMANDS)) {
+        uint64_t wordid = id / sizeof(u->allowed_commands[0]) / 8;
+        uint64_t bit = 1 << (id % (sizeof(u->allowed_commands[0] * 8)));
+        /* If the bit is not set we have to check further, in case the
+         * command is allowed just with that specific subcommand. */
+        if (!(u->allowed_commands[wordid] & bit)) {
+            /* Check if the subcommand matches. */
+            if (u->allowed_subcommands == NULL || c->argc < 2) return C_ERR;
+            long subid = 0;
+            while (1) {
+                if (u->allowed_subcommands[id][subid] == NULL) return C_ERR;
+                if (!strcasecmp(c->argv[1]->ptr,
+                                u->allowed_subcommands[id][subid]))
+                    break; /* Subcommand match found. Stop here. */
+                subid++;
+            }
+        }
     }
 
-    /* Check if the user can execute touch this keys. */
-    if (!(c->user->flags & USER_FLAG_ALLKEYS)) {
+    /* Check if the user can execute commands explicitly touching the keys
+     * mentioned in the command arguments. */
+    if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
+        (c->cmd->getkeys_proc || c->cmd->firstkey))
+    {
     }
 
     /* If we survived all the above checks, the user can execute the

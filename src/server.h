@@ -710,7 +710,8 @@ typedef struct readyList {
 /* This structure represents a Redis user. This is useful for ACLs, the
  * user is associated to the connection after the connection is authenticated.
  * If there is no associated user, the connection uses the default user. */
-#define USER_MAX_COMMAND_BIT 1024
+#define USER_MAX_COMMAND_BIT 1024       /* The first *not valid* bit that
+                                           would overflow. So check for >= */
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
 #define USER_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
 #define USER_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
