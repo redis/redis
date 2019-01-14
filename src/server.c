@@ -2687,6 +2687,12 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /* Check if the user can run this command according to the current
+     * ACLs. */
+    if (ACLCheckCommandPerm(c) == C_ERR) {
+        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", cmd->name);
+    }
+
     /* Only allow a subset of commands in the context of Pub/Sub if the
      * connection is in RESP2 mode. With RESP3 there are no limits. */
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
