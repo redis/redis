@@ -153,8 +153,13 @@ int ACLSetUser(user *u, const char *op) {
     } else if (!strcasecmp(op,"allkeys") ||
                !strcasecmp(op,"~*"))
     {
-        memset(u->allowed_subcommands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLKEYS;
+        if (u->patterns) listEmpty(u->patterns);
+    } else if (!strcasecmp(op,"allcommands") ||
+               !strcasecmp(op,"+@all"))
+    {
+        memset(u->allowed_subcommands,255,sizeof(u->allowed_commands));
+        u->flags |= USER_FLAG_ALLCOMMANDS;
     } else {
         return C_ERR;
     }
