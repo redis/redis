@@ -249,7 +249,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  * Possible optimizations (not needed by Redis so far, but...):
  * 1) Insert the event in order, so that the nearest is just the head.
  *    Much better but still insertion or deletion of timers is O(N).
- * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
+ * 2) Use a skiplist to have this operation as O(log(N)) and insertion as O(log(N)).
  */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
