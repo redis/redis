@@ -30,7 +30,6 @@
 
 #include "server.h"
 
-#include <sys/stat.h>
 /* ----------------- Blocking sockets I/O with timeouts --------------------- */
 
 /* Redis performs most of the I/O in a nonblocking way, with the exception
@@ -83,7 +82,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
  * data could be read from the file descriptor. */
-ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {    
+ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread, totread = 0;
     long long start = mstime();
     long long remaining = timeout;

@@ -2679,9 +2679,9 @@ int prepareForShutdown(int flags) {
 #ifdef BUILD_SSL
     /* Clean up any resources used for SSL */
     cleanupSsl(&server.ssl_config);
-#endif
     sslProxyStop(server.ssl_proxy);
     releaseSslProxy(server.ssl_proxy);
+#endif
 
     serverLog(LL_WARNING,"%s is now ready to exit, bye bye...",
         server.sentinel_mode ? "Sentinel" : "Redis");

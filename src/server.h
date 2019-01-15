@@ -294,9 +294,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REPL_STATE_RECEIVE_CAPA 11 /* Wait for REPLCONF reply */
 #define REPL_STATE_SEND_PSYNC 12 /* Send PSYNC */
 #define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
-#ifdef BUILD_SSL
-#define REPL_STATE_SSL_HANDSHAKE 999 /* Waiting in SSL handshake */
-#endif
 /* --- End of handshake states --- */
 #define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
 #define REPL_STATE_CONNECTED 15 /* Connected to master */
@@ -449,8 +446,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),_exit(1)
-
-#define ping(fd) write((fd), "\n", 1)
 
 
 /*-----------------------------------------------------------------------------
@@ -1249,8 +1244,6 @@ struct redisServer {
     pthread_mutex_t next_client_id_mutex;
     pthread_mutex_t unixtime_mutex;
 
-    struct rdbSaveInfo * master_replication_rdb_save_info; /* Used to store the save info for after ssl handshake */
-
     char *cluster_announce_endpoint; /* Endpoint address to announce on cluster bus, only for ssl enabled */
     cluster_interface_type client_cluster_interface_type; /* Which endpoint to show to clients, only for ssl enabled */
 #ifdef BUILD_SSL
@@ -1890,12 +1883,6 @@ void dictSdsDestructor(void *privdata, void *val);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
-
-/* functions exposed to ssl.h if compiled with SSL*/
-int cancelReplicationHandshake(void);
-void finishSyncAfterReceivingBulkPayloadOnSlave(void);
-
-
 
 /* Commands prototypes */
 void authCommand(client *c);

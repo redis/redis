@@ -20,17 +20,22 @@ void sslProxyClientWriteHandler(aeEventLoop *el, int fd, void *privdata, int mas
 void handleNegotiationFailure(aeEventLoop *el, int fd, void *privdata, int mask);
 void handleNegotiationSuccess(aeEventLoop *el, int fd, void *privdata, int mask);
 
-// It seems like ae should support some private data 
+// It seems like ae should support some private data on the event loop so it
+// can be aware of the proxy in before and after sleep. For now a thread local 
+// variable is fine.
 static __thread sslProxy *threadProxy;
 
 // --------------------- Internal interface --------------------------
 
-//
-// <--> | proxy | <--> | redis
-// 1. Write to internet
-// 2. Read from internet
-// 3. Write to redis
-// 4. Read from redis
+/**
+ * There are four handlers here that write to and from 2 buffers.
+ * 
+ * Client <--> | proxy | <--> | redis
+ * 1. Write to client (Encrypted)
+ * 2. Read from client (Encrypted)
+ * 3. Write to redis (Unencrypted)
+ * 4. Read from redis (Unencrypted)
+*/
 
 void sslProxyReleaseConnection(sslProxyConnection *connection) {
     sdsfree(connection->application_buffer);
@@ -206,9 +211,9 @@ void proxyAfterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 }
 
-// A normal C function that is executed as a thread  
-// when its name is specified in pthread_create() 
+// This is launched in a new thread 
 void *sslProxyStartThread(void *arg) { 
+    pthread_mutex_lock(&(proxy->proxy_mutex));
     sslProxy *proxy = (sslProxy*) arg;
     threadProxy = proxy;
     for(int i = 0; i < proxy->fdcount; i++){
@@ -216,6 +221,7 @@ void *sslProxyStartThread(void *arg) {
     }
 
     aeCreateTimeEvent(proxy->el, 1, proxyCron, NULL, NULL);
+    pthread_mutex_unlock(&(proxy->proxy_mutex));
 
     aeMain(proxy->el);
     return NULL;
@@ -246,8 +252,9 @@ void releaseSslProxy(sslProxy *proxy) {
 int sslProxyStart(sslProxy *proxy) {
     pthread_mutex_lock(&(proxy->proxy_mutex));
     proxy->running = 1;
-    pthread_create(&(proxy->proxy_thread), NULL, &sslProxyStartThread, proxy); 
     pthread_mutex_unlock(&(proxy->proxy_mutex));
+
+    pthread_create(&(proxy->proxy_thread), NULL, &sslProxyStartThread, proxy); 
     return 1;
 }
 
