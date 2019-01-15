@@ -115,7 +115,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    is deterministic.
  * l: Allow command while loading the database.
  * t: Allow command while a slave has stale data but is not allowed to
- *    server this data. Normally no command is accepted in this condition
+ *    serve this data. Normally no command is accepted in this condition
  *    but just a few.
  * M: Do not automatically propagate the command on MONITOR.
  * k: Perform an implicit ASKING for this command, so the command will be
@@ -326,7 +326,8 @@ struct redisCommand redisCommandTable[] = {
     {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
     {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
     {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0,0},
-    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0,0}
+    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0,0},
+    {"acl",aclCommand,-2,"ast",0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */

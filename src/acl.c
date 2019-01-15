@@ -274,3 +274,39 @@ int ACLCheckCommandPerm(client *c) {
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/
+
+/* ACL -- show and modify the configuration of ACL users.
+ * ACL help
+ * ACL list
+ * ACL setuser <username> ... user attribs ...
+ * ACL deluser <username>
+ * ACL getuser <username>
+ */
+void aclCommand(client *c) {
+    char *sub = c->argv[1]->ptr;
+    if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
+        sds username = c->argv[2]->ptr;
+        user *u = ACLGetUserByName(username,sdslen(username));
+        if (!u) u = ACLCreateUser(username,sdslen(username));
+        serverAssert(u != NULL);
+        for (int j = 3; j < c->argc; j++) {
+            if (ACLSetUser(u,c->argv[j]->ptr) != C_OK) {
+                addReplyErrorFormat(c,"Syntax error in ACL SETUSER modifier '%s'",
+                    c->argv[j]->ptr);
+                return;
+            }
+        }
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(sub,"help")) {
+        const char *help[] = {
+"LIST                              -- List all the registered users.",
+"SETUSER <username> [attribs ...]  -- Create or modify a user.",
+"DELUSER <username>                -- Delete a user.",
+"GETUSER <username>                -- Get the user details.",
+NULL
+        };
+        addReplyHelp(c,help);
+    } else {
+        addReplySubcommandSyntaxError(c);
+    }
+}
