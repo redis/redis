@@ -125,7 +125,9 @@ client *createClient(int fd) {
     c->sentlen = 0;
     c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
-    c->authenticated = 0;
+    /* If the default user does not require authentication, the user is
+     * directly authenticated. */
+    c->authenticated = (c->user->flags & USER_FLAG_NOPASS) != 0;
     c->replstate = REPL_STATE_NONE;
     c->repl_put_online_on_ack = 0;
     c->reploff = 0;
