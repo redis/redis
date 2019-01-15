@@ -722,6 +722,7 @@ typedef struct readyList {
                                            connection is immediately
                                            authenticated. */
 typedef struct user {
+    sds name;       /* The username as an SDS string. */
     uint64_t flags; /* See USER_FLAG_* */
 
     /* The bit in allowed_commands is set if this user has the right to

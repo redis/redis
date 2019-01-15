@@ -103,6 +103,7 @@ int ACLListMatchSds(void *a, void *b) {
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
+    u->name = sdsnewlen(name,namelen);
     u->flags = 0;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
@@ -119,8 +120,10 @@ user *ACLCreateUser(const char *name, size_t namelen) {
 /* Set user properties according to the string "op". The following
  * is a description of what different strings will do:
  *
- * on           Enable the user
- * off          Disable the user
+ * on           Enable the user: it is possible to authenticate as this user.
+ * off          Disable the user: it's no longer possible to authenticate
+ *              with this user, however the already authenticated connections
+ *              will still work.
  * +<command>   Allow the execution of that command
  * -<command>   Disallow the execution of that command
  * +@<category> Allow the execution of all the commands in such category
@@ -140,6 +143,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  *              It is possible to specify multiple patterns.
  * ><password>  Add this passowrd to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
+ *              This directive clears the "nopass" flag (see later).
  * <<password>  Remove this password from the list of valid passwords.
  * nopass       All the set passwords of the user are removed, and the user
  *              is flagged as requiring no password: it means that every
@@ -193,6 +197,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
         if (ln == NULL) listAddNodeTail(u->passwords,newpass);
+        u->flags &= ~USER_FLAG_NOPASS;
     } else if (op[0] == '<') {
         sds delpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,delpass);
@@ -220,20 +225,35 @@ void ACLInit(void) {
  *  ENONENT: if the specified user does not exist at all.
  */
 int ACLCheckUserCredentials(robj *username, robj *password) {
-    /* For now only the "default" user is allowed. When the RCP1 ACLs
-     * will be implemented multiple usernames will be supproted. */
-    if (username != NULL && strcmp(username->ptr,"default")) {
+    user *u = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+    if (u == NULL) {
         errno = ENOENT;
         return C_ERR;
     }
 
-    /* For now we just compare the password with the system wide one. */
-    if (!time_independent_strcmp(password->ptr, server.requirepass)) {
-        return C_OK;
-    } else {
+    /* Disabled users can't login. */
+    if ((u->flags & USER_FLAG_ENABLED) == 0) {
         errno = EINVAL;
         return C_ERR;
     }
+
+    /* If the user is configured to don't require any password, we
+     * are already fine here. */
+    if (u->flags & USER_FLAG_NOPASS) return C_OK;
+
+    /* Check all the user passwords for at least one to match. */
+    listIter li;
+    listNode *ln;
+    listRewind(u->passwords,&li);
+    while((ln = listNext(&li))) {
+        sds thispass = listNodeValue(ln);
+        if (!time_independent_strcmp(password->ptr, thispass))
+            return C_OK;
+    }
+
+    /* If we reached this point, no password matched. */
+    errno = EINVAL;
+    return C_ERR;
 }
 
 /* For ACL purposes, every user has a bitmap with the commands that such
@@ -314,11 +334,11 @@ int ACLCheckCommandPerm(client *c) {
  * ==========================================================================*/
 
 /* ACL -- show and modify the configuration of ACL users.
- * ACL help
- * ACL list
- * ACL setuser <username> ... user attribs ...
- * ACL deluser <username>
- * ACL getuser <username>
+ * ACL HELP
+ * ACL LIST
+ * ACL SETUSER <username> ... user attribs ...
+ * ACL DELUSER <username>
+ * ACL GETUSER <username>
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
@@ -336,12 +356,19 @@ void aclCommand(client *c) {
             }
         }
         addReply(c,shared.ok);
+    } else if (!strcasecmp(sub,"whoami")) {
+        if (c->user != NULL) {
+            addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
+        } else {
+            addReplyNull(c);
+        }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LIST                              -- List all the registered users.",
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",
 "DELUSER <username>                -- Delete a user.",
 "GETUSER <username>                -- Get the user details.",
+"WHOAMI                            -- Return the current username.",
 NULL
         };
         addReplyHelp(c,help);
