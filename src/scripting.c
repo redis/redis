@@ -703,6 +703,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     {
         execCommandPropagateMulti(server.lua_caller);
         server.lua_multi_emitted = 1;
+        /* Now we are in the MULTI context, the lua_client should be
+         * flag as CLIENT_MULTI. */
+        c->flags |= CLIENT_MULTI;
     }
 
     /* Run the command */
