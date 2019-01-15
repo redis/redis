@@ -89,6 +89,12 @@ int time_independent_strcmp(char *a, char *b) {
  * Low level ACL API
  * ==========================================================================*/
 
+/* Method for passwords/pattern comparison used for the user->passwords list
+ * so that we can search for items with listSearchKey(). */
+int ACLListMatchSds(void *a, void *b) {
+    return sdscmp(a,b) == 0;
+}
+
 /* Create a new user with the specified name, store it in the list
  * of users (the Users global radix tree), and returns a reference to
  * the structure representing the user.
@@ -100,6 +106,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->flags = 0;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
+    listSetMatchMethod(u->passwords,ACLListMatchSds);
     u->patterns = NULL; /* Just created users cannot access to any key, however
                            if the "~*" directive was enabled to match all the
                            keys, the user will be flagged with the ALLKEYS
@@ -142,11 +149,18 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  *              -@all. The user returns to the same state it has immediately
  *              after its creation.
  *
+ * The 'op' string must be null terminated. The 'oplen' argument should
+ * specify the length of the 'op' string in case the caller requires to pass
+ * binary data (for instance the >password form may use a binary password).
+ * Otherwise the field can be set to -1 and the function will use strlen()
+ * to determine the length.
+ *
  * The function returns C_OK if the action to perform was understood because
  * the 'op' string made sense. Otherwise C_ERR is returned if the operation
  * is unknown or has some syntax error.
  */
-int ACLSetUser(user *u, const char *op) {
+int ACLSetUser(user *u, const char *op, ssize_t oplen) {
+    if (oplen == -1) oplen = strlen(op);
     if (!strcasecmp(op,"on")) {
         u->flags |= USER_FLAG_ENABLED;
     } else if (!strcasecmp(op,"off")) {
@@ -161,6 +175,16 @@ int ACLSetUser(user *u, const char *op) {
     {
         memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLCOMMANDS;
+    } else if (op[0] == '>') {
+        sds newpass = sdsnewlen(op+1,oplen-1);
+        listNode *ln = listSearchKey(u->passwords,newpass);
+        /* Avoid re-adding the same password multiple times. */
+        if (ln == NULL) listAddNodeTail(u->passwords,newpass);
+    } else if (op[0] == '<') {
+        sds delpass = sdsnewlen(op+1,oplen-1);
+        listNode *ln = listSearchKey(u->passwords,delpass);
+        if (ln) listDelNode(u->passwords,ln);
+        sdsfree(delpass);
     } else {
         return C_ERR;
     }
@@ -171,8 +195,8 @@ int ACLSetUser(user *u, const char *op) {
 void ACLInit(void) {
     Users = raxNew();
     DefaultUser = ACLCreateUser("default",7);
-    ACLSetUser(DefaultUser,"+@all");
-    ACLSetUser(DefaultUser,"on");
+    ACLSetUser(DefaultUser,"+@all",-1);
+    ACLSetUser(DefaultUser,"on",-1);
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
@@ -290,8 +314,9 @@ void aclCommand(client *c) {
         if (!u) u = ACLCreateUser(username,sdslen(username));
         serverAssert(u != NULL);
         for (int j = 3; j < c->argc; j++) {
-            if (ACLSetUser(u,c->argv[j]->ptr) != C_OK) {
-                addReplyErrorFormat(c,"Syntax error in ACL SETUSER modifier '%s'",
+            if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
+                addReplyErrorFormat(c,
+                    "Syntax error in ACL SETUSER modifier '%s'",
                     c->argv[j]->ptr);
                 return;
             }
