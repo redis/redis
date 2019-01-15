@@ -2596,6 +2596,14 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /* Check if the user can run this command according to the current
+     * ACLs. */
+    if (ACLCheckCommandPerm(c) == C_ERR) {
+        flagTransaction(c);
+        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", c->cmd->name);
+        return C_OK;
+    }
+
     /* If cluster is enabled perform the cluster redirection here.
      * However we don't perform the redirection if:
      * 1) The sender of this command is our master.
@@ -2686,12 +2694,6 @@ int processCommand(client *c) {
     {
         addReply(c, shared.roslaveerr);
         return C_OK;
-    }
-
-    /* Check if the user can run this command according to the current
-     * ACLs. */
-    if (ACLCheckCommandPerm(c) == C_ERR) {
-        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", c->cmd->name);
     }
 
     /* Only allow a subset of commands in the context of Pub/Sub if the
