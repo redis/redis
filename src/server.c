@@ -237,7 +237,7 @@ struct redisCommand redisCommandTable[] = {
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0,0},
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0,0},
-    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0,0},
+    {"auth",authCommand,-2,"sltF",0,NULL,0,0,0,0,0,0},
     {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0,0},
     {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0,0},
     {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0,0},
@@ -2875,16 +2875,40 @@ int writeCommandsDeniedByDiskError(void) {
     }
 }
 
+/* AUTH <passowrd>
+ * AUTH <username> <password> (Redis >= 6.0 form)
+ *
+ * When the user is omitted it means that we are trying to authenticate
+ * against the default user. */
 void authCommand(client *c) {
-    if (!server.requirepass) {
-        addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (ACLCheckUserCredentials(NULL,c->argv[1]) == C_OK) {
+    /* Only two or three argument forms are allowed. */
+    if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    /* Handle the two different forms here. The form with two arguments
+     * will just use "default" as username. */
+    robj *username, *password;
+    if (c->argc == 2) {
+        username = createStringObject("default",7);
+        password = c->argv[1];
+    } else {
+        username = c->argv[1];
+        password = c->argv[2];
+    }
+
+    if (ACLCheckUserCredentials(username,password) == C_OK) {
       c->authenticated = 1;
+      c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
       addReply(c,shared.ok);
     } else {
-      c->authenticated = 0;
-      addReplyError(c,"invalid password");
+      addReplyError(c,"-WRONGPASS invalid username-password pair");
     }
+
+    /* Free the "default" string object we created for the two
+     * arguments form. */
+    if (c->argc == 2) decrRefCount(username);
 }
 
 /* The PING command. It works in a different way if the client is in
