@@ -298,7 +298,9 @@ int ACLCheckCommandPerm(client *c) {
     if (c->cmd->id >= USER_MAX_COMMAND_BIT) return C_ERR;
 
     /* Check if the user can execute this command. */
-    if (!(u->flags & USER_FLAG_ALLCOMMANDS)) {
+    if (!(u->flags & USER_FLAG_ALLCOMMANDS) &&
+        c->cmd->proc != authCommand)
+    {
         uint64_t wordid = id / sizeof(u->allowed_commands[0]) / 8;
         uint64_t bit = 1 << (id % (sizeof(u->allowed_commands[0] * 8)));
         /* If the bit is not set we have to check further, in case the
