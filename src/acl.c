@@ -141,9 +141,19 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  * ><password>  Add this passowrd to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  * <<password>  Remove this password from the list of valid passwords.
+ * nopass       All the set passwords of the user are removed, and the user
+ *              is flagged as requiring no password: it means that every
+ *              password will work against this user. If this directive is
+ *              used for the default user, every new connection will be
+ *              immediately authenticated with the default user without
+ *              any explicit AUTH command required. Note that the "resetpass"
+ *              directive will clear this condition.
  * allcommands  Alias for +@all
  * allkeys      Alias for ~*
- * resetpass    Flush the list of allowed passwords.
+ * resetpass    Flush the list of allowed passwords. Moreover removes the
+ *              "nopass" status. After "resetpass" the user has no associated
+ *              passwords and there is no way to authenticate without adding
+ *              some password (or setting it as "nopass" later).
  * resetkeys    Flush the list of allowed keys patterns.
  * reset        Performs the following actions: resetpass, resetkeys, off,
  *              -@all. The user returns to the same state it has immediately
@@ -175,6 +185,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     {
         memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLCOMMANDS;
+    } else if (!strcasecmp(op,"nopass")) {
+        u->flags |= USER_FLAG_NOPASS;
+        listEmpty(u->passwords);
     } else if (op[0] == '>') {
         sds newpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,newpass);
@@ -197,6 +210,7 @@ void ACLInit(void) {
     DefaultUser = ACLCreateUser("default",7);
     ACLSetUser(DefaultUser,"+@all",-1);
     ACLSetUser(DefaultUser,"on",-1);
+    ACLSetUser(DefaultUser,"nopass",-1);
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
