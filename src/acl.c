@@ -330,6 +330,29 @@ int ACLCheckCommandPerm(client *c) {
     if (!(c->user->flags & USER_FLAG_ALLKEYS) &&
         (c->cmd->getkeys_proc || c->cmd->firstkey))
     {
+        int numkeys;
+        int *keyidx = getKeysFromCommand(c->cmd,c->argv,c->argc,&numkeys);
+        for (int j = 0; j < numkeys; j++) {
+            listIter li;
+            listNode *ln;
+            listRewind(u->passwords,&li);
+
+            /* Test this key against every pattern. */
+            match = 0;
+            while((ln = listNext(&li))) {
+                sds pattern = listNodeValue(ln);
+                size_t plen = sdslen(pattern);
+                int idx = keyidx[j];
+                if (stringmatchlen(pattern,plen,c->argv[idx]->ptr,
+                                   sdslen(c->argv[idx]->ptr),0))
+                {
+                    match = 1;
+                    break;
+                }
+            }
+            if (!match) return C_ERR;
+        }
+        getKeysFreeResult(keyidx);
     }
 
     /* If we survived all the above checks, the user can execute the
