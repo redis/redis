@@ -1732,22 +1732,23 @@ NULL
     /* Everything but the "HELP" option requires a key and group name. */
     if (c->argc >= 4) {
         o = lookupKeyWrite(c->db,c->argv[2]);
-        if (o) s = o->ptr;
+        if (o) {
+            if (checkType(c,o,OBJ_STREAM)) return;
+            s = o->ptr;
+        }
         grpname = c->argv[3]->ptr;
     }
 
     /* Check for missing key/group. */
     if (c->argc >= 4 && !mkstream) {
         /* At this point key must exist, or there is an error. */
-        if (o == NULL) {
+        if (s == NULL) {
             addReplyError(c,
                 "The XGROUP subcommand requires the key to exist. "
                 "Note that for CREATE you may want to use the MKSTREAM "
                 "option to create an empty stream automatically.");
             return;
         }
-
-        if (checkType(c,o,OBJ_STREAM)) return;
 
         /* Certain subcommands require the group to exist. */
         if ((cg = streamLookupCG(s,grpname)) == NULL &&
@@ -1776,7 +1777,8 @@ NULL
         }
 
         /* Handle the MKSTREAM option now that the command can no longer fail. */
-        if (s == NULL && mkstream) {
+        if (s == NULL) {
+            serverAssert(mkstream);
             o = createStreamObject();
             dbAdd(c->db,c->argv[2],o);
             s = o->ptr;
