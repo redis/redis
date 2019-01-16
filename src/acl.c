@@ -218,6 +218,7 @@ void ACLInit(void) {
     Users = raxNew();
     DefaultUser = ACLCreateUser("default",7);
     ACLSetUser(DefaultUser,"+@all",-1);
+    ACLSetUser(DefaultUser,"~*",-1);
     ACLSetUser(DefaultUser,"on",-1);
     ACLSetUser(DefaultUser,"nopass",-1);
 }
@@ -288,18 +289,21 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * referenced by c->cmd, can be executed by this client according to the
  * ACls associated to the client user c->user.
  *
- * If the user can execute the command C_OK is returned, otherwise
- * C_ERR is returned. */
+ * If the user can execute the command ACL_OK is returned, otherwise
+ * ACL_DENIED_CMD or ACL_DENIED_KEY is returned: the first in case the
+ * command cannot be executed because the user is not allowed to run such
+ * command, the second if the command is denied because the user is trying
+ * to access keys that are not among the specified patterns. */
 int ACLCheckCommandPerm(client *c) {
     user *u = c->user;
     uint64_t id = c->cmd->id;
 
     /* If there is no associated user, the connection can run anything. */
-    if (u == NULL) return C_OK;
+    if (u == NULL) return ACL_OK;
 
     /* We have to deny every command with an ID that overflows the Redis
      * internal structures. Very unlikely to happen. */
-    if (c->cmd->id >= USER_MAX_COMMAND_BIT) return C_ERR;
+    if (c->cmd->id >= USER_MAX_COMMAND_BIT) return ACL_DENIED_CMD;
 
     /* Check if the user can execute this command. */
     if (!(u->flags & USER_FLAG_ALLCOMMANDS) &&
@@ -311,10 +315,12 @@ int ACLCheckCommandPerm(client *c) {
          * command is allowed just with that specific subcommand. */
         if (!(u->allowed_commands[wordid] & bit)) {
             /* Check if the subcommand matches. */
-            if (u->allowed_subcommands == NULL || c->argc < 2) return C_ERR;
+            if (u->allowed_subcommands == NULL || c->argc < 2)
+                return ACL_DENIED_CMD;
             long subid = 0;
             while (1) {
-                if (u->allowed_subcommands[id][subid] == NULL) return C_ERR;
+                if (u->allowed_subcommands[id][subid] == NULL)
+                    return ACL_DENIED_CMD;
                 if (!strcasecmp(c->argv[1]->ptr,
                                 u->allowed_subcommands[id][subid]))
                     break; /* Subcommand match found. Stop here. */
@@ -348,14 +354,14 @@ int ACLCheckCommandPerm(client *c) {
                     break;
                 }
             }
-            if (!match) return C_ERR;
+            if (!match) return ACL_DENIED_KEY;
         }
         getKeysFreeResult(keyidx);
     }
 
     /* If we survived all the above checks, the user can execute the
      * command. */
-    return C_OK;
+    return ACL_OK;
 }
 
 /* =============================================================================

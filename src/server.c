@@ -2598,9 +2598,17 @@ int processCommand(client *c) {
 
     /* Check if the user can run this command according to the current
      * ACLs. */
-    if (ACLCheckCommandPerm(c) == C_ERR) {
+    int acl_retval = ACLCheckCommandPerm(c);
+    if (acl_retval != ACL_OK) {
         flagTransaction(c);
-        addReplyErrorFormat(c,"-NOPERM this user has no permissions to run the %s command", c->cmd->name);
+        if (acl_retval == ACL_DENIED_CMD)
+            addReplyErrorFormat(c,
+                "-NOPERM this user has no permissions to run "
+                "the '%s' command", c->cmd->name);
+        else
+            addReplyErrorFormat(c,
+                "-NOPERM this user has no permissions to access "
+                "one of the keys used as arguments");
         return C_OK;
     }
 
