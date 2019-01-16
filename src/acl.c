@@ -107,11 +107,9 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->flags = 0;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
+    u->patterns = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
-    u->patterns = NULL; /* Just created users cannot access to any key, however
-                           if the "~*" directive was enabled to match all the
-                           keys, the user will be flagged with the ALLKEYS
-                           flag. */
+    listSetMatchMethod(u->patterns,ACLListMatchSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -338,7 +336,7 @@ int ACLCheckCommandPerm(client *c) {
             listRewind(u->passwords,&li);
 
             /* Test this key against every pattern. */
-            match = 0;
+            int match = 0;
             while((ln = listNext(&li))) {
                 sds pattern = listNodeValue(ln);
                 size_t plen = sdslen(pattern);
