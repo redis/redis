@@ -757,11 +757,12 @@ void bitopCommand(client *c) {
         setKey(c->db,targetkey,o);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
         decrRefCount(o);
+        server.dirty++;
     } else if (dbDelete(c->db,targetkey)) {
         signalModifiedKey(c->db,targetkey);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
+        server.dirty++;
     }
-    server.dirty++;
     addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
 }
 
