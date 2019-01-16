@@ -203,6 +203,12 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         listNode *ln = listSearchKey(u->passwords,delpass);
         if (ln) listDelNode(u->passwords,ln);
         sdsfree(delpass);
+    } else if (op[0] == '~') {
+        sds newpat = sdsnewlen(op+1,oplen-1);
+        listNode *ln = listSearchKey(u->patterns,newpat);
+        /* Avoid re-adding the same pattern multiple times. */
+        if (ln == NULL) listAddNodeTail(u->patterns,newpat);
+        u->flags &= ~USER_FLAG_ALLKEYS;
     } else {
         return C_ERR;
     }
