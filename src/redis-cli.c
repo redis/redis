@@ -3413,8 +3413,8 @@ cleanup:
 /* Wait until the cluster configuration is consistent. */
 static void clusterManagerWaitForClusterJoin(void) {
     printf("Waiting for the cluster to join\n");
-    int counter = 0, 
-        check_after = CLUSTER_JOIN_CHECK_AFTER + 
+    int counter = 0,
+        check_after = CLUSTER_JOIN_CHECK_AFTER +
                       (int)(listLength(cluster_manager.nodes) * 0.15f);
     while(!clusterManagerIsConfigConsistent()) {
         printf(".");
@@ -3434,11 +3434,11 @@ static void clusterManagerWaitForClusterJoin(void) {
                     char *node_ip = NULL;
                     int node_port = 0, node_bus_port = 0;
                     list *from = (list *) dictGetVal(entry);
-                    if (parseClusterNodeAddress(nodeaddr, &node_ip, 
+                    if (parseClusterNodeAddress(nodeaddr, &node_ip,
                         &node_port, &node_bus_port) && node_bus_port) {
                         clusterManagerLogErr(" - The port %d of node %s may "
-                                             "be unreachable from:\n", 
-                                             node_bus_port, node_ip); 
+                                             "be unreachable from:\n",
+                                             node_bus_port, node_ip);
                     } else {
                         clusterManagerLogErr(" - Node %s may be unreachable "
                                              "from:\n", nodeaddr);
@@ -3873,12 +3873,12 @@ static list *clusterManagerGetDisconnectedLinks(clusterManagerNode *node) {
     char *lines = reply->str, *p, *line;
     while ((p = strstr(lines, "\n")) != NULL) {
         int i = 0;
-        *p = '\0'; 
+        *p = '\0';
         line = lines;
         lines = p + 1;
         char *nodename = NULL, *addr = NULL, *flags = NULL, *link_status = NULL;
         while ((p = strchr(line, ' ')) != NULL) {
-            *p = '\0'; 
+            *p = '\0';
             char *token = line;
             line = p + 1;
             if (i == 0) nodename = token;
@@ -3889,12 +3889,10 @@ static list *clusterManagerGetDisconnectedLinks(clusterManagerNode *node) {
             i++;
         }
         if (i == 7) link_status = line;
-        
-        if (nodename == NULL || addr == NULL || flags == NULL || 
-            link_status == NULL) 
-            continue;
+        if (nodename == NULL || addr == NULL || flags == NULL ||
+            link_status == NULL) continue;
         if (strstr(flags, "myself") != NULL) continue;
-        int disconnected = ((strstr(flags, "disconnected") != NULL) || 
+        int disconnected = ((strstr(flags, "disconnected") != NULL) ||
                             (strstr(link_status, "disconnected")));
         int handshaking = (strstr(flags, "handshake") != NULL);
         if (disconnected || handshaking) {
