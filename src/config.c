@@ -531,7 +531,12 @@ void loadServerConfigFromString(char *config) {
                 err = "Password is longer than CONFIG_AUTHPASS_MAX_LEN";
                 goto loaderr;
             }
-            server.requirepass = argv[1][0] ? zstrdup(argv[1]) : NULL;
+            /* The old "requirepass" directive just translates to setting
+             * a password to the default user. */
+            ACLSetUser(DefaultUser,"resetpass",-1);
+            sds aclop = sdscatprintf(sdsempty(),">%s",argv[1]);
+            ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+            sdsfree(aclop);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
@@ -919,8 +924,12 @@ void configSetCommand(client *c) {
         server.rdb_filename = zstrdup(o->ptr);
     } config_set_special_field("requirepass") {
         if (sdslen(o->ptr) > CONFIG_AUTHPASS_MAX_LEN) goto badfmt;
-        zfree(server.requirepass);
-        server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
+        /* The old "requirepass" directive just translates to setting
+         * a password to the default user. */
+        ACLSetUser(DefaultUser,"resetpass",-1);
+        sds aclop = sdscatprintf(sdsempty(),">%s",o->ptr);
+        ACLSetUser(DefaultUser,aclop,sdslen(aclop));
+        sdsfree(aclop);
     } config_set_special_field("masterauth") {
         zfree(server.masterauth);
         server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -1332,7 +1341,6 @@ void configGetCommand(client *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
-    config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
@@ -1570,6 +1578,16 @@ void configGetCommand(client *c) {
         addReplyBulkCString(c,aux);
         sdsfree(aux);
         matches++;
+    }
+    if (stringmatch(pattern,"requirepass",1)) {
+        addReplyBulkCString(c,"requirepass");
+        if (listLength(DefaultUser->passwords)) {
+            listNode *first = listFirst(DefaultUser->passwords);
+            sds password = listNodeValue(first);
+            addReplyBulkCBuffer(c,password,sdslen(password));
+        } else {
+            addReplyBulkCString(c,"");
+        }
     }
     setDeferredMapLen(c,replylen,matches);
 }
@@ -1981,6 +1999,27 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite the requirepass option. */
+void rewriteConfigRequirepassOption(struct rewriteConfigState *state, char *option) {
+    int force = 1;
+    sds line;
+
+    /* If there is no password set, we don't want the requirepass option
+     * to be present in the configuration at all. */
+    if (listLength(DefaultUser->passwords) == 0) {
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    listNode *first = listFirst(DefaultUser->passwords);
+    sds password = listNodeValue(first);
+    line = sdscatsds(line, password);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -2161,7 +2200,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"replica-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-replicas-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
     rewriteConfigNumericalOption(state,"min-replicas-max-lag",server.repl_min_slaves_max_lag,CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG);
-    rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
+    rewriteConfigRequirepassOption(state,"requirepass");
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,CONFIG_DEFAULT_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,CONFIG_DEFAULT_MAXMEMORY);
     rewriteConfigBytesOption(state,"proto-max-bulk-len",server.proto_max_bulk_len,CONFIG_DEFAULT_PROTO_MAX_BULK_LEN);
