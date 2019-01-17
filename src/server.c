@@ -2587,7 +2587,7 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass &&
+    if (!(DefaultUser->flags & USER_FLAG_NOPASS) &&
         !c->authenticated &&
         (c->cmd->proc != authCommand || c->cmd->proc == helloCommand))
     {
