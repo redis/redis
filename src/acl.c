@@ -397,6 +397,45 @@ void aclCommand(client *c) {
         } else {
             addReplyNull(c);
         }
+    } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
+        user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+        addReplyMapLen(c,2);
+
+        /* Flags */
+        addReplyBulkCString(c,"flags");
+        void *deflen = addReplyDeferredLen(c);
+        int numflags = 0;
+        if (u->flags & USER_FLAG_ENABLED) {
+            addReplyBulkCString(c,"on");
+            numflags++;
+        } else {
+            addReplyBulkCString(c,"off");
+            numflags++;
+        }
+        if (u->flags & USER_FLAG_ALLKEYS) {
+            addReplyBulkCString(c,"allkeys");
+            numflags++;
+        }
+        if (u->flags & USER_FLAG_ALLCOMMANDS) {
+            addReplyBulkCString(c,"allcommnads");
+            numflags++;
+        }
+        if (u->flags & USER_FLAG_NOPASS) {
+            addReplyBulkCString(c,"nopass");
+            numflags++;
+        }
+        setDeferredSetLen(c,deflen,numflags);
+
+        /* Passwords */
+        addReplyBulkCString(c,"passwords");
+        addReplyArrayLen(c,listLength(u->passwords));
+        listIter li;
+        listNode *ln;
+        listRewind(u->passwords,&li);
+        while((ln = listNext(&li))) {
+            sds thispass = listNodeValue(ln);
+            addReplyBulkCBuffer(c,thispass,sdslen(thispass));
+        }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LIST                              -- List all the registered users.",
