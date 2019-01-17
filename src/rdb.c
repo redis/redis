@@ -1964,10 +1964,18 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                         "BODY: %s", auxval->ptr);
                 }
             } else {
-                /* We ignore fields we don't understand, as by AUX field
-                 * contract. */
-                serverLog(LL_DEBUG,"Unrecognized RDB AUX field: '%s'",
-                    (char*)auxkey->ptr);
+                /* ignore AUX field and not debug log */
+                if (strcasecmp(auxkey->ptr,"redis-ver") ||
+                    strcasecmp(auxkey->ptr,"redis-bits") ||
+                    strcasecmp(auxkey->ptr,"ctime") ||
+                    strcasecmp(auxkey->ptr,"used-mem")) {
+                        // ignore AUX field
+                } else {
+                    /* We ignore fields we don't understand, as by AUX field
+                    * contract. */
+                    serverLog(LL_DEBUG,"Unrecognized RDB AUX field: '%s'",
+                        (char*)auxkey->ptr);
+                }
             }
 
             decrRefCount(auxkey);
