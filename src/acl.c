@@ -190,6 +190,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (!strcasecmp(op,"nopass")) {
         u->flags |= USER_FLAG_NOPASS;
         listEmpty(u->passwords);
+    } else if (!strcasecmp(op,"resetpass")) {
+        u->flags &= ~USER_FLAG_NOPASS;
+        listEmpty(u->passwords);
     } else if (op[0] == '>') {
         sds newpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,newpass);
