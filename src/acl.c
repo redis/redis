@@ -284,10 +284,17 @@ unsigned long ACLGetCommandID(const char *cmdname) {
     static rax *map = NULL;
     static unsigned long nextid = 0;
 
+    sds lowername = sdsnew(cmdname);
+    sdstolower(lowername);
     if (map == NULL) map = raxNew();
-    void *id = raxFind(map,(unsigned char*)cmdname,strlen(cmdname));
-    if (id != raxNotFound) return (unsigned long)id;
-    raxInsert(map,(unsigned char*)cmdname,strlen(cmdname),(void*)nextid,NULL);
+    void *id = raxFind(map,(unsigned char*)lowername,sdslen(lowername));
+    if (id != raxNotFound) {
+        sdsfree(lowername);
+        return (unsigned long)id;
+    }
+    raxInsert(map,(unsigned char*)lowername,strlen(lowername),
+              (void*)nextid,NULL);
+    sdsfree(lowername);
     return nextid++;
 }
 
