@@ -41,6 +41,30 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_STREAM) {
+        size_t effort = 0;
+        stream *s = obj->ptr;
+
+        /* Make a best effort estimate to maintain constant runtime. Every macro
+         * node in the Stream is one allocation. */
+        effort += s->rax->numnodes;
+
+        /* Every consumer group is an allocation and so are the entries in its
+         * PEL. We use size of the first group's PEL as an estimate for all
+         * others. */
+        if (s->cgroups) {
+            raxIterator ri;
+            streamCG *cg;
+            raxStart(&ri,s->cgroups);
+            raxSeek(&ri,"^",NULL,0);
+            /* There must be at least one group so the following should always
+             * work. */
+            serverAssert(raxNext(&ri));
+            cg = ri.data;
+            effort += raxSize(s->cgroups)*(1+raxSize(cg->pel));
+            raxStop(&ri);
+        }
+        return effort;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
