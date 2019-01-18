@@ -115,6 +115,55 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     return u;
 }
 
+/* Given a command ID, this function set by reference 'word' and 'bit'
+ * so that user->allowed_commands[word] will address the right word
+ * where the corresponding bit for the provided ID is stored, and
+ * so that user->allowed_commands[word]&bit will identify that specific
+ * bit. The function returns C_ERR in case the specified ID overflows
+ * the bitmap in the user representation. */
+int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit) {
+    if (id >= USER_MAX_COMMAND_BIT) return C_ERR;
+    *word = id / sizeof(uint64_t) / 8;
+    *bit = 1 << (id % (sizeof(uint64_t) * 8));
+    return C_OK;
+}
+
+/* Check if the specified command bit is set for the specified user.
+ * The function returns 1 is the bit is set or 0 if it is not.
+ * Note that this function does not check the ALLCOMMANDS flag of the user
+ * but just the lowlevel bitmask.
+ *
+ * If the bit overflows the user internal represetation, zero is returned
+ * in order to disallow the execution of the command in such edge case. */
+int ACLGetUserCommandBit(user *u, unsigned long id) {
+    uint64_t word, bit;
+    if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
+    return u->allowed_commands[word] & bit;
+}
+
+/* Set the specified command bit for the specified user to 'value' (0 or 1).
+ * If the bit overflows the user internal represetation, no operation
+ * is performed. */
+void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
+    uint64_t word, bit;
+    if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return;
+    if (value)
+        u->allowed_commands[word] |= bit;
+    else
+        u->allowed_commands[word] &= ~bit;
+}
+
+/* Get a command from the original command table, that is not affected
+ * by the command renaming operations: we base all the ACL work from that
+ * table, so that ACLs are valid regardless of command renaming. */
+struct redisCommand *ACLLookupCommand(const char *name) {
+    struct redisCommand *cmd;
+    sds sdsname = sdsnew(name);
+    cmd = dictFetchValue(server.orig_commands, sdsname);
+    sdsfree(sdsname);
+    return cmd;
+}
+
 /* Set user properties according to the string "op". The following
  * is a description of what different strings will do:
  *
@@ -170,6 +219,11 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  * The function returns C_OK if the action to perform was understood because
  * the 'op' string made sense. Otherwise C_ERR is returned if the operation
  * is unknown or has some syntax error.
+ *
+ * When an error is returned, errno is set to the following values:
+ *
+ * EINVAL: The specified opcode is not understood.
+ * ENOENT: The command name provided with + or - is not known.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -210,7 +264,23 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         /* Avoid re-adding the same pattern multiple times. */
         if (ln == NULL) listAddNodeTail(u->patterns,newpat);
         u->flags &= ~USER_FLAG_ALLKEYS;
+    } else if (op[0] == '+' && op[1] != '@') {
+        if (ACLLookupCommand(op+1) == NULL) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+        unsigned long id = ACLGetCommandID(op+1);
+        ACLSetUserCommandBit(u,id,1);
+    } else if (op[0] == '-' && op[1] != '@') {
+        if (ACLLookupCommand(op+1) == NULL) {
+            errno = ENOENT;
+            return C_ERR;
+        }
+        unsigned long id = ACLGetCommandID(op+1);
+        ACLSetUserCommandBit(u,id,0);
+        u->flags &= ~USER_FLAG_ALLCOMMANDS;
     } else {
+        errno = EINVAL;
         return C_ERR;
     }
     return C_OK;
@@ -303,32 +373,6 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     void *myuser = raxFind(Users,(unsigned char*)name,namelen);
     if (myuser == raxNotFound) return NULL;
     return myuser;
-}
-
-/* Given a command ID, this function set by reference 'word' and 'bit'
- * so that user->allowed_commands[word] will address the right word
- * where the corresponding bit for the provided ID is stored, and
- * so that user->allowed_commands[word]&bit will identify that specific
- * bit. The function returns C_ERR in case the specified ID overflows
- * the bitmap in the user representation. */
-int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit) {
-    if (id >= USER_MAX_COMMAND_BIT) return C_ERR;
-    *word = id / sizeof(uint64_t) / 8;
-    *bit = 1 << (id % (sizeof(uint64_t) * 8));
-    return C_OK;
-}
-
-/* Check if the specified command bit is set for the specified user.
- * The function returns 1 is the bit is set or 0 if it is not.
- * Note that this function does not check the ALLCOMMANDS flag of the user
- * but just the lowlevel bitmask.
- *
- * If the bit overflows the user internal represetation, zero is returned
- * in order to disallow the execution of the command in such edge case. */
-int ACLGetUserCommandBit(user *u, unsigned long id) {
-    uint64_t word, bit;
-    if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
-    return u->allowed_commands[word] & bit;
 }
 
 /* Check if the command ready to be excuted in the client 'c', and already
@@ -424,9 +468,12 @@ void aclCommand(client *c) {
         serverAssert(u != NULL);
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
+                char *errmsg = "wrong format";
+                if (errno == ENOENT) errmsg = "unknown command name in ACL";
+                if (errno == EINVAL) errmsg = "syntax error";
                 addReplyErrorFormat(c,
-                    "Syntax error in ACL SETUSER modifier '%s'",
-                    (char*)c->argv[j]->ptr);
+                    "Error in ACL SETUSER modifier '%s': %s",
+                    (char*)c->argv[j]->ptr, errmsg);
                 return;
             }
         }
