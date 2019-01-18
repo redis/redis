@@ -989,7 +989,7 @@ struct commandHelp {
     14,
     "5.0.0" },
     { "XADD",
-    "key [EXPECTLAST <ID>] [MAXLEN [~|=] <count>] <ID or *> field value [field value] ...",
+    "key [EXPECTLAST id outstrip-limit] [MAXLEN [~|=] count] id-or-* field value [field value] ...",
     "Appends a new entry to a stream",
     14,
     "5.0.0" },

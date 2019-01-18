@@ -1164,10 +1164,11 @@ void streamRewriteApproxMaxlen(client *c, stream *s, int maxlen_arg_idx) {
     decrRefCount(maxlen_obj);
 }
 
-/* XADD key [EXPECTLAST <ID>] [MAXLEN [~|=] <count>] <ID or *> field value [field value] ... */
+/* XADD key [EXPECTLAST id outstrip-limit] [MAXLEN [~|=] count] id-or-* field value [field value] ... */
 void xaddCommand(client *c) {
     streamID id, expected_last;
     int expected_last_given = 0; /* Was EXPECTLAST value specified? */
+    long long outstrip_limit = 0;
     int id_given = 0; /* Was an ID different than "*" specified? */
     long long maxlen = -1;  /* If left to -1 no trimming is performed. */
     int approx_maxlen = 0;  /* If 1 only delete whole radix tree nodes, so
@@ -1208,6 +1209,9 @@ void xaddCommand(client *c) {
                 != C_OK) return;
             expected_last_given = 1;
             i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i+1],&outstrip_limit,NULL) != C_OK)
+                return;
+            i++;
         } else {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&id,0) != C_OK) return;
@@ -1229,14 +1233,18 @@ void xaddCommand(client *c) {
     if ((o = streamTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     s = o->ptr;
 
+    /* Treating EXPECTLAST, if present */
     streamID last_id = s->last_id;    
     if (expected_last_given && streamCompareID(&expected_last, &last_id)) {
-        if (s->length) {
-            streamReplyWithRange(c, s, &last_id, &last_id, 1, 0, NULL, NULL,
-                STREAM_RWR_NOACK | STREAM_RWR_RAWENTRIES, NULL);
+        if (outstrip_limit > 0) {
+            expected_last.seq++;
+            streamReplyWithRange(c, s, &expected_last, NULL,
+                outstrip_limit, 0, NULL, NULL, 0, NULL);
+        } else if (outstrip_limit < 0) {
+            streamReplyWithRange(c, s, NULL, &last_id,
+                -outstrip_limit, 1, NULL, NULL, 0, NULL);
         } else {
-            addReplyArrayLen(c,1);
-            addReplyStreamID(c,&last_id);
+            addReplyError(c,"stale EXPECTLAST value");
         }
         return;
     }
