@@ -1596,7 +1596,6 @@ void initServerConfig(void) {
     server.pidfile = NULL;
     server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);
-    server.requirepass = NULL;
     server.rdb_compression = CONFIG_DEFAULT_RDB_COMPRESSION;
     server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;

@@ -1581,9 +1581,8 @@ void configGetCommand(client *c) {
     }
     if (stringmatch(pattern,"requirepass",1)) {
         addReplyBulkCString(c,"requirepass");
-        if (listLength(DefaultUser->passwords)) {
-            listNode *first = listFirst(DefaultUser->passwords);
-            sds password = listNodeValue(first);
+        sds password = ACLDefaultUserFirstPassword();
+        if (password) {
             addReplyBulkCBuffer(c,password,sdslen(password));
         } else {
             addReplyBulkCString(c,"");
@@ -2004,18 +2003,17 @@ void rewriteConfigBindOption(struct rewriteConfigState *state) {
 void rewriteConfigRequirepassOption(struct rewriteConfigState *state, char *option) {
     int force = 1;
     sds line;
+    sds password = ACLDefaultUserFirstPassword();
 
     /* If there is no password set, we don't want the requirepass option
      * to be present in the configuration at all. */
-    if (listLength(DefaultUser->passwords) == 0) {
+    if (password == NULL) {
         rewriteConfigMarkAsProcessed(state,option);
         return;
     }
 
     line = sdsnew(option);
     line = sdscatlen(line, " ", 1);
-    listNode *first = listFirst(DefaultUser->passwords);
-    sds password = listNodeValue(first);
     line = sdscatsds(line, password);
 
     rewriteConfigRewriteLine(state,option,line,force);

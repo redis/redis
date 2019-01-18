@@ -778,7 +778,7 @@ typedef struct client {
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* Client flags: CLIENT_* macros. */
-    int authenticated;      /* When requirepass is non-NULL. */
+    int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
@@ -988,7 +988,6 @@ struct redisServer {
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
-    char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
@@ -1707,6 +1706,7 @@ unsigned long ACLGetCommandID(const char *cmdname);
 user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLCheckCommandPerm(client *c);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
+sds ACLDefaultUserFirstPassword(void);
 
 /* Sorted sets data type */
 

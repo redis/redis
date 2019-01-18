@@ -216,6 +216,16 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     return C_OK;
 }
 
+/* Return the first password of the default user or NULL.
+ * This function is needed for backward compatibility with the old
+ * directive "requirepass" when Redis supported a single global
+ * password. */
+sds ACLDefaultUserFirstPassword(void) {
+    if (listLength(DefaultUser->passwords) == 0) return NULL;
+    listNode *first = listFirst(DefaultUser->passwords);
+    return listNodeValue(first);
+}
+
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();

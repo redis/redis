@@ -1961,7 +1961,7 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
     } else if (ri->flags & SRI_SLAVE) {
         auth_pass = ri->master->auth_pass;
     } else if (ri->flags & SRI_SENTINEL) {
-        if (server.requirepass) auth_pass = server.requirepass;
+        auth_pass = ACLDefaultUserFirstPassword();
     }
 
     if (auth_pass) {
