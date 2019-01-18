@@ -325,7 +325,7 @@ int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit)
  *
  * If the bit overflows the user internal represetation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
-int ACLCheckCommandID(user *u, unsigned long id) {
+int ACLGetUserCommandBit(user *u, unsigned long id) {
     uint64_t word, bit;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
     return u->allowed_commands[word] & bit;
@@ -353,7 +353,7 @@ int ACLCheckCommandPerm(client *c) {
     {
         /* If the bit is not set we have to check further, in case the
          * command is allowed just with that specific subcommand. */
-        if (ACLCheckCommandID(u,id) == 0) {
+        if (ACLGetUserCommandBit(u,id) == 0) {
             /* Check if the subcommand matches. */
             if (u->allowed_subcommands == NULL || c->argc < 2)
                 return ACL_DENIED_CMD;
