@@ -305,6 +305,32 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
     return myuser;
 }
 
+/* Given a command ID, this function set by reference 'word' and 'bit'
+ * so that user->allowed_commands[word] will address the right word
+ * where the corresponding bit for the provided ID is stored, and
+ * so that user->allowed_commands[word]&bit will identify that specific
+ * bit. The function returns C_ERR in case the specified ID overflows
+ * the bitmap in the user representation. */
+int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit) {
+    if (id >= USER_MAX_COMMAND_BIT) return C_ERR;
+    *word = id / sizeof(uint64_t) / 8;
+    *bit = 1 << (id % (sizeof(uint64_t) * 8));
+    return C_OK;
+}
+
+/* Check if the specified command bit is set for the specified user.
+ * The function returns 1 is the bit is set or 0 if it is not.
+ * Note that this function does not check the ALLCOMMANDS flag of the user
+ * but just the lowlevel bitmask.
+ *
+ * If the bit overflows the user internal represetation, zero is returned
+ * in order to disallow the execution of the command in such edge case. */
+int ACLCheckCommandID(user *u, unsigned long id) {
+    uint64_t word, bit;
+    if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
+    return u->allowed_commands[word] & bit;
+}
+
 /* Check if the command ready to be excuted in the client 'c', and already
  * referenced by c->cmd, can be executed by this client according to the
  * ACls associated to the client user c->user.
@@ -321,19 +347,13 @@ int ACLCheckCommandPerm(client *c) {
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
-    /* We have to deny every command with an ID that overflows the Redis
-     * internal structures. Very unlikely to happen. */
-    if (c->cmd->id >= USER_MAX_COMMAND_BIT) return ACL_DENIED_CMD;
-
     /* Check if the user can execute this command. */
     if (!(u->flags & USER_FLAG_ALLCOMMANDS) &&
         c->cmd->proc != authCommand)
     {
-        uint64_t wordid = id / sizeof(u->allowed_commands[0]) / 8;
-        uint64_t bit = 1 << (id % (sizeof(u->allowed_commands[0] * 8)));
         /* If the bit is not set we have to check further, in case the
          * command is allowed just with that specific subcommand. */
-        if (!(u->allowed_commands[wordid] & bit)) {
+        if (ACLCheckCommandID(u,id) == 0) {
             /* Check if the subcommand matches. */
             if (u->allowed_subcommands == NULL || c->argc < 2)
                 return ACL_DENIED_CMD;
