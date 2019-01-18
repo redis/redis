@@ -1588,6 +1588,7 @@ void configGetCommand(client *c) {
         } else {
             addReplyBulkCString(c,"");
         }
+        matches++;
     }
     setDeferredMapLen(c,replylen,matches);
 }
