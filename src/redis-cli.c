@@ -2436,9 +2436,10 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             }
             // Master type 'm' is always set as the first character of the
             // types string.
+            otypes = sdsdup(otypes);
             if (!node->replicate) types = sdscatprintf(otypes, "m%s", otypes);
             else types = sdscat(otypes, "s");
-            if (types != otypes) dictReplace(related, key, types);
+            dictReplace(related, key, types);
         }
         /* Now it's trivial to check, for each related group having the
          * same host, what is their local score. */
