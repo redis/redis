@@ -221,6 +221,7 @@ static void killAppendOnlyChild(void) {
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
+    closeChildInfoPipe();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
