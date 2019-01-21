@@ -399,7 +399,7 @@ void aclCommand(client *c) {
             if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
                 addReplyErrorFormat(c,
                     "Syntax error in ACL SETUSER modifier '%s'",
-                    c->argv[j]->ptr);
+                    (char*)c->argv[j]->ptr);
                 return;
             }
         }

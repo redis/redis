@@ -927,7 +927,7 @@ void configSetCommand(client *c) {
         /* The old "requirepass" directive just translates to setting
          * a password to the default user. */
         ACLSetUser(DefaultUser,"resetpass",-1);
-        sds aclop = sdscatprintf(sdsempty(),">%s",o->ptr);
+        sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
         ACLSetUser(DefaultUser,aclop,sdslen(aclop));
         sdsfree(aclop);
     } config_set_special_field("masterauth") {
