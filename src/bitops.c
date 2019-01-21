@@ -1002,7 +1002,7 @@ void bitfieldCommand(client *c) {
             highest_write_offset)) == NULL) return;
     }
 
-    addReplyMultiBulkLen(c,numops);
+    addReplyArrayLen(c,numops);
 
     /* Actually process the operations. */
     for (j = 0; j < numops; j++) {
@@ -1047,7 +1047,7 @@ void bitfieldCommand(client *c) {
                     setSignedBitfield(o->ptr,thisop->offset,
                                       thisop->bits,newval);
                 } else {
-                    addReply(c,shared.nullbulk);
+                    addReplyNull(c);
                 }
             } else {
                 uint64_t oldval, newval, wrapped, retval;
@@ -1076,7 +1076,7 @@ void bitfieldCommand(client *c) {
                     setUnsignedBitfield(o->ptr,thisop->offset,
                                         thisop->bits,newval);
                 } else {
-                    addReply(c,shared.nullbulk);
+                    addReplyNull(c);
                 }
             }
             changes++;

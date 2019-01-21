@@ -415,13 +415,13 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set. Otherwise, return nil */
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* If count is zero, serve an empty multibulk ASAP to avoid special
      * cases later. */
     if (count == 0) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
 
@@ -455,7 +455,7 @@ void spopWithCountCommand(client *c) {
     robj *propargv[3];
     propargv[0] = createStringObject("SREM",4);
     propargv[1] = c->argv[1];
-    addReplyMultiBulkLen(c,count);
+    addReplySetLen(c,count);
 
     /* Common iteration vars. */
     sds sdsele;
@@ -566,8 +566,8 @@ void spopCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a set */
-    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+         == NULL || checkType(c,set,OBJ_SET)) return;
 
     /* Get a random element from the set */
     encoding = setTypeRandomElement(set,&sdsele,&llele);
@@ -632,13 +632,13 @@ void srandmemberWithCountCommand(client *c) {
         uniq = 0;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
     if (count == 0) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
 
@@ -647,7 +647,7 @@ void srandmemberWithCountCommand(client *c) {
      * This case is trivial and can be served without auxiliary data
      * structures. */
     if (!uniq) {
-        addReplyMultiBulkLen(c,count);
+        addReplySetLen(c,count);
         while(count--) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == OBJ_ENCODING_INTSET) {
@@ -737,7 +737,7 @@ void srandmemberWithCountCommand(client *c) {
         dictIterator *di;
         dictEntry *de;
 
-        addReplyMultiBulkLen(c,count);
+        addReplySetLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
             addReplyBulk(c,dictGetKey(de));
@@ -760,8 +760,8 @@ void srandmemberCommand(client *c) {
         return;
     }
 
-    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,set,OBJ_SET)) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
+        == NULL || checkType(c,set,OBJ_SET)) return;
 
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == OBJ_ENCODING_INTSET) {
@@ -813,7 +813,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                 }
                 addReply(c,shared.czero);
             } else {
-                addReply(c,shared.emptymultibulk);
+                addReplyNull(c);
             }
             return;
         }
@@ -833,7 +833,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * to the output list and save the pointer to later modify it with the
      * right length */
     if (!dstkey) {
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
@@ -911,7 +911,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
-        setDeferredMultiBulkLength(c,replylen,cardinality);
+        setDeferredSetLen(c,replylen,cardinality);
     }
     zfree(sets);
 }
@@ -1057,7 +1057,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
-        addReplyMultiBulkLen(c,cardinality);
+        addReplySetLen(c,cardinality);
         si = setTypeInitIterator(dstset);
         while((ele = setTypeNextObject(si)) != NULL) {
             addReplyBulkCBuffer(c,ele,sdslen(ele));

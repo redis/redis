@@ -362,7 +362,7 @@ start_server {tags {"dump"}} {
             r -1 lpush list a b c d
             $second config set requirepass foobar2
             catch {r -1 migrate $second_host $second_port list 9 5000 AUTH foobar} err
-            assert_match {*invalid password*} $err
+            assert_match {*WRONGPASS*} $err
         }
     }
 }

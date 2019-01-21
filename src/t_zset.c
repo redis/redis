@@ -1638,7 +1638,7 @@ reply_to_client:
         if (processed)
             addReplyDouble(c,score);
         else
-            addReply(c,shared.nullbulk);
+            addReplyNull(c);
     } else { /* ZADD. */
         addReplyLongLong(c,ch ? added+updated : added);
     }
@@ -2427,7 +2427,7 @@ void zrangeGenericCommand(client *c, int reverse) {
         return;
     }
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL
          || checkType(c,zobj,OBJ_ZSET)) return;
 
     /* Sanitize indexes. */
@@ -2439,14 +2439,19 @@ void zrangeGenericCommand(client *c, int reverse) {
     /* Invariant: start >= 0, so this test will be true when end < 0.
      * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
 
-    /* Return the result in form of a multi-bulk reply */
-    addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
+    /* Return the result in form of a multi-bulk reply. RESP3 clients
+     * will receive sub arrays with score->element, while RESP2 returned
+     * a flat array. */
+    if (withscores && c->resp == 2)
+        addReplyArrayLen(c, rangelen*2);
+    else
+        addReplyArrayLen(c, rangelen);
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -2466,13 +2471,13 @@ void zrangeGenericCommand(client *c, int reverse) {
         while (rangelen--) {
             serverAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             if (vstr == NULL)
                 addReplyBulkLongLong(c,vlong);
             else
                 addReplyBulkCBuffer(c,vstr,vlen);
-
-            if (withscores)
-                addReplyDouble(c,zzlGetScore(sptr));
+            if (withscores) addReplyDouble(c,zzlGetScore(sptr));
 
             if (reverse)
                 zzlPrev(zl,&eptr,&sptr);
@@ -2500,9 +2505,9 @@ void zrangeGenericCommand(client *c, int reverse) {
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
             ele = ln->ele;
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             addReplyBulkCBuffer(c,ele,sdslen(ele));
-            if (withscores)
-                addReplyDouble(c,ln->score);
+            if (withscores) addReplyDouble(c,ln->score);
             ln = reverse ? ln->backward : ln->level[0].forward;
         }
     } else {
@@ -2570,7 +2575,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
@@ -2590,7 +2595,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
-            addReply(c, shared.emptymultibulk);
+            addReplyNull(c);
             return;
         }
 
@@ -2601,7 +2606,7 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2623,19 +2628,18 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
                 if (!zslValueLteMax(score,&range)) break;
             }
 
-            /* We know the element exists, so ziplistGet should always succeed */
+            /* We know the element exists, so ziplistGet should always
+             * succeed */
             serverAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
 
             rangelen++;
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             if (vstr == NULL) {
                 addReplyBulkLongLong(c,vlong);
             } else {
                 addReplyBulkCBuffer(c,vstr,vlen);
             }
-
-            if (withscores) {
-                addReplyDouble(c,score);
-            }
+            if (withscores) addReplyDouble(c,score);
 
             /* Move to next node */
             if (reverse) {
@@ -2658,14 +2662,14 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReply(c, shared.emptymultibulk);
+            addReplyNull(c);
             return;
         }
 
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -2686,11 +2690,9 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
             }
 
             rangelen++;
+            if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             addReplyBulkCBuffer(c,ln->ele,sdslen(ln->ele));
-
-            if (withscores) {
-                addReplyDouble(c,ln->score);
-            }
+            if (withscores) addReplyDouble(c,ln->score);
 
             /* Move to next node */
             if (reverse) {
@@ -2703,11 +2705,8 @@ void genericZrangebyscoreCommand(client *c, int reverse) {
         serverPanic("Unknown sorted set encoding");
     }
 
-    if (withscores) {
-        rangelen *= 2;
-    }
-
-    setDeferredMultiBulkLength(c, replylen, rangelen);
+    if (withscores && c->resp == 2) rangelen *= 2;
+    setDeferredArrayLen(c, replylen, rangelen);
 }
 
 void zrangebyscoreCommand(client *c) {
@@ -2918,7 +2917,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET))
     {
         zslFreeLexRange(&range);
@@ -2941,7 +2940,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
-            addReply(c, shared.emptymultibulk);
+            addReplyNull(c);
             zslFreeLexRange(&range);
             return;
         }
@@ -2953,7 +2952,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3005,7 +3004,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReply(c, shared.emptymultibulk);
+            addReplyNull(c);
             zslFreeLexRange(&range);
             return;
         }
@@ -3013,7 +3012,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
         /* We don't know in advance how many matching elements there are in the
          * list, so we push this object that will represent the multi-bulk
          * length in the output buffer, and will "fix" it later */
-        replylen = addDeferredMultiBulkLength(c);
+        replylen = addReplyDeferredLen(c);
 
         /* If there is an offset, just traverse the number of elements without
          * checking the score because that is done in the next loop. */
@@ -3048,7 +3047,7 @@ void genericZrangebylexCommand(client *c, int reverse) {
     }
 
     zslFreeLexRange(&range);
-    setDeferredMultiBulkLength(c, replylen, rangelen);
+    setDeferredArrayLen(c, replylen, rangelen);
 }
 
 void zrangebylexCommand(client *c) {
@@ -3074,11 +3073,11 @@ void zscoreCommand(client *c) {
     robj *zobj;
     double score;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
     } else {
         addReplyDouble(c,score);
     }
@@ -3090,7 +3089,7 @@ void zrankGenericCommand(client *c, int reverse) {
     robj *zobj;
     long rank;
 
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
     serverAssertWithInfo(c,ele,sdsEncodedObject(ele));
@@ -3098,7 +3097,7 @@ void zrankGenericCommand(client *c, int reverse) {
     if (rank >= 0) {
         addReplyLongLong(c,rank);
     } else {
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
     }
 }
 
@@ -3156,11 +3155,11 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     /* No candidate for zpopping, return empty. */
     if (!zobj) {
-        addReply(c,shared.emptymultibulk);
+        addReplyNull(c);
         return;
     }
 
-    void *arraylen_ptr = addDeferredMultiBulkLength(c);
+    void *arraylen_ptr = addReplyDeferredLen(c);
     long arraylen = 0;
 
     /* We emit the key only for the blocking variant. */
@@ -3227,7 +3226,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
     } while(--count);
 
-    setDeferredMultiBulkLength(c,arraylen_ptr,arraylen + (emitkey != 0));
+    setDeferredArrayLen(c,arraylen_ptr,arraylen + (emitkey != 0));
 }
 
 /* ZPOPMIN key [<count>] */
@@ -3282,7 +3281,7 @@ void blockingGenericZpopCommand(client *c, int where) {
     /* If we are inside a MULTI/EXEC and the zset is empty the only thing
      * we can do is treating it as a timeout (even with timeout 0). */
     if (c->flags & CLIENT_MULTI) {
-        addReply(c,shared.nullmultibulk);
+        addReplyNullArray(c);
         return;
     }
 

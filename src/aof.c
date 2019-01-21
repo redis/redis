@@ -222,6 +222,7 @@ static void killAppendOnlyChild(void) {
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
     closeChildInfoPipe();
+    updateDictResizePolicy();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -646,6 +647,8 @@ struct client *createFakeClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
+    c->resp = 2;
+    c->user = NULL;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);

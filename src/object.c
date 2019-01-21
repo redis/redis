@@ -1248,15 +1248,15 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             addReplyError(c,"An LFU maxmemory policy is selected, idle time not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
@@ -1264,7 +1264,7 @@ NULL
         }
         addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
     } else if (!strcasecmp(c->argv[1]->ptr,"freq") && c->argc == 3) {
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.null[c->resp]))
                 == NULL) return;
         if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU)) {
             addReplyError(c,"An LFU maxmemory policy is not selected, access frequency not tracked. Please note that when switching between policies at runtime LRU and LFU data will take some time to adjust.");
@@ -1316,7 +1316,7 @@ NULL
             }
         }
         if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
-            addReply(c, shared.nullbulk);
+            addReplyNull(c);
             return;
         }
         size_t usage = objectComputeSize(dictGetVal(de),samples);
@@ -1326,7 +1326,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMultiBulkLen(c,(25+mh->num_dbs)*2);
+        addReplyMapLen(c,25+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1356,7 +1356,7 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMultiBulkLen(c,4);
+            addReplyMapLen(c,2);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);

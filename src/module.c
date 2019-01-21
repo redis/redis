@@ -1123,10 +1123,10 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
-            addDeferredMultiBulkLength(c);
+            addReplyDeferredLen(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyMultiBulkLen(c,len);
+        addReplyArrayLen(c,len);
     }
     return REDISMODULE_OK;
 }
@@ -1169,7 +1169,7 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
             return;
     }
     ctx->postponed_arrays_count--;
-    setDeferredMultiBulkLength(c,
+    setDeferredArrayLen(c,
             ctx->postponed_arrays[ctx->postponed_arrays_count],
             len);
     if (ctx->postponed_arrays_count == 0) {
@@ -1205,7 +1205,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReply(c,shared.nullbulk);
+    addReplyNull(c);
     return REDISMODULE_OK;
 }
 
@@ -3669,8 +3669,8 @@ void moduleHandleBlockedClients(void) {
          * free the temporary client we just used for the replies. */
         if (c) {
             if (bc->reply_client->bufpos)
-                addReplyString(c,bc->reply_client->buf,
-                                 bc->reply_client->bufpos);
+                addReplyProto(c,bc->reply_client->buf,
+                                bc->reply_client->bufpos);
             if (listLength(bc->reply_client->reply))
                 listJoin(c->reply,bc->reply_client->reply);
             c->reply_bytes += bc->reply_client->reply_bytes;
@@ -4818,6 +4818,25 @@ int moduleUnload(sds name) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for the MODULE and HELLO command: send the list of the
+ * loaded modules to the client. */
+void addReplyLoadedModules(client *c) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    addReplyArrayLen(c,dictSize(modules));
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+        addReplyMapLen(c,2);
+        addReplyBulkCString(c,"name");
+        addReplyBulkCBuffer(c,name,sdslen(name));
+        addReplyBulkCString(c,"ver");
+        addReplyLongLong(c,module->ver);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Redis MODULE command.
  *
  * MODULE LOAD <path> [args...] */
@@ -4865,20 +4884,7 @@ NULL
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
-        dictIterator *di = dictGetIterator(modules);
-        dictEntry *de;
-
-        addReplyMultiBulkLen(c,dictSize(modules));
-        while ((de = dictNext(di)) != NULL) {
-            sds name = dictGetKey(de);
-            struct RedisModule *module = dictGetVal(de);
-            addReplyMultiBulkLen(c,4);
-            addReplyBulkCString(c,"name");
-            addReplyBulkCBuffer(c,name,sdslen(name));
-            addReplyBulkCString(c,"ver");
-            addReplyLongLong(c,module->ver);
-        }
-        dictReleaseIterator(di);
+        addReplyLoadedModules(c);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

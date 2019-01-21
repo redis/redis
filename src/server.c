@@ -90,6 +90,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *           in MSET the step is two since arguments are key,val,key,val,...
  * microseconds: microseconds of total execution time for this command.
  * calls: total number of calls of this command.
+ * id: command bit identifier for ACLs.
  *
  * The flags, microseconds and calls fields are computed by Redis and should
  * always be set to zero.
@@ -114,7 +115,7 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    is deterministic.
  * l: Allow command while loading the database.
  * t: Allow command while a slave has stale data but is not allowed to
- *    server this data. Normally no command is accepted in this condition
+ *    serve this data. Normally no command is accepted in this condition
  *    but just a few.
  * M: Do not automatically propagate the command on MONITOR.
  * k: Perform an implicit ASKING for this command, so the command will be
@@ -125,206 +126,208 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    are not fast commands.
  */
 struct redisCommand redisCommandTable[] = {
-    {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0},
-    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0},
-    {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
-    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0},
-    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0},
-    {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0},
-    {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"bitfield",bitfieldCommand,-2,"wm",0,NULL,1,1,1,0,0},
-    {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
-    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
-    {"mget",mgetCommand,-2,"rF",0,NULL,1,-1,1,0,0},
-    {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"rpushx",rpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"lpushx",lpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0},
-    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"brpop",brpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
-    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0},
-    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
-    {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0},
-    {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0},
-    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0},
-    {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0},
-    {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
-    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0},
-    {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"spop",spopCommand,-2,"wRF",0,NULL,1,1,1,0,0},
-    {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0},
-    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
-    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0},
-    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0},
-    {"zunionstore",zunionstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0},
-    {"zinterstore",zinterstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0},
-    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrangebyscore",zrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrangebylex",zrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zrevrangebylex",zrevrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0},
-    {"zlexcount",zlexcountCommand,4,"rF",0,NULL,1,1,1,0,0},
-    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"zpopmin",zpopminCommand,-2,"wF",0,NULL,1,1,1,0,0},
-    {"zpopmax",zpopmaxCommand,-2,"wF",0,NULL,1,1,1,0,0},
-    {"bzpopmin",bzpopminCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
-    {"bzpopmax",bzpopmaxCommand,-2,"wsF",0,NULL,1,-2,1,0,0},
-    {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
-    {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hmset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0},
-    {"hmget",hmgetCommand,-3,"rF",0,NULL,1,1,1,0,0},
-    {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0},
-    {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
-    {"hgetall",hgetallCommand,2,"rR",0,NULL,1,1,1,0,0},
-    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0},
-    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
-    {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},
-    {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0},
-    {"swapdb",swapdbCommand,3,"wF",0,NULL,0,0,0,0,0},
-    {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0},
-    {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0},
-    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0},
-    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
-    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
-    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"sltF",0,NULL,0,0,0,0,0},
-    {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0},
-    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0},
-    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,-1,"as",0,NULL,0,0,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"aslt",0,NULL,0,0,0,0,0},
-    {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0},
-    {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
-    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
-    {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0},
-    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
-    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
-    {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0},
-    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
-    {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0},
-    {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0},
-    {"info",infoCommand,-1,"ltR",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0},
-    {"ttl",ttlCommand,2,"rFR",0,NULL,1,1,1,0,0},
-    {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0},
-    {"pttl",pttlCommand,2,"rFR",0,NULL,1,1,1,0,0},
-    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
-    {"slaveof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"replicaof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
-    {"config",configCommand,-2,"last",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0},
-    {"publish",publishCommand,3,"pltF",0,NULL,0,0,0,0,0},
-    {"pubsub",pubsubCommand,-2,"pltR",0,NULL,0,0,0,0,0},
-    {"watch",watchCommand,-2,"sF",0,NULL,1,-1,1,0,0},
-    {"unwatch",unwatchCommand,1,"sF",0,NULL,0,0,0,0,0},
-    {"cluster",clusterCommand,-2,"a",0,NULL,0,0,0,0,0},
-    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
-    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"wR",0,migrateGetKeys,0,0,0,0,0},
-    {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0},
-    {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0},
-    {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,"rR",0,NULL,1,1,1,0,0},
-    {"object",objectCommand,-2,"rR",0,NULL,2,2,1,0,0},
-    {"memory",memoryCommand,-2,"rR",0,NULL,0,0,0,0,0},
-    {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"aR",0,NULL,0,0,0,0,0},
-    {"script",scriptCommand,-2,"s",0,NULL,0,0,0,0,0},
-    {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0},
-    {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
-    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0},
-    {"command",commandCommand,0,"ltR",0,NULL,0,0,0,0,0},
-    {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
-    {"georadius",georadiusCommand,-6,"w",0,georadiusGetKeys,1,1,1,0,0},
-    {"georadius_ro",georadiusroCommand,-6,"r",0,georadiusGetKeys,1,1,1,0,0},
-    {"georadiusbymember",georadiusbymemberCommand,-5,"w",0,georadiusGetKeys,1,1,1,0,0},
-    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,"r",0,georadiusGetKeys,1,1,1,0,0},
-    {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0},
-    {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"pfselftest",pfselftestCommand,1,"a",0,NULL,0,0,0,0,0},
-    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
-    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
-    {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
-    {"xadd",xaddCommand,-5,"wmFR",0,NULL,1,1,1,0,0},
-    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0},
-    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"xread",xreadCommand,-4,"rs",0,xreadGetKeys,1,1,1,0,0},
-    {"xreadgroup",xreadCommand,-7,"ws",0,xreadGetKeys,1,1,1,0,0},
-    {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0},
-    {"xsetid",xsetidCommand,3,"wmF",0,NULL,1,1,1,0,0},
-    {"xack",xackCommand,-4,"wF",0,NULL,1,1,1,0,0},
-    {"xpending",xpendingCommand,-3,"rR",0,NULL,1,1,1,0,0},
-    {"xclaim",xclaimCommand,-6,"wRF",0,NULL,1,1,1,0,0},
-    {"xinfo",xinfoCommand,-2,"rR",0,NULL,2,2,1,0,0},
-    {"xdel",xdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
-    {"xtrim",xtrimCommand,-2,"wFR",0,NULL,1,1,1,0,0},
-    {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
-    {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0},
-    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0}
+    {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0,0},
+    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0,0},
+    {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0,0},
+    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0,0},
+    {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0,0},
+    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0,0},
+    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0,0},
+    {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0,0},
+    {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0,0},
+    {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"bitfield",bitfieldCommand,-2,"wm",0,NULL,1,1,1,0,0,0},
+    {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0,0},
+    {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
+    {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
+    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0,0},
+    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0,0},
+    {"mget",mgetCommand,-2,"rF",0,NULL,1,-1,1,0,0,0},
+    {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"rpushx",rpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"lpushx",lpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0,0},
+    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0,0},
+    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0,0},
+    {"brpop",brpopCommand,-3,"ws",0,NULL,1,-2,1,0,0,0},
+    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0,0},
+    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0,0},
+    {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0,0},
+    {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0,0},
+    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
+    {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0,0},
+    {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0,0},
+    {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0,0},
+    {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
+    {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0,0},
+    {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"spop",spopCommand,-2,"wRF",0,NULL,1,1,1,0,0,0},
+    {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0,0},
+    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
+    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
+    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
+    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
+    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
+    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
+    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0,0},
+    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
+    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
+    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0,0},
+    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0,0},
+    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0,0},
+    {"zunionstore",zunionstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,0},
+    {"zinterstore",zinterstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,0},
+    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zrangebyscore",zrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zrangebylex",zrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zrevrangebylex",zrevrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0,0},
+    {"zlexcount",zlexcountCommand,4,"rF",0,NULL,1,1,1,0,0,0},
+    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
+    {"zpopmin",zpopminCommand,-2,"wF",0,NULL,1,1,1,0,0,0},
+    {"zpopmax",zpopmaxCommand,-2,"wF",0,NULL,1,1,1,0,0,0},
+    {"bzpopmin",bzpopminCommand,-2,"wsF",0,NULL,1,-2,1,0,0,0},
+    {"bzpopmax",bzpopmaxCommand,-2,"wsF",0,NULL,1,-2,1,0,0,0},
+    {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"hmset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"hmget",hmgetCommand,-3,"rF",0,NULL,1,1,1,0,0,0},
+    {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
+    {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
+    {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0,0},
+    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0,0},
+    {"hgetall",hgetallCommand,2,"rR",0,NULL,1,1,1,0,0,0},
+    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0,0},
+    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
+    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0,0},
+    {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0,0},
+    {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0,0},
+    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0,0},
+    {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0,0},
+    {"swapdb",swapdbCommand,3,"wF",0,NULL,0,0,0,0,0,0},
+    {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0,0},
+    {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0,0},
+    {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0,0},
+    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0,0},
+    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0,0},
+    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0,0},
+    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0,0},
+    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0,0},
+    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0,0},
+    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0,0},
+    {"auth",authCommand,-2,"sltF",0,NULL,0,0,0,0,0,0},
+    {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0,0},
+    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0,0},
+    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0,0},
+    {"bgsave",bgsaveCommand,-1,"as",0,NULL,0,0,0,0,0,0},
+    {"bgrewriteaof",bgrewriteaofCommand,1,"as",0,NULL,0,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"aslt",0,NULL,0,0,0,0,0,0},
+    {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0,0},
+    {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0,0},
+    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0,0},
+    {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0,0},
+    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0,0},
+    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0,0},
+    {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0,0},
+    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0,0},
+    {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0,0},
+    {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0,0},
+    {"info",infoCommand,-1,"ltR",0,NULL,0,0,0,0,0,0},
+    {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0,0},
+    {"ttl",ttlCommand,2,"rFR",0,NULL,1,1,1,0,0,0},
+    {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0,0},
+    {"pttl",pttlCommand,2,"rFR",0,NULL,1,1,1,0,0,0},
+    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0,0},
+    {"slaveof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0,0},
+    {"replicaof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0,0},
+    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0,0},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0,0},
+    {"config",configCommand,-2,"last",0,NULL,0,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0,0},
+    {"publish",publishCommand,3,"pltF",0,NULL,0,0,0,0,0,0},
+    {"pubsub",pubsubCommand,-2,"pltR",0,NULL,0,0,0,0,0,0},
+    {"watch",watchCommand,-2,"sF",0,NULL,1,-1,1,0,0,0},
+    {"unwatch",unwatchCommand,1,"sF",0,NULL,0,0,0,0,0,0},
+    {"cluster",clusterCommand,-2,"a",0,NULL,0,0,0,0,0,0},
+    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0,0},
+    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0,0},
+    {"migrate",migrateCommand,-6,"wR",0,migrateGetKeys,0,0,0,0,0,0},
+    {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0,0},
+    {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0,0},
+    {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0,0},
+    {"dump",dumpCommand,2,"rR",0,NULL,1,1,1,0,0,0},
+    {"object",objectCommand,-2,"rR",0,NULL,2,2,1,0,0,0},
+    {"memory",memoryCommand,-2,"rR",0,NULL,0,0,0,0,0,0},
+    {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0,0},
+    {"hello",helloCommand,-2,"sF",0,NULL,0,0,0,0,0,0},
+    {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,0},
+    {"slowlog",slowlogCommand,-2,"aR",0,NULL,0,0,0,0,0,0},
+    {"script",scriptCommand,-2,"s",0,NULL,0,0,0,0,0,0},
+    {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0,0},
+    {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0,0},
+    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0,0},
+    {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0,0},
+    {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0,0},
+    {"command",commandCommand,0,"ltR",0,NULL,0,0,0,0,0,0},
+    {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0,0},
+    {"georadius",georadiusCommand,-6,"w",0,georadiusGetKeys,1,1,1,0,0,0},
+    {"georadius_ro",georadiusroCommand,-6,"r",0,georadiusGetKeys,1,1,1,0,0,0},
+    {"georadiusbymember",georadiusbymemberCommand,-5,"w",0,georadiusGetKeys,1,1,1,0,0,0},
+    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,"r",0,georadiusGetKeys,1,1,1,0,0,0},
+    {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0,0},
+    {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0,0},
+    {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"pfselftest",pfselftestCommand,1,"a",0,NULL,0,0,0,0,0,0},
+    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0,0},
+    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0,0},
+    {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0,0},
+    {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0,0},
+    {"xadd",xaddCommand,-5,"wmFR",0,NULL,1,1,1,0,0,0},
+    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
+    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
+    {"xread",xreadCommand,-4,"rs",0,xreadGetKeys,1,1,1,0,0,0},
+    {"xreadgroup",xreadCommand,-7,"ws",0,xreadGetKeys,1,1,1,0,0,0},
+    {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0,0},
+    {"xsetid",xsetidCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
+    {"xack",xackCommand,-4,"wF",0,NULL,1,1,1,0,0,0},
+    {"xpending",xpendingCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
+    {"xclaim",xclaimCommand,-6,"wRF",0,NULL,1,1,1,0,0,0},
+    {"xinfo",xinfoCommand,-2,"rR",0,NULL,2,2,1,0,0,0},
+    {"xdel",xdelCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
+    {"xtrim",xtrimCommand,-2,"wFR",0,NULL,1,1,1,0,0,0},
+    {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
+    {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
+    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0,0},
+    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0,0},
+    {"acl",aclCommand,-2,"ast",0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -1428,10 +1431,7 @@ void createSharedObjects(void) {
     shared.emptybulk = createObject(OBJ_STRING,sdsnew("$0\r\n\r\n"));
     shared.czero = createObject(OBJ_STRING,sdsnew(":0\r\n"));
     shared.cone = createObject(OBJ_STRING,sdsnew(":1\r\n"));
-    shared.cnegone = createObject(OBJ_STRING,sdsnew(":-1\r\n"));
-    shared.nullbulk = createObject(OBJ_STRING,sdsnew("$-1\r\n"));
-    shared.nullmultibulk = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
-    shared.emptymultibulk = createObject(OBJ_STRING,sdsnew("*0\r\n"));
+    shared.emptyarray = createObject(OBJ_STRING,sdsnew("*0\r\n"));
     shared.pong = createObject(OBJ_STRING,sdsnew("+PONG\r\n"));
     shared.queued = createObject(OBJ_STRING,sdsnew("+QUEUED\r\n"));
     shared.emptyscan = createObject(OBJ_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
@@ -1470,6 +1470,17 @@ void createSharedObjects(void) {
     shared.space = createObject(OBJ_STRING,sdsnew(" "));
     shared.colon = createObject(OBJ_STRING,sdsnew(":"));
     shared.plus = createObject(OBJ_STRING,sdsnew("+"));
+
+    /* The shared NULL depends on the protocol version. */
+    shared.null[0] = NULL;
+    shared.null[1] = NULL;
+    shared.null[2] = createObject(OBJ_STRING,sdsnew("$-1\r\n"));
+    shared.null[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
+
+    shared.nullarray[0] = NULL;
+    shared.nullarray[1] = NULL;
+    shared.nullarray[2] = createObject(OBJ_STRING,sdsnew("*-1\r\n"));
+    shared.nullarray[3] = createObject(OBJ_STRING,sdsnew("_\r\n"));
 
     for (j = 0; j < PROTO_SHARED_SELECT_CMDS; j++) {
         char dictid_str[64];
@@ -1585,7 +1596,6 @@ void initServerConfig(void) {
     server.pidfile = NULL;
     server.rdb_filename = zstrdup(CONFIG_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(CONFIG_DEFAULT_AOF_FILENAME);
-    server.requirepass = NULL;
     server.rdb_compression = CONFIG_DEFAULT_RDB_COMPRESSION;
     server.rdb_checksum = CONFIG_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
@@ -2192,6 +2202,8 @@ void populateCommandTable(void) {
         char *f = c->sflags;
         int retval1, retval2;
 
+        /* Translate the command string flags description into an actual
+         * set of flags. */
         while(*f != '\0') {
             switch(*f) {
             case 'w': c->flags |= CMD_WRITE; break;
@@ -2212,6 +2224,7 @@ void populateCommandTable(void) {
             f++;
         }
 
+        c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
         /* Populate an additional dictionary that will be unaffected
          * by rename-command statements in redis.conf. */
@@ -2573,10 +2586,28 @@ int processCommand(client *c) {
     }
 
     /* Check if the user is authenticated */
-    if (server.requirepass && !c->authenticated && c->cmd->proc != authCommand)
+    if (!(DefaultUser->flags & USER_FLAG_NOPASS) &&
+        !c->authenticated &&
+        (c->cmd->proc != authCommand || c->cmd->proc == helloCommand))
     {
         flagTransaction(c);
         addReply(c,shared.noautherr);
+        return C_OK;
+    }
+
+    /* Check if the user can run this command according to the current
+     * ACLs. */
+    int acl_retval = ACLCheckCommandPerm(c);
+    if (acl_retval != ACL_OK) {
+        flagTransaction(c);
+        if (acl_retval == ACL_DENIED_CMD)
+            addReplyErrorFormat(c,
+                "-NOPERM this user has no permissions to run "
+                "the '%s' command", c->cmd->name);
+        else
+            addReplyErrorFormat(c,
+                "-NOPERM this user has no permissions to access "
+                "one of the keys used as arguments");
         return C_OK;
     }
 
@@ -2672,8 +2703,9 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
-    if (c->flags & CLIENT_PUBSUB &&
+    /* Only allow a subset of commands in the context of Pub/Sub if the
+     * connection is in RESP2 mode. With RESP3 there are no limits. */
+    if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
         c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
@@ -2705,6 +2737,7 @@ int processCommand(client *c) {
     /* Lua script too slow? Only allow a limited number of commands. */
     if (server.lua_timedout &&
           c->cmd->proc != authCommand &&
+          c->cmd->proc != helloCommand &&
           c->cmd->proc != replconfCommand &&
         !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
@@ -2851,58 +2884,49 @@ int writeCommandsDeniedByDiskError(void) {
     }
 }
 
-/* Return zero if strings are the same, non-zero if they are not.
- * The comparison is performed in a way that prevents an attacker to obtain
- * information about the nature of the strings just monitoring the execution
- * time of the function.
+/* AUTH <passowrd>
+ * AUTH <username> <password> (Redis >= 6.0 form)
  *
- * Note that limiting the comparison length to strings up to 512 bytes we
- * can avoid leaking any information about the password length and any
- * possible branch misprediction related leak.
- */
-int time_independent_strcmp(char *a, char *b) {
-    char bufa[CONFIG_AUTHPASS_MAX_LEN], bufb[CONFIG_AUTHPASS_MAX_LEN];
-    /* The above two strlen perform len(a) + len(b) operations where either
-     * a or b are fixed (our password) length, and the difference is only
-     * relative to the length of the user provided string, so no information
-     * leak is possible in the following two lines of code. */
-    unsigned int alen = strlen(a);
-    unsigned int blen = strlen(b);
-    unsigned int j;
-    int diff = 0;
-
-    /* We can't compare strings longer than our static buffers.
-     * Note that this will never pass the first test in practical circumstances
-     * so there is no info leak. */
-    if (alen > sizeof(bufa) || blen > sizeof(bufb)) return 1;
-
-    memset(bufa,0,sizeof(bufa));        /* Constant time. */
-    memset(bufb,0,sizeof(bufb));        /* Constant time. */
-    /* Again the time of the following two copies is proportional to
-     * len(a) + len(b) so no info is leaked. */
-    memcpy(bufa,a,alen);
-    memcpy(bufb,b,blen);
-
-    /* Always compare all the chars in the two buffers without
-     * conditional expressions. */
-    for (j = 0; j < sizeof(bufa); j++) {
-        diff |= (bufa[j] ^ bufb[j]);
-    }
-    /* Length must be equal as well. */
-    diff |= alen ^ blen;
-    return diff; /* If zero strings are the same. */
-}
-
+ * When the user is omitted it means that we are trying to authenticate
+ * against the default user. */
 void authCommand(client *c) {
-    if (!server.requirepass) {
-        addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
-      c->authenticated = 1;
-      addReply(c,shared.ok);
-    } else {
-      c->authenticated = 0;
-      addReplyError(c,"invalid password");
+    /* Only two or three argument forms are allowed. */
+    if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
     }
+
+    /* Handle the two different forms here. The form with two arguments
+     * will just use "default" as username. */
+    robj *username, *password;
+    if (c->argc == 2) {
+        /* Mimic the old behavior of giving an error for the two commands
+         * from if no password is configured. */
+        if (DefaultUser->flags & USER_FLAG_NOPASS) {
+            addReplyError(c,"AUTH <password> called without any password "
+                            "configured for the default user. Are you sure "
+                            "your configuration is correct?");
+            return;
+        }
+
+        username = createStringObject("default",7);
+        password = c->argv[1];
+    } else {
+        username = c->argv[1];
+        password = c->argv[2];
+    }
+
+    if (ACLCheckUserCredentials(username,password) == C_OK) {
+        c->authenticated = 1;
+        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        addReply(c,shared.ok);
+    } else {
+        addReplyError(c,"-WRONGPASS invalid username-password pair");
+    }
+
+    /* Free the "default" string object we created for the two
+     * arguments form. */
+    if (c->argc == 2) decrRefCount(username);
 }
 
 /* The PING command. It works in a different way if the client is in
@@ -2915,7 +2939,7 @@ void pingCommand(client *c) {
         return;
     }
 
-    if (c->flags & CLIENT_PUBSUB) {
+    if (c->flags & CLIENT_PUBSUB && c->resp == 2) {
         addReply(c,shared.mbulkhdr[2]);
         addReplyBulkCBuffer(c,"pong",4);
         if (c->argc == 1)
@@ -2940,7 +2964,7 @@ void timeCommand(client *c) {
     /* gettimeofday() can only fail if &tv is a bad address so we
      * don't check for errors. */
     gettimeofday(&tv,NULL);
-    addReplyMultiBulkLen(c,2);
+    addReplyArrayLen(c,2);
     addReplyBulkLongLong(c,tv.tv_sec);
     addReplyBulkLongLong(c,tv.tv_usec);
 }
@@ -2957,15 +2981,15 @@ int addReplyCommandFlag(client *c, struct redisCommand *cmd, int f, char *reply)
 /* Output the representation of a Redis command. Used by the COMMAND command. */
 void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
-        addReply(c, shared.nullbulk);
+        addReplyNull(c);
     } else {
         /* We are adding: command name, arg count, flags, first, last, offset */
-        addReplyMultiBulkLen(c, 6);
+        addReplyArrayLen(c, 6);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
 
         int flagcount = 0;
-        void *flaglen = addDeferredMultiBulkLength(c);
+        void *flaglen = addReplyDeferredLen(c);
         flagcount += addReplyCommandFlag(c,cmd,CMD_WRITE, "write");
         flagcount += addReplyCommandFlag(c,cmd,CMD_READONLY, "readonly");
         flagcount += addReplyCommandFlag(c,cmd,CMD_DENYOOM, "denyoom");
@@ -2985,7 +3009,7 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
             addReplyStatus(c, "movablekeys");
             flagcount += 1;
         }
-        setDeferredMultiBulkLength(c, flaglen, flagcount);
+        setDeferredSetLen(c, flaglen, flagcount);
 
         addReplyLongLong(c, cmd->firstkey);
         addReplyLongLong(c, cmd->lastkey);
@@ -3008,7 +3032,7 @@ NULL
         };
         addReplyHelp(c, help);
     } else if (c->argc == 1) {
-        addReplyMultiBulkLen(c, dictSize(server.commands));
+        addReplyArrayLen(c, dictSize(server.commands));
         di = dictGetIterator(server.commands);
         while ((de = dictNext(di)) != NULL) {
             addReplyCommand(c, dictGetVal(de));
@@ -3016,7 +3040,7 @@ NULL
         dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
         int i;
-        addReplyMultiBulkLen(c, c->argc-2);
+        addReplyArrayLen(c, c->argc-2);
         for (i = 2; i < c->argc; i++) {
             addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
         }
@@ -3043,7 +3067,7 @@ NULL
         if (!keys) {
             addReplyError(c,"Invalid arguments specified for command");
         } else {
-            addReplyMultiBulkLen(c,numkeys);
+            addReplyArrayLen(c,numkeys);
             for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
             getKeysFreeResult(keys);
         }
@@ -4047,6 +4071,8 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+    ACLInit(); /* The ACL subsystem must be initialized ASAP because the
+                  basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order

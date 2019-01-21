@@ -707,11 +707,51 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
+/* This structure represents a Redis user. This is useful for ACLs, the
+ * user is associated to the connection after the connection is authenticated.
+ * If there is no associated user, the connection uses the default user. */
+#define USER_MAX_COMMAND_BIT 1024       /* The first *not valid* bit that
+                                           would overflow. So check for >= */
+#define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
+#define USER_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
+#define USER_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
+#define USER_FLAG_NOPASS      (1<<3)    /* The user requires no password, any
+                                           provided password will work. For the
+                                           default user, this also means that
+                                           no AUTH is needed, and every
+                                           connection is immediately
+                                           authenticated. */
+typedef struct user {
+    sds name;       /* The username as an SDS string. */
+    uint64_t flags; /* See USER_FLAG_* */
+
+    /* The bit in allowed_commands is set if this user has the right to
+     * execute this command. In commands having subcommands, if this bit is
+     * set, then all the subcommands are also available.
+     *
+     * If the bit for a given command is NOT set and the command has
+     * subcommands, Redis will also check allowed_subcommands in order to
+     * understand if the command can be executed. */
+    uint64_t allowed_commands[USER_MAX_COMMAND_BIT/64];
+
+    /* This array points, for each command ID (corresponding to the command
+     * bit set in allowed_commands), to an array of SDS strings, terminated by
+     * a NULL pointer, with all the sub commands that can be executed for
+     * this command. When no subcommands matching is used, the field is just
+     * set to NULL to avoid allocating USER_MAX_COMMAND_BIT pointers. */
+    sds **allowed_subcommands;
+    list *passwords; /* A list of SDS valid passwords for this user. */
+    list *patterns;  /* A list of allowed key patterns. If this field is NULL
+                        the user cannot mention any key in a command, unless
+                        the flag ALLKEYS is set in the user. */
+} user;
+
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a linked list. */
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     int fd;                 /* Client socket. */
+    int resp;               /* RESP protocol version. Can be 2 or 3. */
     redisDb *db;            /* Pointer to currently SELECTed DB. */
     robj *name;             /* As set by CLIENT SETNAME. */
     sds querybuf;           /* Buffer we use to accumulate client queries. */
@@ -724,6 +764,9 @@ typedef struct client {
     int argc;               /* Num of arguments of current command. */
     robj **argv;            /* Arguments of current command. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
+    user *user;             /* User associated with this connection. If the
+                               user is set to NULL the connection can do
+                               anything (admin). */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
@@ -735,7 +778,7 @@ typedef struct client {
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* Client flags: CLIENT_* macros. */
-    int authenticated;      /* When requirepass is non-NULL. */
+    int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
@@ -780,9 +823,9 @@ struct moduleLoadQueueEntry {
 };
 
 struct sharedObjectsStruct {
-    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
-    *colon, *nullbulk, *nullmultibulk, *queued,
-    *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
+    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
+    *colon, *queued, *null[4], *nullarray[4],
+    *emptyarray, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
@@ -945,7 +988,6 @@ struct redisServer {
     int shutdown_asap;          /* SHUTDOWN needed ASAP */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
-    char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
     int cronloops;              /* Number of times the cron function run */
@@ -1304,6 +1346,11 @@ struct redisCommand {
     int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
+    int id;     /* Command ID. This is a progressive ID starting from 0 that
+                   is assigned at runtime, and is used in order to check
+                   ACLs. A connection is able to execute a given command if
+                   the user associated to the connection has this command
+                   bit set in the bitmap of allowed commands. */
 };
 
 struct redisFunctionSym {
@@ -1424,15 +1471,23 @@ void freeClient(client *c);
 void freeClientAsync(client *c);
 void resetClient(client *c);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
-void *addDeferredMultiBulkLength(client *c);
-void setDeferredMultiBulkLength(client *c, void *node, long length);
+void *addReplyDeferredLen(client *c);
+void setDeferredArrayLen(client *c, void *node, long length);
+void setDeferredMapLen(client *c, void *node, long length);
+void setDeferredSetLen(client *c, void *node, long length);
+void setDeferredAttributeLen(client *c, void *node, long length);
+void setDeferredPushLen(client *c, void *node, long length);
 void processInputBuffer(client *c);
 void processInputBufferAndReplicate(client *c);
 void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
-void addReplyString(client *c, const char *s, size_t len);
+void addReplyNull(client *c);
+void addReplyNullArray(client *c);
+void addReplyBool(client *c, int b);
+void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext);
+void addReplyProto(client *c, const char *s, size_t len);
 void addReplyBulk(client *c, robj *obj);
 void addReplyBulkCString(client *c, const char *s);
 void addReplyBulkCBuffer(client *c, const void *p, size_t len);
@@ -1445,9 +1500,14 @@ void addReplyStatus(client *c, const char *status);
 void addReplyDouble(client *c, double d);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
-void addReplyMultiBulkLen(client *c, long length);
+void addReplyArrayLen(client *c, long length);
+void addReplyMapLen(client *c, long length);
+void addReplySetLen(client *c, long length);
+void addReplyAttributeLen(client *c, long length);
+void addReplyPushLen(client *c, long length);
 void addReplyHelp(client *c, const char **help);
 void addReplySubcommandSyntaxError(client *c);
+void addReplyLoadedModules(client *c);
 void copyClientOutputBuffer(client *dst, client *src);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
@@ -1633,6 +1693,20 @@ void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
 void sendChildInfo(int process_type);
 void receiveChildInfo(void);
+
+/* acl.c -- Authentication related prototypes. */
+extern user *DefaultUser;
+void ACLInit(void);
+/* Return values for ACLCheckUserCredentials(). */
+#define ACL_OK 0
+#define ACL_DENIED_CMD 1
+#define ACL_DENIED_KEY 2
+int ACLCheckUserCredentials(robj *username, robj *password);
+unsigned long ACLGetCommandID(const char *cmdname);
+user *ACLGetUserByName(const char *name, size_t namelen);
+int ACLCheckCommandPerm(client *c);
+int ACLSetUser(user *u, const char *op, ssize_t oplen);
+sds ACLDefaultUserFirstPassword(void);
 
 /* Sorted sets data type */
 
@@ -2082,6 +2156,7 @@ void dumpCommand(client *c);
 void objectCommand(client *c);
 void memoryCommand(client *c);
 void clientCommand(client *c);
+void helloCommand(client *c);
 void evalCommand(client *c);
 void evalShaCommand(client *c);
 void scriptCommand(client *c);
@@ -2123,6 +2198,7 @@ void xinfoCommand(client *c);
 void xdelCommand(client *c);
 void xtrimCommand(client *c);
 void lolwutCommand(client *c);
+void aclCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
