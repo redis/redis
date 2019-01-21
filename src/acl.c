@@ -193,10 +193,14 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  *                          disabled command. Note that this form is not
  *                          allowed as negative like -DEBUG|SEGFAULT, but
  *                          only additive starting with "+".
+ * allcommands  Alias for +@all
+ * nocommands   Alias for -@all
  * ~<pattern>   Add a pattern of keys that can be mentioned as part of
  *              commands. For instance ~* allows all the keys. The pattern
  *              is a glob-style pattern like the one of KEYS.
  *              It is possible to specify multiple patterns.
+ * allkeys      Alias for ~*
+ * resetkeys    Flush the list of allowed keys patterns.
  * ><password>  Add this passowrd to the list of valid password for the user.
  *              For example >mypass will add "mypass" to the list.
  *              This directive clears the "nopass" flag (see later).
@@ -208,13 +212,10 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  *              immediately authenticated with the default user without
  *              any explicit AUTH command required. Note that the "resetpass"
  *              directive will clear this condition.
- * allcommands  Alias for +@all
- * allkeys      Alias for ~*
  * resetpass    Flush the list of allowed passwords. Moreover removes the
  *              "nopass" status. After "resetpass" the user has no associated
  *              passwords and there is no way to authenticate without adding
  *              some password (or setting it as "nopass" later).
- * resetkeys    Flush the list of allowed keys patterns.
  * reset        Performs the following actions: resetpass, resetkeys, off,
  *              -@all. The user returns to the same state it has immediately
  *              after its creation.
@@ -253,6 +254,11 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     {
         memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLCOMMANDS;
+    } else if (!strcasecmp(op,"nocommands") ||
+               !strcasecmp(op,"-@all"))
+    {
+        memset(u->allowed_commands,0,sizeof(u->allowed_commands));
+        u->flags &= ~USER_FLAG_ALLCOMMANDS;
     } else if (!strcasecmp(op,"nopass")) {
         u->flags |= USER_FLAG_NOPASS;
         listEmpty(u->passwords);
