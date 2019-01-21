@@ -1256,6 +1256,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                     (long) server.rdb_child_pid);
             kill(server.rdb_child_pid,SIGUSR1);
             rdbRemoveTempFile(server.rdb_child_pid);
+            updateDictResizePolicy();
         }
 
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
