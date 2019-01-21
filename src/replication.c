@@ -1254,10 +1254,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 "Killing process %ld and removing its temp file to avoid "
                 "any race",
                     (long) server.rdb_child_pid);
-            kill(server.rdb_child_pid,SIGUSR1);
-            rdbRemoveTempFile(server.rdb_child_pid);
-            closeChildInfoPipe();
-            updateDictResizePolicy();
+            killRDBChild();
         }
 
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {

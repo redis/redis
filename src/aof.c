@@ -204,7 +204,7 @@ void aof_background_fsync(int fd) {
 }
 
 /* Kills an AOFRW child process if exists */
-static void killAppendOnlyChild(void) {
+void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
     if (server.aof_child_pid == -1) return;

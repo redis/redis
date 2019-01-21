@@ -1674,6 +1674,7 @@ int writeCommandsDeniedByDiskError(void);
 /* RDB persistence */
 #include "rdb.h"
 int rdbSaveRio(rio *rdb, int *error, int flags, rdbSaveInfo *rsi);
+void killRDBChild(void);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
@@ -1687,6 +1688,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
 ssize_t aofReadDiffFromParent(void);
+void killAppendOnlyChild(void);
 
 /* Child info */
 void openChildInfoPipe(void);

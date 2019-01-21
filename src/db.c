@@ -448,12 +448,7 @@ void flushallCommand(client *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
-        closeChildInfoPipe();
-        updateDictResizePolicy();
-    }
+    if (server.rdb_child_pid != -1) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */

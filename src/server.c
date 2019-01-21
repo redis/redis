@@ -2798,8 +2798,7 @@ int prepareForShutdown(int flags) {
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
         serverLog(LL_WARNING,"There is a child saving an .rdb. Killing it!");
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
+        killRDBChild();
     }
 
     if (server.aof_state != AOF_OFF) {
@@ -2814,7 +2813,7 @@ int prepareForShutdown(int flags) {
             }
             serverLog(LL_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
-            kill(server.aof_child_pid,SIGUSR1);
+            killAppendOnlyChild();
         }
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
