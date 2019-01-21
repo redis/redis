@@ -342,6 +342,11 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         ACLSetUserCommandBit(u,id,0);
         u->flags &= ~USER_FLAG_ALLCOMMANDS;
         ACLResetSubcommandsForCommand(u,id);
+    } else if (!strcasecmp(op,"reset")) {
+        serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"off",-1) == C_OK);
+        serverAssert(ACLSetUser(u,"-@all",-1) == C_OK);
     } else {
         errno = EINVAL;
         return C_ERR;
