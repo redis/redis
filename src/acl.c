@@ -164,6 +164,15 @@ struct redisCommand *ACLLookupCommand(const char *name) {
     return cmd;
 }
 
+/* Flush the array of allowed subcommands for the specified user
+ * and command ID. */
+void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
+    if (u->allowed_subcommands && u->allowed_subcommands[id]) {
+        zfree(u->allowed_subcommands[id]);
+        u->allowed_subcommands[id] = NULL;
+    }
+}
+
 /* Set user properties according to the string "op". The following
  * is a description of what different strings will do:
  *
@@ -265,12 +274,62 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (ln == NULL) listAddNodeTail(u->patterns,newpat);
         u->flags &= ~USER_FLAG_ALLKEYS;
     } else if (op[0] == '+' && op[1] != '@') {
-        if (ACLLookupCommand(op+1) == NULL) {
-            errno = ENOENT;
-            return C_ERR;
+        if (strchr(op,'|') == NULL) {
+            if (ACLLookupCommand(op+1) == NULL) {
+                errno = ENOENT;
+                return C_ERR;
+            }
+            unsigned long id = ACLGetCommandID(op+1);
+            ACLSetUserCommandBit(u,id,1);
+            ACLResetSubcommandsForCommand(u,id);
+        } else {
+            /* Split the command and subcommand parts. */
+            char *copy = zstrdup(op+1);
+            char *sub = strchr(copy,'|');
+            sub[0] = '\0';
+            sub++;
+
+            /* Check if the command exists. We can't check the
+             * subcommand to see if it is valid. */
+            if (ACLLookupCommand(copy) == NULL) {
+                errno = ENOENT;
+                return C_ERR;
+            }
+            unsigned long id = ACLGetCommandID(copy);
+
+            /* The subcommand cannot be empty, so things like DEBUG|
+             * are syntax errors of course. */
+            if (strlen(sub) == 0) {
+                zfree(copy);
+                errno = EINVAL;
+                return C_ERR;
+            }
+
+            /* If this is the first subcommand to be configured for
+             * this user, we have to allocate the subcommands array. */
+            if (u->allowed_subcommands == NULL) {
+                u->allowed_subcommands = zcalloc(USER_MAX_COMMAND_BIT *
+                                         sizeof(sds*));
+            }
+
+            /* We also need to enlarge the allocation pointing to the
+             * null terminated SDS array, to make space for this one. */
+            long items = 0;
+            if (u->allowed_subcommands[id]) {
+                while(u->allowed_subcommands[items]) items++;
+            }
+
+            items += 2; /* Make space for the new item and the null term. */
+            u->allowed_subcommands[id] = zrealloc(u->allowed_subcommands[id],
+                                         sizeof(sds)*items);
+            u->allowed_subcommands[id][items-2] = sdsnew(sub);
+            u->allowed_subcommands[id][items-1] = NULL;
+
+            /* We have to clear the command bit so that we force the
+             * subcommand check. */
+            ACLSetUserCommandBit(u,id,0);
+            zfree(copy);
         }
-        unsigned long id = ACLGetCommandID(op+1);
-        ACLSetUserCommandBit(u,id,1);
     } else if (op[0] == '-' && op[1] != '@') {
         if (ACLLookupCommand(op+1) == NULL) {
             errno = ENOENT;
@@ -279,6 +338,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         unsigned long id = ACLGetCommandID(op+1);
         ACLSetUserCommandBit(u,id,0);
         u->flags &= ~USER_FLAG_ALLCOMMANDS;
+        ACLResetSubcommandsForCommand(u,id);
     } else {
         errno = EINVAL;
         return C_ERR;
@@ -504,7 +564,7 @@ void aclCommand(client *c) {
             numflags++;
         }
         if (u->flags & USER_FLAG_ALLCOMMANDS) {
-            addReplyBulkCString(c,"allcommnads");
+            addReplyBulkCString(c,"allcommands");
             numflags++;
         }
         if (u->flags & USER_FLAG_NOPASS) {
