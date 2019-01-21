@@ -451,6 +451,7 @@ void flushallCommand(client *c) {
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
+        closeChildInfoPipe();
         updateDictResizePolicy();
     }
     if (server.saveparamslen > 0) {
