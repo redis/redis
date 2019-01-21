@@ -2603,7 +2603,7 @@ int processCommand(client *c) {
         if (acl_retval == ACL_DENIED_CMD)
             addReplyErrorFormat(c,
                 "-NOPERM this user has no permissions to run "
-                "the '%s' command", c->cmd->name);
+                "the '%s' command or its subcommnad", c->cmd->name);
         else
             addReplyErrorFormat(c,
                 "-NOPERM this user has no permissions to access "
