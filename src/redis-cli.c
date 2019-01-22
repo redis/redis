@@ -1175,7 +1175,9 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
-    while(repeat-- > 0) {
+    /* Negative repeat is allowed and causes infinite loop,
+       works well with the interval option. */
+    while(repeat < 0 || repeat-- > 0) {
         redisAppendCommandArgv(context,argc,(const char**)argv,argvlen);
         while (config.monitor_mode) {
             if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -1209,6 +1211,11 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
             } else if (!strcasecmp(command,"auth") && argc == 2) {
                 cliSelect();
             }
+        }
+        if (config.cluster_reissue_command){
+            /* If we need to reissue the command, break to prevent a
+               further 'repeat' number of dud interations */
+            break;
         }
         if (config.interval) usleep(config.interval);
         fflush(stdout); /* Make it grep friendly */
@@ -1603,12 +1610,12 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 cliPrintContextError();
                 return REDIS_ERR;
             }
-         }
-         /* Issue the command again if we got redirected in cluster mode */
-         if (config.cluster_mode && config.cluster_reissue_command) {
+        }
+        /* Issue the command again if we got redirected in cluster mode */
+        if (config.cluster_mode && config.cluster_reissue_command) {
             cliConnect(CC_FORCE);
-         } else {
-             break;
+        } else {
+            break;
         }
     }
     return REDIS_OK;
