@@ -95,239 +95,864 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  * The flags, microseconds and calls fields are computed by Redis and should
  * always be set to zero.
  *
- * Command flags are expressed using strings where every character represents
- * a flag. Later the populateCommandTable() function will take care of
- * populating the real 'flags' field using this characters.
+ * Command flags are expressed using space separated strings, that are turned
+ * into actual flags by the populateCommandTable() function.
  *
  * This is the meaning of the flags:
  *
- * w: write command (may modify the key space).
- * r: read command  (will never modify the key space).
- * m: may increase memory usage once called. Don't allow if out of memory.
- * a: admin command, like SAVE or SHUTDOWN.
- * p: Pub/Sub related command.
- * f: force replication of this command, regardless of server.dirty.
- * s: command not allowed in scripts.
- * R: random command. Command is not deterministic, that is, the same command
- *    with the same arguments, with the same key space, may have different
- *    results. For instance SPOP and RANDOMKEY are two random commands.
- * S: Sort command output array if called from script, so that the output
- *    is deterministic.
- * l: Allow command while loading the database.
- * t: Allow command while a slave has stale data but is not allowed to
- *    serve this data. Normally no command is accepted in this condition
+ * write: write command (may modify the key space).
+ * read-only: read-only command that will read data from keys without changing
+ *            the content. Commands just returning information but not reading
+ *            from keys are usually not regarded as read-only commands, however
+ *            such commands will also lack the "write" and "admin" flags so
+ *            can be detected. One example is "TIME".
+ * use-memory: may increase memory usage once called. Don't allow if out
+ *    of memory.
+ * admin: admin command, like SAVE or SHUTDOWN.
+ * pub-sub: Pub/Sub related command.
+ * force-repl: force replication of this command, regardless of server.dirty.
+ * no-script: command not allowed in scripts.
+ * random: random command. Command is not deterministic, that is, the same
+ *    command with the same arguments, with the same key space, may have
+ *    different results. For instance SPOP and RANDOMKEY are two random
+ *    commands.
+ * to-sort: Sort command output array if called from script, so that the
+ *    output is deterministic.
+ * ok-loading: Allow command while loading the database.
+ * ok-stale: Allow command while a slave has stale data but is not allowed
+ *    to serve this data. Normally no command is accepted in this condition
  *    but just a few.
- * M: Do not automatically propagate the command on MONITOR.
- * k: Perform an implicit ASKING for this command, so the command will be
- *    accepted in cluster mode if the slot is marked as 'importing'.
- * F: Fast command: O(1) or O(log(N)) command that should never delay
+ * no-monitor: Do not automatically propagate the command on MONITOR.
+ *    cluster-asking k: Perform an implicit ASKING for this command, so the
+ *    command will be accepted in cluster mode if the slot is marked
+ *    as 'importing'.
+ * fast: Fast command: O(1) or O(log(N)) command that should never delay
  *    its execution as long as the kernel scheduler is giving us time.
  *    Note that commands that may trigger a DEL as a side effect (like SET)
  *    are not fast commands.
  */
+
 struct redisCommand redisCommandTable[] = {
-    {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0,0},
-    {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"set",setCommand,-3,"wm",0,NULL,1,1,1,0,0,0},
-    {"setnx",setnxCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"setex",setexCommand,4,"wm",0,NULL,1,1,1,0,0,0},
-    {"psetex",psetexCommand,4,"wm",0,NULL,1,1,1,0,0,0},
-    {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0,0},
-    {"strlen",strlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"del",delCommand,-2,"w",0,NULL,1,-1,1,0,0,0},
-    {"unlink",unlinkCommand,-2,"wF",0,NULL,1,-1,1,0,0,0},
-    {"exists",existsCommand,-2,"rF",0,NULL,1,-1,1,0,0,0},
-    {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0,0},
-    {"getbit",getbitCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"bitfield",bitfieldCommand,-2,"wm",0,NULL,1,1,1,0,0,0},
-    {"setrange",setrangeCommand,4,"wm",0,NULL,1,1,1,0,0,0},
-    {"getrange",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
-    {"substr",getrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
-    {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0,0},
-    {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0,0},
-    {"mget",mgetCommand,-2,"rF",0,NULL,1,-1,1,0,0,0},
-    {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"rpushx",rpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"lpushx",lpushxCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0,0},
-    {"rpop",rpopCommand,2,"wF",0,NULL,1,1,1,0,0,0},
-    {"lpop",lpopCommand,2,"wF",0,NULL,1,1,1,0,0,0},
-    {"brpop",brpopCommand,-3,"ws",0,NULL,1,-2,1,0,0,0},
-    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0,0},
-    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0,0},
-    {"llen",llenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0,0},
-    {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0,0},
-    {"lrange",lrangeCommand,4,"r",0,NULL,1,1,1,0,0,0},
-    {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0,0},
-    {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0,0},
-    {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0,0},
-    {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
-    {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0,0},
-    {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"spop",spopCommand,-2,"wRF",0,NULL,1,1,1,0,0,0},
-    {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0,0},
-    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
-    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
-    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
-    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
-    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0,0},
-    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0,0},
-    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0,0},
-    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
-    {"zadd",zaddCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"zincrby",zincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"zrem",zremCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
-    {"zremrangebyscore",zremrangebyscoreCommand,4,"w",0,NULL,1,1,1,0,0,0},
-    {"zremrangebyrank",zremrangebyrankCommand,4,"w",0,NULL,1,1,1,0,0,0},
-    {"zremrangebylex",zremrangebylexCommand,4,"w",0,NULL,1,1,1,0,0,0},
-    {"zunionstore",zunionstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,0},
-    {"zinterstore",zinterstoreCommand,-4,"wm",0,zunionInterGetKeys,0,0,0,0,0,0},
-    {"zrange",zrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zrangebyscore",zrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zrangebylex",zrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zrevrangebylex",zrevrangebylexCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zcount",zcountCommand,4,"rF",0,NULL,1,1,1,0,0,0},
-    {"zlexcount",zlexcountCommand,4,"rF",0,NULL,1,1,1,0,0,0},
-    {"zrevrange",zrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"zcard",zcardCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"zscore",zscoreCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"zrank",zrankCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"zrevrank",zrevrankCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
-    {"zpopmin",zpopminCommand,-2,"wF",0,NULL,1,1,1,0,0,0},
-    {"zpopmax",zpopmaxCommand,-2,"wF",0,NULL,1,1,1,0,0,0},
-    {"bzpopmin",bzpopminCommand,-2,"wsF",0,NULL,1,-2,1,0,0,0},
-    {"bzpopmax",bzpopmaxCommand,-2,"wsF",0,NULL,1,-2,1,0,0,0},
-    {"hset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"hsetnx",hsetnxCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"hget",hgetCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"hmset",hsetCommand,-4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"hmget",hmgetCommand,-3,"rF",0,NULL,1,1,1,0,0,0},
-    {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0,0},
-    {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
-    {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"hstrlen",hstrlenCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0,0},
-    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0,0},
-    {"hgetall",hgetallCommand,2,"rR",0,NULL,1,1,1,0,0,0},
-    {"hexists",hexistsCommand,3,"rF",0,NULL,1,1,1,0,0,0},
-    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
-    {"incrby",incrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"decrby",decrbyCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"incrbyfloat",incrbyfloatCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0,0},
-    {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0,0},
-    {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0,0},
-    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0,0},
-    {"select",selectCommand,2,"lF",0,NULL,0,0,0,0,0,0},
-    {"swapdb",swapdbCommand,3,"wF",0,NULL,0,0,0,0,0,0},
-    {"move",moveCommand,3,"wF",0,NULL,1,1,1,0,0,0},
-    {"rename",renameCommand,3,"w",0,NULL,1,2,1,0,0,0},
-    {"renamenx",renamenxCommand,3,"wF",0,NULL,1,2,1,0,0,0},
-    {"expire",expireCommand,3,"wF",0,NULL,1,1,1,0,0,0},
-    {"expireat",expireatCommand,3,"wF",0,NULL,1,1,1,0,0,0},
-    {"pexpire",pexpireCommand,3,"wF",0,NULL,1,1,1,0,0,0},
-    {"pexpireat",pexpireatCommand,3,"wF",0,NULL,1,1,1,0,0,0},
-    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0,0},
-    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0,0},
-    {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0,0},
-    {"auth",authCommand,-2,"sltF",0,NULL,0,0,0,0,0,0},
-    {"ping",pingCommand,-1,"tF",0,NULL,0,0,0,0,0,0},
-    {"echo",echoCommand,2,"F",0,NULL,0,0,0,0,0,0},
-    {"save",saveCommand,1,"as",0,NULL,0,0,0,0,0,0},
-    {"bgsave",bgsaveCommand,-1,"as",0,NULL,0,0,0,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,"as",0,NULL,0,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"aslt",0,NULL,0,0,0,0,0,0},
-    {"lastsave",lastsaveCommand,1,"RF",0,NULL,0,0,0,0,0,0},
-    {"type",typeCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0,0},
-    {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0,0},
-    {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0,0},
-    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0,0},
-    {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0,0},
-    {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0,0},
-    {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0,0},
-    {"flushall",flushallCommand,-1,"w",0,NULL,0,0,0,0,0,0},
-    {"sort",sortCommand,-2,"wm",0,sortGetKeys,1,1,1,0,0,0},
-    {"info",infoCommand,-1,"ltR",0,NULL,0,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"as",0,NULL,0,0,0,0,0,0},
-    {"ttl",ttlCommand,2,"rFR",0,NULL,1,1,1,0,0,0},
-    {"touch",touchCommand,-2,"rF",0,NULL,1,1,1,0,0,0},
-    {"pttl",pttlCommand,2,"rFR",0,NULL,1,1,1,0,0,0},
-    {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0,0},
-    {"slaveof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0,0},
-    {"replicaof",replicaofCommand,3,"ast",0,NULL,0,0,0,0,0,0},
-    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0,0},
-    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0,0},
-    {"config",configCommand,-2,"last",0,NULL,0,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"pslt",0,NULL,0,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"pslt",0,NULL,0,0,0,0,0,0},
-    {"publish",publishCommand,3,"pltF",0,NULL,0,0,0,0,0,0},
-    {"pubsub",pubsubCommand,-2,"pltR",0,NULL,0,0,0,0,0,0},
-    {"watch",watchCommand,-2,"sF",0,NULL,1,-1,1,0,0,0},
-    {"unwatch",unwatchCommand,1,"sF",0,NULL,0,0,0,0,0,0},
-    {"cluster",clusterCommand,-2,"a",0,NULL,0,0,0,0,0,0},
-    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0,0},
-    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0,0},
-    {"migrate",migrateCommand,-6,"wR",0,migrateGetKeys,0,0,0,0,0,0},
-    {"asking",askingCommand,1,"F",0,NULL,0,0,0,0,0,0},
-    {"readonly",readonlyCommand,1,"F",0,NULL,0,0,0,0,0,0},
-    {"readwrite",readwriteCommand,1,"F",0,NULL,0,0,0,0,0,0},
-    {"dump",dumpCommand,2,"rR",0,NULL,1,1,1,0,0,0},
-    {"object",objectCommand,-2,"rR",0,NULL,2,2,1,0,0,0},
-    {"memory",memoryCommand,-2,"rR",0,NULL,0,0,0,0,0,0},
-    {"client",clientCommand,-2,"as",0,NULL,0,0,0,0,0,0},
-    {"hello",helloCommand,-2,"sF",0,NULL,0,0,0,0,0,0},
-    {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"aR",0,NULL,0,0,0,0,0,0},
-    {"script",scriptCommand,-2,"s",0,NULL,0,0,0,0,0,0},
-    {"time",timeCommand,1,"RF",0,NULL,0,0,0,0,0,0},
-    {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0,0},
-    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0,0},
-    {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0,0},
-    {"wait",waitCommand,3,"s",0,NULL,0,0,0,0,0,0},
-    {"command",commandCommand,0,"ltR",0,NULL,0,0,0,0,0,0},
-    {"geoadd",geoaddCommand,-5,"wm",0,NULL,1,1,1,0,0,0},
-    {"georadius",georadiusCommand,-6,"w",0,georadiusGetKeys,1,1,1,0,0,0},
-    {"georadius_ro",georadiusroCommand,-6,"r",0,georadiusGetKeys,1,1,1,0,0,0},
-    {"georadiusbymember",georadiusbymemberCommand,-5,"w",0,georadiusGetKeys,1,1,1,0,0,0},
-    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,"r",0,georadiusGetKeys,1,1,1,0,0,0},
-    {"geohash",geohashCommand,-2,"r",0,NULL,1,1,1,0,0,0},
-    {"geopos",geoposCommand,-2,"r",0,NULL,1,1,1,0,0,0},
-    {"geodist",geodistCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"pfselftest",pfselftestCommand,1,"a",0,NULL,0,0,0,0,0,0},
-    {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0,0},
-    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,-1,1,0,0,0},
-    {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0,0},
-    {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0,0},
-    {"xadd",xaddCommand,-5,"wmFR",0,NULL,1,1,1,0,0,0},
-    {"xrange",xrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"xrevrange",xrevrangeCommand,-4,"r",0,NULL,1,1,1,0,0,0},
-    {"xlen",xlenCommand,2,"rF",0,NULL,1,1,1,0,0,0},
-    {"xread",xreadCommand,-4,"rs",0,xreadGetKeys,1,1,1,0,0,0},
-    {"xreadgroup",xreadCommand,-7,"ws",0,xreadGetKeys,1,1,1,0,0,0},
-    {"xgroup",xgroupCommand,-2,"wm",0,NULL,2,2,1,0,0,0},
-    {"xsetid",xsetidCommand,3,"wmF",0,NULL,1,1,1,0,0,0},
-    {"xack",xackCommand,-4,"wF",0,NULL,1,1,1,0,0,0},
-    {"xpending",xpendingCommand,-3,"rR",0,NULL,1,1,1,0,0,0},
-    {"xclaim",xclaimCommand,-6,"wRF",0,NULL,1,1,1,0,0,0},
-    {"xinfo",xinfoCommand,-2,"rR",0,NULL,2,2,1,0,0,0},
-    {"xdel",xdelCommand,-3,"wF",0,NULL,1,1,1,0,0,0},
-    {"xtrim",xtrimCommand,-2,"wFR",0,NULL,1,1,1,0,0,0},
-    {"post",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
-    {"host:",securityWarningCommand,-1,"lt",0,NULL,0,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"aslt",0,NULL,0,0,0,0,0,0},
-    {"lolwut",lolwutCommand,-1,"r",0,NULL,0,0,0,0,0,0},
-    {"acl",aclCommand,-2,"ast",0,NULL,0,0,0,0,0,0}
+    {"module",moduleCommand,-2,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"get",getCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    /* Note that we can't flag set as fast, since it may perform an
+     * implicit DEL of a large key. */
+    {"set",setCommand,-3,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"setnx",setnxCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"setex",setexCommand,4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"psetex",psetexCommand,4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"append",appendCommand,3,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"strlen",strlenCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"del",delCommand,-2,"write",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"unlink",unlinkCommand,-2,
+     "write fast",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"exists",existsCommand,-2,
+     "read-only fast",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"setbit",setbitCommand,4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"getbit",getbitCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"bitfield",bitfieldCommand,-2,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"setrange",setrangeCommand,4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"getrange",getrangeCommand,4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"substr",getrangeCommand,4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"incr",incrCommand,2,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"decr",decrCommand,2,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"mget",mgetCommand,-2,
+     "read-only fast",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"rpush",rpushCommand,-3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lpush",lpushCommand,-3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"rpushx",rpushxCommand,-3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lpushx",lpushxCommand,-3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"linsert",linsertCommand,5,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"rpop",rpopCommand,2,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lpop",lpopCommand,2,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"brpop",brpopCommand,-3,
+     "write no-script",
+     0,NULL,1,-2,1,0,0,0},
+
+    {"brpoplpush",brpoplpushCommand,4,
+     "write use-memory no-script",
+     0,NULL,1,2,1,0,0,0},
+
+    {"blpop",blpopCommand,-3,
+     "write no-script",
+     0,NULL,1,-2,1,0,0,0},
+
+    {"llen",llenCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lindex",lindexCommand,3,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lset",lsetCommand,4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lrange",lrangeCommand,4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"ltrim",ltrimCommand,4,
+     "write",
+     0,NULL,1,1,1,0,0,0},
+
+    {"lrem",lremCommand,4,
+     "write",
+     0,NULL,1,1,1,0,0,0},
+
+    {"rpoplpush",rpoplpushCommand,3,
+     "write use-memory",
+     0,NULL,1,2,1,0,0,0},
+
+    {"sadd",saddCommand,-3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"srem",sremCommand,-3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"smove",smoveCommand,4,
+     "write fast",
+     0,NULL,1,2,1,0,0,0},
+
+    {"sismember",sismemberCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"scard",scardCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"spop",spopCommand,-2,
+     "write random fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"srandmember",srandmemberCommand,-2,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"sinter",sinterCommand,-2,
+     "read-only to-sort",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"sinterstore",sinterstoreCommand,-3,
+     "write use-memory",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"sunion",sunionCommand,-2,
+     "read-only to-sort",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"sunionstore",sunionstoreCommand,-3,
+     "write use-memory",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"sdiff",sdiffCommand,-2,
+     "read-only to-sort",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"sdiffstore",sdiffstoreCommand,-3,
+     "write use-memory",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"smembers",sinterCommand,2,
+     "read-only to-sort",
+     0,NULL,1,1,1,0,0,0},
+
+    {"sscan",sscanCommand,-3,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zadd",zaddCommand,-4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zincrby",zincrbyCommand,4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrem",zremCommand,-3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zremrangebyscore",zremrangebyscoreCommand,4,
+     "write",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zremrangebyrank",zremrangebyrankCommand,4,
+     "write",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zremrangebylex",zremrangebylexCommand,4,
+     "write",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zunionstore",zunionstoreCommand,-4,
+     "write use-memory",
+     0,zunionInterGetKeys,0,0,0,0,0,0},
+
+    {"zinterstore",zinterstoreCommand,-4,
+     "write use-memory",
+     0,zunionInterGetKeys,0,0,0,0,0,0},
+
+    {"zrange",zrangeCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrangebyscore",zrangebyscoreCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrangebylex",zrangebylexCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrevrangebylex",zrevrangebylexCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zcount",zcountCommand,4,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zlexcount",zlexcountCommand,4,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrevrange",zrevrangeCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zcard",zcardCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zscore",zscoreCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrank",zrankCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zrevrank",zrevrankCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zscan",zscanCommand,-3,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zpopmin",zpopminCommand,-2,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"zpopmax",zpopmaxCommand,-2,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"bzpopmin",bzpopminCommand,-2,
+     "write no-script fast",
+     0,NULL,1,-2,1,0,0,0},
+
+    {"bzpopmax",bzpopmaxCommand,-2,
+     "write no-script fast",
+     0,NULL,1,-2,1,0,0,0},
+
+    {"hset",hsetCommand,-4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hsetnx",hsetnxCommand,4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hget",hgetCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hmset",hsetCommand,-4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hmget",hmgetCommand,-3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hincrby",hincrbyCommand,4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hincrbyfloat",hincrbyfloatCommand,4,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hdel",hdelCommand,-3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hlen",hlenCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hstrlen",hstrlenCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hkeys",hkeysCommand,2,
+     "read-only to-sort",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hvals",hvalsCommand,2,
+     "read-only to-sort",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hgetall",hgetallCommand,2,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hexists",hexistsCommand,3,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"hscan",hscanCommand,-3,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"incrby",incrbyCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"decrby",decrbyCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"incrbyfloat",incrbyfloatCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"getset",getsetCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"mset",msetCommand,-3,
+     "write use-memory",
+     0,NULL,1,-1,2,0,0,0},
+
+    {"msetnx",msetnxCommand,-3,
+     "write use-memory",
+     0,NULL,1,-1,2,0,0,0},
+
+    {"randomkey",randomkeyCommand,1,
+     "read-only random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"select",selectCommand,2,
+     "ok-loading fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"swapdb",swapdbCommand,3,
+     "write fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"move",moveCommand,3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    /* Like for SET, we can't mark rename as a fast command because
+     * overwriting the target key may result in an implicit slow DEL. */
+    {"rename",renameCommand,3,
+     "write",
+     0,NULL,1,2,1,0,0,0},
+
+    {"renamenx",renamenxCommand,3,
+     "write fast",
+     0,NULL,1,2,1,0,0,0},
+
+    {"expire",expireCommand,3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"expireat",expireatCommand,3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pexpire",pexpireCommand,3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pexpireat",pexpireatCommand,3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"keys",keysCommand,2,
+     "read-only to-sort",
+     0,NULL,0,0,0,0,0,0},
+
+    {"scan",scanCommand,-2,
+     "read-only random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"dbsize",dbsizeCommand,1,
+     "read-only fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"auth",authCommand,-2,
+     "no-script ok-loading ok-stale fast",
+     0,NULL,0,0,0,0,0,0},
+
+    /* We don't allow PING during loading since in Redis PING is used as
+     * failure detection, and a loading server is considered to be
+     * not available. */
+    {"ping",pingCommand,-1,
+     "ok-stale fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"echo",echoCommand,2,
+     "fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"save",saveCommand,1,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"bgsave",bgsaveCommand,-1,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"bgrewriteaof",bgrewriteaofCommand,1,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"shutdown",shutdownCommand,-1,
+     "admin no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"lastsave",lastsaveCommand,1,
+     "random fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"type",typeCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"multi",multiCommand,1,
+     "no-script fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"exec",execCommand,1,
+     "no-script no-monitor",
+     0,NULL,0,0,0,0,0,0},
+
+    {"discard",discardCommand,1,
+     "no-script fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"sync",syncCommand,1,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"psync",syncCommand,3,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"replconf",replconfCommand,-1,
+     "admin no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"flushdb",flushdbCommand,-1,
+     "write",
+     0,NULL,0,0,0,0,0,0},
+
+    {"flushall",flushallCommand,-1,
+     "write",
+     0,NULL,0,0,0,0,0,0},
+
+    {"sort",sortCommand,-2,
+     "write use-memory",
+     0,sortGetKeys,1,1,1,0,0,0},
+
+    {"info",infoCommand,-1,
+     "ok-loading ok-stale random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"monitor",monitorCommand,1,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"ttl",ttlCommand,2,
+     "read-only fast random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"touch",touchCommand,-2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pttl",pttlCommand,2,
+     "read-only fast random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"persist",persistCommand,2,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"slaveof",replicaofCommand,3,
+     "admin no-script ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"replicaof",replicaofCommand,3,
+     "admin no-script ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"role",roleCommand,1,
+     "ok-loading ok-stale no-script fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"debug",debugCommand,-2,
+     "admin no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"config",configCommand,-2,
+     "admin ok-loading ok-stale no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"subscribe",subscribeCommand,-2,
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"unsubscribe",unsubscribeCommand,-1,
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"psubscribe",psubscribeCommand,-2,
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"punsubscribe",punsubscribeCommand,-1,
+     "pub-sub no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"publish",publishCommand,3,
+     "pub-sub ok-loading ok-stale fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"pubsub",pubsubCommand,-2,
+     "pub-sub ok-loading ok-stale random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"watch",watchCommand,-2,
+     "no-script fast",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"unwatch",unwatchCommand,1,
+     "no-script fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"cluster",clusterCommand,-2,
+     "admin ok-stale random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"restore",restoreCommand,-4,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    {"restore-asking",restoreCommand,-4,
+    "write use-memory cluster-asking",
+    0,NULL,1,1,1,0,0,0},
+
+    {"migrate",migrateCommand,-6,
+     "write random",
+     0,migrateGetKeys,0,0,0,0,0,0},
+
+    {"asking",askingCommand,1,
+     "fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"readonly",readonlyCommand,1,
+     "fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"readwrite",readwriteCommand,1,
+     "fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"dump",dumpCommand,2,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"object",objectCommand,-2,
+     "read-only random",
+     0,NULL,2,2,1,0,0,0},
+
+    {"memory",memoryCommand,-2,
+     "random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"client",clientCommand,-2,
+     "admin no-script random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"hello",helloCommand,-2,
+     "no-script fast",
+     0,NULL,0,0,0,0,0,0},
+
+    /* EVAL can modify the dataset, however it is not flagged as a write
+     * command since we do the check while running commands from Lua. */
+    {"eval",evalCommand,-3,
+     "no-script",
+     0,evalGetKeys,0,0,0,0,0,0},
+
+    {"evalsha",evalShaCommand,-3,
+     "no-script",
+     0,evalGetKeys,0,0,0,0,0,0},
+
+    {"slowlog",slowlogCommand,-2,
+     "admin random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"script",scriptCommand,-2,
+     "no-script",
+     0,NULL,0,0,0,0,0,0},
+
+    {"time",timeCommand,1,
+     "random fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"bitop",bitopCommand,-4,
+     "write use-memory",
+     0,NULL,2,-1,1,0,0,0},
+
+    {"bitcount",bitcountCommand,-2,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"bitpos",bitposCommand,-3,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"wait",waitCommand,3,
+     "noscript",
+     0,NULL,0,0,0,0,0,0},
+
+    {"command",commandCommand,0,
+     "ok-loading ok-stale random",
+     0,NULL,0,0,0,0,0,0},
+
+    {"geoadd",geoaddCommand,-5,
+     "write use-memory",
+     0,NULL,1,1,1,0,0,0},
+
+    /* GEORADIUS has store options that may write. */
+    {"georadius",georadiusCommand,-6,
+     "write",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"georadius_ro",georadiusroCommand,-6,
+     "read-only",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"georadiusbymember",georadiusbymemberCommand,-5,
+     "write",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"georadiusbymember_ro",georadiusbymemberroCommand,-5,
+     "read-only",
+     0,georadiusGetKeys,1,1,1,0,0,0},
+
+    {"geohash",geohashCommand,-2,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"geopos",geoposCommand,-2,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"geodist",geodistCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"pfselftest",pfselftestCommand,1,
+     "admin",
+      0,NULL,0,0,0,0,0,0},
+
+    {"pfadd",pfaddCommand,-2,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    /* Technically speaking PFCOUNT may change the key since it changes the
+     * final bytes in the HyperLogLog representation. However in this case
+     * we claim that the representation, even if accessible, is an internal
+     * affair, and the command is semantically read only. */
+    {"pfcount",pfcountCommand,-2,
+     "read-only",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"pfmerge",pfmergeCommand,-2,
+     "write use-memory",
+     0,NULL,1,-1,1,0,0,0},
+
+    {"pfdebug",pfdebugCommand,-3,
+     "admin write",
+     0,NULL,0,0,0,0,0,0},
+
+    {"xadd",xaddCommand,-5,
+     "write use-memory fast random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xrange",xrangeCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xrevrange",xrevrangeCommand,-4,
+     "read-only",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xlen",xlenCommand,2,
+     "read-only fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xread",xreadCommand,-4,
+     "read-only no-script",
+     0,xreadGetKeys,1,1,1,0,0,0},
+
+    {"xreadgroup",xreadCommand,-7,
+     "write no-script",
+     0,xreadGetKeys,1,1,1,0,0,0},
+
+    {"xgroup",xgroupCommand,-2,
+     "write use-memory",
+     0,NULL,2,2,1,0,0,0},
+
+    {"xsetid",xsetidCommand,3,
+     "write use-memory fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xack",xackCommand,-4,
+     "write fast random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xpending",xpendingCommand,-3,
+     "read-only random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xclaim",xclaimCommand,-6,
+     "write random fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xinfo",xinfoCommand,-2,
+     "read-only random",
+     0,NULL,2,2,1,0,0,0},
+
+    {"xdel",xdelCommand,-3,
+     "write fast",
+     0,NULL,1,1,1,0,0,0},
+
+    {"xtrim",xtrimCommand,-2,
+     "write random",
+     0,NULL,1,1,1,0,0,0},
+
+    {"post",securityWarningCommand,-1,
+     "ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"host:",securityWarningCommand,-1,
+     "ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"latency",latencyCommand,-2,
+     "admin no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0},
+
+    {"lolwut",lolwutCommand,-1,
+     "fast",
+     0,NULL,0,0,0,0,0,0},
+
+    {"acl",aclCommand,-2,
+     "admin no-script ok-loading ok-stale",
+     0,NULL,0,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
