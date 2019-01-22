@@ -110,7 +110,6 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    of memory.
  * admin: admin command, like SAVE or SHUTDOWN.
  * pub-sub: Pub/Sub related command.
- * force-repl: force replication of this command, regardless of server.dirty.
  * no-script: command not allowed in scripts.
  * random: random command. Command is not deterministic, that is, the same
  *    command with the same arguments, with the same key space, may have
