@@ -814,7 +814,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,1,1,1,0,0,0},
 
     {"wait",waitCommand,3,
-     "noscript",
+     "no-script",
      0,NULL,0,0,0,0,0,0},
 
     {"command",commandCommand,0,
@@ -2816,6 +2816,41 @@ void initServer(void) {
     server.initial_memory_usage = zmalloc_used_memory();
 }
 
+/* Parse the flags string description 'strflags' and set them to the
+ * command 'c'. If the flags are all valid C_OK is returned, otherwise
+ * C_ERR is returned (yet the recognized flags are set in the command). */
+int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
+    int argc;
+    sds *argv;
+
+    /* Split the line into arguments for processing. */
+    argv = sdssplitargs(strflags,&argc);
+    if (argv == NULL) return C_ERR;
+
+    for (int j = 0; j < argc; j++) {
+        char *flag = argv[j];
+        if (!strcasecmp(flag,"write")) c->flags |= CMD_WRITE;
+        else if (!strcasecmp(flag,"read-only")) c->flags |= CMD_READONLY;
+        else if (!strcasecmp(flag,"use-memory")) c->flags |= CMD_DENYOOM;
+        else if (!strcasecmp(flag,"admin")) c->flags |= CMD_ADMIN;
+        else if (!strcasecmp(flag,"pub-sub")) c->flags |= CMD_PUBSUB;
+        else if (!strcasecmp(flag,"no-script")) c->flags |= CMD_NOSCRIPT;
+        else if (!strcasecmp(flag,"random")) c->flags |= CMD_RANDOM;
+        else if (!strcasecmp(flag,"to-sort")) c->flags |= CMD_SORT_FOR_SCRIPT;
+        else if (!strcasecmp(flag,"ok-loading")) c->flags |= CMD_LOADING;
+        else if (!strcasecmp(flag,"ok-stale")) c->flags |= CMD_STALE;
+        else if (!strcasecmp(flag,"no-monitor")) c->flags |= CMD_SKIP_MONITOR;
+        else if (!strcasecmp(flag,"cluster-asking")) c->flags |= CMD_ASKING;
+        else if (!strcasecmp(flag,"fast")) c->flags |= CMD_FAST;
+        else {
+            sdsfreesplitres(argv,argc);
+            return C_ERR;
+        }
+    }
+    sdsfreesplitres(argv,argc);
+    return C_OK;
+}
+
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of redis.c file. */
 void populateCommandTable(void) {
@@ -2824,30 +2859,12 @@ void populateCommandTable(void) {
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;
-        char *f = c->sflags;
         int retval1, retval2;
 
         /* Translate the command string flags description into an actual
          * set of flags. */
-        while(*f != '\0') {
-            switch(*f) {
-            case 'w': c->flags |= CMD_WRITE; break;
-            case 'r': c->flags |= CMD_READONLY; break;
-            case 'm': c->flags |= CMD_DENYOOM; break;
-            case 'a': c->flags |= CMD_ADMIN; break;
-            case 'p': c->flags |= CMD_PUBSUB; break;
-            case 's': c->flags |= CMD_NOSCRIPT; break;
-            case 'R': c->flags |= CMD_RANDOM; break;
-            case 'S': c->flags |= CMD_SORT_FOR_SCRIPT; break;
-            case 'l': c->flags |= CMD_LOADING; break;
-            case 't': c->flags |= CMD_STALE; break;
-            case 'M': c->flags |= CMD_SKIP_MONITOR; break;
-            case 'k': c->flags |= CMD_ASKING; break;
-            case 'F': c->flags |= CMD_FAST; break;
-            default: serverPanic("Unsupported command flag"); break;
-            }
-            f++;
-        }
+        if (populateCommandTableParseFlags(c,c->sflags) == C_ERR)
+            serverPanic("Unsupported command flag");
 
         c->id = ACLGetCommandID(c->name); /* Assign the ID used for ACL. */
         retval1 = dictAdd(server.commands, sdsnew(c->name), c);
