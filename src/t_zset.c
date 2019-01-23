@@ -3141,7 +3141,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     if (countarg) {
         if (getLongFromObjectOrReply(c,countarg,&count,NULL) != C_OK)
             return;
-        if (count < 0) count = 1;
+        if (count <= 0) {
+            addReplyNullArray(c);
+            return;
+        }
     }
 
     /* Check type and break on the first error, otherwise identify candidate. */
