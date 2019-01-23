@@ -63,7 +63,8 @@ struct ACLCategoryItem {
     {"dangerous", CMD_CATEGORY_DANGEROUS},
     {"connection", CMD_CATEGORY_CONNECTION},
     {"transaction", CMD_CATEGORY_TRANSACTION},
-    {"scripting", CMD_CATEGORY_SCRIPTING}
+    {"scripting", CMD_CATEGORY_SCRIPTING},
+    {"",0} /* Terminator. */
 };
 
 /* =============================================================================
@@ -115,6 +116,17 @@ int time_independent_strcmp(char *a, char *b) {
 /* =============================================================================
  * Low level ACL API
  * ==========================================================================*/
+
+/* Given the category name the command returns the corresponding flag, or
+ * zero if there is no match. */
+uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
+    for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+        if (!strcasecmp(name,ACLCommandCategories[j].name)) {
+            return ACLCommandCategories[j].flag;
+        }
+    }
+    return 0; /* No match. */
+}
 
 /* Method for passwords/pattern comparison used for the user->passwords list
  * so that we can search for items with listSearchKey(). */

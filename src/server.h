@@ -1736,6 +1736,7 @@ user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLCheckCommandPerm(client *c);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLDefaultUserFirstPassword(void);
+uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 
 /* Sorted sets data type */
 
