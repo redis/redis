@@ -76,21 +76,33 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *
  * Every entry is composed of the following fields:
  *
- * name: a string representing the command name.
- * function: pointer to the C function implementing the command.
- * arity: number of arguments, it is possible to use -N to say >= N
- * sflags: command flags as string. See below for a table of flags.
- * flags: flags as bitmask. Computed by Redis using the 'sflags' field.
- * get_keys_proc: an optional function to get key arguments from a command.
+ * name:        A string representing the command name.
+ *
+ * function:    Pointer to the C function implementing the command.
+ *
+ * arity:       Number of arguments, it is possible to use -N to say >= N
+ *
+ * sflags:      Command flags as string. See below for a table of flags.
+ *
+ * flags:       Flags as bitmask. Computed by Redis using the 'sflags' field.
+ *
+ * get_keys_proc: An optional function to get key arguments from a command.
  *                This is only used when the following three fields are not
  *                enough to specify what arguments are keys.
- * first_key_index: first argument that is a key
- * last_key_index: last argument that is a key
- * key_step: step to get all the keys from first to last argument. For instance
- *           in MSET the step is two since arguments are key,val,key,val,...
- * microseconds: microseconds of total execution time for this command.
- * calls: total number of calls of this command.
- * id: command bit identifier for ACLs.
+ *
+ * first_key_index: First argument that is a key
+ *
+ * last_key_index: Last argument that is a key
+ *
+ * key_step:    Step to get all the keys from first to last argument.
+ *              For instance in MSET the step is two since arguments
+ *              are key,val,key,val,...
+ *
+ * microseconds: Microseconds of total execution time for this command.
+ *
+ * calls:       Total number of calls of this command.
+ *
+ * id:          Command bit identifier for ACLs or other goals.
  *
  * The flags, microseconds and calls fields are computed by Redis and should
  * always be set to zero.
@@ -100,35 +112,49 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *
  * This is the meaning of the flags:
  *
- * write: write command (may modify the key space).
- * read-only: all the non special commands just reading from keys without
- *            changing the content, or returning other informations like
- *            the TIME command. Special commands such administrative commands
- *            or transaction related commands (multi, exec, discard, ...)
- *            are not flagged as read-only commands.
- * use-memory: may increase memory usage once called. Don't allow if out
- *    of memory.
- * admin: admin command, like SAVE or SHUTDOWN.
- * pub-sub: Pub/Sub related command.
- * no-script: command not allowed in scripts.
- * random: random command. Command is not deterministic, that is, the same
- *    command with the same arguments, with the same key space, may have
- *    different results. For instance SPOP and RANDOMKEY are two random
- *    commands.
- * to-sort: Sort command output array if called from script, so that the
- *    output is deterministic.
- * ok-loading: Allow command while loading the database.
- * ok-stale: Allow command while a slave has stale data but is not allowed
- *    to serve this data. Normally no command is accepted in this condition
- *    but just a few.
- * no-monitor: Do not automatically propagate the command on MONITOR.
- *    cluster-asking k: Perform an implicit ASKING for this command, so the
- *    command will be accepted in cluster mode if the slot is marked
- *    as 'importing'.
- * fast: Fast command: O(1) or O(log(N)) command that should never delay
- *    its execution as long as the kernel scheduler is giving us time.
- *    Note that commands that may trigger a DEL as a side effect (like SET)
- *    are not fast commands.
+ * write:       Write command (may modify the key space).
+ *
+ * read-only:   All the non special commands just reading from keys without
+ *              changing the content, or returning other informations like
+ *              the TIME command. Special commands such administrative commands
+ *              or transaction related commands (multi, exec, discard, ...)
+ *              are not flagged as read-only commands, since they affect the
+ *              server or the connection in other ways.
+ *
+ * use-memory:  May increase memory usage once called. Don't allow if out
+ *              of memory.
+ *
+ * admin:       Administrative command, like SAVE or SHUTDOWN.
+ *
+ * pub-sub:     Pub/Sub related command.
+ *
+ * no-script:   Command not allowed in scripts.
+ *
+ * random:      Random command. Command is not deterministic, that is, the same
+ *              command with the same arguments, with the same key space, may
+ *              have different results. For instance SPOP and RANDOMKEY are
+ *              two random commands.
+ *
+ * to-sort:     Sort command output array if called from script, so that the
+ *              output is deterministic. When this flag is used (not always
+ *              possible), then the "random" flag is not needed.
+ *
+ * ok-loading:  Allow the command while loading the database.
+ *
+ * ok-stale:    Allow the command while a slave has stale data but is not
+ *              allowed to serve this data. Normally no command is accepted
+ *              in this condition but just a few.
+ *
+ * no-monitor:  Do not automatically propagate the command on MONITOR.
+ *
+ * cluster-asking: Perform an implicit ASKING for this command, so the
+ *              command will be accepted in cluster mode if the slot is marked
+ *              as 'importing'.
+ *
+ * fast:        Fast command: O(1) or O(log(N)) command that should never
+ *              delay its execution as long as the kernel scheduler is giving
+ *              us time. Note that commands that may trigger a DEL as a side
+ *              effect (like SET) are not fast commands.
  */
 
 struct redisCommand redisCommandTable[] = {
