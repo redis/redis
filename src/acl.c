@@ -560,6 +560,11 @@ void aclCommand(client *c) {
         }
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+        if (u == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
         addReplyMapLen(c,2);
 
         /* Flags */
