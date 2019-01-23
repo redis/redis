@@ -122,7 +122,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  * bit. The function returns C_ERR in case the specified ID overflows
  * the bitmap in the user representation. */
 int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit) {
-    if (id >= USER_MAX_COMMAND_BIT) return C_ERR;
+    if (id >= USER_COMMAND_BITS_COUNT) return C_ERR;
     *word = id / sizeof(uint64_t) / 8;
     *bit = 1 << (id % (sizeof(uint64_t) * 8));
     return C_OK;
@@ -317,7 +317,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             /* If this is the first subcommand to be configured for
              * this user, we have to allocate the subcommands array. */
             if (u->allowed_subcommands == NULL) {
-                u->allowed_subcommands = zcalloc(USER_MAX_COMMAND_BIT *
+                u->allowed_subcommands = zcalloc(USER_COMMAND_BITS_COUNT *
                                          sizeof(sds*));
             }
 
@@ -439,7 +439,18 @@ unsigned long ACLGetCommandID(const char *cmdname) {
     raxInsert(map,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);
-    return nextid++;
+    nextid++;
+
+    /* We never assign the last bit in the user commands bitmap structure,
+     * this way we can later check if this bit is set, understanding if the
+     * current ACL for the user was created starting with a +@all to add all
+     * the possible commands and just subtracting other single commands or
+     * categories, or if, instead, the ACL was created just adding commands
+     * and command categories from scratch, not allowing future commands by
+     * default (loaded via modules). This is useful when rewriting the ACLs
+     * with ACL SAVE. */
+    if (nextid == USER_COMMAND_BITS_COUNT-1) nextid++;
+    return nextid;
 }
 
 /* Return an username by its name, or NULL if the user does not exist. */
