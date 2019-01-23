@@ -141,6 +141,13 @@ int ACLGetUserCommandBit(user *u, unsigned long id) {
     return u->allowed_commands[word] & bit;
 }
 
+/* When +@all or allcommands is given, we set a reserved bit as well that we
+ * can later test, to see if the user has the right to execute "future commands",
+ * that is, commands loaded later via modules. */
+int ACLUserCanExecuteFutureCommands(user *u) {
+    return ACLGetUserCommandBit(u,USER_COMMAND_BITS_COUNT-1);
+}
+
 /* Set the specified command bit for the specified user to 'value' (0 or 1).
  * If the bit overflows the user internal represetation, no operation
  * is performed. */
