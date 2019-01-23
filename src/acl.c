@@ -39,6 +39,33 @@ user *DefaultUser;   /* Global reference to the default user.
                         AUTH or HELLO is used to authenticate with a
                         different user. */
 
+struct ACLCategoryItem {
+    const char *name;
+    uint64_t flag;
+} ACLCommandCategories[] = {
+    {"keyspace", CMD_CATEGORY_KEYSPACE},
+    {"read", CMD_CATEGORY_READ},
+    {"write", CMD_CATEGORY_WRITE},
+    {"set", CMD_CATEGORY_SET},
+    {"sortedset", CMD_CATEGORY_SORTEDSET},
+    {"list", CMD_CATEGORY_LIST},
+    {"hash", CMD_CATEGORY_HASH},
+    {"string", CMD_CATEGORY_STRING},
+    {"bitmap", CMD_CATEGORY_BITMAP},
+    {"hyperloglog", CMD_CATEGORY_HYPERLOGLOG},
+    {"geo", CMD_CATEGORY_GEO},
+    {"stream", CMD_CATEGORY_STREAM},
+    {"pubsub", CMD_CATEGORY_PUBSUB},
+    {"admin", CMD_CATEGORY_ADMIN},
+    {"fast", CMD_CATEGORY_FAST},
+    {"slow", CMD_CATEGORY_SLOW},
+    {"blocking", CMD_CATEGORY_BLOCKING},
+    {"dangerous", CMD_CATEGORY_DANGEROUS},
+    {"connection", CMD_CATEGORY_CONNECTION},
+    {"transaction", CMD_CATEGORY_TRANSACTION},
+    {"scripting", CMD_CATEGORY_SCRIPTING}
+};
+
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
  * ==========================================================================*/
