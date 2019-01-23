@@ -195,13 +195,16 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  *                                          @stream, @admin, @readonly,
  *                                          @readwrite, @fast, @slow,
  *                                          @pubsub.
- *              The special category @all means all the commands.
+ *              The special category @all means all the commands, but currently
+ *              present in the server, and that will be loaded in the future
+ *              via modules.
  * +<command>|subcommand    Allow a specific subcommand of an otherwise
  *                          disabled command. Note that this form is not
  *                          allowed as negative like -DEBUG|SEGFAULT, but
  *                          only additive starting with "+".
- * allcommands  Alias for +@all
- * nocommands   Alias for -@all
+ * allcommands  Alias for +@all. Note that it implies the ability to execute
+ *              all the future commands loaded via the modules system.
+ * nocommands   Alias for -@all.
  * ~<pattern>   Add a pattern of keys that can be mentioned as part of
  *              commands. For instance ~* allows all the keys. The pattern
  *              is a glob-style pattern like the one of KEYS.
