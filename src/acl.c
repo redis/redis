@@ -190,11 +190,9 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  * +<command>   Allow the execution of that command
  * -<command>   Disallow the execution of that command
  * +@<category> Allow the execution of all the commands in such category
- *              with valid categories being @set, @sortedset, @list, @hash,
- *                                          @string, @bitmap, @hyperloglog,
- *                                          @stream, @admin, @readonly,
- *                                          @readwrite, @fast, @slow,
- *                                          @pubsub.
+ *              with valid categories are like @admin, @set, @sortedset, ...
+ *              and so forth, see the full list in the server.c file where
+ *              the Redis command table is described and defined.
  *              The special category @all means all the commands, but currently
  *              present in the server, and that will be loaded in the future
  *              via modules.
