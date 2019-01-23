@@ -101,11 +101,11 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  * This is the meaning of the flags:
  *
  * write: write command (may modify the key space).
- * read-only: read-only command that will read data from keys without changing
- *            the content. Commands just returning information but not reading
- *            from keys are usually not regarded as read-only commands, however
- *            such commands will also lack the "write" and "admin" flags so
- *            can be detected. One example is "TIME".
+ * read-only: all the non special commands just reading from keys without
+ *            changing the content, or returning other informations like
+ *            the TIME command. Special commands such administrative commands
+ *            or transaction related commands (multi, exec, discard, ...)
+ *            are not flagged as read-only commands.
  * use-memory: may increase memory usage once called. Don't allow if out
  *    of memory.
  * admin: admin command, like SAVE or SHUTDOWN.
@@ -591,7 +591,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"echo",echoCommand,2,
-     "fast",
+     "read-only fast",
      0,NULL,0,0,0,0,0,0},
 
     {"save",saveCommand,1,
@@ -611,7 +611,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"lastsave",lastsaveCommand,1,
-     "random fast",
+     "read-only random fast",
      0,NULL,0,0,0,0,0,0},
 
     {"type",typeCommand,2,
@@ -797,7 +797,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"time",timeCommand,1,
-     "random fast",
+     "read-only random fast",
      0,NULL,0,0,0,0,0,0},
 
     {"bitop",bitopCommand,-4,
@@ -946,7 +946,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"lolwut",lolwutCommand,-1,
-     "fast",
+     "read-only fast",
      0,NULL,0,0,0,0,0,0},
 
     {"acl",aclCommand,-2,
