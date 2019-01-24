@@ -199,6 +199,25 @@ void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
         u->allowed_commands[word] &= ~bit;
 }
 
+/* This is like ACLSetUserCommandBit(), but instead of setting the specified
+ * ID, it will check all the commands in the category specified as argument,
+ * and will set all the bits corresponding to such commands to the specified
+ * value. Since the category passed by the user may be non existing, the
+ * function returns C_ERR if the category was not found, or C_OK if it was
+ * found and the operation was performed. */
+int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
+    uint64_t cflag = ACLGetCommandCategoryFlagByName(category);
+    if (!cflag) return C_ERR;
+    dictIterator *di = dictGetIterator(server.orig_commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & cflag) ACLSetUserCommandBit(u,cmd->id,value);
+    }
+    dictReleaseIterator(di);
+    return C_OK;
+}
+
 /* Get a command from the original command table, that is not affected
  * by the command renaming operations: we base all the ACL work from that
  * table, so that ACLs are valid regardless of command renaming. */
