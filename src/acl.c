@@ -299,8 +299,8 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  * When an error is returned, errno is set to the following values:
  *
  * EINVAL: The specified opcode is not understood.
- * ENOENT: The command name provided with + or - is not known.
- */
+ * ENOENT: The command name or command category provided with + or - is not
+ * known. */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (!strcasecmp(op,"on")) {
@@ -414,6 +414,12 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         ACLSetUserCommandBit(u,id,0);
         u->flags &= ~USER_FLAG_ALLCOMMANDS;
         ACLResetSubcommandsForCommand(u,id);
+    } else if ((op[0] == '+' || op[0] == '-') && op[1] == '@') {
+        int bitval = op[0] == '+' ? 1 : 0;
+        if (ACLSetUserCommandBitsForCategory(u,op+2,bitval) == C_ERR) {
+            errno = ENOENT;
+            return C_ERR;
+        }
     } else if (!strcasecmp(op,"reset")) {
         serverAssert(ACLSetUser(u,"resetpass",-1) == C_OK);
         serverAssert(ACLSetUser(u,"resetkeys",-1) == C_OK);
@@ -620,8 +626,10 @@ void aclCommand(client *c) {
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
                 char *errmsg = "wrong format";
-                if (errno == ENOENT) errmsg = "unknown command name in ACL";
-                if (errno == EINVAL) errmsg = "syntax error";
+                if (errno == ENOENT)
+                    errmsg = "unknown command or category name in ACL";
+                else if (errno == EINVAL)
+                    errmsg = "syntax error";
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
