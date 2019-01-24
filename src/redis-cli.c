@@ -1893,7 +1893,6 @@ typedef struct clusterManagerNode {
     int flags;
     list *flags_str; /* Flags string representations */
     sds replicate;  /* Master ID if node is a slave */
-    list replicas;
     int dirty;      /* Node has changes that can be flushed */
     uint8_t slots[CLUSTER_MANAGER_SLOTS];
     int slots_count;
@@ -2424,21 +2423,17 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             clusterManagerNode *node = node_array->nodes[j];
             if (node == NULL) continue;
             if (!ip) ip = node->ip;
-            sds types, otypes;
-            // We always use the Master ID as key
+            sds types;
+            /* We always use the Master ID as key. */
             sds key = (!node->replicate ? node->name : node->replicate);
             assert(key != NULL);
             dictEntry *entry = dictFind(related, key);
-            if (entry) otypes = (sds) dictGetVal(entry);
-            else {
-                otypes = sdsempty();
-                dictAdd(related, key, otypes);
-            }
-            // Master type 'm' is always set as the first character of the
-            // types string.
-            otypes = sdsdup(otypes);
-            if (!node->replicate) types = sdscatprintf(otypes, "m%s", otypes);
-            else types = sdscat(otypes, "s");
+            if (entry) types = sdsdup((sds) dictGetVal(entry));
+            else types = sdsempty();
+            /* Master type 'm' is always set as the first character of the
+             * types string. */
+            if (!node->replicate) types = sdscatprintf(types, "m%s", types);
+            else types = sdscat(types, "s");
             dictReplace(related, key, types);
         }
         /* Now it's trivial to check, for each related group having the
