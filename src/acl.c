@@ -555,7 +555,7 @@ int ACLCheckCommandPerm(client *c) {
         for (int j = 0; j < numkeys; j++) {
             listIter li;
             listNode *ln;
-            listRewind(u->passwords,&li);
+            listRewind(u->patterns,&li);
 
             /* Test this key against every pattern. */
             int match = 0;
