@@ -189,9 +189,12 @@ int ACLUserCanExecuteFutureCommands(user *u) {
 
 /* Set the specified command bit for the specified user to 'value' (0 or 1).
  * If the bit overflows the user internal represetation, no operation
- * is performed. */
+ * is performed. As a side effect of calling this function with a value of
+ * zero, the user flag ALLCOMMANDS is cleared since it is no longer possible
+ * to skip the command bit explicit test. */
 void ACLSetUserCommandBit(user *u, unsigned long id, int value) {
     uint64_t word, bit;
+    if (value == 0) u->flags &= ~USER_FLAG_ALLCOMMANDS;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return;
     if (value)
         u->allowed_commands[word] |= bit;
@@ -412,7 +415,6 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         }
         unsigned long id = ACLGetCommandID(op+1);
         ACLSetUserCommandBit(u,id,0);
-        u->flags &= ~USER_FLAG_ALLCOMMANDS;
         ACLResetSubcommandsForCommand(u,id);
     } else if ((op[0] == '+' || op[0] == '-') && op[1] == '@') {
         int bitval = op[0] == '+' ? 1 : 0;
