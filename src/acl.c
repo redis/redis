@@ -570,9 +570,12 @@ int ACLCheckCommandPerm(client *c) {
                     break;
                 }
             }
-            if (!match) return ACL_DENIED_KEY;
+            if (!match) {
+                getKeysFreeResult(keyidx);
+                return ACL_DENIED_KEY;
+            }
         }
-        getKeysFreeResult(keyidx);
+        if (keyidx) getKeysFreeResult(keyidx);
     }
 
     /* If we survived all the above checks, the user can execute the
