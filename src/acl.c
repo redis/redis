@@ -511,6 +511,7 @@ unsigned long ACLGetCommandID(const char *cmdname) {
     raxInsert(map,(unsigned char*)lowername,strlen(lowername),
               (void*)nextid,NULL);
     sdsfree(lowername);
+    unsigned long thisid = nextid;
     nextid++;
 
     /* We never assign the last bit in the user commands bitmap structure,
@@ -522,7 +523,7 @@ unsigned long ACLGetCommandID(const char *cmdname) {
      * default (loaded via modules). This is useful when rewriting the ACLs
      * with ACL SAVE. */
     if (nextid == USER_COMMAND_BITS_COUNT-1) nextid++;
-    return nextid;
+    return thisid;
 }
 
 /* Return an username by its name, or NULL if the user does not exist. */
