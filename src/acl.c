@@ -600,7 +600,7 @@ int ACLCheckCommandPerm(client *c) {
                 return ACL_DENIED_KEY;
             }
         }
-        if (keyidx) getKeysFreeResult(keyidx);
+        getKeysFreeResult(keyidx);
     }
 
     /* If we survived all the above checks, the user can execute the
