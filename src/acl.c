@@ -160,10 +160,10 @@ user *ACLCreateUser(const char *name, size_t namelen) {
  * so that user->allowed_commands[word]&bit will identify that specific
  * bit. The function returns C_ERR in case the specified ID overflows
  * the bitmap in the user representation. */
-int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit) {
+int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
     if (id >= USER_COMMAND_BITS_COUNT) return C_ERR;
     *word = id / sizeof(uint64_t) / 8;
-    *bit = 1 << (id % (sizeof(uint64_t) * 8));
+    *bit = 1ULL << (id % (sizeof(uint64_t) * 8));
     return C_OK;
 }
 
@@ -177,7 +177,7 @@ int ACLGetCommandBitCoordinates(unsigned long id, uint64_t *word, uint64_t *bit)
 int ACLGetUserCommandBit(user *u, unsigned long id) {
     uint64_t word, bit;
     if (ACLGetCommandBitCoordinates(id,&word,&bit) == C_ERR) return 0;
-    return u->allowed_commands[word] & bit;
+    return (u->allowed_commands[word] & bit) != 0;
 }
 
 /* When +@all or allcommands is given, we set a reserved bit as well that we
