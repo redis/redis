@@ -259,6 +259,38 @@ void ACLResetSubcommands(user *u) {
     u->allowed_subcommands = NULL;
 }
 
+
+/* Add a subcommand to the list of subcommands for the user 'u' and
+ * the command id specified. */
+void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
+    /* If this is the first subcommand to be configured for
+     * this user, we have to allocate the subcommands array. */
+    if (u->allowed_subcommands == NULL) {
+        u->allowed_subcommands = zcalloc(USER_COMMAND_BITS_COUNT *
+                                 sizeof(sds*));
+    }
+
+    /* We also need to enlarge the allocation pointing to the
+     * null terminated SDS array, to make space for this one.
+     * To start check the current size, and while we are here
+     * make sure the subcommand is not already specified inside. */
+    long items = 0;
+    if (u->allowed_subcommands[id]) {
+        while(u->allowed_subcommands[id][items]) {
+            /* If it's already here do not add it again. */
+            if (!strcasecmp(u->allowed_subcommands[id][items],sub)) return;
+            items++;
+        }
+    }
+
+    /* Now we can make space for the new item (and the null term). */
+    items += 2;
+    u->allowed_subcommands[id] = zrealloc(u->allowed_subcommands[id],
+                                 sizeof(sds)*items);
+    u->allowed_subcommands[id][items-2] = sdsnew(sub);
+    u->allowed_subcommands[id][items-1] = NULL;
+}
+
 /* Set user properties according to the string "op". The following
  * is a description of what different strings will do:
  *
@@ -403,25 +435,8 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
                 return C_ERR;
             }
 
-            /* If this is the first subcommand to be configured for
-             * this user, we have to allocate the subcommands array. */
-            if (u->allowed_subcommands == NULL) {
-                u->allowed_subcommands = zcalloc(USER_COMMAND_BITS_COUNT *
-                                         sizeof(sds*));
-            }
-
-            /* We also need to enlarge the allocation pointing to the
-             * null terminated SDS array, to make space for this one. */
-            long items = 0;
-            if (u->allowed_subcommands[id]) {
-                while(u->allowed_subcommands[items]) items++;
-            }
-
-            items += 2; /* Make space for the new item and the null term. */
-            u->allowed_subcommands[id] = zrealloc(u->allowed_subcommands[id],
-                                         sizeof(sds)*items);
-            u->allowed_subcommands[id][items-2] = sdsnew(sub);
-            u->allowed_subcommands[id][items-1] = NULL;
+            /* Add the subcommand to the list of valid ones. */
+            ACLAddAllowedSubcommand(u,id,sub);
 
             /* We have to clear the command bit so that we force the
              * subcommand check. */
