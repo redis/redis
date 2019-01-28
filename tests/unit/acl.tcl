@@ -77,4 +77,13 @@ start_server {tags {"acl"}} {
         r ACL setuser newuser allcommands; # Undo commands ACL
         set e
     } {*NOPERM*}
+
+    test {ACLs can include single subcommands} {
+        r ACL setuser newuser +@all -client
+        r ACL setuser newuser +client|id +client|setname
+        r CLIENT ID; # Should not fail
+        r CLIENT SETNAME foo ; # Should not fail
+        catch {r CLIENT KILL type master} e
+        set e
+    } {*NOPERM*}
 }
