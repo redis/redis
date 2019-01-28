@@ -566,8 +566,13 @@ int ACLCheckCommandPerm(client *c) {
          * command is allowed just with that specific subcommand. */
         if (ACLGetUserCommandBit(u,id) == 0) {
             /* Check if the subcommand matches. */
-            if (u->allowed_subcommands == NULL || c->argc < 2)
+            if (c->argc < 2 ||
+                u->allowed_subcommands == NULL ||
+                u->allowed_subcommands[id] == NULL)
+            {
                 return ACL_DENIED_CMD;
+            }
+
             long subid = 0;
             while (1) {
                 if (u->allowed_subcommands[id][subid] == NULL)
