@@ -34,4 +34,24 @@ start_server {tags {"acl"}} {
         catch {r AUTH newuser passwd1} e
         set e
     } {*WRONGPASS*}
+
+    test {By default users are not able to access any command} {
+        catch {r SET foo bar} e
+        set e
+    } {*NOPERM*}
+
+    test {By default users are not able to access any key} {
+        r ACL setuser newuser +set
+        catch {r SET foo bar} e
+        set e
+    } {*NOPERM*key*}
+
+    test {It's possible to allow the access of a subset of keys} {
+        r ACL setuser newuser allcommands ~foo:* ~bar:*
+        r SET foo:1 a
+        r SET bar:2 b
+        catch {r SET zap:3 c} e
+        r ACL setuser newuser allkeys; # Undo keys ACL
+        set e
+    } {*NOPERM*key*}
 }
