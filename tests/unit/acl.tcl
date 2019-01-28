@@ -54,4 +54,27 @@ start_server {tags {"acl"}} {
         r ACL setuser newuser allkeys; # Undo keys ACL
         set e
     } {*NOPERM*key*}
+
+    test {Users can be configured to authenticate with any password} {
+        r ACL setuser newuser nopass
+        r AUTH newuser zipzapblabla
+    } {OK}
+
+    test {ACLs can exclude single commands} {
+        r ACL setuser newuser -ping
+        r INCR mycounter ; # Should not raise an error
+        catch {r PING} e
+        set e
+    } {*NOPERM*}
+
+    test {ACLs can include or excluse whole classes of commands} {
+        r ACL setuser newuser -@all +@set +acl
+        r SADD myset a b c; # Should not raise an error
+        r ACL setuser newuser +@all -@string
+        r SADD myset a b c; # Again should not raise an error
+        # String commands instead should raise an error
+        catch {r SET foo bar} e
+        r ACL setuser newuser allcommands; # Undo commands ACL
+        set e
+    } {*NOPERM*}
 }
