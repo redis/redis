@@ -134,6 +134,11 @@ int ACLListMatchSds(void *a, void *b) {
     return sdscmp(a,b) == 0;
 }
 
+/* Method to free list elements from ACL users password/ptterns lists. */
+void ACLListFreeSds(void *item) {
+    sdsfree(item);
+}
+
 /* Create a new user with the specified name, store it in the list
  * of users (the Users global radix tree), and returns a reference to
  * the structure representing the user.
@@ -148,7 +153,9 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->passwords = listCreate();
     u->patterns = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
+    listSetFreeMethod(u->passwords,ACLListFreeSds);
     listSetMatchMethod(u->patterns,ACLListMatchSds);
+    listSetFreeMethod(u->patterns,ACLListFreeSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
