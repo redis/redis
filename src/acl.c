@@ -248,6 +248,17 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
     }
 }
 
+/* Flush the entire table of subcommands. This is useful on +@all, -@all
+ * or similar to return back to the minimal memory usage (and checks to do)
+ * for the user. */
+void ACLResetSubcommands(user *u) {
+    if (u->allowed_subcommands == NULL) return;
+    for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++)
+        if (u->allowed_subcommands[j]) zfree(u->allowed_subcommands[j]);
+    zfree(u->allowed_subcommands);
+    u->allowed_subcommands = NULL;
+}
+
 /* Set user properties according to the string "op". The following
  * is a description of what different strings will do:
  *
@@ -330,11 +341,13 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     {
         memset(u->allowed_commands,255,sizeof(u->allowed_commands));
         u->flags |= USER_FLAG_ALLCOMMANDS;
+        ACLResetSubcommands(u);
     } else if (!strcasecmp(op,"nocommands") ||
                !strcasecmp(op,"-@all"))
     {
         memset(u->allowed_commands,0,sizeof(u->allowed_commands));
         u->flags &= ~USER_FLAG_ALLCOMMANDS;
+        ACLResetSubcommands(u);
     } else if (!strcasecmp(op,"nopass")) {
         u->flags |= USER_FLAG_NOPASS;
         listEmpty(u->passwords);
