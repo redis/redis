@@ -228,6 +228,94 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
     return C_OK;
 }
 
+/* Return the number of commands allowed (on) and denied (off) for the user 'u'
+ * in the subset of commands flagged with the specified category name.
+ * If the categoty name is not valid, C_ERR is returend, otherwise C_OK is
+ * returned and on and off are populated by reference. */
+int ACLCountCategoryBitsForUser(user *u, unsigned long *on, unsigned long *off,
+                                const char *category)
+{
+    uint64_t cflag = ACLGetCommandCategoryFlagByName(category);
+    if (!cflag) return C_ERR;
+
+    *on = *off = 0;
+    dictIterator *di = dictGetIterator(server.orig_commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & cflag) {
+            if (ACLGetUserCommandBit(u,cmd->id))
+                (*on)++;
+            else
+                (*off)++;
+        }
+    }
+    dictReleaseIterator(di);
+    return C_OK;
+}
+
+/* This function returns an SDS string representing the specified user ACL
+ * rules related to command execution, in the same format you could set them
+ * back using ACL SETUSER. The function will return just the set of rules needed
+ * to recreate the user commands bitmap, without including other user flags such
+ * as on/off, passwords and so forth. The returned string always starts with
+ * the +@all or -@all rule, depending on the user bitmap, and is followed, if
+ * needed, by the other rules needed to narrow or extend what the user can do. */
+sds ACLDescribeUserCommandRules(user *u) {
+    sds rules = sdsempty();
+    int additive;   /* If true we start from -@all and add, otherwise if
+                       false we start from +@all and remove. */
+
+    /* This code is based on a trick: as we generate the rules, we apply
+     * them to a fake user, so that as we go we still know what are the
+     * bit differences we should try to address by emitting more rules. */
+    user fu = {0};
+    user *fakeuser = &fu;
+
+    /* Here we want to understand if we should start with +@all and remove
+     * the commands corresponding to the bits that are not set in the user
+     * commands bitmap, or the contrary. Note that semantically the two are
+     * different. For instance starting with +@all and subtracting, the user
+     * will be able to execute future commands, while -@all and adding will just
+     * allow the user the run the selected commands and/or categories.
+     * How do we test for that? We use the trick of a reserved command ID bit
+     * that is set only by +@all (and its alias "allcommands"). */
+    if (ACLUserCanExecuteFutureCommands(u)) {
+        additive = 0;
+        rules = sdscat(rules,"+@all ");
+    } else {
+        additive = 1;
+        rules = sdscat(rules,"-@all ");
+    }
+
+    /* Try to add or subtract each category one after the other. Often a
+     * single category will not perfectly match the set of commands into
+     * it, so at the end we do a final pass adding/removing the single commands
+     * needed to make the bitmap exactly match. */
+    for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+        unsigned long on, off;
+        ACLCountCategoryBitsForUser(u,&on,&off,ACLCommandCategories[j].name);
+        if ((additive && on > off) || (!additive && off > on)) {
+            rules = sdscatlen(rules, additive ? "+@" : "-@", 2);
+            rules = sdscat(rules,ACLCommandCategories[j].name);
+            rules = sdscatlen(rules," ",1);
+        }
+    }
+
+    /* Fix the final ACLs with single commands differences. */
+
+    /* Trim the final useless space. */
+
+    /* This is technically not needed, but we want to verify that now the
+     * predicted bitmap is exactly the same as the user bitmap, and abort
+     * otherwise, because aborting is better than a security risk in this
+     * code path. */
+    serverAssert(memcmp(fakeuser->allowed_commands,
+                        u->allowed_commands,
+                        sizeof(u->allowed_commands)) == 0);
+    return rules;
+}
+
 /* Get a command from the original command table, that is not affected
  * by the command renaming operations: we base all the ACL work from that
  * table, so that ACLs are valid regardless of command renaming. */
