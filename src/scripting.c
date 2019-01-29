@@ -460,6 +460,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Setup our fake client for command execution */
     c->argv = argv;
     c->argc = argc;
+    c->user = server.lua_caller->user;
 
     /* Log the command if debugging is active. */
     if (ldb.active && ldb.step) {
@@ -494,6 +495,19 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* There are commands that are not allowed inside scripts. */
     if (cmd->flags & CMD_NOSCRIPT) {
         luaPushError(lua, "This Redis command is not allowed from scripts");
+        goto cleanup;
+    }
+
+    /* Check the ACLs. */
+    int acl_retval = ACLCheckCommandPerm(c);
+    if (acl_retval != ACL_OK) {
+        if (acl_retval == ACL_DENIED_CMD)
+            luaPushError(lua, "The user executing the script can't run this "
+                              "command or subcommand");
+        else
+            luaPushError(lua, "The user executing the script can't access "
+                              "at least one of the keys mentioned in the "
+                              "command arguments");
         goto cleanup;
     }
 
@@ -654,6 +668,8 @@ cleanup:
         argv = NULL;
         argv_size = 0;
     }
+
+    c->user = NULL;
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
