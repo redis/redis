@@ -303,8 +303,22 @@ sds ACLDescribeUserCommandRules(user *u) {
     }
 
     /* Fix the final ACLs with single commands differences. */
+    dictIterator *di = dictGetIterator(server.orig_commands);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        struct redisCommand *cmd = dictGetVal(de);
+        int userbit = ACLGetUserCommandBit(u,cmd->id);
+        int fakebit = ACLGetUserCommandBit(u,cmd->id);
+        if (userbit != fakebit) {
+            rules = sdscatlen(rules, userbit ? "+" : "-", 1);
+            rules = sdscat(rules,cmd->name);
+            rules = sdscatlen(rules," ",1);
+        }
+    }
+    dictReleaseIterator(di);
 
     /* Trim the final useless space. */
+    sdsrange(rules,0,-2);
 
     /* This is technically not needed, but we want to verify that now the
      * predicted bitmap is exactly the same as the user bitmap, and abort
