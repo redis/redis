@@ -283,9 +283,11 @@ sds ACLDescribeUserCommandRules(user *u) {
     if (ACLUserCanExecuteFutureCommands(u)) {
         additive = 0;
         rules = sdscat(rules,"+@all ");
+        ACLSetUser(fakeuser,"+@all",-1);
     } else {
         additive = 1;
         rules = sdscat(rules,"-@all ");
+        ACLSetUser(fakeuser,"-@all",-1);
     }
 
     /* Try to add or subtract each category one after the other. Often a
@@ -296,9 +298,12 @@ sds ACLDescribeUserCommandRules(user *u) {
         unsigned long on, off;
         ACLCountCategoryBitsForUser(u,&on,&off,ACLCommandCategories[j].name);
         if ((additive && on > off) || (!additive && off > on)) {
-            rules = sdscatlen(rules, additive ? "+@" : "-@", 2);
-            rules = sdscat(rules,ACLCommandCategories[j].name);
+            sds op = sdsnewlen(additive ? "+@" : "-@", 2);
+            op = sdscat(op,ACLCommandCategories[j].name);
+            ACLSetUser(fakeuser,op,-1);
+            rules = sdscatsds(rules,op);
             rules = sdscatlen(rules," ",1);
+            sdsfree(op);
         }
     }
 
@@ -308,11 +313,12 @@ sds ACLDescribeUserCommandRules(user *u) {
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         int userbit = ACLGetUserCommandBit(u,cmd->id);
-        int fakebit = ACLGetUserCommandBit(u,cmd->id);
+        int fakebit = ACLGetUserCommandBit(fakeuser,cmd->id);
         if (userbit != fakebit) {
             rules = sdscatlen(rules, userbit ? "+" : "-", 1);
             rules = sdscat(rules,cmd->name);
             rules = sdscatlen(rules," ",1);
+            ACLSetUserCommandBit(fakeuser,cmd->id,userbit);
         }
     }
     dictReleaseIterator(di);
@@ -324,9 +330,15 @@ sds ACLDescribeUserCommandRules(user *u) {
      * predicted bitmap is exactly the same as the user bitmap, and abort
      * otherwise, because aborting is better than a security risk in this
      * code path. */
-    serverAssert(memcmp(fakeuser->allowed_commands,
+    if (memcmp(fakeuser->allowed_commands,
                         u->allowed_commands,
-                        sizeof(u->allowed_commands)) == 0);
+                        sizeof(u->allowed_commands)) != 0)
+    {
+        serverLog(LL_WARNING,
+            "CRITICAL ERROR: User ACLs don't match final bitmap: '%s'",
+            rules);
+        serverPanic("No bitmap match in ACLDescribeUserCommandRules()");
+    }
     return rules;
 }
 
@@ -798,7 +810,7 @@ void aclCommand(client *c) {
             return;
         }
 
-        addReplyMapLen(c,2);
+        addReplyMapLen(c,3);
 
         /* Flags */
         addReplyBulkCString(c,"flags");
@@ -835,6 +847,11 @@ void aclCommand(client *c) {
             sds thispass = listNodeValue(ln);
             addReplyBulkCBuffer(c,thispass,sdslen(thispass));
         }
+
+        /* Commands */
+        addReplyBulkCString(c,"commands");
+        sds cmddescr = ACLDescribeUserCommandRules(u);
+        addReplyBulkSds(c,cmddescr);
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LIST                              -- List all the registered users.",
