@@ -385,8 +385,13 @@ void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
  * for the user. */
 void ACLResetSubcommands(user *u) {
     if (u->allowed_subcommands == NULL) return;
-    for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++)
-        if (u->allowed_subcommands[j]) zfree(u->allowed_subcommands[j]);
+    for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++) {
+        if (u->allowed_subcommands[j]) {
+            for (int i = 0; u->allowed_subcommands[j][i]; i++)
+                sdsfree(u->allowed_subcommands[j][i]);
+            zfree(u->allowed_subcommands[j]);
+        }
+    }
     zfree(u->allowed_subcommands);
     u->allowed_subcommands = NULL;
 }
