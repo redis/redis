@@ -67,6 +67,8 @@ struct ACLCategoryItem {
     {"",0} /* Terminator. */
 };
 
+void ACLResetSubcommandsForCommand(user *u, unsigned long id);
+
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
  * ==========================================================================*/
@@ -222,7 +224,10 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & cflag) ACLSetUserCommandBit(u,cmd->id,value);
+        if (cmd->flags & cflag) {
+            ACLSetUserCommandBit(u,cmd->id,value);
+            ACLResetSubcommandsForCommand(u,cmd->id);
+        }
     }
     dictReleaseIterator(di);
     return C_OK;
