@@ -245,7 +245,7 @@ double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
     return NULL;
 }
 
-/* Defrag helpler for sorted set.
+/* Defrag helper for sorted set.
  * Defrag a single dict entry key name, and corresponding skiplist struct */
 long activeDefragZsetEntry(zset *zs, dictEntry *de) {
     sds newsds;

@@ -58,7 +58,7 @@
  * successive nodes having a single child are "compressed" into the node
  * itself as a string of characters, each representing a next-level child,
  * and only the link to the node representing the last character node is
- * provided inside the representation. So the above representation is turend
+ * provided inside the representation. So the above representation is turned
  * into:
  *
  *                  ["foo"] ""
