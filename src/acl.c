@@ -493,6 +493,8 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *         known.
  * EBUSY:  The subcommand you want to add is about a command that is currently
  *         fully added.
+ * EEXIST: You are adding a key pattern after "*" was already added. This is
+ *         almost surely an error on the user side.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -538,6 +540,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         if (ln) listDelNode(u->passwords,ln);
         sdsfree(delpass);
     } else if (op[0] == '~') {
+        if (u->flags & USER_FLAG_ALLKEYS) {
+            errno = EEXIST;
+            return C_ERR;
+        }
         sds newpat = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->patterns,newpat);
         /* Avoid re-adding the same pattern multiple times. */
@@ -830,6 +836,11 @@ void aclCommand(client *c) {
                     errmsg = "adding a subcommand of a command already fully "
                              "added is not allowed. Remove the command to start. "
                              "Example: -DEBUG +DEBUG|DIGEST";
+                else if (errno == EEXIST)
+                    errmsg = "adding a pattern after the * pattern (or the "
+                             "'allkeys' flag) is not valid and does not have any "
+                             "effect. Try 'resetkeys' to start with an empty "
+                             "list of patterns";
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
