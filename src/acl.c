@@ -325,6 +325,19 @@ sds ACLDescribeUserCommandRules(user *u) {
             rules = sdscatlen(rules," ",1);
             ACLSetUserCommandBit(fakeuser,cmd->id,userbit);
         }
+
+        /* Emit the subcommands if there are any. */
+        if (userbit == 0 && u->allowed_subcommands &&
+            u->allowed_subcommands[cmd->id])
+        {
+            for (int j = 0; u->allowed_subcommands[cmd->id][j]; j++) {
+                rules = sdscatlen(rules,"+",1);
+                rules = sdscat(rules,cmd->name);
+                rules = sdscatlen(rules,"|",1);
+                rules = sdscatsds(rules,u->allowed_subcommands[cmd->id][j]);
+                rules = sdscatlen(rules," ",1);
+            }
+        }
     }
     dictReleaseIterator(di);
 
