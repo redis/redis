@@ -554,6 +554,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             /* Check if the command exists. We can't check the
              * subcommand to see if it is valid. */
             if (ACLLookupCommand(copy) == NULL) {
+                zfree(copy);
                 errno = ENOENT;
                 return C_ERR;
             }
