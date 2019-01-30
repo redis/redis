@@ -625,6 +625,26 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     return C_OK;
 }
 
+/* Return a description of the error that occurred in ACLSetUser() according to
+ * the errno value set by the function on error. */
+char *ACLSetUserStringError(void) {
+    char *errmsg = "Wrong format";
+    if (errno == ENOENT)
+        errmsg = "Unknown command or category name in ACL";
+    else if (errno == EINVAL)
+        errmsg = "Syntax error";
+    else if (errno == EBUSY)
+        errmsg = "Adding a subcommand of a command already fully "
+                 "added is not allowed. Remove the command to start. "
+                 "Example: -DEBUG +DEBUG|DIGEST";
+    else if (errno == EEXIST)
+        errmsg = "Adding a pattern after the * pattern (or the "
+                 "'allkeys' flag) is not valid and does not have any "
+                 "effect. Try 'resetkeys' to start with an empty "
+                 "list of patterns";
+    return errmsg;
+}
+
 /* Return the first password of the default user or NULL.
  * This function is needed for backward compatibility with the old
  * directive "requirepass" when Redis supported a single global
@@ -827,20 +847,7 @@ void aclCommand(client *c) {
         serverAssert(u != NULL);
         for (int j = 3; j < c->argc; j++) {
             if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
-                char *errmsg = "wrong format";
-                if (errno == ENOENT)
-                    errmsg = "unknown command or category name in ACL";
-                else if (errno == EINVAL)
-                    errmsg = "syntax error";
-                else if (errno == EBUSY)
-                    errmsg = "adding a subcommand of a command already fully "
-                             "added is not allowed. Remove the command to start. "
-                             "Example: -DEBUG +DEBUG|DIGEST";
-                else if (errno == EEXIST)
-                    errmsg = "adding a pattern after the * pattern (or the "
-                             "'allkeys' flag) is not valid and does not have any "
-                             "effect. Try 'resetkeys' to start with an empty "
-                             "list of patterns";
+                char *errmsg = ACLSetUserStringError();
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
