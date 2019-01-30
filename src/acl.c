@@ -485,7 +485,10 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *
  * EINVAL: The specified opcode is not understood.
  * ENOENT: The command name or command category provided with + or - is not
- * known. */
+ *         known.
+ * EBUSY:  The subcommand you want to add is about a command that is currently
+ *         fully added.
+ */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (!strcasecmp(op,"on")) {
@@ -565,6 +568,15 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             if (strlen(sub) == 0) {
                 zfree(copy);
                 errno = EINVAL;
+                return C_ERR;
+            }
+
+            /* The command should not be set right now in the command
+             * bitmap, because adding a subcommand of a fully added
+             * command is probably an error on the user side. */
+            if (ACLGetUserCommandBit(u,id) == 1) {
+                zfree(copy);
+                errno = EBUSY;
                 return C_ERR;
             }
 
@@ -809,6 +821,10 @@ void aclCommand(client *c) {
                     errmsg = "unknown command or category name in ACL";
                 else if (errno == EINVAL)
                     errmsg = "syntax error";
+                else if (errno == EBUSY)
+                    errmsg = "adding a subcommand of a command already fully "
+                             "added is not allowed. Remove the command to start. "
+                             "Example: -DEBUG +DEBUG|DIGEST";
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
