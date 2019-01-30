@@ -86,4 +86,26 @@ start_server {tags {"acl"}} {
         catch {r CLIENT KILL type master} e
         set e
     } {*NOPERM*}
+
+    # Note that the order of the generated ACL rules is not stable in Redis
+    # so we need to match the different parts and not as a whole string.
+    test {ACL GETUSER is able to translate back command permissions} {
+        # Subtractive
+        r ACL setuser newuser reset +@all ~* -@string +incr -debug +debug|digest
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*+@all*} $cmdstr
+        assert_match {*-@string*} $cmdstr
+        assert_match {*+incr*} $cmdstr
+        assert_match {*-debug +debug|digest**} $cmdstr
+
+        # Additive
+        r ACL setuser newuser reset +@string -incr +acl +debug|digest +debug|segfault
+        set cmdstr [dict get [r ACL getuser newuser] commands]
+        assert_match {*-@all*} $cmdstr
+        assert_match {*+@string*} $cmdstr
+        assert_match {*-incr*} $cmdstr
+        assert_match {*+debug|digest*} $cmdstr
+        assert_match {*+debug|segfault*} $cmdstr
+        assert_match {*+acl*} $cmdstr
+    }
 }
