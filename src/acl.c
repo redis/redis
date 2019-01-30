@@ -850,7 +850,7 @@ void aclCommand(client *c) {
             return;
         }
 
-        addReplyMapLen(c,3);
+        addReplyMapLen(c,4);
 
         /* Flags */
         addReplyBulkCString(c,"flags");
@@ -892,6 +892,22 @@ void aclCommand(client *c) {
         addReplyBulkCString(c,"commands");
         sds cmddescr = ACLDescribeUserCommandRules(u);
         addReplyBulkSds(c,cmddescr);
+
+        /* Key patterns */
+        addReplyBulkCString(c,"keys");
+        if (u->flags & USER_FLAG_ALLKEYS) {
+            addReplyArrayLen(c,1);
+            addReplyBulkCBuffer(c,"*",1);
+        } else {
+            addReplyArrayLen(c,listLength(u->patterns));
+            listIter li;
+            listNode *ln;
+            listRewind(u->patterns,&li);
+            while((ln = listNext(&li))) {
+                sds thispat = listNodeValue(ln);
+                addReplyBulkCBuffer(c,thispat,sdslen(thispat));
+            }
+        }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LIST                              -- List all the registered users.",
