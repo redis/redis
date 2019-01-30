@@ -45,7 +45,13 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
+#ifdef EPOLL_CLOEXEC
+    state->epfd = epoll_create1(EPOLL_CLOEXEC);
+#else
+    /* Create the kernel epoll using the old interface.
+     * Since Linux 2.6.8, the size argument is ignored */
+    state->epfd = epoll_create(1024);
+#endif
     if (state->epfd == -1) {
         zfree(state->events);
         zfree(state);
