@@ -383,6 +383,10 @@ sds ACLDescribeUser(user *u) {
 
     /* Flags. */
     for (int j = 0; ACLUserFlags[j].flag; j++) {
+        /* Skip the allcommands and allkeys flags because they'll be emitted
+         * later as ~* and +@all. */
+        if (ACLUserFlags[j].flag == USER_FLAG_ALLKEYS ||
+            ACLUserFlags[j].flag == USER_FLAG_ALLCOMMANDS) continue;
         if (u->flags & ACLUserFlags[j].flag) {
             res = sdscat(res,ACLUserFlags[j].name);
             res = sdscatlen(res," ",1);
