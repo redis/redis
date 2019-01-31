@@ -973,7 +973,9 @@ void aclCommand(client *c) {
                 addReplyBulkCBuffer(c,thispat,sdslen(thispat));
             }
         }
-    } else if (!strcasecmp(sub,"list") || !strcasecmp(sub,"users")) {
+    } else if ((!strcasecmp(sub,"list") || !strcasecmp(sub,"users")) &&
+               c->argc == 2)
+    {
         int justnames = !strcasecmp(sub,"users");
         addReplyArrayLen(c,raxSize(Users));
         raxIterator ri;
