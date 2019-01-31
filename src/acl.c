@@ -80,6 +80,7 @@ struct ACLUserFlag {
 };
 
 void ACLResetSubcommandsForCommand(user *u, unsigned long id);
+void ACLResetSubcommands(user *u);
 
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
@@ -173,6 +174,16 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
+}
+
+/* Release the memory used by the user structure. Note that this function
+ * will not remove the user from the Users global radix tree. */
+void ACLFreeUser(user *u) {
+    sdsfree(u->name);
+    listRelease(u->passwords);
+    listRelease(u->patterns);
+    ACLResetSubcommands(u);
+    zfree(u);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -921,6 +932,44 @@ void aclCommand(client *c) {
             }
         }
         addReply(c,shared.ok);
+    } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
+        int deleted = 0;
+        for (int j = 2; j < c->argc; j++) {
+            sds username = c->argv[j]->ptr;
+            if (!strcmp(username,"default")) {
+                addReplyError(c,"The 'default' user cannot be removed");
+                return;
+            }
+            user *u;
+            if (raxRemove(Users,(unsigned char*)username,
+                          sdslen(username),
+                          (void**)&u))
+            {
+                /* When a user is deleted we need to cycle the active
+                 * connections in order to kill all the pending ones that
+                 * are authenticated with such user. */
+                ACLFreeUser(u);
+                listIter li;
+                listNode *ln;
+                listRewind(server.clients,&li);
+                while ((ln = listNext(&li)) != NULL) {
+                    client *c = listNodeValue(ln);
+                    if (c->user == u) {
+                        /* We'll free the conenction asynchronously, so
+                         * in theory to set a different user is not needed.
+                         * However if there are bugs in Redis, soon or later
+                         * this may result in some security hole: it's much
+                         * more defensive to set the default user and put
+                         * it in non authenticated mode. */
+                        c->user = DefaultUser;
+                        c->authenticated = 0;
+                        freeClientAsync(c);
+                    }
+                }
+                deleted++;
+            }
+        }
+        addReplyLongLong(c,deleted);
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
