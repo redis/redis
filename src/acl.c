@@ -64,7 +64,19 @@ struct ACLCategoryItem {
     {"connection", CMD_CATEGORY_CONNECTION},
     {"transaction", CMD_CATEGORY_TRANSACTION},
     {"scripting", CMD_CATEGORY_SCRIPTING},
-    {"",0} /* Terminator. */
+    {NULL,0} /* Terminator. */
+};
+
+struct ACLUserFlag {
+    const char *name;
+    uint64_t flag;
+} ACLUserFlags[] = {
+    {"on", USER_FLAG_ENABLED},
+    {"off", USER_FLAG_DISABLED},
+    {"allkeys", USER_FLAG_ALLKEYS},
+    {"allcommands", USER_FLAG_ALLCOMMANDS},
+    {"nopass", USER_FLAG_NOPASS},
+    {NULL,0} /* Terminator. */
 };
 
 void ACLResetSubcommandsForCommand(user *u, unsigned long id);
@@ -150,7 +162,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen) != raxNotFound) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = 0;
+    u->flags = USER_FLAG_DISABLED;
     u->allowed_subcommands = NULL;
     u->passwords = listCreate();
     u->patterns = listCreate();
@@ -360,6 +372,54 @@ sds ACLDescribeUserCommandRules(user *u) {
     return rules;
 }
 
+/* This is similar to ACLDescribeUserCommandRules(), however instead of
+ * describing just the user command rules, everything is described: user
+ * flags, keys, passwords and finally the command rules obtained via
+ * the ACLDescribeUserCommandRules() function. This is the function we call
+ * when we want to rewrite the configuration files describing ACLs and
+ * in order to show users with ACL LIST. */
+sds ACLDescribeUser(user *u) {
+    sds res = sdsempty();
+
+    /* Flags. */
+    for (int j = 0; ACLUserFlags[j].flag; j++) {
+        if (u->flags & ACLUserFlags[j].flag) {
+            res = sdscat(res,ACLUserFlags[j].name);
+            res = sdscatlen(res," ",1);
+        }
+    }
+
+    /* Passwords. */
+    listIter li;
+    listNode *ln;
+    listRewind(u->passwords,&li);
+    while((ln = listNext(&li))) {
+        sds thispass = listNodeValue(ln);
+        res = sdscatlen(res,">",1);
+        res = sdscatsds(res,thispass);
+        res = sdscatlen(res," ",1);
+    }
+
+    /* Key patterns. */
+    if (u->flags & USER_FLAG_ALLKEYS) {
+        res = sdscatlen(res,"~* ",3);
+    } else {
+        listRewind(u->patterns,&li);
+        while((ln = listNext(&li))) {
+            sds thispat = listNodeValue(ln);
+            res = sdscatlen(res,"~",1);
+            res = sdscatsds(res,thispat);
+            res = sdscatlen(res," ",1);
+        }
+    }
+
+    /* Command rules. */
+    sds rules = ACLDescribeUserCommandRules(u);
+    res = sdscatsds(res,rules);
+    sdsfree(rules);
+    return res;
+}
+
 /* Get a command from the original command table, that is not affected
  * by the command renaming operations: we base all the ACL work from that
  * table, so that ACLs are valid regardless of command renaming. */
@@ -500,7 +560,9 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (!strcasecmp(op,"on")) {
         u->flags |= USER_FLAG_ENABLED;
+        u->flags &= ~USER_FLAG_DISABLED;
     } else if (!strcasecmp(op,"off")) {
+        u->flags |= USER_FLAG_DISABLED;
         u->flags &= ~USER_FLAG_ENABLED;
     } else if (!strcasecmp(op,"allkeys") ||
                !strcasecmp(op,"~*"))
@@ -679,7 +741,7 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     }
 
     /* Disabled users can't login. */
-    if ((u->flags & USER_FLAG_ENABLED) == 0) {
+    if (u->flags & USER_FLAG_DISABLED) {
         errno = EINVAL;
         return C_ERR;
     }
@@ -874,24 +936,11 @@ void aclCommand(client *c) {
         addReplyBulkCString(c,"flags");
         void *deflen = addReplyDeferredLen(c);
         int numflags = 0;
-        if (u->flags & USER_FLAG_ENABLED) {
-            addReplyBulkCString(c,"on");
-            numflags++;
-        } else {
-            addReplyBulkCString(c,"off");
-            numflags++;
-        }
-        if (u->flags & USER_FLAG_ALLKEYS) {
-            addReplyBulkCString(c,"allkeys");
-            numflags++;
-        }
-        if (u->flags & USER_FLAG_ALLCOMMANDS) {
-            addReplyBulkCString(c,"allcommands");
-            numflags++;
-        }
-        if (u->flags & USER_FLAG_NOPASS) {
-            addReplyBulkCString(c,"nopass");
-            numflags++;
+        for (int j = 0; ACLUserFlags[j].flag; j++) {
+            if (u->flags & ACLUserFlags[j].flag) {
+                addReplyBulkCString(c,ACLUserFlags[j].name);
+                numflags++;
+            }
         }
         setDeferredSetLen(c,deflen,numflags);
 

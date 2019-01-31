@@ -740,9 +740,10 @@ typedef struct readyList {
                                            command ID we can set in the user
                                            is USER_COMMAND_BITS_COUNT-1. */
 #define USER_FLAG_ENABLED (1<<0)        /* The user is active. */
-#define USER_FLAG_ALLKEYS (1<<1)        /* The user can mention any key. */
-#define USER_FLAG_ALLCOMMANDS (1<<2)    /* The user can run all commands. */
-#define USER_FLAG_NOPASS      (1<<3)    /* The user requires no password, any
+#define USER_FLAG_DISABLED (1<<1)       /* The user is disabled. */
+#define USER_FLAG_ALLKEYS (1<<2)        /* The user can mention any key. */
+#define USER_FLAG_ALLCOMMANDS (1<<3)    /* The user can run all commands. */
+#define USER_FLAG_NOPASS      (1<<4)    /* The user requires no password, any
                                            provided password will work. For the
                                            default user, this also means that
                                            no AUTH is needed, and every
