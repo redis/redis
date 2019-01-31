@@ -39,6 +39,7 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <assert.h>
+#include <math.h>
 
 #include <sds.h> /* Use hiredis sds. */
 #include "ae.h"
@@ -48,6 +49,7 @@
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
+#define MAX_LATENCY_PRECISION 3
 
 static struct config {
     aeEventLoop *el;
@@ -79,6 +81,7 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+    int precision;
 } config;
 
 typedef struct _client {
@@ -428,6 +431,16 @@ static int compareLatency(const void *a, const void *b) {
     return (*(long long*)a)-(*(long long*)b);
 }
 
+static int ipow(int base, int exp) {
+    int result = 1;
+    while (exp) {
+        if (exp & 1) result *= base;
+        exp /= 2;
+        base *= base;
+    }
+    return result;
+}
+
 static void showLatencyReport(void) {
     int i, curlat = 0;
     float perc, reqpersec;
@@ -444,10 +457,10 @@ static void showLatencyReport(void) {
 
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
         for (i = 0; i < config.requests; i++) {
-            if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
-                curlat = config.latency[i]/1000;
+            if (config.latency[i]/ipow(10, MAX_LATENCY_PRECISION-config.precision) != curlat || i == (config.requests-1)) {
+                curlat = config.latency[i]/ipow(10, MAX_LATENCY_PRECISION-config.precision);
                 perc = ((float)(i+1)*100)/config.requests;
-                printf("%.2f%% <= %d milliseconds\n", perc, curlat);
+                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision, curlat/pow(10.0, config.precision));
             }
         }
         printf("%.2f requests per second\n\n", reqpersec);
@@ -546,6 +559,11 @@ int parseOptions(int argc, const char **argv) {
             if (lastarg) goto invalid;
             config.dbnum = atoi(argv[++i]);
             config.dbnumstr = sdsfromlonglong(config.dbnum);
+        } else if (!strcmp(argv[i],"--precision")) {
+            if (lastarg) goto invalid;
+            config.precision = atoi(argv[++i]);
+            if (config.precision < 0) config.precision = 0;
+            if (config.precision > MAX_LATENCY_PRECISION) config.precision = MAX_LATENCY_PRECISION;
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -585,6 +603,7 @@ usage:
 " -e                 If server replies with errors, show them on stdout.\n"
 "                    (no more than 1 error per second is displayed)\n"
 " -q                 Quiet. Just show query/sec values\n"
+" --precision        Number of decimal places to display in latency output (default 0)\n"
 " --csv              Output in CSV format\n"
 " -l                 Loop. Run the tests forever\n"
 " -t <tests>         Only run the comma separated list of tests. The test\n"
@@ -679,6 +698,7 @@ int main(int argc, const char **argv) {
     config.tests = NULL;
     config.dbnum = 0;
     config.auth = NULL;
+    config.precision = 0;
 
     i = parseOptions(argc,argv);
     argc -= i;
