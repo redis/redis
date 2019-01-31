@@ -917,12 +917,6 @@ void aclCommand(client *c) {
             }
         }
         addReply(c,shared.ok);
-    } else if (!strcasecmp(sub,"whoami")) {
-        if (c->user != NULL) {
-            addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
-        } else {
-            addReplyNull(c);
-        }
     } else if (!strcasecmp(sub,"getuser") && c->argc == 3) {
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
         if (u == NULL) {
@@ -975,13 +969,42 @@ void aclCommand(client *c) {
                 addReplyBulkCBuffer(c,thispat,sdslen(thispat));
             }
         }
+    } else if (!strcasecmp(sub,"list") || !strcasecmp(sub,"users")) {
+        int justnames = !strcasecmp(sub,"users");
+        addReplyArrayLen(c,raxSize(Users));
+        raxIterator ri;
+        raxStart(&ri,Users);
+        raxSeek(&ri,"^",NULL,0);
+        while(raxNext(&ri)) {
+            user *u = ri.data;
+            if (justnames) {
+                addReplyBulkCBuffer(c,u->name,sdslen(u->name));
+            } else {
+                /* Return information in the configuration file format. */
+                sds config = sdsnew("user ");
+                config = sdscatsds(config,u->name);
+                config = sdscatlen(config," ",1);
+                sds descr = ACLDescribeUser(u);
+                config = sdscatsds(config,descr);
+                sdsfree(descr);
+                addReplyBulkSds(c,config);
+            }
+        }
+        raxStop(&ri);
+    } else if (!strcasecmp(sub,"whoami")) {
+        if (c->user != NULL) {
+            addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
+        } else {
+            addReplyNull(c);
+        }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
-"LIST                              -- List all the registered users.",
+"LIST                              -- Show user details in config file format.",
+"USERS                             -- List all the registered usernames.",
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",
-"DELUSER <username>                -- Delete a user.",
 "GETUSER <username>                -- Get the user details.",
-"WHOAMI                            -- Return the current username.",
+"DELUSER <username>                -- Delete a user.",
+"WHOAMI                            -- Return the current connection username.",
 NULL
         };
         addReplyHelp(c,help);
