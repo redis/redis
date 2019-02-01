@@ -933,6 +933,24 @@ int ACLCheckCommandPerm(client *c) {
  * and, in that case, the error will be emitted later, because certain
  * commands may be defined later once modules are loaded. */
 int ACLAppendUserForLoading(sds *argv, int argc) {
+    if (argc < 2 || strcasecmp(argv[0],"user")) return C_ERR;
+
+    /* Try to apply the user rules in a fake user to see if they
+     * are actually valid. */
+    user fu = {0};
+    user *fakeuser = &fu;
+    for (int j = 2; j < argc; j++) {
+        if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_ERR) {
+            if (errno != ENOENT) return C_ERR;
+        }
+    }
+
+    /* Rules look valid, let's append the user to the list. */
+    sds *copy = zmalloc(sizeof(sds)*argc);
+    for (int j = 1; j < argc; j++) copy[j-1] = sdsdup(argv[j]);
+    copy[argc-1] = NULL;
+    listAddNodeTail(UsersToLoad,copy);
+    return C_OK;
 }
 
 /* =============================================================================
