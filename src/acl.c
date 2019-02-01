@@ -34,10 +34,19 @@
  * ==========================================================================*/
 
 rax *Users; /* Table mapping usernames to user structures. */
-user *DefaultUser;   /* Global reference to the default user.
-                        Every new connection is associated to it, if no
-                        AUTH or HELLO is used to authenticate with a
-                        different user. */
+
+user *DefaultUser;  /* Global reference to the default user.
+                       Every new connection is associated to it, if no
+                       AUTH or HELLO is used to authenticate with a
+                       different user. */
+
+list *UsersToLoad;  /* This is a list of users found in the configuration file
+                       that we'll need to load in the final stage of Redis
+                       initialization, after all the modules are already
+                       loaded. Every list element is a NULL terminated
+                       array of SDS pointers: the first is the user name,
+                       all the remaining pointers are ACL rules in the same
+                       format as ACLSetUser(). */
 
 struct ACLCategoryItem {
     const char *name;
@@ -735,6 +744,7 @@ sds ACLDefaultUserFirstPassword(void) {
 /* Initialization of the ACL subsystem. */
 void ACLInit(void) {
     Users = raxNew();
+    UsersToLoad = listCreate();
     DefaultUser = ACLCreateUser("default",7);
     ACLSetUser(DefaultUser,"+@all",-1);
     ACLSetUser(DefaultUser,"~*",-1);
@@ -902,6 +912,27 @@ int ACLCheckCommandPerm(client *c) {
     /* If we survived all the above checks, the user can execute the
      * command. */
     return ACL_OK;
+}
+
+/* =============================================================================
+ * ACL loading / saving functions
+ * ==========================================================================*/
+
+/* Given an argument vector describing a user in the form:
+ *
+ *      user <username> ... ACL rules and flags ...
+ *
+ * this function validates, and if the syntax is valid, appends
+ * the user definition to a list for later loading.
+ *
+ * The rules are tested for validity and if there obvious syntax errors
+ * the function returns C_ERR and does nothing, otherwise C_OK is returned
+ * and the user is appended to the list.
+ *
+ * Note that this function cannot stop in case of commands that are not found
+ * and, in that case, the error will be emitted later, because certain
+ * commands may be defined later once modules are loaded. */
+int ACLAppendUserForLoading(sds *argv, int argc) {
 }
 
 /* =============================================================================
