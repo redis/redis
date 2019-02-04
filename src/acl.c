@@ -931,9 +931,16 @@ int ACLCheckCommandPerm(client *c) {
  *
  * Note that this function cannot stop in case of commands that are not found
  * and, in that case, the error will be emitted later, because certain
- * commands may be defined later once modules are loaded. */
-int ACLAppendUserForLoading(sds *argv, int argc) {
-    if (argc < 2 || strcasecmp(argv[0],"user")) return C_ERR;
+ * commands may be defined later once modules are loaded.
+ *
+ * When an error is detected and C_ERR is returned, the function populates
+ * by reference (if not set to NULL) the argc_err argument with the index
+ * of the argv vector that caused the error. */
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
+    if (argc < 2 || strcasecmp(argv[0],"user")) {
+        if (argc_err) *argc_err = 0;
+        return C_ERR;
+    }
 
     /* Try to apply the user rules in a fake user to see if they
      * are actually valid. */
@@ -947,6 +954,7 @@ int ACLAppendUserForLoading(sds *argv, int argc) {
         if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_ERR) {
             if (errno != ENOENT) {
                 ACLFreeUser(fakeuser);
+                if (argc_err) *argc_err = j;
                 return C_ERR;
             }
         }

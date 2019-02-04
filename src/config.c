@@ -792,7 +792,8 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
-            if (ACLAppendUserForLoading(argv,argc) == C_ERR) {
+            int argc_err;
+            if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
                 err = "Syntax error in user declaration";
                 goto loaderr;
             }
