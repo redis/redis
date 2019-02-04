@@ -992,7 +992,7 @@ int ACLLoadConfiguredUsers(void) {
                 char *errmsg = ACLSetUserStringError();
                 serverLog(LL_WARNING,"Error loading ACL rule '%s' for "
                                      "the user named '%s': %s",
-                          aclrules[0],aclrules[j],errmsg);
+                          aclrules[j],aclrules[0],errmsg);
                 return C_ERR;
             }
         }
