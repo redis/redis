@@ -794,7 +794,11 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
             int argc_err;
             if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
-                err = "Syntax error in user declaration";
+                char buf[1024];
+                char *errmsg = ACLSetUserStringError();
+                snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
+                    argv[argc_err],errmsg);
+                err = buf;
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
