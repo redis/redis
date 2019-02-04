@@ -576,8 +576,10 @@ int startBgsaveForReplication(int mincapa) {
     if (rsiptr) {
         if (socket_target)
             retval = rdbSaveToSlavesSockets(rsiptr);
-        else
+        else if (!server.repl_aof_sync)
             retval = rdbSaveBackground(server.rdb_filename,rsiptr);
+        else 
+            retval = C_OK;
     } else {
         serverLog(LL_WARNING,"BGSAVE for replication: replication information not available, can't generate the RDB file right now. Try later.");
         retval = C_ERR;
@@ -751,6 +753,11 @@ void syncCommand(client *c) {
              * let's start one. */
             if (server.aof_child_pid == -1) {
                 startBgsaveForReplication(c->slave_capa);
+                if (server.repl_aof_sync && server.aof_state == AOF_ON) {
+                    serverLog(LL_NOTICE,"Ready for use aof SYNC");
+                    server.rdb_child_type = RDB_CHILD_TYPE_DISK;
+                    backgroundSaveDoneHandler(0,0);
+                }
             } else {
                 serverLog(LL_NOTICE,
                     "No BGSAVE in progress, but an AOF rewrite is active. "
@@ -942,6 +949,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     int startbgsave = 0;
     int mincapa = -1;
     listIter li;
+    char *filename = NULL;
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
@@ -977,7 +985,13 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                     serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                     continue;
                 }
-                if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
+                if (server.repl_aof_sync && server.aof_state == AOF_ON) {
+                    filename = server.aof_filename;
+                    serverLog(LL_NOTICE,"SYNC use aof:%s",filename);
+                } else {
+                    filename = server.rdb_filename;
+                }
+                if ((slave->repldbfd = open(filename,O_RDONLY)) == -1 ||
                     redis_fstat(slave->repldbfd,&buf) == -1) {
                     freeClient(slave);
                     serverLog(LL_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
@@ -1279,13 +1293,23 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Loading DB in memory");
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        if (rdbLoad(server.rdb_filename,&rsi) != C_OK) {
+        if (!server.repl_aof_sync && rdbLoad(server.rdb_filename,&rsi) != C_OK) {
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Load rdb success");
             serverLog(LL_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
             cancelReplicationHandshake();
             /* Re-enable the AOF if we disabled it earlier, in order to restore
              * the original configuration. */
             if (aof_is_enabled) restartAOF();
             return;
+        }
+        /* Try to load aof */
+        if (server.repl_aof_sync && loadAppendOnlyFile(server.rdb_filename) == C_OK) {
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: aof file sync success");
+            if (rename(server.rdb_filename,server.aof_filename) == -1) {
+                serverLog(LL_WARNING,"Failed trying to rename aof in MASTER <-> REPLICA synchronization: %s", strerror(errno));
+                cancelReplicationHandshake();
+                return;
+            }
         }
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);

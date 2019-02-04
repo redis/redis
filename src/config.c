@@ -379,6 +379,10 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-diskless-sync-delay can't be negative";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-aof-sync") && argc==2) {
+            if ((server.repl_aof_sync = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
             long long size = memtoll(argv[1],NULL);
             if (size <= 0) {
@@ -1090,6 +1094,8 @@ void configSetCommand(client *c) {
     } config_set_bool_field(
       "repl-diskless-sync",server.repl_diskless_sync) {
     } config_set_bool_field(
+      "repl-aof-sync",server.repl_aof_sync) {
+    } config_set_bool_field(
       "cluster-require-full-coverage",server.cluster_require_full_coverage) {
     } config_set_bool_field(
       "cluster-slave-no-failover",server.cluster_slave_no_failover) {
@@ -1465,6 +1471,8 @@ void configGetCommand(client *c) {
             server.repl_disable_tcp_nodelay);
     config_get_bool_field("repl-diskless-sync",
             server.repl_diskless_sync);
+    config_get_bool_field("repl-aof-sync",
+            server.repl_aof_sync);
     config_get_bool_field("aof-rewrite-incremental-fsync",
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("rdb-save-incremental-fsync",
@@ -2205,6 +2213,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay,CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY);
     rewriteConfigYesNoOption(state,"repl-diskless-sync",server.repl_diskless_sync,CONFIG_DEFAULT_REPL_DISKLESS_SYNC);
+    rewriteConfigYesNoOption(state,"repl-aof-sync",server.repl_aof_sync,CONFIG_DEFAULT_REPL_AOF_SYNC);
     rewriteConfigNumericalOption(state,"repl-diskless-sync-delay",server.repl_diskless_sync_delay,CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY);
     rewriteConfigNumericalOption(state,"replica-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-replicas-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
