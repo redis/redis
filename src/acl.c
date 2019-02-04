@@ -937,11 +937,18 @@ int ACLAppendUserForLoading(sds *argv, int argc) {
 
     /* Try to apply the user rules in a fake user to see if they
      * are actually valid. */
-    user fu = {0};
-    user *fakeuser = &fu;
+    char *funame = "__fakeuser__";
+    user *fakeuser = ACLCreateUser(funame,strlen(funame));
+    serverAssert(fakeuser != NULL);
+    int retval = raxRemove(Users,(unsigned char*) funame,strlen(funame),NULL);
+    serverAssert(retval != 0);
+
     for (int j = 2; j < argc; j++) {
         if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_ERR) {
-            if (errno != ENOENT) return C_ERR;
+            if (errno != ENOENT) {
+                ACLFreeUser(fakeuser);
+                return C_ERR;
+            }
         }
     }
 
@@ -950,6 +957,7 @@ int ACLAppendUserForLoading(sds *argv, int argc) {
     for (int j = 1; j < argc; j++) copy[j-1] = sdsdup(argv[j]);
     copy[argc-1] = NULL;
     listAddNodeTail(UsersToLoad,copy);
+    ACLFreeUser(fakeuser);
     return C_OK;
 }
 

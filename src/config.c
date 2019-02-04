@@ -791,6 +791,11 @@ void loadServerConfigFromString(char *config) {
                     "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
+            if (ACLAppendUserForLoading(argv,argc) == C_ERR) {
+                err = "Syntax error in user declaration";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
             queueLoadModule(argv[1],&argv[2],argc-2);
         } else if (!strcasecmp(argv[0],"sentinel")) {
