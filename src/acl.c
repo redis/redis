@@ -969,6 +969,46 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     return C_OK;
 }
 
+/* This function will load the configured users appended to the server
+ * configuration via ACLAppendUserForLoading(). On loading errors it will
+ * log an error and return C_ERR, otherwise C_OK will be returned. */
+int ACLLoadConfiguredUsers(void) {
+    listIter li;
+    listNode *ln;
+    listRewind(UsersToLoad,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        sds *aclrules = listNodeValue(ln);
+        user *u = ACLCreateUser(aclrules[0],sdslen(aclrules[0]));
+        if (!u) {
+            serverLog(LL_WARNING,
+                      "Error loading ACLs: user '%s' specified multiple times",
+                      aclrules[0]);
+            return C_ERR;
+        }
+
+        /* Load every rule defined for this user. */
+        for (int j = 1; aclrules[j]; j++) {
+            if (ACLSetUser(u,aclrules[j],sdslen(aclrules[j])) != C_OK) {
+                char *errmsg = ACLSetUserStringError();
+                serverLog(LL_WARNING,"Error loading ACL rule '%s' for "
+                                     "the user named '%s': %s",
+                          aclrules[0],aclrules[j],errmsg);
+                return C_ERR;
+            }
+        }
+
+        /* Having a disabled user in the configuration may be an error,
+         * warn about it without returning any error to the caller. */
+        if (u->flags & USER_FLAG_DISABLED) {
+            serverLog(LL_NOTICE, "The user '%s' is disabled (there is no "
+                                 "'on' modifier in the user description). Make "
+                                 "sure this is not a configuration error.",
+                      aclrules[0]);
+        }
+    }
+    return C_OK;
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/

@@ -1740,6 +1740,7 @@ sds ACLDefaultUserFirstPassword(void);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 char *ACLSetUserStringError(void);
+int ACLLoadConfiguredUsers(void);
 
 /* Sorted sets data type */
 
