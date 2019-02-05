@@ -978,12 +978,12 @@ int ACLLoadConfiguredUsers(void) {
     listRewind(UsersToLoad,&li);
     while ((ln = listNext(&li)) != NULL) {
         sds *aclrules = listNodeValue(ln);
-        user *u = ACLCreateUser(aclrules[0],sdslen(aclrules[0]));
+        sds username = aclrules[0];
+        user *u = ACLCreateUser(username,sdslen(username));
         if (!u) {
-            serverLog(LL_WARNING,
-                      "Error loading ACLs: user '%s' specified multiple times",
-                      aclrules[0]);
-            return C_ERR;
+            u = ACLGetUserByName(username,sdslen(username));
+            serverAssert(u != NULL);
+            ACLSetUser(u,"reset",-1);
         }
 
         /* Load every rule defined for this user. */
