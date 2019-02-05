@@ -658,7 +658,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     if (config.idlemode == 0)
         aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
     listAddNodeTail(config.clients,c);
-    config.liveclients++;
+    atomicIncr(config.liveclients, 1);
     return c;
 }
 
