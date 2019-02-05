@@ -1917,6 +1917,38 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"save");
 }
 
+/* Rewrite the user option. */
+void rewriteConfigUserOption(struct rewriteConfigState *state) {
+    /* If there is a user file defined we just mark this configuration
+     * directive as processed, so that all the lines containing users
+     * inside the config file gets discarded. */
+    if (server.acl_filename[0] != '\0') {
+        rewriteConfigMarkAsProcessed(state,"user");
+        return;
+    }
+
+    /* Otherwise scan the list of users and rewrite every line. Note that
+     * in case the list here is empty, the effect will just be to comment
+     * all the users directive inside the config file. */
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        sds line = sdsnew("user ");
+        line = sdscatsds(line,u->name);
+        line = sdscatlen(line," ",1);
+        sds descr = ACLDescribeUser(u);
+        line = sdscatsds(line,descr);
+        sdsfree(descr);
+        rewriteConfigRewriteLine(state,"user",line,1);
+    }
+    raxStop(&ri);
+
+    /* Mark "user" as processed in case there are no defined users. */
+    rewriteConfigMarkAsProcessed(state,"user");
+}
+
 /* Rewrite the dir option, always using absolute paths.*/
 void rewriteConfigDirOption(struct rewriteConfigState *state) {
     char cwd[1024];
@@ -2186,6 +2218,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
     rewriteConfigSyslogfacilityOption(state);
     rewriteConfigSaveOption(state);
+    rewriteConfigUserOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);
     rewriteConfigYesNoOption(state,"rdbcompression",server.rdb_compression,CONFIG_DEFAULT_RDB_COMPRESSION);

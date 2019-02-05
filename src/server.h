@@ -148,6 +148,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_RDB_SAVE_INCREMENTAL_FSYNC 1
 #define CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG 10
+#define CONFIG_DEFAULT_ACL_FILENAME ""
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_PEER_ID_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define CONFIG_BINDADDR_MAX 16
@@ -1337,6 +1338,8 @@ struct redisServer {
     /* Latency monitor */
     long long latency_monitor_threshold;
     dict *latency_events;
+    /* ACLs */
+    char *acl_filename;     /* ACL Users file. NULL if not configured. */
     /* Assert & bug reporting */
     const char *assert_failed;
     const char *assert_file;
@@ -1725,6 +1728,7 @@ void sendChildInfo(int process_type);
 void receiveChildInfo(void);
 
 /* acl.c -- Authentication related prototypes. */
+extern rax *Users;
 extern user *DefaultUser;
 void ACLInit(void);
 /* Return values for ACLCheckUserCredentials(). */
@@ -1741,6 +1745,7 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
+sds ACLDescribeUser(user *u);
 
 /* Sorted sets data type */
 
