@@ -283,6 +283,9 @@ void loadServerConfigFromString(char *config) {
                 }
                 fclose(logfp);
             }
+        } else if (!strcasecmp(argv[0],"aclfile") && argc == 2) {
+            zfree(server.acl_filename);
+            server.acl_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"always-show-logo") && argc == 2) {
             if ((server.always_show_logo = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -1355,6 +1358,7 @@ void configGetCommand(client *c) {
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
+    config_get_string_field("aclfile",server.acl_filename);
     config_get_string_field("pidfile",server.pidfile);
     config_get_string_field("slave-announce-ip",server.slave_announce_ip);
     config_get_string_field("replica-announce-ip",server.slave_announce_ip);
@@ -2214,6 +2218,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"replica-announce-port",server.slave_announce_port,CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT);
     rewriteConfigEnumOption(state,"loglevel",server.verbosity,loglevel_enum,CONFIG_DEFAULT_VERBOSITY);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
+    rewriteConfigStringOption(state,"aclfile",server.acl_filename,CONFIG_DEFAULT_ACL_FILENAME);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
     rewriteConfigSyslogfacilityOption(state);
