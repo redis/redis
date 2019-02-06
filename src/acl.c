@@ -185,6 +185,23 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     return u;
 }
 
+/* This function should be called when we need an unlinked "fake" user
+ * we can use in order to validate ACL rules or for other similar reasons.
+ * The user will not get linked to the Users radix tree. The returned
+ * user should be released with ACLFreeUser() as usually. */
+user *ACLCreateUnlinkedUser(void) {
+    char username[64];
+    for (int j = 0; ; j++) {
+        snprintf(username,sizeof(username),"__fakeuser:%d__",j);
+        user *fakeuser = ACLCreateUser(username,strlen(username));
+        if (fakeuser == NULL) continue;
+        int retval = raxRemove(Users,(unsigned char*) username,
+                               strlen(username),NULL);
+        serverAssert(retval != 0);
+        return fakeuser;
+    }
+}
+
 /* Release the memory used by the user structure. Note that this function
  * will not remove the user from the Users global radix tree. */
 void ACLFreeUser(user *u) {
@@ -944,11 +961,7 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
 
     /* Try to apply the user rules in a fake user to see if they
      * are actually valid. */
-    char *funame = "__fakeuser__";
-    user *fakeuser = ACLCreateUser(funame,strlen(funame));
-    serverAssert(fakeuser != NULL);
-    int retval = raxRemove(Users,(unsigned char*) funame,strlen(funame),NULL);
-    serverAssert(retval != 0);
+    user *fakeuser = ACLCreateUnlinkedUser();
 
     for (int j = 2; j < argc; j++) {
         if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_ERR) {
