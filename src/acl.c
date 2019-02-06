@@ -1009,6 +1009,85 @@ int ACLLoadConfiguredUsers(void) {
     return C_OK;
 }
 
+/* This function loads the ACL from the specified filename: every line
+ * is validated and shold be either empty or in the format used to specify
+ * users in the redis.conf configuration or in the ACL file, that is:
+ *
+ *  user <username> ... rules ...
+ *
+ * Note that this function considers comments starting with '#' as errors
+ * because the ACL file is meant to be rewritten, and comments would be
+ * lost after the rewrite. Yet empty lines are allowed to avoid being too
+ * strict.
+ *
+ * One important part of implementing ACL LOAD, that uses this function, is
+ * to avoid ending with broken rules if the ACL file is invalid for some
+ * reason, so the function will attempt to validate the rules before loading
+ * each user. For every line that will be found broken the function will
+ * collect an error message. All the valid lines will be correctly processed.
+ *
+ * At the end of the process, if no errors were found in the whole file then
+ * NULL is returned. Otherwise an SDS string describing in a single line
+ * a description of all the issues found is returned. */
+sds ACLLoadFromFile(const char *filename) {
+    FILE *fp;
+    char buf[1024];
+
+    /* Open the ACL file. */
+    if ((fp = fopen(filename,"r")) == NULL) {
+        sds errors = sdscatprintf(sdsempty(),
+            "Error loading ACLs, opening file '%s': %s",
+            filename, strerror(errno));
+        return errors;
+    }
+
+    /* Load the whole file as a single string in memory. */
+    sds acls = sdsempty();
+    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+        acls = sdscat(acls,buf);
+    fclose(fp);
+
+    /* Split the file into lines and attempt to load each line. */
+    int totlines;
+    sds *lines, errors = sdsempty();
+    lines = sdssplitlen(acls,strlen(acls),"\n",1,&totlines);
+
+    for (int i = 0; i < totlines; i++) {
+        sds *argv;
+        int argc;
+        int linenum = i+1;
+
+        lines[i] = sdstrim(lines[i]," \t\r\n");
+
+        /* Skip blank lines */
+        if (lines[i][0] == '\0') continue;
+
+        /* Split into arguments */
+        argv = sdssplitargs(lines[i],&argc);
+        if (argv == NULL) {
+            errors = sdscatprintf(errors,
+                                  "%d: unbalanced quotes in acl line.",
+                                  linenum);
+            continue;
+        }
+
+        /* Skip this line if the resulting command vector is empty. */
+        if (argc == 0) {
+            sdsfreesplitres(argv,argc);
+            continue;
+        }
+
+        /* Try to process the line. */
+    }
+
+    sdsfreesplitres(lines,totlines);
+    if (sdslen(errors) == 0) {
+        sdsfree(errors);
+        errors = NULL;
+    }
+    return errors;
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/
