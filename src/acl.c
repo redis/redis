@@ -1065,6 +1065,10 @@ sds ACLLoadFromFile(const char *filename) {
     sds *lines, errors = sdsempty();
     lines = sdssplitlen(acls,strlen(acls),"\n",1,&totlines);
 
+    /* We need a fake user to validate the rules before making changes
+     * to the real user mentioned in the ACL line. */
+    user *fakeuser = ACLCreateUnlinkedUser();
+
     for (int i = 0; i < totlines; i++) {
         sds *argv;
         int argc;
@@ -1079,8 +1083,8 @@ sds ACLLoadFromFile(const char *filename) {
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
-                                  "%d: unbalanced quotes in acl line.",
-                                  linenum);
+                     "%d: unbalanced quotes in acl line. ",
+                     linenum);
             continue;
         }
 
@@ -1090,15 +1094,40 @@ sds ACLLoadFromFile(const char *filename) {
             continue;
         }
 
-        /* Try to process the line. */
+        /* The line should start with the "user" keyword. */
+        if (strcmp(argv[0],"user")) {
+            errors = sdscatprintf(errors,
+                     "%d: line should start with user keyword. ",
+                     linenum);
+            continue;
+        }
+
+        /* Try to process the line using the fake user to validate iif
+         * the rules are able to apply cleanly. */
+        ACLSetUser(fakeuser,"reset",-1);
+        int j;
+        for (j = 2; j < argc; j++) {
+            if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
+                char *errmsg = ACLSetUserStringError();
+                errors = sdscatprintf(errors,
+                         "%d: error in ACL: %s. ",
+                         linenum, errmsg);
+                continue;
+            }
+        }
+        if (j != argc) continue; /* Error in ACL rules, don't apply. */
+
+        /* We can finally lookup the user and apply the rule. */
     }
 
+    ACLFreeUser(fakeuser);
     sdsfreesplitres(lines,totlines);
     if (sdslen(errors) == 0) {
         sdsfree(errors);
-        errors = NULL;
+        return NULL;
+    } else {
+        return sdstrim(errors," ");
     }
-    return errors;
 }
 
 /* =============================================================================
