@@ -1227,6 +1227,39 @@ sds ACLLoadFromFile(const char *filename) {
     }
 }
 
+/* This function is called once the server is already running, modules are
+ * loaded, and we are ready to start, in order to load the ACLs either from
+ * the pending list of users defined in redis.conf, or from the ACL file.
+ * The function will just exit with an error if the user is trying to mix
+ * both the loading methods. */
+void ACLLoadUsersAtStartup(void) {
+    if (server.acl_filename[0] != '\0' && listLength(UsersToLoad) != 0) {
+        serverLog(LL_WARNING,
+            "Configuring Redis with users defined in redis.conf and at "
+            "the same setting an ACL file path is invalid. This setup "
+            "is very likely to lead to configuration errors and security "
+            "holes, please define either an ACL file or declare users "
+            "directly in your redis.conf, but not both.");
+        exit(1);
+    }
+
+    if (ACLLoadConfiguredUsers() == C_ERR) {
+        serverLog(LL_WARNING,
+            "Critical error while loading ACLs. Exiting.");
+        exit(1);
+    }
+
+    if (server.acl_filename[0] != '\0') {
+        sds errors = ACLLoadFromFile(server.acl_filename);
+        if (errors) {
+            serverLog(LL_WARNING,
+                "Aborting Redis startup because of ACL errors: %s", errors);
+            sdsfree(errors);
+            exit(1);
+        }
+    }
+}
+
 /* =============================================================================
  * ACL related commands
  * ==========================================================================*/

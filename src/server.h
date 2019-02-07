@@ -1746,6 +1746,7 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
 char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
+void ACLLoadUsersAtStartup(void);
 
 /* Sorted sets data type */
 

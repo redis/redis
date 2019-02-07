@@ -4908,11 +4908,7 @@ int main(int argc, char **argv) {
         linuxMemoryWarnings();
     #endif
         moduleLoadFromQueue();
-        if (ACLLoadConfiguredUsers() == C_ERR) {
-            serverLog(LL_WARNING,
-                "Critical error while loading ACLs. Exiting.");
-            exit(1);
-        }
+        ACLLoadUsersAtStartup();
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
