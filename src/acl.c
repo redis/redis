@@ -1095,10 +1095,12 @@ sds ACLLoadFromFile(const char *filename) {
         }
 
         /* The line should start with the "user" keyword. */
-        if (strcmp(argv[0],"user")) {
+        if (strcmp(argv[0],"user") || argc < 2) {
             errors = sdscatprintf(errors,
-                     "%d: line should start with user keyword. ",
+                     "%d: line should start with user keyword followed "
+                     "by the username. ",
                      linenum);
+            sdsfreesplitres(argv,argc);
             continue;
         }
 
@@ -1115,9 +1117,26 @@ sds ACLLoadFromFile(const char *filename) {
                 continue;
             }
         }
-        if (j != argc) continue; /* Error in ACL rules, don't apply. */
+        if (j != argc) {
+            sdsfreesplitres(argv,argc);
+            continue; /* Error in ACL rules, don't apply. */
+        }
 
-        /* We can finally lookup the user and apply the rule. */
+        /* We can finally lookup the user and apply the rule. If the
+         * user already exists we always reset it to start. */
+        user *u = ACLCreateUser(argv[1],sdslen(argv[1]));
+        if (!u) {
+            u = ACLGetUserByName(argv[1],sdslen(argv[1]));
+            serverAssert(u != NULL);
+            ACLSetUser(u,"reset",-1);
+        }
+
+        /* Note that the same rules already applied to the fake user, so
+         * we just assert that everything goess well: it should. */
+        for (j = 2; j < argc; j++)
+            serverAssert(ACLSetUser(fakeuser,argv[j],sdslen(argv[j]) == C_OK);
+
+        sdsfreesplitres(argv,argc);
     }
 
     ACLFreeUser(fakeuser);
