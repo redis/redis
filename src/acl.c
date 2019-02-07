@@ -1141,8 +1141,8 @@ sds ACLLoadFromFile(const char *filename) {
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
             errors = sdscatprintf(errors,
-                     "%d: unbalanced quotes in acl line. ",
-                     linenum);
+                     "%s:%d: unbalanced quotes in acl line. ",
+                     server.acl_filename, linenum);
             continue;
         }
 
@@ -1155,8 +1155,8 @@ sds ACLLoadFromFile(const char *filename) {
         /* The line should start with the "user" keyword. */
         if (strcmp(argv[0],"user") || argc < 2) {
             errors = sdscatprintf(errors,
-                     "%d: line should start with user keyword followed "
-                     "by the username. ",
+                     "%s:%d should start with user keyword followed "
+                     "by the username. ", server.acl_filename,
                      linenum);
             sdsfreesplitres(argv,argc);
             continue;
@@ -1170,14 +1170,18 @@ sds ACLLoadFromFile(const char *filename) {
             if (ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) != C_OK) {
                 char *errmsg = ACLSetUserStringError();
                 errors = sdscatprintf(errors,
-                         "%d: error in ACL: %s. ",
-                         linenum, errmsg);
+                         "%s:%d: %s. ",
+                         server.acl_filename, linenum, errmsg);
                 continue;
             }
         }
-        if (j != argc) {
+
+        /* Apply the rule to the new users set only if so far there
+         * are no errors, otherwise it's useless since we are going
+         * to discard the new users set anyway. */
+        if (sdslen(errors) != 0) {
             sdsfreesplitres(argv,argc);
-            continue; /* Error in ACL rules, don't apply. */
+            continue;
         }
 
         /* We can finally lookup the user and apply the rule. If the
@@ -1192,7 +1196,7 @@ sds ACLLoadFromFile(const char *filename) {
         /* Note that the same rules already applied to the fake user, so
          * we just assert that everything goess well: it should. */
         for (j = 2; j < argc; j++)
-            serverAssert(ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_OK);
+            serverAssert(ACLSetUser(u,argv[j],sdslen(argv[j])) == C_OK);
 
         sdsfreesplitres(argv,argc);
     }
