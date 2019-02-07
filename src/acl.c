@@ -1199,12 +1199,13 @@ sds ACLLoadFromFile(const char *filename) {
     ACLFreeUser(fakeuser);
     sdsfreesplitres(lines,totlines);
 
-    /* Chec if we found errors and react accordingly. */
+    /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
          * default user configuration in the old one. */
         user *new = ACLGetUserByName("default",7);
+        serverAssert(new != NULL);
         ACLCopyUser(DefaultUser,new);
         ACLFreeUser(new);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
