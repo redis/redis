@@ -1105,7 +1105,7 @@ sds ACLLoadFromFile(const char *filename) {
 
     /* Load the whole file as a single string in memory. */
     sds acls = sdsempty();
-    while(fgets(buf,CONFIG_MAX_LINE+1,fp) != NULL)
+    while(fgets(buf,sizeof(buf),fp) != NULL)
         acls = sdscat(acls,buf);
     fclose(fp);
 
