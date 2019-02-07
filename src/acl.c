@@ -758,15 +758,21 @@ sds ACLDefaultUserFirstPassword(void) {
     return listNodeValue(first);
 }
 
-/* Initialization of the ACL subsystem. */
-void ACLInit(void) {
-    Users = raxNew();
-    UsersToLoad = listCreate();
+/* Initialize the default user, that will always exist for all the process
+ * lifetime. */
+void ACLInitDefaultUser(void) {
     DefaultUser = ACLCreateUser("default",7);
     ACLSetUser(DefaultUser,"+@all",-1);
     ACLSetUser(DefaultUser,"~*",-1);
     ACLSetUser(DefaultUser,"on",-1);
     ACLSetUser(DefaultUser,"nopass",-1);
+}
+
+/* Initialization of the ACL subsystem. */
+void ACLInit(void) {
+    Users = raxNew();
+    UsersToLoad = listCreate();
+    ACLInitDefaultUser();
 }
 
 /* Check the username and password pair and return C_OK if they are valid,
@@ -1134,7 +1140,7 @@ sds ACLLoadFromFile(const char *filename) {
         /* Note that the same rules already applied to the fake user, so
          * we just assert that everything goess well: it should. */
         for (j = 2; j < argc; j++)
-            serverAssert(ACLSetUser(fakeuser,argv[j],sdslen(argv[j]) == C_OK);
+            serverAssert(ACLSetUser(fakeuser,argv[j],sdslen(argv[j])) == C_OK);
 
         sdsfreesplitres(argv,argc);
     }
@@ -1296,6 +1302,19 @@ void aclCommand(client *c) {
             addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
         } else {
             addReplyNull(c);
+        }
+    } else if (!strcasecmp(sub,"load")) {
+        if (server.acl_filename[0] == '\0') {
+            addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
+            return;
+        } else {
+            sds errors = ACLLoadFromFile(server.acl_filename);
+            if (errors == NULL) {
+                addReply(c,shared.ok);
+            } else {
+                addReplyError(c,errors);
+                sdsfree(errors);
+            }
         }
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
