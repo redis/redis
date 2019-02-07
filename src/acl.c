@@ -1122,6 +1122,7 @@ sds ACLLoadFromFile(const char *filename) {
      * so if there are errors loading the ACL file we can rollback to the
      * old version. */
     rax *old_users = Users;
+    user *old_default_user = DefaultUser;
     Users = raxNew();
     ACLInitDefaultUser();
 
@@ -1198,6 +1199,7 @@ sds ACLLoadFromFile(const char *filename) {
 
     ACLFreeUser(fakeuser);
     sdsfreesplitres(lines,totlines);
+    DefaultUser = old_default_user; /* This pointer must never change. */
 
     /* Check if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
