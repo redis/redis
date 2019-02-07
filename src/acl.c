@@ -249,7 +249,7 @@ void ACLCopyUser(user *dst, user *src) {
 /* Free all the users registered in the radix tree 'users' and free the
  * radix tree itself. */
 void ACLFreeUsersSet(rax *users) {
-    /* TODO */
+    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUser);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1208,7 +1208,8 @@ sds ACLLoadFromFile(const char *filename) {
         ACLCopyUser(DefaultUser,new);
         ACLFreeUser(new);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
-
+        raxRemove(old_users,(unsigned char*)"default",7,NULL);
+        ACLFreeUsersSet(old_users);
         sdsfree(errors);
         return NULL;
     } else {
