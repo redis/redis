@@ -90,6 +90,7 @@ struct ACLUserFlag {
 
 void ACLResetSubcommandsForCommand(user *u, unsigned long id);
 void ACLResetSubcommands(user *u);
+void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub);
 
 /* =============================================================================
  * Helper functions for the rest of the ACL implementation
@@ -163,6 +164,11 @@ void ACLListFreeSds(void *item) {
     sdsfree(item);
 }
 
+/* Method to duplicate list elements from ACL users password/ptterns lists. */
+void *ACLListDupSds(void *item) {
+    return sdsdup(item);
+}
+
 /* Create a new user with the specified name, store it in the list
  * of users (the Users global radix tree), and returns a reference to
  * the structure representing the user.
@@ -178,8 +184,10 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     u->patterns = listCreate();
     listSetMatchMethod(u->passwords,ACLListMatchSds);
     listSetFreeMethod(u->passwords,ACLListFreeSds);
+    listSetDupMethod(u->passwords,ACLListDupSds);
     listSetMatchMethod(u->patterns,ACLListMatchSds);
     listSetFreeMethod(u->patterns,ACLListFreeSds);
+    listSetDupMethod(u->patterns,ACLListDupSds);
     memset(u->allowed_commands,0,sizeof(u->allowed_commands));
     raxInsert(Users,(unsigned char*)name,namelen,u,NULL);
     return u;
@@ -210,6 +218,38 @@ void ACLFreeUser(user *u) {
     listRelease(u->patterns);
     ACLResetSubcommands(u);
     zfree(u);
+}
+
+/* Copy the user ACL rules from the source user 'src' to the destination
+ * user 'dst' so that at the end of the process they'll have exactly the
+ * same rules (but the names will continue to be the original ones). */
+void ACLCopyUser(user *dst, user *src) {
+    listRelease(dst->passwords);
+    listRelease(dst->patterns);
+    dst->passwords = listDup(src->passwords);
+    dst->patterns = listDup(src->patterns);
+    memcpy(dst->allowed_commands,src->allowed_commands,
+           sizeof(dst->allowed_commands));
+    dst->flags = src->flags;
+    ACLResetSubcommands(dst);
+    /* Copy the allowed subcommands array of array of SDS strings. */
+    if (src->allowed_subcommands) {
+        for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++) {
+            if (src->allowed_subcommands[j]) {
+                for (int i = 0; src->allowed_subcommands[j][i]; i++)
+                {
+                    ACLAddAllowedSubcommand(dst, j,
+                        src->allowed_subcommands[j][i]);
+                }
+            }
+        }
+    }
+}
+
+/* Free all the users registered in the radix tree 'users' and free the
+ * radix tree itself. */
+void ACLFreeUsersSet(rax *users) {
+    /* TODO */
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1043,7 +1083,10 @@ int ACLLoadConfiguredUsers(void) {
  * to avoid ending with broken rules if the ACL file is invalid for some
  * reason, so the function will attempt to validate the rules before loading
  * each user. For every line that will be found broken the function will
- * collect an error message. All the valid lines will be correctly processed.
+ * collect an error message.
+ *
+ * IMPORTANT: If there is at least a single error, nothing will be loaded
+ * and the rules will remain exactly as they were.
  *
  * At the end of the process, if no errors were found in the whole file then
  * NULL is returned. Otherwise an SDS string describing in a single line
@@ -1075,6 +1118,14 @@ sds ACLLoadFromFile(const char *filename) {
      * to the real user mentioned in the ACL line. */
     user *fakeuser = ACLCreateUnlinkedUser();
 
+    /* We do all the loading in a fresh insteance of the Users radix tree,
+     * so if there are errors loading the ACL file we can rollback to the
+     * old version. */
+    rax *old_users = Users;
+    Users = raxNew();
+    ACLInitDefaultUser();
+
+    /* Load each line of the file. */
     for (int i = 0; i < totlines; i++) {
         sds *argv;
         int argc;
@@ -1147,11 +1198,24 @@ sds ACLLoadFromFile(const char *filename) {
 
     ACLFreeUser(fakeuser);
     sdsfreesplitres(lines,totlines);
+
+    /* Chec if we found errors and react accordingly. */
     if (sdslen(errors) == 0) {
+        /* The default user pointer is referenced in different places: instead
+         * of replacing such occurrences it is much simpler to copy the new
+         * default user configuration in the old one. */
+        user *new = ACLGetUserByName("default",7);
+        ACLCopyUser(DefaultUser,new);
+        ACLFreeUser(new);
+        raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
+
         sdsfree(errors);
         return NULL;
     } else {
-        return sdstrim(errors," ");
+        ACLFreeUsersSet(Users);
+        Users = old_users;
+        errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
+        return errors;
     }
 }
 
