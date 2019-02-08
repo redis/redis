@@ -283,6 +283,9 @@ void loadServerConfigFromString(char *config) {
                 }
                 fclose(logfp);
             }
+        } else if (!strcasecmp(argv[0],"aclfile") && argc == 2) {
+            zfree(server.acl_filename);
+            server.acl_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"always-show-logo") && argc == 2) {
             if ((server.always_show_logo = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -789,6 +792,16 @@ void loadServerConfigFromString(char *config) {
             if (server.supervised_mode == INT_MIN) {
                 err = "Invalid option for 'supervised'. "
                     "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
+            int argc_err;
+            if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
+                char buf[1024];
+                char *errmsg = ACLSetUserStringError();
+                snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
+                    argv[argc_err],errmsg);
+                err = buf;
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
@@ -1345,6 +1358,7 @@ void configGetCommand(client *c) {
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
+    config_get_string_field("aclfile",server.acl_filename);
     config_get_string_field("pidfile",server.pidfile);
     config_get_string_field("slave-announce-ip",server.slave_announce_ip);
     config_get_string_field("replica-announce-ip",server.slave_announce_ip);
@@ -1907,6 +1921,38 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
     rewriteConfigMarkAsProcessed(state,"save");
 }
 
+/* Rewrite the user option. */
+void rewriteConfigUserOption(struct rewriteConfigState *state) {
+    /* If there is a user file defined we just mark this configuration
+     * directive as processed, so that all the lines containing users
+     * inside the config file gets discarded. */
+    if (server.acl_filename[0] != '\0') {
+        rewriteConfigMarkAsProcessed(state,"user");
+        return;
+    }
+
+    /* Otherwise scan the list of users and rewrite every line. Note that
+     * in case the list here is empty, the effect will just be to comment
+     * all the users directive inside the config file. */
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        sds line = sdsnew("user ");
+        line = sdscatsds(line,u->name);
+        line = sdscatlen(line," ",1);
+        sds descr = ACLDescribeUser(u);
+        line = sdscatsds(line,descr);
+        sdsfree(descr);
+        rewriteConfigRewriteLine(state,"user",line,1);
+    }
+    raxStop(&ri);
+
+    /* Mark "user" as processed in case there are no defined users. */
+    rewriteConfigMarkAsProcessed(state,"user");
+}
+
 /* Rewrite the dir option, always using absolute paths.*/
 void rewriteConfigDirOption(struct rewriteConfigState *state) {
     char cwd[1024];
@@ -2172,10 +2218,12 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"replica-announce-port",server.slave_announce_port,CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT);
     rewriteConfigEnumOption(state,"loglevel",server.verbosity,loglevel_enum,CONFIG_DEFAULT_VERBOSITY);
     rewriteConfigStringOption(state,"logfile",server.logfile,CONFIG_DEFAULT_LOGFILE);
+    rewriteConfigStringOption(state,"aclfile",server.acl_filename,CONFIG_DEFAULT_ACL_FILENAME);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,CONFIG_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,CONFIG_DEFAULT_SYSLOG_IDENT);
     rewriteConfigSyslogfacilityOption(state);
     rewriteConfigSaveOption(state);
+    rewriteConfigUserOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);
     rewriteConfigYesNoOption(state,"rdbcompression",server.rdb_compression,CONFIG_DEFAULT_RDB_COMPRESSION);

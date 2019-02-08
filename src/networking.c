@@ -164,7 +164,7 @@ client *createClient(int fd) {
     return c;
 }
 
-/* This funciton puts the client in the queue of clients that should write
+/* This function puts the client in the queue of clients that should write
  * their output buffers to the socket. Note that it does not *yet* install
  * the write handler, to start clients are put in a queue of clients that need
  * to write, so we try to do that before returning in the event loop (see the
@@ -1253,7 +1253,7 @@ void resetClient(client *c) {
     }
 }
 
-/* This funciton is used when we want to re-enter the event loop but there
+/* This function is used when we want to re-enter the event loop but there
  * is the risk that the client we are dealing with will be freed in some
  * way. This happens for instance in:
  *
