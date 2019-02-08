@@ -1403,13 +1403,13 @@ void aclCommand(client *c) {
             }
         }
         raxStop(&ri);
-    } else if (!strcasecmp(sub,"whoami")) {
+    } else if (!strcasecmp(sub,"whoami") && c->argc == 2) {
         if (c->user != NULL) {
             addReplyBulkCBuffer(c,c->user->name,sdslen(c->user->name));
         } else {
             addReplyNull(c);
         }
-    } else if (!strcasecmp(sub,"load")) {
+    } else if (!strcasecmp(sub,"load") && c->argc == 2) {
         if (server.acl_filename[0] == '\0') {
             addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
             return;
