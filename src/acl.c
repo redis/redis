@@ -1268,7 +1268,9 @@ void ACLLoadUsersAtStartup(void) {
 /* ACL -- show and modify the configuration of ACL users.
  * ACL HELP
  * ACL LIST
- * ACL SETUSER <username> ... user attribs ...
+ * ACL USERS
+ * ACL CAT [<category>]
+ * ACL SETUSER <username> ... acl rules ...
  * ACL DELUSER <username>
  * ACL GETUSER <username>
  */
@@ -1429,6 +1431,8 @@ void aclCommand(client *c) {
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",
 "GETUSER <username>                -- Get the user details.",
 "DELUSER <username>                -- Delete a user.",
+"CAT                               -- List available categories.",
+"CAT <category>                    -- List commands inside category.",
 "WHOAMI                            -- Return the current connection username.",
 NULL
         };
