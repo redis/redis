@@ -313,6 +313,7 @@ int ACLSetUserCommandBitsForCategory(user *u, const char *category, int value) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
+        if (cmd->flags & CMD_MODULE) continue; /* Ignore modules commands. */
         if (cmd->flags & cflag) {
             ACLSetUserCommandBit(u,cmd->id,value);
             ACLResetSubcommandsForCommand(u,cmd->id);
