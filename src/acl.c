@@ -661,6 +661,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  *         fully added.
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
+ * ENODEV: The password you are trying to remove from the user does not exist.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -705,8 +706,13 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     } else if (op[0] == '<') {
         sds delpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,delpass);
-        if (ln) listDelNode(u->passwords,ln);
         sdsfree(delpass);
+        if (ln) {
+            listDelNode(u->passwords,ln);
+        } else {
+            errno = ENODEV;
+            return C_ERR;
+        }
     } else if (op[0] == '~') {
         if (u->flags & USER_FLAG_ALLKEYS) {
             errno = EEXIST;
@@ -810,6 +816,9 @@ char *ACLSetUserStringError(void) {
                  "'allkeys' flag) is not valid and does not have any "
                  "effect. Try 'resetkeys' to start with an empty "
                  "list of patterns";
+    else if (errno == ENODEV)
+        errmsg = "The password you are trying to remove from the user does "
+                 "not exist";
     return errmsg;
 }
 
