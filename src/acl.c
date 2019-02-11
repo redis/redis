@@ -224,7 +224,6 @@ void ACLFreeUser(user *u) {
  * connections in order to kill all the pending ones that
  * are authenticated with such user. */
 void ACLFreeUserAndKillClients(user *u) {
-    ACLFreeUser(u);
     listIter li;
     listNode *ln;
     listRewind(server.clients,&li);
@@ -242,6 +241,7 @@ void ACLFreeUserAndKillClients(user *u) {
             freeClientAsync(c);
         }
     }
+    ACLFreeUser(u);
 }
 
 /* Copy the user ACL rules from the source user 'src' to the destination
