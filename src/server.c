@@ -3298,14 +3298,17 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* Check if the user is authenticated */
-    if (!(DefaultUser->flags & USER_FLAG_NOPASS) &&
-        !c->authenticated &&
-        (c->cmd->proc != authCommand || c->cmd->proc == helloCommand))
-    {
-        flagTransaction(c);
-        addReply(c,shared.noautherr);
-        return C_OK;
+    /* Check if the user is authenticated. This check is skipped in case
+     * the default user is flagged as "nopass" and is active. */
+    int auth_required = !(DefaultUser->flags & USER_FLAG_NOPASS) &&
+                        !c->authenticated;
+    if (auth_required || DefaultUser->flags & USER_FLAG_DISABLED) {
+        /* AUTH and HELLO are valid even in non authenticated state. */
+        if (c->cmd->proc != authCommand || c->cmd->proc == helloCommand) {
+            flagTransaction(c);
+            addReply(c,shared.noautherr);
+            return C_OK;
+        }
     }
 
     /* Check if the user can run this command according to the current
