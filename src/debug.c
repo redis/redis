@@ -323,6 +323,7 @@ void debugCommand(client *c) {
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
 "STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
+"LOADACLFILE -- Reload users in aclfile.",
 NULL
         };
         addReplyHelp(c, help);
@@ -676,6 +677,19 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+    } else if (!strcasecmp(c->argv[1]->ptr,"loadaclfile") && c->argc == 2) {
+        if (server.acl_filename[0] == '\0') {
+            addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
+            return;
+        } else {
+            sds errors = ACLLoadFromFile(server.acl_filename);
+            if (errors == NULL) {
+                addReply(c,shared.ok);
+            } else {
+                addReplyError(c,errors);
+                sdsfree(errors);
+            }
+        }
     } else {
         addReplySubcommandSyntaxError(c);
         return;

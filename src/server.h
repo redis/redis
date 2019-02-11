@@ -1747,6 +1747,7 @@ char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
+sds ACLLoadFromFile(const char *filename);
 
 /* Sorted sets data type */
 
