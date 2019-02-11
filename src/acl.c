@@ -220,6 +220,30 @@ void ACLFreeUser(user *u) {
     zfree(u);
 }
 
+/* When a user is deleted we need to cycle the active
+ * connections in order to kill all the pending ones that
+ * are authenticated with such user. */
+void ACLFreeUserAndKillClients(user *u) {
+    ACLFreeUser(u);
+    listIter li;
+    listNode *ln;
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client *c = listNodeValue(ln);
+        if (c->user == u) {
+            /* We'll free the conenction asynchronously, so
+             * in theory to set a different user is not needed.
+             * However if there are bugs in Redis, soon or later
+             * this may result in some security hole: it's much
+             * more defensive to set the default user and put
+             * it in non authenticated mode. */
+            c->user = DefaultUser;
+            c->authenticated = 0;
+            freeClientAsync(c);
+        }
+    }
+}
+
 /* Copy the user ACL rules from the source user 'src' to the destination
  * user 'dst' so that at the end of the process they'll have exactly the
  * same rules (but the names will continue to be the original ones). */
@@ -249,7 +273,7 @@ void ACLCopyUser(user *dst, user *src) {
 /* Free all the users registered in the radix tree 'users' and free the
  * radix tree itself. */
 void ACLFreeUsersSet(rax *users) {
-    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUser);
+    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUserAndKillClients);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1304,27 +1328,7 @@ void aclCommand(client *c) {
                           sdslen(username),
                           (void**)&u))
             {
-                /* When a user is deleted we need to cycle the active
-                 * connections in order to kill all the pending ones that
-                 * are authenticated with such user. */
-                ACLFreeUser(u);
-                listIter li;
-                listNode *ln;
-                listRewind(server.clients,&li);
-                while ((ln = listNext(&li)) != NULL) {
-                    client *c = listNodeValue(ln);
-                    if (c->user == u) {
-                        /* We'll free the conenction asynchronously, so
-                         * in theory to set a different user is not needed.
-                         * However if there are bugs in Redis, soon or later
-                         * this may result in some security hole: it's much
-                         * more defensive to set the default user and put
-                         * it in non authenticated mode. */
-                        c->user = DefaultUser;
-                        c->authenticated = 0;
-                        freeClientAsync(c);
-                    }
-                }
+                ACLFreeUserAndKillClients(u);
                 deleted++;
             }
         }
