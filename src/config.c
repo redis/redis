@@ -395,6 +395,9 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"masteruser") && argc == 2) {
+            zfree(server.masteruser);
+            server.masteruser = argv[1][0] ? zstrdup(argv[1]) : NULL;
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
             zfree(server.masterauth);
             server.masterauth = argv[1][0] ? zstrdup(argv[1]) : NULL;
@@ -943,6 +946,9 @@ void configSetCommand(client *c) {
         sds aclop = sdscatprintf(sdsempty(),">%s",(char*)o->ptr);
         ACLSetUser(DefaultUser,aclop,sdslen(aclop));
         sdsfree(aclop);
+    } config_set_special_field("masteruser") {
+        zfree(server.masteruser);
+        server.masteruser = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } config_set_special_field("masterauth") {
         zfree(server.masterauth);
         server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -1354,6 +1360,7 @@ void configGetCommand(client *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
+    config_get_string_field("masteruser",server.masteruser);
     config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("cluster-announce-ip",server.cluster_announce_ip);
     config_get_string_field("unixsocket",server.unixsocket);
@@ -2232,6 +2239,7 @@ int rewriteConfig(char *path) {
     rewriteConfigDirOption(state);
     rewriteConfigSlaveofOption(state,"replicaof");
     rewriteConfigStringOption(state,"replica-announce-ip",server.slave_announce_ip,CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP);
+    rewriteConfigStringOption(state,"masteruser",server.masteruser,NULL);
     rewriteConfigStringOption(state,"masterauth",server.masterauth,NULL);
     rewriteConfigStringOption(state,"cluster-announce-ip",server.cluster_announce_ip,NULL);
     rewriteConfigYesNoOption(state,"replica-serve-stale-data",server.repl_serve_stale_data,CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA);
