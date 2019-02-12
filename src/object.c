@@ -415,6 +415,17 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
+void trimStringObjectIfNeeded(robj *o) {
+    /* Optimize the SDS string inside the string object to require
+     * little space, in case there is more than 10% of free space
+     * at the end of the SDS string. */
+    if (o->encoding == OBJ_ENCODING_RAW &&
+        sdsavail(o->ptr) > sdslen(o->ptr)/10)
+    {
+        o->ptr = sdsRemoveFreeSpace(o->ptr);
+    }
+}
+
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
@@ -484,11 +495,7 @@ robj *tryObjectEncoding(robj *o) {
      * We do that only for relatively large strings as this branch
      * is only entered if the length of the string is greater than
      * OBJ_ENCODING_EMBSTR_SIZE_LIMIT. */
-    if (o->encoding == OBJ_ENCODING_RAW &&
-        sdsavail(s) > len/10)
-    {
-        o->ptr = sdsRemoveFreeSpace(o->ptr);
-    }
+    trimStringObjectIfNeeded(o);
 
     /* Return the original object. */
     return o;

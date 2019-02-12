@@ -521,6 +521,17 @@ void RedisModuleCommandDispatcher(client *c) {
     cp->func(&ctx,(void**)c->argv,c->argc);
     moduleHandlePropagationAfterCommandCallback(&ctx);
     moduleFreeContext(&ctx);
+
+    /* In some cases processMultibulkBuffer uses sdsMakeRoomFor to
+     * expand the querybuf, but later in some cases it uses that query
+     * buffer as is for an argv element (see "Optimization"), which means
+     * that the sds in argv may have a lot of wasted space, and then in case
+     * modules keep that argv RedisString inside their data structure, this
+     * space waste will remain for long (until restarted from rdb). */
+    for (int i = 0; i < c->argc; i++) {
+        if (c->argv[i]->refcount > 1)
+            trimStringObjectIfNeeded(c->argv[i]);
+    }
 }
 
 /* This function returns the list of keys, with the same interface as the
