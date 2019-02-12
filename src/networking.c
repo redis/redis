@@ -1800,7 +1800,7 @@ sds catClientInfoString(sds s, client *client) {
         (unsigned long long) getClientOutputBufferMemoryUsage(client),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL",
-        client->user ? client->user->name : "");
+        client->user ? client->user->name : "(superuser)");
 }
 
 sds getAllClientsInfoString(int type) {
