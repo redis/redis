@@ -2914,10 +2914,10 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags) {
                 return C_ERR;
             }
         }
-
-        /* If it's not @fast is @slow in this binary world. */
-        if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
     }
+    /* If it's not @fast is @slow in this binary world. */
+    if (!(c->flags & CMD_CATEGORY_FAST)) c->flags |= CMD_CATEGORY_SLOW;
+
     sdsfreesplitres(argv,argc);
     return C_OK;
 }
