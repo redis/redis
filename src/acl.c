@@ -1437,6 +1437,32 @@ void aclCommand(client *c) {
                 sdsfree(errors);
             }
         }
+    } else if (!strcasecmp(sub,"cat") && c->argc == 2) {
+        void *dl = addReplyDeferredLen(c);
+        int j;
+        for (j = 0; ACLCommandCategories[j].flag != 0; j++)
+            addReplyBulkCString(c,ACLCommandCategories[j].name);
+        setDeferredArrayLen(c,dl,j);
+    } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
+        uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
+        if (cflag == 0) {
+            addReplyErrorFormat(c, "Unknown category '%s'", c->argv[2]->ptr);
+            return;
+        }
+        int arraylen = 0;
+        void *dl = addReplyDeferredLen(c);
+        dictIterator *di = dictGetIterator(server.orig_commands);
+        dictEntry *de;
+        while ((de = dictNext(di)) != NULL) {
+            struct redisCommand *cmd = dictGetVal(de);
+            if (cmd->flags & CMD_MODULE) continue;
+            if (cmd->flags & cflag) {
+                addReplyBulkCString(c,cmd->name);
+                arraylen++;
+            }
+        }
+        dictReleaseIterator(di);
+        setDeferredArrayLen(c,dl,arraylen);
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LIST                              -- Show user details in config file format.",
