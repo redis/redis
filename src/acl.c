@@ -1480,3 +1480,15 @@ NULL
         addReplySubcommandSyntaxError(c);
     }
 }
+
+void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+        if (cmd->flags & ACLCommandCategories[j].flag) {
+            addReplyStatusFormat(c, "@%s", ACLCommandCategories[j].name);
+            flagcount++;
+        }
+    }
+    setDeferredSetLen(c, flaglen, flagcount);
+}
