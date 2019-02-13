@@ -1350,6 +1350,8 @@ struct redisServer {
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
 
+    int dtrace_id; /* ID for DTrace tracing socket */
+
     /* Mutexes used to protect atomic variables when atomic builtins are
      * not available. */
     pthread_mutex_t lruclock_mutex;

@@ -656,3 +656,20 @@ int anetFormatSock(int fd, char *fmt, size_t fmt_len) {
     anetSockName(fd,ip,sizeof(ip),&port);
     return anetFormatAddr(fmt, fmt_len, ip, port);
 }
+
+int anetTrace(char *err, int fd, int id) {
+#ifdef SO_USER_COOKIE
+    if (id > 0) {
+      if (setsockopt(fd, SOL_SOCKET, SO_USER_COOKIE, &id, sizeof(id)) == -1)
+      {
+        anetSetError(err, "setsockopt SO_USER_COOKIE: %s", strerror(errno));
+        return ANET_ERR;
+      }
+    }
+#else
+    (void)err;
+    (void)fd;
+    (void)id;
+#endif
+    return ANET_OK;
+}
