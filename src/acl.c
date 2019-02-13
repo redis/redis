@@ -1446,7 +1446,7 @@ void aclCommand(client *c) {
     } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
         uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
         if (cflag == 0) {
-            addReplyErrorFormat(c, "Unknown category '%s'", c->argv[2]->ptr);
+            addReplyErrorFormat(c, "Unknown category '%s'", (char*)c->argv[2]->ptr);
             return;
         }
         int arraylen = 0;
