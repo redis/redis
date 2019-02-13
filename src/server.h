@@ -1748,6 +1748,7 @@ char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 sds ACLDescribeUser(user *u);
 void ACLLoadUsersAtStartup(void);
+void addReplyCommandCategories(client *c, struct redisCommand *cmd);
 
 /* Sorted sets data type */
 

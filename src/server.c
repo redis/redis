@@ -3698,8 +3698,8 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
     if (!cmd) {
         addReplyNull(c);
     } else {
-        /* We are adding: command name, arg count, flags, first, last, offset */
-        addReplyArrayLen(c, 6);
+        /* We are adding: command name, arg count, flags, first, last, offset, categories */
+        addReplyArrayLen(c, 7);
         addReplyBulkCString(c, cmd->name);
         addReplyLongLong(c, cmd->arity);
 
@@ -3729,6 +3729,8 @@ void addReplyCommand(client *c, struct redisCommand *cmd) {
         addReplyLongLong(c, cmd->firstkey);
         addReplyLongLong(c, cmd->lastkey);
         addReplyLongLong(c, cmd->keystep);
+
+        addReplyCommandCategories(c,cmd);
     }
 }
 

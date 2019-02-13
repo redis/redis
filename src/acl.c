@@ -1446,7 +1446,7 @@ void aclCommand(client *c) {
     } else if (!strcasecmp(sub,"cat") && c->argc == 3) {
         uint64_t cflag = ACLGetCommandCategoryFlagByName(c->argv[2]->ptr);
         if (cflag == 0) {
-            addReplyErrorFormat(c, "Unknown category '%s'", c->argv[2]->ptr);
+            addReplyErrorFormat(c, "Unknown category '%s'", (char*)c->argv[2]->ptr);
             return;
         }
         int arraylen = 0;
@@ -1479,4 +1479,16 @@ NULL
     } else {
         addReplySubcommandSyntaxError(c);
     }
+}
+
+void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
+    int flagcount = 0;
+    void *flaglen = addReplyDeferredLen(c);
+    for (int j = 0; ACLCommandCategories[j].flag != 0; j++) {
+        if (cmd->flags & ACLCommandCategories[j].flag) {
+            addReplyStatusFormat(c, "@%s", ACLCommandCategories[j].name);
+            flagcount++;
+        }
+    }
+    setDeferredSetLen(c, flaglen, flagcount);
 }
