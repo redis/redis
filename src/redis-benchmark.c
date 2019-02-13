@@ -443,6 +443,7 @@ static int ipow(int base, int exp) {
 
 static void showLatencyReport(void) {
     int i, curlat = 0;
+    int usbetweenlat = ipow(10, MAX_LATENCY_PRECISION-config.precision);
     float perc, reqpersec;
 
     reqpersec = (float)config.requests_finished/((float)config.totlatency/1000);
@@ -457,8 +458,8 @@ static void showLatencyReport(void) {
 
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
         for (i = 0; i < config.requests; i++) {
-            if (config.latency[i]/ipow(10, MAX_LATENCY_PRECISION-config.precision) != curlat || i == (config.requests-1)) {
-                curlat = config.latency[i]/ipow(10, MAX_LATENCY_PRECISION-config.precision);
+            if (config.latency[i]/usbetweenlat != curlat || i == (config.requests-1)) {
+                curlat = config.latency[i]/usbetweenlat;
                 perc = ((float)(i+1)*100)/config.requests;
                 printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision, curlat/pow(10.0, config.precision));
             }
