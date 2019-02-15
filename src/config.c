@@ -820,6 +820,18 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"expire-lookups-per-loop") && argc == 2) {
+            server.expire_lookups_per_loop = atoi(argv[1]);
+            if (server.expire_lookups_per_loop < 0) {
+                err = "expire-lookups-per-loop should be a non negative number";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"expired-threshold-divisor") && argc == 2) {
+            server.expired_threshold_divisor = atoi(argv[1]);
+            if (server.expired_threshold_divisor <= 0) {
+                err = "expired-threshold-divisor should be greater than 0";
+                goto loaderr;
+            }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -2313,6 +2325,8 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"replica-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
     rewriteConfigYesNoOption(state,"dynamic-hz",server.dynamic_hz,CONFIG_DEFAULT_DYNAMIC_HZ);
+    rewriteConfigNumericalOption(state,"expire-lookups-per-loop",server.expire_lookups_per_loop,CONFIG_EXPIRE_LOOKUPS_PER_LOOP);
+    rewriteConfigNumericalOption(state,"expired-threshold-divisor",server.expired_threshold_divisor,CONFIG_EXPIRED_THRESHOLD_DIVISOR);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

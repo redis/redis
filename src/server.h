@@ -167,8 +167,9 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DEFRAG_CYCLE_MAX 75 /* 75% CPU max (at upper threshold) */
 #define CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS 1000 /* keys with more than 1000 fields will be processed separately */
 #define CONFIG_DEFAULT_PROTO_MAX_BULK_LEN (512ll*1024*1024) /* Bulk request max size */
+#define CONFIG_EXPIRE_LOOKUPS_PER_LOOP 20 /* Lookups per loop. */
+#define CONFIG_EXPIRED_THRESHOLD_DIVISOR 4
 
-#define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
@@ -1123,6 +1124,8 @@ struct redisServer {
     int supervised_mode;            /* See SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
+    int expire_lookups_per_loop;    /* Number of keys to look at when expiring */
+    int expired_threshold_divisor;  /* Number used to calculate if the expire cycle should continue */
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */

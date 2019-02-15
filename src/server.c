@@ -2313,6 +2313,8 @@ void initServerConfig(void) {
     server.lazyfree_lazy_server_del = CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL;
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
+    server.expire_lookups_per_loop = CONFIG_EXPIRE_LOOKUPS_PER_LOOP;
+    server.expired_threshold_divisor = CONFIG_EXPIRED_THRESHOLD_DIVISOR;
 
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);

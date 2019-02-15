@@ -183,8 +183,8 @@ void activeExpireCycle(int type) {
             ttl_sum = 0;
             ttl_samples = 0;
 
-            if (num > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP)
-                num = ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP;
+            if (num > (unsigned int)server.expire_lookups_per_loop)
+                num = server.expire_lookups_per_loop;
 
             while (num--) {
                 dictEntry *de;
@@ -224,9 +224,9 @@ void activeExpireCycle(int type) {
                     break;
                 }
             }
-            /* We don't repeat the cycle if there are less than 25% of keys
+            /* We don't repeat the cycle if there are less than the percentage calculated of keys
              * found expired in the current DB. */
-        } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
+        } while (expired > server.expire_lookups_per_loop/server.expired_threshold_divisor);
     }
 
     elapsed = ustime()-start;
