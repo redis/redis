@@ -1355,6 +1355,13 @@ struct redisServer {
     pthread_mutex_t lruclock_mutex;
     pthread_mutex_t next_client_id_mutex;
     pthread_mutex_t unixtime_mutex;
+
+    /* add a field for start time of current command. */
+    long long current_command_start_mstime;
+
+    // Field to control the status dump interval.
+    //   0 to disable status dump entirely.
+    int status_dump_interval_sec;
 };
 
 typedef struct pubsubPattern {

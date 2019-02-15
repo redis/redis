@@ -34,6 +34,8 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#include "status_dump.h"
+
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
  *----------------------------------------------------------------------------*/
@@ -820,6 +822,18 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+
+        } else if (!strcasecmp(argv[0], "status-dump-interval-sec") &&
+                   argc == 2) {
+          long long value = 0;
+          int ok =  string2ll(argv[1], strlen(argv[1]), &value);
+          if (!ok
+              || value < MIN_STATUS_DUMP_INTERVAL_SEC
+              || value > MAX_STATUS_DUMP_INTERVAL_SEC) {
+            server.status_dump_interval_sec = 0;
+            err = "invalid status_dump_interval_sec."; goto loaderr;
+          }
+          server.status_dump_interval_sec = value;
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -1296,6 +1310,12 @@ void configSetCommand(client *c) {
     } config_set_enum_field(
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
 
+    } config_set_numerical_field(
+      "status-dump-interval-sec",server.status_dump_interval_sec,
+      MIN_STATUS_DUMP_INTERVAL_SEC, MAX_STATUS_DUMP_INTERVAL_SEC) {
+      // reset interval.
+      update_status_dump_interval(server.status_dump_interval_sec);
+
     /* Everyhing else is an error... */
     } config_set_else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
@@ -1442,6 +1462,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-replica-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
+    config_get_numerical_field("status-dump-interval-sec",get_status_dump_interval_sec());
 
     /* Bool (yes/no) values */
     config_get_bool_field("cluster-require-full-coverage",

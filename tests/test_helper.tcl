@@ -47,6 +47,7 @@ set ::all_tests {
     integration/logging
     integration/psync2
     integration/psync2-reg
+    integration/status_dump
     unit/pubsub
     unit/slowlog
     unit/scripting

@@ -120,6 +120,17 @@ start_server {tags {"bitops"}} {
             if {($value + $increment) > $max} {set overflow 1}
             if {($value + $increment) < $min} {set overflow 1}
 
+            # GOOGLE EDIT. Added additional checking for overflow, since
+            # google3/third_party/tcl_tk/tclsh doesn't always seem to obey
+            # Tcl's arbitrary-precision arithmetic rules. Only run these
+            # extra checks if running under Blaze (as determined by the
+            # presence of $TEST_SRCDIR in the environment).
+            if {[info exists ::env(TEST_SRCDIR)]} {
+              if {($value > 0) && ($increment > 0) && (($value + $increment) <= 0)} {set overflow 1}
+              if {($value < 0) && ($increment < 0) && (($value + $increment) >= 0)} {set overflow 1}
+            }
+            # END GOOGLE EDIT
+	    
             r del bits
             set res1 [r bitfield bits overflow fail set $type 0 $value]
             set res2 [r bitfield bits overflow fail incrby $type 0 $increment]
