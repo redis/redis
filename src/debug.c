@@ -37,7 +37,11 @@
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
+#ifndef __OpenBSD__
 #include <ucontext.h>
+#else
+typedef ucontext_t sigcontext_t;
+#endif
 #include <fcntl.h>
 #include "bio.h"
 #include <unistd.h>
@@ -70,7 +74,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len) {
         digest[j] ^= hash[j];
 }
 
-void xorObjectDigest(unsigned char *digest, robj *o) {
+void xorStringObjectDigest(unsigned char *digest, robj *o) {
     o = getDecodedObject(o);
     xorDigest(digest,o->ptr,sdslen(o->ptr));
     decrRefCount(o);
@@ -100,10 +104,149 @@ void mixDigest(unsigned char *digest, void *ptr, size_t len) {
     SHA1Final(digest,&ctx);
 }
 
-void mixObjectDigest(unsigned char *digest, robj *o) {
+void mixStringObjectDigest(unsigned char *digest, robj *o) {
     o = getDecodedObject(o);
     mixDigest(digest,o->ptr,sdslen(o->ptr));
     decrRefCount(o);
+}
+
+/* This function computes the digest of a data structure stored in the
+ * object 'o'. It is the core of the DEBUG DIGEST command: when taking the
+ * digest of a whole dataset, we take the digest of the key and the value
+ * pair, and xor all those together.
+ *
+ * Note that this function does not reset the initial 'digest' passed, it
+ * will continue mixing this object digest to anything that was already
+ * present. */
+void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) {
+    uint32_t aux = htonl(o->type);
+    mixDigest(digest,&aux,sizeof(aux));
+    long long expiretime = getExpire(db,keyobj);
+    char buf[128];
+
+    /* Save the key and associated value */
+    if (o->type == OBJ_STRING) {
+        mixStringObjectDigest(digest,o);
+    } else if (o->type == OBJ_LIST) {
+        listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+        listTypeEntry entry;
+        while(listTypeNext(li,&entry)) {
+            robj *eleobj = listTypeGet(&entry);
+            mixStringObjectDigest(digest,eleobj);
+            decrRefCount(eleobj);
+        }
+        listTypeReleaseIterator(li);
+    } else if (o->type == OBJ_SET) {
+        setTypeIterator *si = setTypeInitIterator(o);
+        sds sdsele;
+        while((sdsele = setTypeNextObject(si)) != NULL) {
+            xorDigest(digest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+        }
+        setTypeReleaseIterator(si);
+    } else if (o->type == OBJ_ZSET) {
+        unsigned char eledigest[20];
+
+        if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+            unsigned char *zl = o->ptr;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vll;
+            double score;
+
+            eptr = ziplistIndex(zl,0);
+            serverAssert(eptr != NULL);
+            sptr = ziplistNext(zl,eptr);
+            serverAssert(sptr != NULL);
+
+            while (eptr != NULL) {
+                serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                score = zzlGetScore(sptr);
+
+                memset(eledigest,0,20);
+                if (vstr != NULL) {
+                    mixDigest(eledigest,vstr,vlen);
+                } else {
+                    ll2string(buf,sizeof(buf),vll);
+                    mixDigest(eledigest,buf,strlen(buf));
+                }
+
+                snprintf(buf,sizeof(buf),"%.17g",score);
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+                zzlNext(zl,&eptr,&sptr);
+            }
+        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = o->ptr;
+            dictIterator *di = dictGetIterator(zs->dict);
+            dictEntry *de;
+
+            while((de = dictNext(di)) != NULL) {
+                sds sdsele = dictGetKey(de);
+                double *score = dictGetVal(de);
+
+                snprintf(buf,sizeof(buf),"%.17g",*score);
+                memset(eledigest,0,20);
+                mixDigest(eledigest,sdsele,sdslen(sdsele));
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+            }
+            dictReleaseIterator(di);
+        } else {
+            serverPanic("Unknown sorted set encoding");
+        }
+    } else if (o->type == OBJ_HASH) {
+        hashTypeIterator *hi = hashTypeInitIterator(o);
+        while (hashTypeNext(hi) != C_ERR) {
+            unsigned char eledigest[20];
+            sds sdsele;
+
+            memset(eledigest,0,20);
+            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            mixDigest(eledigest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            mixDigest(eledigest,sdsele,sdslen(sdsele));
+            sdsfree(sdsele);
+            xorDigest(digest,eledigest,20);
+        }
+        hashTypeReleaseIterator(hi);
+    } else if (o->type == OBJ_STREAM) {
+        streamIterator si;
+        streamIteratorStart(&si,o->ptr,NULL,NULL,0);
+        streamID id;
+        int64_t numfields;
+
+        while(streamIteratorGetID(&si,&id,&numfields)) {
+            sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
+            mixDigest(digest,itemid,sdslen(itemid));
+            sdsfree(itemid);
+
+            while(numfields--) {
+                unsigned char *field, *value;
+                int64_t field_len, value_len;
+                streamIteratorGetField(&si,&field,&value,
+                                           &field_len,&value_len);
+                mixDigest(digest,field,field_len);
+                mixDigest(digest,value,value_len);
+            }
+        }
+        streamIteratorStop(&si);
+    } else if (o->type == OBJ_MODULE) {
+        RedisModuleDigest md;
+        moduleValue *mv = o->ptr;
+        moduleType *mt = mv->type;
+        moduleInitDigestContext(md);
+        if (mt->digest) {
+            mt->digest(&md,mv->value);
+            xorDigest(digest,md.x,sizeof(md.x));
+        }
+    } else {
+        serverPanic("Unknown object type");
+    }
+    /* If the key has an expire, add it to the mix */
+    if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
 }
 
 /* Compute the dataset digest. Since keys, sets elements, hashes elements
@@ -114,7 +257,6 @@ void mixObjectDigest(unsigned char *digest, robj *o) {
  * a different digest. */
 void computeDatasetDigest(unsigned char *final) {
     unsigned char digest[20];
-    char buf[128];
     dictIterator *di = NULL;
     dictEntry *de;
     int j;
@@ -137,7 +279,6 @@ void computeDatasetDigest(unsigned char *final) {
         while((de = dictNext(di)) != NULL) {
             sds key;
             robj *keyobj, *o;
-            long long expiretime;
 
             memset(digest,0,20); /* This key-val digest */
             key = dictGetKey(de);
@@ -146,134 +287,8 @@ void computeDatasetDigest(unsigned char *final) {
             mixDigest(digest,key,sdslen(key));
 
             o = dictGetVal(de);
+            xorObjectDigest(db,keyobj,digest,o);
 
-            aux = htonl(o->type);
-            mixDigest(digest,&aux,sizeof(aux));
-            expiretime = getExpire(db,keyobj);
-
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
-                mixObjectDigest(digest,o);
-            } else if (o->type == OBJ_LIST) {
-                listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
-                listTypeEntry entry;
-                while(listTypeNext(li,&entry)) {
-                    robj *eleobj = listTypeGet(&entry);
-                    mixObjectDigest(digest,eleobj);
-                    decrRefCount(eleobj);
-                }
-                listTypeReleaseIterator(li);
-            } else if (o->type == OBJ_SET) {
-                setTypeIterator *si = setTypeInitIterator(o);
-                sds sdsele;
-                while((sdsele = setTypeNextObject(si)) != NULL) {
-                    xorDigest(digest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                }
-                setTypeReleaseIterator(si);
-            } else if (o->type == OBJ_ZSET) {
-                unsigned char eledigest[20];
-
-                if (o->encoding == OBJ_ENCODING_ZIPLIST) {
-                    unsigned char *zl = o->ptr;
-                    unsigned char *eptr, *sptr;
-                    unsigned char *vstr;
-                    unsigned int vlen;
-                    long long vll;
-                    double score;
-
-                    eptr = ziplistIndex(zl,0);
-                    serverAssert(eptr != NULL);
-                    sptr = ziplistNext(zl,eptr);
-                    serverAssert(sptr != NULL);
-
-                    while (eptr != NULL) {
-                        serverAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
-                        score = zzlGetScore(sptr);
-
-                        memset(eledigest,0,20);
-                        if (vstr != NULL) {
-                            mixDigest(eledigest,vstr,vlen);
-                        } else {
-                            ll2string(buf,sizeof(buf),vll);
-                            mixDigest(eledigest,buf,strlen(buf));
-                        }
-
-                        snprintf(buf,sizeof(buf),"%.17g",score);
-                        mixDigest(eledigest,buf,strlen(buf));
-                        xorDigest(digest,eledigest,20);
-                        zzlNext(zl,&eptr,&sptr);
-                    }
-                } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-                    zset *zs = o->ptr;
-                    dictIterator *di = dictGetIterator(zs->dict);
-                    dictEntry *de;
-
-                    while((de = dictNext(di)) != NULL) {
-                        sds sdsele = dictGetKey(de);
-                        double *score = dictGetVal(de);
-
-                        snprintf(buf,sizeof(buf),"%.17g",*score);
-                        memset(eledigest,0,20);
-                        mixDigest(eledigest,sdsele,sdslen(sdsele));
-                        mixDigest(eledigest,buf,strlen(buf));
-                        xorDigest(digest,eledigest,20);
-                    }
-                    dictReleaseIterator(di);
-                } else {
-                    serverPanic("Unknown sorted set encoding");
-                }
-            } else if (o->type == OBJ_HASH) {
-                hashTypeIterator *hi = hashTypeInitIterator(o);
-                while (hashTypeNext(hi) != C_ERR) {
-                    unsigned char eledigest[20];
-                    sds sdsele;
-
-                    memset(eledigest,0,20);
-                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-                    mixDigest(eledigest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                    sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
-                    mixDigest(eledigest,sdsele,sdslen(sdsele));
-                    sdsfree(sdsele);
-                    xorDigest(digest,eledigest,20);
-                }
-                hashTypeReleaseIterator(hi);
-            } else if (o->type == OBJ_STREAM) {
-                streamIterator si;
-                streamIteratorStart(&si,o->ptr,NULL,NULL,0);
-                streamID id;
-                int64_t numfields;
-
-                while(streamIteratorGetID(&si,&id,&numfields)) {
-                    sds itemid = sdscatfmt(sdsempty(),"%U.%U",id.ms,id.seq);
-                    mixDigest(digest,itemid,sdslen(itemid));
-                    sdsfree(itemid);
-
-                    while(numfields--) {
-                        unsigned char *field, *value;
-                        int64_t field_len, value_len;
-                        streamIteratorGetField(&si,&field,&value,
-                                                   &field_len,&value_len);
-                        mixDigest(digest,field,field_len);
-                        mixDigest(digest,value,value_len);
-                    }
-                }
-                streamIteratorStop(&si);
-            } else if (o->type == OBJ_MODULE) {
-                RedisModuleDigest md;
-                moduleValue *mv = o->ptr;
-                moduleType *mt = mv->type;
-                moduleInitDigestContext(md);
-                if (mt->digest) {
-                    mt->digest(&md,mv->value);
-                    xorDigest(digest,md.x,sizeof(md.x));
-                }
-            } else {
-                serverPanic("Unknown object type");
-            }
-            /* If the key has an expire, add it to the mix */
-            if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
             /* We can finally xor the key-val digest to the final digest */
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
@@ -289,6 +304,7 @@ void debugCommand(client *c) {
 "CHANGE-REPL-ID -- Change the replication IDs of the instance. Dangerous, should be used only for testing the replication subsystem.",
 "CRASH-AND-RECOVER <milliseconds> -- Hard crash and restart after <milliseconds> delay.",
 "DIGEST -- Output a hex signature representing the current DB content.",
+"DIGEST-VALUE <key-1> ... <key-N>-- Output a hex signature of the values of all the specified keys.",
 "ERROR <string> -- Return a Redis protocol error with <string> as message. Useful for clients unit tests to simulate Redis errors.",
 "LOG <message> -- write message to the server log.",
 "HTSTATS <dbid> -- Return hash table statistics of the specified Redis database.",
@@ -306,6 +322,7 @@ void debugCommand(client *c) {
 "SLEEP <seconds> -- Stop the server for <seconds>. Decimals allowed.",
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
+"STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
 NULL
         };
         addReplyHelp(c, help);
@@ -332,7 +349,6 @@ NULL
         zfree(ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
-        if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         serverAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
@@ -345,7 +361,10 @@ NULL
             return;
         }
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        if (rdbLoad(server.rdb_filename,NULL) != C_OK) {
+        protectClient(c);
+        int ret = rdbLoad(server.rdb_filename,NULL);
+        unprotectClient(c);
+        if (ret != C_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
             return;
         }
@@ -354,7 +373,10 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyDb(-1,EMPTYDB_NO_FLAGS,NULL);
-        if (loadAppendOnlyFile(server.aof_filename) != C_OK) {
+        protectClient(c);
+        int ret = loadAppendOnlyFile(server.aof_filename);
+        unprotectClient(c);
+        if (ret != C_OK) {
             addReply(c,shared.err);
             return;
         }
@@ -485,15 +507,80 @@ NULL
         }
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"digest") && c->argc == 2) {
+        /* DEBUG DIGEST (form without keys specified) */
         unsigned char digest[20];
         sds d = sdsempty();
-        int j;
 
         computeDatasetDigest(digest);
-        for (j = 0; j < 20; j++)
-            d = sdscatprintf(d, "%02x",digest[j]);
+        for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
         addReplyStatus(c,d);
         sdsfree(d);
+    } else if (!strcasecmp(c->argv[1]->ptr,"digest-value") && c->argc >= 2) {
+        /* DEBUG DIGEST-VALUE key key key ... key. */
+        addReplyArrayLen(c,c->argc-2);
+        for (int j = 2; j < c->argc; j++) {
+            unsigned char digest[20];
+            memset(digest,0,20); /* Start with a clean result */
+            robj *o = lookupKeyReadWithFlags(c->db,c->argv[j],LOOKUP_NOTOUCH);
+            if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
+
+            sds d = sdsempty();
+            for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
+            addReplyStatus(c,d);
+            sdsfree(d);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"protocol") && c->argc == 3) {
+        /* DEBUG PROTOCOL [string|integer|double|bignum|null|array|set|map|
+         *                 attrib|push|verbatim|true|false|state|err|bloberr] */
+        char *name = c->argv[2]->ptr;
+        if (!strcasecmp(name,"string")) {
+            addReplyBulkCString(c,"Hello World");
+        } else if (!strcasecmp(name,"integer")) {
+            addReplyLongLong(c,12345);
+        } else if (!strcasecmp(name,"double")) {
+            addReplyDouble(c,3.14159265359);
+        } else if (!strcasecmp(name,"bignum")) {
+            addReplyProto(c,"(1234567999999999999999999999999999999\r\n",40);
+        } else if (!strcasecmp(name,"null")) {
+            addReplyNull(c);
+        } else if (!strcasecmp(name,"array")) {
+            addReplyArrayLen(c,3);
+            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+        } else if (!strcasecmp(name,"set")) {
+            addReplySetLen(c,3);
+            for (int j = 0; j < 3; j++) addReplyLongLong(c,j);
+        } else if (!strcasecmp(name,"map")) {
+            addReplyMapLen(c,3);
+            for (int j = 0; j < 3; j++) {
+                addReplyLongLong(c,j);
+                addReplyBool(c, j == 1);
+            }
+        } else if (!strcasecmp(name,"attrib")) {
+            addReplyAttributeLen(c,1);
+            addReplyBulkCString(c,"key-popularity");
+            addReplyArrayLen(c,2);
+            addReplyBulkCString(c,"key:123");
+            addReplyLongLong(c,90);
+            /* Attributes are not real replies, so a well formed reply should
+             * also have a normal reply type after the attribute. */
+            addReplyBulkCString(c,"Some real reply following the attribute");
+        } else if (!strcasecmp(name,"push")) {
+            addReplyPushLen(c,2);
+            addReplyBulkCString(c,"server-cpu-usage");
+            addReplyLongLong(c,42);
+            /* Push replies are not synchronous replies, so we emit also a
+             * normal reply in order for blocking clients just discarding the
+             * push reply, to actually consume the reply and continue. */
+            addReplyBulkCString(c,"Some real reply following the push reply");
+        } else if (!strcasecmp(name,"true")) {
+            addReplyBool(c,1);
+        } else if (!strcasecmp(name,"false")) {
+            addReplyBool(c,0);
+        } else if (!strcasecmp(name,"verbatim")) {
+            addReplyVerbatim(c,"This is a verbatim\nstring",25,"txt");
+        } else {
+            addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false|state|err|bloberr");
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
@@ -585,6 +672,10 @@ NULL
         changeReplicationId();
         clearReplicationId2();
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"stringmatch-test") && c->argc == 2)
+    {
+        stringmatchlen_fuzz_test();
+        addReplyStatus(c,"Apparently Redis did not crash: test passed");
     } else {
         addReplySubcommandSyntaxError(c);
         return;
@@ -712,7 +803,7 @@ static void *getMcontextEip(ucontext_t *uc) {
     #endif
 #elif defined(__linux__)
     /* Linux */
-    #if defined(__i386__)
+    #if defined(__i386__) || defined(__ILP32__)
     return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
     #elif defined(__X86_64__) || defined(__x86_64__)
     return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
@@ -723,6 +814,22 @@ static void *getMcontextEip(ucontext_t *uc) {
     #elif defined(__aarch64__) /* Linux AArch64 */
     return (void*) uc->uc_mcontext.pc;
     #endif
+#elif defined(__FreeBSD__)
+    /* FreeBSD */
+    #if defined(__i386__)
+    return (void*) uc->uc_mcontext.mc_eip;
+    #elif defined(__x86_64__)
+    return (void*) uc->uc_mcontext.mc_rip;
+    #endif
+#elif defined(__OpenBSD__)
+    /* OpenBSD */
+    #if defined(__i386__)
+    return (void*) uc->sc_eip;
+    #elif defined(__x86_64__)
+    return (void*) uc->sc_rip;
+    #endif
+#elif defined(__DragonFly__)
+    return (void*) uc->uc_mcontext.mc_rip;
 #else
     return NULL;
 #endif
@@ -808,7 +915,7 @@ void logRegisters(ucontext_t *uc) {
 /* Linux */
 #elif defined(__linux__)
     /* Linux x86 */
-    #if defined(__i386__)
+    #if defined(__i386__) || defined(__ILP32__)
     serverLog(LL_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
@@ -864,6 +971,145 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
     #endif
+#elif defined(__FreeBSD__)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->uc_mcontext.mc_rax,
+        (unsigned long) uc->uc_mcontext.mc_rbx,
+        (unsigned long) uc->uc_mcontext.mc_rcx,
+        (unsigned long) uc->uc_mcontext.mc_rdx,
+        (unsigned long) uc->uc_mcontext.mc_rdi,
+        (unsigned long) uc->uc_mcontext.mc_rsi,
+        (unsigned long) uc->uc_mcontext.mc_rbp,
+        (unsigned long) uc->uc_mcontext.mc_rsp,
+        (unsigned long) uc->uc_mcontext.mc_r8,
+        (unsigned long) uc->uc_mcontext.mc_r9,
+        (unsigned long) uc->uc_mcontext.mc_r10,
+        (unsigned long) uc->uc_mcontext.mc_r11,
+        (unsigned long) uc->uc_mcontext.mc_r12,
+        (unsigned long) uc->uc_mcontext.mc_r13,
+        (unsigned long) uc->uc_mcontext.mc_r14,
+        (unsigned long) uc->uc_mcontext.mc_r15,
+        (unsigned long) uc->uc_mcontext.mc_rip,
+        (unsigned long) uc->uc_mcontext.mc_rflags,
+        (unsigned long) uc->uc_mcontext.mc_cs
+    );
+    logStackContent((void**)uc->uc_mcontext.mc_rsp);
+    #elif defined(__i386__)
+    serverLog(LL_WARNING,
+    "\n"
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
+    "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
+        (unsigned long) uc->uc_mcontext.mc_eax,
+        (unsigned long) uc->uc_mcontext.mc_ebx,
+        (unsigned long) uc->uc_mcontext.mc_ebx,
+        (unsigned long) uc->uc_mcontext.mc_edx,
+        (unsigned long) uc->uc_mcontext.mc_edi,
+        (unsigned long) uc->uc_mcontext.mc_esi,
+        (unsigned long) uc->uc_mcontext.mc_ebp,
+        (unsigned long) uc->uc_mcontext.mc_esp,
+        (unsigned long) uc->uc_mcontext.mc_ss,
+        (unsigned long) uc->uc_mcontext.mc_eflags,
+        (unsigned long) uc->uc_mcontext.mc_eip,
+        (unsigned long) uc->uc_mcontext.mc_cs,
+        (unsigned long) uc->uc_mcontext.mc_es,
+        (unsigned long) uc->uc_mcontext.mc_fs,
+        (unsigned long) uc->uc_mcontext.mc_gs
+    );
+    logStackContent((void**)uc->uc_mcontext.mc_esp);
+    #endif
+#elif defined(__OpenBSD__)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->sc_rax,
+        (unsigned long) uc->sc_rbx,
+        (unsigned long) uc->sc_rcx,
+        (unsigned long) uc->sc_rdx,
+        (unsigned long) uc->sc_rdi,
+        (unsigned long) uc->sc_rsi,
+        (unsigned long) uc->sc_rbp,
+        (unsigned long) uc->sc_rsp,
+        (unsigned long) uc->sc_r8,
+        (unsigned long) uc->sc_r9,
+        (unsigned long) uc->sc_r10,
+        (unsigned long) uc->sc_r11,
+        (unsigned long) uc->sc_r12,
+        (unsigned long) uc->sc_r13,
+        (unsigned long) uc->sc_r14,
+        (unsigned long) uc->sc_r15,
+        (unsigned long) uc->sc_rip,
+        (unsigned long) uc->sc_rflags,
+        (unsigned long) uc->sc_cs
+    );
+    logStackContent((void**)uc->sc_rsp);
+    #elif defined(__i386__)
+    serverLog(LL_WARNING,
+    "\n"
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
+    "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
+        (unsigned long) uc->sc_eax,
+        (unsigned long) uc->sc_ebx,
+        (unsigned long) uc->sc_ebx,
+        (unsigned long) uc->sc_edx,
+        (unsigned long) uc->sc_edi,
+        (unsigned long) uc->sc_esi,
+        (unsigned long) uc->sc_ebp,
+        (unsigned long) uc->sc_esp,
+        (unsigned long) uc->sc_ss,
+        (unsigned long) uc->sc_eflags,
+        (unsigned long) uc->sc_eip,
+        (unsigned long) uc->sc_cs,
+        (unsigned long) uc->sc_es,
+        (unsigned long) uc->sc_fs,
+        (unsigned long) uc->sc_gs
+    );
+    logStackContent((void**)uc->sc_esp);
+    #endif
+#elif defined(__DragonFly__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        (unsigned long) uc->uc_mcontext.mc_rax,
+        (unsigned long) uc->uc_mcontext.mc_rbx,
+        (unsigned long) uc->uc_mcontext.mc_rcx,
+        (unsigned long) uc->uc_mcontext.mc_rdx,
+        (unsigned long) uc->uc_mcontext.mc_rdi,
+        (unsigned long) uc->uc_mcontext.mc_rsi,
+        (unsigned long) uc->uc_mcontext.mc_rbp,
+        (unsigned long) uc->uc_mcontext.mc_rsp,
+        (unsigned long) uc->uc_mcontext.mc_r8,
+        (unsigned long) uc->uc_mcontext.mc_r9,
+        (unsigned long) uc->uc_mcontext.mc_r10,
+        (unsigned long) uc->uc_mcontext.mc_r11,
+        (unsigned long) uc->uc_mcontext.mc_r12,
+        (unsigned long) uc->uc_mcontext.mc_r13,
+        (unsigned long) uc->uc_mcontext.mc_r14,
+        (unsigned long) uc->uc_mcontext.mc_r15,
+        (unsigned long) uc->uc_mcontext.mc_rip,
+        (unsigned long) uc->uc_mcontext.mc_rflags,
+        (unsigned long) uc->uc_mcontext.mc_cs
+    );
+    logStackContent((void**)uc->uc_mcontext.mc_rsp);
 #else
     serverLog(LL_WARNING,
         "  Dumping of registers not supported for this OS/arch");
@@ -1183,6 +1429,8 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
+#else
+    (void)secret;
 #endif
     UNUSED(info);
     UNUSED(sig);

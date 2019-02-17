@@ -476,19 +476,19 @@ sds createLatencyReport(void) {
 /* latencyCommand() helper to produce a time-delay reply for all the samples
  * in memory for the specified time series. */
 void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen = addReplyDeferredLen(c);
     int samples = 0, j;
 
     for (j = 0; j < LATENCY_TS_LEN; j++) {
         int i = (ts->idx + j) % LATENCY_TS_LEN;
 
         if (ts->samples[i].time == 0) continue;
-        addReplyMultiBulkLen(c,2);
+        addReplyArrayLen(c,2);
         addReplyLongLong(c,ts->samples[i].time);
         addReplyLongLong(c,ts->samples[i].latency);
         samples++;
     }
-    setDeferredMultiBulkLength(c,replylen,samples);
+    setDeferredArrayLen(c,replylen,samples);
 }
 
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
@@ -497,14 +497,14 @@ void latencyCommandReplyWithLatestEvents(client *c) {
     dictIterator *di;
     dictEntry *de;
 
-    addReplyMultiBulkLen(c,dictSize(server.latency_events));
+    addReplyArrayLen(c,dictSize(server.latency_events));
     di = dictGetIterator(server.latency_events);
     while((de = dictNext(di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
         int last = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
 
-        addReplyMultiBulkLen(c,4);
+        addReplyArrayLen(c,4);
         addReplyBulkCString(c,event);
         addReplyLongLong(c,ts->samples[last].time);
         addReplyLongLong(c,ts->samples[last].latency);
@@ -562,18 +562,28 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
  *
  * LATENCY HISTORY: return time-latency samples for the specified event.
  * LATENCY LATEST: return the latest latency for all the events classes.
- * LATENCY DOCTOR: returns an human readable analysis of instance latency.
+ * LATENCY DOCTOR: returns a human readable analysis of instance latency.
  * LATENCY GRAPH: provide an ASCII graph of the latency of the specified event.
  * LATENCY RESET: reset data of a specified event or all the data if no event provided.
  */
 void latencyCommand(client *c) {
+    const char *help[] = {
+"DOCTOR              -- Returns a human readable latency analysis report.",
+"GRAPH   <event>     -- Returns an ASCII latency graph for the event class.",
+"HISTORY <event>     -- Returns time-latency samples for the event class.",
+"LATEST              -- Returns the latest latency samples for all events.",
+"RESET   [event ...] -- Resets latency data of one or more event classes.",
+"                       (default: reset all data for all event classes)",
+"HELP                -- Prints this help.",
+NULL
+    };
     struct latencyTimeSeries *ts;
 
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
         if (ts == NULL) {
-            addReplyMultiBulkLen(c,0);
+            addReplyArrayLen(c,0);
         } else {
             latencyCommandReplyWithSamples(c,ts);
         }
@@ -611,8 +621,10 @@ void latencyCommand(client *c) {
                 resets += latencyResetEvent(c->argv[j]->ptr);
             addReplyLongLong(c,resets);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"help") && c->argc >= 2) {
+        addReplyHelp(c, help);
     } else {
-        addReply(c,shared.syntaxerr);
+        addReplySubcommandSyntaxError(c);
     }
     return;
 

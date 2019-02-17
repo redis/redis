@@ -15,15 +15,12 @@ typedef struct redisLibuvEvents {
 
 static void redisLibuvPoll(uv_poll_t* handle, int status, int events) {
   redisLibuvEvents* p = (redisLibuvEvents*)handle->data;
+  int ev = (status ? p->events : events);
 
-  if (status != 0) {
-    return;
-  }
-
-  if (p->context != NULL && (events & UV_READABLE)) {
+  if (p->context != NULL && (ev & UV_READABLE)) {
     redisAsyncHandleRead(p->context);
   }
-  if (p->context != NULL && (events & UV_WRITABLE)) {
+  if (p->context != NULL && (ev & UV_WRITABLE)) {
     redisAsyncHandleWrite(p->context);
   }
 }

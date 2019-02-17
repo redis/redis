@@ -684,6 +684,7 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     cp->rediscmd->calls = 0;
     dictAdd(server.commands,sdsdup(cmdname),cp->rediscmd);
     dictAdd(server.orig_commands,sdsdup(cmdname),cp->rediscmd);
+    cp->rediscmd->id = ACLGetCommandID(cmdname); /* ID used for ACL. */
     return REDISMODULE_OK;
 }
 
@@ -1123,10 +1124,10 @@ int RM_ReplyWithArray(RedisModuleCtx *ctx, long len) {
         ctx->postponed_arrays = zrealloc(ctx->postponed_arrays,sizeof(void*)*
                 (ctx->postponed_arrays_count+1));
         ctx->postponed_arrays[ctx->postponed_arrays_count] =
-            addDeferredMultiBulkLength(c);
+            addReplyDeferredLen(c);
         ctx->postponed_arrays_count++;
     } else {
-        addReplyMultiBulkLen(c,len);
+        addReplyArrayLen(c,len);
     }
     return REDISMODULE_OK;
 }
@@ -1169,7 +1170,7 @@ void RM_ReplySetArrayLength(RedisModuleCtx *ctx, long len) {
             return;
     }
     ctx->postponed_arrays_count--;
-    setDeferredMultiBulkLength(c,
+    setDeferredArrayLen(c,
             ctx->postponed_arrays[ctx->postponed_arrays_count],
             len);
     if (ctx->postponed_arrays_count == 0) {
@@ -1205,7 +1206,7 @@ int RM_ReplyWithString(RedisModuleCtx *ctx, RedisModuleString *str) {
 int RM_ReplyWithNull(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReply(c,shared.nullbulk);
+    addReplyNull(c);
     return REDISMODULE_OK;
 }
 
@@ -2696,6 +2697,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
     c = createClient(-1);
+    c->user = NULL; /* Root user. */
     argv = moduleCreateArgvFromUserFormat(cmdname,fmt,&argc,&flags,ap);
     replicate = flags & REDISMODULE_ARGV_REPLICATE;
     va_end(ap);
@@ -3669,8 +3671,8 @@ void moduleHandleBlockedClients(void) {
          * free the temporary client we just used for the replies. */
         if (c) {
             if (bc->reply_client->bufpos)
-                addReplyString(c,bc->reply_client->buf,
-                                 bc->reply_client->bufpos);
+                addReplyProto(c,bc->reply_client->buf,
+                                bc->reply_client->bufpos);
             if (listLength(bc->reply_client->reply))
                 listJoin(c->reply,bc->reply_client->reply);
             c->reply_bytes += bc->reply_client->reply_bytes;
@@ -4221,6 +4223,7 @@ typedef struct RedisModuleTimer {
     RedisModule *module;                /* Module reference. */
     RedisModuleTimerProc callback;      /* The callback to invoke on expire. */
     void *data;                         /* Private data for the callback. */
+    int dbid;                           /* Database number selected by the original client. */
 } RedisModuleTimer;
 
 /* This is the timer handler that is called by the main event loop. We schedule
@@ -4247,7 +4250,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
 
             ctx.module = timer->module;
             ctx.client = moduleFreeContextReusedClient;
-            selectDb(ctx.client, 0);
+            selectDb(ctx.client, timer->dbid);
             timer->callback(&ctx,timer->data);
             moduleFreeContext(&ctx);
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
@@ -4272,6 +4275,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->module = ctx->module;
     timer->callback = callback;
     timer->data = data;
+    timer->dbid = ctx->client->db->id;
     uint64_t expiretime = ustime()+period*1000;
     uint64_t key;
 
@@ -4657,6 +4661,7 @@ void moduleInitModulesSystem(void) {
     moduleKeyspaceSubscribers = listCreate();
     moduleFreeContextReusedClient = createClient(-1);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
+    moduleFreeContextReusedClient->user = NULL; /* root user. */
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
@@ -4816,6 +4821,25 @@ int moduleUnload(sds name) {
     return REDISMODULE_OK;
 }
 
+/* Helper function for the MODULE and HELLO command: send the list of the
+ * loaded modules to the client. */
+void addReplyLoadedModules(client *c) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    addReplyArrayLen(c,dictSize(modules));
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+        addReplyMapLen(c,2);
+        addReplyBulkCString(c,"name");
+        addReplyBulkCBuffer(c,name,sdslen(name));
+        addReplyBulkCString(c,"ver");
+        addReplyLongLong(c,module->ver);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Redis MODULE command.
  *
  * MODULE LOAD <path> [args...] */
@@ -4863,20 +4887,7 @@ NULL
             addReplyErrorFormat(c,"Error unloading module: %s",errmsg);
         }
     } else if (!strcasecmp(subcmd,"list") && c->argc == 2) {
-        dictIterator *di = dictGetIterator(modules);
-        dictEntry *de;
-
-        addReplyMultiBulkLen(c,dictSize(modules));
-        while ((de = dictNext(di)) != NULL) {
-            sds name = dictGetKey(de);
-            struct RedisModule *module = dictGetVal(de);
-            addReplyMultiBulkLen(c,4);
-            addReplyBulkCString(c,"name");
-            addReplyBulkCBuffer(c,name,sdslen(name));
-            addReplyBulkCString(c,"ver");
-            addReplyLongLong(c,module->ver);
-        }
-        dictReleaseIterator(di);
+        addReplyLoadedModules(c);
     } else {
         addReplySubcommandSyntaxError(c);
         return;

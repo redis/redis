@@ -39,6 +39,7 @@
 #include <float.h>
 #include <stdint.h>
 #include <errno.h>
+#include <time.h>
 
 #include "util.h"
 #include "sha1.h"
@@ -47,7 +48,7 @@
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase)
 {
-    while(patternLen) {
+    while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
             while (pattern[1] == '*') {
@@ -168,6 +169,22 @@ int stringmatchlen(const char *pattern, int patternLen,
 
 int stringmatch(const char *pattern, const char *string, int nocase) {
     return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+}
+
+/* Fuzz stringmatchlen() trying to crash it with bad input. */
+int stringmatchlen_fuzz_test(void) {
+    char str[32];
+    char pat[32];
+    int cycles = 10000000;
+    int total_matches = 0;
+    while(cycles--) {
+        int strlen = rand() % sizeof(str);
+        int patlen = rand() % sizeof(pat);
+        for (int j = 0; j < strlen; j++) str[j] = rand() % 128;
+        for (int j = 0; j < patlen; j++) pat[j] = rand() % 128;
+        total_matches += stringmatchlen(pat, patlen, str, strlen, 0);
+    }
+    return total_matches;
 }
 
 /* Convert a string representing an amount of memory into the number of
@@ -605,7 +622,7 @@ void getRandomHexChars(char *p, size_t len) {
  * already, this will be detected and handled correctly.
  *
  * The function does not try to normalize everything, but only the obvious
- * case of one or more "../" appearning at the start of "filename"
+ * case of one or more "../" appearing at the start of "filename"
  * relative path. */
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
@@ -650,6 +667,24 @@ sds getAbsolutePath(char *filename) {
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
     return abspath;
+}
+
+/*
+ * Gets the proper timezone in a more portable fashion
+ * i.e timezone variables are linux specific.
+ */
+
+unsigned long getTimeZone(void) {
+#ifdef __linux__
+    return timezone;
+#else
+    struct timeval tv;
+    struct timezone tz;
+
+    gettimeofday(&tv, &tz);
+
+    return tz.tz_minuteswest * 60UL;
+#endif
 }
 
 /* Return true if the specified path is just a file basename without any

@@ -1645,6 +1645,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
              * node: the entries inside the listpack itself are delta-encoded
              * relatively to this ID. */
             sds nodekey = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (nodekey == NULL) {
+                rdbExitReportCorruptRDB("Stream master ID loading failed: invalid encoding or I/O error.");
+            }
             if (sdslen(nodekey) != sizeof(streamID)) {
                 rdbExitReportCorruptRDB("Stream node key entry is not the "
                                         "size of a stream ID");
@@ -2220,6 +2223,16 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         serverPanic("Unknown RDB child type.");
         break;
     }
+}
+
+/* Kill the RDB saving child using SIGUSR1 (so that the parent will know
+ * the child did not exit for an error, but because we wanted), and performs
+ * the cleanup needed. */
+void killRDBChild(void) {
+    kill(server.rdb_child_pid,SIGUSR1);
+    rdbRemoveTempFile(server.rdb_child_pid);
+    closeChildInfoPipe();
+    updateDictResizePolicy();
 }
 
 /* Spawn an RDB child that writes the RDB to the sockets of the slaves

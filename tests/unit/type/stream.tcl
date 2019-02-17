@@ -317,3 +317,97 @@ start_server {
         assert_equal [r xrevrange teststream2 1234567891245 -] {{1234567891240-0 {key1 value2}} {1234567891230-0 {key1 value1}}}
     }
 }
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with MAXLEN > xlen can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN 200 * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes}} {
+    test {XADD with ~ MAXLEN can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XADD mystream MAXLEN ~ $j * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == $j}
+    }
+}
+
+start_server {tags {"stream"} overrides {appendonly yes stream-node-max-entries 10}} {
+    test {XTRIM with ~ MAXLEN can propagate correctly} {
+        for {set j 0} {$j < 100} {incr j} {
+            r XADD mystream * xitem v
+        }
+        r XTRIM mystream MAXLEN ~ 85
+        assert {[r xlen mystream] == 89}
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        r XADD mystream * xitem v
+        incr j
+        assert {[r xlen mystream] == 90}
+    }
+}
+
+start_server {tags {"xsetid"}} {
+    test {XADD can CREATE an empty stream} {
+        r XADD mystream MAXLEN 0 * a b
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {XSETID can set a specific ID} {
+        r XSETID mystream "200-0"
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "200-0"}
+    }
+
+    test {XSETID cannot SETID with smaller ID} {
+        r XADD mystream * a b
+        catch {r XSETID mystream "1-1"} err
+        r XADD mystream MAXLEN 0 * a b
+        set err
+    } {ERR*smaller*}
+
+    test {XSETID cannot SETID on non-existent key} {
+        catch {r XSETID stream 1-1} err
+        set _ $err
+    } {ERR no such key}
+}
+
+start_server {tags {"stream"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    test {Empty stream can be rewrite into AOF correctly} {
+        r XADD mystream MAXLEN 0 * a b
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 0}
+    }
+
+    test {Stream can be rewrite into AOF correctly after XDEL lastid} {
+        r XSETID mystream 0-0
+        r XADD mystream 1-1 a b
+        r XADD mystream 2-2 a b
+        assert {[dict get [r xinfo stream mystream] length] == 2}
+        r XDEL mystream 2-2
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert {[dict get [r xinfo stream mystream] length] == 1}
+        assert {[dict get [r xinfo stream mystream] last-generated-id] == "2-2"}
+    }
+}

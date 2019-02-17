@@ -187,7 +187,7 @@ void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
-        addReply(c,shared.nullmultibulk);
+        addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
     } else if (c->btype == BLOCKED_MODULE) {
@@ -436,8 +436,12 @@ void handleClientsBlockedOnKeys(void) {
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
                              * array, since we have just one key. */
-                            addReplyMultiBulkLen(receiver,1);
-                            addReplyMultiBulkLen(receiver,2);
+                            if (receiver->resp == 2) {
+                                addReplyArrayLen(receiver,1);
+                                addReplyArrayLen(receiver,2);
+                            } else {
+                                addReplyMapLen(receiver,1);
+                            }
                             addReplyBulk(receiver,rl->key);
 
                             streamPropInfo pi = {
