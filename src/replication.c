@@ -1244,6 +1244,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     if (eof_reached) {
+        if (fsync(server.repl_transfer_fd) == -1) {
+            serverLog(LL_WARNING,"Failed trying to sync the temp DB to disk in MASTER <-> SLAVE synchronization: %s", strerror(errno));
+            goto error;
+        }
+
         int aof_is_enabled = server.aof_state != AOF_OFF;
 
         /* Ensure background save doesn't overwrite synced data */
