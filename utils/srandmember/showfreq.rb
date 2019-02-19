@@ -5,7 +5,7 @@ r.select(9)
 r.del("myset");
 r.sadd("myset",(0..999).to_a)
 freq = {}
-100.times {
+500.times {
     res = r.pipelined {
         1000.times {
             r.srandmember("myset")
