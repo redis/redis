@@ -750,7 +750,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
  * that may be constituted of N buckets with chains of different lengths
  * appearing one after the other. Then we report a random element in the range.
  * In this way we smooth away the problem of different chain lenghts. */
-#define GETFAIR_NUM_ENTRIES 10
+#define GETFAIR_NUM_ENTRIES 15
 dictEntry *dictGetFairRandomKey(dict *d) {
     dictEntry *entries[GETFAIR_NUM_ENTRIES];
     unsigned int count = dictGetSomeKeys(d,entries,GETFAIR_NUM_ENTRIES);
