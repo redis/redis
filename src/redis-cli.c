@@ -4675,6 +4675,12 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
         cursor += slots_per_node;
     }
 
+    /* Rotating the list sometimes helps to get better initial
+     * anti-affinity before the optimizer runs. */
+    clusterManagerNode *first_node = interleaved[0];
+    for (i = 0; i < (interleaved_len - 1); i++)
+        interleaved[i] = interleaved[i + 1];
+    interleaved[interleaved_len - 1] = first_node;
     int assign_unused = 0, available_count = interleaved_len;
 assign_replicas:
     for (i = 0; i < masters_count; i++) {
