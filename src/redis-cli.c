@@ -242,11 +242,92 @@ static int cliConnect(int force);
 static char *getInfoField(char *info, char *field);
 static long getLongInfoField(char *info, char *field);
 
+/* Heap - A generic heap implementation */
+#define heapSetFreeMethod(l,m) ((l)->free = (m))
+#define heapSetCompareMethod(l,m) ((l)->compare = (m))
+#define heapSetSwapMethod(l,m) ((l)->swap = (m))
+
+typedef struct heap {
+    unsigned long used;
+    unsigned long size;
+    int (*compare)(const void *ptr1, const void *ptr2);
+    void (*free)(void *ptr);
+    void (*swap)(void *ptr1, void *ptr2);
+    void *arr[];
+} heap;
+
+heap *heapCreate(int n) {
+    struct heap *heap;
+
+    if ((heap = zmalloc(sizeof(*heap)+n * sizeof(void*))) == NULL) return NULL;
+    heap->size = n;
+    heap->used = 0;
+    return heap;
+}
+
+void heapAdjust(heap *heap, unsigned int begin, unsigned int end) {
+    unsigned int d = begin;
+    unsigned int s = d*2+1;
+    while(s <= end) {
+        if ((s+1 <= end) && heap->compare(heap->arr[s], heap->arr[s+1])>0) {
+            s++;
+        }
+
+        if (heap->compare(heap->arr[d], heap->arr[s]) > 0) {
+            heap->swap(&heap->arr[d], &heap->arr[s]);
+            d = s;
+            s = d*2+1;
+        }else{
+            return;
+        }
+    }
+}
+
+void heapPush(heap *heap, void *value) {
+    if (heap->used < heap->size) {
+        heap->arr[heap->used++] = value;
+        for (int i = heap->used/2 - 1; i >= 0; i--) {
+            heapAdjust(heap, i, heap->used-1);
+        }
+    } else if (heap->used == heap->size) {
+        heap->free(heap->arr[0]);
+        free(heap->arr[0]);
+        heap->arr[0] = value;
+        heapAdjust(heap, 0, heap->used-1);
+    }
+}
+
+void* heapTop(heap *heap) {
+    if (heap->used == 0) return NULL;
+    return heap->arr[0];
+}
+
+void heapSort(heap* heap) {
+    for(int i=heap->used-1; i>0; i--) {
+        heap->swap(&heap->arr[0], &heap->arr[i]);
+        heapAdjust(heap, 0, i-1);
+    }
+}
+
+void heapRelase(heap* heap) {
+    for(unsigned long i=0; i<heap->used; i++) {
+        heap->free(heap->arr[i]);
+        free(heap->arr[i]);
+    }
+    zfree(heap);
+}
+
 /*------------------------------------------------------------------------------
  * Utility functions
  *--------------------------------------------------------------------------- */
 
 uint16_t crc16(const char *buf, int len);
+
+static void swap(void *ptr1, void *ptr2) {
+    void *temp = *((void **)ptr1);
+    *((void **)ptr1) = *((void **)ptr2);
+    *((void **)ptr2) = temp;
+}
 
 static long long ustime(void) {
     struct timeval tv;
@@ -1334,8 +1415,8 @@ static int parseOptions(int argc, char **argv) {
             config.pipe_mode = 1;
         } else if (!strcmp(argv[i],"--pipe-timeout") && !lastarg) {
             config.pipe_timeout = atoi(argv[++i]);
-        } else if (!strcmp(argv[i],"--bigkeys")) {
-            config.bigkeys = 1;
+        } else if (!strcmp(argv[i],"--bigkeys") && !lastarg) {
+            config.bigkeys = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
             config.hotkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
@@ -1534,7 +1615,7 @@ static void usage(void) {
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n"
-"  --bigkeys          Sample Redis keys looking for big keys.\n"
+"  --bigkeys <n>      Sample Redis keys looking for top N big keys.\n"
 "  --hotkeys          Sample Redis keys looking for hot keys.\n"
 "                     only works when maxmemory-policy is *lfu.\n"
 "  --scan             List all keys using the SCAN command.\n"
@@ -6427,6 +6508,20 @@ static void pipeMode(void) {
 #define TYPE_NONE   6
 #define TYPE_COUNT  7
 
+/* Big key item */
+typedef struct bigkey {
+    sds key;
+    unsigned long long size;
+} bigkey;
+
+int bigkeyCompare(const void *ptr1, const void *ptr2) {
+    return ((bigkey *)ptr1)->size - ((bigkey *)ptr2)->size;
+}
+
+void bigkeyRelease(void *ptr) {
+    sdsfree(((bigkey *)ptr)->key);
+}
+
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply = redisCommand(context, "SCAN %llu", *it);
 
@@ -6574,6 +6669,7 @@ static void findBigKeys(void) {
     unsigned long long biggest[TYPE_COUNT] = {0}, counts[TYPE_COUNT] = {0}, totalsize[TYPE_COUNT] = {0};
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
     sds maxkeys[TYPE_COUNT] = {0};
+    heap *biggest_heap[TYPE_COUNT];
     char *typename[] = {"string","list","set","hash","zset","stream","none"};
     char *typeunit[] = {"bytes","items","members","fields","members","entries",""};
     redisReply *reply, *keys;
@@ -6596,6 +6692,14 @@ static void findBigKeys(void) {
             fprintf(stderr, "Failed to allocate memory for largest key names!\n");
             exit(1);
         }
+    }
+
+    /* Init heap for string|list|set|hash|zset|stream */
+    for(int i = 0; i < TYPE_NONE; i++){
+        biggest_heap[i] = heapCreate(config.bigkeys);
+        heapSetCompareMethod(biggest_heap[i], bigkeyCompare);
+        heapSetSwapMethod(biggest_heap[i], swap);
+        heapSetFreeMethod(biggest_heap[i], bigkeyRelease);
     }
 
     /* SCAN loop */
@@ -6651,6 +6755,15 @@ static void findBigKeys(void) {
                 biggest[type] = sizes[i];
             }
 
+            /* Push big key item into heap */
+            bigkey *minkey = heapTop(biggest_heap[type]);
+            if (!minkey || biggest_heap[type]->used < biggest_heap[type]->size || minkey->size <= sizes[i]) {
+                bigkey *bk = malloc(sizeof(bigkey));
+                bk->key = sdscpy(sdsempty(), keys->element[i]->str);
+                bk->size = sizes[i];
+                heapPush(biggest_heap[type], bk);
+            }
+
             /* Update overall progress */
             if(sampled % 1000000 == 0) {
                 printf("[%05.2f%%] Sampled %llu keys so far\n", pct, sampled);
@@ -6696,6 +6809,23 @@ static void findBigKeys(void) {
     for(i=0;i<TYPE_NONE;i++) {
         sdsfree(maxkeys[i]);
     }
+
+    /* print top N big key */
+    for(i=0; i < TYPE_NONE; i++) {
+        if (!biggest_heap[i]->used) continue;
+        printf("\nTop%d %s big key:\n", config.bigkeys, typename[i]);
+        heapSort(biggest_heap[i]);
+        for (unsigned int j=0; j < biggest_heap[i]->used; j++) {
+            bigkey *bk = (bigkey *)biggest_heap[i]->arr[j];
+            printf("%s has %llu %s\n", bk->key, bk->size, typeunit[i]);
+        }
+    }
+
+    /* Free heaps containing top N keys */
+    for(i=0; i<TYPE_NONE; i++){
+        heapRelase(biggest_heap[i]);
+    }
+
 
     /* Success! */
     exit(0);
@@ -7286,6 +7416,7 @@ int main(int argc, char **argv) {
 
     /* Find big keys */
     if (config.bigkeys) {
+        if (config.bigkeys <= 0) config.bigkeys=1;
         if (cliConnect(0) == REDIS_ERR) exit(1);
         findBigKeys();
     }
