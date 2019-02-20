@@ -11,6 +11,15 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.13     Released Wed Feb 20 17:25:31 CEST 2019
+================================================================================
+
+This release just backports a few fixes from Redis 5:
+
+60b2537f rewrite BRPOPLPUSH as RPOPLPUSH to propagate
+afc4b36c Don't treat unsupported protocols as fatal errors
+
+================================================================================
 Redis 4.0.12     Released Tue Dec 11 18:06:12 CEST 2018
 ================================================================================
 
