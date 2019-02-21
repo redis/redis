@@ -1148,6 +1148,7 @@ sds ACLLoadFromFile(const char *filename) {
     int totlines;
     sds *lines, errors = sdsempty();
     lines = sdssplitlen(acls,strlen(acls),"\n",1,&totlines);
+    sdsfree(acls);
 
     /* We need a fake user to validate the rules before making changes
      * to the real user mentioned in the ACL line. */
