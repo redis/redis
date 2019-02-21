@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include <fcntl.h>
 
 /* =============================================================================
  * Global state for ACLs
@@ -1259,6 +1260,71 @@ sds ACLLoadFromFile(const char *filename) {
         errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
         return errors;
     }
+}
+
+/* Generate a copy of the ACLs currently in memory in the specified filename.
+ * Returns C_OK on success or C_ERR if there was an error during the I/O.
+ * When C_ERR is returned a log is produced with hints about the issue. */
+int ACLSaveToFile(const char *filename) {
+    sds acl = sdsempty();
+    int fd;
+
+    /* Let's generate an SDS string containing the new version of the
+     * ACL file. */
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        /* Return information in the configuration file format. */
+        sds user = sdsnew("user ");
+        user = sdscatsds(user,u->name);
+        user = sdscatlen(user," ",1);
+        sds descr = ACLDescribeUser(u);
+        user = sdscatsds(user,descr);
+        sdsfree(descr);
+        acl = sdscatsds(acl,user);
+        acl = sdscatlen(acl,"\n",1);
+        sdsfree(user);
+    }
+    raxStop(&ri);
+
+    /* Create a temp file with the new content. */
+    sds tmpfilename = sdsnew(filename);
+    tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
+        (int)getpid(),(int)mstime());
+    if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
+        serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
+            strerror(errno));
+        sdsfree(tmpfilename);
+        sdsfree(acl);
+        return C_ERR;
+    }
+
+    /* Write it. */
+    if (write(fd,acl,sdslen(acl)) != (ssize_t)sdslen(acl)) {
+        serverLog(LL_WARNING,"Writing ACL file for ACL SAVE: %s",
+            strerror(errno));
+        close(fd);
+        unlink(tmpfilename);
+        sdsfree(tmpfilename);
+        sdsfree(acl);
+        return C_ERR;
+    }
+    close(fd);
+    sdsfree(acl);
+
+    /* Let's replace the new file with the old one. */
+    if (rename(tmpfilename,filename) == -1) {
+        serverLog(LL_WARNING,"Renaming ACL file for ACL SAVE: %s",
+            strerror(errno));
+        unlink(tmpfilename);
+        sdsfree(tmpfilename);
+        return C_ERR;
+    }
+
+    sdsfree(tmpfilename);
+    return C_OK;
 }
 
 /* This function is called once the server is already running, modules are
