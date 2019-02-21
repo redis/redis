@@ -1564,6 +1564,14 @@ void processInputBuffer(client *c) {
 
         if (c->reqtype == PROTO_REQ_INLINE) {
             if (processInlineBuffer(c) != C_OK) break;
+            /* If the Gopher mode and we got zero or one argument, process
+             * the request in Gopher mode. */
+            if (server.gopher_enabled && (c->argc == 1 || c->argc == 0)) {
+                processGopherRequest(c);
+                resetClient(c);
+                c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+                break;
+            }
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
