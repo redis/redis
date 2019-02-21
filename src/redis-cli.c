@@ -210,6 +210,8 @@ static struct config {
     char *pattern;
     char *rdb_filename;
     int bigkeys;
+    int memkeys;
+    unsigned memkeys_samples;
     int hotkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
@@ -1295,6 +1297,12 @@ static int parseOptions(int argc, char **argv) {
             config.pipe_timeout = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--bigkeys")) {
             config.bigkeys = 1;
+        } else if (!strcmp(argv[i],"--memkeys")) {
+            config.memkeys = 1;
+            config.memkeys_samples = 0; /* use redis default */
+        } else if (!strcmp(argv[i],"--memkeys-samples")) {
+            config.memkeys = 1;
+            config.memkeys_samples = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--hotkeys")) {
             config.hotkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
@@ -1493,7 +1501,10 @@ static void usage(void) {
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
 "                     Default timeout: %d. Use 0 to wait forever.\n"
-"  --bigkeys          Sample Redis keys looking for big keys.\n"
+"  --bigkeys          Sample Redis keys looking for keys with many elements (complexity).\n"
+"  --memkeys          Sample Redis keys looking for keys consuming a lot of memory.\n"
+"  --memkeys-samples <n> Sample Redis keys looking for keys consuming a lot of memory.\n"
+"                     And define number of key elements to sample\n"
 "  --hotkeys          Sample Redis keys looking for hot keys.\n"
 "                     only works when maxmemory-policy is *lfu.\n"
 "  --scan             List all keys using the SCAN command.\n"
@@ -6180,15 +6191,6 @@ static void pipeMode(void) {
  * Find big keys
  *--------------------------------------------------------------------------- */
 
-#define TYPE_STRING 0
-#define TYPE_LIST   1
-#define TYPE_SET    2
-#define TYPE_HASH   3
-#define TYPE_ZSET   4
-#define TYPE_STREAM 5
-#define TYPE_NONE   6
-#define TYPE_COUNT  7
-
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply = redisCommand(context, "SCAN %llu", *it);
 
@@ -6235,28 +6237,51 @@ static int getDbSize(void) {
     return size;
 }
 
-static int toIntType(char *key, char *type) {
-    if(!strcmp(type, "string")) {
-        return TYPE_STRING;
-    } else if(!strcmp(type, "list")) {
-        return TYPE_LIST;
-    } else if(!strcmp(type, "set")) {
-        return TYPE_SET;
-    } else if(!strcmp(type, "hash")) {
-        return TYPE_HASH;
-    } else if(!strcmp(type, "zset")) {
-        return TYPE_ZSET;
-    } else if(!strcmp(type, "stream")) {
-        return TYPE_STREAM;
-    } else if(!strcmp(type, "none")) {
-        return TYPE_NONE;
-    } else {
-        fprintf(stderr, "Unknown type '%s' for key '%s'\n", type, key);
-        exit(1);
-    }
+typedef struct {
+    char *name;
+    char *sizecmd;
+    char *sizeunit;
+    unsigned long long biggest;
+    unsigned long long count;
+    unsigned long long totalsize;
+    sds biggest_key;
+} typeinfo;
+
+typeinfo type_string = { "string", "STRLEN", "bytes" };
+typeinfo type_list = { "list", "LLEN", "items" };
+typeinfo type_set = { "set", "SCARD", "members" };
+typeinfo type_hash = { "hash", "HLEN", "fields" };
+typeinfo type_zset = { "zset", "ZCARD", "members" };
+typeinfo type_stream = { "stream", "XLEN", "entries" };
+typeinfo type_other = { "other", NULL, "?" };
+
+static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
+    typeinfo *info = zmalloc(sizeof(typeinfo));
+    *info = *type_template;
+    info->name = sdsnew(name);
+    dictAdd(types, info->name, info);
+    return info;
 }
 
-static void getKeyTypes(redisReply *keys, int *types) {
+void type_free(void* priv_data, void* val) {
+    typeinfo *info = val;
+    UNUSED(priv_data);
+    if (info->biggest_key)
+        sdsfree(info->biggest_key);
+    sdsfree(info->name);
+    zfree(info);
+}
+
+static dictType typeinfoDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    NULL,                      /* key destructor (owned by the value)*/
+    type_free                  /* val destructor */
+};
+
+static void getKeyTypes(dict *types_dict, redisReply *keys, typeinfo **types) {
     redisReply *reply;
     unsigned int i;
 
@@ -6282,32 +6307,47 @@ static void getKeyTypes(redisReply *keys, int *types) {
             exit(1);
         }
 
-        types[i] = toIntType(keys->element[i]->str, reply->str);
+        sds typereply = sdsnew(reply->str);
+        dictEntry *de = dictFind(types_dict, typereply);
+        sdsfree(typereply);
+        typeinfo *type = NULL;
+        if (de)
+            type = dictGetVal(de);
+        else if (strcmp(reply->str, "none")) /* create new types for modules, (but not for deleted keys) */
+            type = typeinfo_add(types_dict, reply->str, &type_other);
+        types[i] = type;
         freeReplyObject(reply);
     }
 }
 
-static void getKeySizes(redisReply *keys, int *types,
-                        unsigned long long *sizes)
+static void getKeySizes(redisReply *keys, typeinfo **types,
+                        unsigned long long *sizes, int memkeys,
+                        unsigned memkeys_samples)
 {
     redisReply *reply;
-    char *sizecmds[] = {"STRLEN","LLEN","SCARD","HLEN","ZCARD"};
     unsigned int i;
 
     /* Pipeline size commands */
     for(i=0;i<keys->elements;i++) {
-        /* Skip keys that were deleted */
-        if(types[i]==TYPE_NONE)
+        /* Skip keys that disappeared between SCAN and TYPE (or unknown types when not in memkeys mode) */
+        if(!types[i] || (!types[i]->sizecmd && !memkeys))
             continue;
 
-        redisAppendCommand(context, "%s %s", sizecmds[types[i]],
-            keys->element[i]->str);
+        if (!memkeys)
+            redisAppendCommand(context, "%s %s",
+                types[i]->sizecmd, keys->element[i]->str);
+        else if (memkeys_samples==0)
+            redisAppendCommand(context, "%s %s %s",
+                "MEMORY", "USAGE", keys->element[i]->str);
+        else
+            redisAppendCommand(context, "%s %s %s SAMPLES %u",
+                "MEMORY", "USAGE", keys->element[i]->str, memkeys_samples);
     }
 
     /* Retrieve sizes */
     for(i=0;i<keys->elements;i++) {
-        /* Skip keys that disappeared between SCAN and TYPE */
-        if(types[i] == TYPE_NONE) {
+        /* Skip keys that disappeared between SCAN and TYPE (or unknown types when not in memkeys mode) */
+        if(!types[i] || (!types[i]->sizecmd && !memkeys)) {
             sizes[i] = 0;
             continue;
         }
@@ -6322,7 +6362,8 @@ static void getKeySizes(redisReply *keys, int *types,
              * added as a different type between TYPE and SIZE */
             fprintf(stderr,
                 "Warning:  %s on '%s' failed (may have changed type)\n",
-                 sizecmds[types[i]], keys->element[i]->str);
+                !memkeys? types[i]->sizecmd: "MEMORY USAGE",
+                keys->element[i]->str);
             sizes[i] = 0;
         } else {
             sizes[i] = reply->integer;
@@ -6332,16 +6373,22 @@ static void getKeySizes(redisReply *keys, int *types,
     }
 }
 
-static void findBigKeys(void) {
-    unsigned long long biggest[TYPE_COUNT] = {0}, counts[TYPE_COUNT] = {0}, totalsize[TYPE_COUNT] = {0};
+static void findBigKeys(int memkeys, unsigned memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
-    sds maxkeys[TYPE_COUNT] = {0};
-    char *typename[] = {"string","list","set","hash","zset","stream","none"};
-    char *typeunit[] = {"bytes","items","members","fields","members","entries",""};
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
-    int type, *types=NULL;
+    dictIterator *di;
+    dictEntry *de;
+    typeinfo **types = NULL;
     double pct;
+
+    dict *types_dict = dictCreate(&typeinfoDictType, NULL);
+    typeinfo_add(types_dict, "string", &type_string);
+    typeinfo_add(types_dict, "list", &type_list);
+    typeinfo_add(types_dict, "set", &type_set);
+    typeinfo_add(types_dict, "hash", &type_hash);
+    typeinfo_add(types_dict, "zset", &type_zset);
+    typeinfo_add(types_dict, "stream", &type_stream);
 
     /* Total keys pre scanning */
     total_keys = getDbSize();
@@ -6350,15 +6397,6 @@ static void findBigKeys(void) {
     printf("\n# Scanning the entire keyspace to find biggest keys as well as\n");
     printf("# average sizes per key type.  You can use -i 0.1 to sleep 0.1 sec\n");
     printf("# per 100 SCAN commands (not usually needed).\n\n");
-
-    /* New up sds strings to keep track of overall biggest per type */
-    for(i=0;i<TYPE_NONE; i++) {
-        maxkeys[i] = sdsempty();
-        if(!maxkeys[i]) {
-            fprintf(stderr, "Failed to allocate memory for largest key names!\n");
-            exit(1);
-        }
-    }
 
     /* SCAN loop */
     do {
@@ -6371,7 +6409,7 @@ static void findBigKeys(void) {
 
         /* Reallocate our type and size array if we need to */
         if(keys->elements > arrsize) {
-            types = zrealloc(types, sizeof(int)*keys->elements);
+            types = zrealloc(types, sizeof(typeinfo*)*keys->elements);
             sizes = zrealloc(sizes, sizeof(unsigned long long)*keys->elements);
 
             if(!types || !sizes) {
@@ -6383,34 +6421,38 @@ static void findBigKeys(void) {
         }
 
         /* Retrieve types and then sizes */
-        getKeyTypes(keys, types);
-        getKeySizes(keys, types, sizes);
+        getKeyTypes(types_dict, keys, types);
+        getKeySizes(keys, types, sizes, memkeys, memkeys_samples);
 
         /* Now update our stats */
         for(i=0;i<keys->elements;i++) {
-            if((type = types[i]) == TYPE_NONE)
+            typeinfo *type = types[i];
+            /* Skip keys that disappeared between SCAN and TYPE */
+            if(!type)
                 continue;
 
-            totalsize[type] += sizes[i];
-            counts[type]++;
+            type->totalsize += sizes[i];
+            type->count++;
             totlen += keys->element[i]->len;
             sampled++;
 
-            if(biggest[type]<sizes[i]) {
+            if(type->biggest<sizes[i]) {
                 printf(
                    "[%05.2f%%] Biggest %-6s found so far '%s' with %llu %s\n",
-                   pct, typename[type], keys->element[i]->str, sizes[i],
-                   typeunit[type]);
+                   pct, type->name, keys->element[i]->str, sizes[i],
+                   !memkeys? type->sizeunit: "bytes");
 
                 /* Keep track of biggest key name for this type */
-                maxkeys[type] = sdscpy(maxkeys[type], keys->element[i]->str);
-                if(!maxkeys[type]) {
+                if (type->biggest_key)
+                    sdsfree(type->biggest_key);
+                type->biggest_key = sdsnew(keys->element[i]->str);
+                if(!type->biggest_key) {
                     fprintf(stderr, "Failed to allocate memory for key!\n");
                     exit(1);
                 }
 
                 /* Keep track of the biggest size for this type */
-                biggest[type] = sizes[i];
+                type->biggest = sizes[i];
             }
 
             /* Update overall progress */
@@ -6438,26 +6480,29 @@ static void findBigKeys(void) {
        totlen, totlen ? (double)totlen/sampled : 0);
 
     /* Output the biggest keys we found, for types we did find */
-    for(i=0;i<TYPE_NONE;i++) {
-        if(sdslen(maxkeys[i])>0) {
-            printf("Biggest %6s found '%s' has %llu %s\n", typename[i], maxkeys[i],
-               biggest[i], typeunit[i]);
+    di = dictGetIterator(types_dict);
+    while ((de = dictNext(di))) {
+        typeinfo *type = dictGetVal(de);
+        if(type->biggest_key) {
+            printf("Biggest %6s found '%s' has %llu %s\n", type->name, type->biggest_key,
+               type->biggest, !memkeys? type->sizeunit: "bytes");
         }
     }
+    dictReleaseIterator(di);
 
     printf("\n");
 
-    for(i=0;i<TYPE_NONE;i++) {
+    di = dictGetIterator(types_dict);
+    while ((de = dictNext(di))) {
+        typeinfo *type = dictGetVal(de);
         printf("%llu %ss with %llu %s (%05.2f%% of keys, avg size %.2f)\n",
-           counts[i], typename[i], totalsize[i], typeunit[i],
-           sampled ? 100 * (double)counts[i]/sampled : 0,
-           counts[i] ? (double)totalsize[i]/counts[i] : 0);
+           type->count, type->name, type->totalsize, !memkeys? type->sizeunit: "bytes",
+           sampled ? 100 * (double)type->count/sampled : 0,
+           type->count ? (double)type->totalsize/type->count : 0);
     }
+    dictReleaseIterator(di);
 
-    /* Free sds strings containing max keys */
-    for(i=0;i<TYPE_NONE;i++) {
-        sdsfree(maxkeys[i]);
-    }
+    dictRelease(types_dict);
 
     /* Success! */
     exit(0);
@@ -7049,7 +7094,13 @@ int main(int argc, char **argv) {
     /* Find big keys */
     if (config.bigkeys) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
-        findBigKeys();
+        findBigKeys(0, 0);
+    }
+
+    /* Find large keys */
+    if (config.memkeys) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        findBigKeys(1, config.memkeys_samples);
     }
 
     /* Find hot keys */
