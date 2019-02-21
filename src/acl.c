@@ -1491,18 +1491,26 @@ void aclCommand(client *c) {
         } else {
             addReplyNull(c);
         }
+    } else if (server.acl_filename[0] == '\0' &&
+               (!strcasecmp(sub,"load") || !strcasecmp(sub,"save")))
+    {
+        addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
+        return;
     } else if (!strcasecmp(sub,"load") && c->argc == 2) {
-        if (server.acl_filename[0] == '\0') {
-            addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
-            return;
+        sds errors = ACLLoadFromFile(server.acl_filename);
+        if (errors == NULL) {
+            addReply(c,shared.ok);
         } else {
-            sds errors = ACLLoadFromFile(server.acl_filename);
-            if (errors == NULL) {
-                addReply(c,shared.ok);
-            } else {
-                addReplyError(c,errors);
-                sdsfree(errors);
-            }
+            addReplyError(c,errors);
+            sdsfree(errors);
+        }
+    } else if (!strcasecmp(sub,"save") && c->argc == 2) {
+        if (ACLSaveToFile(server.acl_filename) == C_OK) {
+            addReply(c,shared.ok);
+        } else {
+            addReplyError(c,"There was an error trying to save the ACLs. "
+                            "Please check the server logs for more "
+                            "information");
         }
     } else if (!strcasecmp(sub,"cat") && c->argc == 2) {
         void *dl = addReplyDeferredLen(c);
