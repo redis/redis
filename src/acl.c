@@ -1324,7 +1324,7 @@ cleanup:
     if (tmpfilename) unlink(tmpfilename);
     sdsfree(tmpfilename);
     sdsfree(acl);
-    return C_OK;
+    return retval;
 }
 
 /* This function is called once the server is already running, modules are
