@@ -1372,7 +1372,7 @@ void ACLLoadUsersAtStartup(void) {
  * ACL USERS
  * ACL CAT [<category>]
  * ACL SETUSER <username> ... acl rules ...
- * ACL DELUSER <username>
+ * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
  */
 void aclCommand(client *c) {
@@ -1400,6 +1400,10 @@ void aclCommand(client *c) {
                 addReplyError(c,"The 'default' user cannot be removed");
                 return;
             }
+        }
+
+        for (int j = 2; j < c->argc; j++) {
+            sds username = c->argv[j]->ptr;
             user *u;
             if (raxRemove(Users,(unsigned char*)username,
                           sdslen(username),
@@ -1546,7 +1550,7 @@ void aclCommand(client *c) {
 "USERS                             -- List all the registered usernames.",
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",
 "GETUSER <username>                -- Get the user details.",
-"DELUSER <username>                -- Delete a user.",
+"DELUSER <username> [...]          -- Delete a list of users.",
 "CAT                               -- List available categories.",
 "CAT <category>                    -- List commands inside category.",
 "WHOAMI                            -- Return the current connection username.",
