@@ -49,7 +49,7 @@ void addReplyGopherItem(client *c, const char *type, const char *descr,
  * argument. In such case we get the relevant key and reply using the Gopher
  * protocol. */
 void processGopherRequest(client *c) {
-    robj *keyname = c->argc == 0 ? createStringObject("/",1) : c->argv[1];
+    robj *keyname = c->argc == 0 ? createStringObject("/",1) : c->argv[0];
     robj *o = lookupKeyRead(c->db,keyname);
 
     /* If there is no such key, return with a Gopher error. */
@@ -63,6 +63,7 @@ void processGopherRequest(client *c) {
         addReplyGopherItem(c,"i",errstr,NULL,NULL,0);
         addReplyGopherItem(c,"i","Redis Gopher server",NULL,NULL,0);
     } else {
+        addReply(c,o);
     }
 
     /* Cleanup, also make sure to emit the final ".CRLF" line. Note that
