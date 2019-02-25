@@ -2222,6 +2222,7 @@ void initServerConfig(void) {
     server.ipfd_count = 0;
     server.sofd = -1;
     server.protected_mode = CONFIG_DEFAULT_PROTECTED_MODE;
+    server.gopher_enabled = CONFIG_DEFAULT_GOPHER_ENABLED;
     server.dbnum = CONFIG_DEFAULT_DBNUM;
     server.verbosity = CONFIG_DEFAULT_VERBOSITY;
     server.maxidletime = CONFIG_DEFAULT_CLIENT_TIMEOUT;
