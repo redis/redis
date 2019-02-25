@@ -3599,51 +3599,6 @@ int writeCommandsDeniedByDiskError(void) {
     }
 }
 
-/* AUTH <passowrd>
- * AUTH <username> <password> (Redis >= 6.0 form)
- *
- * When the user is omitted it means that we are trying to authenticate
- * against the default user. */
-void authCommand(client *c) {
-    /* Only two or three argument forms are allowed. */
-    if (c->argc > 3) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-
-    /* Handle the two different forms here. The form with two arguments
-     * will just use "default" as username. */
-    robj *username, *password;
-    if (c->argc == 2) {
-        /* Mimic the old behavior of giving an error for the two commands
-         * from if no password is configured. */
-        if (DefaultUser->flags & USER_FLAG_NOPASS) {
-            addReplyError(c,"AUTH <password> called without any password "
-                            "configured for the default user. Are you sure "
-                            "your configuration is correct?");
-            return;
-        }
-
-        username = createStringObject("default",7);
-        password = c->argv[1];
-    } else {
-        username = c->argv[1];
-        password = c->argv[2];
-    }
-
-    if (ACLCheckUserCredentials(username,password) == C_OK) {
-        c->authenticated = 1;
-        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
-        addReply(c,shared.ok);
-    } else {
-        addReplyError(c,"-WRONGPASS invalid username-password pair");
-    }
-
-    /* Free the "default" string object we created for the two
-     * arguments form. */
-    if (c->argc == 2) decrRefCount(username);
-}
-
 /* The PING command. It works in a different way if the client is in
  * in Pub/Sub mode. */
 void pingCommand(client *c) {

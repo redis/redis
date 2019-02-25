@@ -2023,7 +2023,7 @@ NULL
     }
 }
 
-/* HELLO <protocol-version> [AUTH <user> <password>] */
+/* HELLO <protocol-version> [AUTH <user> <password>] [SETNAME <name>] */
 void helloCommand(client *c) {
     long long ver;
 
