@@ -2048,6 +2048,21 @@ void helloCommand(client *c) {
         return;
     }
 
+    for (int j = 2; j < c->argc; j++) {
+        int moreargs = (c->argc-1) - j;
+        const char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt,"AUTH") && moreargs >= 2) {
+            if (ACLAuthenticateUser(c, c->argv[j+1], c->argv[j+2]) == C_ERR) {
+                addReplyError(c,"-WRONGPASS invalid username-password pair");
+                return;
+            }
+            j += 2;
+        } else {
+            addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
+            return;
+        }
+    }
+
     /* At this point we need to be authenticated to continue. */
     if (!c->authenticated) {
         addReplyError(c,"-NOAUTH HELLO must be called with the client already "
