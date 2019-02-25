@@ -2034,13 +2034,6 @@ void helloCommand(client *c) {
         return;
     }
 
-    /* Switching to protocol v2 is not allowed. But we send a specific
-     * error message in this case. */
-    if (ver == 2) {
-        addReplyError(c,"Switching to RESP version 2 is not allowed.");
-        return;
-    }
-
     /* At this point we need to be authenticated to continue. */
     if (!c->authenticated) {
         addReplyError(c,"-NOAUTH HELLO must be called with the client already "
@@ -2050,8 +2043,8 @@ void helloCommand(client *c) {
         return;
     }
 
-    /* Let's switch to RESP3 mode. */
-    c->resp = 3;
+    /* Let's switch to the specified RESP mode. */
+    c->resp = ver;
     addReplyMapLen(c,7);
 
     addReplyBulkCString(c,"server");
