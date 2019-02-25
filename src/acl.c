@@ -888,6 +888,22 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     return C_ERR;
 }
 
+/* This is like ACLCheckUserCredentials(), however if the user/pass
+ * are correct, the connection is put in authenticated state and the
+ * connection user reference is populated.
+ *
+ * The return value is C_OK or C_ERR with the same meaning as
+ * ACLCheckUserCredentials(). */
+int ACLAuthenticateUser(client *c, robj *username, robj *password) {
+    if (ACLCheckUserCredentials(username,password) == C_OK) {
+        c->authenticated = 1;
+        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        return C_OK;
+    } else {
+        return C_ERR;
+    }
+}
+
 /* For ACL purposes, every user has a bitmap with the commands that such
  * user is allowed to execute. In order to populate the bitmap, every command
  * should have an assigned ID (that is used to index the bitmap). This function
@@ -1605,9 +1621,7 @@ void authCommand(client *c) {
         password = c->argv[2];
     }
 
-    if (ACLCheckUserCredentials(username,password) == C_OK) {
-        c->authenticated = 1;
-        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+    if (ACLAuthenticateUser(c,username,password) == C_OK) {
         addReply(c,shared.ok);
     } else {
         addReplyError(c,"-WRONGPASS invalid username-password pair");
