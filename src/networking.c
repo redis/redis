@@ -1803,6 +1803,45 @@ sds getAllClientsInfoString(int type) {
     return o;
 }
 
+/* This function implements CLIENT SETNAME, including replying to the
+ * user with an error if the charset is wrong (in that case C_ERR is
+ * returned). If the function succeeeded C_OK is returned, and it's up
+ * to the caller to send a reply if needed.
+ *
+ * Setting an empty string as name has the effect of unsetting the
+ * currently set name: the client will remain unnamed.
+ *
+ * This function is also used to implement the HELLO SETNAME option. */
+int clientSetNameOrReply(client *c, robj *name) {
+    int len = sdslen(name->ptr);
+    char *p = name->ptr;
+
+    /* Setting the client name to an empty string actually removes
+     * the current name. */
+    if (len == 0) {
+        if (c->name) decrRefCount(c->name);
+        c->name = NULL;
+        addReply(c,shared.ok);
+        return C_OK;
+    }
+
+    /* Otherwise check if the charset is ok. We need to do this otherwise
+     * CLIENT LIST format will break. You should always be able to
+     * split by space to get the different fields. */
+    for (int j = 0; j < len; j++) {
+        if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+            addReplyError(c,
+                "Client names cannot contain spaces, "
+                "newlines or special characters.");
+            return C_ERR;
+        }
+    }
+    if (c->name) decrRefCount(c->name);
+    c->name = name;
+    incrRefCount(name);
+    return C_OK;
+}
+
 void clientCommand(client *c) {
     listNode *ln;
     listIter li;
@@ -1979,33 +2018,8 @@ NULL
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
-        int j, len = sdslen(c->argv[2]->ptr);
-        char *p = c->argv[2]->ptr;
-
-        /* Setting the client name to an empty string actually removes
-         * the current name. */
-        if (len == 0) {
-            if (c->name) decrRefCount(c->name);
-            c->name = NULL;
+        if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
-            return;
-        }
-
-        /* Otherwise check if the charset is ok. We need to do this otherwise
-         * CLIENT LIST format will break. You should always be able to
-         * split by space to get the different fields. */
-        for (j = 0; j < len; j++) {
-            if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
-                addReplyError(c,
-                    "Client names cannot contain spaces, "
-                    "newlines or special characters.");
-                return;
-            }
-        }
-        if (c->name) decrRefCount(c->name);
-        c->name = c->argv[2];
-        incrRefCount(c->name);
-        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
         if (c->name)
             addReplyBulk(c,c->name);
