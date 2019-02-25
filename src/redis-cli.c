@@ -118,6 +118,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_COPY           1 << 7
 #define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
 #define CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS   1 << 9
+#define CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES  1 << 10
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -1416,6 +1417,9 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-yes")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_YES;
+        } else if (!strcmp(argv[i],"--cluster-ignore-issues")) {
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES;
         } else if (!strcmp(argv[i],"--cluster-simulate")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
@@ -2091,7 +2095,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"import", clusterManagerCommandImport, 1, "host:port",
      "from <arg>,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
-     NULL},
+     "ignore-issues"},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
@@ -2694,6 +2698,45 @@ static sds clusterManagerNodeSlotsString(clusterManagerNode *node) {
     }
     return slots;
 }
+
+static sds clusterManagerNodeGetJSON(clusterManagerNode *node) {
+    sds json = sdsempty();
+    sds replicate = sdsempty();
+    if (node->replicate)
+        replicate = sdscatprintf(replicate, "\"%s\"", node->replicate);
+    else
+        replicate = sdscat(replicate, "null");
+    sds slots = clusterManagerNodeSlotsString(node);
+    sds flags = clusterManagerNodeFlagString(node);
+    char *p = slots;
+    while ((p = strchr(p, '-')) != NULL)
+        *(p++) = ',';
+    json = sdscatprintf(json,
+        "  {\n"
+        "    \"name\": \"%s\",\n"
+        "    \"host\": \"%s\",\n"
+        "    \"port\": %d,\n"
+        "    \"replicate\": %s,\n"
+        "    \"slots\": [%s],\n"
+        "    \"slots_count\": [%d],\n"
+        "    \"flags\": \"%s\",\n"
+        "    \"current_epoch\": %llu\n"
+        "  }",
+        node->name,
+        node->ip,
+        node->port,
+        replicate,
+        slots,
+        node->slots_count,
+        flags,
+        node->current_epoch
+    );
+    sdsfree(replicate);
+    sdsfree(slots);
+    sdsfree(flags);
+    return json;
+}
+
 
 /* -----------------------------------------------------------------------------
  * Key space handling
@@ -6075,6 +6118,21 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
     if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
+    int ignore_issues = config.cluster_manager_command.flags &
+                        CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES;
+    if (!ignore_issues) {
+        success = clusterManagerCheckCluster(0);
+        if (success && cluster_manager.errors &&
+            listLength(cluster_manager.errors) > 0) success = 0;
+        if (!success) {
+            fflush(stdout);
+            clusterManagerLogErr("*** Please fix your cluster problems before "
+                                 "creating a backup, otherwise invoke the "
+                                 "backup command with "
+                                 "--cluster-ignore-issues options\n");
+            return 0;
+        }
+    }
     config.cluster_manager_command.backup_dir = argv[1];
     /* TODO: check if backup_dir is a valid directory. */
     sds json = sdsnew("[\n");
@@ -6086,41 +6144,14 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         if (!first_node) first_node = 1;
         else json = sdscat(json, ",\n");
         clusterManagerNode *node = ln->value;
-        sds replicate = sdsempty();
-        if (node->replicate)
-            replicate = sdscatprintf(replicate, "\"%s\"", node->replicate);
-        else
-            replicate = sdscat(replicate, "null");
-        sds slots = clusterManagerNodeSlotsString(node);
-        sds flags = clusterManagerNodeFlagString(node);
-        char *p = slots;
-        while ((p = strchr(p, '-')) != NULL)
-            *(p++) = ',';
-        json = sdscatprintf(json,
-            "  {\n"
-            "    \"name\": \"%s\",\n"
-            "    \"host\": \"%s\",\n"
-            "    \"port\": %d,\n"
-            "    \"replicate\": %s,\n"
-            "    \"slots\": [%s],\n"
-            "    \"flags\": \"%s\",\n"
-            "    \"current_epoch\": %llu\n"
-            "  }",
-            node->name,
-            node->ip,
-            node->port,
-            replicate,
-            slots,
-            flags,
-            node->current_epoch
-        );
-        sdsfree(replicate);
-        sdsfree(slots);
-        sdsfree(flags);
+        sds node_json = clusterManagerNodeGetJSON(node);
+        json = sdscat(json, node_json);
+        sdsfree(node_json);
         if (node->replicate)
             continue;
         clusterManagerLogInfo(">>> Node %s:%d -> Saving RDB...\n",
                               node->ip, node->port);
+        fflush(stdout);
         getRDB(node);
     }
     json = sdscat(json, "\n]");
@@ -6140,6 +6171,10 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
 cleanup:
     sdsfree(json);
     sdsfree(jsonpath);
+    if (success) {
+        clusterManagerLogOk("[OK] Backup created into: %s\n",
+                            config.cluster_manager_command.backup_dir);
+    } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
     return success;
 invalid_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
