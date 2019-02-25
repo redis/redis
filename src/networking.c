@@ -2057,6 +2057,9 @@ void helloCommand(client *c) {
                 return;
             }
             j += 2;
+        } else if (!strcasecmp(opt,"SETNAME") && moreargs) {
+            if (clientSetNameOrReply(c, c->argv[j+1]) == C_ERR) return;
+            j++;
         } else {
             addReplyErrorFormat(c,"Syntax error in HELLO option '%s'",opt);
             return;
