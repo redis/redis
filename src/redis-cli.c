@@ -3437,11 +3437,11 @@ static void clusterManagerWaitForClusterJoin(void) {
                     if (parseClusterNodeAddress(nodeaddr, &node_ip,
                         &node_port, &node_bus_port) && node_bus_port) {
                         clusterManagerLogErr(" - The port %d of node %s may "
-                                             "be unreachable from:\n",
+                                             "be unreachable by:\n",
                                              node_bus_port, node_ip);
                     } else {
                         clusterManagerLogErr(" - Node %s may be unreachable "
-                                             "from:\n", nodeaddr);
+                                             "by:\n", nodeaddr);
                     }
                     listIter li;
                     listNode *ln;
@@ -3454,7 +3454,7 @@ static void clusterManagerWaitForClusterJoin(void) {
                     clusterManagerLogErr("Cluster bus ports must be reachable "
                                          "by every node.\nRemember that "
                                          "cluster bus ports are different "
-                                         "from standard instance port.\n");
+                                         "from standard instance ports.\n");
                     listEmpty(from);
                 }
             }
