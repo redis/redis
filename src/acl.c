@@ -975,6 +975,7 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        moduleNotifyUserChanged(c);
         return C_OK;
     } else {
         return C_ERR;

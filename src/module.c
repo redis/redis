@@ -349,6 +349,22 @@ list *RedisModule_EventListeners; /* Global list of all the active events. */
 unsigned long long ModulesInHooks = 0; /* Total number of modules in hooks
                                           callbacks right now. */
 
+/* Data structures related to the redis module users */
+typedef void (*RedisModuleUserChangedFunc) (void *privdata);
+
+typedef struct RedisModuleUser {
+    user *user; /* Reference to the real redis user */
+} RedisModuleUser;
+
+typedef struct RedisModuleAuthCtx {
+    RedisModuleUserChangedFunc callback; /* Callback when user is changed or 
+                                         /* deleted. */
+    void *privdata;                      /* Private data for the callback */
+    client *authenticated_client;        /* A reference to client that was
+                                         /* authenticated */
+} RedisModuleAuthCtx;
+
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -711,6 +727,7 @@ int commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"allow-stale")) flags |= CMD_STALE;
         else if (!strcasecmp(t,"no-monitor")) flags |= CMD_SKIP_MONITOR;
         else if (!strcasecmp(t,"fast")) flags |= CMD_FAST;
+        else if (!strcasecmp(t,"no-auth")) flags |= CMD_NO_AUTH;
         else if (!strcasecmp(t,"getkeys-api")) flags |= CMD_MODULE_GETKEYS;
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else break;
@@ -772,6 +789,9 @@ int commandFlagsFromString(char *s) {
  *                     example, is unable to report the position of the
  *                     keys, programmatically creates key names, or any
  *                     other reason.
+ * * **"no-auth"**:    This command can be run by an un-authenticated client.
+ *                     Normally this is used by a command that is used
+ *                     to authenticate a client. 
  */
 int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) {
     int flags = strflags ? commandFlagsFromString((char*)strflags) : 0;
@@ -5109,6 +5129,113 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
 }
 
 /* --------------------------------------------------------------------------
+ * Modules ACL API
+ *
+ * Implements a hook into the authentication and authorization within Redis. 
+ * --------------------------------------------------------------------------*/
+
+/* This function is called when a clients user has changed, since a module
+ * may be tracking extra meta data about the client. This is also called
+ * when a client is deleted. */
+void moduleNotifyUserChanged(client *c) {
+    RedisModuleAuthCtx *auth_ctx = (RedisModuleAuthCtx *) c->auth_ctx;
+    if (auth_ctx) {
+        auth_ctx->callback(auth_ctx->privdata);
+        zfree(auth_ctx);
+    }
+}
+
+static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModuleAuthCtx *auth_ctx) {
+    if (auth_ctx && auth_ctx->authenticated_client) {
+        /* Prevent basic misuse of Auth contexts */
+        return REDISMODULE_ERR;
+    }
+    
+    if (user->flags & USER_FLAG_DISABLED) {
+        return REDISMODULE_ERR;
+    }
+
+    moduleNotifyUserChanged(ctx->client);
+
+    ctx->client->user = user;
+    ctx->client->authenticated = 1;
+
+    if (auth_ctx) {
+        ctx->client->auth_ctx = auth_ctx;
+        auth_ctx->authenticated_client = ctx->client;
+    }
+
+    return REDISMODULE_OK;
+}
+
+/* Creates a new user that is unlinked from the main ACL user dictionary. These
+ * users behave the same way as those in ACL.c except for a few minor 
+ * differences. These users do not exist within a namespace, and handling 
+ * duplicate users is the responsibility of the calling module. These users are
+ * also not attached to the redis users dictionary, so they are not returned 
+ * via ACL LIST or GETUSER. This also means that users created here must be 
+ * updated with the SetUserACL function instead of through ACL SETUSER. */
+RedisModuleUser *RM_CreateModuleUser(const char *name) {
+    RedisModuleUser *new_user = zmalloc(sizeof(RedisModuleUser));
+    new_user->user = ACLCreateUnlinkedUser();
+
+    /* Free the previous temporarily assigned name to assign the new one */
+    sdsfree(new_user->user->name);
+    new_user->user->name = sdsnew(name);
+    return new_user;
+}
+
+/* Frees a given user and disconnects all of the clients that have been
+ * authenticated with it. */
+int RM_FreeModuleUser(RedisModuleUser *user) {
+    ACLFreeUserAndKillClients(user->user);
+    zfree(user);
+    return REDISMODULE_OK;
+}
+
+/* Sets the user permission of a user created through the redis module 
+ * interface. The syntax is the sam as ACL SETUSER, so refer to the 
+ * documentation in acl.c for more information. */
+int RM_SetModuleUserACL(RedisModuleUser *user, const char* acl) {
+    return ACLSetUser(user->user, acl, -1);
+}
+
+/* Authenticate the current contexts user with the provided module user. 
+ * Throws an error if the user is disabled or the AuthCtx is misued */
+int RM_AuthenticateClientWithUser(RedisModuleCtx *ctx, RedisModuleUser *module_user, RedisModuleAuthCtx *auth_ctx) {
+    return authenticateClientWithUser(ctx, module_user->user, auth_ctx);
+}
+
+/* Authenticate the current contexts user with the provided redis acl user. 
+ * Throws an error if the user is disabled, the user doesn't exit,
+ * or the AuthCtx is misused. */
+int RM_AuthenticateClientWithACLUser(RedisModuleCtx *ctx, const char *name, size_t len, RedisModuleAuthCtx *auth_ctx) {
+    user *acl_user = ACLGetUserByName(name, len);
+
+    if (!acl_user) {
+        return REDISMODULE_ERR;
+    }
+    return authenticateClientWithUser(ctx, acl_user, auth_ctx);
+}
+
+/* Create a redis Auth Ctx which can be used to notify the module when
+ * the client authenticates with a different user or to revoke access
+ * to the authenticated client. */
+RedisModuleAuthCtx *RM_CreateAuthCtx(RedisModuleUserChangedFunc callback, void *privdata) {
+    RedisModuleAuthCtx *auth_ctx = zmalloc(sizeof(RedisModuleAuthCtx));
+    auth_ctx->callback = callback;
+    auth_ctx->privdata = privdata;
+    return auth_ctx;
+}
+
+/* Revokes the authentication that was granted during the specified
+ * AuthCtx. The method is not thread safe. */
+void RM_RevokeAuthentication(RedisModuleAuthCtx *ctx) {
+    /* Revoking authentication frees the client today. */
+    freeClientAsync(ctx->authenticated_client);
+}
+
+/* --------------------------------------------------------------------------
  * Modules Dictionary API
  *
  * Implements a sorted dictionary (actually backed by a radix tree) with
@@ -6971,4 +7098,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockClientOnKeys);
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
+
+    REGISTER_API(CreateModuleUser);
+    REGISTER_API(SetModuleUserACL);
+    REGISTER_API(FreeModuleUser);
+    REGISTER_API(RevokeAuthentication);
+    REGISTER_API(CreateAuthCtx);
+    REGISTER_API(AuthenticateClientWithACLUser);
+    REGISTER_API(AuthenticateClientWithUser);
 }
