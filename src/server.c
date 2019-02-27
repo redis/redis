@@ -4556,7 +4556,7 @@ void loadDataFromDisk(void) {
                 (float)(ustime()-start)/1000000);
 
             /* Restore the replication ID / offset from the RDB file. */
-            if (server.masterhost &&
+            if ((server.masterhost || (server.cluster_enabled && nodeIsSlave(server.cluster->myself)))&&
                 rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
                 /* Note that older implementations may save a repl_stream_db
