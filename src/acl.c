@@ -1394,12 +1394,11 @@ void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
         sds username = c->argv[2]->ptr;
-        /* Create a temporary user to validate and stage all changes against before
-         * applying to an existing user or creating a new user. If all arguments 
-         * are valid the user parameters will all be applied together. If there are
-         * any errors then none of the changes will be applied. */
+        /* Create a temporary user to validate and stage all changes against
+         * before applying to an existing user or creating a new user. If all
+         * arguments are valid the user parameters will all be applied together.
+         * If there are any errors then none of the changes will be applied. */
         user *tempu = ACLCreateUnlinkedUser();
-
         user *u = ACLGetUserByName(username,sdslen(username));
         if (u) ACLCopyUser(tempu, u);
 
@@ -1415,12 +1414,11 @@ void aclCommand(client *c) {
             }
         }
 
+        /* Overwrite the user with the temporary user we modified above. */
         if (!u) u = ACLCreateUser(username,sdslen(username));
         serverAssert(u != NULL);
-
         ACLCopyUser(u, tempu);
         ACLFreeUser(tempu);
-
         addReply(c,shared.ok);
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
         int deleted = 0;
