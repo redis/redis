@@ -38,6 +38,8 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+int keyIsExpired(redisDb *db, robj *key);
+
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
@@ -102,7 +104,10 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
-        if (server.masterhost == NULL) return NULL;
+        if (server.masterhost == NULL) {
+            server.stat_keyspace_misses++;
+            return NULL;
+        }
 
         /* However if we are in the context of a slave, expireIfNeeded() will
          * not really try to expire the key, it only returns information
@@ -121,6 +126,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd &&
             server.current_client->cmd->flags & CMD_READONLY)
         {
+            server.stat_keyspace_misses++;
             return NULL;
         }
     }
@@ -184,14 +190,19 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     dictEntry *de = dictFind(db->dict,key->ptr);
 
     serverAssertWithInfo(NULL,key,de != NULL);
+    dictEntry auxentry = *de;
+    robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-        robj *old = dictGetVal(de);
-        int saved_lru = old->lru;
-        dictReplace(db->dict, key->ptr, val);
-        val->lru = saved_lru;
-    } else {
-        dictReplace(db->dict, key->ptr, val);
+        val->lru = old->lru;
     }
+    dictSetVal(db->dict, de, val);
+
+    if (server.lazyfree_lazy_server_del) {
+        freeObjAsync(old);
+        dictSetVal(db->dict, &auxentry, NULL);
+    }
+
+    dictFreeVal(db->dict, &auxentry);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -201,7 +212,7 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent).
  *
- * All the new keys in the database should be craeted via this interface. */
+ * All the new keys in the database should be created via this interface. */
 void setKey(redisDb *db, robj *key, robj *val) {
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
@@ -230,7 +241,7 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
 
-        de = dictGetRandomKey(db->dict);
+        de = dictGetFairRandomKey(db->dict);
         if (de == NULL) return NULL;
 
         key = dictGetKey(de);
@@ -329,7 +340,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
  * database(s). Otherwise -1 is returned in the specific case the
  * DB number is out of range, and errno is set to EINVAL. */
 long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
-    int j, async = (flags & EMPTYDB_ASYNC);
+    int async = (flags & EMPTYDB_ASYNC);
     long long removed = 0;
 
     if (dbnum < -1 || dbnum >= server.dbnum) {
@@ -337,8 +348,15 @@ long long emptyDb(int dbnum, int flags, void(callback)(void*)) {
         return -1;
     }
 
-    for (j = 0; j < server.dbnum; j++) {
-        if (dbnum != -1 && dbnum != j) continue;
+    int startdb, enddb;
+    if (dbnum == -1) {
+        startdb = 0;
+        enddb = server.dbnum-1;
+    } else {
+        startdb = enddb = dbnum;
+    }
+
+    for (int j = startdb; j <= enddb; j++) {
         removed += dictSize(server.db[j].dict);
         if (async) {
             emptyDbAsync(&server.db[j]);
@@ -430,10 +448,7 @@ void flushallCommand(client *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb(-1,flags,NULL);
     addReply(c,shared.ok);
-    if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGUSR1);
-        rdbRemoveTempFile(server.rdb_child_pid);
-    }
+    if (server.rdb_child_pid != -1) killRDBChild();
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
@@ -507,7 +522,7 @@ void randomkeyCommand(client *c) {
     robj *key;
 
     if ((key = dbRandomKey(c->db)) == NULL) {
-        addReply(c,shared.nullbulk);
+        addReplyNull(c);
         return;
     }
 
@@ -521,7 +536,7 @@ void keysCommand(client *c) {
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen = addReplyDeferredLen(c);
 
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
@@ -531,7 +546,7 @@ void keysCommand(client *c) {
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
-            if (expireIfNeeded(c->db,keyobj) == 0) {
+            if (!keyIsExpired(c->db,keyobj)) {
                 addReplyBulk(c,keyobj);
                 numkeys++;
             }
@@ -539,7 +554,7 @@ void keysCommand(client *c) {
         }
     }
     dictReleaseIterator(di);
-    setDeferredMultiBulkLength(c,replylen,numkeys);
+    setDeferredArrayLen(c,replylen,numkeys);
 }
 
 /* This callback is used by scanGenericCommand in order to collect elements
@@ -764,10 +779,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long cursor) {
     }
 
     /* Step 4: Reply to the client. */
-    addReplyMultiBulkLen(c, 2);
+    addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    addReplyMultiBulkLen(c, listLength(keys));
+    addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
@@ -1108,6 +1123,25 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
+/* Check if the key is expired. */
+int keyIsExpired(redisDb *db, robj *key) {
+    mstime_t when = getExpire(db,key);
+
+    if (when < 0) return 0; /* No expire for this key */
+
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading) return 0;
+
+    /* If we are in the context of a Lua script, we pretend that time is
+     * blocked to when the Lua script started. This way a key can expire
+     * only the first time it is accessed and not in the middle of the
+     * script execution, making propagation to slaves / AOF consistent.
+     * See issue #1525 on Github for more information. */
+    mstime_t now = server.lua_caller ? server.lua_time_start : mstime();
+
+    return now > when;
+}
+
 /* This function is called when we are going to perform some operation
  * in a given key, but such key may be already logically expired even if
  * it still exists in the database. The main way this function is called
@@ -1128,32 +1162,17 @@ void propagateExpire(redisDb *db, robj *key, int lazy) {
  * The return value of the function is 0 if the key is still valid,
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
-    mstime_t when = getExpire(db,key);
-    mstime_t now;
+    if (!keyIsExpired(db,key)) return 0;
 
-    if (when < 0) return 0; /* No expire for this key */
-
-    /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
-
-    /* If we are in the context of a Lua script, we pretend that time is
-     * blocked to when the Lua script started. This way a key can expire
-     * only the first time it is accessed and not in the middle of the
-     * script execution, making propagation to slaves / AOF consistent.
-     * See issue #1525 on Github for more information. */
-    now = server.lua_caller ? server.lua_time_start : mstime();
-
-    /* If we are running in the context of a slave, return ASAP:
+    /* If we are running in the context of a slave, instead of
+     * evicting the expired key from the database, we return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
      *
      * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
-    if (server.masterhost != NULL) return now > when;
-
-    /* Return when this key has not expired */
-    if (now <= when) return 0;
+    if (server.masterhost != NULL) return 1;
 
     /* Delete the key */
     server.stat_expiredkeys++;

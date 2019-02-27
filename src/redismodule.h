@@ -117,6 +117,10 @@
 #define REDISMODULE_NODE_FAIL       (1<<4)
 #define REDISMODULE_NODE_NOFAILOVER (1<<5)
 
+#define REDISMODULE_CLUSTER_FLAG_NONE 0
+#define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
+#define REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION (1<<2)
+
 #define REDISMODULE_NOT_USED(V) ((void) V)
 
 /* This type represents a timer handle, and is returned when a timer is
@@ -141,6 +145,8 @@ typedef struct RedisModuleType RedisModuleType;
 typedef struct RedisModuleDigest RedisModuleDigest;
 typedef struct RedisModuleBlockedClient RedisModuleBlockedClient;
 typedef struct RedisModuleClusterInfo RedisModuleClusterInfo;
+typedef struct RedisModuleDict RedisModuleDict;
+typedef struct RedisModuleDictIter RedisModuleDictIter;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -273,6 +279,28 @@ long long REDISMODULE_API_FUNC(RedisModule_Milliseconds)(void);
 void REDISMODULE_API_FUNC(RedisModule_DigestAddStringBuffer)(RedisModuleDigest *md, unsigned char *ele, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_DigestAddLongLong)(RedisModuleDigest *md, long long ele);
 void REDISMODULE_API_FUNC(RedisModule_DigestEndSequence)(RedisModuleDigest *md);
+RedisModuleDict *REDISMODULE_API_FUNC(RedisModule_CreateDict)(RedisModuleCtx *ctx);
+void REDISMODULE_API_FUNC(RedisModule_FreeDict)(RedisModuleCtx *ctx, RedisModuleDict *d);
+uint64_t REDISMODULE_API_FUNC(RedisModule_DictSize)(RedisModuleDict *d);
+int REDISMODULE_API_FUNC(RedisModule_DictSetC)(RedisModuleDict *d, void *key, size_t keylen, void *ptr);
+int REDISMODULE_API_FUNC(RedisModule_DictReplaceC)(RedisModuleDict *d, void *key, size_t keylen, void *ptr);
+int REDISMODULE_API_FUNC(RedisModule_DictSet)(RedisModuleDict *d, RedisModuleString *key, void *ptr);
+int REDISMODULE_API_FUNC(RedisModule_DictReplace)(RedisModuleDict *d, RedisModuleString *key, void *ptr);
+void *REDISMODULE_API_FUNC(RedisModule_DictGetC)(RedisModuleDict *d, void *key, size_t keylen, int *nokey);
+void *REDISMODULE_API_FUNC(RedisModule_DictGet)(RedisModuleDict *d, RedisModuleString *key, int *nokey);
+int REDISMODULE_API_FUNC(RedisModule_DictDelC)(RedisModuleDict *d, void *key, size_t keylen, void *oldval);
+int REDISMODULE_API_FUNC(RedisModule_DictDel)(RedisModuleDict *d, RedisModuleString *key, void *oldval);
+RedisModuleDictIter *REDISMODULE_API_FUNC(RedisModule_DictIteratorStartC)(RedisModuleDict *d, const char *op, void *key, size_t keylen);
+RedisModuleDictIter *REDISMODULE_API_FUNC(RedisModule_DictIteratorStart)(RedisModuleDict *d, const char *op, RedisModuleString *key);
+void REDISMODULE_API_FUNC(RedisModule_DictIteratorStop)(RedisModuleDictIter *di);
+int REDISMODULE_API_FUNC(RedisModule_DictIteratorReseekC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen);
+int REDISMODULE_API_FUNC(RedisModule_DictIteratorReseek)(RedisModuleDictIter *di, const char *op, RedisModuleString *key);
+void *REDISMODULE_API_FUNC(RedisModule_DictNextC)(RedisModuleDictIter *di, size_t *keylen, void **dataptr);
+void *REDISMODULE_API_FUNC(RedisModule_DictPrevC)(RedisModuleDictIter *di, size_t *keylen, void **dataptr);
+RedisModuleString *REDISMODULE_API_FUNC(RedisModule_DictNext)(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr);
+RedisModuleString *REDISMODULE_API_FUNC(RedisModule_DictPrev)(RedisModuleCtx *ctx, RedisModuleDictIter *di, void **dataptr);
+int REDISMODULE_API_FUNC(RedisModule_DictCompareC)(RedisModuleDictIter *di, const char *op, void *key, size_t keylen);
+int REDISMODULE_API_FUNC(RedisModule_DictCompare)(RedisModuleDictIter *di, const char *op, RedisModuleString *key);
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -303,6 +331,7 @@ size_t REDISMODULE_API_FUNC(RedisModule_GetClusterSize)(void);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomBytes)(unsigned char *dst, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_GetRandomHexChars)(char *dst, size_t len);
 void REDISMODULE_API_FUNC(RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback);
+void REDISMODULE_API_FUNC(RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -412,6 +441,28 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DigestAddStringBuffer);
     REDISMODULE_GET_API(DigestAddLongLong);
     REDISMODULE_GET_API(DigestEndSequence);
+    REDISMODULE_GET_API(CreateDict);
+    REDISMODULE_GET_API(FreeDict);
+    REDISMODULE_GET_API(DictSize);
+    REDISMODULE_GET_API(DictSetC);
+    REDISMODULE_GET_API(DictReplaceC);
+    REDISMODULE_GET_API(DictSet);
+    REDISMODULE_GET_API(DictReplace);
+    REDISMODULE_GET_API(DictGetC);
+    REDISMODULE_GET_API(DictGet);
+    REDISMODULE_GET_API(DictDelC);
+    REDISMODULE_GET_API(DictDel);
+    REDISMODULE_GET_API(DictIteratorStartC);
+    REDISMODULE_GET_API(DictIteratorStart);
+    REDISMODULE_GET_API(DictIteratorStop);
+    REDISMODULE_GET_API(DictIteratorReseekC);
+    REDISMODULE_GET_API(DictIteratorReseek);
+    REDISMODULE_GET_API(DictNextC);
+    REDISMODULE_GET_API(DictPrevC);
+    REDISMODULE_GET_API(DictNext);
+    REDISMODULE_GET_API(DictPrev);
+    REDISMODULE_GET_API(DictCompare);
+    REDISMODULE_GET_API(DictCompareC);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
@@ -440,6 +491,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetClusterSize);
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
+    REDISMODULE_GET_API(SetClusterFlags);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

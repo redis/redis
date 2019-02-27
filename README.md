@@ -119,7 +119,7 @@ parameter (the path of the configuration file):
 It is possible to alter the Redis configuration by passing parameters directly
 as options using the command line. Examples:
 
-    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
+    % ./redis-server --port 9999 --replicaof 127.0.0.1 6379
     % ./redis-server /etc/redis/6379.conf --loglevel debug
 
 All the options in redis.conf are also supported as options using the command
@@ -216,7 +216,7 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `anitrez/redis`. An exception to this rule is `deps/geohash-int` which is the low level geocoding library used by Redis: it originated from a different project, but at this point it diverged so much that it is developed as a separated entity directly inside the Redis repository.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `antirez/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -227,7 +227,7 @@ of complexity incrementally.
 Note: lately Redis was refactored quite a bit. Function names and file
 names have been changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance in Redis 3.0 the `server.c`
-and `server.h` files were named to `redis.c` and `redis.h`. However the overall
+and `server.h` files were named `redis.c` and `redis.h`. However the overall
 structure is the same. Keep in mind that all the new developments and pull
 requests should be performed against the `unstable` branch.
 
@@ -245,7 +245,7 @@ A few important fields in this structure are:
 * `server.db` is an array of Redis databases, where data is stored.
 * `server.commands` is the command table.
 * `server.clients` is a linked list of clients connected to the server.
-* `server.master` is a special client, the master, if the instance is a slave.
+* `server.master` is a special client, the master, if the instance is a replica.
 
 There are tons of other fields. Most fields are commented directly inside
 the structure definition.
@@ -323,7 +323,7 @@ Inside server.c you can find code that handles other vital things of the Redis s
 networking.c
 ---
 
-This file defines all the I/O functions with clients, masters and slaves
+This file defines all the I/O functions with clients, masters and replicas
 (which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
@@ -390,16 +390,16 @@ replication.c
 
 This is one of the most complex files inside Redis, it is recommended to
 approach it only after getting a bit familiar with the rest of the code base.
-In this file there is the implementation of both the master and slave role
+In this file there is the implementation of both the master and replica role
 of Redis.
 
-One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing slave instances connected
-to our master, so that the slaves can get the writes performed by the clients:
+One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
+to our master, so that the replicas can get the writes performed by the clients:
 this way their data set will remain synchronized with the one in the master.
 
 This file also implements both the `SYNC` and `PSYNC` commands that are
 used in order to perform the first synchronization between masters and
-slaves, or to continue the replication after a disconnection.
+replicas, or to continue the replication after a disconnection.
 
 Other C files
 ---

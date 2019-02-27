@@ -707,6 +707,26 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, un
         }
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+
+#if 0
+    /* This code path is normally disabled: what it does is to force listpack
+     * to return *always* a new pointer after performing some modification to
+     * the listpack, even if the previous allocation was enough. This is useful
+     * in order to spot bugs in code using listpacks: by doing so we can find
+     * if the caller forgets to set the new pointer where the listpack reference
+     * is stored, after an update. */
+    unsigned char *oldlp = lp;
+    lp = lp_malloc(new_listpack_bytes);
+    memcpy(lp,oldlp,new_listpack_bytes);
+    if (newp) {
+        unsigned long offset = (*newp)-oldlp;
+        *newp = lp + offset;
+    }
+    /* Make sure the old allocation contains garbage. */
+    memset(oldlp,'A',new_listpack_bytes);
+    lp_free(oldlp);
+#endif
+
     return lp;
 }
 

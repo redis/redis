@@ -90,6 +90,17 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     }
 }
 
+/* Free an object, if the object is huge enough, free it in async way. */
+void freeObjAsync(robj *o) {
+    size_t free_effort = lazyfreeGetFreeEffort(o);
+    if (free_effort > LAZYFREE_THRESHOLD && o->refcount == 1) {
+        atomicIncr(lazyfree_objects,1);
+        bioCreateBackgroundJob(BIO_LAZY_FREE,o,NULL,NULL);
+    } else {
+        decrRefCount(o);
+    }
+}
+
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */

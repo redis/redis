@@ -169,23 +169,23 @@ NULL
             return;
 
         listRewind(server.slowlog,&li);
-        totentries = addDeferredMultiBulkLength(c);
+        totentries = addReplyDeferredLen(c);
         while(count-- && (ln = listNext(&li))) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,6);
+            addReplyArrayLen(c,6);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
-            addReplyMultiBulkLen(c,se->argc);
+            addReplyArrayLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             sent++;
         }
-        setDeferredMultiBulkLength(c,totentries,sent);
+        setDeferredArrayLen(c,totentries,sent);
     } else {
         addReplySubcommandSyntaxError(c);
     }

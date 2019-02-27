@@ -126,9 +126,34 @@ void processUnblockedClients(void) {
          * the code is conceptually more correct this way. */
         if (!(c->flags & CLIENT_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
-                processInputBuffer(c);
+                processInputBufferAndReplicate(c);
             }
         }
+    }
+}
+
+/* This function will schedule the client for reprocessing at a safe time.
+ *
+ * This is useful when a client was blocked for some reason (blocking opeation,
+ * CLIENT PAUSE, or whatever), because it may end with some accumulated query
+ * buffer that needs to be processed ASAP:
+ *
+ * 1. When a client is blocked, its readable handler is still active.
+ * 2. However in this case it only gets data into the query buffer, but the
+ *    query is not parsed or executed once there is enough to proceed as
+ *    usually (because the client is blocked... so we can't execute commands).
+ * 3. When the client is unblocked, without this function, the client would
+ *    have to write some query in order for the readable handler to finally
+ *    call processQueryBuffer*() on it.
+ * 4. With this function instead we can put the client in a queue that will
+ *    process it for queries ready to be executed at a safe time.
+ */
+void queueClientForReprocessing(client *c) {
+    /* The client may already be into the unblocked list because of a previous
+     * blocking operation, don't add back it into the list multiple times. */
+    if (!(c->flags & CLIENT_UNBLOCKED)) {
+        c->flags |= CLIENT_UNBLOCKED;
+        listAddNodeTail(server.unblocked_clients,c);
     }
 }
 
@@ -152,12 +177,7 @@ void unblockClient(client *c) {
     server.blocked_clients_by_type[c->btype]--;
     c->flags &= ~CLIENT_BLOCKED;
     c->btype = BLOCKED_NONE;
-    /* The client may already be into the unblocked list because of a previous
-     * blocking operation, don't add back it into the list multiple times. */
-    if (!(c->flags & CLIENT_UNBLOCKED)) {
-        c->flags |= CLIENT_UNBLOCKED;
-        listAddNodeTail(server.unblocked_clients,c);
-    }
+    queueClientForReprocessing(c);
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -167,7 +187,7 @@ void replyToBlockedClientTimedOut(client *c) {
     if (c->btype == BLOCKED_LIST ||
         c->btype == BLOCKED_ZSET ||
         c->btype == BLOCKED_STREAM) {
-        addReply(c,shared.nullmultibulk);
+        addReplyNullArray(c);
     } else if (c->btype == BLOCKED_WAIT) {
         addReplyLongLong(c,replicationCountAcksByOffset(c->bpop.reploffset));
     } else if (c->btype == BLOCKED_MODULE) {
@@ -195,7 +215,7 @@ void disconnectAllBlockedClients(void) {
         if (c->flags & CLIENT_BLOCKED) {
             addReplySds(c,sdsnew(
                 "-UNBLOCKED force unblock from blocking operation, "
-                "instance state changed (master -> slave?)\r\n"));
+                "instance state changed (master -> replica?)\r\n"));
             unblockClient(c);
             c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         }
@@ -269,7 +289,7 @@ void handleClientsBlockedOnKeys(void) {
                         robj *dstkey = receiver->bpop.target;
                         int where = (receiver->lastcmd &&
                                      receiver->lastcmd->proc == blpopCommand) ?
-                                    LIST_HEAD : LIST_TAIL;
+                                     LIST_HEAD : LIST_TAIL;
                         robj *value = listTypePop(o,where);
 
                         if (value) {
@@ -285,7 +305,7 @@ void handleClientsBlockedOnKeys(void) {
                             {
                                 /* If we failed serving the client we need
                                  * to also undo the POP operation. */
-                                    listTypePush(o,value,where);
+                                listTypePush(o,value,where);
                             }
 
                             if (dstkey) decrRefCount(dstkey);
@@ -416,8 +436,12 @@ void handleClientsBlockedOnKeys(void) {
                              * the name of the stream and the data we
                              * extracted from it. Wrapped in a single-item
                              * array, since we have just one key. */
-                            addReplyMultiBulkLen(receiver,1);
-                            addReplyMultiBulkLen(receiver,2);
+                            if (receiver->resp == 2) {
+                                addReplyArrayLen(receiver,1);
+                                addReplyArrayLen(receiver,2);
+                            } else {
+                                addReplyMapLen(receiver,1);
+                            }
                             addReplyBulk(receiver,rl->key);
 
                             streamPropInfo pi = {

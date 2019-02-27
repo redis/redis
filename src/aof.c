@@ -204,7 +204,7 @@ void aof_background_fsync(int fd) {
 }
 
 /* Kills an AOFRW child process if exists */
-static void killAppendOnlyChild(void) {
+void killAppendOnlyChild(void) {
     int statloc;
     /* No AOFRW child? return. */
     if (server.aof_child_pid == -1) return;
@@ -221,6 +221,8 @@ static void killAppendOnlyChild(void) {
     server.aof_rewrite_time_start = -1;
     /* Close pipes used for IPC between the two processes. */
     aofClosePipes();
+    closeChildInfoPipe();
+    updateDictResizePolicy();
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -645,6 +647,8 @@ struct client *createFakeClient(void) {
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
     c->peerid = NULL;
+    c->resp = 2;
+    c->user = NULL;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
@@ -677,6 +681,7 @@ int loadAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
+    off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
 
     if (fp == NULL) {
         serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
@@ -777,16 +782,28 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            serverLog(LL_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
+            serverLog(LL_WARNING,
+                "Unknown command '%s' reading the append only file",
+                (char*)argv[0]->ptr);
             exit(1);
         }
 
+        if (cmd == server.multiCommand) valid_before_multi = valid_up_to;
+
         /* Run the command in the context of a fake client */
         fakeClient->cmd = cmd;
-        cmd->proc(fakeClient);
+        if (fakeClient->flags & CLIENT_MULTI &&
+            fakeClient->cmd->proc != execCommand)
+        {
+            queueMultiCommand(fakeClient);
+        } else {
+            cmd->proc(fakeClient);
+        }
 
         /* The fake client should not have a reply */
-        serverAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
+        serverAssert(fakeClient->bufpos == 0 &&
+                     listLength(fakeClient->reply) == 0);
+
         /* The fake client should never get blocked */
         serverAssert((fakeClient->flags & CLIENT_BLOCKED) == 0);
 
@@ -798,8 +815,15 @@ int loadAppendOnlyFile(char *filename) {
     }
 
     /* This point can only be reached when EOF is reached without errors.
-     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
-    if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
+     * If the client is in the middle of a MULTI/EXEC, handle it as it was
+     * a short read, even if technically the protocol is correct: we want
+     * to remove the unprocessed tail and continue. */
+    if (fakeClient->flags & CLIENT_MULTI) {
+        serverLog(LL_WARNING,
+            "Revert incomplete MULTI/EXEC transaction in AOF file");
+        valid_up_to = valid_before_multi;
+        goto uxeof;
+    }
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     fclose(fp);
@@ -1119,24 +1143,46 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     streamID id;
     int64_t numfields;
 
-    /* Reconstruct the stream data using XADD commands. */
-    while(streamIteratorGetID(&si,&id,&numfields)) {
-        /* Emit a two elements array for each item. The first is
-         * the ID, the second is an array of field-value pairs. */
+    if (s->length) {
+        /* Reconstruct the stream data using XADD commands. */
+        while(streamIteratorGetID(&si,&id,&numfields)) {
+            /* Emit a two elements array for each item. The first is
+             * the ID, the second is an array of field-value pairs. */
 
-        /* Emit the XADD <key> <id> ...fields... command. */
-        if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+            /* Emit the XADD <key> <id> ...fields... command. */
+            if (rioWriteBulkCount(r,'*',3+numfields*2) == 0) return 0;
+            if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
+            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (rioWriteBulkStreamID(r,&id) == 0) return 0;
+            while(numfields--) {
+                unsigned char *field, *value;
+                int64_t field_len, value_len;
+                streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+                if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
+                if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
+            }
+        }
+    } else {
+        /* Use the XADD MAXLEN 0 trick to generate an empty stream if
+         * the key we are serializing is an empty string, which is possible
+         * for the Stream type. */
+        if (rioWriteBulkCount(r,'*',7) == 0) return 0;
         if (rioWriteBulkString(r,"XADD",4) == 0) return 0;
         if (rioWriteBulkObject(r,key) == 0) return 0;
-        if (rioWriteBulkStreamID(r,&id) == 0) return 0;
-        while(numfields--) {
-            unsigned char *field, *value;
-            int64_t field_len, value_len;
-            streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
-            if (rioWriteBulkString(r,(char*)field,field_len) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)value,value_len) == 0) return 0;
-        }
+        if (rioWriteBulkString(r,"MAXLEN",6) == 0) return 0;
+        if (rioWriteBulkString(r,"0",1) == 0) return 0;
+        if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+        if (rioWriteBulkString(r,"x",1) == 0) return 0;
+        if (rioWriteBulkString(r,"y",1) == 0) return 0;
     }
+
+    /* Append XSETID after XADD, make sure lastid is correct,
+     * in case of XDEL lastid. */
+    if (rioWriteBulkCount(r,'*',3) == 0) return 0;
+    if (rioWriteBulkString(r,"XSETID",6) == 0) return 0;
+    if (rioWriteBulkObject(r,key) == 0) return 0;
+    if (rioWriteBulkStreamID(r,&s->last_id) == 0) return 0;
+
 
     /* Create all the stream consumer groups. */
     if (s->cgroups) {
