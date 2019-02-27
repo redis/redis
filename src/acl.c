@@ -1394,18 +1394,33 @@ void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
         sds username = c->argv[2]->ptr;
+        /* Create a temporary user to validate and stage all changes against before
+         * applying to an existing user or creating a new user. If all arguments 
+         * are valid the user parameters will all be applied together. If there are
+         * any errors then none of the changes will be applied. */
+        user *tempu = ACLCreateUnlinkedUser();
+
         user *u = ACLGetUserByName(username,sdslen(username));
-        if (!u) u = ACLCreateUser(username,sdslen(username));
-        serverAssert(u != NULL);
+        if (u) ACLCopyUser(tempu, u);
+
         for (int j = 3; j < c->argc; j++) {
-            if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
+            if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
                 char *errmsg = ACLSetUserStringError();
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
+
+                ACLFreeUser(tempu);
                 return;
             }
         }
+
+        if (!u) u = ACLCreateUser(username,sdslen(username));
+        serverAssert(u != NULL);
+
+        ACLCopyUser(u, tempu);
+        ACLFreeUser(tempu);
+
         addReply(c,shared.ok);
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
         int deleted = 0;
