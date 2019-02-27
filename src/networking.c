@@ -1550,7 +1550,10 @@ void processInputBuffer(client *c) {
             if (processInlineBuffer(c) != C_OK) break;
             /* If the Gopher mode and we got zero or one argument, process
              * the request in Gopher mode. */
-            if (server.gopher_enabled && (c->argc == 1 || c->argc == 0)) {
+            if (server.gopher_enabled &&
+                ((c->argc == 1 && ((char*)(c->argv[0]->ptr))[0] == '/') ||
+                  c->argc == 0))
+            {
                 processGopherRequest(c);
                 resetClient(c);
                 c->flags |= CLIENT_CLOSE_AFTER_REPLY;
