@@ -3437,11 +3437,11 @@ static void clusterManagerWaitForClusterJoin(void) {
                     if (parseClusterNodeAddress(nodeaddr, &node_ip,
                         &node_port, &node_bus_port) && node_bus_port) {
                         clusterManagerLogErr(" - The port %d of node %s may "
-                                             "be unreachable by:\n",
+                                             "be unreachable from:\n",
                                              node_bus_port, node_ip);
                     } else {
                         clusterManagerLogErr(" - Node %s may be unreachable "
-                                             "by:\n", nodeaddr);
+                                             "from:\n", nodeaddr);
                     }
                     listIter li;
                     listNode *ln;
