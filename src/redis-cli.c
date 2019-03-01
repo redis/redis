@@ -118,7 +118,6 @@
 #define CLUSTER_MANAGER_CMD_FLAG_COPY           1 << 7
 #define CLUSTER_MANAGER_CMD_FLAG_COLOR          1 << 8
 #define CLUSTER_MANAGER_CMD_FLAG_CHECK_OWNERS   1 << 9
-#define CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES  1 << 10
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -1417,9 +1416,6 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--cluster-yes")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_YES;
-        } else if (!strcmp(argv[i],"--cluster-ignore-issues")) {
-            config.cluster_manager_command.flags |=
-                CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES;
         } else if (!strcmp(argv[i],"--cluster-simulate")) {
             config.cluster_manager_command.flags |=
                 CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
@@ -2095,7 +2091,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"import", clusterManagerCommandImport, 1, "host:port",
      "from <arg>,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
-     "ignore-issues"},
+     NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
@@ -2699,7 +2695,9 @@ static sds clusterManagerNodeSlotsString(clusterManagerNode *node) {
     return slots;
 }
 
-static sds clusterManagerNodeGetJSON(clusterManagerNode *node) {
+static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
+                                     unsigned long error_count)
+{
     sds json = sdsempty();
     sds replicate = sdsempty();
     if (node->replicate)
@@ -2718,10 +2716,9 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node) {
         "    \"port\": %d,\n"
         "    \"replicate\": %s,\n"
         "    \"slots\": [%s],\n"
-        "    \"slots_count\": [%d],\n"
+        "    \"slots_count\": %d,\n"
         "    \"flags\": \"%s\",\n"
-        "    \"current_epoch\": %llu\n"
-        "  }",
+        "    \"current_epoch\": %llu",
         node->name,
         node->ip,
         node->port,
@@ -2731,6 +2728,11 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node) {
         flags,
         node->current_epoch
     );
+    if (error_count > 0) {
+        json = sdscatprintf(json, ",\n    \"cluster_errors\": %lu",
+                            error_count);
+    }
+    json = sdscat(json, "\n  }");
     sdsfree(replicate);
     sdsfree(slots);
     sdsfree(flags);
@@ -6118,21 +6120,9 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port);
     if (!clusterManagerLoadInfoFromNode(refnode, 0)) return 0;
-    int ignore_issues = config.cluster_manager_command.flags &
-                        CLUSTER_MANAGER_CMD_FLAG_IGNORE_ISSUES;
-    if (!ignore_issues) {
-        success = clusterManagerCheckCluster(0);
-        if (success && cluster_manager.errors &&
-            listLength(cluster_manager.errors) > 0) success = 0;
-        if (!success) {
-            fflush(stdout);
-            clusterManagerLogErr("*** Please fix your cluster problems before "
-                                 "creating a backup, otherwise invoke the "
-                                 "backup command with "
-                                 "--cluster-ignore-issues options\n");
-            return 0;
-        }
-    }
+    int no_issues = clusterManagerCheckCluster(0);
+    int cluster_errors_count = (no_issues ? 0 :
+                                listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
     /* TODO: check if backup_dir is a valid directory. */
     sds json = sdsnew("[\n");
@@ -6144,7 +6134,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         if (!first_node) first_node = 1;
         else json = sdscat(json, ",\n");
         clusterManagerNode *node = ln->value;
-        sds node_json = clusterManagerNodeGetJSON(node);
+        sds node_json = clusterManagerNodeGetJSON(node, cluster_errors_count);
         json = sdscat(json, node_json);
         sdsfree(node_json);
         if (node->replicate)
@@ -6159,10 +6149,11 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     if (jsonpath[sdslen(jsonpath) - 1] != '/')
         jsonpath = sdscat(jsonpath, "/");
     jsonpath = sdscat(jsonpath, "nodes.json");
-    /*printf("%s\n", json);*/
+    fflush(stdout);
+    clusterManagerLogInfo("Saving cluster configuration to: %s\n", jsonpath);
     FILE *out = fopen(jsonpath, "w+");
     if (!out) {
-        clusterManagerLogErr("Could not save nodes to:\n%s\n", jsonpath);
+        clusterManagerLogErr("Could not save nodes to: %s\n", jsonpath);
         success = 0;
         goto cleanup;
     }
@@ -6172,6 +6163,11 @@ cleanup:
     sdsfree(json);
     sdsfree(jsonpath);
     if (success) {
+        if (!no_issues) {
+            clusterManagerLogWarn("*** Cluster seems to have some problems, "
+                                  "please be aware of it if you're going "
+                                  "to restore this backup.\n");
+        }
         clusterManagerLogOk("[OK] Backup created into: %s\n",
                             config.cluster_manager_command.backup_dir);
     } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
