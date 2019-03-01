@@ -1,4 +1,4 @@
-/* Redis benchmark utility.
+/* Redis benchmark utility. 
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -461,18 +461,18 @@ static void showLatencyReport(void) {
             if (config.latency[i]/usbetweenlat != curlat ||
                 i == (config.requests-1))
             {
-                curlat = config.latency[i]/usbetweenlat;
-                perc = ((float)(i+1)*100)/config.requests;
-                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
-                    curlat/pow(10.0, config.precision));
-
                 /* After the 2 milliseconds latency to have percentages split
                  * by decimals will just add a lot of noise to the output. */
-                if (config.latency[i] > 2000) {
+                if (config.latency[i] >= 2000) {
                     config.precision = 0;
                     usbetweenlat = ipow(10,
                         MAX_LATENCY_PRECISION-config.precision);
                 }
+
+                curlat = config.latency[i]/usbetweenlat;
+                perc = ((float)(i+1)*100)/config.requests;
+                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
+                    curlat/pow(10.0, config.precision));
             }
         }
         printf("%.2f requests per second\n\n", reqpersec);
