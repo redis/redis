@@ -1044,6 +1044,7 @@ void freeClient(client *c) {
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
+    unlinkClient(c);
     c->flags |= CLIENT_CLOSE_ASAP;
     listAddNodeTail(server.clients_to_close,c);
 }
