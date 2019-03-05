@@ -1389,6 +1389,8 @@ void ACLLoadUsersAtStartup(void) {
  * ACL SETUSER <username> ... acl rules ...
  * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
+ * ACL GENPASS
+ * ACL WHOAMI
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
@@ -1571,6 +1573,10 @@ void aclCommand(client *c) {
         }
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);
+    } else if (!strcasecmp(sub,"genpass") && c->argc == 2) {
+        char pass[32]; /* 128 bits of actual pseudo random data. */
+        getRandomHexChars(pass,sizeof(pass));
+        addReplyBulkCBuffer(c,pass,sizeof(pass));
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
 "LOAD                              -- Reload users from the ACL file.",
@@ -1581,6 +1587,7 @@ void aclCommand(client *c) {
 "DELUSER <username> [...]          -- Delete a list of users.",
 "CAT                               -- List available categories.",
 "CAT <category>                    -- List commands inside category.",
+"GENPASS                           -- Generate a secure user password.",
 "WHOAMI                            -- Return the current connection username.",
 NULL
         };
