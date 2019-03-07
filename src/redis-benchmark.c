@@ -817,22 +817,37 @@ static void showLatencyReport(void) {
     }
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void initBenchmarkThreads() {
     int i;
+    if (config.threads) freeBenchmarkThreads();
+    config.threads = zmalloc(config.num_threads * sizeof(benchmarkThread*));
+    for (i = 0; i < config.num_threads; i++) {
+        benchmarkThread *thread = createBenchmarkThread(i);
+        config.threads[i] = thread;
+    }
+}
+
+static void startBenchmarkThreads() {
+    int i;
+    for (i = 0; i < config.num_threads; i++) {
+        benchmarkThread *t = config.threads[i];
+        if (pthread_create(&(t->thread), NULL, execBenchmarkThread, t)){
+            fprintf(stderr, "FATAL: Failed to start thread %d.\n", i);
+            exit(1);
+        }
+    }
+    for (i = 0; i < config.num_threads; i++)
+        pthread_join(config.threads[i]->thread, NULL);
+}
+
+static void benchmark(char *title, char *cmd, int len) {
     client c;
 
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
 
-    if (config.num_threads) {
-        if (config.threads) freeBenchmarkThreads();
-        config.threads = zmalloc(config.num_threads * sizeof(benchmarkThread*));
-        for (i = 0; i < config.num_threads; i++) {
-            benchmarkThread *thread = createBenchmarkThread(i);
-            config.threads[i] = thread;
-        }
-    }
+    if (config.num_threads) initBenchmarkThreads();
 
     int thread_id = config.num_threads > 0 ? 0 : -1;
     c = createClient(cmd,len,NULL,thread_id);
@@ -840,17 +855,7 @@ static void benchmark(char *title, char *cmd, int len) {
 
     config.start = mstime();
     if (!config.num_threads) aeMain(config.el);
-    else {
-        for (i = 0; i < config.num_threads; i++) {
-            benchmarkThread *t = config.threads[i];
-            if (pthread_create(&(t->thread), NULL, execBenchmarkThread, t)){
-                fprintf(stderr, "FATAL: Failed to start thread %d.\n", i);
-                exit(1);
-            }
-        }
-        for (i = 0; i < config.num_threads; i++)
-            pthread_join(config.threads[i]->thread, NULL);
-    }
+    else startBenchmarkThreads();
     config.totlatency = mstime()-config.start;
 
     showLatencyReport();
@@ -1546,9 +1551,15 @@ int main(int argc, const char **argv) {
 
     if (config.idlemode) {
         printf("Creating %d idle connections and waiting forever (Ctrl+C when done)\n", config.numclients);
-        c = createClient("",0,NULL,-1); /* will never receive a reply */
+        int thread_id = -1, use_threads = (config.num_threads > 0);
+        if (use_threads) {
+            thread_id = 0;
+            initBenchmarkThreads();
+        }
+        c = createClient("",0,NULL,thread_id); /* will never receive a reply */
         createMissingClients(c);
-        aeMain(config.el);
+        if (use_threads) startBenchmarkThreads();
+        else aeMain(config.el);
         /* and will wait for every */
     }
 
