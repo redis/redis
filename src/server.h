@@ -1887,7 +1887,6 @@ void setTypeConvert(robj *subject, int enc);
 
 void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
-void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
 int hashTypeExists(robj *o, sds key);
 int hashTypeDelete(robj *o, sds key);
 unsigned long hashTypeLength(const robj *o);
