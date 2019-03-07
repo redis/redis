@@ -345,7 +345,9 @@ static void randomizeClientKey(client c) {
 
     for (i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
-        size_t r = random() % config.randomkeys_keyspacelen;
+        size_t r = 0;
+        if (config.randomkeys_keyspacelen != 0)
+            r = random() % config.randomkeys_keyspacelen;
         size_t j;
 
         for (j = 0; j < 12; j++) {
@@ -1288,6 +1290,11 @@ int parseOptions(int argc, const char **argv) {
             if (config.pipeline <= 0) config.pipeline=1;
         } else if (!strcmp(argv[i],"-r")) {
             if (lastarg) goto invalid;
+            const char *next = argv[++i], *p = next;
+            if (*p == '-') {
+                p++;
+                if (*p < '0' || *p > '9') goto invalid;
+            }
             config.randomkeys = 1;
             config.randomkeys_keyspacelen = atoi(argv[++i]);
             if (config.randomkeys_keyspacelen < 0)
