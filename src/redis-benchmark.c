@@ -449,27 +449,27 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     }
                 }
 
-                if (config.cluster_mode && is_err && c->cluster_node &&
-                    (!strncmp(r->str,"MOVED",5) ||
-                     !strcmp(r->str,"ASK")))
-                {
-                    /* Try to update slots configuration if the key of the
-                     * command is using the slot hash tag. */
-                    if (c->staglen && !fetchClusterSlotsConfiguration(c))
-                        exit(1);
-                    /*
-                    clusterNode *node = c->cluster_node;
-                    assert(node);
-                    if (++node->current_slot_index >= node->slots_count) {
-                        if (config.showerrors) {
-                            fprintf(stderr, "WARN: No more available slots in "
-                                    "node %s:%d\n", node->ip, node->port);
-                        }
-                        freeReplyObject(reply);
-                        freeClient(c);
-                        return;
+                /* Try to update slots configuration if reply error is
+                 * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
+                 * contain(s) the slot hash tag. */
+                if (is_err && c->cluster_node && c->staglen) {
+                    int fetch_slots = 0, do_wait = 0;
+                    if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
+                        fetch_slots = 1;
+                    else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
+                        /* Usually the cluster is able to recover itself after
+                         * a CLUSTERDOWN error, so try to sleep one second
+                         * before requesting the new configuration. */
+                        fetch_slots = 1;
+                        do_wait = 1;
+                        printf("Error from server %s:%d: %s\n",
+                               c->cluster_node->ip,
+                               c->cluster_node->port,
+                               r->str);
                     }
-                    */
+                    if (do_wait) sleep(1);
+                    if (fetch_slots && !fetchClusterSlotsConfiguration(c))
+                        exit(1);
                 }
 
                 freeReplyObject(reply);
