@@ -2274,8 +2274,12 @@ void xclaimCommand(client *c) {
             /* Update the consumer and idle time. */
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
-            /* Set the delivery attempts counter if given. */
-            if (retrycount >= 0) nack->delivery_count = retrycount;
+            /* Set the delivery attempts counter if given, otherwise autoincrement */
+            if (retrycount >= 0) {
+                nack->delivery_count = retrycount;
+            } else {
+                nack->delivery_count++;
+            }
             /* Add the entry in the new consumer local PEL. */
             raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
             /* Send the reply for this entry. */
