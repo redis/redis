@@ -2026,7 +2026,8 @@ void slaveofCommand(client *c) {
         if (c->flags & CLIENT_SLAVE)
         {
             /* If a client is already a replica they cannot run this command,
-	     * because it involves flushing all replicas (including this client) */
+             * because it involves flushing all replicas (including this
+             * client) */
             addReplyError(c, "Command is not valid when client is a replica.");
             return;
         }
