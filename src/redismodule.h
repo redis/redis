@@ -85,6 +85,9 @@
 #define REDISMODULE_CTX_FLAGS_OOM (1<<10)
 /* Less than 25% of memory available according to maxmemory. */
 #define REDISMODULE_CTX_FLAGS_OOM_WARNING (1<<11)
+/* The command was sent over the replication link. */
+#define REDISMODULE_CTX_FLAGS_REPLICATED (1<<12)
+
 
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
 #define REDISMODULE_NOTIFY_STRING (1<<3)      /* $ */
