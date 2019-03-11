@@ -1390,6 +1390,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
          flags |= REDISMODULE_CTX_FLAGS_LUA;
         if (ctx->client->flags & CLIENT_MULTI)
          flags |= REDISMODULE_CTX_FLAGS_MULTI;
+        /* Module command recieved from MASTER, is replicated. */
+        if (ctx->client->flags & CLIENT_MASTER)
+         flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
     }
 
     if (server.cluster_enabled)
