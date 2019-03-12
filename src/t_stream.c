@@ -2274,10 +2274,11 @@ void xclaimCommand(client *c) {
             /* Update the consumer and idle time. */
             nack->consumer = consumer;
             nack->delivery_time = deliverytime;
-            /* Set the delivery attempts counter if given, otherwise autoincrement */
+            /* Set the delivery attempts counter if given, otherwise 
+             * autoincrement unless JUSTID option provided */
             if (retrycount >= 0) {
                 nack->delivery_count = retrycount;
-            } else {
+            } else if (!justid) {
                 nack->delivery_count++;
             }
             /* Add the entry in the new consumer local PEL. */
