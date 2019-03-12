@@ -78,6 +78,7 @@ static struct config {
     int datasize;
     int randomkeys;
     int randomkeys_keyspacelen;
+    size_t seqkey;
     int keepalive;
     int pipeline;
     int showerrors;
@@ -345,8 +346,14 @@ static void randomizeClientKey(client c) {
 
     for (i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
-        size_t r = random() % config.randomkeys_keyspacelen;
-        size_t j;
+        size_t r, j;
+
+        if (config.randomkeys_keyspacelen == -1) {
+            /* sequential keys */
+            r = config.seqkey++;
+        } else {
+            r = random() % config.randomkeys_keyspacelen;
+        }
 
         for (j = 0; j < 12; j++) {
             *p = '0'+r%10;
@@ -824,6 +831,7 @@ static void benchmark(char *title, char *cmd, int len) {
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
+    config.seqkey = 0;
 
     if (config.num_threads) {
         if (config.threads) freeBenchmarkThreads();
@@ -1285,7 +1293,7 @@ int parseOptions(int argc, const char **argv) {
             if (lastarg) goto invalid;
             config.randomkeys = 1;
             config.randomkeys_keyspacelen = atoi(argv[++i]);
-            if (config.randomkeys_keyspacelen < 0)
+            if (config.randomkeys_keyspacelen < -1)
                 config.randomkeys_keyspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
             config.quiet = 1;
@@ -1364,6 +1372,8 @@ usage:
 "  from 0 to keyspacelen-1. The substitution changes every time a command\n"
 "  is executed. Default tests use this to hit random keys in the\n"
 "  specified range.\n"
+"  If keyspacelen == -1, then sequential keys or values are used instead of"
+"  random ones.\n"
 " -P <numreq>        Pipeline <numreq> requests. Default 1 (no pipeline).\n"
 " -e                 If server replies with errors, show them on stdout.\n"
 "                    (no more than 1 error per second is displayed)\n"
