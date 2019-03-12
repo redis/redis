@@ -247,11 +247,11 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         c = redisConnect(ip, port);
     else
         c = redisConnectUnix(hostsocket);
-    if (c->err) {
+    if (c == NULL || c->err) {
         fprintf(stderr,"Could not connect to Redis at ");
-        if (hostsocket == NULL)
-            fprintf(stderr,"%s:%d: %s\n",ip,port,c->errstr);
-        else fprintf(stderr,"%s: %s\n",hostsocket,c->errstr);
+        char *err = (c != NULL ? c->errstr : "");
+        if (hostsocket == NULL) fprintf(stderr,"%s:%d: %s\n",ip,port,err);
+        else fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto fail;
     }
     redisAppendCommand(c, "CONFIG GET %s", "save");
@@ -276,18 +276,16 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         case 1: cfg->appendonly = sdsnew(value); break;
         }
     }
-    if (reply) freeReplyObject(reply);
-    if (c) redisFree(c);
+    freeReplyObject(reply);
+    redisFree(c);
     return cfg;
 fail:
-    if (reply) freeReplyObject(reply);
-    if (c) redisFree(c);
-    zfree(cfg);
     fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
-    if (c->connection_type == REDIS_CONN_TCP)
-        fprintf(stderr, "%s:%d\n", c->tcp.host, c->tcp.port);
-    else if (c->connection_type == REDIS_CONN_UNIX)
-        fprintf(stderr, "%s\n", c->unix_sock.path);
+    if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
+    else fprintf(stderr, "%s\n", hostsocket);
+    freeReplyObject(reply);
+    redisFree(c);
+    zfree(cfg);
     return NULL;
 }
 static void freeRedisConfig(redisConfig *cfg) {
