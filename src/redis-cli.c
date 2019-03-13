@@ -2726,7 +2726,7 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
         slots,
         node->slots_count,
         flags,
-        node->current_epoch
+        (unsigned long long)node->current_epoch
     );
     if (error_count > 0) {
         json = sdscatprintf(json, ",\n    \"cluster_errors\": %lu",

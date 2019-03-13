@@ -1965,7 +1965,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                 }
             } else if (!strcasecmp(auxkey->ptr,"redis-ver")) {
                 serverLog(LL_NOTICE,"Loading RDB produced by version %s",
-                    auxval->ptr);
+                    (char*)auxval->ptr);
             } else if (!strcasecmp(auxkey->ptr,"ctime")) {
                 time_t age = time(NULL)-strtol(auxval->ptr,NULL,10);
                 if (age < 0) age = 0;
