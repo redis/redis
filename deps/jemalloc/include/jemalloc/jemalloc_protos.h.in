@@ -40,6 +40,8 @@ JEMALLOC_EXPORT void JEMALLOC_NOTHROW	@je_@sdallocx(void *ptr, size_t size,
     int flags);
 JEMALLOC_EXPORT size_t JEMALLOC_NOTHROW	@je_@nallocx(size_t size, int flags)
     JEMALLOC_ATTR(pure);
+JEMALLOC_EXPORT int JEMALLOC_NOTHROW @je_@get_defrag_hint(void* ptr,
+    int *bin_util, int *run_util);
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW	@je_@mallctl(const char *name,
     void *oldp, size_t *oldlenp, void *newp, size_t newlen);
