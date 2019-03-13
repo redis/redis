@@ -1358,6 +1358,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_MULTI: The command is running inside a transaction
  *
+ *  * REDISMODULE_CTX_FLAGS_REPLICATED: The command was sent over the replication
+ *    link by the MASTER
+ *
  *  * REDISMODULE_CTX_FLAGS_MASTER: The Redis instance is a master
  *
  *  * REDISMODULE_CTX_FLAGS_SLAVE: The Redis instance is a slave
