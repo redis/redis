@@ -43,6 +43,9 @@
 #
 # /!\ This script should be run as root
 #
+# NOTE: This script will not work on Mac OSX.
+#       It supports Debian and Ubuntu Linux.
+#
 ################################################################################
 
 die () {
