@@ -419,11 +419,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     }
-    else if (strlen(c->context->reader->buf)>=32 
-		    && !strncmp(c->context->reader->buf,"-NOAUTH Authentication required.", 32))
+    else if (NULL != strstr(c->context->reader->buf,"NOAUTH"))
     {
         fprintf(stderr,"Error: %s\n",c->context->reader->buf);
-        exit(1);
+        exit(1);	
     } else {
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
