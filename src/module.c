@@ -4799,6 +4799,23 @@ int moduleUnload(sds name) {
         errno = EBUSY;
         return REDISMODULE_ERR;
     }
+    
+    /* Give module a chance to clean up. */
+    int (*onunload)(void *);
+    onunload = (int (*)(void *))(unsigned long) dlsym(module->handle, "RedisModule_OnUnload");
+    if (onunload) {
+        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
+        ctx.module = module;
+        ctx.client = moduleFreeContextReusedClient;
+        int unload_status = onunload((void*)&ctx);
+        moduleFreeContext(&ctx);
+
+        if (unload_status == REDISMODULE_ERR) {
+            serverLog(LL_WARNING, "Module %s OnUnload failed.  Unload canceled.", name);
+            errno = ECANCELED;
+            return REDISMODULE_ERR;
+        }
+    }
 
     moduleUnregisterCommands(module);
 
