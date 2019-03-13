@@ -480,11 +480,11 @@ struct redisCommand redisCommandTable[] = {
      "write fast @sortedset",
      0,NULL,1,1,1,0,0,0},
 
-    {"bzpopmin",bzpopminCommand,-2,
+    {"bzpopmin",bzpopminCommand,-3,
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 
-    {"bzpopmax",bzpopmaxCommand,-2,
+    {"bzpopmax",bzpopmaxCommand,-3,
      "write no-script fast @sortedset @blocking",
      0,NULL,1,-2,1,0,0,0},
 

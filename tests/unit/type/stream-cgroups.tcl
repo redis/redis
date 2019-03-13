@@ -195,6 +195,49 @@ start_server {
         assert_equal "" [lindex $reply 0]
     }
 
+    test {XCLAIM without JUSTID increments delivery count} {
+        # Add 3 items into the stream, and create a consumer group
+        r del mystream
+        set id1 [r XADD mystream * a 1]
+        set id2 [r XADD mystream * b 2]
+        set id3 [r XADD mystream * c 3]
+        r XGROUP CREATE mystream mygroup 0
+
+        # Client 1 reads item 1 from the stream without acknowledgements.
+        # Client 2 then claims pending item 1 from the PEL of client 1
+        set reply [
+            r XREADGROUP GROUP mygroup client1 count 1 STREAMS mystream >
+        ]
+        assert {[llength [lindex $reply 0 1 0 1]] == 2}
+        assert {[lindex $reply 0 1 0 1] eq {a 1}}
+        r debug sleep 0.2
+        set reply [
+            r XCLAIM mystream mygroup client2 10 $id1
+        ]
+        assert {[llength [lindex $reply 0 1]] == 2}
+        assert {[lindex $reply 0 1] eq {a 1}}
+
+        set reply [
+            r XPENDING mystream mygroup - + 10
+        ]
+        assert {[llength [lindex $reply 0]] == 4}
+        assert {[lindex $reply 0 3] == 2}
+
+        # Client 3 then claims pending item 1 from the PEL of client 2 using JUSTID
+        r debug sleep 0.2
+        set reply [
+            r XCLAIM mystream mygroup client3 10 $id1 JUSTID
+        ]
+        assert {[llength $reply] == 1}
+        assert {[lindex $reply 0] eq $id1}
+
+        set reply [
+            r XPENDING mystream mygroup - + 10
+        ]
+        assert {[llength [lindex $reply 0]] == 4}
+        assert {[lindex $reply 0 3] == 2}
+    }
+
     start_server {} {
         set master [srv -1 client]
         set master_host [srv -1 host]

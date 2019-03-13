@@ -166,6 +166,8 @@ for Ubuntu and Debian systems:
     % cd utils
     % ./install_server.sh
 
+_Note_: `install_server.sh` will not work on Mac OSX; it is built for Linux only.
+
 The script will ask you a few questions and will setup everything you need
 to run Redis properly as a background daemon that will start again on
 system reboots.
