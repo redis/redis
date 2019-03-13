@@ -28,6 +28,7 @@
  */
 
 #include "server.h"
+#include <fcntl.h>
 
 /* =============================================================================
  * Global state for ACLs
@@ -887,6 +888,22 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
     return C_ERR;
 }
 
+/* This is like ACLCheckUserCredentials(), however if the user/pass
+ * are correct, the connection is put in authenticated state and the
+ * connection user reference is populated.
+ *
+ * The return value is C_OK or C_ERR with the same meaning as
+ * ACLCheckUserCredentials(). */
+int ACLAuthenticateUser(client *c, robj *username, robj *password) {
+    if (ACLCheckUserCredentials(username,password) == C_OK) {
+        c->authenticated = 1;
+        c->user = ACLGetUserByName(username->ptr,sdslen(username->ptr));
+        return C_OK;
+    } else {
+        return C_ERR;
+    }
+}
+
 /* For ACL purposes, every user has a bitmap with the commands that such
  * user is allowed to execute. In order to populate the bitmap, every command
  * should have an assigned ID (that is used to index the bitmap). This function
@@ -1147,6 +1164,7 @@ sds ACLLoadFromFile(const char *filename) {
     int totlines;
     sds *lines, errors = sdsempty();
     lines = sdssplitlen(acls,strlen(acls),"\n",1,&totlines);
+    sdsfree(acls);
 
     /* We need a fake user to validate the rules before making changes
      * to the real user mentioned in the ACL line. */
@@ -1261,6 +1279,70 @@ sds ACLLoadFromFile(const char *filename) {
     }
 }
 
+/* Generate a copy of the ACLs currently in memory in the specified filename.
+ * Returns C_OK on success or C_ERR if there was an error during the I/O.
+ * When C_ERR is returned a log is produced with hints about the issue. */
+int ACLSaveToFile(const char *filename) {
+    sds acl = sdsempty();
+    int fd = -1;
+    sds tmpfilename = NULL;
+    int retval = C_ERR;
+
+    /* Let's generate an SDS string containing the new version of the
+     * ACL file. */
+    raxIterator ri;
+    raxStart(&ri,Users);
+    raxSeek(&ri,"^",NULL,0);
+    while(raxNext(&ri)) {
+        user *u = ri.data;
+        /* Return information in the configuration file format. */
+        sds user = sdsnew("user ");
+        user = sdscatsds(user,u->name);
+        user = sdscatlen(user," ",1);
+        sds descr = ACLDescribeUser(u);
+        user = sdscatsds(user,descr);
+        sdsfree(descr);
+        acl = sdscatsds(acl,user);
+        acl = sdscatlen(acl,"\n",1);
+        sdsfree(user);
+    }
+    raxStop(&ri);
+
+    /* Create a temp file with the new content. */
+    tmpfilename = sdsnew(filename);
+    tmpfilename = sdscatfmt(tmpfilename,".tmp-%i-%I",
+        (int)getpid(),(int)mstime());
+    if ((fd = open(tmpfilename,O_WRONLY|O_CREAT,0644)) == -1) {
+        serverLog(LL_WARNING,"Opening temp ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+
+    /* Write it. */
+    if (write(fd,acl,sdslen(acl)) != (ssize_t)sdslen(acl)) {
+        serverLog(LL_WARNING,"Writing ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+    close(fd); fd = -1;
+
+    /* Let's replace the new file with the old one. */
+    if (rename(tmpfilename,filename) == -1) {
+        serverLog(LL_WARNING,"Renaming ACL file for ACL SAVE: %s",
+            strerror(errno));
+        goto cleanup;
+    }
+    sdsfree(tmpfilename); tmpfilename = NULL;
+    retval = C_OK; /* If we reached this point, everything is fine. */
+
+cleanup:
+    if (fd != -1) close(fd);
+    if (tmpfilename) unlink(tmpfilename);
+    sdsfree(tmpfilename);
+    sdsfree(acl);
+    return retval;
+}
+
 /* This function is called once the server is already running, modules are
  * loaded, and we are ready to start, in order to load the ACLs either from
  * the pending list of users defined in redis.conf, or from the ACL file.
@@ -1300,29 +1382,45 @@ void ACLLoadUsersAtStartup(void) {
 
 /* ACL -- show and modify the configuration of ACL users.
  * ACL HELP
+ * ACL LOAD
  * ACL LIST
  * ACL USERS
  * ACL CAT [<category>]
  * ACL SETUSER <username> ... acl rules ...
- * ACL DELUSER <username>
+ * ACL DELUSER <username> [...]
  * ACL GETUSER <username>
+ * ACL GENPASS
+ * ACL WHOAMI
  */
 void aclCommand(client *c) {
     char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub,"setuser") && c->argc >= 3) {
         sds username = c->argv[2]->ptr;
+        /* Create a temporary user to validate and stage all changes against
+         * before applying to an existing user or creating a new user. If all
+         * arguments are valid the user parameters will all be applied together.
+         * If there are any errors then none of the changes will be applied. */
+        user *tempu = ACLCreateUnlinkedUser();
         user *u = ACLGetUserByName(username,sdslen(username));
-        if (!u) u = ACLCreateUser(username,sdslen(username));
-        serverAssert(u != NULL);
+        if (u) ACLCopyUser(tempu, u);
+
         for (int j = 3; j < c->argc; j++) {
-            if (ACLSetUser(u,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
+            if (ACLSetUser(tempu,c->argv[j]->ptr,sdslen(c->argv[j]->ptr)) != C_OK) {
                 char *errmsg = ACLSetUserStringError();
                 addReplyErrorFormat(c,
                     "Error in ACL SETUSER modifier '%s': %s",
                     (char*)c->argv[j]->ptr, errmsg);
+
+                ACLFreeUser(tempu);
                 return;
             }
         }
+
+        /* Overwrite the user with the temporary user we modified above. */
+        if (!u) u = ACLCreateUser(username,sdslen(username));
+        serverAssert(u != NULL);
+        ACLCopyUser(u, tempu);
+        ACLFreeUser(tempu);
         addReply(c,shared.ok);
     } else if (!strcasecmp(sub,"deluser") && c->argc >= 3) {
         int deleted = 0;
@@ -1332,6 +1430,10 @@ void aclCommand(client *c) {
                 addReplyError(c,"The 'default' user cannot be removed");
                 return;
             }
+        }
+
+        for (int j = 2; j < c->argc; j++) {
+            sds username = c->argv[j]->ptr;
             user *u;
             if (raxRemove(Users,(unsigned char*)username,
                           sdslen(username),
@@ -1424,18 +1526,26 @@ void aclCommand(client *c) {
         } else {
             addReplyNull(c);
         }
+    } else if (server.acl_filename[0] == '\0' &&
+               (!strcasecmp(sub,"load") || !strcasecmp(sub,"save")))
+    {
+        addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
+        return;
     } else if (!strcasecmp(sub,"load") && c->argc == 2) {
-        if (server.acl_filename[0] == '\0') {
-            addReplyError(c,"This Redis instance is not configured to use an ACL file. You may want to specify users via the ACL SETUSER command and then issue a CONFIG REWRITE (assuming you have a Redis configuration file set) in order to store users in the Redis configuration.");
-            return;
+        sds errors = ACLLoadFromFile(server.acl_filename);
+        if (errors == NULL) {
+            addReply(c,shared.ok);
         } else {
-            sds errors = ACLLoadFromFile(server.acl_filename);
-            if (errors == NULL) {
-                addReply(c,shared.ok);
-            } else {
-                addReplyError(c,errors);
-                sdsfree(errors);
-            }
+            addReplyError(c,errors);
+            sdsfree(errors);
+        }
+    } else if (!strcasecmp(sub,"save") && c->argc == 2) {
+        if (ACLSaveToFile(server.acl_filename) == C_OK) {
+            addReply(c,shared.ok);
+        } else {
+            addReplyError(c,"There was an error trying to save the ACLs. "
+                            "Please check the server logs for more "
+                            "information");
         }
     } else if (!strcasecmp(sub,"cat") && c->argc == 2) {
         void *dl = addReplyDeferredLen(c);
@@ -1463,15 +1573,21 @@ void aclCommand(client *c) {
         }
         dictReleaseIterator(di);
         setDeferredArrayLen(c,dl,arraylen);
+    } else if (!strcasecmp(sub,"genpass") && c->argc == 2) {
+        char pass[32]; /* 128 bits of actual pseudo random data. */
+        getRandomHexChars(pass,sizeof(pass));
+        addReplyBulkCBuffer(c,pass,sizeof(pass));
     } else if (!strcasecmp(sub,"help")) {
         const char *help[] = {
+"LOAD                              -- Reload users from the ACL file.",
 "LIST                              -- Show user details in config file format.",
 "USERS                             -- List all the registered usernames.",
 "SETUSER <username> [attribs ...]  -- Create or modify a user.",
 "GETUSER <username>                -- Get the user details.",
-"DELUSER <username>                -- Delete a user.",
+"DELUSER <username> [...]          -- Delete a list of users.",
 "CAT                               -- List available categories.",
 "CAT <category>                    -- List commands inside category.",
+"GENPASS                           -- Generate a secure user password.",
 "WHOAMI                            -- Return the current connection username.",
 NULL
         };
@@ -1492,3 +1608,47 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     }
     setDeferredSetLen(c, flaglen, flagcount);
 }
+
+/* AUTH <passowrd>
+ * AUTH <username> <password> (Redis >= 6.0 form)
+ *
+ * When the user is omitted it means that we are trying to authenticate
+ * against the default user. */
+void authCommand(client *c) {
+    /* Only two or three argument forms are allowed. */
+    if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    /* Handle the two different forms here. The form with two arguments
+     * will just use "default" as username. */
+    robj *username, *password;
+    if (c->argc == 2) {
+        /* Mimic the old behavior of giving an error for the two commands
+         * from if no password is configured. */
+        if (DefaultUser->flags & USER_FLAG_NOPASS) {
+            addReplyError(c,"AUTH <password> called without any password "
+                            "configured for the default user. Are you sure "
+                            "your configuration is correct?");
+            return;
+        }
+
+        username = createStringObject("default",7);
+        password = c->argv[1];
+    } else {
+        username = c->argv[1];
+        password = c->argv[2];
+    }
+
+    if (ACLAuthenticateUser(c,username,password) == C_OK) {
+        addReply(c,shared.ok);
+    } else {
+        addReplyError(c,"-WRONGPASS invalid username-password pair");
+    }
+
+    /* Free the "default" string object we created for the two
+     * arguments form. */
+    if (c->argc == 2) decrRefCount(username);
+}
+
