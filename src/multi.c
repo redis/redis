@@ -191,7 +191,10 @@ void execCommand(client *c) {
     discardTransaction(c);
 
     latencyEndMonitor(latency);
-    latencyAddSampleIfNeeded("transaction",latency);
+    if (!server.loading) {
+        latencyAddSampleIfNeeded(c->flags & CLIENT_MASTER ? "transaction-master" :
+                                                            "transaction-normal",latency);
+    }
 
     /* Make sure the EXEC command will be propagated as well if MULTI
      * was already propagated. */

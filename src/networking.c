@@ -1692,7 +1692,10 @@ void processInputBuffer(client *c) {
 
 end:
     latencyEndMonitor(latency);
-    if (processed > 1) latencyAddSampleIfNeeded("pipeline",latency);
+    if (processed > 1) {
+        latencyAddSampleIfNeeded(c->flags & CLIENT_MASTER ? "pipeline-master" :
+                                                            "pipeline-normal",latency);
+    }
 }
 
 /* This is a wrapper for processInputBuffer that also cares about handling
