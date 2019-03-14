@@ -47,8 +47,20 @@ struct RedisModule {
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
     list *types;    /* Module data types. */
+    list *usedby;   /* List of modules using APIs from this one. */
+    list *using;    /* List of modules we use some APIs of. */
 };
 typedef struct RedisModule RedisModule;
+
+/* This represents a shared API. Shared APIs will be used to populate
+ * the server.sharedapi dictionary, mapping names of APIs exported by
+ * modules for other modules to use, to their structure specifying the
+ * function pointer that can be called. */
+struct RedisModuleSharedAPI {
+    void *func;
+    RedisModule *module;
+};
+typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
 
 static dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
@@ -701,6 +713,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
+    module->usedby = listCreate();
+    module->using = listCreate();
     ctx->module = module;
 }
 
@@ -4624,6 +4638,121 @@ void RM_GetRandomHexChars(char *dst, size_t len) {
 }
 
 /* --------------------------------------------------------------------------
+ * Modules API exporting / importing
+ * -------------------------------------------------------------------------- */
+
+/* This function is called by a module in order to export some API with a
+ * given name. Other modules will be able to use this API by calling the
+ * symmetrical function RM_GetSharedAPI() and casting the return value to
+ * the right function pointer.
+ *
+ * The function will return REDISMODULE_OK if the name is not already taken,
+ * otherwise REDISMODULE_ERR will be returned and no operation will be
+ * performed.
+ *
+ * IMPORTANT: the apiname argument should be a string literal with static
+ * lifetime. The API relies on the fact that it will always be valid in
+ * the future. */
+int RM_ExportSharedAPI(RedisModuleCtx *ctx, const char *apiname, void *func) {
+    RedisModuleSharedAPI *sapi = zmalloc(sizeof(*sapi));
+    sapi->module = ctx->module;
+    sapi->func = func;
+    if (dictAdd(server.sharedapi, (char*)apiname, sapi) != DICT_OK) {
+        zfree(sapi);
+        return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+}
+
+/* Request an exported API pointer. The return value is just a void pointer
+ * that the caller of this function will be required to cast to the right
+ * function pointer, so this is a private contract between modules.
+ *
+ * If the requested API is not available then NULL is returned. Because
+ * modules can be loaded at different times with different order, this
+ * function calls should be put inside some module generic API registering
+ * step, that is called every time a module attempts to execute a
+ * command that requires external APIs: if some API cannot be resolved, the
+ * command should return an error.
+ *
+ * Here is an exmaple:
+ *
+ *     int ... myCommandImplementation() {
+ *        if (getExternalAPIs() == 0) {
+ *             reply with an error here if we cannot have the APIs
+ *        }
+ *        // Use the API:
+ *        myFunctionPointer(foo);
+ *     }
+ *
+ * And the function registerAPI() is:
+ *
+ *     int getExternalAPIs(void) {
+ *         static int api_loaded = 0;
+ *         if (api_loaded != 0) return 1; // APIs already resolved.
+ *
+ *         myFunctionPointer = RedisModule_GetOtherModuleAPI("...");
+ *         if (myFunctionPointer == NULL) return 0;
+ *
+ *         return 1;
+ *     }
+ */
+void *RM_GetSharedAPI(RedisModuleCtx *ctx, const char *apiname) {
+    dictEntry *de = dictFind(server.sharedapi, apiname);
+    if (de == NULL) return NULL;
+    RedisModuleSharedAPI *sapi = dictGetVal(de);
+    if (listSearchKey(sapi->module->usedby,ctx->module) == NULL) {
+        listAddNodeTail(sapi->module->usedby,ctx->module);
+        listAddNodeTail(ctx->module->using,sapi->module);
+    }
+    return sapi->func;
+}
+
+/* Remove all the APIs registered by the specified module. Usually you
+ * want this when the module is going to be unloaded. This function
+ * assumes that's caller responsibility to make sure the APIs are not
+ * used by other modules.
+ *
+ * The number of unregistered APIs is returned. */
+int moduleUnregisterSharedAPI(RedisModule *module) {
+    int count = 0;
+    dictIterator *di = dictGetSafeIterator(server.sharedapi);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        const char *apiname = dictGetKey(de);
+        RedisModuleSharedAPI *sapi = dictGetVal(de);
+        if (sapi->module == module) {
+            dictDelete(server.sharedapi,apiname);
+            zfree(sapi);
+            count++;
+        }
+    }
+    dictReleaseIterator(di);
+    return count;
+}
+
+/* Remove the specified module as an user of APIs of ever other module.
+ * This is usually called when a module is unloaded.
+ *
+ * Returns the number of modules this module was using APIs from. */
+int moduleUnregisterUsedAPI(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->using,&li);
+    while((ln = listNext(&li))) {
+        RedisModule *used = ln->value;
+        listNode *ln = listSearchKey(used->usedby,module);
+        if (ln) {
+            listDelNode(module->using,ln);
+            count++;
+        }
+    }
+    return count;
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -4767,6 +4896,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
         if (ctx.module) {
             moduleUnregisterCommands(ctx.module);
+            moduleUnregisterSharedAPI(ctx.module);
+            moduleUnregisterUsedAPI(ctx.module);
             moduleFreeModuleStructure(ctx.module);
         }
         dlclose(handle);
@@ -4796,14 +4927,17 @@ int moduleUnload(sds name) {
     if (module == NULL) {
         errno = ENOENT;
         return REDISMODULE_ERR;
-    }
-
-    if (listLength(module->types)) {
+    } else if (listLength(module->types)) {
         errno = EBUSY;
+        return REDISMODULE_ERR;
+    } else if (listLength(module->usedby)) {
+        errno = EPERM;
         return REDISMODULE_ERR;
     }
 
     moduleUnregisterCommands(module);
+    moduleUnregisterSharedAPI(module);
+    moduleUnregisterUsedAPI(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
@@ -4884,7 +5018,12 @@ NULL
                 errmsg = "no such module with that name";
                 break;
             case EBUSY:
-                errmsg = "the module exports one or more module-side data types, can't unload";
+                errmsg = "the module exports one or more module-side data "
+                         "types, can't unload";
+                break;
+            case EPERM:
+                errmsg = "the module exports APIs used by other modules. "
+                         "Please unload them first and try again";
                 break;
             default:
                 errmsg = "operation not possible.";
@@ -4909,6 +5048,7 @@ size_t moduleCount(void) {
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
     server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
+    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);
@@ -5059,4 +5199,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictPrev);
     REGISTER_API(DictCompareC);
     REGISTER_API(DictCompare);
+    REGISTER_API(ExportSharedAPI);
+    REGISTER_API(GetSharedAPI);
 }
