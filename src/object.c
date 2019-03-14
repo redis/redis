@@ -415,10 +415,11 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
+/* Optimize the SDS string inside the string object to require little space,
+ * in case there is more than 10% of free space at the end of the SDS
+ * string. This happens because SDS strings tend to overallocate to avoid
+ * wasting too much time in allocations when appending to the string. */
 void trimStringObjectIfNeeded(robj *o) {
-    /* Optimize the SDS string inside the string object to require
-     * little space, in case there is more than 10% of free space
-     * at the end of the SDS string. */
     if (o->encoding == OBJ_ENCODING_RAW &&
         sdsavail(o->ptr) > sdslen(o->ptr)/10)
     {
