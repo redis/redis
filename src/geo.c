@@ -659,7 +659,7 @@ void georadiusGeneric(client *c, int flags) {
             zsetConvertToZiplistIfNeeded(zobj,maxelelen);
             setKey(c->db,storekey,zobj);
             decrRefCount(zobj);
-            notifyKeyspaceEvent(NOTIFY_LIST,"georadiusstore",storekey,
+            notifyKeyspaceEvent(NOTIFY_ZSET,"georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
