@@ -523,12 +523,17 @@ void RedisModuleCommandDispatcher(client *c) {
     moduleFreeContext(&ctx);
 
     /* In some cases processMultibulkBuffer uses sdsMakeRoomFor to
-     * expand the querybuf, but later in some cases it uses that query
-     * buffer as is for an argv element (see "Optimization"), which means
-     * that the sds in argv may have a lot of wasted space, and then in case
-     * modules keep that argv RedisString inside their data structure, this
-     * space waste will remain for long (until restarted from rdb). */
+     * expand the query buffer, and in order to avoid a big object copy
+     * the query buffer SDS may be used directly as the SDS string backing
+     * the client argument vectors: sometimes this will result in the SDS
+     * string having unused space at the end. Later if a module takes ownership
+     * of the RedisString, such space will be wasted forever. Inside the
+     * Redis core this is not a problem because tryObjectEncoding() is called
+     * before storing strings in the key space. Here we need to do it
+     * for the module. */
     for (int i = 0; i < c->argc; i++) {
+        /* Only do the work if the module took ownership of the object:
+         * in that case the refcount is no longer 1. */
         if (c->argv[i]->refcount > 1)
             trimStringObjectIfNeeded(c->argv[i]);
     }
