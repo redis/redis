@@ -280,6 +280,7 @@ int startAppendOnly(void) {
     server.aof_state = AOF_WAIT_REWRITE;
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = newfd;
+    server.aof_last_write_status = C_OK;
     return C_OK;
 }
 
