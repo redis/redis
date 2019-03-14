@@ -3145,7 +3145,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (getLongFromObjectOrReply(c,countarg,&count,NULL) != C_OK)
             return;
         if (count <= 0) {
-            addReplyNullArray(c);
+            addReply(c,shared.emptymultibulk);
             return;
         }
     }
