@@ -520,7 +520,7 @@ void lremCommand(client *c) {
 
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
     }
 
     if (listTypeLength(subject) == 0) {
