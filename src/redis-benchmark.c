@@ -256,9 +256,8 @@ static redisConfig *getRedisConfig(const char *ip, int port,
     }
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
-    int i = 0;
     void *r = NULL;
-    for (; i < 2; i++) {
+    for (int i = 0; i < 2; i++) {
         int res = redisGetReply(c, &r);
         if (reply) freeReplyObject(reply);
         reply = ((redisReply *) r);
@@ -339,16 +338,13 @@ static void resetClient(client c) {
 }
 
 static void randomizeClientKey(client c) {
-    size_t i;
-
-    for (i = 0; i < c->randlen; i++) {
+    for (size_t i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
         size_t r = 0;
         if (config.randomkeys_keyspacelen != 0)
             r = random() % config.randomkeys_keyspacelen;
-        size_t j;
 
-        for (j = 0; j < 12; j++) {
+        for (size_t j = 0; j < 12; j++) {
             *p = '0'+r%10;
             r/=10;
             p--;
@@ -373,8 +369,7 @@ static void setClusterKeyHashTag(client c) {
     int slot = node->slots[node->current_slot_index];
     const char *tag = crc16_slot_table[slot];
     int taglen = strlen(tag);
-    size_t i;
-    for (i = 0; i < c->staglen; i++) {
+    for (size_t i = 0; i < c->staglen; i++) {
         char *p = c->stagptr[i] + 1;
         p[0] = tag[0];
         p[1] = (taglen >= 2 ? tag[1] : '}');
@@ -477,11 +472,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     c->pending--;
                     /* Discard prefix commands on first response.*/
                     if (c->prefixlen > 0) {
-                        size_t j;
                         sdsrange(c->obuf, c->prefixlen, -1);
                         /* We also need to fix the pointers to the strings
                         * we need to randomize. */
-                        for (j = 0; j < c->randlen; j++)
+                        for (size_t j = 0; j < c->randlen; j++)
                             c->randptr[j] -= c->prefixlen;
                         c->prefixlen = 0;
                     }
@@ -565,7 +559,6 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  *
  * Even when cloning another client, prefix commands are applied if needed.*/
 static client createClient(char *cmd, size_t len, client from, int thread_id) {
-    int j;
     int is_cluster_client = (config.cluster_mode && thread_id >= 0);
     client c = zmalloc(sizeof(struct _client));
 
@@ -636,7 +629,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             from->obuf+from->prefixlen,
             sdslen(from->obuf)-from->prefixlen);
     } else {
-        for (j = 0; j < config.pipeline; j++)
+        for (int j = 0; j < config.pipeline; j++)
             c->obuf = sdscatlen(c->obuf,cmd,len);
     }
 
@@ -654,7 +647,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             c->randfree = 0;
             c->randptr = zmalloc(sizeof(char*)*c->randlen);
             /* copy the offsets. */
-            for (j = 0; j < (int)c->randlen; j++) {
+            for (int j = 0; j < (int)c->randlen; j++) {
                 c->randptr[j] = c->obuf + (from->randptr[j]-from->obuf);
                 /* Adjust for the different select prefix length. */
                 c->randptr[j] += c->prefixlen - from->prefixlen;
@@ -683,7 +676,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             c->stagfree = 0;
             c->stagptr = zmalloc(sizeof(char*)*c->staglen);
             /* copy the offsets. */
-            for (j = 0; j < (int)c->staglen; j++) {
+            for (int j = 0; j < (int)c->staglen; j++) {
                 c->stagptr[j] = c->obuf + (from->stagptr[j]-from->obuf);
                 /* Adjust for the different select prefix length. */
                 c->stagptr[j] += c->prefixlen - from->prefixlen;
@@ -751,7 +744,7 @@ static int ipow(int base, int exp) {
 }
 
 static void showLatencyReport(void) {
-    int i, curlat = 0;
+    int curlat = 0;
     int usbetweenlat = ipow(10, MAX_LATENCY_PRECISION-config.precision);
     float perc, reqpersec;
 
@@ -766,8 +759,7 @@ static void showLatencyReport(void) {
         if (config.cluster_mode) {
             printf("  cluster mode: yes (%d masters)\n",
                    config.cluster_node_count);
-            int m ;
-            for (m = 0; m < config.cluster_node_count; m++) {
+            for (int m = 0; m < config.cluster_node_count; m++) {
                 clusterNode *node =  config.cluster_nodes[m];
                 redisConfig *cfg = node->redis_config;
                 if (cfg == NULL) continue;
@@ -791,7 +783,7 @@ static void showLatencyReport(void) {
         printf("\n");
 
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
-        for (i = 0; i < config.requests; i++) {
+        for (int i = 0; i < config.requests; i++) {
             if (config.latency[i]/usbetweenlat != curlat ||
                 i == (config.requests-1))
             {
@@ -818,25 +810,23 @@ static void showLatencyReport(void) {
 }
 
 static void initBenchmarkThreads() {
-    int i;
     if (config.threads) freeBenchmarkThreads();
     config.threads = zmalloc(config.num_threads * sizeof(benchmarkThread*));
-    for (i = 0; i < config.num_threads; i++) {
+    for (int i = 0; i < config.num_threads; i++) {
         benchmarkThread *thread = createBenchmarkThread(i);
         config.threads[i] = thread;
     }
 }
 
 static void startBenchmarkThreads() {
-    int i;
-    for (i = 0; i < config.num_threads; i++) {
+    for (int i = 0; i < config.num_threads; i++) {
         benchmarkThread *t = config.threads[i];
         if (pthread_create(&(t->thread), NULL, execBenchmarkThread, t)){
             fprintf(stderr, "FATAL: Failed to start thread %d.\n", i);
             exit(1);
         }
     }
-    for (i = 0; i < config.num_threads; i++)
+    for (int i = 0; i < config.num_threads; i++)
         pthread_join(config.threads[i]->thread, NULL);
 }
 
@@ -880,8 +870,7 @@ static void freeBenchmarkThread(benchmarkThread *thread) {
 }
 
 static void freeBenchmarkThreads() {
-    int i = 0;
-    for (; i < config.num_threads; i++) {
+    for (int i = 0; i < config.num_threads; i++) {
         benchmarkThread *thread = config.threads[i];
         if (thread) freeBenchmarkThread(thread);
     }
@@ -920,15 +909,14 @@ static clusterNode *createClusterNode(char *ip, int port) {
 }
 
 static void freeClusterNode(clusterNode *node) {
-    int i;
     if (node->name) sdsfree(node->name);
     if (node->replicate) sdsfree(node->replicate);
     if (node->migrating != NULL) {
-        for (i = 0; i < node->migrating_count; i++) sdsfree(node->migrating[i]);
+        for (int i = 0; i < node->migrating_count; i++) sdsfree(node->migrating[i]);
         zfree(node->migrating);
     }
     if (node->importing != NULL) {
-        for (i = 0; i < node->importing_count; i++) sdsfree(node->importing[i]);
+        for (int i = 0; i < node->importing_count; i++) sdsfree(node->importing[i]);
         zfree(node->importing);
     }
     /* If the node is not the reference node, that uses the address from
@@ -941,8 +929,7 @@ static void freeClusterNode(clusterNode *node) {
 }
 
 static void freeClusterNodes() {
-    int i = 0;
-    for (; i < config.cluster_node_count; i++) {
+    for (int i = 0; i < config.cluster_node_count; i++) {
         clusterNode *n = config.cluster_nodes[i];
         if (n) freeClusterNode(n);
     }
@@ -1137,7 +1124,6 @@ cleanup:
 static int fetchClusterSlotsConfiguration(client c) {
     UNUSED(c);
     int success = 1, is_fetching_slots = 0, last_update = 0;
-    size_t i;
     atomicGet(config.slots_last_update, last_update);
     if (c->slots_last_update < last_update) {
         c->slots_last_update = last_update;
@@ -1161,7 +1147,7 @@ static int fetchClusterSlotsConfiguration(client c) {
     /* printf("[%d] fetchClusterSlotsConfiguration\n", c->thread_id); */
     dict *masters = dictCreate(&dtype, NULL);
     redisContext *ctx = NULL;
-    for (i = 0; i < (size_t) config.cluster_node_count; i++) {
+    for (size_t i = 0; i < (size_t) config.cluster_node_count; i++) {
         clusterNode *node = config.cluster_nodes[i];
         assert(node->ip != NULL);
         assert(node->name != NULL);
@@ -1190,11 +1176,11 @@ static int fetchClusterSlotsConfiguration(client c) {
         goto cleanup;
     }
     assert(reply->type == REDIS_REPLY_ARRAY);
-    for (i = 0; i < reply->elements; i++) {
+    for (size_t i = 0; i < reply->elements; i++) {
         redisReply *r = reply->element[i];
         assert(r->type = REDIS_REPLY_ARRAY);
         assert(r->elements >= 3);
-        int from, to, slot;
+        int from, to;
         from = r->element[0]->integer;
         to = r->element[1]->integer;
         redisReply *nr =  r->element[2];
@@ -1213,7 +1199,7 @@ static int fetchClusterSlotsConfiguration(client c) {
         clusterNode *node = dictGetVal(entry);
         if (node->updated_slots == NULL)
             node->updated_slots = zcalloc(CLUSTER_SLOTS * sizeof(int));
-        for (slot = from; slot <= to; slot++)
+        for (int slot = from; slot <= to; slot++)
             node->updated_slots[node->updated_slots_count++] = slot;
     }
     updateClusterSlotsConfiguration();
@@ -1229,8 +1215,7 @@ cleanup:
 static void updateClusterSlotsConfiguration() {
     pthread_mutex_lock(&config.is_updating_slots_mutex);
     atomicSet(config.is_updating_slots, 1);
-    int i;
-    for (i = 0; i < config.cluster_node_count; i++) {
+    for (int i = 0; i < config.cluster_node_count; i++) {
         clusterNode *node = config.cluster_nodes[i];
         if (node->updated_slots != NULL) {
             int *oldslots = node->slots;
@@ -1516,8 +1501,7 @@ int main(int argc, const char **argv) {
             exit(1);
         }
         printf("Cluster has %d master nodes:\n\n", config.cluster_node_count);
-        int i = 0;
-        for (; i < config.cluster_node_count; i++) {
+        for (int i = 0; i < config.cluster_node_count; i++) {
             clusterNode *node = config.cluster_nodes[i];
             if (!node) {
                 fprintf(stderr, "Invalid cluster node #%d\n", i);
