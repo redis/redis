@@ -6,7 +6,7 @@ jobs:
     steps:
     - checkout
     - run:
-        name: dep
+        name: Install dependency 
         command: sudo apt-get install -y tcl
     - run:
         name: Build
