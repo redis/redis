@@ -1,0 +1,21 @@
+version: 2
+jobs:
+  build:
+    docker:
+    - image: circleci/buildpack-deps
+    steps:
+    - checkout
+    - run:
+        name: dep
+        command: sudo apt-get install -y tcl
+    - run:
+        name: Build
+        command: make
+    - run:
+        name: Test
+        command: make test
+workflows:
+  version: 2
+  workflow:
+    jobs:
+    - build
