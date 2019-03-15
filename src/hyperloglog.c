@@ -1017,7 +1017,12 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    int reghisto[HLL_Q+2] = {0};
+    /* Note that reghisto could be just HLL_Q+1, becuase this is the
+     * maximum frequency of the "000...1" sequence the hash function is
+     * able to return. However it is slow to check for sanity of the
+     * input: instead we history array at a safe size: overflows will
+     * just write data to wrong, but correctly allocated, places. */
+    int reghisto[64] = {0};
 
     /* Compute register histogram */
     if (hdr->encoding == HLL_DENSE) {
