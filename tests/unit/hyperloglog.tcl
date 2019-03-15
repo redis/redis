@@ -116,7 +116,7 @@ start_server {tags {"hll"}} {
     } {*WRONGTYPE*}
 
     test {Fuzzing dense/sparse encoding: Redis should always detect errors} {
-        for {set j 0} {$j < 10000} {incr j} {
+        for {set j 0} {$j < 1000} {incr j} {
             r del hll
             set items {}
             set numitems [randomInt 3000]
@@ -139,7 +139,6 @@ start_server {tags {"hll"}} {
             # Redis in some way.
             catch {
                 r pfcount hll
-                r pfdebug getreg hll
             }
         }
     }
