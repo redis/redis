@@ -676,7 +676,7 @@ void srandmemberWithCountCommand(client *c) {
      * In this case we create a set from scratch with all the elements, and
      * subtract random elements to reach the requested number of elements.
      *
-     * This is done because if the number of requsted elements is just
+     * This is done because if the number of requested elements is just
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 3 is highly inefficient. */
     if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
