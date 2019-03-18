@@ -63,7 +63,11 @@ Redis Manifesto
     complexity. We'll accept to fight the complexity when it's worthwhile but
     we'll try hard to recognize when a small feature is not worth 1000s of lines
     of code. Most of the time the best way to fight complexity is by not
-    creating it at all.
+    creating it at all. Complexity is also a form of lock-in: code that is
+    very hard to understand cannot be modified by users in an independent way
+    regardless of the license. One of the main Redis goals is to remain
+    understandable, enough for a single programmer to have a clear idea of how
+    it works in detail just reading the source code for a couple of weeks.
 
 7 - Threading is not a silver bullet. Instead of making Redis threaded we
     believe on the idea of an efficient (mostly) single threaded Redis core.
