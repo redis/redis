@@ -12,6 +12,211 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.4     Released Mon Mar 18 17:12:53 CET 2019
+================================================================================
+
+Upgrade urgency HIGH: This release fixes several Redis stability issues.
+
+Dear Redis users, this release includes a number of fixes for bugs that may
+result in Redis crashing in special conditions (not normal usage, but specific
+artificial conditions), fixes to certain Redis behaviors especially around
+Redis streams, and finally a set of new APIs for Redis Modules.
+
+Specifically:
+
+* Hyperloglog different coding errors leading to potential crashes were fixed.
+* A replication bug leading to a potential crash in case of plain misuse of handshake commands was fixed.
+* XCLAIM command incrementing of number of deliveries was fixed.
+* LFU field management in objects was improved.
+* A potential overflow in the redis-check-aof was fixed.
+* A memory leak in case of API misuse was fixed.
+* ZPOP* behavior when count is 0 is fixed.
+* A few redis-cli --cluster bugs were fixed, plus a few improvements.
+* Many other smaller bugs.
+
+We suggest to upgrade Redis, especially in case your instance is facing
+untrusted users (for instance Cloud providers) because several of these
+bugs could result in unwanted crashes.
+
+This is the list of commits:
+
+antirez in commit 84bdd440:
+ HyperLogLog: fix comment in hllCount().
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit ef1833b3:
+ HyperLogLog: handle wrong offset in the base case.
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+antirez in commit 623afd5e:
+ HyperLogLog: speedup fuzz test.
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+antirez in commit 12b5ff10:
+ HyperLogLog: enlarge reghisto variable for safety.
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+antirez in commit 254d897e:
+ HyperLogLog: dense/sparse repr parsing fuzz test.
+ 1 file changed, 29 insertions(+)
+
+John Sully in commit 7f79849c:
+ Fix hyperloglog corruption
+ 1 file changed, 6 insertions(+)
+
+Brad Solomon in commit 3ef2c831:
+ Provide an uninstall target in Makefile
+ 1 file changed, 3 insertions(+)
+
+antirez in commit 57aea463:
+ redis-check-aof: fix potential overflow.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit ba5145b8:
+ Fix objectSetLRUOrLFU() when LFU underflows.
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+antirez in commit 76c59f0e:
+ Fix ZPOP return type when COUNT=0. Related to #5799.
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 1c636714:
+ Improve comments after merging #5834.
+ 2 files changed, 14 insertions(+), 8 deletions(-)
+
+Guy Benoish in commit 6a3fca4c:
+ Trim SDS free space of retained module strings
+ 4 files changed, 28 insertions(+), 5 deletions(-)
+
+Guy Benoish in commit 9ec144ea:
+ Fix mismatching keyspace notification classes
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit d04b5211:
+ Fix zlexrangespec mem-leak in genericZrangebylexCommand
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit 516f1c77:
+ Use memtoll() in 'CONFIG SET client-output-buffer-limit'
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Guy Benoish in commit 8db67a55:
+ Increase string2ld's buffer size (and fix HINCRBYFLOAT)
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+Guy Benoish in commit db3d626b:
+ Check server.verbosity in RM_LogRaw
+ 1 file changed, 2 insertions(+)
+
+Guy Benoish in commit 71439a07:
+ ZPOP should return an empty array if COUNT=0
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+antirez in commit c8a26834:
+ Modules shared API: export new core APIs.
+ 2 files changed, 6 insertions(+)
+
+antirez in commit a13ba750:
+ Modules shared API: also unregister the module as user.
+ 1 file changed, 23 insertions(+)
+
+antirez in commit 500e5117:
+ Modules shared API: prevent unloading of used modules.
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+antirez in commit 7854daa1:
+ Modules shared API: unregister APIs function.
+ 1 file changed, 25 insertions(+)
+
+antirez in commit d38d82af:
+ Modules shared API: initial core functions.
+ 2 files changed, 89 insertions(+), 1 deletion(-)
+
+antirez in commit 4d747bb8:
+ Revert shared APIs to modify the design.
+ 3 files changed, 120 deletions(-)
+
+MeirShpilraien in commit 8824b509:
+ added module ability to register api to be used by other modules
+ 3 files changed, 120 insertions(+)
+
+zhaozhao.zz in commit 000b055b:
+ Streams: checkType before XGROUP CREATE
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+antirez in commit 9b2a0d54:
+ Fix BZPOP arity, backport from fix in cd2743c.
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+chendianqiang in commit 134b2582:
+ optimize cluster failover
+ 1 file changed, 1 insertion(+)
+
+Steve Webster in commit 1293e2a5:
+ Only increment delivery count if JUSTID option is omitted
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+Steve Webster in commit 3cc4f469:
+ Increment delivery counter on XCLAIM unless RETRYCOUNT specified
+ 2 files changed, 35 insertions(+), 2 deletions(-)
+
+antirez in commit f4edd2b9:
+ Merge branch '5.0' of github.com:/antirez/redis into 5.0
+swilly22 in commit cedcc54e:
+ document additional flag of RM_GetContextFlags
+ 1 file changed, 3 insertions(+)
+
+swilly22 in commit 26e98da2:
+ Extend REDISMODULE_CTX_FLAGS to indicate if command was sent by master
+ 2 files changed, 6 insertions(+)
+
+Salvatore Sanfilippo in commit 0e910939:
+ Merge pull request #5879 from meierfra-ergon/redis-cli-assume-yes
+antirez in commit 67452e91:
+ Make comment in #5911 stay inside 80 cols.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+John Sully in commit 30f666ef:
+ Replicas aren't allowed to run the replicaof command
+ 1 file changed, 8 insertions(+)
+
+Frank Meier in commit bc6c1c40:
+ extend use of cluster-yes option to other confimation questions
+ 1 file changed, 9 insertions(+)
+
+antirez in commit 76419d8d:
+ Merge branch '5.0' of github.com:/antirez/redis into 5.0
+Oran Agra in commit 72ba6069:
+ redis-cli add support for --memkeys, fix --bigkeys for module types
+ 1 file changed, 132 insertions(+), 81 deletions(-)
+
+chendianqiang in commit 2ca21753:
+ fix replicationid will not change for server.masterhost==NULL in cluster mode when restart slave
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Salvatore Sanfilippo in commit bd7ddd79:
+ Merge pull request #5870 from fengweiyuan/5.0
+varianfeng in commit d13bc143:
+ fix corrupt_rdb.c bug.Let the name of input rdb file name be valid.
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+artix in commit 44c5bce0:
+ Cluster Manager: fix replica assigment anti-affinity (create)
+ 1 file changed, 6 insertions(+)
+
+artix in commit f066e526:
+ Cluster Manager: remove unused code elements
+ 1 file changed, 8 insertions(+), 13 deletions(-)
+
+Zhicheng Wei in commit 23214966:
+ fix clusterManagerGetAntiAffinityScore double free otypes
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+antirez in commit 80bccd71:
+ Remove debugging printf from replication.tcl test.
+ 1 file changed, 1 deletion(-)
+
+================================================================================
 Redis 5.0.3     Released Tue Dec 11 18:17:26 CET 2018
 ================================================================================
 
