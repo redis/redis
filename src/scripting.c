@@ -462,6 +462,11 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     c->argc = argc;
     c->user = server.lua_caller->user;
 
+    /* Process module hooks */
+    moduleCallCommandFilters(c);
+    argv = c->argv;
+    argc = c->argc;
+
     /* Log the command if debugging is active. */
     if (ldb.active && ldb.step) {
         sds cmdlog = sdsnew("<redis>");
