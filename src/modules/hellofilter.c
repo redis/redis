@@ -6,17 +6,32 @@
 static RedisModuleString *log_key_name;
 
 static const char log_command_name[] = "hellofilter.log";
+static const char ping_command_name[] = "hellofilter.ping";
+static int in_module = 0;
+
+int HelloFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "ping", "c", "@log");
+    if (reply) {
+        RedisModule_ReplyWithCallReply(ctx, reply);
+        RedisModule_FreeCallReply(reply);
+    } else {
+        RedisModule_ReplyWithSimpleString(ctx, "Unknown command or invalid arguments");
+    }
+
+    return REDISMODULE_OK;
+}
 
 int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
-    RedisModuleString *s = RedisModule_CreateStringFromString(ctx, argv[0]);
+    RedisModuleString *s = RedisModule_CreateString(ctx, "", 0);
 
     int i;
     for (i = 1; i < argc; i++) {
         size_t arglen;
         const char *arg = RedisModule_StringPtrLen(argv[i], &arglen);
 
-        RedisModule_StringAppendBuffer(ctx, s, " ", 1);
+        if (i > 1) RedisModule_StringAppendBuffer(ctx, s, " ", 1);
         RedisModule_StringAppendBuffer(ctx, s, arg, arglen);
     }
 
@@ -24,6 +39,8 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModule_ListPush(log, REDISMODULE_LIST_HEAD, s);
     RedisModule_CloseKey(log);
     RedisModule_FreeString(ctx, s);
+
+    in_module = 1;
 
     size_t cmdlen;
     const char *cmdname = RedisModule_StringPtrLen(argv[1], &cmdlen);
@@ -34,12 +51,15 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     } else {
         RedisModule_ReplyWithSimpleString(ctx, "Unknown command or invalid arguments");
     }
+
+    in_module = 0;
+
     return REDISMODULE_OK;
 }
 
-void HelloFilter_CommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterCtx *filter)
+void HelloFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
-    (void) ctx;
+    if (in_module) return;  /* don't process our own RM_Call() */
 
     /* Fun manipulations:
      * - Remove @delme
@@ -92,6 +112,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
                 HelloFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,ping_command_name,
+                HelloFilter_PingCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter)
