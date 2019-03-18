@@ -291,6 +291,10 @@ typedef struct RedisModuleCommandFilter {
 /* Registered filters */
 static list *moduleCommandFilters;
 
+typedef struct RedisModuleCommandFilterCtx {
+    RedisModuleString **argv;
+    int argc;
+} RedisModuleCommandFilterCtx;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -4844,6 +4848,78 @@ void moduleCallCommandFilters(client *c) {
     c->argc = cmd.argc;
 }
 
+/* Return the number of arguments a filtered command has.  The number of
+ * arguments include the command itself.
+ */
+int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *filter)
+{
+    return filter->argc;
+}
+
+/* Return the specified command argument.  The first argument (position 0) is
+ * the command itself, and the rest are user-provided args.
+ */
+const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *filter, int pos)
+{
+    if (pos < 0 || pos >= filter->argc) return NULL;
+    return filter->argv[pos];
+}
+
+/* Modify the filtered command by inserting a new argument at the specified
+ * position.  The specified RedisModuleString argument may be used by Redis
+ * after the filter context is destroyed, so it must not be auto-memory
+ * allocated, freed or used elsewhere.
+ */
+
+int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *filter, int pos, RedisModuleString *arg)
+{
+    int i;
+
+    if (pos < 0 || pos > filter->argc) return REDISMODULE_ERR;
+
+    filter->argv = zrealloc(filter->argv, (filter->argc+1)*sizeof(RedisModuleString *));
+    for (i = filter->argc; i > pos; i--) {
+        filter->argv[i] = filter->argv[i-1];
+    }
+    filter->argv[pos] = arg;
+    filter->argc++;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by replacing an existing argument with a new one.
+ * The specified RedisModuleString argument may be used by Redis after the
+ * filter context is destroyed, so it must not be auto-memory allocated, freed
+ * or used elsewhere.
+ */
+
+int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *filter, int pos, RedisModuleString *arg)
+{
+    if (pos < 0 || pos >= filter->argc) return REDISMODULE_ERR;
+    
+    decrRefCount(filter->argv[pos]);
+    filter->argv[pos] = arg;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by deleting an argument at the specified
+ * position.
+ */
+int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *filter, int pos)
+{
+    int i;
+    if (pos < 0 || pos >= filter->argc) return REDISMODULE_ERR;
+
+    decrRefCount(filter->argv[pos]);
+    for (i = pos; i < filter->argc-1; i++) {
+        filter->argv[i] = filter->argv[i+1];
+    }
+    filter->argc--;
+    
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -5291,4 +5367,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
     REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(CommandFilterArgsCount);
+    REGISTER_API(CommandFilterArgGet);
+    REGISTER_API(CommandFilterArgInsert);
+    REGISTER_API(CommandFilterArgReplace);
+    REGISTER_API(CommandFilterArgDelete);
 }

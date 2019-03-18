@@ -1,6 +1,8 @@
 #define REDISMODULE_EXPERIMENTAL_API
 #include "../redismodule.h"
 
+#include <string.h>
+
 static RedisModuleString *log_key_name;
 
 static const char log_command_name[] = "hellofilter.log";
@@ -35,16 +37,46 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
-void HelloFilter_CommandFilter(RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd)
+void HelloFilter_CommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterCtx *filter)
 {
-    cmd->argv = RedisModule_Realloc(cmd->argv, (cmd->argc+1)*sizeof(RedisModuleString *));
-    int i;
+    (void) ctx;
 
-    for (i = cmd->argc; i > 0; i--) {
-        cmd->argv[i] = cmd->argv[i-1];
+    /* Fun manipulations:
+     * - Remove @delme
+     * - Replace @replaceme
+     * - Append @insertbefore or @insertafter
+     * - Prefix with Log command if @log encounterd
+     */
+    int log = 0;
+    int pos = 0;
+    while (pos < RedisModule_CommandFilterArgsCount(filter)) {
+        const RedisModuleString *arg = RedisModule_CommandFilterArgGet(filter, pos);
+        size_t arg_len;
+        const char *arg_str = RedisModule_StringPtrLen(arg, &arg_len);
+
+        if (arg_len == 6 && !memcmp(arg_str, "@delme", 6)) {
+            RedisModule_CommandFilterArgDelete(filter, pos);
+            continue;
+        } 
+        if (arg_len == 10 && !memcmp(arg_str, "@replaceme", 10)) {
+            RedisModule_CommandFilterArgReplace(filter, pos,
+                    RedisModule_CreateString(NULL, "--replaced--", 12));
+        } else if (arg_len == 13 && !memcmp(arg_str, "@insertbefore", 13)) {
+            RedisModule_CommandFilterArgInsert(filter, pos,
+                    RedisModule_CreateString(NULL, "--inserted-before--", 19));
+            pos++;
+        } else if (arg_len == 12 && !memcmp(arg_str, "@insertafter", 12)) {
+            RedisModule_CommandFilterArgInsert(filter, pos + 1,
+                    RedisModule_CreateString(NULL, "--inserted-after--", 18));
+            pos++;
+        } else if (arg_len == 4 && !memcmp(arg_str, "@log", 4)) {
+            log = 1;
+        }
+        pos++;
     }
-    cmd->argv[0] = RedisModule_CreateString(ctx, log_command_name, sizeof(log_command_name)-1);
-    cmd->argc++;
+
+    if (log) RedisModule_CommandFilterArgInsert(filter, 0,
+            RedisModule_CreateString(NULL, log_command_name, sizeof(log_command_name)-1));
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
