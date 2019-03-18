@@ -11,6 +11,20 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 4.0.14     Released Mon Mar 18 17:22:10 CEST 2019
+================================================================================
+
+This release just backports a few fixes from Redis 5:
+
+3c62ad19 HyperLogLog: handle wrong offset in the base case.
+cc2b3a68 Fix hyperloglog corruption
+e10c79d3 redis-check-aof: fix potential overflow.
+6fa16f58 Fix mismatching keyspace notification classes
+64311052 Fix zlexrangespec mem-leak in genericZrangebylexCommand
+b0e86319 Make comment in #5911 stay inside 80 cols.
+39ccce03 Replicas aren't allowed to run the replicaof command
+
+================================================================================
 Redis 4.0.13     Released Wed Feb 20 17:25:31 CEST 2019
 ================================================================================
 
