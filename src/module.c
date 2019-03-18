@@ -270,31 +270,22 @@ typedef struct RedisModuleDictIter {
     raxIterator ri;
 } RedisModuleDictIter;
 
-/* Information about the command to be executed, as passed to and from a
- * filter. */
-typedef struct RedisModuleFilteredCommand {
+typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argc;
-} RedisModuleFilteredCommand;
+} RedisModuleCommandFilterCtx;
 
-typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCtx *ctx, RedisModuleFilteredCommand *cmd);
+typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
 
 typedef struct RedisModuleCommandFilter {
     /* The module that registered the filter */
     RedisModule *module;
     /* Filter callback function */
     RedisModuleCommandFilterFunc callback;
-    /* Indicates a filter is active, avoid reentrancy */
-    int active;
 } RedisModuleCommandFilter;
 
 /* Registered filters */
 static list *moduleCommandFilters;
-
-typedef struct RedisModuleCommandFilterCtx {
-    RedisModuleString **argv;
-    int argc;
-} RedisModuleCommandFilterCtx;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -4804,16 +4795,13 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
 
 /* Register a new command filter function.  Filters get executed by Redis
  * before processing an inbound command and can be used to manipulate the
- * behavior of standard Redis commands.  Filters must not attempt to
- * perform Redis commands or operate on the dataset, and must restrict
- * themselves to manipulation of the arguments.
+ * behavior of standard Redis commands.
  */
 
 int RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
     filter->callback = callback;
-    filter->active = 0;
 
     listAddNodeTail(moduleCommandFilters, filter);
     return REDISMODULE_OK;
@@ -4826,26 +4814,19 @@ void moduleCallCommandFilters(client *c) {
     listNode *ln;
     listRewind(moduleCommandFilters,&li);
 
-    RedisModuleFilteredCommand cmd = {
+    RedisModuleCommandFilterCtx filter = {
         .argv = c->argv,
         .argc = c->argc
     };
 
     while((ln = listNext(&li))) {
-        RedisModuleCommandFilter *filter = ln->value;
-        if (filter->active) continue;
+        RedisModuleCommandFilter *f = ln->value;
 
-        RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
-        ctx.module = filter->module;
-
-        filter->active = 1;
-        filter->callback(&ctx, &cmd);
-        filter->active = 0;
-        moduleFreeContext(&ctx);
+        f->callback(&filter);
     }
 
-    c->argv = cmd.argv;
-    c->argc = cmd.argc;
+    c->argv = filter.argv;
+    c->argc = filter.argc;
 }
 
 /* Return the number of arguments a filtered command has.  The number of
