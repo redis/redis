@@ -2740,12 +2740,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
-    cmd = lookupCommandByCString((char*)cmdname);
-    if (!cmd) {
-        errno = EINVAL;
-        return NULL;
-    }
-
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
     c = createClient(-1);
@@ -2758,10 +2752,22 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
-    c->cmd = c->lastcmd = cmd;
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) goto cleanup;
+
+    /* Call command filters */
+    moduleCallCommandFilters(c);
+
+    /* Lookup command now, after filters had a chance to make modifications
+     * if necessary.
+     */
+    cmd = lookupCommand(c->argv[0]->ptr);
+    if (!cmd) {
+        errno = EINVAL;
+        goto cleanup;
+    }
+    c->cmd = c->lastcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
