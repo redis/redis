@@ -4799,9 +4799,47 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
  * Module Command Filter API
  * -------------------------------------------------------------------------- */
 
-/* Register a new command filter function.  Filters get executed by Redis
- * before processing an inbound command and can be used to manipulate the
- * behavior of standard Redis commands.
+/* Register a new command filter function.
+ *
+ * Command filtering makes it possible for modules to extend Redis by plugging
+ * into the execution flow of all commands.
+ *
+ * A registered filter gets called before Redis executes *any* command.  This
+ * includes both core Redis commands and commands registered by any module.  The
+ * filter applies in all execution paths including:
+ *
+ * 1. Invocation by a client.
+ * 2. Invocation through `RedisModule_Call()` by any module.
+ * 3. Invocation through Lua 'redis.call()`.
+ * 4. Replication of a command from a master.
+ *
+ * The filter executes in a special filter context, which is different and more
+ * limited than a RedisModuleCtx.  Because the filter affects any command, it
+ * must be implemented in a very efficient way to reduce the performance impact
+ * on Redis.  All Redis Module API calls that require a valid context (such as
+ * `RedisModule_Call()`, `RedisModule_OpenKey()`, etc.) are not supported in a
+ * filter context.
+ *
+ * The `RedisModuleCommandFilterCtx` can be used to inspect or modify the
+ * executed command and its arguments.  As the filter executes before Redis
+ * begins processing the command, any change will affect the way the command is
+ * processed.  For example, a module can override Redis commands this way:
+ *
+ * 1. Register a `MODULE.SET` command which implements an extended version of
+ *    the Redis `SET` command.
+ * 2. Register a command filter which detects invocation of `SET` on a specific
+ *    pattern of keys.  Once detected, the filter will replace the first
+ *    argument from `SET` to `MODULE.SET`.
+ * 3. When filter execution is complete, Redis considers the new command name
+ *    and therefore executes the module's own command.
+ *
+ * Note that in the above use case, if `MODULE.SET` itself uses
+ * `RedisModule_Call()` the filter will be applied on that call as well.  If
+ * that is not desired, the module itself is responsible for maintaining a flag
+ * to identify and avoid this form of re-entrancy.
+ *
+ * If multiple filters are registered (by the same or different modules), they
+ * are executed in the order of registration.
  */
 
 int RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
@@ -4883,7 +4921,7 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *filter, int pos, Redi
 int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *filter, int pos, RedisModuleString *arg)
 {
     if (pos < 0 || pos >= filter->argc) return REDISMODULE_ERR;
-    
+
     decrRefCount(filter->argv[pos]);
     filter->argv[pos] = arg;
 
@@ -4903,7 +4941,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *filter, int pos)
         filter->argv[i] = filter->argv[i+1];
     }
     filter->argc--;
-    
+
     return REDISMODULE_OK;
 }
 
