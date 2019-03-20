@@ -239,6 +239,8 @@ long long timeInMilliseconds(void) {
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int dictRehashMilliseconds(dict *d, int ms) {
+    if (d->iterators > 0) return 0;
+
     long long start = timeInMilliseconds();
     int rehashes = 0;
 
