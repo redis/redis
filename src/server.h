@@ -130,6 +130,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_RDB_FILENAME "dump.rdb"
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC 0
 #define CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
+#define CONFIG_DEFAULT_SLAVE_SYNC_SPEED_BPS 0
 #define CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define CONFIG_DEFAULT_SLAVE_READ_ONLY 1
 #define CONFIG_DEFAULT_SLAVE_IGNORE_MAXMEMORY 1
@@ -1247,6 +1248,10 @@ struct redisServer {
     time_t repl_down_since; /* Unix time at which link with master went down */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
+    long long slave_sync_budget; /* Current budget for slave sync, in millibits. */
+    long long slave_sync_budget_time_ms; /* Last time budget was updated. */
+    long long slave_sync_budget_event_id; /* Event id for slave sync budget handler. */
+    long long slave_sync_speed_bps; /* Slave syncing speed in bps. */
     int slave_announce_port;        /* Give the master this listening port. */
     char *slave_announce_ip;        /* Give the master this ip address. */
     /* The following two fields is where we store master PSYNC replid/offset

@@ -42,6 +42,7 @@ void replicationResurrectCachedMaster(int newfd);
 void replicationSendAck(void);
 void putSlaveOnline(client *slave);
 int cancelReplicationHandshake(void);
+void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask);
 
 /* --------------------------- Utility functions ---------------------------- */
 
@@ -1112,15 +1113,65 @@ void restartAOFAfterSYNC() {
     }
 }
 
+long long getMonotonicTimeMs() {
+    struct timespec res;
+    clock_gettime(CLOCK_MONOTONIC, &res);
+    return (res.tv_sec * 1000000000LL + res.tv_nsec) / 1000000LL;
+}
+
+#define SLAVE_SYNC_BUDGET_UPDATE_INTERVAL_MS 10
+#define SLAVE_SYNC_BUDGET_MAX_INTERVAL_MS 50
+void updateSlaveSyncBudget(ssize_t nread) {
+    if (server.slave_sync_speed_bps <= 0) return;
+    server.slave_sync_budget -= nread * 8000LL;
+
+    long long now_ms = getMonotonicTimeMs();
+
+    long long delta_time_ms = now_ms - server.slave_sync_budget_time_ms;
+    if (delta_time_ms > SLAVE_SYNC_BUDGET_MAX_INTERVAL_MS) {
+        delta_time_ms = SLAVE_SYNC_BUDGET_MAX_INTERVAL_MS;
+    }
+    long long max_budget = SLAVE_SYNC_BUDGET_MAX_INTERVAL_MS * server.slave_sync_speed_bps;
+    server.slave_sync_budget_time_ms = now_ms;
+    server.slave_sync_budget += delta_time_ms * server.slave_sync_speed_bps;
+    if (server.slave_sync_budget > max_budget) {
+        server.slave_sync_budget = max_budget;
+    }
+}
+
+
+int slaveSyncBudgetHandler(aeEventLoop *el, long long id, void *clientData) {
+    UNUSED(clientData);
+    UNUSED(id);
+
+    updateSlaveSyncBudget(0);
+    if (server.slave_sync_budget < 0) {
+        return SLAVE_SYNC_BUDGET_UPDATE_INTERVAL_MS;
+    }
+
+    int fd = server.repl_transfer_s;
+    if (fd == -1) {
+        serverLog(LL_WARNING, "Socket is already closed, this shouldn't have happened");
+        server.slave_sync_budget_event_id = AE_DELETED_EVENT_ID;
+        return AE_NOMORE;
+    }
+    if (aeCreateFileEvent(el,fd,AE_READABLE,readSyncBulkPayload,NULL) == AE_ERR) {
+        serverLog(LL_WARNING,
+                  "Can't recreate readable event for SYNC: %s (fd=%d)",
+                  strerror(errno),fd);
+        cancelReplicationHandshake();
+    }
+    server.slave_sync_budget_event_id = AE_DELETED_EVENT_ID;
+    return AE_NOMORE;
+}
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
     ssize_t nread, readlen, nwritten;
     off_t left;
-    UNUSED(el);
     UNUSED(privdata);
-    UNUSED(mask);
 
     /* Static vars used to hold the EOF mark, and the last bytes received
      * form the server: when they match, we reached the end of the transfer. */
@@ -1198,6 +1249,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         cancelReplicationHandshake();
         return;
     }
+
+    updateSlaveSyncBudget(nread);
     server.stat_net_input_bytes += nread;
 
     /* When a mark is used, we want to detect EOF asap in order to avoid
@@ -1320,6 +1373,19 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
          * will trigger an AOF rewrite, and when done will start appending
          * to the new file. */
         if (aof_is_enabled) restartAOFAfterSYNC();
+    } else {
+        if (server.slave_sync_speed_bps > 0 && server.slave_sync_budget < 0) {
+            aeDeleteFileEvent(el, fd, mask);
+            if (server.slave_sync_budget_event_id != AE_DELETED_EVENT_ID) {
+                serverLog(LL_WARNING,"slaveSyncBudgetHandler is already registered");
+            }
+            server.slave_sync_budget_event_id = aeCreateTimeEvent(
+                    el,
+                    SLAVE_SYNC_BUDGET_UPDATE_INTERVAL_MS,
+                    slaveSyncBudgetHandler,
+                    NULL,
+                    NULL);
+        }
     }
     return;
 
@@ -1919,6 +1985,11 @@ int connectWithMaster(void) {
  * Never call this function directly, use cancelReplicationHandshake() instead.
  */
 void undoConnectWithMaster(void) {
+    if (server.slave_sync_budget_event_id != AE_DELETED_EVENT_ID) {
+        aeDeleteTimeEvent(server.el, server.slave_sync_budget_event_id);
+        server.slave_sync_budget_event_id = AE_DELETED_EVENT_ID;
+    }
+
     int fd = server.repl_transfer_s;
 
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);

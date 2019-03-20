@@ -770,6 +770,8 @@ void loadServerConfigFromString(char *config) {
             {
                 err = "Invalid port"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"slave-sync-speed-bps") && argc == 2) {
+            server.slave_sync_speed_bps = strtoll(argv[1],NULL,10);
         } else if ((!strcasecmp(argv[0],"min-slaves-to-write") ||
                     !strcasecmp(argv[0],"min-replicas-to-write")) && argc == 2)
         {
@@ -1235,6 +1237,8 @@ void configSetCommand(client *c) {
     } config_set_numerical_field(
       "replica-priority",server.slave_priority,0,INT_MAX) {
     } config_set_numerical_field(
+      "slave-sync-speed-bps",server.slave_sync_speed_bps,0,100000000000LL) {
+    } config_set_numerical_field(
       "slave-announce-port",server.slave_announce_port,0,65535) {
     } config_set_numerical_field(
       "replica-announce-port",server.slave_announce_port,0,65535) {
@@ -1437,6 +1441,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("replica-priority",server.slave_priority);
     config_get_numerical_field("slave-announce-port",server.slave_announce_port);
     config_get_numerical_field("replica-announce-port",server.slave_announce_port);
+    config_get_numerical_field("slave-sync-speed-bps",server.slave_sync_speed_bps);
     config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-replicas-to-write",server.repl_min_slaves_to_write);
     config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);

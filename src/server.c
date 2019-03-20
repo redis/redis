@@ -2345,6 +2345,10 @@ void initServerConfig(void) {
     server.repl_min_slaves_to_write = CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE;
     server.repl_min_slaves_max_lag = CONFIG_DEFAULT_MIN_SLAVES_MAX_LAG;
     server.slave_priority = CONFIG_DEFAULT_SLAVE_PRIORITY;
+    server.slave_sync_budget = 0;
+    server.slave_sync_budget_time_ms = 0;
+    server.slave_sync_budget_event_id = AE_DELETED_EVENT_ID;
+    server.slave_sync_speed_bps = CONFIG_DEFAULT_SLAVE_SYNC_SPEED_BPS;
     server.slave_announce_ip = CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP;
     server.slave_announce_port = CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT;
     server.master_repl_offset = 0;
@@ -4201,6 +4205,10 @@ sds genRedisInfoString(char *section) {
                 server.slave_priority,
                 server.repl_slave_ro);
         }
+        info = sdscatprintf(info,
+            "slave-sync-speed-bps:%lld\r\n",
+            server.slave_sync_speed_bps
+        );
 
         info = sdscatprintf(info,
             "connected_slaves:%lu\r\n",
