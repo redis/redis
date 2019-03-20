@@ -1135,6 +1135,8 @@ void serverLogRaw(int level, const char *msg) {
 
     if (rawmode) {
         fprintf(fp,"%s",msg);
+    } else if (server.lograw) {
+        fprintf(fp,"%s\n",msg);
     } else {
         int off;
         struct timeval tv;
