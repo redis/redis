@@ -593,6 +593,7 @@ int startBgsaveForReplication(int mincapa) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                slave->replstate = REPL_STATE_NONE;
                 slave->flags &= ~CLIENT_SLAVE;
                 listDelNode(server.slaves,ln);
                 addReplyError(slave,
