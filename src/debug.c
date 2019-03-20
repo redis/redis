@@ -1522,7 +1522,11 @@ void logRegisters(ucontext_t *uc) {
  * Close it with closeDirectLogFiledes(). */
 int openDirectLogFiledes(void) {
     int log_to_stdout = server.logfile[0] == '\0';
-    int fd = log_to_stdout ?
+    int fd;
+
+    if (strcasecmp(server.logfile, "none") == 0) return -1;
+
+    fd = log_to_stdout ?
         STDOUT_FILENO :
         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     return fd;

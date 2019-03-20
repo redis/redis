@@ -1128,6 +1128,8 @@ void serverLogRaw(int level, const char *msg) {
 
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 
+    if (strcasecmp(server.logfile, "none") == 0) return;
+
     fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
     if (!fp) return;
 
@@ -1186,8 +1188,11 @@ void serverLogFromHandler(int level, const char *msg) {
     int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
 
-    if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
+    if ((level&0xff) < server.verbosity)
         return;
+
+    if (strcasecmp(server.logfile, "none") == 0) return;
+
     fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
@@ -5417,6 +5422,7 @@ void createPidFile(void) {
 }
 
 void daemonize(void) {
+    int log_to_stdout = server.logfile[0] == '\0';
     int fd;
 
     if (fork() != 0) exit(0); /* parent exits */
@@ -5425,6 +5431,11 @@ void daemonize(void) {
     /* Every output goes to /dev/null. If Redis is daemonized but
      * the 'logfile' is set to 'stdout' in the configuration file
      * it will not log at all. */
+    if (log_to_stdout) {
+        zfree(server.logfile);
+        server.logfile = zstrdup("none");
+    }
+
     if ((fd = open("/dev/null", O_RDWR, 0)) != -1) {
         dup2(fd, STDIN_FILENO);
         dup2(fd, STDOUT_FILENO);

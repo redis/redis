@@ -491,7 +491,8 @@ void loadServerConfigFromString(char *config) {
 
             zfree(server.logfile);
             server.logfile = zstrdup(argv[1]);
-            if (server.logfile[0] != '\0') {
+            if (server.logfile[0] != '\0' &&
+                strcasecmp(server.logfile, "none") != 0) {
                 /* Test if we are able to open the file. The server will not
                  * be able to abort just for this problem later... */
                 logfp = fopen(server.logfile,"a");
