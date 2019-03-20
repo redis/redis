@@ -1126,6 +1126,8 @@ void serverLogRaw(int level, const char *msg) {
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
+    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+
     fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
     if (!fp) return;
 
@@ -1155,7 +1157,6 @@ void serverLogRaw(int level, const char *msg) {
     fflush(fp);
 
     if (!log_to_stdout) fclose(fp);
-    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
 /* Like serverLogRaw() but with printf-alike support. This is the function that
