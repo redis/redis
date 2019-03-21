@@ -148,7 +148,7 @@ void *zrealloc(void *ptr, size_t size) {
     size_t oldsize;
     void *newptr;
 
-    if (size == 0 && ptr!=NULL) {
+    if (size == 0 && ptr != NULL) {
         zfree(ptr);
         return NULL;
     }
