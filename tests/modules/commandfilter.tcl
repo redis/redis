@@ -1,7 +1,7 @@
 set testmodule [file normalize src/modules/hellofilter.so]
 
 start_server {tags {"modules"}} {
-    r module load $testmodule log-key
+    r module load $testmodule log-key 0
 
     test {Command Filter handles redirected commands} {
         r set mykey @log
@@ -50,18 +50,35 @@ start_server {tags {"modules"}} {
         r lrange log-key 0 -1
     } {}
 
-    r module load $testmodule log-key-2
+    r module load $testmodule log-key 0
 
     test {Command Filter unregister works as expected} {
         # Validate reloading succeeded
+        r del log-key
         r set mykey @log
-        assert_equal "{set mykey @log}" [r lrange log-key-2 0 -1]
+        assert_equal "{set mykey @log}" [r lrange log-key 0 -1]
 
         # Unregister
         r hellofilter.unregister
-        r del log-key-2
+        r del log-key
 
         r set mykey @log
-        r lrange log-key-2 0 -1
+        r lrange log-key 0 -1
     } {}
+
+    r module unload hellofilter
+    r module load $testmodule log-key 1
+
+    test {Command Filter REDISMODULE_CMDFILTER_NOSELF works as expected} {
+        r set mykey @log
+        assert_equal "{set mykey @log}" [r lrange log-key 0 -1]
+
+        r del log-key
+        r hellofilter.ping
+        assert_equal {} [r lrange log-key 0 -1]
+
+        r eval "redis.call('hellofilter.ping')" 0
+        assert_equal {} [r lrange log-key 0 -1]
+    }
+
 } 

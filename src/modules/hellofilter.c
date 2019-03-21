@@ -8,7 +8,7 @@ static RedisModuleString *log_key_name;
 static const char log_command_name[] = "hellofilter.log";
 static const char ping_command_name[] = "hellofilter.ping";
 static const char unregister_command_name[] = "hellofilter.unregister";
-static int in_module = 0;
+static int in_log_command = 0;
 
 static RedisModuleCommandFilter *filter = NULL;
 
@@ -57,7 +57,7 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModule_CloseKey(log);
     RedisModule_FreeString(ctx, s);
 
-    in_module = 1;
+    in_log_command = 1;
 
     size_t cmdlen;
     const char *cmdname = RedisModule_StringPtrLen(argv[1], &cmdlen);
@@ -69,14 +69,14 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         RedisModule_ReplyWithSimpleString(ctx, "Unknown command or invalid arguments");
     }
 
-    in_module = 0;
+    in_log_command = 0;
 
     return REDISMODULE_OK;
 }
 
 void HelloFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
-    if (in_module) return;  /* don't process our own RM_Call() */
+    if (in_log_command) return;  /* don't process our own RM_Call() from HelloFilter_LogCommand() */
 
     /* Fun manipulations:
      * - Remove @delme
@@ -120,12 +120,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"hellofilter",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    if (argc != 1) {
+    if (argc != 2) {
         RedisModule_Log(ctx, "warning", "Log key name not specified");
         return REDISMODULE_ERR;
     }
 
+    long long noself = 0;
     log_key_name = RedisModule_CreateStringFromString(ctx, argv[0]);
+    RedisModule_StringToLongLong(argv[1], &noself);
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
                 HelloFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
@@ -139,7 +141,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 HelloFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
-    if ((filter = RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter))
+    if ((filter = RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter, 
+                    noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

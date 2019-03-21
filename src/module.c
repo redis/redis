@@ -50,6 +50,7 @@ struct RedisModule {
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
     list *filters;  /* List of filters the module has registered. */
+    int in_call;    /* RM_Call() nesting level */
 };
 typedef struct RedisModule RedisModule;
 
@@ -283,6 +284,8 @@ typedef struct RedisModuleCommandFilter {
     RedisModule *module;
     /* Filter callback function */
     RedisModuleCommandFilterFunc callback;
+    /* REDISMODULE_CMDFILTER_* flags */
+    int flags;
 } RedisModuleCommandFilter;
 
 /* Registered filters */
@@ -2754,6 +2757,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
+    if (ctx->module) ctx->module->in_call++;
+
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) goto cleanup;
@@ -2820,6 +2825,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
+    if (ctx->module) ctx->module->in_call--;
     freeClient(c);
     return reply;
 }
@@ -4859,17 +4865,27 @@ int moduleUnregisterFilters(RedisModule *module) {
  *
  * Note that in the above use case, if `MODULE.SET` itself uses
  * `RedisModule_Call()` the filter will be applied on that call as well.  If
- * that is not desired, the module itself is responsible for maintaining a flag
- * to identify and avoid this form of re-entrancy.
+ * that is not desired, the `REDISMODULE_CMDFILTER_NOSELF` flag can be set when
+ * registering the filter.
+ *
+ * The `REDISMODULE_CMDFILTER_NOSELF` flag prevents execution flows that
+ * originate from the module's own `RM_Call()` from reaching the filter.  This
+ * flag is effective for all execution flows, including nested ones, as long as
+ * the execution begins from the module's command context or a thread-safe
+ * context that is associated with a blocking command.
+ *
+ * Detached thread-safe contexts are *not* associated with the module and cannot
+ * be protected by this flag.
  *
  * If multiple filters are registered (by the same or different modules), they
  * are executed in the order of registration.
  */
 
-RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
     filter->callback = callback;
+    filter->flags = flags;
 
     listAddNodeTail(moduleCommandFilters, filter);
     listAddNodeTail(ctx->module->filters, filter);
@@ -4910,6 +4926,12 @@ void moduleCallCommandFilters(client *c) {
     while((ln = listNext(&li))) {
         RedisModuleCommandFilter *f = ln->value;
 
+        /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
+         * currently processing a command.
+         */
+        if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
+
+        /* Call filter */
         f->callback(&filter);
     }
 
