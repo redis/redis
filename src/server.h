@@ -2280,4 +2280,8 @@ int populateCommandTableParseFlags(struct redisCommand *c, char *strflags);
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
+/* Macros for converting macros to strings */
+#define STRINGIFY_HELPER(x) #x
+#define STRINGIFY(x) STRINGIFY_HELPER(x)
+
 #endif

@@ -663,6 +663,7 @@ void ACLAddAllowedSubcommand(user *u, unsigned long id, const char *sub) {
  * EEXIST: You are adding a key pattern after "*" was already added. This is
  *         almost surely an error on the user side.
  * ENODEV: The password you are trying to remove from the user does not exist.
+ * E2BIG: The password is longer than the CONFIG_AUTHPASS_MAX_LEN.
  */
 int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
@@ -699,12 +700,20 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         u->flags &= ~USER_FLAG_NOPASS;
         listEmpty(u->passwords);
     } else if (op[0] == '>') {
+        if (oplen-1 > CONFIG_AUTHPASS_MAX_LEN) {
+            errno = E2BIG;
+            return C_ERR;
+        }
         sds newpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
         if (ln == NULL) listAddNodeTail(u->passwords,newpass);
         u->flags &= ~USER_FLAG_NOPASS;
     } else if (op[0] == '<') {
+        if (oplen-1 > CONFIG_AUTHPASS_MAX_LEN) {
+            errno = E2BIG;
+            return C_ERR;
+        }
         sds delpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,delpass);
         sdsfree(delpass);
@@ -820,6 +829,9 @@ char *ACLSetUserStringError(void) {
     else if (errno == ENODEV)
         errmsg = "The password you are trying to remove from the user does "
                  "not exist";
+    else if (errno == E2BIG)
+        errmsg = "The password provided is longer than the max "
+                 "password length of " STRINGIFY(CONFIG_AUTHPASS_MAX_LEN);
     return errmsg;
 }
 
