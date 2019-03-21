@@ -7,10 +7,27 @@ static RedisModuleString *log_key_name;
 
 static const char log_command_name[] = "hellofilter.log";
 static const char ping_command_name[] = "hellofilter.ping";
+static const char unregister_command_name[] = "hellofilter.unregister";
 static int in_module = 0;
+
+static RedisModuleCommandFilter *filter = NULL;
+
+int HelloFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    (void) argc;
+    (void) argv;
+
+    RedisModule_ReplyWithLongLong(ctx,
+            RedisModule_UnregisterCommandFilter(ctx, filter));
+
+    return REDISMODULE_OK;
+}
 
 int HelloFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
+    (void) argc;
+    (void) argv;
+
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "ping", "c", "@log");
     if (reply) {
         RedisModule_ReplyWithCallReply(ctx, reply);
@@ -115,11 +132,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,ping_command_name,
-                HelloFilter_PingCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+                HelloFilter_PingCommand,"deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
-    if (RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter)
-            == REDISMODULE_ERR) return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,unregister_command_name,
+                HelloFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+            return REDISMODULE_ERR;
+
+    if ((filter = RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter))
+            == NULL) return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
 }

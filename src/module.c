@@ -49,6 +49,7 @@ struct RedisModule {
     list *types;    /* Module data types. */
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
+    list *filters;  /* List of filters the module has registered. */
 };
 typedef struct RedisModule RedisModule;
 
@@ -747,6 +748,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->types = listCreate();
     module->usedby = listCreate();
     module->using = listCreate();
+    module->filters = listCreate();
     ctx->module = module;
 }
 
@@ -4795,6 +4797,28 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
     return count;
 }
 
+/* Unregister all filters registered by a module.
+ * This is called when a module is being unloaded.
+ * 
+ * Returns the number of filters unregistered. */
+int moduleUnregisterFilters(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->filters,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *filter = ln->value;
+        listNode *ln = listSearchKey(moduleCommandFilters,filter);
+        if (ln) {
+            listDelNode(moduleCommandFilters,ln);
+            count++;
+        }
+        zfree(filter);
+    }
+    return count;
+}
+
 /* --------------------------------------------------------------------------
  * Module Command Filter API
  * -------------------------------------------------------------------------- */
@@ -4842,12 +4866,33 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
  * are executed in the order of registration.
  */
 
-int RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback) {
     RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
     filter->module = ctx->module;
     filter->callback = callback;
 
     listAddNodeTail(moduleCommandFilters, filter);
+    listAddNodeTail(ctx->module->filters, filter);
+    return filter;
+}
+
+/* Unregister a command filter.
+ */
+int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) {
+    listNode *ln;
+
+    /* A module can only remove its own filters */
+    if (filter->module != ctx->module) return REDISMODULE_ERR;
+
+    ln = listSearchKey(moduleCommandFilters,filter);
+    if (!ln) return REDISMODULE_ERR;
+    listDelNode(moduleCommandFilters,ln);
+    
+    ln = listSearchKey(ctx->module->filters,filter);
+    if (ln) {
+        listDelNode(moduleCommandFilters,ln);
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -4876,18 +4921,18 @@ void moduleCallCommandFilters(client *c) {
 /* Return the number of arguments a filtered command has.  The number of
  * arguments include the command itself.
  */
-int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *filter)
+int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *fctx)
 {
-    return filter->argc;
+    return fctx->argc;
 }
 
 /* Return the specified command argument.  The first argument (position 0) is
  * the command itself, and the rest are user-provided args.
  */
-const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *filter, int pos)
+const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fctx, int pos)
 {
-    if (pos < 0 || pos >= filter->argc) return NULL;
-    return filter->argv[pos];
+    if (pos < 0 || pos >= fctx->argc) return NULL;
+    return fctx->argv[pos];
 }
 
 /* Modify the filtered command by inserting a new argument at the specified
@@ -4896,18 +4941,18 @@ const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fil
  * allocated, freed or used elsewhere.
  */
 
-int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *filter, int pos, RedisModuleString *arg)
+int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
 {
     int i;
 
-    if (pos < 0 || pos > filter->argc) return REDISMODULE_ERR;
+    if (pos < 0 || pos > fctx->argc) return REDISMODULE_ERR;
 
-    filter->argv = zrealloc(filter->argv, (filter->argc+1)*sizeof(RedisModuleString *));
-    for (i = filter->argc; i > pos; i--) {
-        filter->argv[i] = filter->argv[i-1];
+    fctx->argv = zrealloc(fctx->argv, (fctx->argc+1)*sizeof(RedisModuleString *));
+    for (i = fctx->argc; i > pos; i--) {
+        fctx->argv[i] = fctx->argv[i-1];
     }
-    filter->argv[pos] = arg;
-    filter->argc++;
+    fctx->argv[pos] = arg;
+    fctx->argc++;
 
     return REDISMODULE_OK;
 }
@@ -4918,12 +4963,12 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *filter, int pos, Redi
  * or used elsewhere.
  */
 
-int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *filter, int pos, RedisModuleString *arg)
+int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
 {
-    if (pos < 0 || pos >= filter->argc) return REDISMODULE_ERR;
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
 
-    decrRefCount(filter->argv[pos]);
-    filter->argv[pos] = arg;
+    decrRefCount(fctx->argv[pos]);
+    fctx->argv[pos] = arg;
 
     return REDISMODULE_OK;
 }
@@ -4931,16 +4976,16 @@ int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *filter, int pos, Red
 /* Modify the filtered command by deleting an argument at the specified
  * position.
  */
-int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *filter, int pos)
+int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 {
     int i;
-    if (pos < 0 || pos >= filter->argc) return REDISMODULE_ERR;
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
 
-    decrRefCount(filter->argv[pos]);
-    for (i = pos; i < filter->argc-1; i++) {
-        filter->argv[i] = filter->argv[i+1];
+    decrRefCount(fctx->argv[pos]);
+    for (i = pos; i < fctx->argc-1; i++) {
+        fctx->argv[i] = fctx->argv[i+1];
     }
-    filter->argc--;
+    fctx->argc--;
 
     return REDISMODULE_OK;
 }
@@ -5042,6 +5087,7 @@ void moduleLoadFromQueue(void) {
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->types);
+    listRelease(module->filters);
     sdsfree(module->name);
     zfree(module);
 }
@@ -5133,6 +5179,7 @@ int moduleUnload(sds name) {
     moduleUnregisterCommands(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
@@ -5392,6 +5439,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
     REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(UnregisterCommandFilter);
     REGISTER_API(CommandFilterArgsCount);
     REGISTER_API(CommandFilterArgGet);
     REGISTER_API(CommandFilterArgInsert);

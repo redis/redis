@@ -42,4 +42,26 @@ start_server {tags {"modules"}} {
         r eval "redis.call('hellofilter.ping')" 0
         r lrange log-key 0 -1
     } "{ping @log}"
+
+    test {Command Filter is unregistered implicitly on module unload} {
+        r del log-key
+        r module unload hellofilter
+        r set mykey @log
+        r lrange log-key 0 -1
+    } {}
+
+    r module load $testmodule log-key-2
+
+    test {Command Filter unregister works as expected} {
+        # Validate reloading succeeded
+        r set mykey @log
+        assert_equal "{set mykey @log}" [r lrange log-key-2 0 -1]
+
+        # Unregister
+        r hellofilter.unregister
+        r del log-key-2
+
+        r set mykey @log
+        r lrange log-key-2 0 -1
+    } {}
 } 
