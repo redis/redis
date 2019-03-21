@@ -107,7 +107,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
          * to return NULL ASAP. */
         if (server.masterhost == NULL) {
             server.stat_keyspace_misses++;
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "miss", key, db->id);
+            notifyKeyspaceEvent(NOTIFY_KEY_MISS, "miss", key, db->id);
             return NULL;
         }
 
@@ -129,14 +129,14 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd->flags & CMD_READONLY)
         {
             server.stat_keyspace_misses++;
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "miss", key, db->id);
+            notifyKeyspaceEvent(NOTIFY_KEY_MISS, "miss", key, db->id);
             return NULL;
         }
     }
     val = lookupKey(db,key,flags);
     if (val == NULL) {
         server.stat_keyspace_misses++;
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "miss", key, db->id);
+        notifyKeyspaceEvent(NOTIFY_KEY_MISS, "miss", key, db->id);
     }
     else
         server.stat_keyspace_hits++;

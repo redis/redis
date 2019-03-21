@@ -450,7 +450,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                             REDISMODULE_NOTIFY_HASH |
                                             REDISMODULE_NOTIFY_SET |
                                             REDISMODULE_NOTIFY_STRING |
-                                            REDISMODULE_NOTIFY_GENERIC,
+                                            REDISMODULE_NOTIFY_KEY_MISS,
                                         NotifyCallback);
     if (RedisModule_CreateCommand(ctx,"test.notify",
         TestNotifications,"write deny-oom",1,1,1) == REDISMODULE_ERR)
