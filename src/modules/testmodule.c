@@ -188,7 +188,7 @@ int TestNotifications(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
     RedisModule_Call(ctx, "LPUSH", "cc", "l", "y");
 
-    /* Miss some keys intentionally so we will get a "miss" notification. */
+    /* Miss some keys intentionally so we will get a "keymiss" notification. */
     RedisModule_Call(ctx, "GET", "c", "nosuchkey");
     RedisModule_Call(ctx, "SMEMBERS", "c", "nosuchkey");
 
