@@ -1089,7 +1089,11 @@ void replicationCreateMasterClient(int fd, int dbid) {
     if (dbid != -1) selectDb(server.master,dbid);
 }
 
-void restartAOF() {
+/* This function will try to re-enable the AOF file after the
+ * master-replica synchronization: if it fails after multiple attempts
+ * the replica cannot be considered reliable and exists with an
+ * error. */
+void restartAOFAfterSYNC() {
     unsigned int tries, max_tries = 10;
     for (tries = 0; tries < max_tries; ++tries) {
         if (startAppendOnly() == C_OK) break;
@@ -1288,7 +1292,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             cancelReplicationHandshake();
             /* Re-enable the AOF if we disabled it earlier, in order to restore
              * the original configuration. */
-            if (aof_is_enabled) restartAOF();
+            if (aof_is_enabled) restartAOFAfterSYNC();
             return;
         }
         /* Final setup of the connected slave <- master link */
@@ -1313,7 +1317,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
          * to the new file. */
-        if (aof_is_enabled) restartAOF();
+        if (aof_is_enabled) restartAOFAfterSYNC();
     }
     return;
 
