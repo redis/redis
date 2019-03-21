@@ -1470,6 +1470,8 @@ extern dictType hashDictType;
 extern dictType replScriptCacheDictType;
 extern dictType keyptrDictType;
 extern dictType modulesDictType;
+extern pthread_mutex_t lazyfree_objects_mutex;
+extern pthread_mutex_t used_memory_mutex;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -1491,6 +1493,7 @@ size_t moduleCount(void);
 void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
+void moduleReleaseLocks(void);
 
 
 /* Utils */

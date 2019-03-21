@@ -1038,7 +1038,7 @@ void serverLogRaw(int level, const char *msg) {
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
             role_char = 'X'; /* Sentinel. */
-        } else if (pid != server.pid) {
+        } else if (server.pid != 0 && pid != server.pid) {
             role_char = 'C'; /* RDB / AOF writing child. */
         } else {
             role_char = (server.masterhost ? 'S':'M'); /* Slave or Master. */
@@ -2693,6 +2693,21 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
 }
 
+/* The child inherits the entire virtual address space of the parent,
+ * including the states of mutexes, but the mutexes may be locked,
+ * so it's necessary to release all global mutexes in child fork handler,
+ * in case of deadlock. */
+void postForkChild(void) {
+    pthread_mutex_unlock(&server.lruclock_mutex);
+    pthread_mutex_unlock(&server.next_client_id_mutex);
+    pthread_mutex_unlock(&server.unixtime_mutex);
+    pthread_mutex_unlock(&lazyfree_objects_mutex);
+    pthread_mutex_unlock(&used_memory_mutex);
+
+    moduleReleaseLocks();
+    bioReleaseLocks();
+}
+
 void initServer(void) {
     int j;
 
@@ -2861,6 +2876,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    pthread_atfork(NULL,NULL,postForkChild);
     server.initial_memory_usage = zmalloc_used_memory();
 }
 

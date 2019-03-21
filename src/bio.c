@@ -266,3 +266,9 @@ void bioKillThreads(void) {
         }
     }
 }
+
+void bioReleaseLocks(void) {
+    for (int j = 0; j < BIO_NUM_OPS; j++) {
+        pthread_mutex_unlock(&bio_mutex[j]);
+    }
+}
