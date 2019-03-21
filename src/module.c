@@ -4889,9 +4889,8 @@ int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *fi
     listDelNode(moduleCommandFilters,ln);
     
     ln = listSearchKey(ctx->module->filters,filter);
-    if (ln) {
-        listDelNode(moduleCommandFilters,ln);
-    }
+    if (!ln) return REDISMODULE_ERR;    /* Shouldn't happen */
+    listDelNode(ctx->module->filters,ln);
 
     return REDISMODULE_OK;
 }
