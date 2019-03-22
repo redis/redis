@@ -49,6 +49,8 @@ struct RedisModule {
     list *types;    /* Module data types. */
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
+    list *filters;  /* List of filters the module has registered. */
+    int in_call;    /* RM_Call() nesting level */
 };
 typedef struct RedisModule RedisModule;
 
@@ -269,6 +271,25 @@ typedef struct RedisModuleDictIter {
     RedisModuleDict *dict;
     raxIterator ri;
 } RedisModuleDictIter;
+
+typedef struct RedisModuleCommandFilterCtx {
+    RedisModuleString **argv;
+    int argc;
+} RedisModuleCommandFilterCtx;
+
+typedef void (*RedisModuleCommandFilterFunc) (RedisModuleCommandFilterCtx *filter);
+
+typedef struct RedisModuleCommandFilter {
+    /* The module that registered the filter */
+    RedisModule *module;
+    /* Filter callback function */
+    RedisModuleCommandFilterFunc callback;
+    /* REDISMODULE_CMDFILTER_* flags */
+    int flags;
+} RedisModuleCommandFilter;
+
+/* Registered filters */
+static list *moduleCommandFilters;
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -731,6 +752,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->types = listCreate();
     module->usedby = listCreate();
     module->using = listCreate();
+    module->filters = listCreate();
     ctx->module = module;
 }
 
@@ -2724,12 +2746,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     RedisModuleCallReply *reply = NULL;
     int replicate = 0; /* Replicate this command? */
 
-    cmd = lookupCommandByCString((char*)cmdname);
-    if (!cmd) {
-        errno = EINVAL;
-        return NULL;
-    }
-
     /* Create the client and dispatch the command. */
     va_start(ap, fmt);
     c = createClient(-1);
@@ -2743,10 +2759,24 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     c->db = ctx->client->db;
     c->argv = argv;
     c->argc = argc;
-    c->cmd = c->lastcmd = cmd;
+    if (ctx->module) ctx->module->in_call++;
+
     /* We handle the above format error only when the client is setup so that
      * we can free it normally. */
     if (argv == NULL) goto cleanup;
+
+    /* Call command filters */
+    moduleCallCommandFilters(c);
+
+    /* Lookup command now, after filters had a chance to make modifications
+     * if necessary.
+     */
+    cmd = lookupCommand(c->argv[0]->ptr);
+    if (!cmd) {
+        errno = EINVAL;
+        goto cleanup;
+    }
+    c->cmd = c->lastcmd = cmd;
 
     /* Basic arity checks. */
     if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
@@ -2797,6 +2827,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     autoMemoryAdd(ctx,REDISMODULE_AM_REPLY,reply);
 
 cleanup:
+    if (ctx->module) ctx->module->in_call--;
     freeClient(c);
     return reply;
 }
@@ -4778,6 +4809,214 @@ int moduleUnregisterUsedAPI(RedisModule *module) {
     return count;
 }
 
+/* Unregister all filters registered by a module.
+ * This is called when a module is being unloaded.
+ * 
+ * Returns the number of filters unregistered. */
+int moduleUnregisterFilters(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    int count = 0;
+
+    listRewind(module->filters,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *filter = ln->value;
+        listNode *ln = listSearchKey(moduleCommandFilters,filter);
+        if (ln) {
+            listDelNode(moduleCommandFilters,ln);
+            count++;
+        }
+        zfree(filter);
+    }
+    return count;
+}
+
+/* --------------------------------------------------------------------------
+ * Module Command Filter API
+ * -------------------------------------------------------------------------- */
+
+/* Register a new command filter function.
+ *
+ * Command filtering makes it possible for modules to extend Redis by plugging
+ * into the execution flow of all commands.
+ *
+ * A registered filter gets called before Redis executes *any* command.  This
+ * includes both core Redis commands and commands registered by any module.  The
+ * filter applies in all execution paths including:
+ *
+ * 1. Invocation by a client.
+ * 2. Invocation through `RedisModule_Call()` by any module.
+ * 3. Invocation through Lua 'redis.call()`.
+ * 4. Replication of a command from a master.
+ *
+ * The filter executes in a special filter context, which is different and more
+ * limited than a RedisModuleCtx.  Because the filter affects any command, it
+ * must be implemented in a very efficient way to reduce the performance impact
+ * on Redis.  All Redis Module API calls that require a valid context (such as
+ * `RedisModule_Call()`, `RedisModule_OpenKey()`, etc.) are not supported in a
+ * filter context.
+ *
+ * The `RedisModuleCommandFilterCtx` can be used to inspect or modify the
+ * executed command and its arguments.  As the filter executes before Redis
+ * begins processing the command, any change will affect the way the command is
+ * processed.  For example, a module can override Redis commands this way:
+ *
+ * 1. Register a `MODULE.SET` command which implements an extended version of
+ *    the Redis `SET` command.
+ * 2. Register a command filter which detects invocation of `SET` on a specific
+ *    pattern of keys.  Once detected, the filter will replace the first
+ *    argument from `SET` to `MODULE.SET`.
+ * 3. When filter execution is complete, Redis considers the new command name
+ *    and therefore executes the module's own command.
+ *
+ * Note that in the above use case, if `MODULE.SET` itself uses
+ * `RedisModule_Call()` the filter will be applied on that call as well.  If
+ * that is not desired, the `REDISMODULE_CMDFILTER_NOSELF` flag can be set when
+ * registering the filter.
+ *
+ * The `REDISMODULE_CMDFILTER_NOSELF` flag prevents execution flows that
+ * originate from the module's own `RM_Call()` from reaching the filter.  This
+ * flag is effective for all execution flows, including nested ones, as long as
+ * the execution begins from the module's command context or a thread-safe
+ * context that is associated with a blocking command.
+ *
+ * Detached thread-safe contexts are *not* associated with the module and cannot
+ * be protected by this flag.
+ *
+ * If multiple filters are registered (by the same or different modules), they
+ * are executed in the order of registration.
+ */
+
+RedisModuleCommandFilter *RM_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback, int flags) {
+    RedisModuleCommandFilter *filter = zmalloc(sizeof(*filter));
+    filter->module = ctx->module;
+    filter->callback = callback;
+    filter->flags = flags;
+
+    listAddNodeTail(moduleCommandFilters, filter);
+    listAddNodeTail(ctx->module->filters, filter);
+    return filter;
+}
+
+/* Unregister a command filter.
+ */
+int RM_UnregisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilter *filter) {
+    listNode *ln;
+
+    /* A module can only remove its own filters */
+    if (filter->module != ctx->module) return REDISMODULE_ERR;
+
+    ln = listSearchKey(moduleCommandFilters,filter);
+    if (!ln) return REDISMODULE_ERR;
+    listDelNode(moduleCommandFilters,ln);
+    
+    ln = listSearchKey(ctx->module->filters,filter);
+    if (!ln) return REDISMODULE_ERR;    /* Shouldn't happen */
+    listDelNode(ctx->module->filters,ln);
+
+    return REDISMODULE_OK;
+}
+
+void moduleCallCommandFilters(client *c) {
+    if (listLength(moduleCommandFilters) == 0) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(moduleCommandFilters,&li);
+
+    RedisModuleCommandFilterCtx filter = {
+        .argv = c->argv,
+        .argc = c->argc
+    };
+
+    while((ln = listNext(&li))) {
+        RedisModuleCommandFilter *f = ln->value;
+
+        /* Skip filter if REDISMODULE_CMDFILTER_NOSELF is set and module is
+         * currently processing a command.
+         */
+        if ((f->flags & REDISMODULE_CMDFILTER_NOSELF) && f->module->in_call) continue;
+
+        /* Call filter */
+        f->callback(&filter);
+    }
+
+    c->argv = filter.argv;
+    c->argc = filter.argc;
+}
+
+/* Return the number of arguments a filtered command has.  The number of
+ * arguments include the command itself.
+ */
+int RM_CommandFilterArgsCount(RedisModuleCommandFilterCtx *fctx)
+{
+    return fctx->argc;
+}
+
+/* Return the specified command argument.  The first argument (position 0) is
+ * the command itself, and the rest are user-provided args.
+ */
+const RedisModuleString *RM_CommandFilterArgGet(RedisModuleCommandFilterCtx *fctx, int pos)
+{
+    if (pos < 0 || pos >= fctx->argc) return NULL;
+    return fctx->argv[pos];
+}
+
+/* Modify the filtered command by inserting a new argument at the specified
+ * position.  The specified RedisModuleString argument may be used by Redis
+ * after the filter context is destroyed, so it must not be auto-memory
+ * allocated, freed or used elsewhere.
+ */
+
+int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
+{
+    int i;
+
+    if (pos < 0 || pos > fctx->argc) return REDISMODULE_ERR;
+
+    fctx->argv = zrealloc(fctx->argv, (fctx->argc+1)*sizeof(RedisModuleString *));
+    for (i = fctx->argc; i > pos; i--) {
+        fctx->argv[i] = fctx->argv[i-1];
+    }
+    fctx->argv[pos] = arg;
+    fctx->argc++;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by replacing an existing argument with a new one.
+ * The specified RedisModuleString argument may be used by Redis after the
+ * filter context is destroyed, so it must not be auto-memory allocated, freed
+ * or used elsewhere.
+ */
+
+int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg)
+{
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
+
+    decrRefCount(fctx->argv[pos]);
+    fctx->argv[pos] = arg;
+
+    return REDISMODULE_OK;
+}
+
+/* Modify the filtered command by deleting an argument at the specified
+ * position.
+ */
+int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
+{
+    int i;
+    if (pos < 0 || pos >= fctx->argc) return REDISMODULE_ERR;
+
+    decrRefCount(fctx->argv[pos]);
+    for (i = pos; i < fctx->argc-1; i++) {
+        fctx->argv[i] = fctx->argv[i+1];
+    }
+    fctx->argc--;
+
+    return REDISMODULE_OK;
+}
+
 /* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
@@ -4823,6 +5062,9 @@ void moduleInitModulesSystem(void) {
     moduleFreeContextReusedClient = createClient(-1);
     moduleFreeContextReusedClient->flags |= CLIENT_MODULE;
     moduleFreeContextReusedClient->user = NULL; /* root user. */
+
+    /* Set up filter list */
+    moduleCommandFilters = listCreate();
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
@@ -4873,6 +5115,7 @@ void moduleLoadFromQueue(void) {
 
 void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->types);
+    listRelease(module->filters);
     sdsfree(module->name);
     zfree(module);
 }
@@ -4964,6 +5207,7 @@ int moduleUnload(sds name) {
     moduleUnregisterCommands(module);
     moduleUnregisterSharedAPI(module);
     moduleUnregisterUsedAPI(module);
+    moduleUnregisterFilters(module);
 
     /* Remove any notification subscribers this module might have */
     moduleUnsubscribeNotifications(module);
@@ -5228,4 +5472,11 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DictCompare);
     REGISTER_API(ExportSharedAPI);
     REGISTER_API(GetSharedAPI);
+    REGISTER_API(RegisterCommandFilter);
+    REGISTER_API(UnregisterCommandFilter);
+    REGISTER_API(CommandFilterArgsCount);
+    REGISTER_API(CommandFilterArgGet);
+    REGISTER_API(CommandFilterArgInsert);
+    REGISTER_API(CommandFilterArgReplace);
+    REGISTER_API(CommandFilterArgDelete);
 }
