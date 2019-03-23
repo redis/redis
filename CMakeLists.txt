@@ -104,6 +104,13 @@ add_executable(redis-server
         src/defrag.c
         src/siphash.c
         src/rax.c
+        src/localtime.c
+        src/acl.c
+        src/gopher.c
+        src/t_stream.c
+        src/listpack.c
+        src/lolwut.c
+        src/lolwut5.c
         )
 
 #take care of compile flags
