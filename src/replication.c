@@ -1316,6 +1316,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (server.repl_backlog == NULL) createReplicationBacklog();
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
          * to the new file. */
