@@ -1008,8 +1008,6 @@ struct redisCommand redisCommandTable[] = {
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
-int redisCommunicateSystemd(const char *sd_notify_msg);
-
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
