@@ -1505,7 +1505,6 @@ size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
 int redisCommunicateSystemd(const char *sd_notify_msg);
 
-
 /* networking.c -- Networking and Client related operations */
 client *createClient(int fd);
 void closeTimedoutClients(void);
