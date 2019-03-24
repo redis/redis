@@ -1317,7 +1317,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success\n");
+            redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections.\n");
             redisCommunicateSystemd("READY=1\n");
         }
         /* Restart the AOF subsystem now that we finished the sync. This
