@@ -628,6 +628,19 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
+/* Append 'src' client output buffers into 'dst' client output buffers. 
+ * This function clears the output buffers of 'src' */
+void AddReplyFromClient(client *dst, client *src) {
+    if (prepareClientToWrite(dst) != C_OK)
+        return;
+    addReplyString(dst,src->buf, src->bufpos);
+    if (listLength(src->reply))
+        listJoin(dst->reply,src->reply);
+    dst->reply_bytes += src->reply_bytes;
+    src->reply_bytes = 0;
+    src->bufpos = 0;
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */
