@@ -752,6 +752,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->usedby = listCreate();
     module->using = listCreate();
     module->filters = listCreate();
+    module->in_call = 0;
     ctx->module = module;
 }
 
