@@ -1,18 +1,18 @@
 #define REDISMODULE_EXPERIMENTAL_API
-#include "../redismodule.h"
+#include "redismodule.h"
 
 #include <string.h>
 
 static RedisModuleString *log_key_name;
 
-static const char log_command_name[] = "hellofilter.log";
-static const char ping_command_name[] = "hellofilter.ping";
-static const char unregister_command_name[] = "hellofilter.unregister";
+static const char log_command_name[] = "commandfilter.log";
+static const char ping_command_name[] = "commandfilter.ping";
+static const char unregister_command_name[] = "commandfilter.unregister";
 static int in_log_command = 0;
 
 static RedisModuleCommandFilter *filter = NULL;
 
-int HelloFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+int CommandFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     (void) argc;
     (void) argv;
@@ -23,7 +23,7 @@ int HelloFilter_UnregisterCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_OK;
 }
 
-int HelloFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+int CommandFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     (void) argc;
     (void) argv;
@@ -39,7 +39,7 @@ int HelloFilter_PingCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_OK;
 }
 
-int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+int CommandFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     RedisModuleString *s = RedisModule_CreateString(ctx, "", 0);
 
@@ -74,9 +74,9 @@ int HelloFilter_LogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
-void HelloFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
+void CommandFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 {
-    if (in_log_command) return;  /* don't process our own RM_Call() from HelloFilter_LogCommand() */
+    if (in_log_command) return;  /* don't process our own RM_Call() from CommandFilter_LogCommand() */
 
     /* Fun manipulations:
      * - Remove @delme
@@ -117,7 +117,7 @@ void HelloFilter_CommandFilter(RedisModuleCommandFilterCtx *filter)
 }
 
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (RedisModule_Init(ctx,"hellofilter",1,REDISMODULE_APIVER_1)
+    if (RedisModule_Init(ctx,"commandfilter",1,REDISMODULE_APIVER_1)
             == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (argc != 2) {
@@ -130,18 +130,18 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_StringToLongLong(argv[1], &noself);
 
     if (RedisModule_CreateCommand(ctx,log_command_name,
-                HelloFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+                CommandFilter_LogCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,ping_command_name,
-                HelloFilter_PingCommand,"deny-oom",1,1,1) == REDISMODULE_ERR)
+                CommandFilter_PingCommand,"deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,unregister_command_name,
-                HelloFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+                CommandFilter_UnregisterCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
             return REDISMODULE_ERR;
 
-    if ((filter = RedisModule_RegisterCommandFilter(ctx, HelloFilter_CommandFilter, 
+    if ((filter = RedisModule_RegisterCommandFilter(ctx, CommandFilter_CommandFilter, 
                     noself ? REDISMODULE_CMDFILTER_NOSELF : 0))
             == NULL) return REDISMODULE_ERR;
 

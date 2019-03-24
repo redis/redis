@@ -1,4 +1,4 @@
-set testmodule [file normalize src/modules/hellofilter.so]
+set testmodule [file normalize tests/modules/commandfilter.so]
 
 start_server {tags {"modules"}} {
     r module load $testmodule log-key 0
@@ -27,7 +27,7 @@ start_server {tags {"modules"}} {
 
     test {Command Filter applies on RM_Call() commands} {
         r del log-key
-        r hellofilter.ping
+        r commandfilter.ping
         r lrange log-key 0 -1
     } "{ping @log}"
 
@@ -39,13 +39,13 @@ start_server {tags {"modules"}} {
 
     test {Command Filter applies on Lua redis.call() that calls a module} {
         r del log-key
-        r eval "redis.call('hellofilter.ping')" 0
+        r eval "redis.call('commandfilter.ping')" 0
         r lrange log-key 0 -1
     } "{ping @log}"
 
     test {Command Filter is unregistered implicitly on module unload} {
         r del log-key
-        r module unload hellofilter
+        r module unload commandfilter
         r set mykey @log
         r lrange log-key 0 -1
     } {}
@@ -59,14 +59,14 @@ start_server {tags {"modules"}} {
         assert_equal "{set mykey @log}" [r lrange log-key 0 -1]
 
         # Unregister
-        r hellofilter.unregister
+        r commandfilter.unregister
         r del log-key
 
         r set mykey @log
         r lrange log-key 0 -1
     } {}
 
-    r module unload hellofilter
+    r module unload commandfilter
     r module load $testmodule log-key 1
 
     test {Command Filter REDISMODULE_CMDFILTER_NOSELF works as expected} {
@@ -74,10 +74,10 @@ start_server {tags {"modules"}} {
         assert_equal "{set mykey @log}" [r lrange log-key 0 -1]
 
         r del log-key
-        r hellofilter.ping
+        r commandfilter.ping
         assert_equal {} [r lrange log-key 0 -1]
 
-        r eval "redis.call('hellofilter.ping')" 0
+        r eval "redis.call('commandfilter.ping')" 0
         assert_equal {} [r lrange log-key 0 -1]
     }
 
