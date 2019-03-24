@@ -3510,7 +3510,7 @@ int prepareForShutdown(int flags) {
 
     serverLog(LL_WARNING,"User requested shutdown...");
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
-	redisCommunicateSystemd("STOPPING=1\n");
+        redisCommunicateSystemd("STOPPING=1\n");
 
     /* Kill all the Lua debugger forked sessions. */
     ldbKillForkedSessions();
@@ -3546,8 +3546,8 @@ int prepareForShutdown(int flags) {
     /* Create a new RDB file before exiting. */
     if ((server.saveparamslen > 0 && !nosave) || save) {
         serverLog(LL_NOTICE,"Saving the final RDB snapshot before exiting.");
-	if (server.supervised_mode == SUPERVISED_SYSTEMD)
-	    redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
+        if (server.supervised_mode == SUPERVISED_SYSTEMD)
+            redisCommunicateSystemd("STATUS=Saving the final RDB snapshot\n");
         /* Snapshotting. Perform a SYNC SAVE and exit */
         rdbSaveInfo rsi, *rsiptr;
         rsiptr = rdbPopulateSaveInfo(&rsi);
@@ -3558,8 +3558,8 @@ int prepareForShutdown(int flags) {
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
             serverLog(LL_WARNING,"Error trying to save the DB, can't exit.");
-	    if (server.supervised_mode == SUPERVISED_SYSTEMD)
-		redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
+            if (server.supervised_mode == SUPERVISED_SYSTEMD)
+                redisCommunicateSystemd("STATUS=Error trying to save the DB, can't exit.\n");
             return C_ERR;
         }
     }
@@ -4646,8 +4646,8 @@ int redisCommunicateSystemd(const char *sd_notify_msg) {
     if (!handle) {
         serverLog(LL_WARNING,
                 "systemd supervision requested, but could not dlopen() libsystemd.so");
-	(void) dlerror();
-	return 0;
+        (void) dlerror();
+        return 0;
     }
     (void) dlerror();
 
@@ -4657,7 +4657,7 @@ int redisCommunicateSystemd(const char *sd_notify_msg) {
     if (error != NULL) {
         serverLog(LL_WARNING,
                 "systemd supervision requested, but could not load sd_notify(3) from libsystemd.so");
-	return 0;
+        return 0;
     }
 
     (void) (*dl_sd_notify)(0, sd_notify_msg);
@@ -4673,8 +4673,8 @@ int redisIsSupervised(int mode) {
         if (upstart_job) {
             redisSupervisedUpstart();
         } else if (notify_socket) {
-	    /* If systemd supervision has been auto-detected, revert to the old
-	     * behaviour of reporting readiness right away */
+            /* If systemd supervision has been auto-detected, revert to the old
+             * behaviour of reporting readiness right away */
             redisCommunicateSystemd("READY=1\n");
         }
     } else if (mode == SUPERVISED_UPSTART) {
@@ -4873,10 +4873,10 @@ int main(int argc, char **argv) {
             serverLog(LL_NOTICE,"Ready to accept connections");
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
-	if (server.supervised_mode == SUPERVISED_SYSTEMD) {
-	    redisCommunicateSystemd("STATUS=Ready to accept connections\n");
-	    redisCommunicateSystemd("READY=1\n");
-	}
+        if (server.supervised_mode == SUPERVISED_SYSTEMD) {
+            redisCommunicateSystemd("STATUS=Ready to accept connections\n");
+            redisCommunicateSystemd("READY=1\n");
+        }
     } else {
         sentinelIsRunning();
     }
