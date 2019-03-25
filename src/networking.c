@@ -2471,9 +2471,11 @@ int processEventsWhileBlocked(void) {
     return count;
 }
 
-/* =============================================================================
+/* ==========================================================================
  * Threaded I/O
- * =========================================================================== */
+ * ========================================================================== */
+
+int tio_debug = 0;
 
 #define SERVER_MAX_IO_THREADS 32
 
@@ -2497,11 +2499,11 @@ void *IOThreadMain(void *myid) {
         pthread_mutex_lock(&io_threads_idle_mutex);
         io_threads_idle++;
         pthread_cond_signal(&io_threads_idle_cond);
-        printf("[%ld] Waiting start...\n", id);
+        if (tio_debug) printf("[%ld] Waiting start...\n", id);
         pthread_cond_wait(&io_threads_start_cond,&io_threads_idle_mutex);
-        printf("[%ld] Started\n", id);
+        if (tio_debug) printf("[%ld] Started\n", id);
         pthread_mutex_unlock(&io_threads_idle_mutex);
-        printf("%d to handle\n", (int)listLength(io_threads_list[id]));
+        if (tio_debug) printf("%d to handle\n", (int)listLength(io_threads_list[id]));
 
         /* ... Process ... */
         listIter li;
@@ -2518,7 +2520,7 @@ void *IOThreadMain(void *myid) {
         io_threads_done++;
         pthread_cond_signal(&io_threads_done_cond);
         pthread_mutex_unlock(&io_threads_done_mutex);
-        printf("[%ld] Done\n", id);
+        if (tio_debug) printf("[%ld] Done\n", id);
     }
 }
 
@@ -2541,14 +2543,14 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     int processed = listLength(server.clients_pending_write);
     if (processed == 0) return 0; /* Return ASAP if there are no clients. */
 
-    printf("%d TOTAL\n", processed);
+    if (tio_debug) printf("%d TOTAL\n", processed);
 
     /* Wait for all threads to be ready. */
     pthread_mutex_lock(&io_threads_idle_mutex);
     while(io_threads_idle < server.io_threads_num) {
         pthread_cond_wait(&io_threads_idle_cond,&io_threads_idle_mutex);
     }
-    printf("All threads are idle: %d\n", io_threads_idle);
+    if (tio_debug) printf("All threads are idle: %d\n", io_threads_idle);
     io_threads_idle = 0;
     pthread_mutex_unlock(&io_threads_idle_mutex);
 
@@ -2566,7 +2568,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
 
     /* Start all threads. */
-    printf("Send start condition\n");
+    if (tio_debug) printf("Send start condition\n");
     pthread_mutex_lock(&io_threads_done_mutex);
     io_threads_done = 0;
     pthread_cond_broadcast(&io_threads_start_cond);
@@ -2578,7 +2580,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         pthread_cond_wait(&io_threads_done_cond,&io_threads_done_mutex);
     }
     pthread_mutex_unlock(&io_threads_done_mutex);
-    printf("All threads finshed\n");
+    if (tio_debug) printf("All threads finshed\n");
 
     /* Run the list of clients again to install the write handler where
      * needed. */
