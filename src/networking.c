@@ -2527,7 +2527,7 @@ void *IOThreadMain(void *myid) {
 void initThreadedIO(void) {
     pthread_t tid;
 
-    server.io_threads_num = 4;
+    server.io_threads_num = 8;
     io_threads_active = 0; /* We start with threads not active. */
     for (int i = 0; i < server.io_threads_num; i++) {
         pthread_mutex_init(&io_threads_mutex[i],NULL);
@@ -2543,6 +2543,7 @@ void initThreadedIO(void) {
 }
 
 void startThreadedIO(void) {
+    printf("S"); fflush(stdout);
     if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(io_threads_active == 0);
     for (int j = 0; j < server.io_threads_num; j++)
@@ -2551,11 +2552,29 @@ void startThreadedIO(void) {
 }
 
 void stopThreadedIO(void) {
+    printf("E"); fflush(stdout);
     if (tio_debug) printf("--- STOPPING THREADED IO ---\n");
     serverAssert(io_threads_active == 1);
     for (int j = 0; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
     io_threads_active = 0;
+}
+
+/* This function checks if there are not enough pending clients to justify
+ * taking the I/O threads active: in that case I/O threads are stopped if
+ * currently active.
+ *
+ * The function returns 0 if the I/O threading should be used becuase there
+ * are enough active threads, otherwise 1 is returned and the I/O threads
+ * could be possibly stopped (if already active) as a side effect. */
+int stopThreadedIOIfNeeded(void) {
+    int pending = listLength(server.clients_pending_write);
+    if (pending < (server.io_threads_num*2)) {
+        if (io_threads_active) stopThreadedIO();
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 int handleClientsWithPendingWritesUsingThreads(void) {
@@ -2564,12 +2583,12 @@ int handleClientsWithPendingWritesUsingThreads(void) {
 
     /* If we have just a few clients to serve, don't use I/O threads, but the
      * boring synchronous code. */
-    if (processed < (server.io_threads_num*2)) {
-        if (io_threads_active) stopThreadedIO();
+    if (stopThreadedIOIfNeeded()) {
         return handleClientsWithPendingWrites();
-    } else {
-        if (!io_threads_active) startThreadedIO();
     }
+
+    /* Start threads if needed. */
+    if (!io_threads_active) startThreadedIO();
 
     if (tio_debug) printf("%d TOTAL pending clients\n", processed);
 
