@@ -19,5 +19,13 @@ start_server {tags {"repl"}} {
                 fail "Slave didn't sync in time"
             }
         }
+        test {Synchronization continues to work after initial sync} {
+            r set foo 12345
+            wait_for_condition 50 100 {
+                [r -1 get foo] eq {12345}
+            } else {
+                fail "Write did not reached replica"
+            }
+        }
     }
 }
