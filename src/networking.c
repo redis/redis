@@ -2546,7 +2546,7 @@ void initThreadedIO(void) {
 }
 
 void startThreadedIO(void) {
-    printf("S"); fflush(stdout);
+    if (tio_debug) printf("S"); fflush(stdout);
     if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(io_threads_active == 0);
     for (int j = 0; j < server.io_threads_num; j++)
@@ -2555,7 +2555,7 @@ void startThreadedIO(void) {
 }
 
 void stopThreadedIO(void) {
-    printf("E"); fflush(stdout);
+    if (tio_debug) printf("E"); fflush(stdout);
     if (tio_debug) printf("--- STOPPING THREADED IO ---\n");
     serverAssert(io_threads_active == 1);
     for (int j = 0; j < server.io_threads_num; j++)
