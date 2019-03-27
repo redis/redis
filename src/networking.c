@@ -2525,7 +2525,6 @@ void *IOThreadMain(void *myid) {
 
 /* Initialize the data structures needed for threaded I/O. */
 void initThreadedIO(void) {
-    server.io_threads_num = 8;
     io_threads_active = 0; /* We start with threads not active. */
 
     /* Don't spawn any thread if the user selected a single thread:
@@ -2576,7 +2575,7 @@ int stopThreadedIOIfNeeded(void) {
     int pending = listLength(server.clients_pending_write);
 
     /* Return ASAP if IO threads are disabled (single threaded mode). */
-    if (server.io_threads_num == 1) return 0;
+    if (server.io_threads_num == 1) return 1;
 
     if (pending < (server.io_threads_num*2)) {
         if (io_threads_active) stopThreadedIO();
