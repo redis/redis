@@ -87,6 +87,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_TCP_BACKLOG       511    /* TCP listen backlog. */
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT       0   /* Default client timeout: infinite */
 #define CONFIG_DEFAULT_DBNUM     16
+#define CONFIG_DEFAULT_IO_THREADS_NUM 1         /* Single threaded by default */
 #define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
