@@ -2525,11 +2525,16 @@ void *IOThreadMain(void *myid) {
 
 /* Initialize the data structures needed for threaded I/O. */
 void initThreadedIO(void) {
-    pthread_t tid;
-
     server.io_threads_num = 8;
     io_threads_active = 0; /* We start with threads not active. */
+
+    /* Don't spawn any thread if the user selected a single thread:
+     * we'll handle I/O directly from the main thread. */
+    if (server.io_threads_num == 1) return;
+
+    /* Spawn the I/O threads. */
     for (int i = 0; i < server.io_threads_num; i++) {
+        pthread_t tid;
         pthread_mutex_init(&io_threads_mutex[i],NULL);
         io_threads_pending[i] = 0;
         io_threads_list[i] = listCreate();
@@ -2569,6 +2574,10 @@ void stopThreadedIO(void) {
  * could be possibly stopped (if already active) as a side effect. */
 int stopThreadedIOIfNeeded(void) {
     int pending = listLength(server.clients_pending_write);
+
+    /* Return ASAP if IO threads are disabled (single threaded mode). */
+    if (server.io_threads_num == 1) return 0;
+
     if (pending < (server.io_threads_num*2)) {
         if (io_threads_active) stopThreadedIO();
         return 1;
