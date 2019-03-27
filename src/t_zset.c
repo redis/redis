@@ -51,7 +51,6 @@
 
 #include "redis.h"
 #include <math.h>
-
 static int zslLexValueGteMin(robj *value, zlexrangespec *spec);
 static int zslLexValueLteMax(robj *value, zlexrangespec *spec);
 
@@ -62,6 +61,7 @@ zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
     return zn;
 }
 
+//新建跳跃表
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
@@ -79,11 +79,13 @@ zskiplist *zslCreate(void) {
     return zsl;
 }
 
+//减少跳跃表指向的对象的引用计数
 void zslFreeNode(zskiplistNode *node) {
     decrRefCount(node->obj);
     zfree(node);
 }
 
+//释放整个跳跃表
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
@@ -100,12 +102,15 @@ void zslFree(zskiplist *zsl) {
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
+
+//返回新建节点的层数，层数越高出现概率越低
 int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
+
 
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
@@ -121,17 +126,17 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
             (x->level[i].forward->score < score ||
                 (x->level[i].forward->score == score &&
                 compareStringObjects(x->level[i].forward->obj,obj) < 0))) {
-            rank[i] += x->level[i].span;
+            rank[i] += x->level[i].span;  //rank存储从头结点经过多少距离达到插入配置
             x = x->level[i].forward;
         }
-        update[i] = x;
+        update[i] = x;   //新建节点需要更新的节点(更新该节点第i层指针到新建节点)
     }
     /* we assume the key is not already inside, since we allow duplicated
      * scores, and the re-insertion of score and redis object should never
      * happen since the caller of zslInsert() should test in the hash table
      * if the element is already inside or not. */
     level = zslRandomLevel();
-    if (level > zsl->level) {
+    if (level > zsl->level) {   //新建层
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
             update[i] = zsl->header;
@@ -164,6 +169,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
 }
 
 /* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
+//删除单个节点
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
@@ -185,6 +191,7 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
 }
 
 /* Delete an element with matching score/object from the skiplist. */
+//删除单个节点
 int zslDelete(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
@@ -200,7 +207,7 @@ int zslDelete(zskiplist *zsl, double score, robj *obj) {
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
-    x = x->level[0].forward;
+    x = x->level[0].forward;//x的下一个节点>=指定分数，所以x需要下跳一个位置
     if (x && score == x->score && equalStringObjects(x->obj,obj)) {
         zslDeleteNode(zsl, x, update);
         zslFreeNode(x);

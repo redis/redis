@@ -68,16 +68,16 @@ typedef struct dictType {
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
     dictEntry **table;
-    unsigned long size;
+    unsigned long size;//槽的个数
     unsigned long sizemask;
-    unsigned long used;
+    unsigned long used;//该哈希表已经装载的元素数量
 } dictht;
 
 typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
-    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    long rehashidx; /* rehashing not in progress if rehashidx == -1  否则代表已经rehash的个数*/
     int iterators; /* number of iterators currently running */
 } dict;
 
@@ -86,11 +86,11 @@ typedef struct dict {
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
 typedef struct dictIterator {
-    dict *d;
-    long index;
+    dict *d;//正在遍历的table
+    long index;//正在遍历的槽
     int table, safe;
     dictEntry *entry, *nextEntry;
-    /* unsafe iterator fingerprint for misuse detection. */
+    /* unsafe iterator fingerprint for misuse(滥用) detection(检测). */
     long long fingerprint;
 } dictIterator;
 

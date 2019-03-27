@@ -52,6 +52,7 @@ static uint8_t _intsetValueEncoding(int64_t v) {
 }
 
 /* Return the value at pos, given an encoding. */
+//从整数集合中获取指定位置的值
 static int64_t _intsetGetEncoded(intset *is, int pos, uint8_t enc) {
     int64_t v64;
     int32_t v32;
@@ -124,14 +125,15 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
         /* Check for the case where we know we cannot find the value,
          * but do know the insert position. */
         if (value > _intsetGet(is,intrev32ifbe(is->length)-1)) {
-            if (pos) *pos = intrev32ifbe(is->length);
+            if (pos) *pos = intrev32ifbe(is->length);  //比所有值大，插在集合尾
             return 0;
         } else if (value < _intsetGet(is,0)) {
-            if (pos) *pos = 0;
+            if (pos) *pos = 0; //比所有值小，插在集合头
             return 0;
         }
     }
 
+    //整数集合是有序集合
     while(max >= min) {
         mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);

@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6"/>
+	<Project>
+		<Option title="project1"/>
+		<Option makefile_is_custom="1"/>
+		<Option compiler="gcc"/>
+		<Option virtualFolders="CMake Files\;"/>
+		<Build>
+			<Target title="all">
+				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 all"/>
+					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="rebuild_cache">
+				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 rebuild_cache"/>
+					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="edit_cache">
+				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option type="4"/>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 edit_cache"/>
+					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="exec">
+				<Option output="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/."/>
+					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/../../../linux-kernel/usr/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include/c++/v1"/>
+					<Add directory="/usr/local/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/10.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
+					<Add directory="/System/Library/Frameworks"/>
+					<Add directory="/Library/Frameworks"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec"/>
+					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+			<Target title="exec/fast">
+				<Option output="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/exec" prefix_auto="0" extension_auto="0"/>
+				<Option working_dir="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug"/>
+				<Option object_output="./"/>
+				<Option type="1"/>
+				<Option compiler="gcc"/>
+				<Compiler>
+					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/."/>
+					<Add directory="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/../../../linux-kernel/usr/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include/c++/v1"/>
+					<Add directory="/usr/local/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/lib/clang/10.0.0/include"/>
+					<Add directory="/Library/Developer/CommandLineTools/usr/include"/>
+					<Add directory="/System/Library/Frameworks"/>
+					<Add directory="/Library/Frameworks"/>
+				</Compiler>
+				<MakeCommands>
+					<Build command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 exec/fast"/>
+					<CompileFile command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 &quot;$file&quot;"/>
+					<Clean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+					<DistClean command="/usr/bin/make -j4 -f &quot;/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cmake-build-debug/Makefile&quot;  VERBOSE=1 clean"/>
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/adlist.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/adlist.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_epoll.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_evport.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_kqueue.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ae_select.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/anet.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/anet.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/aof.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bio.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bio.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/bitops.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/blocked.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cluster.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/cluster.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/config.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/config.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc16.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc64.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/crc64.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/db.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/debug.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/dict.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/dict.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/endianconv.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/endianconv.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/hyperloglog.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/intset.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/intset.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/latency.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/latency.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/lzf_c.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/lzf_d.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/memtest.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/multi.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/networking.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/notify.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/object.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pqsort.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pqsort.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/pubsub.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rand.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rand.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rdb.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rdb.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-benchmark.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-check-aof.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-check-dump.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis-cli.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/redis.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/release.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/replication.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rio.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/rio.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/scripting.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sds.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sds.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sentinel.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/setproctitle.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sha1.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sha1.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/slowlog.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/slowlog.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sort.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sparkline.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/sparkline.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/syncio.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_hash.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_list.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_set.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_string.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/t_zset.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/util.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/util.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ziplist.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/ziplist.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zipmap.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zipmap.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zmalloc.c">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/zmalloc.h">
+			<Option target="exec"/>
+		</Unit>
+		<Unit filename="/Users/oupeng/Desktop/learn/redis-3.0/redis/src/CMakeLists.txt">
+			<Option virtualFolder="CMake Files\"/>
+		</Unit>
+	</Project>
+</CodeBlocks_project_file>

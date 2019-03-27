@@ -159,7 +159,7 @@ void *zrealloc(void *ptr, size_t size) {
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
-    newptr = realloc(ptr,size);
+    newptr = realloc(ptr,size);//realloc会自动进行原数据的拷贝
     if (!newptr) zmalloc_oom_handler(size);
 
     update_zmalloc_stat_free(oldsize);

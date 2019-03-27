@@ -600,19 +600,19 @@ struct sharedObjectsStruct {
 
 /* ZSETs use a specialized version of Skiplists */
 typedef struct zskiplistNode {
-    robj *obj;
+    robj *obj;     //节点指向的对象
     double score;
     struct zskiplistNode *backward;
     struct zskiplistLevel {
         struct zskiplistNode *forward;
-        unsigned int span;
+        unsigned int span;   //跨度，即到forward的距离差
     } level[];
 } zskiplistNode;
 
 typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
     unsigned long length;
-    int level;
+    int level;  //表中当前出现的最大层，不包括表头
 } zskiplist;
 
 typedef struct zset {
@@ -1219,7 +1219,7 @@ unsigned long aofRewriteBufferSize(void);
 /* Struct to hold a inclusive/exclusive range spec by score comparison. */
 typedef struct {
     double min, max;
-    int minex, maxex; /* are min or max exclusive? */
+    int minex, maxex; /* are min or max exclusive? *///为true代表最小值存在
 } zrangespec;
 
 /* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
