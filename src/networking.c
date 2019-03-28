@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "atomicvar.h"
+#include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
