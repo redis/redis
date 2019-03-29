@@ -125,35 +125,65 @@
 #define RDB_SAVE_AOF_PREAMBLE (1<<0)
 
 int rdbSaveType(rio *rdb, unsigned char type);
+
 int rdbLoadType(rio *rdb);
+
 int rdbSaveTime(rio *rdb, time_t t);
+
 time_t rdbLoadTime(rio *rdb);
+
 int rdbSaveLen(rio *rdb, uint64_t len);
+
 int rdbSaveMillisecondTime(rio *rdb, long long t);
+
 long long rdbLoadMillisecondTime(rio *rdb, int rdbver);
+
 uint64_t rdbLoadLen(rio *rdb, int *isencoded);
+
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
+
 int rdbSaveObjectType(rio *rdb, robj *o);
+
 int rdbLoadObjectType(rio *rdb);
+
 int rdbLoad(char *filename, rdbSaveInfo *rsi);
+
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi);
+
 int rdbSaveToSlavesSockets(rdbSaveInfo *rsi);
+
 void rdbRemoveTempFile(pid_t childpid);
+
 int rdbSave(char *filename, rdbSaveInfo *rsi);
+
 ssize_t rdbSaveObject(rio *rdb, robj *o);
+
 size_t rdbSavedObjectLen(robj *o);
+
 robj *rdbLoadObject(int type, rio *rdb);
+
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
+
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime);
+
 robj *rdbLoadStringObject(rio *rdb);
+
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
+
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
+
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr);
+
 int rdbSaveBinaryDoubleValue(rio *rdb, double val);
+
 int rdbLoadBinaryDoubleValue(rio *rdb, double *val);
+
 int rdbSaveBinaryFloatValue(rio *rdb, float val);
+
 int rdbLoadBinaryFloatValue(rio *rdb, float *val);
+
 int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof);
+
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif

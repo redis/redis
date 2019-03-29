@@ -46,116 +46,144 @@
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase)
+                   const char *string, int stringLen, int nocase)
 {
-    while(patternLen && stringLen) {
-        switch(pattern[0]) {
-        case '*':
-            while (pattern[1] == '*') {
-                pattern++;
-                patternLen--;
-            }
-            if (patternLen == 1)
-                return 1; /* match */
-            while(stringLen) {
-                if (stringmatchlen(pattern+1, patternLen-1,
-                            string, stringLen, nocase))
-                    return 1; /* match */
-                string++;
-                stringLen--;
-            }
-            return 0; /* no match */
-            break;
-        case '?':
-            if (stringLen == 0)
-                return 0; /* no match */
-            string++;
-            stringLen--;
-            break;
-        case '[':
+    while (patternLen && stringLen)
+    {
+        switch (pattern[0])
         {
-            int not, match;
-
-            pattern++;
-            patternLen--;
-            not = pattern[0] == '^';
-            if (not) {
-                pattern++;
-                patternLen--;
-            }
-            match = 0;
-            while(1) {
-                if (pattern[0] == '\\' && patternLen >= 2) {
+            case '*':
+                while (pattern[1] == '*')
+                {
                     pattern++;
                     patternLen--;
-                    if (pattern[0] == string[0])
-                        match = 1;
-                } else if (pattern[0] == ']') {
-                    break;
-                } else if (patternLen == 0) {
-                    pattern--;
-                    patternLen++;
-                    break;
-                } else if (pattern[1] == '-' && patternLen >= 3) {
-                    int start = pattern[0];
-                    int end = pattern[2];
-                    int c = string[0];
-                    if (start > end) {
-                        int t = start;
-                        start = end;
-                        end = t;
-                    }
-                    if (nocase) {
-                        start = tolower(start);
-                        end = tolower(end);
-                        c = tolower(c);
-                    }
-                    pattern += 2;
-                    patternLen -= 2;
-                    if (c >= start && c <= end)
-                        match = 1;
-                } else {
-                    if (!nocase) {
+                }
+                if (patternLen == 1)
+                {
+                    return 1;
+                } /* match */
+                while (stringLen)
+                {
+                    if (stringmatchlen(pattern + 1, patternLen - 1,
+                                       string, stringLen, nocase))
+                        return 1; /* match */
+                    string++;
+                    stringLen--;
+                }
+                return 0; /* no match */
+                break;
+            case '?':
+                if (stringLen == 0)
+                    return 0; /* no match */
+                string++;
+                stringLen--;
+                break;
+            case '[':
+            {
+                int not, match;
+
+                pattern++;
+                patternLen--;
+                not = pattern[0] == '^';
+                if (not)
+                {
+                    pattern++;
+                    patternLen--;
+                }
+                match = 0;
+                while (1)
+                {
+                    if (pattern[0] == '\\' && patternLen >= 2)
+                    {
+                        pattern++;
+                        patternLen--;
                         if (pattern[0] == string[0])
                             match = 1;
-                    } else {
-                        if (tolower((int)pattern[0]) == tolower((int)string[0]))
+                    }
+                    else if (pattern[0] == ']')
+                    {
+                        break;
+                    }
+                    else if (patternLen == 0)
+                    {
+                        pattern--;
+                        patternLen++;
+                        break;
+                    }
+                    else if (pattern[1] == '-' && patternLen >= 3)
+                    {
+                        int start = pattern[0];
+                        int end = pattern[2];
+                        int c = string[0];
+                        if (start > end)
+                        {
+                            int t = start;
+                            start = end;
+                            end = t;
+                        }
+                        if (nocase)
+                        {
+                            start = tolower(start);
+                            end = tolower(end);
+                            c = tolower(c);
+                        }
+                        pattern += 2;
+                        patternLen -= 2;
+                        if (c >= start && c <= end)
                             match = 1;
                     }
+                    else
+                    {
+                        if (!nocase)
+                        {
+                            if (pattern[0] == string[0])
+                                match = 1;
+                        }
+                        else
+                        {
+                            if (tolower((int) pattern[0]) == tolower((int) string[0]))
+                                match = 1;
+                        }
+                    }
+                    pattern++;
+                    patternLen--;
                 }
-                pattern++;
-                patternLen--;
-            }
-            if (not)
-                match = !match;
-            if (!match)
-                return 0; /* no match */
-            string++;
-            stringLen--;
-            break;
-        }
-        case '\\':
-            if (patternLen >= 2) {
-                pattern++;
-                patternLen--;
-            }
-            /* fall through */
-        default:
-            if (!nocase) {
-                if (pattern[0] != string[0])
+                if (not)
+                    match = !match;
+                if (!match)
                     return 0; /* no match */
-            } else {
-                if (tolower((int)pattern[0]) != tolower((int)string[0]))
-                    return 0; /* no match */
+                string++;
+                stringLen--;
+                break;
             }
-            string++;
-            stringLen--;
-            break;
+            case '\\':
+                if (patternLen >= 2)
+                {
+                    pattern++;
+                    patternLen--;
+                }
+                /* fall through */
+            default:
+                if (!nocase)
+                {
+                    if (pattern[0] != string[0])
+                        return 0; /* no match */
+                }
+                else
+                {
+                    if (tolower((int) pattern[0]) != tolower((int) string[0]))
+                        return 0; /* no match */
+                }
+                string++;
+                stringLen--;
+                break;
         }
         pattern++;
         patternLen--;
-        if (stringLen == 0) {
-            while(*pattern == '*') {
+        if (stringLen == 0)
+        {
+            while (*pattern == '*')
+            {
                 pattern++;
                 patternLen--;
             }
@@ -163,21 +191,26 @@ int stringmatchlen(const char *pattern, int patternLen,
         }
     }
     if (patternLen == 0 && stringLen == 0)
+    {
         return 1;
+    }
     return 0;
 }
 
-int stringmatch(const char *pattern, const char *string, int nocase) {
-    return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+int stringmatch(const char *pattern, const char *string, int nocase)
+{
+    return stringmatchlen(pattern, strlen(pattern), string, strlen(string), nocase);
 }
 
 /* Fuzz stringmatchlen() trying to crash it with bad input. */
-int stringmatchlen_fuzz_test(void) {
+int stringmatchlen_fuzz_test(void)
+{
     char str[32];
     char pat[32];
     int cycles = 10000000;
     int total_matches = 0;
-    while(cycles--) {
+    while (cycles--)
+    {
         int strlen = rand() % sizeof(str);
         int patlen = rand() % sizeof(pat);
         for (int j = 0; j < strlen; j++) str[j] = rand() % 128;
@@ -194,7 +227,8 @@ int stringmatchlen_fuzz_test(void) {
  * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
  * set to 0. On error the function return value is 0, regardless of the
  * fact 'err' is NULL or not. */
-long long memtoll(const char *p, int *err) {
+long long memtoll(const char *p, int *err)
+{
     const char *u;
     char buf[128];
     long mul; /* unit multiplier */
@@ -206,61 +240,83 @@ long long memtoll(const char *p, int *err) {
     /* Search the first non digit character. */
     u = p;
     if (*u == '-') u++;
-    while(*u && isdigit(*u)) u++;
-    if (*u == '\0' || !strcasecmp(u,"b")) {
+    while (*u && isdigit(*u)) u++;
+    if (*u == '\0' || !strcasecmp(u, "b"))
+    {
         mul = 1;
-    } else if (!strcasecmp(u,"k")) {
+    }
+    else if (!strcasecmp(u, "k"))
+    {
         mul = 1000;
-    } else if (!strcasecmp(u,"kb")) {
+    }
+    else if (!strcasecmp(u, "kb"))
+    {
         mul = 1024;
-    } else if (!strcasecmp(u,"m")) {
-        mul = 1000*1000;
-    } else if (!strcasecmp(u,"mb")) {
-        mul = 1024*1024;
-    } else if (!strcasecmp(u,"g")) {
-        mul = 1000L*1000*1000;
-    } else if (!strcasecmp(u,"gb")) {
-        mul = 1024L*1024*1024;
-    } else {
+    }
+    else if (!strcasecmp(u, "m"))
+    {
+        mul = 1000 * 1000;
+    }
+    else if (!strcasecmp(u, "mb"))
+    {
+        mul = 1024 * 1024;
+    }
+    else if (!strcasecmp(u, "g"))
+    {
+        mul = 1000L * 1000 * 1000;
+    }
+    else if (!strcasecmp(u, "gb"))
+    {
+        mul = 1024L * 1024 * 1024;
+    }
+    else
+    {
         if (err) *err = 1;
         return 0;
     }
 
     /* Copy the digits into a buffer, we'll use strtoll() to convert
      * the digit (without the unit) into a number. */
-    digits = u-p;
-    if (digits >= sizeof(buf)) {
+    digits = u - p;
+    if (digits >= sizeof(buf))
+    {
         if (err) *err = 1;
         return 0;
     }
-    memcpy(buf,p,digits);
+    memcpy(buf, p, digits);
     buf[digits] = '\0';
 
     char *endptr;
     errno = 0;
-    val = strtoll(buf,&endptr,10);
-    if ((val == 0 && errno == EINVAL) || *endptr != '\0') {
+    val = strtoll(buf, &endptr, 10);
+    if ((val == 0 && errno == EINVAL) || *endptr != '\0')
+    {
         if (err) *err = 1;
         return 0;
     }
-    return val*mul;
+    return val * mul;
 }
 
 /* Return the number of digits of 'v' when converted to string in radix 10.
  * See ll2string() for more information. */
-uint32_t digits10(uint64_t v) {
+uint32_t digits10(uint64_t v)
+{
     if (v < 10) return 1;
     if (v < 100) return 2;
     if (v < 1000) return 3;
-    if (v < 1000000000000UL) {
-        if (v < 100000000UL) {
-            if (v < 1000000) {
+    if (v < 1000000000000UL)
+    {
+        if (v < 100000000UL)
+        {
+            if (v < 1000000)
+            {
                 if (v < 10000) return 4;
                 return 5 + (v >= 100000);
             }
             return 7 + (v >= 10000000UL);
         }
-        if (v < 10000000000UL) {
+        if (v < 10000000000UL)
+        {
             return 9 + (v >= 1000000000UL);
         }
         return 11 + (v >= 100000000000UL);
@@ -269,13 +325,17 @@ uint32_t digits10(uint64_t v) {
 }
 
 /* Like digits10() but for signed values. */
-uint32_t sdigits10(int64_t v) {
-    if (v < 0) {
+uint32_t sdigits10(int64_t v)
+{
+    if (v < 0)
+    {
         /* Abs value of LLONG_MIN requires special handling. */
         uint64_t uv = (v != LLONG_MIN) ?
-                      (uint64_t)-v : ((uint64_t) LLONG_MAX)+1;
-        return digits10(uv)+1; /* +1 for the minus. */
-    } else {
+                      (uint64_t) -v : ((uint64_t) LLONG_MAX) + 1;
+        return digits10(uv) + 1; /* +1 for the minus. */
+    }
+    else
+    {
         return digits10(v);
     }
 }
@@ -291,39 +351,47 @@ uint32_t sdigits10(int64_t v) {
  *
  * Modified in order to handle signed integers since the original code was
  * designed for unsigned integers. */
-int ll2string(char *dst, size_t dstlen, long long svalue) {
+int ll2string(char *dst, size_t dstlen, long long svalue)
+{
     static const char digits[201] =
-        "0001020304050607080910111213141516171819"
-        "2021222324252627282930313233343536373839"
-        "4041424344454647484950515253545556575859"
-        "6061626364656667686970717273747576777879"
-        "8081828384858687888990919293949596979899";
+            "0001020304050607080910111213141516171819"
+            "2021222324252627282930313233343536373839"
+            "4041424344454647484950515253545556575859"
+            "6061626364656667686970717273747576777879"
+            "8081828384858687888990919293949596979899";
     int negative;
     unsigned long long value;
 
     /* The main loop works with 64bit unsigned integers for simplicity, so
      * we convert the number here and remember if it is negative. */
-    if (svalue < 0) {
-        if (svalue != LLONG_MIN) {
+    if (svalue < 0)
+    {
+        if (svalue != LLONG_MIN)
+        {
             value = -svalue;
-        } else {
-            value = ((unsigned long long) LLONG_MAX)+1;
+        }
+        else
+        {
+            value = ((unsigned long long) LLONG_MAX) + 1;
         }
         negative = 1;
-    } else {
+    }
+    else
+    {
         value = svalue;
         negative = 0;
     }
 
     /* Check length. */
-    uint32_t const length = digits10(value)+negative;
+    uint32_t const length = digits10(value) + negative;
     if (length >= dstlen) return 0;
 
     /* Null term. */
     uint32_t next = length;
     dst[next] = '\0';
     next--;
-    while (value >= 100) {
+    while (value >= 100)
+    {
         int const i = (value % 100) * 2;
         value /= 100;
         dst[next] = digits[i + 1];
@@ -332,9 +400,12 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
     }
 
     /* Handle last 1-2 digits. */
-    if (value < 10) {
+    if (value < 10)
+    {
         dst[next] = '0' + (uint32_t) value;
-    } else {
+    }
+    else
+    {
         int i = (uint32_t) value * 2;
         dst[next] = digits[i + 1];
         dst[next - 1] = digits[i];
@@ -357,7 +428,8 @@ int ll2string(char *dst, size_t dstlen, long long svalue) {
  * Because of its strictness, it is safe to use this function to check if
  * you can convert a string into a long long, and obtain back the string
  * from the number without any loss in the string representation. */
-int string2ll(const char *s, size_t slen, long long *value) {
+int string2ll(const char *s, size_t slen, long long *value)
+{
     const char *p = s;
     size_t plen = 0;
     int negative = 0;
@@ -365,59 +437,85 @@ int string2ll(const char *s, size_t slen, long long *value) {
 
     /* A zero length string is not a valid number. */
     if (plen == slen)
+    {
         return 0;
+    }
 
     /* Special case: first and only digit is 0. */
-    if (slen == 1 && p[0] == '0') {
+    if (slen == 1 && p[0] == '0')
+    {
         if (value != NULL) *value = 0;
         return 1;
     }
 
     /* Handle negative numbers: just set a flag and continue like if it
      * was a positive number. Later convert into negative. */
-    if (p[0] == '-') {
+    if (p[0] == '-')
+    {
         negative = 1;
-        p++; plen++;
+        p++;
+        plen++;
 
         /* Abort on only a negative sign. */
         if (plen == slen)
+        {
             return 0;
+        }
     }
 
     /* First digit should be 1-9, otherwise the string should just be 0. */
-    if (p[0] >= '1' && p[0] <= '9') {
-        v = p[0]-'0';
-        p++; plen++;
-    } else {
+    if (p[0] >= '1' && p[0] <= '9')
+    {
+        v = p[0] - '0';
+        p++;
+        plen++;
+    }
+    else
+    {
         return 0;
     }
 
     /* Parse all the other digits, checking for overflow at every step. */
-    while (plen < slen && p[0] >= '0' && p[0] <= '9') {
-        if (v > (ULLONG_MAX / 10)) /* Overflow. */
+    while (plen < slen && p[0] >= '0' && p[0] <= '9')
+    {
+        if (v > (ULLONG_MAX / 10))
+        { /* Overflow. */
             return 0;
+        }
         v *= 10;
 
-        if (v > (ULLONG_MAX - (p[0]-'0'))) /* Overflow. */
+        if (v > (ULLONG_MAX - (p[0] - '0')))
+        { /* Overflow. */
             return 0;
-        v += p[0]-'0';
+        }
+        v += p[0] - '0';
 
-        p++; plen++;
+        p++;
+        plen++;
     }
 
     /* Return if not all bytes were used. */
     if (plen < slen)
+    {
         return 0;
+    }
 
     /* Convert to negative if needed, and do the final overflow check when
      * converting from unsigned long long to long long. */
-    if (negative) {
-        if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
+    if (negative)
+    {
+        if (v > ((unsigned long long) (-(LLONG_MIN + 1)) + 1))
+        { /* Overflow. */
             return 0;
+        }
         if (value != NULL) *value = -v;
-    } else {
-        if (v > LLONG_MAX) /* Overflow. */
+    }
+    else
+    {
+        if (v > LLONG_MAX)
+        { /* Overflow. */
             return 0;
+        }
         if (value != NULL) *value = v;
     }
     return 1;
@@ -426,16 +524,21 @@ int string2ll(const char *s, size_t slen, long long *value) {
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
-int string2l(const char *s, size_t slen, long *lval) {
+int string2l(const char *s, size_t slen, long *lval)
+{
     long long llval;
 
-    if (!string2ll(s,slen,&llval))
+    if (!string2ll(s, slen, &llval))
+    {
         return 0;
+    }
 
     if (llval < LONG_MIN || llval > LONG_MAX)
+    {
         return 0;
+    }
 
-    *lval = (long)llval;
+    *lval = (long) llval;
     return 1;
 }
 
@@ -446,23 +549,26 @@ int string2l(const char *s, size_t slen, long *lval) {
  * Note that this function demands that the string strictly represents
  * a double: no spaces or other characters before or after the string
  * representing the number are accepted. */
-int string2ld(const char *s, size_t slen, long double *dp) {
+int string2ld(const char *s, size_t slen, long double *dp)
+{
     char buf[256];
     long double value;
     char *eptr;
 
     if (slen >= sizeof(buf)) return 0;
-    memcpy(buf,s,slen);
+    memcpy(buf, s, slen);
     buf[slen] = '\0';
 
     errno = 0;
     value = strtold(buf, &eptr);
     if (isspace(buf[0]) || eptr[0] != '\0' ||
         (errno == ERANGE &&
-            (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+         (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
         errno == EINVAL ||
         isnan(value))
+    {
         return 0;
+    }
 
     if (dp) *dp = value;
     return 1;
@@ -473,21 +579,37 @@ int string2ld(const char *s, size_t slen, long double *dp) {
  * This function does not support human-friendly formatting like ld2string
  * does. It is intended mainly to be used inside t_zset.c when writing scores
  * into a ziplist representing a sorted set. */
-int d2string(char *buf, size_t len, double value) {
-    if (isnan(value)) {
-        len = snprintf(buf,len,"nan");
-    } else if (isinf(value)) {
+int d2string(char *buf, size_t len, double value)
+{
+    if (isnan(value))
+    {
+        len = snprintf(buf, len, "nan");
+    }
+    else if (isinf(value))
+    {
         if (value < 0)
-            len = snprintf(buf,len,"-inf");
+        {
+            len = snprintf(buf, len, "-inf");
+        }
         else
-            len = snprintf(buf,len,"inf");
-    } else if (value == 0) {
+        {
+            len = snprintf(buf, len, "inf");
+        }
+    }
+    else if (value == 0)
+    {
         /* See: http://en.wikipedia.org/wiki/Signed_zero, "Comparisons". */
-        if (1.0/value < 0)
-            len = snprintf(buf,len,"-0");
+        if (1.0 / value < 0)
+        {
+            len = snprintf(buf, len, "-0");
+        }
         else
-            len = snprintf(buf,len,"0");
-    } else {
+        {
+            len = snprintf(buf, len, "0");
+        }
+    }
+    else
+    {
 #if (DBL_MANT_DIG >= 52) && (LLONG_MAX == 0x7fffffffffffffffLL)
         /* Check if the float is in a safe range to be casted into a
          * long long. We are assuming that long long is 64 bit here.
@@ -500,11 +622,15 @@ int d2string(char *buf, size_t len, double value) {
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (value > min && value < max && value == ((double)((long long)value)))
-            len = ll2string(buf,len,(long long)value);
+        if (value > min && value < max && value == ((double) ((long long) value)))
+        {
+            len = ll2string(buf, len, (long long) value);
+        }
         else
 #endif
-            len = snprintf(buf,len,"%.17g",value);
+        {
+            len = snprintf(buf, len, "%.17g", value);
+        }
     }
 
     return len;
@@ -517,40 +643,51 @@ int d2string(char *buf, size_t len, double value) {
  *
  * The function returns the length of the string or zero if there was not
  * enough buffer room to store it. */
-int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
+int ld2string(char *buf, size_t len, long double value, int humanfriendly)
+{
     size_t l;
 
-    if (isinf(value)) {
+    if (isinf(value))
+    {
         /* Libc in odd systems (Hi Solaris!) will format infinite in a
          * different way, so better to handle it in an explicit way. */
         if (len < 5) return 0; /* No room. 5 is "-inf\0" */
-        if (value > 0) {
-            memcpy(buf,"inf",3);
+        if (value > 0)
+        {
+            memcpy(buf, "inf", 3);
             l = 3;
-        } else {
-            memcpy(buf,"-inf",4);
+        }
+        else
+        {
+            memcpy(buf, "-inf", 4);
             l = 4;
         }
-    } else if (humanfriendly) {
+    }
+    else if (humanfriendly)
+    {
         /* We use 17 digits precision since with 128 bit floats that precision
          * after rounding is able to represent most small decimal numbers in a
          * way that is "non surprising" for the user (that is, most small
          * decimal numbers will be represented in a way that when converted
          * back into a string are exactly the same as what the user typed.) */
-        l = snprintf(buf,len,"%.17Lf", value);
-        if (l+1 > len) return 0; /* No room. */
+        l = snprintf(buf, len, "%.17Lf", value);
+        if (l + 1 > len) return 0; /* No room. */
         /* Now remove trailing zeroes after the '.' */
-        if (strchr(buf,'.') != NULL) {
-            char *p = buf+l-1;
-            while(*p == '0') {
+        if (strchr(buf, '.') != NULL)
+        {
+            char *p = buf + l - 1;
+            while (*p == '0')
+            {
                 p--;
                 l--;
             }
             if (*p == '.') l--;
         }
-    } else {
-        l = snprintf(buf,len,"%.17Lg", value);
-        if (l+1 > len) return 0; /* No room. */
+    }
+    else
+    {
+        l = snprintf(buf, len, "%.17Lg", value);
+        if (l + 1 > len) return 0; /* No room. */
     }
     buf[l] = '\0';
     return l;
@@ -561,45 +698,52 @@ int ld2string(char *buf, size_t len, long double value, int humanfriendly) {
  * stream. However if /dev/urandom is not available, a weaker seed is used.
  *
  * This function is not thread safe, since the state is global. */
-void getRandomBytes(unsigned char *p, size_t len) {
+void getRandomBytes(unsigned char *p, size_t len)
+{
     /* Global state. */
     static int seed_initialized = 0;
     static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
     static uint64_t counter = 0; /* The counter we hash with the seed. */
 
-    if (!seed_initialized) {
+    if (!seed_initialized)
+    {
         /* Initialize a seed and use SHA1 in counter mode, where we hash
          * the same seed with a progressive counter. For the goals of this
          * function we just need non-colliding strings, there are no
          * cryptographic security needs. */
-        FILE *fp = fopen("/dev/urandom","r");
-        if (fp == NULL || fread(seed,sizeof(seed),1,fp) != 1) {
+        FILE *fp = fopen("/dev/urandom", "r");
+        if (fp == NULL || fread(seed, sizeof(seed), 1, fp) != 1)
+        {
             /* Revert to a weaker seed, and in this case reseed again
              * at every call.*/
-            for (unsigned int j = 0; j < sizeof(seed); j++) {
+            for (unsigned int j = 0; j < sizeof(seed); j++)
+            {
                 struct timeval tv;
-                gettimeofday(&tv,NULL);
+                gettimeofday(&tv, NULL);
                 pid_t pid = getpid();
-                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long)fp;
+                seed[j] = tv.tv_sec ^ tv.tv_usec ^ pid ^ (long) fp;
             }
-        } else {
+        }
+        else
+        {
             seed_initialized = 1;
         }
         if (fp) fclose(fp);
     }
 
-    while(len) {
+    while (len)
+    {
         unsigned char digest[20];
         SHA1_CTX ctx;
         unsigned int copylen = len > 20 ? 20 : len;
 
         SHA1Init(&ctx);
         SHA1Update(&ctx, seed, sizeof(seed));
-        SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+        SHA1Update(&ctx, (unsigned char *) &counter, sizeof(counter));
         SHA1Final(digest, &ctx);
         counter++;
 
-        memcpy(p,digest,copylen);
+        memcpy(p, digest, copylen);
         len -= copylen;
         p += copylen;
     }
@@ -609,11 +753,12 @@ void getRandomBytes(unsigned char *p, size_t len) {
  * given execution of Redis, so that if you are talking with an instance
  * having run_id == A, and you reconnect and it has run_id == B, you can be
  * sure that it is either a different instance or it was restarted. */
-void getRandomHexChars(char *p, size_t len) {
+void getRandomHexChars(char *p, size_t len)
+{
     char *charset = "0123456789abcdef";
     size_t j;
 
-    getRandomBytes((unsigned char*)p,len);
+    getRandomBytes((unsigned char *) p, len);
     for (j = 0; j < len; j++) p[j] = charset[p[j] & 0x0F];
 }
 
@@ -624,22 +769,26 @@ void getRandomHexChars(char *p, size_t len) {
  * The function does not try to normalize everything, but only the obvious
  * case of one or more "../" appearing at the start of "filename"
  * relative path. */
-sds getAbsolutePath(char *filename) {
+sds getAbsolutePath(char *filename)
+{
     char cwd[1024];
     sds abspath;
     sds relpath = sdsnew(filename);
 
-    relpath = sdstrim(relpath," \r\n\t");
+    relpath = sdstrim(relpath, " \r\n\t");
     if (relpath[0] == '/') return relpath; /* Path is already absolute. */
 
     /* If path is relative, join cwd and relative path. */
-    if (getcwd(cwd,sizeof(cwd)) == NULL) {
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+    {
         sdsfree(relpath);
         return NULL;
     }
     abspath = sdsnew(cwd);
-    if (sdslen(abspath) && abspath[sdslen(abspath)-1] != '/')
-        abspath = sdscat(abspath,"/");
+    if (sdslen(abspath) && abspath[sdslen(abspath) - 1] != '/')
+    {
+        abspath = sdscat(abspath, "/");
+    }
 
     /* At this point we have the current path always ending with "/", and
      * the trimmed relative path. Try to normalize the obvious case of
@@ -650,21 +799,23 @@ sds getAbsolutePath(char *filename) {
     while (sdslen(relpath) >= 3 &&
            relpath[0] == '.' && relpath[1] == '.' && relpath[2] == '/')
     {
-        sdsrange(relpath,3,-1);
-        if (sdslen(abspath) > 1) {
-            char *p = abspath + sdslen(abspath)-2;
+        sdsrange(relpath, 3, -1);
+        if (sdslen(abspath) > 1)
+        {
+            char *p = abspath + sdslen(abspath) - 2;
             int trimlen = 1;
 
-            while(*p != '/') {
+            while (*p != '/')
+            {
                 p--;
                 trimlen++;
             }
-            sdsrange(abspath,0,-(trimlen+1));
+            sdsrange(abspath, 0, -(trimlen + 1));
         }
     }
 
     /* Finally glue the two parts together. */
-    abspath = sdscatsds(abspath,relpath);
+    abspath = sdscatsds(abspath, relpath);
     sdsfree(relpath);
     return abspath;
 }
@@ -674,7 +825,8 @@ sds getAbsolutePath(char *filename) {
  * i.e timezone variables are linux specific.
  */
 
-unsigned long getTimeZone(void) {
+unsigned long getTimeZone(void)
+{
 #ifdef __linux__
     return timezone;
 #else
@@ -691,8 +843,9 @@ unsigned long getTimeZone(void) {
  * relative or absolute path. This function just checks that no / or \
  * character exists inside the specified path, that's enough in the
  * environments where Redis runs. */
-int pathIsBaseName(char *path) {
-    return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
+int pathIsBaseName(char *path)
+{
+    return strchr(path, '/') == NULL && strchr(path, '\\') == NULL;
 }
 
 #ifdef REDIS_TEST

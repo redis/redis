@@ -799,6 +799,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
         ip != NULL)
     {
         if (strcmp(ip,"127.0.0.1") && strcmp(ip,"::1")) {
+            //这里一定不会运行
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled, no bind address was specified, no "
@@ -841,6 +842,8 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(privdata);
 
     while(max--) {
+        //当有fd触发了有新链接时,在这里一直进行accept直到accept完毕或者max<=0
+        //不知道epoll用了边沿触发还是电平触发
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)

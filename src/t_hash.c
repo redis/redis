@@ -37,12 +37,14 @@
 /* Check the length of a number of objects to see if we need to convert a
  * ziplist to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
-void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
+void hashTypeTryConversion(robj *o, robj **argv, int start, int end)
+{
     int i;
 
     if (o->encoding != OBJ_ENCODING_ZIPLIST) return;
 
-    for (i = start; i <= end; i++) {
+    for (i = start; i <= end; i++)
+    {
         if (sdsEncodedObject(argv[i]) &&
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
         {
@@ -66,16 +68,19 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-    if (fptr != NULL) {
-        fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
-        if (fptr != NULL) {
+    if (fptr != NULL)
+    {
+        fptr = ziplistFind(fptr, (unsigned char *) field, sdslen(field), 1);
+        if (fptr != NULL)
+        {
             /* Grab pointer to the value (fptr points to the field) */
             vptr = ziplistNext(zl, fptr);
             serverAssert(vptr != NULL);
         }
     }
 
-    if (vptr != NULL) {
+    if (vptr != NULL)
+    {
         ret = ziplistGet(vptr, vstr, vlen, vll);
         serverAssert(ret);
         return 0;
@@ -87,7 +92,8 @@ int hashTypeGetFromZiplist(robj *o, sds field,
 /* Get the value from a hash table encoded hash, identified by field.
  * Returns NULL when the field cannot be found, otherwise the SDS value
  * is returned. */
-sds hashTypeGetFromHashTable(robj *o, sds field) {
+sds hashTypeGetFromHashTable(robj *o, sds field)
+{
     dictEntry *de;
 
     serverAssert(o->encoding == OBJ_ENCODING_HT);
@@ -106,19 +112,28 @@ sds hashTypeGetFromHashTable(robj *o, sds field) {
  * If *vll is populated *vstr is set to NULL, so the caller
  * can always check the function return by checking the return value
  * for C_OK and checking if vll (or vstr) is NULL. */
-int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vlen, long long *vll)
+{
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         *vstr = NULL;
         if (hashTypeGetFromZiplist(o, field, vstr, vlen, vll) == 0)
+        {
             return C_OK;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+        }
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
         sds value;
-        if ((value = hashTypeGetFromHashTable(o, field)) != NULL) {
-            *vstr = (unsigned char*) value;
+        if ((value = hashTypeGetFromHashTable(o, field)) != NULL)
+        {
+            *vstr = (unsigned char *) value;
             *vlen = sdslen(value);
             return C_OK;
         }
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return C_ERR;
@@ -128,34 +143,47 @@ int hashTypeGetValue(robj *o, sds field, unsigned char **vstr, unsigned int *vle
  * interaction with the hash type outside t_hash.c.
  * The function returns NULL if the field is not found in the hash. Otherwise
  * a newly allocated string object with the value is returned. */
-robj *hashTypeGetValueObject(robj *o, sds field) {
+robj *hashTypeGetValueObject(robj *o, sds field)
+{
     unsigned char *vstr;
     unsigned int vlen;
     long long vll;
 
-    if (hashTypeGetValue(o,field,&vstr,&vlen,&vll) == C_ERR) return NULL;
-    if (vstr) return createStringObject((char*)vstr,vlen);
-    else return createStringObjectFromLongLong(vll);
+    if (hashTypeGetValue(o, field, &vstr, &vlen, &vll) == C_ERR) return NULL;
+    if (vstr)
+    { return createStringObject((char *) vstr, vlen); }
+    else
+    { return createStringObjectFromLongLong(vll); }
 }
 
 /* Higher level function using hashTypeGet*() to return the length of the
  * object associated with the requested field, or 0 if the field does not
  * exist. */
-size_t hashTypeGetValueLength(robj *o, sds field) {
+size_t hashTypeGetValueLength(robj *o, sds field)
+{
     size_t len = 0;
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
+        {
             len = vstr ? vlen : sdigits10(vll);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+        }
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
         sds aux;
 
         if ((aux = hashTypeGetFromHashTable(o, field)) != NULL)
+        {
             len = sdslen(aux);
-    } else {
+        }
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return len;
@@ -163,16 +191,22 @@ size_t hashTypeGetValueLength(robj *o, sds field) {
 
 /* Test if the specified field exists in the given hash. Returns 1 if the field
  * exists, and 0 when it doesn't. */
-int hashTypeExists(robj *o, sds field) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+int hashTypeExists(robj *o, sds field)
+{
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
         if (hashTypeGetFromHashTable(o, field) != NULL) return 1;
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return 0;
@@ -199,17 +233,22 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
 #define HASH_SET_COPY 0
-int hashTypeSet(robj *o, sds field, sds value, int flags) {
+
+int hashTypeSet(robj *o, sds field, sds value, int flags)
+{
     int update = 0;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *zl, *fptr, *vptr;
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        if (fptr != NULL) {
-            fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
-            if (fptr != NULL) {
+        if (fptr != NULL)
+        {
+            fptr = ziplistFind(fptr, (unsigned char *) field, sdslen(field), 1);
+            if (fptr != NULL)
+            {
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = ziplistNext(zl, fptr);
                 serverAssert(vptr != NULL);
@@ -219,51 +258,70 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                 zl = ziplistDelete(zl, &vptr);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, (unsigned char*)value,
-                        sdslen(value));
+                zl = ziplistInsert(zl, vptr, (unsigned char *) value,
+                                   sdslen(value));
             }
         }
 
-        if (!update) {
+        if (!update)
+        {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, (unsigned char*)field, sdslen(field),
-                    ZIPLIST_TAIL);
-            zl = ziplistPush(zl, (unsigned char*)value, sdslen(value),
-                    ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char *) field, sdslen(field),
+                             ZIPLIST_TAIL);
+            zl = ziplistPush(zl, (unsigned char *) value, sdslen(value),
+                             ZIPLIST_TAIL);
         }
         o->ptr = zl;
 
         /* Check if the ziplist needs to be converted to a hash table */
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+        {
             hashTypeConvert(o, OBJ_ENCODING_HT);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictFind(o->ptr,field);
-        if (de) {
+        }
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
+        dictEntry *de = dictFind(o->ptr, field);
+        if (de)
+        {
             sdsfree(dictGetVal(de));
-            if (flags & HASH_SET_TAKE_VALUE) {
+            if (flags & HASH_SET_TAKE_VALUE)
+            {
                 dictGetVal(de) = value;
                 value = NULL;
-            } else {
+            }
+            else
+            {
                 dictGetVal(de) = sdsdup(value);
             }
             update = 1;
-        } else {
-            sds f,v;
-            if (flags & HASH_SET_TAKE_FIELD) {
+        }
+        else
+        {
+            sds f, v;
+            if (flags & HASH_SET_TAKE_FIELD)
+            {
                 f = field;
                 field = NULL;
-            } else {
+            }
+            else
+            {
                 f = sdsdup(field);
             }
-            if (flags & HASH_SET_TAKE_VALUE) {
+            if (flags & HASH_SET_TAKE_VALUE)
+            {
                 v = value;
                 value = NULL;
-            } else {
+            }
+            else
+            {
                 v = sdsdup(value);
             }
-            dictAdd(o->ptr,f,v);
+            dictAdd(o->ptr, f, v);
         }
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 
@@ -276,77 +334,103 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
 
 /* Delete an element from a hash.
  * Return 1 on deleted and 0 on not found. */
-int hashTypeDelete(robj *o, sds field) {
+int hashTypeDelete(robj *o, sds field)
+{
     int deleted = 0;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *zl, *fptr;
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        if (fptr != NULL) {
-            fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
-            if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr); /* Delete the key. */
-                zl = ziplistDelete(zl,&fptr); /* Delete the value. */
+        if (fptr != NULL)
+        {
+            fptr = ziplistFind(fptr, (unsigned char *) field, sdslen(field), 1);
+            if (fptr != NULL)
+            {
+                zl = ziplistDelete(zl, &fptr); /* Delete the key. */
+                zl = ziplistDelete(zl, &fptr); /* Delete the value. */
                 o->ptr = zl;
                 deleted = 1;
             }
         }
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        if (dictDelete((dict*)o->ptr, field) == C_OK) {
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
+        if (dictDelete((dict *) o->ptr, field) == C_OK)
+        {
             deleted = 1;
 
             /* Always check if the dictionary needs a resize after a delete. */
             if (htNeedsResize(o->ptr)) dictResize(o->ptr);
         }
 
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return deleted;
 }
 
 /* Return the number of elements in a hash. */
-unsigned long hashTypeLength(const robj *o) {
+unsigned long hashTypeLength(const robj *o)
+{
     unsigned long length = ULONG_MAX;
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         length = ziplistLen(o->ptr) / 2;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        length = dictSize((const dict*)o->ptr);
-    } else {
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
+        length = dictSize((const dict *) o->ptr);
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return length;
 }
 
-hashTypeIterator *hashTypeInitIterator(robj *subject) {
+hashTypeIterator *hashTypeInitIterator(robj *subject)
+{
     hashTypeIterator *hi = zmalloc(sizeof(hashTypeIterator));
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (hi->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         hi->fptr = NULL;
         hi->vptr = NULL;
-    } else if (hi->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (hi->encoding == OBJ_ENCODING_HT)
+    {
         hi->di = dictGetIterator(subject->ptr);
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return hi;
 }
 
-void hashTypeReleaseIterator(hashTypeIterator *hi) {
+void hashTypeReleaseIterator(hashTypeIterator *hi)
+{
     if (hi->encoding == OBJ_ENCODING_HT)
+    {
         dictReleaseIterator(hi->di);
+    }
     zfree(hi);
 }
 
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
-int hashTypeNext(hashTypeIterator *hi) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+int hashTypeNext(hashTypeIterator *hi)
+{
+    if (hi->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *zl;
         unsigned char *fptr, *vptr;
 
@@ -354,11 +438,14 @@ int hashTypeNext(hashTypeIterator *hi) {
         fptr = hi->fptr;
         vptr = hi->vptr;
 
-        if (fptr == NULL) {
+        if (fptr == NULL)
+        {
             /* Initialize cursor */
             serverAssert(vptr == NULL);
             fptr = ziplistIndex(zl, 0);
-        } else {
+        }
+        else
+        {
             /* Advance cursor */
             serverAssert(vptr != NULL);
             fptr = ziplistNext(zl, vptr);
@@ -372,9 +459,13 @@ int hashTypeNext(hashTypeIterator *hi) {
         /* fptr, vptr now point to the first or next pair */
         hi->fptr = fptr;
         hi->vptr = vptr;
-    } else if (hi->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (hi->encoding == OBJ_ENCODING_HT)
+    {
         if ((hi->de = dictNext(hi->di)) == NULL) return C_ERR;
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
     return C_OK;
@@ -391,10 +482,13 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
 
     serverAssert(hi->encoding == OBJ_ENCODING_ZIPLIST);
 
-    if (what & OBJ_HASH_KEY) {
+    if (what & OBJ_HASH_KEY)
+    {
         ret = ziplistGet(hi->fptr, vstr, vlen, vll);
         serverAssert(ret);
-    } else {
+    }
+    else
+    {
         ret = ziplistGet(hi->vptr, vstr, vlen, vll);
         serverAssert(ret);
     }
@@ -403,12 +497,16 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
 /* Get the field or value at iterator cursor, for an iterator on a hash value
  * encoded as a hash table. Prototype is similar to
  * `hashTypeGetFromHashTable`. */
-sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
+sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what)
+{
     serverAssert(hi->encoding == OBJ_ENCODING_HT);
 
-    if (what & OBJ_HASH_KEY) {
+    if (what & OBJ_HASH_KEY)
+    {
         return dictGetKey(hi->de);
-    } else {
+    }
+    else
+    {
         return dictGetVal(hi->de);
     }
 }
@@ -423,52 +521,68 @@ sds hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what) {
  * If *vll is populated *vstr is set to NULL, so the caller
  * can always check the function return by checking the return value
  * type checking if vstr == NULL. */
-void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr, unsigned int *vlen, long long *vll)
+{
+    if (hi->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         *vstr = NULL;
         hashTypeCurrentFromZiplist(hi, what, vstr, vlen, vll);
-    } else if (hi->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (hi->encoding == OBJ_ENCODING_HT)
+    {
         sds ele = hashTypeCurrentFromHashTable(hi, what);
-        *vstr = (unsigned char*) ele;
+        *vstr = (unsigned char *) ele;
         *vlen = sdslen(ele);
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 }
 
 /* Return the key or value at the current iterator position as a new
  * SDS string. */
-sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what) {
+sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what)
+{
     unsigned char *vstr;
     unsigned int vlen;
     long long vll;
 
-    hashTypeCurrentObject(hi,what,&vstr,&vlen,&vll);
-    if (vstr) return sdsnewlen(vstr,vlen);
+    hashTypeCurrentObject(hi, what, &vstr, &vlen, &vll);
+    if (vstr) return sdsnewlen(vstr, vlen);
     return sdsfromlonglong(vll);
 }
 
-robj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
-    robj *o = lookupKeyWrite(c->db,key);
-    if (o == NULL) {
+robj *hashTypeLookupWriteOrCreate(client *c, robj *key)
+{
+    robj *o = lookupKeyWrite(c->db, key);
+    if (o == NULL)
+    {
         o = createHashObject();
-        dbAdd(c->db,key,o);
-    } else {
-        if (o->type != OBJ_HASH) {
-            addReply(c,shared.wrongtypeerr);
+        dbAdd(c->db, key, o);
+    }
+    else
+    {
+        if (o->type != OBJ_HASH)
+        {
+            addReply(c, shared.wrongtypeerr);
             return NULL;
         }
     }
     return o;
 }
 
-void hashTypeConvertZiplist(robj *o, int enc) {
+void hashTypeConvertZiplist(robj *o, int enc)
+{
     serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
 
-    if (enc == OBJ_ENCODING_ZIPLIST) {
+    if (enc == OBJ_ENCODING_ZIPLIST)
+    {
         /* Nothing to do... */
 
-    } else if (enc == OBJ_ENCODING_HT) {
+    }
+    else if (enc == OBJ_ENCODING_HT)
+    {
         hashTypeIterator *hi;
         dict *dict;
         int ret;
@@ -476,15 +590,17 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         hi = hashTypeInitIterator(o);
         dict = dictCreate(&hashDictType, NULL);
 
-        while (hashTypeNext(hi) != C_ERR) {
+        while (hashTypeNext(hi) != C_ERR)
+        {
             sds key, value;
 
-            key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
-            value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            key = hashTypeCurrentObjectNewSds(hi, OBJ_HASH_KEY);
+            value = hashTypeCurrentObjectNewSds(hi, OBJ_HASH_VALUE);
             ret = dictAdd(dict, key, value);
-            if (ret != DICT_OK) {
-                serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
-                    o->ptr,ziplistBlobLen(o->ptr));
+            if (ret != DICT_OK)
+            {
+                serverLogHexDump(LL_WARNING, "ziplist with dup elements dump",
+                                 o->ptr, ziplistBlobLen(o->ptr));
                 serverPanic("Ziplist corruption detected");
             }
         }
@@ -492,17 +608,25 @@ void hashTypeConvertZiplist(robj *o, int enc) {
         zfree(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 }
 
-void hashTypeConvert(robj *o, int enc) {
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+void hashTypeConvert(robj *o, int enc)
+{
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         hashTypeConvertZiplist(o, enc);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
         serverPanic("Not implemented");
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 }
@@ -511,87 +635,106 @@ void hashTypeConvert(robj *o, int enc) {
  * Hash type commands
  *----------------------------------------------------------------------------*/
 
-void hsetnxCommand(client *c) {
+void hsetnxCommand(client *c)
+{
     robj *o;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,3);
+    if ((o = hashTypeLookupWriteOrCreate(c, c->argv[1])) == NULL) return;
+    hashTypeTryConversion(o, c->argv, 2, 3);
 
-    if (hashTypeExists(o, c->argv[2]->ptr)) {
+    if (hashTypeExists(o, c->argv[2]->ptr))
+    {
         addReply(c, shared.czero);
-    } else {
-        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+    }
+    else
+    {
+        hashTypeSet(o, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY);
         addReply(c, shared.cone);
-        signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        signalModifiedKey(c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
         server.dirty++;
     }
 }
 
-void hsetCommand(client *c) {
+void hsetCommand(client *c)
+{
     int i, created = 0;
     robj *o;
 
-    if ((c->argc % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for HMSET");
+    if ((c->argc % 2) == 1)
+    {
+        addReplyError(c, "wrong number of arguments for HMSET");
         return;
     }
 
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    hashTypeTryConversion(o,c->argv,2,c->argc-1);
+    if ((o = hashTypeLookupWriteOrCreate(c, c->argv[1])) == NULL) return;
+    hashTypeTryConversion(o, c->argv, 2, c->argc - 1);
 
     for (i = 2; i < c->argc; i += 2)
-        created += !hashTypeSet(o,c->argv[i]->ptr,c->argv[i+1]->ptr,HASH_SET_COPY);
+    {
+        created += !hashTypeSet(o, c->argv[i]->ptr, c->argv[i + 1]->ptr, HASH_SET_COPY);
+    }
 
     /* HMSET (deprecated) and HSET return value is different. */
     char *cmdname = c->argv[0]->ptr;
-    if (cmdname[1] == 's' || cmdname[1] == 'S') {
+    if (cmdname[1] == 's' || cmdname[1] == 'S')
+    {
         /* HSET */
         addReplyLongLong(c, created);
-    } else {
+    }
+    else
+    {
         /* HMSET */
         addReply(c, shared.ok);
     }
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    signalModifiedKey(c->db, c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
     server.dirty++;
 }
 
-void hincrbyCommand(client *c) {
+void hincrbyCommand(client *c)
+{
     long long value, incr, oldvalue;
     robj *o;
     sds new;
     unsigned char *vstr;
     unsigned int vlen;
 
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&value) == C_OK) {
-        if (vstr) {
-            if (string2ll((char*)vstr,vlen,&value) == 0) {
-                addReplyError(c,"hash value is not an integer");
+    if (getLongLongFromObjectOrReply(c, c->argv[3], &incr, NULL) != C_OK) return;
+    if ((o = hashTypeLookupWriteOrCreate(c, c->argv[1])) == NULL) return;
+    if (hashTypeGetValue(o, c->argv[2]->ptr, &vstr, &vlen, &value) == C_OK)
+    {
+        if (vstr)
+        {
+            if (string2ll((char *) vstr, vlen, &value) == 0)
+            {
+                addReplyError(c, "hash value is not an integer");
                 return;
             }
         } /* Else hashTypeGetValue() already stored it into &value */
-    } else {
+    }
+    else
+    {
         value = 0;
     }
 
     oldvalue = value;
-    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
-        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX-oldvalue))) {
-        addReplyError(c,"increment or decrement would overflow");
+    if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN - oldvalue)) ||
+        (incr > 0 && oldvalue > 0 && incr > (LLONG_MAX - oldvalue)))
+    {
+        addReplyError(c, "increment or decrement would overflow");
         return;
     }
     value += incr;
     new = sdsfromlonglong(value);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
-    addReplyLongLong(c,value);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    hashTypeSet(o, c->argv[2]->ptr, new, HASH_SET_TAKE_VALUE);
+    addReplyLongLong(c, value);
+    signalModifiedKey(c->db, c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH, "hincrby", c->argv[1], c->db->id);
     server.dirty++;
 }
 
-void hincrbyfloatCommand(client *c) {
+void hincrbyfloatCommand(client *c)
+{
     long double value, incr;
     long long ll;
     robj *o;
@@ -599,194 +742,263 @@ void hincrbyfloatCommand(client *c) {
     unsigned char *vstr;
     unsigned int vlen;
 
-    if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
-    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
-        if (vstr) {
-            if (string2ld((char*)vstr,vlen,&value) == 0) {
-                addReplyError(c,"hash value is not a float");
+    if (getLongDoubleFromObjectOrReply(c, c->argv[3], &incr, NULL) != C_OK) return;
+    if ((o = hashTypeLookupWriteOrCreate(c, c->argv[1])) == NULL) return;
+    if (hashTypeGetValue(o, c->argv[2]->ptr, &vstr, &vlen, &ll) == C_OK)
+    {
+        if (vstr)
+        {
+            if (string2ld((char *) vstr, vlen, &value) == 0)
+            {
+                addReplyError(c, "hash value is not a float");
                 return;
             }
-        } else {
-            value = (long double)ll;
         }
-    } else {
+        else
+        {
+            value = (long double) ll;
+        }
+    }
+    else
+    {
         value = 0;
     }
 
     value += incr;
 
     char buf[MAX_LONG_DOUBLE_CHARS];
-    int len = ld2string(buf,sizeof(buf),value,1);
-    new = sdsnewlen(buf,len);
-    hashTypeSet(o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE);
-    addReplyBulkCBuffer(c,buf,len);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
+    int len = ld2string(buf, sizeof(buf), value, 1);
+    new = sdsnewlen(buf, len);
+    hashTypeSet(o, c->argv[2]->ptr, new, HASH_SET_TAKE_VALUE);
+    addReplyBulkCBuffer(c, buf, len);
+    signalModifiedKey(c->db, c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH, "hincrbyfloat", c->argv[1], c->db->id);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
      * in order to make sure that differences in float pricision or formatting
      * will not create differences in replicas or after an AOF restart. */
     robj *aux, *newobj;
-    aux = createStringObject("HSET",4);
-    newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,aux);
+    aux = createStringObject("HSET", 4);
+    newobj = createRawStringObject(buf, len);
+    rewriteClientCommandArgument(c, 0, aux);
     decrRefCount(aux);
-    rewriteClientCommandArgument(c,3,newobj);
+    rewriteClientCommandArgument(c, 3, newobj);
     decrRefCount(newobj);
 }
 
-static void addHashFieldToReply(client *c, robj *o, sds field) {
+static void addHashFieldToReply(client *c, robj *o, sds field)
+{
     int ret;
 
-    if (o == NULL) {
+    if (o == NULL)
+    {
         addReplyNull(c);
         return;
     }
 
-    if (o->encoding == OBJ_ENCODING_ZIPLIST) {
+    if (o->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         ret = hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll);
-        if (ret < 0) {
+        if (ret < 0)
+        {
             addReplyNull(c);
-        } else {
-            if (vstr) {
+        }
+        else
+        {
+            if (vstr)
+            {
                 addReplyBulkCBuffer(c, vstr, vlen);
-            } else {
+            }
+            else
+            {
                 addReplyBulkLongLong(c, vll);
             }
         }
 
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+    }
+    else if (o->encoding == OBJ_ENCODING_HT)
+    {
         sds value = hashTypeGetFromHashTable(o, field);
         if (value == NULL)
+        {
             addReplyNull(c);
+        }
         else
+        {
             addReplyBulkCBuffer(c, value, sdslen(value));
-    } else {
+        }
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 }
 
-void hgetCommand(client *c) {
+void hgetCommand(client *c)
+{
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
 
     addHashFieldToReply(c, o, c->argv[2]->ptr);
 }
 
-void hmgetCommand(client *c) {
+void hmgetCommand(client *c)
+{
     robj *o;
     int i;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
     o = lookupKeyRead(c->db, c->argv[1]);
-    if (o != NULL && o->type != OBJ_HASH) {
+    if (o != NULL && o->type != OBJ_HASH)
+    {
         addReply(c, shared.wrongtypeerr);
         return;
     }
 
-    addReplyArrayLen(c, c->argc-2);
-    for (i = 2; i < c->argc; i++) {
+    addReplyArrayLen(c, c->argc - 2);
+    for (i = 2; i < c->argc; i++)
+    {
         addHashFieldToReply(c, o, c->argv[i]->ptr);
     }
 }
 
-void hdelCommand(client *c) {
+void hdelCommand(client *c)
+{
     robj *o;
     int j, deleted = 0, keyremoved = 0;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyWriteOrReply(c, c->argv[1], shared.czero)) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
 
-    for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
+    for (j = 2; j < c->argc; j++)
+    {
+        if (hashTypeDelete(o, c->argv[j]->ptr))
+        {
             deleted++;
-            if (hashTypeLength(o) == 0) {
-                dbDelete(c->db,c->argv[1]);
+            if (hashTypeLength(o) == 0)
+            {
+                dbDelete(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
-    if (deleted) {
-        signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
+    if (deleted)
+    {
+        signalModifiedKey(c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
         if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
+        {
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1],
                                 c->db->id);
+        }
         server.dirty += deleted;
     }
-    addReplyLongLong(c,deleted);
+    addReplyLongLong(c, deleted);
 }
 
-void hlenCommand(client *c) {
+void hlenCommand(client *c)
+{
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.czero)) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
 
-    addReplyLongLong(c,hashTypeLength(o));
+    addReplyLongLong(c, hashTypeLength(o));
 }
 
-void hstrlenCommand(client *c) {
+void hstrlenCommand(client *c)
+{
     robj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]->ptr));
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.czero)) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
+    addReplyLongLong(c, hashTypeGetValueLength(o, c->argv[2]->ptr));
 }
 
-static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_ZIPLIST) {
+static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int what)
+{
+    if (hi->encoding == OBJ_ENCODING_ZIPLIST)
+    {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
         hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
         if (vstr)
+        {
             addReplyBulkCBuffer(c, vstr, vlen);
+        }
         else
+        {
             addReplyBulkLongLong(c, vll);
-    } else if (hi->encoding == OBJ_ENCODING_HT) {
+        }
+    }
+    else if (hi->encoding == OBJ_ENCODING_HT)
+    {
         sds value = hashTypeCurrentFromHashTable(hi, what);
         addReplyBulkCBuffer(c, value, sdslen(value));
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown hash encoding");
     }
 }
 
-void genericHgetallCommand(client *c, int flags) {
+void genericHgetallCommand(client *c, int flags)
+{
     robj *o;
     hashTypeIterator *hi;
     int length, count = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL
-        || checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL
+        || checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */
     length = hashTypeLength(o);
-    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
+    if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE)
+    {
         addReplyMapLen(c, length);
-    } else {
+    }
+    else
+    {
         addReplyArrayLen(c, length);
     }
 
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != C_ERR) {
-        if (flags & OBJ_HASH_KEY) {
+    while (hashTypeNext(hi) != C_ERR)
+    {
+        if (flags & OBJ_HASH_KEY)
+        {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
             count++;
         }
-        if (flags & OBJ_HASH_VALUE) {
+        if (flags & OBJ_HASH_VALUE)
+        {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
             count++;
         }
@@ -799,32 +1011,43 @@ void genericHgetallCommand(client *c, int flags) {
     serverAssert(count == length);
 }
 
-void hkeysCommand(client *c) {
-    genericHgetallCommand(c,OBJ_HASH_KEY);
+void hkeysCommand(client *c)
+{
+    genericHgetallCommand(c, OBJ_HASH_KEY);
 }
 
-void hvalsCommand(client *c) {
-    genericHgetallCommand(c,OBJ_HASH_VALUE);
+void hvalsCommand(client *c)
+{
+    genericHgetallCommand(c, OBJ_HASH_VALUE);
 }
 
-void hgetallCommand(client *c) {
-    genericHgetallCommand(c,OBJ_HASH_KEY|OBJ_HASH_VALUE);
+void hgetallCommand(client *c)
+{
+    genericHgetallCommand(c, OBJ_HASH_KEY | OBJ_HASH_VALUE);
 }
 
-void hexistsCommand(client *c) {
+void hexistsCommand(client *c)
+{
     robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.czero)) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
 
-    addReply(c, hashTypeExists(o,c->argv[2]->ptr) ? shared.cone : shared.czero);
+    addReply(c, hashTypeExists(o, c->argv[2]->ptr) ? shared.cone : shared.czero);
 }
 
-void hscanCommand(client *c) {
+void hscanCommand(client *c)
+{
     robj *o;
     unsigned long cursor;
 
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
-    scanGenericCommand(c,o,cursor);
+    if (parseScanCursorOrReply(c, c->argv[2], &cursor) == C_ERR) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyscan)) == NULL ||
+        checkType(c, o, OBJ_HASH))
+    {
+        return;
+    }
+    scanGenericCommand(c, o, cursor);
 }

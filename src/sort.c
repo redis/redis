@@ -33,9 +33,10 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
+zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
-redisSortOperation *createSortOperation(int type, robj *pattern) {
+redisSortOperation *createSortOperation(int type, robj *pattern)
+{
     redisSortOperation *so = zmalloc(sizeof(*so));
     so->type = type;
     so->pattern = pattern;
@@ -58,7 +59,8 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  *
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
-robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
+robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst)
+{
     char *p, *f, *k;
     sds spat, ssub;
     robj *keyobj, *fieldobj = NULL, *o;
@@ -67,7 +69,8 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     /* If the pattern is "#" return the substitution object itself in order
      * to implement the "SORT ... GET #" feature. */
     spat = pattern->ptr;
-    if (spat[0] == '#' && spat[1] == '\0') {
+    if (spat[0] == '#' && spat[1] == '\0')
+    {
         incrRefCount(subst);
         return subst;
     }
@@ -80,42 +83,49 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* If we can't find '*' in the pattern we return NULL as to GET a
      * fixed key does not make sense. */
-    p = strchr(spat,'*');
-    if (!p) {
+    p = strchr(spat, '*');
+    if (!p)
+    {
         decrRefCount(subst);
         return NULL;
     }
 
     /* Find out if we're dealing with a hash dereference. */
-    if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
-        fieldlen = sdslen(spat)-(f-spat)-2;
-        fieldobj = createStringObject(f+2,fieldlen);
-    } else {
+    if ((f = strstr(p + 1, "->")) != NULL && *(f + 2) != '\0')
+    {
+        fieldlen = sdslen(spat) - (f - spat) - 2;
+        fieldobj = createStringObject(f + 2, fieldlen);
+    }
+    else
+    {
         fieldlen = 0;
     }
 
     /* Perform the '*' substitution. */
-    prefixlen = p-spat;
+    prefixlen = p - spat;
     sublen = sdslen(ssub);
-    postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
-    keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
+    postfixlen = sdslen(spat) - (prefixlen + 1) - (fieldlen ? fieldlen + 2 : 0);
+    keyobj = createStringObject(NULL, prefixlen + sublen + postfixlen);
     k = keyobj->ptr;
-    memcpy(k,spat,prefixlen);
-    memcpy(k+prefixlen,ssub,sublen);
-    memcpy(k+prefixlen+sublen,p+1,postfixlen);
+    memcpy(k, spat, prefixlen);
+    memcpy(k + prefixlen, ssub, sublen);
+    memcpy(k + prefixlen + sublen, p + 1, postfixlen);
     decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    o = lookupKeyRead(db,keyobj);
+    o = lookupKeyRead(db, keyobj);
     if (o == NULL) goto noobj;
 
-    if (fieldobj) {
+    if (fieldobj)
+    {
         if (o->type != OBJ_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. The returend object
          * is a new object with refcount already incremented. */
         o = hashTypeGetValueObject(o, fieldobj->ptr);
-    } else {
+    }
+    else
+    {
         if (o->type != OBJ_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
@@ -126,7 +136,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     if (fieldobj) decrRefCount(fieldobj);
     return o;
 
-noobj:
+    noobj:
     decrRefCount(keyobj);
     if (fieldlen) decrRefCount(fieldobj);
     return NULL;
@@ -135,49 +145,76 @@ noobj:
 /* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with
  * the additional parameter is not standard but a BSD-specific we have to
  * pass sorting parameters via the global 'server' structure */
-int sortCompare(const void *s1, const void *s2) {
+int sortCompare(const void *s1, const void *s2)
+{
     const redisSortObject *so1 = s1, *so2 = s2;
     int cmp;
 
-    if (!server.sort_alpha) {
+    if (!server.sort_alpha)
+    {
         /* Numeric sorting. Here it's trivial as we precomputed scores */
-        if (so1->u.score > so2->u.score) {
+        if (so1->u.score > so2->u.score)
+        {
             cmp = 1;
-        } else if (so1->u.score < so2->u.score) {
+        }
+        else if (so1->u.score < so2->u.score)
+        {
             cmp = -1;
-        } else {
+        }
+        else
+        {
             /* Objects have the same score, but we don't want the comparison
              * to be undefined, so we compare objects lexicographically.
              * This way the result of SORT is deterministic. */
-            cmp = compareStringObjects(so1->obj,so2->obj);
+            cmp = compareStringObjects(so1->obj, so2->obj);
         }
-    } else {
+    }
+    else
+    {
         /* Alphanumeric sorting */
-        if (server.sort_bypattern) {
-            if (!so1->u.cmpobj || !so2->u.cmpobj) {
+        if (server.sort_bypattern)
+        {
+            if (!so1->u.cmpobj || !so2->u.cmpobj)
+            {
                 /* At least one compare object is NULL */
                 if (so1->u.cmpobj == so2->u.cmpobj)
+                {
                     cmp = 0;
+                }
                 else if (so1->u.cmpobj == NULL)
+                {
                     cmp = -1;
+                }
                 else
+                {
                     cmp = 1;
-            } else {
-                /* We have both the objects, compare them. */
-                if (server.sort_store) {
-                    cmp = compareStringObjects(so1->u.cmpobj,so2->u.cmpobj);
-                } else {
-                    /* Here we can use strcoll() directly as we are sure that
-                     * the objects are decoded string objects. */
-                    cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
                 }
             }
-        } else {
+            else
+            {
+                /* We have both the objects, compare them. */
+                if (server.sort_store)
+                {
+                    cmp = compareStringObjects(so1->u.cmpobj, so2->u.cmpobj);
+                }
+                else
+                {
+                    /* Here we can use strcoll() directly as we are sure that
+                     * the objects are decoded string objects. */
+                    cmp = strcoll(so1->u.cmpobj->ptr, so2->u.cmpobj->ptr);
+                }
+            }
+        }
+        else
+        {
             /* Compare elements directly. */
-            if (server.sort_store) {
-                cmp = compareStringObjects(so1->obj,so2->obj);
-            } else {
-                cmp = collateStringObjects(so1->obj,so2->obj);
+            if (server.sort_store)
+            {
+                cmp = compareStringObjects(so1->obj, so2->obj);
+            }
+            else
+            {
+                cmp = collateStringObjects(so1->obj, so2->obj);
             }
         }
     }
@@ -186,7 +223,8 @@ int sortCompare(const void *s1, const void *s2) {
 
 /* The SORT command is the most complex command in Redis. Warning: this code
  * is optimized for speed and a bit less for readability */
-void sortCommand(client *c) {
+void sortCommand(client *c)
+{
     list *operations;
     unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
@@ -199,79 +237,104 @@ void sortCommand(client *c) {
     redisSortObject *vector; /* Resulting vector to sort */
 
     /* Lookup the key to sort. It must be of the right types */
-    sortval = lookupKeyRead(c->db,c->argv[1]);
+    sortval = lookupKeyRead(c->db, c->argv[1]);
     if (sortval && sortval->type != OBJ_SET &&
-                   sortval->type != OBJ_LIST &&
-                   sortval->type != OBJ_ZSET)
+        sortval->type != OBJ_LIST &&
+        sortval->type != OBJ_ZSET)
     {
-        addReply(c,shared.wrongtypeerr);
+        addReply(c, shared.wrongtypeerr);
         return;
     }
 
     /* Create a list of operations to perform for every sorted element.
      * Operations can be GET */
     operations = listCreate();
-    listSetFreeMethod(operations,zfree);
+    listSetFreeMethod(operations, zfree);
     j = 2; /* options start at argv[2] */
 
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroyed */
     if (sortval)
+    {
         incrRefCount(sortval);
+    }
     else
+    {
         sortval = createQuicklistObject();
+    }
 
     /* The SORT command has an SQL-alike syntax, parse it */
-    while(j < c->argc) {
-        int leftargs = c->argc-j-1;
-        if (!strcasecmp(c->argv[j]->ptr,"asc")) {
+    while (j < c->argc)
+    {
+        int leftargs = c->argc - j - 1;
+        if (!strcasecmp(c->argv[j]->ptr, "asc"))
+        {
             desc = 0;
-        } else if (!strcasecmp(c->argv[j]->ptr,"desc")) {
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "desc"))
+        {
             desc = 1;
-        } else if (!strcasecmp(c->argv[j]->ptr,"alpha")) {
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "alpha"))
+        {
             alpha = 1;
-        } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
-            if ((getLongFromObjectOrReply(c, c->argv[j+1], &limit_start, NULL)
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "limit") && leftargs >= 2)
+        {
+            if ((getLongFromObjectOrReply(c, c->argv[j + 1], &limit_start, NULL)
                  != C_OK) ||
-                (getLongFromObjectOrReply(c, c->argv[j+2], &limit_count, NULL)
+                (getLongFromObjectOrReply(c, c->argv[j + 2], &limit_count, NULL)
                  != C_OK))
             {
                 syntax_error++;
                 break;
             }
-            j+=2;
-        } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
-            storekey = c->argv[j+1];
+            j += 2;
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "store") && leftargs >= 1)
+        {
+            storekey = c->argv[j + 1];
             j++;
-        } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
-            sortby = c->argv[j+1];
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "by") && leftargs >= 1)
+        {
+            sortby = c->argv[j + 1];
             /* If the BY pattern does not contain '*', i.e. it is constant,
              * we don't need to sort nor to lookup the weight keys. */
-            if (strchr(c->argv[j+1]->ptr,'*') == NULL) {
+            if (strchr(c->argv[j + 1]->ptr, '*') == NULL)
+            {
                 dontsort = 1;
-            } else {
+            }
+            else
+            {
                 /* If BY is specified with a real patter, we can't accept
                  * it in cluster mode. */
-                if (server.cluster_enabled) {
-                    addReplyError(c,"BY option of SORT denied in Cluster mode.");
+                if (server.cluster_enabled)
+                {
+                    addReplyError(c, "BY option of SORT denied in Cluster mode.");
                     syntax_error++;
                     break;
                 }
             }
             j++;
-        } else if (!strcasecmp(c->argv[j]->ptr,"get") && leftargs >= 1) {
-            if (server.cluster_enabled) {
-                addReplyError(c,"GET option of SORT denied in Cluster mode.");
+        }
+        else if (!strcasecmp(c->argv[j]->ptr, "get") && leftargs >= 1)
+        {
+            if (server.cluster_enabled)
+            {
+                addReplyError(c, "GET option of SORT denied in Cluster mode.");
                 syntax_error++;
                 break;
             }
-            listAddNodeTail(operations,createSortOperation(
-                SORT_OP_GET,c->argv[j+1]));
+            listAddNodeTail(operations, createSortOperation(
+                    SORT_OP_GET, c->argv[j + 1]));
             getop++;
             j++;
-        } else {
-            addReply(c,shared.syntaxerr);
+        }
+        else
+        {
+            addReply(c, shared.syntaxerr);
             syntax_error++;
             break;
         }
@@ -279,7 +342,8 @@ void sortCommand(client *c) {
     }
 
     /* Handle syntax errors set during options parsing. */
-    if (syntax_error) {
+    if (syntax_error)
+    {
         decrRefCount(sortval);
         listRelease(operations);
         return;
@@ -303,24 +367,36 @@ void sortCommand(client *c) {
 
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET)
+    {
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+    }
 
     /* Objtain the length of the object to sort. */
-    switch(sortval->type) {
-    case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
-    case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
-    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
-    default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
+    switch (sortval->type)
+    {
+        case OBJ_LIST:
+            vectorlen = listTypeLength(sortval);
+            break;
+        case OBJ_SET:
+            vectorlen = setTypeSize(sortval);
+            break;
+        case OBJ_ZSET:
+            vectorlen = dictSize(((zset *) sortval->ptr)->dict);
+            break;
+        default:
+            vectorlen = 0;
+            serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
     /* Perform LIMIT start,count sanity checking. */
     start = (limit_start < 0) ? 0 : limit_start;
-    end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
-    if (start >= vectorlen) {
-        start = vectorlen-1;
-        end = vectorlen-2;
+    end = (limit_count < 0) ? vectorlen - 1 : start + limit_count - 1;
+    if (start >= vectorlen)
+    {
+        start = vectorlen - 1;
+        end = vectorlen - 2;
     }
-    if (end >= vectorlen) end = vectorlen-1;
+    if (end >= vectorlen) end = vectorlen - 1;
 
     /* Whenever possible, we load elements into the output array in a more
      * direct way. This is possible if:
@@ -334,30 +410,33 @@ void sortCommand(client *c) {
      * for the selected range length. */
     if ((sortval->type == OBJ_ZSET || sortval->type == OBJ_LIST) &&
         dontsort &&
-        (start != 0 || end != vectorlen-1))
+        (start != 0 || end != vectorlen - 1))
     {
-        vectorlen = end-start+1;
+        vectorlen = end - start + 1;
     }
 
     /* Load the sorting vector with all the objects to sort */
-    vector = zmalloc(sizeof(redisSortObject)*vectorlen);
+    vector = zmalloc(sizeof(redisSortObject) * vectorlen);
     j = 0;
 
-    if (sortval->type == OBJ_LIST && dontsort) {
+    if (sortval->type == OBJ_LIST && dontsort)
+    {
         /* Special handling for a list, if 'dontsort' is true.
          * This makes sure we return elements in the list original
          * ordering, accordingly to DESC / ASC options.
          *
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
-        if (end >= start) {
+        if (end >= start)
+        {
             listTypeIterator *li;
             listTypeEntry entry;
             li = listTypeInitIterator(sortval,
-                    desc ? (long)(listTypeLength(sortval) - start - 1) : start,
-                    desc ? LIST_HEAD : LIST_TAIL);
+                                      desc ? (long) (listTypeLength(sortval) - start - 1) : start,
+                                      desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
+            while (j < vectorlen && listTypeNext(li, &entry))
+            {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
@@ -368,27 +447,35 @@ void sortCommand(client *c) {
             end -= start;
             start = 0;
         }
-    } else if (sortval->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+    }
+    else if (sortval->type == OBJ_LIST)
+    {
+        listTypeIterator *li = listTypeInitIterator(sortval, 0, LIST_TAIL);
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        while (listTypeNext(li, &entry))
+        {
             vector[j].obj = listTypeGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
         listTypeReleaseIterator(li);
-    } else if (sortval->type == OBJ_SET) {
+    }
+    else if (sortval->type == OBJ_SET)
+    {
         setTypeIterator *si = setTypeInitIterator(sortval);
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
-            vector[j].obj = createObject(OBJ_STRING,sdsele);
+        while ((sdsele = setTypeNextObject(si)) != NULL)
+        {
+            vector[j].obj = createObject(OBJ_STRING, sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
         setTypeReleaseIterator(si);
-    } else if (sortval->type == OBJ_ZSET && dontsort) {
+    }
+    else if (sortval->type == OBJ_ZSET && dontsort)
+    {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
          * ordering, accordingly to DESC / ASC options.
@@ -403,22 +490,30 @@ void sortCommand(client *c) {
         int rangelen = vectorlen;
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
-        if (desc) {
-            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
+        if (desc)
+        {
+            long zsetlen = dictSize(((zset *) sortval->ptr)->dict);
 
             ln = zsl->tail;
             if (start > 0)
-                ln = zslGetElementByRank(zsl,zsetlen-start);
-        } else {
+            {
+                ln = zslGetElementByRank(zsl, zsetlen - start);
+            }
+        }
+        else
+        {
             ln = zsl->header->level[0].forward;
             if (start > 0)
-                ln = zslGetElementByRank(zsl,start+1);
+            {
+                ln = zslGetElementByRank(zsl, start + 1);
+            }
         }
 
-        while(rangelen--) {
-            serverAssertWithInfo(c,sortval,ln != NULL);
+        while (rangelen--)
+        {
+            serverAssertWithInfo(c, sortval, ln != NULL);
             sdsele = ln->ele;
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
+            vector[j].obj = createStringObject(sdsele, sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
@@ -427,63 +522,82 @@ void sortCommand(client *c) {
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
-    } else if (sortval->type == OBJ_ZSET) {
-        dict *set = ((zset*)sortval->ptr)->dict;
+    }
+    else if (sortval->type == OBJ_ZSET)
+    {
+        dict *set = ((zset *) sortval->ptr)->dict;
         dictIterator *di;
         dictEntry *setele;
         sds sdsele;
         di = dictGetIterator(set);
-        while((setele = dictNext(di)) != NULL) {
-            sdsele =  dictGetKey(setele);
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
+        while ((setele = dictNext(di)) != NULL)
+        {
+            sdsele = dictGetKey(setele);
+            vector[j].obj = createStringObject(sdsele, sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
         dictReleaseIterator(di);
-    } else {
+    }
+    else
+    {
         serverPanic("Unknown type");
     }
-    serverAssertWithInfo(c,sortval,j == vectorlen);
+    serverAssertWithInfo(c, sortval, j == vectorlen);
 
     /* Now it's time to load the right scores in the sorting vector */
-    if (!dontsort) {
-        for (j = 0; j < vectorlen; j++) {
+    if (!dontsort)
+    {
+        for (j = 0; j < vectorlen; j++)
+        {
             robj *byval;
-            if (sortby) {
+            if (sortby)
+            {
                 /* lookup value to sort by */
-                byval = lookupKeyByPattern(c->db,sortby,vector[j].obj);
+                byval = lookupKeyByPattern(c->db, sortby, vector[j].obj);
                 if (!byval) continue;
-            } else {
+            }
+            else
+            {
                 /* use object itself to sort by */
                 byval = vector[j].obj;
             }
 
-            if (alpha) {
+            if (alpha)
+            {
                 if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
-            } else {
-                if (sdsEncodedObject(byval)) {
+            }
+            else
+            {
+                if (sdsEncodedObject(byval))
+                {
                     char *eptr;
 
-                    vector[j].u.score = strtod(byval->ptr,&eptr);
+                    vector[j].u.score = strtod(byval->ptr, &eptr);
                     if (eptr[0] != '\0' || errno == ERANGE ||
                         isnan(vector[j].u.score))
                     {
                         int_conversion_error = 1;
                     }
-                } else if (byval->encoding == OBJ_ENCODING_INT) {
+                }
+                else if (byval->encoding == OBJ_ENCODING_INT)
+                {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
                      * far. We can just cast it */
-                    vector[j].u.score = (long)byval->ptr;
-                } else {
-                    serverAssertWithInfo(c,sortval,1 != 1);
+                    vector[j].u.score = (long) byval->ptr;
+                }
+                else
+                {
+                    serverAssertWithInfo(c, sortval, 1 != 1);
                 }
             }
 
             /* when the object was retrieved using lookupKeyByPattern,
              * its refcount needs to be decreased. */
-            if (sortby) {
+            if (sortby)
+            {
                 decrRefCount(byval);
             }
         }
@@ -492,99 +606,132 @@ void sortCommand(client *c) {
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
         server.sort_store = storekey ? 1 : 0;
-        if (sortby && (start != 0 || end != vectorlen-1))
-            pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
+        if (sortby && (start != 0 || end != vectorlen - 1))
+        {
+            pqsort(vector, vectorlen, sizeof(redisSortObject), sortCompare, start, end);
+        }
         else
-            qsort(vector,vectorlen,sizeof(redisSortObject),sortCompare);
+        {
+            qsort(vector, vectorlen, sizeof(redisSortObject), sortCompare);
+        }
     }
 
     /* Send command output to the output buffer, performing the specified
      * GET/DEL/INCR/DECR operations if any. */
-    outputlen = getop ? getop*(end-start+1) : end-start+1;
-    if (int_conversion_error) {
-        addReplyError(c,"One or more scores can't be converted into double");
-    } else if (storekey == NULL) {
+    outputlen = getop ? getop * (end - start + 1) : end - start + 1;
+    if (int_conversion_error)
+    {
+        addReplyError(c, "One or more scores can't be converted into double");
+    }
+    else if (storekey == NULL)
+    {
         /* STORE option not specified, sent the sorting result to client */
-        addReplyArrayLen(c,outputlen);
-        for (j = start; j <= end; j++) {
+        addReplyArrayLen(c, outputlen);
+        for (j = start; j <= end; j++)
+        {
             listNode *ln;
             listIter li;
 
-            if (!getop) addReplyBulk(c,vector[j].obj);
-            listRewind(operations,&li);
-            while((ln = listNext(&li))) {
+            if (!getop) addReplyBulk(c, vector[j].obj);
+            listRewind(operations, &li);
+            while ((ln = listNext(&li)))
+            {
                 redisSortOperation *sop = ln->value;
-                robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                    vector[j].obj);
+                robj *val = lookupKeyByPattern(c->db, sop->pattern,
+                                               vector[j].obj);
 
-                if (sop->type == SORT_OP_GET) {
-                    if (!val) {
+                if (sop->type == SORT_OP_GET)
+                {
+                    if (!val)
+                    {
                         addReplyNull(c);
-                    } else {
-                        addReplyBulk(c,val);
+                    }
+                    else
+                    {
+                        addReplyBulk(c, val);
                         decrRefCount(val);
                     }
-                } else {
+                }
+                else
+                {
                     /* Always fails */
-                    serverAssertWithInfo(c,sortval,sop->type == SORT_OP_GET);
+                    serverAssertWithInfo(c, sortval, sop->type == SORT_OP_GET);
                 }
             }
         }
-    } else {
+    }
+    else
+    {
         robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
-        for (j = start; j <= end; j++) {
+        for (j = start; j <= end; j++)
+        {
             listNode *ln;
             listIter li;
 
-            if (!getop) {
-                listTypePush(sobj,vector[j].obj,LIST_TAIL);
-            } else {
-                listRewind(operations,&li);
-                while((ln = listNext(&li))) {
+            if (!getop)
+            {
+                listTypePush(sobj, vector[j].obj, LIST_TAIL);
+            }
+            else
+            {
+                listRewind(operations, &li);
+                while ((ln = listNext(&li)))
+                {
                     redisSortOperation *sop = ln->value;
-                    robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                        vector[j].obj);
+                    robj *val = lookupKeyByPattern(c->db, sop->pattern,
+                                                   vector[j].obj);
 
-                    if (sop->type == SORT_OP_GET) {
-                        if (!val) val = createStringObject("",0);
+                    if (sop->type == SORT_OP_GET)
+                    {
+                        if (!val) val = createStringObject("", 0);
 
                         /* listTypePush does an incrRefCount, so we should take care
                          * care of the incremented refcount caused by either
                          * lookupKeyByPattern or createStringObject("",0) */
-                        listTypePush(sobj,val,LIST_TAIL);
+                        listTypePush(sobj, val, LIST_TAIL);
                         decrRefCount(val);
-                    } else {
+                    }
+                    else
+                    {
                         /* Always fails */
-                        serverAssertWithInfo(c,sortval,sop->type == SORT_OP_GET);
+                        serverAssertWithInfo(c, sortval, sop->type == SORT_OP_GET);
                     }
                 }
             }
         }
-        if (outputlen) {
-            setKey(c->db,storekey,sobj);
-            notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
+        if (outputlen)
+        {
+            setKey(c->db, storekey, sobj);
+            notifyKeyspaceEvent(NOTIFY_LIST, "sortstore", storekey,
                                 c->db->id);
             server.dirty += outputlen;
-        } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c->db,storekey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
+        }
+        else if (dbDelete(c->db, storekey))
+        {
+            signalModifiedKey(c->db, storekey);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
             server.dirty++;
         }
         decrRefCount(sobj);
-        addReplyLongLong(c,outputlen);
+        addReplyLongLong(c, outputlen);
     }
 
     /* Cleanup */
     for (j = 0; j < vectorlen; j++)
+    {
         decrRefCount(vector[j].obj);
+    }
 
     decrRefCount(sortval);
     listRelease(operations);
-    for (j = 0; j < vectorlen; j++) {
+    for (j = 0; j < vectorlen; j++)
+    {
         if (alpha && vector[j].u.cmpobj)
+        {
             decrRefCount(vector[j].u.cmpobj);
+        }
     }
     zfree(vector);
 }

@@ -64,7 +64,9 @@
 #ifndef ZMALLOC_LIB
 #define ZMALLOC_LIB "libc"
 #ifdef __GLIBC__
+
 #include <malloc.h>
+
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_usable_size(p)
 #endif
@@ -78,17 +80,29 @@
 #endif
 
 void *zmalloc(size_t size);
+
 void *zcalloc(size_t size);
+
 void *zrealloc(void *ptr, size_t size);
+
 void zfree(void *ptr);
+
 char *zstrdup(const char *s);
+
 size_t zmalloc_used_memory(void);
+
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
+
 size_t zmalloc_get_rss(void);
+
 int zmalloc_get_allocator_info(size_t *allocated, size_t *active, size_t *resident);
+
 size_t zmalloc_get_private_dirty(long pid);
+
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid);
+
 size_t zmalloc_get_memory_size(void);
+
 void zlibc_free(void *ptr);
 
 #ifdef HAVE_DEFRAG

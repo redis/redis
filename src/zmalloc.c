@@ -36,7 +36,8 @@
  * for instance to free results obtained by backtrace_symbols(). We need
  * to define this function before including zmalloc.h that may shadow the
  * free implementation if we use jemalloc or another non standard allocator. */
-void zlibc_free(void *ptr) {
+void zlibc_free(void *ptr)
+{
     free(ptr);
 }
 
@@ -86,19 +87,22 @@ void zlibc_free(void *ptr) {
 static size_t used_memory = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void zmalloc_default_oom(size_t size) {
+static void zmalloc_default_oom(size_t size)
+{
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
-        size);
+            size);
     fflush(stderr);
     abort();
 }
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
-void *zmalloc(size_t size) {
-    void *ptr = malloc(size+PREFIX_SIZE);
+void *zmalloc(size_t size)
+{
+    void *ptr = malloc(size + PREFIX_SIZE);
 
-    if (!ptr) zmalloc_oom_handler(size);
+    if (!ptr)
+    { zmalloc_oom_handler(size); }
 #ifdef HAVE_MALLOC_SIZE
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
@@ -127,10 +131,12 @@ void zfree_no_tcache(void *ptr) {
 }
 #endif
 
-void *zcalloc(size_t size) {
-    void *ptr = calloc(1, size+PREFIX_SIZE);
+void *zcalloc(size_t size)
+{
+    void *ptr = calloc(1, size + PREFIX_SIZE);
 
-    if (!ptr) zmalloc_oom_handler(size);
+    if (!ptr)
+    { zmalloc_oom_handler(size); }
 #ifdef HAVE_MALLOC_SIZE
     update_zmalloc_stat_alloc(zmalloc_size(ptr));
     return ptr;
@@ -141,7 +147,8 @@ void *zcalloc(size_t size) {
 #endif
 }
 
-void *zrealloc(void *ptr, size_t size) {
+void *zrealloc(void *ptr, size_t size)
+{
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif
@@ -151,7 +158,7 @@ void *zrealloc(void *ptr, size_t size) {
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
-    newptr = realloc(ptr,size);
+    newptr = realloc(ptr, size);
     if (!newptr) zmalloc_oom_handler(size);
 
     update_zmalloc_stat_free(oldsize);
@@ -187,13 +194,15 @@ size_t zmalloc_usable(void *ptr) {
 }
 #endif
 
-void zfree(void *ptr) {
+void zfree(void *ptr)
+{
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
     size_t oldsize;
 #endif
 
-    if (ptr == NULL) return;
+    if (ptr == NULL)
+    { return; }
 #ifdef HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
@@ -205,21 +214,24 @@ void zfree(void *ptr) {
 #endif
 }
 
-char *zstrdup(const char *s) {
-    size_t l = strlen(s)+1;
+char *zstrdup(const char *s)
+{
+    size_t l = strlen(s) + 1;
     char *p = zmalloc(l);
 
-    memcpy(p,s,l);
+    memcpy(p, s, l);
     return p;
 }
 
-size_t zmalloc_used_memory(void) {
+size_t zmalloc_used_memory(void)
+{
     size_t um;
-    atomicGet(used_memory,um);
+    atomicGet(used_memory, um);
     return um;
 }
 
-void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
+void zmalloc_set_oom_handler(void (*oom_handler)(size_t))
+{
     zmalloc_oom_handler = oom_handler;
 }
 
@@ -234,12 +246,14 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
  * version of the function. */
 
 #if defined(HAVE_PROC_STAT)
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
-size_t zmalloc_get_rss(void) {
+size_t zmalloc_get_rss(void)
+{
     int page = sysconf(_SC_PAGESIZE);
     size_t rss;
     char buf[4096];
@@ -247,9 +261,10 @@ size_t zmalloc_get_rss(void) {
     int fd, count;
     char *p, *x;
 
-    snprintf(filename,256,"/proc/%d/stat",getpid());
-    if ((fd = open(filename,O_RDONLY)) == -1) return 0;
-    if (read(fd,buf,4096) <= 0) {
+    snprintf(filename, 256, "/proc/%d/stat", getpid());
+    if ((fd = open(filename, O_RDONLY)) == -1) return 0;
+    if (read(fd, buf, 4096) <= 0)
+    {
         close(fd);
         return 0;
     }
@@ -257,19 +272,21 @@ size_t zmalloc_get_rss(void) {
 
     p = buf;
     count = 23; /* RSS is the 24th field in /proc/<pid>/stat */
-    while(p && count--) {
-        p = strchr(p,' ');
+    while (p && count--)
+    {
+        p = strchr(p, ' ');
         if (p) p++;
     }
     if (!p) return 0;
-    x = strchr(p,' ');
+    x = strchr(p, ' ');
     if (!x) return 0;
     *x = '\0';
 
-    rss = strtoll(p,NULL,10);
+    rss = strtoll(p, NULL, 10);
     rss *= page;
     return rss;
 }
+
 #elif defined(HAVE_TASKINFO)
 #include <unistd.h>
 #include <stdio.h>
@@ -324,12 +341,15 @@ int zmalloc_get_allocator_info(size_t *allocated,
     return 1;
 }
 #else
+
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
-                               size_t *resident) {
+                               size_t *resident)
+{
     *allocated = *resident = *active = 0;
     return 1;
 }
+
 #endif
 
 /* Get the sum of the specified field (converted form kb to bytes) in
@@ -343,33 +363,42 @@ int zmalloc_get_allocator_info(size_t *allocated,
  * Example: zmalloc_get_smap_bytes_by_field("Rss:",-1);
  */
 #if defined(HAVE_PROC_SMAPS)
-size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
+
+size_t zmalloc_get_smap_bytes_by_field(char *field, long pid)
+{
     char line[1024];
     size_t bytes = 0;
     int flen = strlen(field);
     FILE *fp;
 
-    if (pid == -1) {
-        fp = fopen("/proc/self/smaps","r");
-    } else {
+    if (pid == -1)
+    {
+        fp = fopen("/proc/self/smaps", "r");
+    }
+    else
+    {
         char filename[128];
-        snprintf(filename,sizeof(filename),"/proc/%ld/smaps",pid);
-        fp = fopen(filename,"r");
+        snprintf(filename, sizeof(filename), "/proc/%ld/smaps", pid);
+        fp = fopen(filename, "r");
     }
 
     if (!fp) return 0;
-    while(fgets(line,sizeof(line),fp) != NULL) {
-        if (strncmp(line,field,flen) == 0) {
-            char *p = strchr(line,'k');
-            if (p) {
+    while (fgets(line, sizeof(line), fp) != NULL)
+    {
+        if (strncmp(line, field, flen) == 0)
+        {
+            char *p = strchr(line, 'k');
+            if (p)
+            {
                 *p = '\0';
-                bytes += strtol(line+flen,NULL,10) * 1024;
+                bytes += strtol(line + flen, NULL, 10) * 1024;
             }
         }
     }
     fclose(fp);
     return bytes;
 }
+
 #else
 size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
     ((void) field);
@@ -378,8 +407,9 @@ size_t zmalloc_get_smap_bytes_by_field(char *field, long pid) {
 }
 #endif
 
-size_t zmalloc_get_private_dirty(long pid) {
-    return zmalloc_get_smap_bytes_by_field("Private_Dirty:",pid);
+size_t zmalloc_get_private_dirty(long pid)
+{
+    return zmalloc_get_smap_bytes_by_field("Private_Dirty:", pid);
 }
 
 /* Returns the size of physical memory (RAM) in bytes.
@@ -395,7 +425,8 @@ size_t zmalloc_get_private_dirty(long pid) {
  * 3) Was modified for Redis by Matt Stancliff.
  * 4) This note exists in order to comply with the original license.
  */
-size_t zmalloc_get_memory_size(void) {
+size_t zmalloc_get_memory_size(void)
+{
 #if defined(__unix__) || defined(__unix) || defined(unix) || \
     (defined(__APPLE__) && defined(__MACH__))
 #if defined(CTL_HW) && (defined(HW_MEMSIZE) || defined(HW_PHYSMEM64))
@@ -414,7 +445,7 @@ size_t zmalloc_get_memory_size(void) {
 
 #elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
     /* FreeBSD, Linux, OpenBSD, and Solaris. -------------------- */
-    return (size_t)sysconf(_SC_PHYS_PAGES) * (size_t)sysconf(_SC_PAGESIZE);
+    return (size_t) sysconf(_SC_PHYS_PAGES) * (size_t) sysconf(_SC_PAGESIZE);
 
 #elif defined(CTL_HW) && (defined(HW_PHYSMEM) || defined(HW_REALMEM))
     /* DragonFly BSD, FreeBSD, NetBSD, OpenBSD, and OSX. -------- */

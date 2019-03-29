@@ -2049,6 +2049,7 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
+// 所有和客户端交互的协议
 /* Commands prototypes */
 void authCommand(client *c);
 void pingCommand(client *c);

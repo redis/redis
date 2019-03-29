@@ -93,7 +93,8 @@
 #define ZIPMAP_LEN_BYTES(_l) (((_l) < ZIPMAP_BIGLEN) ? 1 : sizeof(unsigned int)+1)
 
 /* Create a new empty zipmap. */
-unsigned char *zipmapNew(void) {
+unsigned char *zipmapNew(void)
+{
     unsigned char *zm = zmalloc(2);
 
     zm[0] = 0; /* Length */
@@ -102,29 +103,37 @@ unsigned char *zipmapNew(void) {
 }
 
 /* Decode the encoded length pointed by 'p' */
-static unsigned int zipmapDecodeLength(unsigned char *p) {
+static unsigned int zipmapDecodeLength(unsigned char *p)
+{
     unsigned int len = *p;
 
     if (len < ZIPMAP_BIGLEN) return len;
-    memcpy(&len,p+1,sizeof(unsigned int));
+    memcpy(&len, p + 1, sizeof(unsigned int));
     memrev32ifbe(&len);
     return len;
 }
 
 /* Encode the length 'l' writing it in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. */
-static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
-    if (p == NULL) {
+static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len)
+{
+    if (p == NULL)
+    {
         return ZIPMAP_LEN_BYTES(len);
-    } else {
-        if (len < ZIPMAP_BIGLEN) {
+    }
+    else
+    {
+        if (len < ZIPMAP_BIGLEN)
+        {
             p[0] = len;
             return 1;
-        } else {
+        }
+        else
+        {
             p[0] = ZIPMAP_BIGLEN;
-            memcpy(p+1,&len,sizeof(len));
-            memrev32ifbe(p+1);
-            return 1+sizeof(len);
+            memcpy(p + 1, &len, sizeof(len));
+            memrev32ifbe(p + 1);
+            return 1 + sizeof(len);
         }
     }
 }
@@ -135,58 +144,67 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
  * If NULL is returned, and totlen is not NULL, it is set to the entire
  * size of the zimap, so that the calling function will be able to
  * reallocate the original zipmap to make room for more entries. */
-static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen) {
-    unsigned char *p = zm+1, *k = NULL;
-    unsigned int l,llen;
+static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen)
+{
+    unsigned char *p = zm + 1, *k = NULL;
+    unsigned int l, llen;
 
-    while(*p != ZIPMAP_END) {
+    while (*p != ZIPMAP_END)
+    {
         unsigned char free;
 
         /* Match or skip the key */
         l = zipmapDecodeLength(p);
-        llen = zipmapEncodeLength(NULL,l);
-        if (key != NULL && k == NULL && l == klen && !memcmp(p+llen,key,l)) {
+        llen = zipmapEncodeLength(NULL, l);
+        if (key != NULL && k == NULL && l == klen && !memcmp(p + llen, key, l))
+        {
             /* Only return when the user doesn't care
              * for the total length of the zipmap. */
-            if (totlen != NULL) {
+            if (totlen != NULL)
+            {
                 k = p;
-            } else {
+            }
+            else
+            {
                 return p;
             }
         }
-        p += llen+l;
+        p += llen + l;
         /* Skip the value as well */
         l = zipmapDecodeLength(p);
-        p += zipmapEncodeLength(NULL,l);
+        p += zipmapEncodeLength(NULL, l);
         free = p[0];
-        p += l+1+free; /* +1 to skip the free byte */
+        p += l + 1 + free; /* +1 to skip the free byte */
     }
-    if (totlen != NULL) *totlen = (unsigned int)(p-zm)+1;
+    if (totlen != NULL) *totlen = (unsigned int) (p - zm) + 1;
     return k;
 }
 
-static unsigned long zipmapRequiredLength(unsigned int klen, unsigned int vlen) {
+static unsigned long zipmapRequiredLength(unsigned int klen, unsigned int vlen)
+{
     unsigned int l;
 
-    l = klen+vlen+3;
+    l = klen + vlen + 3;
     if (klen >= ZIPMAP_BIGLEN) l += 4;
     if (vlen >= ZIPMAP_BIGLEN) l += 4;
     return l;
 }
 
 /* Return the total amount used by a key (encoded length + payload) */
-static unsigned int zipmapRawKeyLength(unsigned char *p) {
+static unsigned int zipmapRawKeyLength(unsigned char *p)
+{
     unsigned int l = zipmapDecodeLength(p);
-    return zipmapEncodeLength(NULL,l) + l;
+    return zipmapEncodeLength(NULL, l) + l;
 }
 
 /* Return the total amount used by a value
  * (encoded length + single byte free count + payload) */
-static unsigned int zipmapRawValueLength(unsigned char *p) {
+static unsigned int zipmapRawValueLength(unsigned char *p)
+{
     unsigned int l = zipmapDecodeLength(p);
     unsigned int used;
 
-    used = zipmapEncodeLength(NULL,l);
+    used = zipmapEncodeLength(NULL, l);
     used += p[used] + 1 + l;
     return used;
 }
@@ -194,54 +212,62 @@ static unsigned int zipmapRawValueLength(unsigned char *p) {
 /* If 'p' points to a key, this function returns the total amount of
  * bytes used to store this entry (entry = key + associated value + trailing
  * free space if any). */
-static unsigned int zipmapRawEntryLength(unsigned char *p) {
+static unsigned int zipmapRawEntryLength(unsigned char *p)
+{
     unsigned int l = zipmapRawKeyLength(p);
-    return l + zipmapRawValueLength(p+l);
+    return l + zipmapRawValueLength(p + l);
 }
 
-static inline unsigned char *zipmapResize(unsigned char *zm, unsigned int len) {
+static inline unsigned char *zipmapResize(unsigned char *zm, unsigned int len)
+{
     zm = zrealloc(zm, len);
-    zm[len-1] = ZIPMAP_END;
+    zm[len - 1] = ZIPMAP_END;
     return zm;
 }
 
 /* Set key to value, creating the key if it does not already exist.
  * If 'update' is not NULL, *update is set to 1 if the key was
  * already preset, otherwise to 0. */
-unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char *val, unsigned int vlen, int *update) {
+unsigned char *
+zipmapSet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char *val, unsigned int vlen, int *update)
+{
     unsigned int zmlen, offset;
-    unsigned int freelen, reqlen = zipmapRequiredLength(klen,vlen);
+    unsigned int freelen, reqlen = zipmapRequiredLength(klen, vlen);
     unsigned int empty, vempty;
     unsigned char *p;
 
     freelen = reqlen;
     if (update) *update = 0;
-    p = zipmapLookupRaw(zm,key,klen,&zmlen);
-    if (p == NULL) {
+    p = zipmapLookupRaw(zm, key, klen, &zmlen);
+    if (p == NULL)
+    {
         /* Key not found: enlarge */
-        zm = zipmapResize(zm, zmlen+reqlen);
-        p = zm+zmlen-1;
-        zmlen = zmlen+reqlen;
+        zm = zipmapResize(zm, zmlen + reqlen);
+        p = zm + zmlen - 1;
+        zmlen = zmlen + reqlen;
 
         /* Increase zipmap length (this is an insert) */
         if (zm[0] < ZIPMAP_BIGLEN) zm[0]++;
-    } else {
+    }
+    else
+    {
         /* Key found. Is there enough space for the new value? */
         /* Compute the total length: */
         if (update) *update = 1;
         freelen = zipmapRawEntryLength(p);
-        if (freelen < reqlen) {
+        if (freelen < reqlen)
+        {
             /* Store the offset of this key within the current zipmap, so
              * it can be resized. Then, move the tail backwards so this
              * pair fits at the current position. */
-            offset = p-zm;
-            zm = zipmapResize(zm, zmlen-freelen+reqlen);
-            p = zm+offset;
+            offset = p - zm;
+            zm = zipmapResize(zm, zmlen - freelen + reqlen);
+            p = zm + offset;
 
             /* The +1 in the number of bytes to be moved is caused by the
              * end-of-zipmap byte. Note: the *original* zmlen is used. */
-            memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
-            zmlen = zmlen-freelen+reqlen;
+            memmove(p + reqlen, p + freelen, zmlen - (offset + freelen + 1));
+            zmlen = zmlen - freelen + reqlen;
             freelen = reqlen;
         }
     }
@@ -250,55 +276,63 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
      * be written. If there is too much free space, move the tail
      * of the zipmap a few bytes to the front and shrink the zipmap,
      * as we want zipmaps to be very space efficient. */
-    empty = freelen-reqlen;
-    if (empty >= ZIPMAP_VALUE_MAX_FREE) {
+    empty = freelen - reqlen;
+    if (empty >= ZIPMAP_VALUE_MAX_FREE)
+    {
         /* First, move the tail <empty> bytes to the front, then resize
          * the zipmap to be <empty> bytes smaller. */
-        offset = p-zm;
-        memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
+        offset = p - zm;
+        memmove(p + reqlen, p + freelen, zmlen - (offset + freelen + 1));
         zmlen -= empty;
         zm = zipmapResize(zm, zmlen);
-        p = zm+offset;
+        p = zm + offset;
         vempty = 0;
-    } else {
+    }
+    else
+    {
         vempty = empty;
     }
 
     /* Just write the key + value and we are done. */
     /* Key: */
-    p += zipmapEncodeLength(p,klen);
-    memcpy(p,key,klen);
+    p += zipmapEncodeLength(p, klen);
+    memcpy(p, key, klen);
     p += klen;
     /* Value: */
-    p += zipmapEncodeLength(p,vlen);
+    p += zipmapEncodeLength(p, vlen);
     *p++ = vempty;
-    memcpy(p,val,vlen);
+    memcpy(p, val, vlen);
     return zm;
 }
 
 /* Remove the specified key. If 'deleted' is not NULL the pointed integer is
  * set to 0 if the key was not found, to 1 if it was found and deleted. */
-unsigned char *zipmapDel(unsigned char *zm, unsigned char *key, unsigned int klen, int *deleted) {
+unsigned char *zipmapDel(unsigned char *zm, unsigned char *key, unsigned int klen, int *deleted)
+{
     unsigned int zmlen, freelen;
-    unsigned char *p = zipmapLookupRaw(zm,key,klen,&zmlen);
-    if (p) {
+    unsigned char *p = zipmapLookupRaw(zm, key, klen, &zmlen);
+    if (p)
+    {
         freelen = zipmapRawEntryLength(p);
-        memmove(p, p+freelen, zmlen-((p-zm)+freelen+1));
-        zm = zipmapResize(zm, zmlen-freelen);
+        memmove(p, p + freelen, zmlen - ((p - zm) + freelen + 1));
+        zm = zipmapResize(zm, zmlen - freelen);
 
         /* Decrease zipmap length */
         if (zm[0] < ZIPMAP_BIGLEN) zm[0]--;
 
         if (deleted) *deleted = 1;
-    } else {
+    }
+    else
+    {
         if (deleted) *deleted = 0;
     }
     return zm;
 }
 
 /* Call before iterating through elements via zipmapNext() */
-unsigned char *zipmapRewind(unsigned char *zm) {
-    return zm+1;
+unsigned char *zipmapRewind(unsigned char *zm)
+{
+    return zm + 1;
 }
 
 /* This function is used to iterate through all the zipmap elements.
@@ -312,16 +346,20 @@ unsigned char *zipmapRewind(unsigned char *zm) {
  *     printf("%d bytes value at $p\n", vlen, value);
  * }
  */
-unsigned char *zipmapNext(unsigned char *zm, unsigned char **key, unsigned int *klen, unsigned char **value, unsigned int *vlen) {
+unsigned char *
+zipmapNext(unsigned char *zm, unsigned char **key, unsigned int *klen, unsigned char **value, unsigned int *vlen)
+{
     if (zm[0] == ZIPMAP_END) return NULL;
-    if (key) {
+    if (key)
+    {
         *key = zm;
         *klen = zipmapDecodeLength(zm);
         *key += ZIPMAP_LEN_BYTES(*klen);
     }
     zm += zipmapRawKeyLength(zm);
-    if (value) {
-        *value = zm+1;
+    if (value)
+    {
+        *value = zm + 1;
         *vlen = zipmapDecodeLength(zm);
         *value += ZIPMAP_LEN_BYTES(*vlen);
     }
@@ -331,10 +369,11 @@ unsigned char *zipmapNext(unsigned char *zm, unsigned char **key, unsigned int *
 
 /* Search a key and retrieve the pointer and len of the associated value.
  * If the key is found the function returns 1, otherwise 0. */
-int zipmapGet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char **value, unsigned int *vlen) {
+int zipmapGet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char **value, unsigned int *vlen)
+{
     unsigned char *p;
 
-    if ((p = zipmapLookupRaw(zm,key,klen,NULL)) == NULL) return 0;
+    if ((p = zipmapLookupRaw(zm, key, klen, NULL)) == NULL) return 0;
     p += zipmapRawKeyLength(p);
     *vlen = zipmapDecodeLength(p);
     *value = p + ZIPMAP_LEN_BYTES(*vlen) + 1;
@@ -342,18 +381,23 @@ int zipmapGet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned
 }
 
 /* Return 1 if the key exists, otherwise 0 is returned. */
-int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen) {
-    return zipmapLookupRaw(zm,key,klen,NULL) != NULL;
+int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen)
+{
+    return zipmapLookupRaw(zm, key, klen, NULL) != NULL;
 }
 
 /* Return the number of entries inside a zipmap */
-unsigned int zipmapLen(unsigned char *zm) {
+unsigned int zipmapLen(unsigned char *zm)
+{
     unsigned int len = 0;
-    if (zm[0] < ZIPMAP_BIGLEN) {
+    if (zm[0] < ZIPMAP_BIGLEN)
+    {
         len = zm[0];
-    } else {
+    }
+    else
+    {
         unsigned char *p = zipmapRewind(zm);
-        while((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) len++;
+        while ((p = zipmapNext(p, NULL, NULL, NULL, NULL)) != NULL) len++;
 
         /* Re-store length if small enough */
         if (len < ZIPMAP_BIGLEN) zm[0] = len;
@@ -364,9 +408,10 @@ unsigned int zipmapLen(unsigned char *zm) {
 /* Return the raw size in bytes of a zipmap, so that we can serialize
  * the zipmap on disk (or everywhere is needed) just writing the returned
  * amount of bytes of the C array starting at the zipmap pointer. */
-size_t zipmapBlobLen(unsigned char *zm) {
+size_t zipmapBlobLen(unsigned char *zm)
+{
     unsigned int totlen;
-    zipmapLookupRaw(zm,NULL,0,&totlen);
+    zipmapLookupRaw(zm, NULL, 0, &totlen);
     return totlen;
 }
 

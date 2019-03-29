@@ -44,6 +44,7 @@
 #define panic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),_exit(1)
 
 void _serverAssert(char *estr, char *file, int line);
+
 void _serverPanic(const char *file, int line, const char *msg, ...);
 
 #endif
