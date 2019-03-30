@@ -1728,16 +1728,17 @@ void databasesCron(void) {
  * every object access, and accuracy is not needed. To access a global var is
  * a lot faster than calling time(NULL) */
 void updateCachedTime(void) {
-    time_t unixtime = time(NULL);
-    atomicSet(server.unixtime,unixtime);
+    server.unixtime = time(NULL);
     server.mstime = mstime();
 
-    /* To get information about daylight saving time, we need to call localtime_r
-     * and cache the result. However calling localtime_r in this context is safe
-     * since we will never fork() while here, in the main thread. The logging
-     * function will call a thread safe version of localtime that has no locks. */
+    /* To get information about daylight saving time, we need to call
+     * localtime_r and cache the result. However calling localtime_r in this
+     * context is safe since we will never fork() while here, in the main
+     * thread. The logging function will call a thread safe version of
+     * localtime that has no locks. */
     struct tm tm;
-    localtime_r(&server.unixtime,&tm);
+    time_t ut = server.unixtime;
+    localtime_r(&ut,&tm);
     server.daylight_active = tm.tm_isdst;
 }
 
@@ -1807,8 +1808,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    unsigned long lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    server.lruclock = getLRUClock();
 
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
@@ -2202,10 +2202,6 @@ void createSharedObjects(void) {
 void initServerConfig(void) {
     int j;
 
-    pthread_mutex_init(&server.next_client_id_mutex,NULL);
-    pthread_mutex_init(&server.lruclock_mutex,NULL);
-    pthread_mutex_init(&server.unixtime_mutex,NULL);
-
     updateCachedTime();
     getRandomHexChars(server.runid,CONFIG_RUN_ID_SIZE);
     server.runid[CONFIG_RUN_ID_SIZE] = '\0';
@@ -2319,8 +2315,7 @@ void initServerConfig(void) {
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
     server.io_threads_num = CONFIG_DEFAULT_IO_THREADS_NUM;
 
-    unsigned int lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    server.lruclock = getLRUClock();
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -2718,6 +2713,7 @@ void initServer(void) {
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.clients_pending_write = listCreate();
+    server.clients_pending_read = listCreate();
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3821,8 +3817,6 @@ sds genRedisInfoString(char *section) {
             call_uname = 0;
         }
 
-        unsigned int lruclock;
-        atomicGet(server.lruclock,lruclock);
         info = sdscatprintf(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
@@ -3866,7 +3860,7 @@ sds genRedisInfoString(char *section) {
             (intmax_t)(uptime/(3600*24)),
             server.hz,
             server.config_hz,
-            (unsigned long) lruclock,
+            (unsigned long) server.lruclock,
             server.executable ? server.executable : "",
             server.configfile ? server.configfile : "");
     }

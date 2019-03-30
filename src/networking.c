@@ -35,6 +35,7 @@
 #include <ctype.h>
 
 static void setProtocolError(const char *errstr, client *c);
+int postponeClientRead(client *c);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -105,8 +106,7 @@ client *createClient(int fd) {
     }
 
     selectDb(c,0);
-    uint64_t client_id;
-    atomicGetIncr(server.next_client_id,client_id,1);
+    uint64_t client_id = ++server.next_client_id;
     c->id = client_id;
     c->resp = 2;
     c->fd = fd;
@@ -950,6 +950,14 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
+    /* Remove from the list of pending reads if needed. */
+    if (c->flags & CLIENT_PENDING_READ) {
+        ln = listSearchKey(server.clients_pending_read,c);
+        serverAssert(ln != NULL);
+        listDelNode(server.clients_pending_read,ln);
+        c->flags &= ~CLIENT_PENDING_READ;
+    }
+
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
     if (c->flags & CLIENT_UNBLOCKED) {
@@ -1642,13 +1650,19 @@ void processInputBuffer(client *c) {
 }
 
 /* This is a wrapper for processInputBuffer that also cares about handling
- * the replication forwarding to the sub-slaves, in case the client 'c'
+ * the replication forwarding to the sub-replicas, in case the client 'c'
  * is flagged as master. Usually you want to call this instead of the
  * raw processInputBuffer(). */
 void processInputBufferAndReplicate(client *c) {
     if (!(c->flags & CLIENT_MASTER)) {
         processInputBuffer(c);
     } else {
+        /* If the client is a master we need to compute the difference
+         * between the applied offset before and after processing the buffer,
+         * to understand how much of the replication stream was actually
+         * applied to the master state: this quantity, and its corresponding
+         * part of the replication stream, will be propagated to the
+         * sub-replicas and to the replication backlog. */
         size_t prev_offset = c->reploff;
         processInputBuffer(c);
         size_t applied = c->reploff - prev_offset;
@@ -1666,6 +1680,10 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     size_t qblen;
     UNUSED(el);
     UNUSED(mask);
+
+    /* Check if we want to read from the client later when exiting from
+     * the event loop. This is the case if threaded I/O is enabled. */
+    if (postponeClientRead(c)) return;
 
     readlen = PROTO_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
@@ -1716,20 +1734,21 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
         bytes = sdscatrepr(bytes,c->querybuf,64);
-        serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
+//        FIXME: This may be called from an I/O thread and it is not safe to
+//        log from there for now.
+//        serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
         sdsfree(ci);
         sdsfree(bytes);
         freeClient(c);
         return;
     }
 
-    /* Time to process the buffer. If the client is a master we need to
-     * compute the difference between the applied offset before and after
-     * processing the buffer, to understand how much of the replication stream
-     * was actually applied to the master state: this quantity, and its
-     * corresponding part of the replication stream, will be propagated to
-     * the sub-slaves and to the replication backlog. */
-    processInputBufferAndReplicate(c);
+    /* There is more data in the client input buffer, continue parsing it
+     * in case to check if there is a full command to execute.
+     * Don't do it if the client is flagged as CLIENT_PENDING_READ: it means
+     * we are currently in the context of an I/O thread. */
+    if (!(c->flags & CLIENT_PENDING_READ))
+        processInputBufferAndReplicate(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -2566,7 +2585,9 @@ void stopThreadedIO(void) {
 
 /* This function checks if there are not enough pending clients to justify
  * taking the I/O threads active: in that case I/O threads are stopped if
- * currently active.
+ * currently active. We track the pending writes as a measure of clients
+ * we need to handle in parallel, however the I/O threading is disabled
+ * globally for reads as well if we have too little pending clients.
  *
  * The function returns 0 if the I/O threading should be used becuase there
  * are enough active threads, otherwise 1 is returned and the I/O threads
@@ -2646,4 +2667,20 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     }
     listEmpty(server.clients_pending_write);
     return processed;
+}
+
+/* Return 1 if we want to handle the client read later using threaded I/O.
+ * This is called by the readable handler of the event loop.
+ * As a side effect of calling this function the client is put in the
+ * pending read clients and flagged as such. */
+int postponeClientRead(client *c) {
+    if (io_threads_active &&
+        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
+    {
+        c->flags |= CLIENT_PENDING_READ;
+        listAddNodeHead(server.clients_pending_read,c);
+        return 1;
+    } else {
+        return 0;
+    }
 }
