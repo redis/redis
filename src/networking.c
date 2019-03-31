@@ -2590,8 +2590,13 @@ void startThreadedIO(void) {
 }
 
 void stopThreadedIO(void) {
+    /* We may have still clients with pending reads when this function
+     * is called: handle them before stopping the threads. */
+    handleClientsWithPendingReadsUsingThreads();
     if (tio_debug) printf("E"); fflush(stdout);
-    if (tio_debug) printf("--- STOPPING THREADED IO ---\n");
+    if (tio_debug) printf("--- STOPPING THREADED IO [R%d] [W%d] ---\n",
+        (int) listLength(server.clients_pending_read),
+        (int) listLength(server.clients_pending_write));
     serverAssert(io_threads_active == 1);
     for (int j = 0; j < server.io_threads_num; j++)
         pthread_mutex_lock(&io_threads_mutex[j]);
