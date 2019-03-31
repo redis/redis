@@ -1578,6 +1578,7 @@ int clientsArePaused(void);
 int processEventsWhileBlocked(void);
 int handleClientsWithPendingWrites(void);
 int handleClientsWithPendingWritesUsingThreads(void);
+int handleClientsWithPendingReadsUsingThreads(void);
 int stopThreadedIOIfNeeded(void);
 int clientHasPendingReplies(client *c);
 void unlinkClient(client *c);

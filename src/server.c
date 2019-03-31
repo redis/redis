@@ -2092,6 +2092,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 void afterSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
     if (moduleCount()) moduleAcquireGIL();
+    handleClientsWithPendingReadsUsingThreads();
 }
 
 /* =========================== Server initialization ======================== */
