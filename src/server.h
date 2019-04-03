@@ -1134,12 +1134,13 @@ struct redisServer {
     /* AOF persistence */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
+    volatile off_t aof_fsync_offset;/* Minimum guaranteed AOF offset synced on disk */
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
-    off_t aof_current_size;         /* AOF current size. */
+    volatile off_t aof_current_size;/* AOF current size. */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
@@ -1731,6 +1732,7 @@ void aofRewriteBufferReset(void);
 unsigned long aofRewriteBufferSize(void);
 ssize_t aofReadDiffFromParent(void);
 void killAppendOnlyChild(void);
+void fsyncAppendOnlyFile(int fd);
 
 /* Child info */
 void openChildInfoPipe(void);

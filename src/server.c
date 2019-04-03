@@ -2782,6 +2782,7 @@ void initServer(void) {
     server.child_info_data.magic = 0;
     aofRewriteBufferReset();
     server.aof_buf = sdsempty();
+    server.aof_fsync_offset = 0;
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
     server.lastbgsave_try = 0;    /* At startup we never tried to BGSAVE. */
     server.rdb_save_time_last = -1;
@@ -3537,7 +3538,7 @@ int prepareForShutdown(int flags) {
         /* Append only file: flush buffers and fsync() the AOF at exit */
         serverLog(LL_NOTICE,"Calling fsync() on the AOF file.");
         flushAppendOnlyFile(1);
-        redis_fsync(server.aof_fd);
+        fsyncAppendOnlyFile(server.aof_fd);
     }
 
     /* Create a new RDB file before exiting. */

@@ -30,6 +30,7 @@
 #include "server.h"
 #include "bio.h"
 #include "rio.h"
+#include "atomicvar.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -203,6 +204,26 @@ void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
+/* Sync AOF to disk */
+void fsyncAppendOnlyFile(int fd) {
+    if (fd < 0) return;
+
+    /* We save the size before calling fsync in order to handle the race
+     * between the thread that may be calling this function and the main
+     * thread calling flushAppendOnlyFile (write) */
+    off_t aof_bytes;
+    atomicGet(server.aof_current_size, aof_bytes);
+
+    if (redis_fsync(fd) < 0) {
+        serverLog(LL_WARNING,
+            "WARNING! AOF fsync() failed: %s. Some data may have been lost.",
+            strerror(errno));
+    } else {
+        /* At least 'aof_bytes' bytes are on disk */
+        atomicSet(server.aof_fsync_offset, aof_bytes);
+    }
+}
+
 /* Kills an AOFRW child process if exists */
 void killAppendOnlyChild(void) {
     int statloc;
@@ -230,11 +251,12 @@ void killAppendOnlyChild(void) {
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
     flushAppendOnlyFile(1);
-    redis_fsync(server.aof_fd);
+    fsyncAppendOnlyFile(server.aof_fd);
     close(server.aof_fd);
 
     server.aof_fd = -1;
     server.aof_selected_db = -1;
+    atomicSet(server.aof_fsync_offset, 0);
     server.aof_state = AOF_OFF;
     killAppendOnlyChild();
 }
@@ -335,10 +357,21 @@ void flushAppendOnlyFile(int force) {
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) return;
-
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+
+    if (sdslen(server.aof_buf) == 0) {
+        off_t synced;
+
+        atomicGet(server.aof_fsync_offset, synced);
+        if (synced != server.aof_current_size) {
+            /* In order to handle the race between the main thread doing
+             * write()s and the IO thread doing fsync we must call sync
+             * the AOF even if the AOF buffer is empty. */
+            goto sync;
+        }
+        return;
+    }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
@@ -445,7 +478,7 @@ void flushAppendOnlyFile(int force) {
             /* Trim the sds buffer if there was a partial write, and there
              * was no way to undo it with ftruncate(2). */
             if (nwritten > 0) {
-                server.aof_current_size += nwritten;
+                atomicIncr(server.aof_current_size, nwritten);
                 sdsrange(server.aof_buf,nwritten,-1);
             }
             return; /* We'll try again on the next call... */
@@ -459,7 +492,7 @@ void flushAppendOnlyFile(int force) {
             server.aof_last_write_status = C_OK;
         }
     }
-    server.aof_current_size += nwritten;
+    atomicIncr(server.aof_current_size, nwritten);
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */
@@ -470,6 +503,7 @@ void flushAppendOnlyFile(int force) {
         server.aof_buf = sdsempty();
     }
 
+sync:
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
     if (server.aof_no_fsync_on_rewrite &&
@@ -481,7 +515,7 @@ void flushAppendOnlyFile(int force) {
         /* redis_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         latencyStartMonitor(latency);
-        redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
+        fsyncAppendOnlyFile(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
         server.aof_last_fsync = server.unixtime;
@@ -693,7 +727,7 @@ int loadAppendOnlyFile(char *filename) {
      * a zero length file at startup, that will remain like that if no write
      * operation is received. */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
-        server.aof_current_size = 0;
+        atomicSet(server.aof_current_size, 0);
         fclose(fp);
         return C_ERR;
     }
@@ -1629,7 +1663,7 @@ void aofUpdateCurrentSize(void) {
         serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
             strerror(errno));
     } else {
-        server.aof_current_size = sb.st_size;
+        atomicSet(server.aof_current_size, sb.st_size);
     }
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("aof-fstat",latency);
@@ -1734,8 +1768,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             /* AOF enabled, replace the old fd with the new one. */
             oldfd = server.aof_fd;
             server.aof_fd = newfd;
+            /* Reset synced offset before calling/scheduling fsync */
+            atomicSet(server.aof_fsync_offset, 0);
             if (server.aof_fsync == AOF_FSYNC_ALWAYS)
-                redis_fsync(newfd);
+                fsyncAppendOnlyFile(newfd);
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
                 aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
