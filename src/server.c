@@ -715,7 +715,7 @@ struct redisCommand redisCommandTable[] = {
 
     {"touch",touchCommand,-2,
      "read-only fast @keyspace",
-     0,NULL,1,1,1,0,0,0},
+     0,NULL,1,-1,1,0,0,0},
 
     {"pttl",pttlCommand,2,
      "read-only fast random @keyspace",
@@ -863,7 +863,7 @@ struct redisCommand redisCommandTable[] = {
      "no-script @keyspace",
      0,NULL,0,0,0,0,0,0},
 
-    {"command",commandCommand,0,
+    {"command",commandCommand,-1,
      "ok-loading ok-stale random @connection",
      0,NULL,0,0,0,0,0,0},
 
@@ -3268,6 +3268,8 @@ void call(client *c, int flags) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
+    moduleCallCommandFilters(c);
+
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
@@ -4500,6 +4502,7 @@ static void sigShutdownHandler(int sig) {
         rdbRemoveTempFile(getpid());
         exit(1); /* Exit with an error since this was not a clean shutdown. */
     } else if (server.loading) {
+        serverLogFromHandler(LL_WARNING, "Received shutdown signal during loading, exiting now.");
         exit(0);
     }
 

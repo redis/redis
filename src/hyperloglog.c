@@ -1014,8 +1014,8 @@ uint64_t hllCount(struct hllhdr *hdr, int *invalid) {
     double m = HLL_REGISTERS;
     double E;
     int j;
-    /* Note that reghisto could be just HLL_Q+1, becuase this is the
-     * maximum frequency of the "000...1" sequence the hash function is
+    /* Note that reghisto size could be just HLL_Q+2, becuase HLL_Q+1 is
+     * the maximum frequency of the "000...1" sequence the hash function is
      * able to return. However it is slow to check for sanity of the
      * input: instead we history array at a safe size: overflows will
      * just write data to wrong, but correctly allocated, places. */
