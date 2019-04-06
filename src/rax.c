@@ -1035,7 +1035,7 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
 
     /* If this node has no children, the deletion needs to reclaim the
      * no longer used nodes. This is an iterative process that needs to
-     * walk the three upward, deleting all the nodes with just one child
+     * walk the tree upward, deleting all the nodes with just one child
      * that are not keys, until the head of the rax is reached or the first
      * node with more than one child is found. */
 

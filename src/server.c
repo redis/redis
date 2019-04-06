@@ -3307,7 +3307,7 @@ int processCommand(client *c) {
                         !c->authenticated;
     if (auth_required || DefaultUser->flags & USER_FLAG_DISABLED) {
         /* AUTH and HELLO are valid even in non authenticated state. */
-        if (c->cmd->proc != authCommand || c->cmd->proc == helloCommand) {
+        if (c->cmd->proc != authCommand && c->cmd->proc != helloCommand) {
             flagTransaction(c);
             addReply(c,shared.noautherr);
             return C_OK;

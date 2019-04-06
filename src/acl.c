@@ -699,6 +699,10 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
         u->flags &= ~USER_FLAG_NOPASS;
         listEmpty(u->passwords);
     } else if (op[0] == '>') {
+        if (oplen-1 > CONFIG_AUTHPASS_MAX_LEN) {
+            errno = EFBIG;
+            return C_ERR;
+        }
         sds newpass = sdsnewlen(op+1,oplen-1);
         listNode *ln = listSearchKey(u->passwords,newpass);
         /* Avoid re-adding the same password multiple times. */
@@ -820,6 +824,8 @@ char *ACLSetUserStringError(void) {
     else if (errno == ENODEV)
         errmsg = "The password you are trying to remove from the user does "
                  "not exist";
+    else if (errno == EFBIG)
+        errmsg = "The password is longer than CONFIG_AUTHPASS_MAX_LEN(512)";
     return errmsg;
 }
 
