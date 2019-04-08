@@ -1174,14 +1174,13 @@ int writeToClient(int fd, client *c, int handler_installed) {
              zmalloc_used_memory() < server.maxmemory) &&
             !(c->flags & CLIENT_SLAVE)) break;
     }
-    /* FIXME: Fixme, use atomic var for this. */
     server.stat_net_output_bytes += totwritten;
     if (nwritten == -1) {
         if (errno == EAGAIN) {
             nwritten = 0;
         } else {
-            // serverLog(LL_VERBOSE,
-            //    "Error writing to client: %s", strerror(errno));
+            serverLog(LL_VERBOSE,
+                "Error writing to client: %s", strerror(errno));
             freeClientAsync(c);
             return C_ERR;
         }
