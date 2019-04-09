@@ -994,12 +994,18 @@ void bitfieldCommand(client *c) {
         /* Lookup for read is ok if key doesn't exit, but errors
          * if it's not a string. */
         o = lookupKeyRead(c->db,c->argv[1]);
-        if (o != NULL && checkType(c,o,OBJ_STRING)) return;
+        if (o != NULL && checkType(c,o,OBJ_STRING)) {
+            zfree(ops);
+            return;
+        }
     } else {
         /* Lookup by making room up to the farest bit reached by
          * this operation. */
         if ((o = lookupStringForBitCommand(c,
-            highest_write_offset)) == NULL) return;
+            highest_write_offset)) == NULL) {
+            zfree(ops);
+            return;
+        }
     }
 
     addReplyMultiBulkLen(c,numops);
