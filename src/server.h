@@ -1742,7 +1742,7 @@ void receiveChildInfo(void);
 extern rax *Users;
 extern user *DefaultUser;
 void ACLInit(void);
-/* Return values for ACLCheckUserCredentials(). */
+/* Return values for ACLCheckCommandPerm(). */
 #define ACL_OK 0
 #define ACL_DENIED_CMD 1
 #define ACL_DENIED_KEY 2
