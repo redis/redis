@@ -108,4 +108,11 @@ start_server {tags {"acl"}} {
         assert_match {*+debug|segfault*} $cmdstr
         assert_match {*+acl*} $cmdstr
     }
+
+    test {ACL #5998 regression: memory leaks adding / removing subcommands} {
+        r AUTH default ""
+        r ACL setuser newuser reset -debug +debug|a +debug|b +debug|c
+        r ACL setuser newuser -debug
+        # The test framework will detect a leak if any.
+    }
 }
