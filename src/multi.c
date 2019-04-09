@@ -206,7 +206,7 @@ void execCommand(client *c) {
 handle_monitor:
     /* Send EXEC to clients waiting data from MONITOR. We do it here
      * since the natural order of commands execution is actually:
-     * MUTLI, EXEC, ... commands inside transaction ...
+     * MULTI, EXEC, ... commands inside transaction ...
      * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
      * table, and we do it here with correct ordering. */
     if (listLength(server.monitors) && !server.loading)
