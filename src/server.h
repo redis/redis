@@ -2187,6 +2187,7 @@ void hscanCommand(client *c);
 void configCommand(client *c);
 void hincrbyCommand(client *c);
 void hincrbyfloatCommand(client *c);
+void happendCommand(client *c);
 void subscribeCommand(client *c);
 void unsubscribeCommand(client *c);
 void psubscribeCommand(client *c);

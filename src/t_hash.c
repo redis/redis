@@ -641,6 +641,42 @@ void hincrbyfloatCommand(client *c) {
     decrRefCount(newobj);
 }
 
+void happendCommand(client *c) {
+    size_t totlen;
+    long long ll;
+    robj *o;
+
+    unsigned char *vstr;
+    unsigned int vlen;
+    unsigned int inlen;
+    sds newstr;
+
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    inlen = stringObjectLen(c->argv[3]);
+    if (hashTypeGetValue(o,c->argv[2]->ptr,&vstr,&vlen,&ll) == C_OK) {
+    	if (vstr) {
+    		totlen = vlen+inlen;
+    	    newstr = sdsnewlen(vstr,vlen);
+    	} else {
+    	    char buf[MAX_LONG_DOUBLE_CHARS];
+    	    int len = ld2string(buf,sizeof(buf),ll,1);
+    	    totlen = len+inlen;
+    	    newstr = sdsnewlen(&buf,len);
+    	}
+    	newstr = sdscatsds(newstr, c->argv[3]->ptr);
+	    hashTypeSet(o,c->argv[2]->ptr,newstr,HASH_SET_TAKE_VALUE);
+    } else {
+        totlen = inlen;
+    	hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+    }
+
+    signalModifiedKey(c->db,c->argv[1]);
+    notifyKeyspaceEvent(NOTIFY_HASH,"happend",c->argv[1],c->db->id);
+    server.dirty++;
+    addReplyLongLong(c, totlen);
+}
+
+
 static void addHashFieldToReply(client *c, robj *o, sds field) {
     int ret;
 

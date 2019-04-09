@@ -516,6 +516,10 @@ struct redisCommand redisCommandTable[] = {
      "write use-memory fast @hash",
      0,NULL,1,1,1,0,0,0},
 
+	{"happend",happendCommand,4,
+	 "write use-memory fast @hash",
+	 0,NULL,1,1,1,0,0,0},
+
     {"hdel",hdelCommand,-3,
      "write fast @hash",
      0,NULL,1,1,1,0,0,0},
