@@ -4546,6 +4546,30 @@ int checkForSentinelMode(int argc, char **argv) {
     return 0;
 }
 
+/* Restore the replication ID / offset from the RDB file. */
+int rdbRestoreReplInfo(rdbSaveInfo *rsi) {
+    if ((server.masterhost || (server.cluster_enabled && nodeIsSlave(server.cluster->myself)))&&
+        rsi->repl_id_is_set &&
+        rsi->repl_offset != -1 &&
+        /* Note that older implementations may save a repl_stream_db
+         * of -1 inside the RDB file in a wrong way, see more information
+         * in function rdbPopulateSaveInfo. */
+        rsi->repl_stream_db != -1)
+    {
+        serverLog(LL_NOTICE,"DB save info loaded, replid:%s, offset:%lld, db:%d",
+                rsi->repl_id, rsi->repl_offset, rsi->repl_stream_db);
+        memcpy(server.replid,rsi->repl_id,sizeof(server.replid));
+        server.master_repl_offset = rsi->repl_offset;
+        /* If we are a slave, create a cached master from this
+         * information, in order to allow partial resynchronizations
+         * with masters. */
+        replicationCacheMasterUsingMyself();
+        selectDb(server.cached_master,rsi->repl_stream_db);
+        return C_OK;
+    }
+    return C_ERR;
+}
+
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
@@ -4558,23 +4582,7 @@ void loadDataFromDisk(void) {
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
 
-            /* Restore the replication ID / offset from the RDB file. */
-            if ((server.masterhost || (server.cluster_enabled && nodeIsSlave(server.cluster->myself)))&&
-                rsi.repl_id_is_set &&
-                rsi.repl_offset != -1 &&
-                /* Note that older implementations may save a repl_stream_db
-                 * of -1 inside the RDB file in a wrong way, see more information
-                 * in function rdbPopulateSaveInfo. */
-                rsi.repl_stream_db != -1)
-            {
-                memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
-                server.master_repl_offset = rsi.repl_offset;
-                /* If we are a slave, create a cached master from this
-                 * information, in order to allow partial resynchronizations
-                 * with masters. */
-                replicationCacheMasterUsingMyself();
-                selectDb(server.cached_master,rsi.repl_stream_db);
-            }
+            rdbRestoreReplInfo(&rsi);
         } else if (errno != ENOENT) {
             serverLog(LL_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
