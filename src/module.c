@@ -3705,9 +3705,7 @@ void moduleHandleBlockedClients(void) {
          * replies to send to the client in a thread safe context.
          * We need to glue such replies to the client output buffer and
          * free the temporary client we just used for the replies. */
-        if (c) {
-            AddReplyFromClient(c, bc->reply_client);
-        }
+        if (c) AddReplyFromClient(c, bc->reply_client);
         freeClient(bc->reply_client);
 
         if (c != NULL) {
