@@ -492,14 +492,14 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
         streamEncodeID(si->start_key,start);
     } else {
         si->start_key[0] = 0;
-        si->start_key[0] = 0;
+        si->start_key[1] = 0;
     }
 
     if (end) {
         streamEncodeID(si->end_key,end);
     } else {
         si->end_key[0] = UINT64_MAX;
-        si->end_key[0] = UINT64_MAX;
+        si->end_key[1] = UINT64_MAX;
     }
 
     /* Seek the correct node in the radix tree. */
