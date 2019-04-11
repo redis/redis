@@ -723,7 +723,10 @@ int loadAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,"Error reading the RDB preamble of the AOF file, AOF loading aborted");
             goto readerr;
         } else {
-            rdbRestoreReplInfo(&rsi);
+            if (rdbRestoreReplInfo(&rsi) == C_OK) {
+                serverLog(LL_NOTICE,"DB save info loaded success, stop read remaining Aof tail");
+                goto loaded_ok;
+            }
             serverLog(LL_NOTICE,"Reading the remaining AOF tail...");
         }
     }
