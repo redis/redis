@@ -158,7 +158,7 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     uint8_t curenc = intrev32ifbe(is->encoding);
     uint8_t newenc = _intsetValueEncoding(value);
     int length = intrev32ifbe(is->length);
-    int prepend = value < 0 ? 1 : 0;
+    int prepend = value < 0 ? 1 : 0;//如果是负数 放到最前面
 
     /* First set new encoding and resize */
     is->encoding = intrev32ifbe(newenc);
@@ -222,7 +222,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
         }
 
         is = intsetResize(is,intrev32ifbe(is->length)+1);
-        if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
+        if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);//前面找到了pos 这里进行内存的移动 后面直接在pos上赋值
     }
 
     _intsetSet(is,pos,value);
