@@ -1288,11 +1288,6 @@ int parseOptions(int argc, const char **argv) {
             if (config.pipeline <= 0) config.pipeline=1;
         } else if (!strcmp(argv[i],"-r")) {
             if (lastarg) goto invalid;
-            const char *next = argv[++i], *p = next;
-            if (*p == '-') {
-                p++;
-                if (*p < '0' || *p > '9') goto invalid;
-            }
             config.randomkeys = 1;
             config.randomkeys_keyspacelen = atoi(argv[++i]);
             if (config.randomkeys_keyspacelen < 0)
@@ -1601,6 +1596,7 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+
         if (test_is_selected("set")) {
             len = redisFormatCommand(&cmd,"SET key:{tag}:__rand_int__ %s",data);
             benchmark("SET",cmd,len);
@@ -1707,6 +1703,46 @@ int main(int argc, const char **argv) {
             }
             len = redisFormatCommandArgv(&cmd,21,argv,NULL);
             benchmark("MSET (10 keys)",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("xadd") || test_is_selected("xadd_1")) {
+            const char *argv[5];
+            argv[0] = "XADD";
+            argv[1] = "mystream:{tag}:__rand_int__";
+            argv[2] = "*";
+            argv[3] = "field:1";
+            argv[4] = data;
+            len = redisFormatCommandArgv(&cmd,5,argv,NULL);
+            benchmark("XADD_1 (1 field)",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("xadd") || test_is_selected("xadd_5")) {
+            const char *argv[13];
+            argv[0] = "XADD";
+            argv[1] = "mystream:{tag}:__rand_int__";
+            argv[2] = "*";
+            for (i = 3; i < 13; i += 2) {
+                argv[i] = sdscatprintf(sdsempty(),"field:%d", i/2);
+                argv[i+1] = data;
+            }
+            len = redisFormatCommandArgv(&cmd,13,argv,NULL);
+            benchmark("XADD_5 (5 fields)",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("xadd") || test_is_selected("xadd_10")) {
+            const char *argv[23];
+            argv[0] = "XADD";
+            argv[1] = "mystream:{tag}:__rand_int__";
+            argv[2] = "*";
+            for (i = 3; i < 23; i += 2) {
+                argv[i] = sdscatprintf(sdsempty(),"field:%d", i/2);
+                argv[i+1] = data;
+            }
+            len = redisFormatCommandArgv(&cmd,23,argv,NULL);
+            benchmark("XADD_10 (10 fields)",cmd,len);
             free(cmd);
         }
 
