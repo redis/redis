@@ -62,7 +62,6 @@ set ::all_tests {
     unit/lazyfree
     unit/wait
     unit/pendingquerybuf
-    modules/commandfilter
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
