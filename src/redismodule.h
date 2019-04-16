@@ -223,6 +223,9 @@ void REDISMODULE_API_FUNC(RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModu
 const char *REDISMODULE_API_FUNC(RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithSimpleString)(RedisModuleCtx *ctx, const char *msg);
+int REDISMODULE_API_FUNC(RedisModule_ReplyWithEmptyString)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_ReplyWithNullArray)(RedisModuleCtx *ctx);
+int REDISMODULE_API_FUNC(RedisModule_ReplyWithEmptyArray)(RedisModuleCtx *ctx);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithArray)(RedisModuleCtx *ctx, long len);
 void REDISMODULE_API_FUNC(RedisModule_ReplySetArrayLength)(RedisModuleCtx *ctx, long len);
 int REDISMODULE_API_FUNC(RedisModule_ReplyWithStringBuffer)(RedisModuleCtx *ctx, const char *buf, size_t len);
@@ -373,6 +376,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithLongLong);
     REDISMODULE_GET_API(ReplyWithError);
     REDISMODULE_GET_API(ReplyWithSimpleString);
+    REDISMODULE_GET_API(ReplyWithEmptyString);
+    REDISMODULE_GET_API(ReplyWithNullArray);
+    REDISMODULE_GET_API(ReplyWithEmptyArray);
     REDISMODULE_GET_API(ReplyWithArray);
     REDISMODULE_GET_API(ReplySetArrayLength);
     REDISMODULE_GET_API(ReplyWithStringBuffer);
