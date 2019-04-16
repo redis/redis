@@ -1159,36 +1159,33 @@ int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
     return replyWithStatus(ctx,msg,"+");
 }
 
-/* Reply with an empty string ($0\r\n\r\n in RESP protocol).
+/* Reply with an empty string.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithEmptyString(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds strmsg = sdsnewlen("$0\r\n\r\n", 6);
-    addReplySds(c,strmsg);
+    addReplyBulkCString(c, "");
     return REDISMODULE_OK;
 }
 
-/* Reply with a null array ("*-1\r\n in RESP protocol).
+/* Reply with a null array.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithNullArray(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds strmsg = sdsnewlen("*-1\r\n", 6);
-    addReplySds(c,strmsg);
+    addReplyNullArray(c);
     return REDISMODULE_OK;
 }
 
-/* Reply with an empty array (*0\r\n in RESP protocol).
+/* Reply with an empty array.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplyWithEmptyArray(RedisModuleCtx *ctx) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    sds strmsg = sdsnewlen("*0\r\n", 4);
-    addReplySds(c,strmsg);
+    addReplyArrayLen(c,0);
     return REDISMODULE_OK;
 }
 
