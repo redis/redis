@@ -5244,6 +5244,25 @@ void addReplyLoadedModules(client *c) {
     dictReleaseIterator(di);
 }
 
+/* Helper function for the INFO command: adds loaded modules as to info's
+ * output.
+ * 
+ * After the call, the passed sds info string is no longer valid and all the
+ * references must be substituted with the new pointer returned by the call. */
+sds genModulesInfoString(sds info) {
+    dictIterator *di = dictGetIterator(modules);
+    dictEntry *de;
+
+    while ((de = dictNext(di)) != NULL) {
+        sds name = dictGetKey(de);
+        struct RedisModule *module = dictGetVal(de);
+
+        info = sdscatprintf(info, "module:name=%s,ver=%d\r\n", name, module->ver);
+    }
+    dictReleaseIterator(di);
+    return info;
+}
+
 /* Redis MODULE command.
  *
  * MODULE LOAD <path> [args...] */
