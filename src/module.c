@@ -1249,7 +1249,7 @@ int RM_ReplyWithStringBuffer(RedisModuleCtx *ctx, const char *buf, size_t len) {
 int RM_ReplyWithCString(RedisModuleCtx *ctx, const char *buf) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReplyBulkCBuffer(c,(char*)buf,strlen(buf));
+    addReplyBulkCString(c,(char*)buf);
     return REDISMODULE_OK;
 }
 
