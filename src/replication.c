@@ -2591,7 +2591,7 @@ void replicationCron(void) {
 
     /* First, send PING according to ping_slave_period. */
     if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
-        listLength(server.slaves))
+        listLength(server.slaves) && !clientsArePaused())
     {
         ping_argv[0] = createStringObject("PING",4);
         replicationFeedSlaves(server.slaves, server.slaveseldb,
