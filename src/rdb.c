@@ -2343,6 +2343,7 @@ void startLoading(size_t size, int rdbflags) {
     server.loading_loaded_bytes = 0;
     server.loading_total_bytes = size;
     server.loading_rdb_used_mem = 0;
+    server.rdb_expired_keys_last_load = 0;
     blockingOperationStarts();
 
     /* Fire the loading modules start event. */
@@ -2428,7 +2429,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned and 'errno' is set accordingly. */
 int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
-    uint64_t dbid;
+    uint64_t dbid = 0;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
@@ -2662,9 +2663,22 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
             !(rdbflags&RDBFLAGS_AOF_PREAMBLE) &&
             expiretime != -1 && expiretime < now)
         {
+            if (rdbflags & RDBFLAGS_FEED_REPL) {
+                /* Caller should have created replication backlog,
+                 * and now this path only works when rebooting,
+                 * so we don't have replicas yet. */
+                serverAssert(server.repl_backlog != NULL && listLength(server.slaves) == 0);
+                robj keyobj;
+                initStaticStringObject(keyobj,key);
+                robj *argv[2];
+                argv[0] = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+                argv[1] = &keyobj;
+                replicationFeedSlaves(server.slaves,dbid,argv,2);
+            }
             sdsfree(key);
             decrRefCount(val);
             expired_keys_skipped++;
+            server.rdb_expired_keys_last_load++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
