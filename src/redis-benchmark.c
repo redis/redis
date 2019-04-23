@@ -1294,7 +1294,7 @@ int parseOptions(int argc, const char **argv) {
                 if (*p < '0' || *p > '9') goto invalid;
             }
             config.randomkeys = 1;
-            config.randomkeys_keyspacelen = atoi(argv[++i]);
+            config.randomkeys_keyspacelen = atoi(next);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
