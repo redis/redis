@@ -31,6 +31,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "ssl.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -49,7 +50,6 @@ clusterNode *myself = NULL;
 clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
-void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
@@ -80,6 +80,7 @@ void moduleCallClusterReceivers(const char *sender_id, uint64_t module_id, uint8
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
+
 
 /* Load the cluster config from 'filename'.
  *
@@ -169,11 +170,13 @@ int clusterLoadConfig(char *filename) {
         *p = '\0';
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
         char *port = p+1;
+
         char *busp = strchr(port,'@');
         if (busp) {
             *busp = '\0';
             busp++;
         }
+
         n->port = atoi(port);
         /* In older versions of nodes.conf the "@busport" part is missing.
          * In this case we set it to the default offset of 10000 from the
@@ -645,7 +648,17 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
          * node identity. */
         link = createClusterLink(NULL);
         link->fd = cfd;
-        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        if (isSSLEnabled()) {
+            serverLog(LL_DEBUG, "Initializing SSL connection for cluster node %s:%d", cip, cport);
+            if (initSslConnection(SSL_SERVER, cfd, SSL_PERFORMANCE_MODE_LOW_LATENCY, NULL) == NULL) {
+                serverLog(LL_WARNING, "Error initializing ssl connection for cluster node %s:%d", cip, cport);
+                freeClusterLink(link);
+                return;
+            }
+            aeCreateFileEvent(server.el, cfd, AE_READABLE | AE_WRITABLE, sslNegotiateWithClusterNodeAsServer, link);            
+        } else {
+            aeCreateFileEvent(server.el, cfd, AE_READABLE, clusterReadHandler, link);
+        }
     }
 }
 
@@ -1347,7 +1360,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
         if (server.verbosity == LL_DEBUG) {
             ci = representClusterNodeFlags(sdsempty(), flags);
-            serverLog(LL_DEBUG,"GOSSIP %.40s %s:%d@%d %s",
+                serverLog(LL_DEBUG,"GOSSIP %.40s %s:%d@%d %s",
                 g->nodename,
                 g->ip,
                 ntohs(g->port),
@@ -1476,19 +1489,21 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * As a side effect this function never frees the passed 'link', so
      * it is safe to call during packet processing. */
     if (link == node->link) return 0;
-
     nodeIp2String(ip,link,hdr->myip);
+
+
     if (node->port == port && node->cport == cport &&
         strcmp(ip,node->ip) == 0) return 0;
-
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
+
     node->port = port;
     node->cport = cport;
     if (node->link) freeClusterLink(node->link);
     node->flags &= ~CLUSTER_NODE_NOADDR;
     serverLog(LL_WARNING,"Address updated for node %.40s, now %s:%d",
         node->name, node->ip, node->port);
+
 
     /* Check if this is our master and we have to change the
      * replication target as well. */
@@ -1758,7 +1773,8 @@ int clusterProcessPacket(clusterLink *link) {
                     myself->ip);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             }
-        }
+         }
+
 
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
@@ -3304,6 +3320,39 @@ void clusterHandleManualFailover(void) {
 /* -----------------------------------------------------------------------------
  * CLUSTER cron job
  * -------------------------------------------------------------------------- */
+void clusterClientSetup(clusterLink *link) {
+    clusterNode *node = link->node;
+    /* Queue a PING in the new connection ASAP: this is crucial
+     * to avoid false positives in failure detection.
+     *
+     * If the node is flagged as MEET, we send a MEET message instead
+     * of a PING one, to force the receiver to add us in its node
+     * table. */
+    mstime_t old_ping_sent = node->ping_sent;
+    clusterSendPing(link, node->flags & CLUSTER_NODE_MEET ?
+                          CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
+    if (old_ping_sent && !isSSLEnabled()){
+        /* If there was an active ping before the link was
+        * disconnected, we want to restore the ping time, otherwise
+        * replaced by the clusterSendPing() call. If SSL is enabled,
+        * we don't want to do it because we have already spent some
+        * time in SSL negotiation. We don't want to be too aggressive
+        * in timeouts due to that. Also we reach this point after
+        * SSL negotiation, so network link is healthy to other node
+        * and we can be less aggressive */
+        node->ping_sent = old_ping_sent;
+    }
+    /* We can clear the flag after the first packet is sent.
+     * If we'll never receive a PONG, we'll never send new packets
+     * to this node. Instead after the PONG is received and we
+     * are no longer in meet/handshake status, we want to send
+     * normal PING packets. */
+    node->flags &= ~CLUSTER_NODE_MEET;
+
+    int cluster_port = node->cport;
+    serverLog(LL_DEBUG, "Connecting with Node %.40s at %s:%d",
+              node->name, node->ip, cluster_port);
+}
 
 /* This is executed 10 times every second */
 void clusterCron(void) {
@@ -3335,7 +3384,6 @@ void clusterCron(void) {
         if (changed) {
             if (prev_ip) zfree(prev_ip);
             prev_ip = curr_ip;
-
             if (curr_ip) {
                 /* We always take a copy of the previous IP address, by
                  * duplicating the string. This way later we can check if
@@ -3348,6 +3396,7 @@ void clusterCron(void) {
             }
         }
     }
+
 
     /* The handshake timeout is the time after which a handshake node that was
      * not turned into a normal node is removed from the nodes. Usually it is
@@ -3383,7 +3432,6 @@ void clusterCron(void) {
 
         if (node->link == NULL) {
             int fd;
-            mstime_t old_ping_sent;
             clusterLink *link;
 
             fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
@@ -3403,32 +3451,36 @@ void clusterCron(void) {
             link = createClusterLink(node);
             link->fd = fd;
             node->link = link;
-            aeCreateFileEvent(server.el,link->fd,AE_READABLE,
-                    clusterReadHandler,link);
-            /* Queue a PING in the new connection ASAP: this is crucial
-             * to avoid false positives in failure detection.
-             *
-             * If the node is flagged as MEET, we send a MEET message instead
-             * of a PING one, to force the receiver to add us in its node
-             * table. */
-            old_ping_sent = node->ping_sent;
-            clusterSendPing(link, node->flags & CLUSTER_NODE_MEET ?
-                    CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
-            if (old_ping_sent) {
-                /* If there was an active ping before the link was
-                 * disconnected, we want to restore the ping time, otherwise
-                 * replaced by the clusterSendPing() call. */
-                node->ping_sent = old_ping_sent;
+            if (isSSLEnabled()) {
+                /* Setting ping_sent time is serving 2 purposes -
+                * 1) To prevent ping sender code in clusterCron to send
+                * ping while SSL handshake is ongoing. Sending a ping during
+                * that period will break SSL handshake
+                *
+                * 2) To subject SSL negotiation to cluster timeout. By artificially
+                * setting ping_sent time to the time when SSL negotiation started, we
+                * are subjecting it to cluster timeout restrictions so that if SSL
+                * negotiation is taking unexpectedly long, there is something wrong
+                * and we want to retry
+                */
+                if(node->ping_sent == 0) node->ping_sent = link->ctime;
+                if (initSslConnection(SSL_CLIENT, fd,
+                        SSL_PERFORMANCE_MODE_LOW_LATENCY, node->ip) == NULL) {
+                    serverLog(LL_WARNING, "Could not create SSL connection for connecting with Cluster Node");
+                    //no cleanup required. Handshake timeout will automatically take care of freeing this node
+                    continue;
+                }
+                if (aeCreateFileEvent(server.el, link->fd, AE_READABLE | AE_WRITABLE,
+                        sslNegotiateWithClusterNodeAsClient, link) == AE_ERR) {
+                    serverLog(LL_WARNING, "Could not create event handler SSL negotiation");
+                    //no cleanup required. Handshake timeout will automatically take care of freeing this node
+                    continue;
+                }
+            } else {
+                aeCreateFileEvent(server.el,link->fd,AE_READABLE,
+                        clusterReadHandler,link);
+                clusterClientSetup(link);                
             }
-            /* We can clear the flag after the first packet is sent.
-             * If we'll never receive a PONG, we'll never send new packets
-             * to this node. Instead after the PONG is received and we
-             * are no longer in meet/handshake status, we want to send
-             * normal PING packets. */
-            node->flags &= ~CLUSTER_NODE_MEET;
-
-            serverLog(LL_DEBUG,"Connecting with Node %.40s at %s:%d",
-                    node->name, node->ip, node->cport);
         }
     }
     dictReleaseIterator(di);
@@ -3989,13 +4041,12 @@ sds representClusterNodeFlags(sds ci, uint16_t flags) {
 sds clusterGenNodeDescription(clusterNode *node) {
     int j, start;
     sds ci;
-
     /* Node coordinates */
     ci = sdscatprintf(sdsempty(),"%.40s %s:%d@%d ",
         node->name,
-        node->ip,
+        getClientEndpointForNode(node),
         node->port,
-        node->cport);
+        node->cport);    
 
     /* Flags */
     ci = representClusterNodeFlags(ci, node->flags);
@@ -4164,7 +4215,7 @@ void clusterReplyMultiBulkSlots(client *c) {
 
                 /* First node reply position is always the master */
                 addReplyArrayLen(c, 3);
-                addReplyBulkCString(c, node->ip);
+                addReplyBulkCString(c, getClientEndpointForNode(node));
                 addReplyLongLong(c, node->port);
                 addReplyBulkCBuffer(c, node->name, CLUSTER_NAMELEN);
 
@@ -4174,7 +4225,7 @@ void clusterReplyMultiBulkSlots(client *c) {
                      * with modifications for per-slot node aggregation */
                     if (nodeFailed(node->slaves[i])) continue;
                     addReplyArrayLen(c, 3);
-                    addReplyBulkCString(c, node->slaves[i]->ip);
+                    addReplyBulkCString(c, getClientEndpointForNode(node->slaves[i]));
                     addReplyLongLong(c, node->slaves[i]->port);
                     addReplyBulkCBuffer(c, node->slaves[i]->name, CLUSTER_NAMELEN);
                     nested_elements++;
@@ -4999,13 +5050,24 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
     }
     anetEnableTcpNoDelay(server.neterr,fd);
 
-    /* Check if it connects within the specified timeout. */
-    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
-        sdsfree(name);
-        addReplySds(c,
-            sdsnew("-IOERR error or timeout connecting to the client\r\n"));
-        close(fd);
-        return NULL;
+    if (isSSLEnabled()) {
+        // Setup SSL connection, no need to check for timeout since it's done during negotiation
+        if (initSslConnection(SSL_CLIENT, fd,
+                server.ssl_config.ssl_performance_mode, c->argv[1]->ptr) == NULL) {
+            goto sslerr;
+        }
+        if (syncSslNegotiateForFd(fd, timeout) != C_OK) {
+            goto sslerr;
+        }
+    } else {
+        /* Check if it connects within the specified timeout. */
+        if ((aeWait(fd, AE_WRITABLE, timeout) & AE_WRITABLE) == 0) {
+            sdsfree(name);
+            addReplySds(c,
+                sdsnew("-IOERR error or timeout connecting to the client\r\n"));
+            close(fd);
+            return NULL;
+        }        
     }
 
     /* Add to the cache and return it to the caller. */
@@ -5015,6 +5077,12 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
     cs->last_use_time = server.unixtime;
     dictAdd(server.migrate_cached_sockets,name,cs);
     return cs;
+sslerr:
+    sdsfree(name);
+    addReplySds(c,
+        sdsnew("-SSLERR error performing SSL negotiation with the target node\r\n"));
+    close(fd);
+    return NULL;
 }
 
 /* Free a migrate cached connection. */
@@ -5646,7 +5714,7 @@ void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_co
         addReplySds(c,sdscatprintf(sdsempty(),
             "-%s %d %s:%d\r\n",
             (error_code == CLUSTER_REDIR_ASK) ? "ASK" : "MOVED",
-            hashslot,n->ip,n->port));
+            hashslot, getClientEndpointForNode(n), n->port));
     } else {
         serverPanic("getNodeByQuery() unknown error.");
     }

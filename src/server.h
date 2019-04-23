@@ -66,6 +66,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "quicklist.h"  /* Lists are encoded as linked lists of
                            N-elements flat arrays */
 #include "rax.h"     /* Radix tree */
+#include "ssl.h"
 
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
@@ -319,22 +320,28 @@ typedef long long mstime_t; /* millisecond time type. */
  * what to do next. */
 #define REPL_STATE_NONE 0 /* No active replication */
 #define REPL_STATE_CONNECT 1 /* Must connect to master */
-#define REPL_STATE_CONNECTING 2 /* Connecting to master */
+#define REPL_STATE_SSL_HANDSHAKE 2 /* Waiting in SSL handshake */
+#define REPL_STATE_CONNECTING 3 /* Connecting to master */
+
 /* --- Handshake states, must be ordered --- */
-#define REPL_STATE_RECEIVE_PONG 3 /* Wait for PING reply */
-#define REPL_STATE_SEND_AUTH 4 /* Send AUTH to master */
-#define REPL_STATE_RECEIVE_AUTH 5 /* Wait for AUTH reply */
-#define REPL_STATE_SEND_PORT 6 /* Send REPLCONF listening-port */
-#define REPL_STATE_RECEIVE_PORT 7 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_IP 8 /* Send REPLCONF ip-address */
-#define REPL_STATE_RECEIVE_IP 9 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_CAPA 10 /* Send REPLCONF capa */
-#define REPL_STATE_RECEIVE_CAPA 11 /* Wait for REPLCONF reply */
-#define REPL_STATE_SEND_PSYNC 12 /* Send PSYNC */
-#define REPL_STATE_RECEIVE_PSYNC 13 /* Wait for PSYNC reply */
+#define REPL_STATE_RECEIVE_PONG 4 /* Wait for PING reply */
+#define REPL_STATE_SEND_AUTH 5 /* Send AUTH to master */
+#define REPL_STATE_RECEIVE_AUTH 6 /* Wait for AUTH reply */
+#define REPL_STATE_SEND_PORT 7 /* Send REPLCONF listening-port */
+#define REPL_STATE_RECEIVE_PORT 8 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_IP 9 /* Send REPLCONF ip-address */
+#define REPL_STATE_RECEIVE_IP 10 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_CAPA 11 /* Send REPLCONF capa */
+#define REPL_STATE_RECEIVE_CAPA 12 /* Wait for REPLCONF reply */
+#define REPL_STATE_SEND_PSYNC 13 /* Send PSYNC */
+#define REPL_STATE_RECEIVE_PSYNC 14 /* Wait for PSYNC reply */
+
 /* --- End of handshake states --- */
-#define REPL_STATE_TRANSFER 14 /* Receiving .rdb from master */
-#define REPL_STATE_CONNECTED 15 /* Connected to master */
+#define REPL_STATE_TRANSFER 15 /* Receiving .rdb from master */
+#define REPL_STATE_SSL_HANDSHAKE_POST_TRANSFER 16 /* Waiting for SSL handshake
+                                                   * after transfer for diskless 
+                                                   * BGSAVE. */
+#define REPL_STATE_CONNECTED 17 /* Connected to master */
 
 /* State of slaves from the POV of the master. Used in client->replstate.
  * In SEND_BULK and ONLINE state the slave receives new updates
@@ -1367,6 +1374,18 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
+<<<<<<< HEAD
+=======
+
+    /* Mutexes used to protect atomic variables when atomic builtins are
+     * not available. */
+    pthread_mutex_t lruclock_mutex;
+    pthread_mutex_t next_client_id_mutex;
+    pthread_mutex_t unixtime_mutex;
+
+    struct rdbSaveInfo * master_replication_rdb_save_info; /* Used to store the save info for after ssl handshake */
+    ssl_t ssl_config; /* SSL configuration */
+>>>>>>> 4caaee0c9... SSL implementation on all channels
 };
 
 typedef struct pubsubPattern {
@@ -1711,6 +1730,7 @@ void clearReplicationId2(void);
 void chopReplicationBacklog(void);
 void replicationCacheMasterUsingMyself(void);
 void feedReplicationBacklog(void *ptr, size_t len);
+void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
@@ -2062,6 +2082,10 @@ void dictSdsDestructor(void *privdata, void *val);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
+
+/* functions exposed to ssl.h if compiled with SSL*/
+int cancelReplicationHandshake(void);
+void finishSyncAfterReceivingBulkPayloadOnSlave(void);
 
 /* Commands prototypes */
 void authCommand(client *c);

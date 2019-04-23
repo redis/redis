@@ -246,9 +246,7 @@ union clusterMsgData {
         clusterMsgModule msg;
     } module;
 };
-
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
-
 typedef struct {
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
     uint32_t totlen;    /* Total length of this message */
@@ -287,4 +285,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 
+/* Exposed so ssl.h can consume them for ssl negotiation */
+void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void clusterClientSetup(clusterLink *link);
+void freeClusterLink(clusterLink *link);
+int parseClusterInterfaceType(char *typeString);
+
+#define getClientEndpointForNode(node) (node)->ip
 #endif /* __CLUSTER_H */

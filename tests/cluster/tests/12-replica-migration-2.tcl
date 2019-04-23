@@ -30,10 +30,15 @@ test "Each master should have at least two replicas attached" {
 
 set master0_id [dict get [get_myself 0] id]
 test "Resharding all the master #0 slots away from it" {
-    set output [exec \
-        ../../../src/redis-cli --cluster rebalance \
-        127.0.0.1:[get_instance_attrib redis 0 port] \
-        --cluster-weight ${master0_id}=0 >@ stdout ]
+    if {$::ssl} {
+        fail "SSL not supported"
+    } else {
+        set output [exec \
+            ../../../src/redis-cli --cluster rebalance \
+            127.0.0.1:[get_instance_attrib redis 0 port] \
+            --cluster-weight ${master0_id}=0 >@ stdout ]
+    }
+
 }
 
 test "Master #0 should lose its replicas" {

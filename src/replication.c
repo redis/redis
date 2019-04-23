@@ -30,6 +30,7 @@
 
 
 #include "server.h"
+#include "ssl.h"
 
 #include <sys/time.h>
 #include <unistd.h>
@@ -961,9 +962,6 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * diskless replication, our work is trivial, we can just put
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
-                serverLog(LL_NOTICE,
-                    "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from slave to enable streaming",
-                        replicationGetSlaveName(slave));
                 /* Note: we wait for a REPLCONF ACK message from slave in
                  * order to really put it online (install the write handler
                  * so that the accumulated data can be transferred). However
@@ -972,6 +970,13 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                 slave->replstate = SLAVE_STATE_ONLINE;
                 slave->repl_put_online_on_ack = 1;
                 slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
+                if (isSSLEnabled()) {
+                    startWaitForSlaveToLoadRdbAfterRdbTransfer(slave);
+                } else {
+                    serverLog(LL_NOTICE,
+                        "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming",
+                        replicationGetSlaveName(slave));              
+                }
             } else {
                 if (bgsaveerr != C_OK) {
                     freeClient(slave);
@@ -1044,7 +1049,7 @@ void shiftReplicationId(void) {
  * 0 otherwise. */
 int slaveIsInHandshakeState(void) {
     return server.repl_state >= REPL_STATE_RECEIVE_PONG &&
-           server.repl_state <= REPL_STATE_RECEIVE_PSYNC;
+        server.repl_state <= REPL_STATE_RECEIVE_PSYNC;
 }
 
 /* Avoid the master to detect the slave is timing out while loading the
@@ -1059,9 +1064,8 @@ void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
     if (time(NULL) != newline_sent) {
         newline_sent = time(NULL);
-        if (write(server.repl_transfer_s,"\n",1) == -1) {
-            /* Pinging back in this stage is best-effort. */
-        }
+        /* Pinging back in this stage is best-effort. */
+        ping(server.repl_transfer_s);
     }
 }
 
@@ -1193,6 +1197,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     nread = read(fd,buf,readlen);
     if (nread <= 0) {
+
+        /* May need to read more data from SSL if we didn't read an entire
+         * frame. */
+        if (nread < 0 && errno == EAGAIN) return;
+
         serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
             (nread == -1) ? strerror(errno) : "connection lost");
         cancelReplicationHandshake();
@@ -1256,7 +1265,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (eof_reached) {
         int aof_is_enabled = server.aof_state != AOF_OFF;
 
-        /* Ensure background save doesn't overwrite synced data */
+        /* Ensure background save doesn't ovewrite synced data */
         if (server.rdb_child_pid != -1) {
             serverLog(LL_NOTICE,
                 "Replica is about to load the RDB file received from the "
@@ -1300,32 +1309,55 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
-        replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
-        server.repl_state = REPL_STATE_CONNECTED;
-        server.repl_down_since = 0;
-        /* After a full resynchroniziation we use the replication ID and
-         * offset of the master. The secondary ID / offset are cleared since
-         * we are starting a new history. */
-        memcpy(server.replid,server.master->replid,sizeof(server.replid));
-        server.master_repl_offset = server.master->reploff;
-        clearReplicationId2();
-        /* Let's create the replication backlog if needed. Slaves need to
-         * accumulate the backlog regardless of the fact they have sub-slaves
-         * or not, in order to behave correctly if they are promoted to
-         * masters after a failover. */
-        if (server.repl_backlog == NULL) createReplicationBacklog();
 
-        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
-        /* Restart the AOF subsystem now that we finished the sync. This
-         * will trigger an AOF rewrite, and when done will start appending
-         * to the new file. */
         if (aof_is_enabled) restartAOFAfterSYNC();
+
+        server.master_replication_rdb_save_info = zmalloc(sizeof(rdbSaveInfo));
+        memcpy(server.master_replication_rdb_save_info, &rsi, sizeof(rdbSaveInfo));
+
+
+        if (isSSLEnabled() && usemark) {
+            /* We need to re-negotiate with master on a socket based 
+             * bgsave when ssl is enabled. */
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting SSL re-negotiation");
+            server.repl_state = REPL_STATE_SSL_HANDSHAKE_POST_TRANSFER;
+            startSslNegotiateWithMasterAfterRdbLoad(fd);
+        } else {
+            finishSyncAfterReceivingBulkPayloadOnSlave();
+        }
     }
     return;
-
 error:
     cancelReplicationHandshake();
     return;
+}
+
+void finishSyncAfterReceivingBulkPayloadOnSlave() {
+    rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+    memcpy(&rsi, server.master_replication_rdb_save_info, sizeof(rdbSaveInfo));
+    zfree(server.master_replication_rdb_save_info);
+    server.master_replication_rdb_save_info = NULL;
+
+    replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
+    server.repl_state = REPL_STATE_CONNECTED;
+    server.repl_down_since = 0;
+
+    /* After a full resynchroniziation we use the replication ID and
+    * offset of the master. The secondary ID / offset are cleared since
+    * we are starting a new history. */
+    memcpy(server.replid,server.master->replid,sizeof(server.replid));
+    server.master_repl_offset = server.master->reploff;
+    clearReplicationId2();
+    /* Let's create the replication backlog if needed. Slaves need to
+    * accumulate the backlog regardless of the fact they have sub-slaves
+    * or not, in order to behave correctly if they are promoted to
+    * masters after a failover. */
+    if (server.repl_backlog == NULL) createReplicationBacklog();
+
+    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+    /* Restart the AOF subsystem now that we finished the sync. This
+    * will trigger an AOF rewrite, and when done will start appending
+    * to the new file. */
 }
 
 /* Send a synchronous command to the master. Used to send AUTH and
@@ -1900,18 +1932,35 @@ int connectWithMaster(void) {
         return C_ERR;
     }
 
-    if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
-            AE_ERR)
-    {
-        close(fd);
-        serverLog(LL_WARNING,"Can't create readable event for SYNC");
-        return C_ERR;
+    if (isSSLEnabled()) {
+        if (initSslConnection(SSL_CLIENT, fd,
+                        server.ssl_config.ssl_performance_mode, server.masterhost) == NULL) {
+            serverLog(LL_WARNING, "Error initializing SSL configuration for replication: '%s'",
+                    strerror(errno));
+            goto error;
+        }
+
+        if (aeCreateFileEvent(server.el, fd, AE_WRITABLE | AE_READABLE, sslNegotiateWithMaster, NULL) == AE_ERR) {
+            serverLog(LL_WARNING, "Can't create readable event for SYNC");
+            cleanupSslConnectionForFd(fd);
+            goto error;
+        }
+    } else {
+        if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
+        AE_ERR)
+        {
+            serverLog(LL_WARNING,"Can't create readable event for SYNC");
+            goto error;
+        }  
     }
 
     server.repl_transfer_lastio = server.unixtime;
     server.repl_transfer_s = fd;
-    server.repl_state = REPL_STATE_CONNECTING;
+    server.repl_state = server.ssl_config.enable_ssl ? REPL_STATE_SSL_HANDSHAKE: REPL_STATE_CONNECTING;
     return C_OK;
+error:
+    close(fd);
+    return C_ERR;
 }
 
 /* This function can be called when a non blocking connection is currently
@@ -1948,11 +1997,17 @@ void replicationAbortSyncTransfer(void) {
 int cancelReplicationHandshake(void) {
     if (server.repl_state == REPL_STATE_TRANSFER) {
         replicationAbortSyncTransfer();
-        server.repl_state = REPL_STATE_CONNECT;
+        server.repl_state = REPL_STATE_CONNECT;        
     } else if (server.repl_state == REPL_STATE_CONNECTING ||
+               server.repl_state == REPL_STATE_SSL_HANDSHAKE || 
+               server.repl_state == REPL_STATE_SSL_HANDSHAKE_POST_TRANSFER || 
                slaveIsInHandshakeState())
     {
-        undoConnectWithMaster();
+        undoConnectWithMaster();        
+        if (server.master_replication_rdb_save_info) {
+            zfree(server.master_replication_rdb_save_info);
+            server.master_replication_rdb_save_info = NULL;  
+        }
         server.repl_state = REPL_STATE_CONNECT;
     } else {
         return 0;
@@ -2127,6 +2182,8 @@ void roleCommand(client *c) {
             case REPL_STATE_NONE: slavestate = "none"; break;
             case REPL_STATE_CONNECT: slavestate = "connect"; break;
             case REPL_STATE_CONNECTING: slavestate = "connecting"; break;
+            case REPL_STATE_SSL_HANDSHAKE: slavestate = "ssl"; break;
+            case REPL_STATE_SSL_HANDSHAKE_POST_TRANSFER: slavestate = "ssl"; break;
             case REPL_STATE_TRANSFER: slavestate = "sync"; break;
             case REPL_STATE_CONNECTED: slavestate = "connected"; break;
             default: slavestate = "unknown"; break;
@@ -2552,6 +2609,8 @@ void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
         (server.repl_state == REPL_STATE_CONNECTING ||
+         server.repl_state == REPL_STATE_SSL_HANDSHAKE ||
+         server.repl_state == REPL_STATE_SSL_HANDSHAKE_POST_TRANSFER ||
          slaveIsInHandshakeState()) &&
          (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
@@ -2633,9 +2692,7 @@ void replicationCron(void) {
              server.rdb_child_type != RDB_CHILD_TYPE_SOCKET));
 
         if (is_presync) {
-            if (write(slave->fd, "\n", 1) == -1) {
-                /* Don't worry about socket errors, it's just a ping. */
-            }
+            ping(slave->fd);
         }
     }
 

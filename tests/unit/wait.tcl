@@ -6,7 +6,7 @@ start_server {} {
     set master [srv -1 client]
     set master_host [srv -1 host]
     set master_port [srv -1 port]
-
+ 
     test {Setup slave} {
         $slave slaveof $master_host $master_port
         wait_for_condition 50 100 {
@@ -31,7 +31,11 @@ start_server {} {
     }
 
     test {WAIT should not acknowledge 1 additional copy if slave is blocked} {
-        exec src/redis-cli -h $slave_host -p $slave_port debug sleep 5 > /dev/null 2> /dev/null &
+        if {$::ssl} {
+            fail "SSL not supported"
+        } else {
+            exec src/redis-cli -h $slave_host -p $slave_port debug sleep 5 > /dev/null 2> /dev/null &
+        }
         after 1000 ;# Give redis-cli the time to execute the command.
         $master set foo 0
         $master incr foo

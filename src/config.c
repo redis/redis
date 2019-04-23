@@ -30,6 +30,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "ssl.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -140,6 +141,42 @@ int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
     else return -1;
+}
+
+int loadFile(const char *filePath, char **buffer) {
+    serverLog(LL_VERBOSE, "Loading file: %s", filePath);
+    FILE *fp;
+    long lSize;
+ 
+    fp = fopen(filePath, "rb");
+    if (!fp) {
+        serverLog(LL_WARNING, "Error opening file: %s", filePath);
+        return C_ERR;
+    }
+ 
+    fseek(fp, 0L, SEEK_END);
+    lSize = ftell(fp);
+    rewind(fp);
+ 
+    /* allocate memory for entire content */
+    *buffer = zmalloc(lSize + 1);
+    if (!*buffer) {
+        fclose(fp);
+        serverLog(LL_WARNING, "memory alloc fails while loading file: %s", filePath);
+        return C_ERR;
+    }
+ 
+    /* copy the file into the buffer */
+    if (1 != fread(*buffer, lSize, 1, fp)) {
+        fclose(fp);
+        zfree(*buffer);
+        *buffer=NULL;
+        serverLog(LL_WARNING, "entire read fails while loading file: %s", filePath);
+        return C_ERR;
+    }
+    *(*buffer+lSize) = '\0';
+    fclose(fp);
+    return C_OK;
 }
 
 void appendServerSaveParams(time_t seconds, int changes) {
@@ -833,6 +870,43 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"enable-ssl") && argc == 2) {
+            if (!isSSLCompiled()) {
+                err = "SSL must be compiled into redis to be enabled";
+                goto loaderr;            
+            }
+            if ((server.ssl_config.enable_ssl = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"certificate-file") && isSSLCompiled() && argc == 2) {
+            server.ssl_config.ssl_certificate_file = zstrdup(argv[1]);
+            if(loadFile(server.ssl_config.ssl_certificate_file, &server.ssl_config.ssl_certificate) == -1){
+                err = "Error loading ssl certificate file";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"private-key-file") && isSSLCompiled() && argc == 2) {
+            server.ssl_config.ssl_certificate_private_key_file = zstrdup(argv[1]);
+            if(loadFile(server.ssl_config.ssl_certificate_private_key_file, &server.ssl_config.ssl_certificate_private_key) == -1){
+                err = "Error loading private key file";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"dh-params-file") && isSSLCompiled() && argc == 2) {
+            server.ssl_config.ssl_dh_params_file = zstrdup(argv[1]);
+            if(loadFile(server.ssl_config.ssl_dh_params_file, &server.ssl_config.ssl_dh_params) == -1){
+                err = "Error loading Diffie Hellman parameters file";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"root-ca-certs-path") && isSSLCompiled() && argc == 2) {
+            server.ssl_config.root_ca_certs_path = zstrdup(argv[1]);
+            /* Verification of the path performed below */
+        } else if (!strcasecmp(argv[0],"ssl-performance-mode") && isSSLCompiled() && argc == 2) {
+            int sslPerformanceMode = getSslPerformanceModeByName(argv[1]);
+            if(sslPerformanceMode == -1){
+                err = "Invalid SSL performance mode";
+                goto loaderr;
+            }
+            server.ssl_config.ssl_performance_mode = sslPerformanceMode;
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -845,6 +919,29 @@ void loadServerConfigFromString(char *config) {
         i = linenum-1;
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
+    }
+
+    if (isSSLEnabled()) {
+        if(server.ssl_config.ssl_certificate == NULL) {
+            err = "certificate-file is not provided in arguments";
+            goto loaderr;
+        } else if(server.ssl_config.ssl_certificate_private_key == NULL) {
+            err = "private-key-file is not provided in arguments";
+            goto loaderr;
+        } else if(server.ssl_config.ssl_dh_params == NULL) {
+            err = "dh-params-file is not provided in arguments";
+            goto loaderr;
+        }
+
+        if (server.ssl_config.root_ca_certs_path == NULL) {
+            /* Use default ca certs path if not specified */
+            server.ssl_config.root_ca_certs_path = ROOT_CA_CERTS_PATH;
+        }
+
+        if (access(server.ssl_config.root_ca_certs_path, R_OK) == -1) {
+            err = "root-ca-certs-path not provided or does not exist";
+            goto loaderr;
+        }
     }
 
     sdsfreesplitres(lines,totlines);
@@ -982,9 +1079,16 @@ void configSetCommand(client *c) {
                 server.maxclients = orig_value;
                 return;
             }
-            if ((unsigned int) aeGetSetSize(server.el) <
-                server.maxclients + CONFIG_FDSET_INCR)
-            {
+            unsigned int newsize = server.maxclients + CONFIG_FDSET_INCR;
+            if ((unsigned int) aeGetSetSize(server.el) < newsize) {
+                /* Preemptively check that if SSL api is able to accommodate this change request */
+                if (isSSLEnabled() &&
+                        !isResizeAllowed(newsize)) {
+                    addReplyError(c, "The SSL API used by Redis is not able to handle the specified number of clients");
+                    server.maxclients = orig_value;
+                    return;
+                }
+
                 if (aeResizeSetSize(server.el,
                     server.maxclients + CONFIG_FDSET_INCR) == AE_ERR)
                 {
@@ -993,6 +1097,13 @@ void configSetCommand(client *c) {
                     return;
                 }
             }
+
+            if (isSSLEnabled()) {
+                if(server.ssl_config.fd_to_sslconn_size < newsize) {
+                    /* we expect this to always succeed because we have already done the success check before */
+                    serverAssert(resizeFdToSslConnSize(newsize) == C_OK);
+                }            
+            }       
         }
     } config_set_special_field("appendonly") {
         int enable = yesnotoi(o->ptr);
@@ -1097,6 +1208,53 @@ void configSetCommand(client *c) {
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
+    } config_set_special_field("ssl-renew-certificate") {
+        if(!isSSLEnabled()) {
+            addReplyError(c, "This command is not available when SSL is disabled");
+            return;
+        }
+        int vlen;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        if(vlen != 2){
+            sdsfreesplitres(v, vlen);
+            goto badfmt;
+        }
+
+        char *newCertificate = NULL, *newPrivateKey = NULL;
+        char *newCertificateFileName = NULL, *newPrivateKeyFileName = NULL;
+
+        newCertificateFileName = zstrdup(v[0]);
+        if(loadFile(newCertificateFileName, &newCertificate) != C_OK) {
+            addReplyErrorFormat(c,"Error reading file '%s' for CONFIG SET '%s'",
+                                newCertificateFileName,
+                                (char*)c->argv[2]->ptr);
+            goto ssl_renew_error;
+        }
+
+        newPrivateKeyFileName = zstrdup(v[1]);
+        if(loadFile(newPrivateKeyFileName, &newPrivateKey) != C_OK) {
+            addReplyErrorFormat(c,"Error reading file '%s' for CONFIG SET '%s'",
+                                newPrivateKey,
+                                (char*)c->argv[2]->ptr);
+            goto ssl_renew_error;
+        }
+
+        if(renewCertificate(newCertificate, newPrivateKey, newCertificateFileName, newPrivateKeyFileName) != C_OK) {
+            addReplyError(c, "Error renewing certificate. See server logs for details.");
+            goto ssl_renew_error;
+        }
+        sdsfreesplitres(v,vlen);
+        addReply(c,shared.ok);
+        return;
+
+ssl_renew_error:
+        if(newCertificate != NULL) zfree(newCertificate);
+        if(newPrivateKey != NULL) zfree(newPrivateKey);
+        if(newCertificateFileName != NULL) zfree(newCertificateFileName);
+        if(newPrivateKeyFileName != NULL) zfree(newPrivateKeyFileName);
+        sdsfreesplitres(v,vlen);
+        return;
     } config_set_special_field_with_alias("slave-announce-ip",
                                           "replica-announce-ip")
     {
@@ -1514,6 +1672,15 @@ void configGetCommand(client *c) {
             server.repl_slave_lazy_flush);
     config_get_bool_field("dynamic-hz",
             server.dynamic_hz);
+
+
+    /* SSL related configuration */
+    config_get_bool_field("enable-ssl",server.ssl_config.enable_ssl);
+    config_get_string_field("certificate-file", server.ssl_config.ssl_certificate_file);
+    config_get_string_field("private-key-file", server.ssl_config.ssl_certificate_private_key_file);
+    config_get_string_field("dh-params-file",server.ssl_config.ssl_dh_params_file);
+    config_get_string_field("root-ca-certs-path",server.ssl_config.root_ca_certs_path);
+    config_get_string_field("ssl-performance-mode", getSslPerformanceModeStr(server.ssl_config.ssl_performance_mode));
 
     /* Enum values */
     config_get_enum_field("maxmemory-policy",
@@ -2333,6 +2500,14 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"replica-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
     rewriteConfigYesNoOption(state,"dynamic-hz",server.dynamic_hz,CONFIG_DEFAULT_DYNAMIC_HZ);
+
+    /* SSL related configuration */
+    rewriteConfigYesNoOption(state, "enable-ssl", server.ssl_config.enable_ssl, SSL_ENABLE_DEFAULT);
+    rewriteConfigStringOption(state, "certificate-file", server.ssl_config.ssl_certificate_file, NULL);
+    rewriteConfigStringOption(state, "private-key-file", server.ssl_config.ssl_certificate_private_key_file, NULL);
+    rewriteConfigStringOption(state, "dh-params-file", server.ssl_config.ssl_dh_params_file, NULL);
+    rewriteConfigStringOption(state, "root-ca-certs-path", server.ssl_config.root_ca_certs_path, NULL);
+    rewriteConfigStringOption(state, "ssl-performance-mode", getSslPerformanceModeStr(server.ssl_config.ssl_performance_mode), NULL);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

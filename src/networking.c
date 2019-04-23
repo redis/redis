@@ -30,6 +30,7 @@
 #include "server.h"
 #include "atomicvar.h"
 #include <sys/socket.h>
+#include "ssl.h"
 #include <sys/uio.h>
 #include <math.h>
 #include <ctype.h>
@@ -96,12 +97,30 @@ client *createClient(int fd) {
         anetEnableTcpNoDelay(NULL,fd);
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
-        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-            readQueryFromClient, c) == AE_ERR)
-        {
-            close(fd);
-            zfree(c);
-            return NULL;
+        if (isSSLEnabled()) {
+            if ((unsigned int)fd < server.ssl_config.fd_to_sslconn_size && server.ssl_config.fd_to_sslconn[fd] != NULL) {
+                // SSL is already established, just setup the event to read from client
+                aeDeleteFileEvent(server.el, fd, AE_READABLE|AE_WRITABLE);
+                if (aeCreateFileEvent(server.el, fd, AE_READABLE, readQueryFromClient, c) == AE_ERR) {
+                    close(fd);
+                    zfree(c);
+                    return NULL;                        
+                }
+            } else {
+                if (setupSslOnClient(c, fd, server.ssl_config.ssl_performance_mode) == C_ERR) {
+                    close(fd);
+                    zfree(c);
+                    return NULL;
+                }
+            }            
+        } else {
+            if (aeCreateFileEvent(server.el,fd,AE_READABLE,
+                readQueryFromClient, c) == AE_ERR)
+            {
+                close(fd);
+                zfree(c);
+                return NULL;
+            }        
         }
     }
 
@@ -791,13 +810,19 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
+        server.stat_rejected_conn++;
+        if (isSSLEnabled()) {
+            // If SSL is enabled we send nothing to the client since handshake isn't
+            // done yet, we just kill it
+            freeClient(c);
+            return;
+        }
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
         if (write(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
-        server.stat_rejected_conn++;
         freeClient(c);
         return;
     }
@@ -813,6 +838,13 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
         ip != NULL)
     {
         if (strcmp(ip,"127.0.0.1") && strcmp(ip,"::1")) {
+            server.stat_rejected_conn++;
+            if (isSSLEnabled()) {
+                // If SSL is enabled we send nothing to the client since handshake isn't
+                // done yet, we just kill it.
+                freeClient(c);
+                return;
+            }
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled, no bind address was specified, no "
@@ -837,7 +869,6 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
             if (write(c->fd,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
-            server.stat_rejected_conn++;
             freeClient(c);
             return;
         }

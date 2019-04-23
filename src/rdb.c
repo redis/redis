@@ -2405,6 +2405,9 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
             server.rdb_child_pid = childpid;
             server.rdb_child_type = RDB_CHILD_TYPE_SOCKET;
             updateDictResizePolicy();
+            if (isSSLEnabled()) {
+                deleteReadEventHandlerForSlavesWaitingBgsave();
+            }
         }
         zfree(clientids);
         zfree(fds);

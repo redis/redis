@@ -247,7 +247,11 @@ start_server {tags {"dump"}} {
             $rd debug sleep 1.0 ; # Make second server unable to reply.
             set e {}
             catch {r -1 migrate $second_host $second_port key 9 500} e
-            assert_match {IOERR*} $e
+            if {$::ssl} {
+               assert_match {SSLERR*} $e 
+            } else {
+               assert_match {IOERR*} $e
+            }
         }
     }
 
