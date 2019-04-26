@@ -55,6 +55,7 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'K': flags |= NOTIFY_KEYSPACE; break;
         case 'E': flags |= NOTIFY_KEYEVENT; break;
         case 't': flags |= NOTIFY_STREAM; break;
+        case 'm': flags |= NOTIFY_KEY_MISS; break;
         default: return -1;
         }
     }
@@ -81,6 +82,7 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
         if (flags & NOTIFY_STREAM) res = sdscatlen(res,"t",1);
+        if (flags & NOTIFY_KEY_MISS) res = sdscatlen(res,"m",1);
     }
     if (flags & NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
@@ -100,12 +102,12 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
     int len = -1;
     char buf[24];
 
-    /* If any modules are interested in events, notify the module system now. 
+    /* If any modules are interested in events, notify the module system now.
      * This bypasses the notifications configuration, but the module engine
      * will only call event subscribers if the event type matches the types
      * they are interested in. */
      moduleNotifyKeyspaceEvent(type, event, key, dbid);
-    
+
     /* If notifications for this class of events are off, return ASAP. */
     if (!(server.notify_keyspace_events & type)) return;
 

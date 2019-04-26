@@ -593,6 +593,7 @@ int startBgsaveForReplication(int mincapa) {
             client *slave = ln->value;
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
+                slave->replstate = REPL_STATE_NONE;
                 slave->flags &= ~CLIENT_SLAVE;
                 listDelNode(server.slaves,ln);
                 addReplyError(slave,
@@ -1090,14 +1091,23 @@ void replicationCreateMasterClient(int fd, int dbid) {
     if (dbid != -1) selectDb(server.master,dbid);
 }
 
-void restartAOF() {
-    int retry = 10;
-    while (retry-- && startAppendOnly() == C_ERR) {
-        serverLog(LL_WARNING,"Failed enabling the AOF after successful master synchronization! Trying it again in one second.");
+/* This function will try to re-enable the AOF file after the
+ * master-replica synchronization: if it fails after multiple attempts
+ * the replica cannot be considered reliable and exists with an
+ * error. */
+void restartAOFAfterSYNC() {
+    unsigned int tries, max_tries = 10;
+    for (tries = 0; tries < max_tries; ++tries) {
+        if (startAppendOnly() == C_OK) break;
+        serverLog(LL_WARNING,
+            "Failed enabling the AOF after successful master synchronization! "
+            "Trying it again in one second.");
         sleep(1);
     }
-    if (!retry) {
-        serverLog(LL_WARNING,"FATAL: this replica instance finished the synchronization with its master, but the AOF can't be turned on. Exiting now.");
+    if (tries == max_tries) {
+        serverLog(LL_WARNING,
+            "FATAL: this replica instance finished the synchronization with "
+            "its master, but the AOF can't be turned on. Exiting now.");
         exit(1);
     }
 }
@@ -1284,7 +1294,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             cancelReplicationHandshake();
             /* Re-enable the AOF if we disabled it earlier, in order to restore
              * the original configuration. */
-            if (aof_is_enabled) restartAOF();
+            if (aof_is_enabled) restartAOFAfterSYNC();
             return;
         }
         /* Final setup of the connected slave <- master link */
@@ -1309,7 +1319,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
          * to the new file. */
-        if (aof_is_enabled) restartAOF();
+        if (aof_is_enabled) restartAOFAfterSYNC();
     }
     return;
 
@@ -2053,8 +2063,11 @@ void replicaofCommand(client *c) {
         /* Check if we are already attached to the specified slave */
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
             && server.masterport == port) {
-            serverLog(LL_NOTICE,"REPLICAOF would result into synchronization with the master we are already connected with. No operation performed.");
-            addReplySds(c,sdsnew("+OK Already connected to specified master\r\n"));
+            serverLog(LL_NOTICE,"REPLICAOF would result into synchronization "
+                                "with the master we are already connected "
+                                "with. No operation performed.");
+            addReplySds(c,sdsnew("+OK Already connected to specified "
+                                 "master\r\n"));
             return;
         }
         /* There was no previous master or the user specified a different one,

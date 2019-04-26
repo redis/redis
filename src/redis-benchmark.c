@@ -1192,7 +1192,7 @@ static int fetchClusterSlotsConfiguration(client c) {
     assert(reply->type == REDIS_REPLY_ARRAY);
     for (i = 0; i < reply->elements; i++) {
         redisReply *r = reply->element[i];
-        assert(r->type = REDIS_REPLY_ARRAY);
+        assert(r->type == REDIS_REPLY_ARRAY);
         assert(r->elements >= 3);
         int from, to, slot;
         from = r->element[0]->integer;
