@@ -1119,13 +1119,13 @@ void *sds_malloc(size_t size) { return s_malloc(size); }
 void *sds_realloc(void *ptr, size_t size) { return s_realloc(ptr,size); }
 void sds_free(void *ptr) { s_free(ptr); }
 
-#if defined(SDS_TEST_MAIN)
+#if defined(SDS_TEST_MAIN) || defined(REDIS_TEST)
 #include <stdio.h>
 #include "testhelp.h"
 #include "limits.h"
 
 #define UNUSED(x) (void)(x)
-int sdsTest(void) {
+int test_sds(void) {
     {
         sds x = sdsnew("foo"), y;
 
@@ -1289,8 +1289,18 @@ int sdsTest(void) {
 }
 #endif
 
+#ifdef REDIS_TEST
+int sdsTest(int argc, char **argv) {
+    UNUSED(argc);
+    UNUSED(argv);
+    test_sds();
+
+    return 0;
+}
+#endif
+
 #ifdef SDS_TEST_MAIN
 int main(void) {
-    return sdsTest();
+    return test_sds();
 }
 #endif
