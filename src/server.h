@@ -288,6 +288,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PENDING_READ (1<<29) /* The client has pending reads and was put
                                        in the list of clients we can read
                                        from. */
+#define CLIENT_PENDING_COMMAND (1<<30) /* */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
