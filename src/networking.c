@@ -744,6 +744,19 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
+/* Append 'src' client output buffers into 'dst' client output buffers. 
+ * This function clears the output buffers of 'src' */
+void AddReplyFromClient(client *dst, client *src) {
+    if (prepareClientToWrite(dst) != C_OK)
+        return;
+    addReplyProto(dst,src->buf, src->bufpos);
+    if (listLength(src->reply))
+        listJoin(dst->reply,src->reply);
+    dst->reply_bytes += src->reply_bytes;
+    src->reply_bytes = 0;
+    src->bufpos = 0;
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */
@@ -909,6 +922,16 @@ void unlinkClient(client *c) {
             raxRemove(server.clients_index,(unsigned char*)&id,sizeof(id),NULL);
             listDelNode(server.clients,c->client_list_node);
             c->client_list_node = NULL;
+        }
+
+        /* In the case of diskless replication the fork is writing to the
+         * sockets and just closing the fd isn't enough, if we don't also
+         * shutdown the socket the fork will continue to write to the slave
+         * and the salve will only find out that it was disconnected when
+         * it will finish reading the rdb. */
+        if ((c->flags & CLIENT_SLAVE) &&
+            (c->replstate == SLAVE_STATE_WAIT_BGSAVE_END)) {
+            shutdown(c->fd, SHUT_RDWR);
         }
 
         /* Unregister async I/O handlers and close the socket. */

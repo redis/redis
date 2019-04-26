@@ -542,6 +542,8 @@ struct redisCommand *ACLLookupCommand(const char *name) {
  * and command ID. */
 void ACLResetSubcommandsForCommand(user *u, unsigned long id) {
     if (u->allowed_subcommands && u->allowed_subcommands[id]) {
+        for (int i = 0; u->allowed_subcommands[id][i]; i++)
+            sdsfree(u->allowed_subcommands[id][i]);
         zfree(u->allowed_subcommands[id]);
         u->allowed_subcommands[id] = NULL;
     }

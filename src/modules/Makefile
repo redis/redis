@@ -46,7 +46,6 @@ hellotimer.so: hellotimer.xo
 hellodict.xo: ../redismodule.h
 
 hellodict.so: hellodict.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 testmodule.xo: ../redismodule.h
 
