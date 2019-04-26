@@ -418,11 +418,6 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (redisBufferRead(c->context) != REDIS_OK) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
-    }
-    else if (NULL != strstr(c->context->reader->buf,"NOAUTH"))
-    {
-        fprintf(stderr,"Error: %s\n",c->context->reader->buf);
-        exit(1);	
     } else {
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
