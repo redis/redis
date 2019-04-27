@@ -4674,11 +4674,15 @@ int redisIsSupervised(int mode) {
             redisSupervisedUpstart();
         } else if (notify_socket) {
             server.supervised_mode = SUPERVISED_SYSTEMD;
+            serverLog(LL_WARNING,
+                "WARNING auto-supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
             return redisCommunicateSystemd("STATUS=Redis is loading...\n");
         }
     } else if (mode == SUPERVISED_UPSTART) {
         return redisSupervisedUpstart();
     } else if (mode == SUPERVISED_SYSTEMD) {
+        serverLog(LL_WARNING,
+            "WARNING supervised by systemd - you MUST set appropriate values for TimeoutStartSec and TimeoutStopSec in your service unit.");
         return redisCommunicateSystemd("STATUS=Redis is loading...\n");
     }
 
