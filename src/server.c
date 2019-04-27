@@ -4673,9 +4673,8 @@ int redisIsSupervised(int mode) {
         if (upstart_job) {
             redisSupervisedUpstart();
         } else if (notify_socket) {
-            /* If systemd supervision has been auto-detected, revert to the old
-             * behaviour of reporting readiness right away */
-            redisCommunicateSystemd("READY=1\n");
+            server.supervised_mode = SUPERVISED_SYSTEMD;
+            return redisCommunicateSystemd("STATUS=Redis is loading...\n");
         }
     } else if (mode == SUPERVISED_UPSTART) {
         return redisSupervisedUpstart();
