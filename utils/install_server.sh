@@ -73,6 +73,15 @@ if [ "$(id -u)" -ne 0 ] ; then
 	exit 1
 fi
 
+#bail if this system is managed by systemd
+_pid_1_exe="$(readlink -f /proc/1/exe)"
+if [ ${_pid_1_exe##*/} = systemd ]
+then
+	echo "This systems seems to use systemd - please use other means to install/set up redis on it. Sorry!"
+	exit 1
+fi
+unset _pid_1_exe
+
 if ! echo $REDIS_PORT | egrep -q '^[0-9]+$' ; then
 	_MANUAL_EXECUTION=true
 	#Read the redis port
