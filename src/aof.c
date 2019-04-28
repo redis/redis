@@ -762,7 +762,11 @@ int loadAppendOnlyFile(char *filename) {
                 freeFakeClientArgv(fakeClient);
                 goto readerr;
             }
-            if (buf[0] != '$') goto fmterr;
+            if (buf[0] != '$') {
+                fakeClient->argc = j; /* Free up to j-1. */
+                freeFakeClientArgv(fakeClient);
+                goto fmterr;
+            }
             len = strtol(buf+1,NULL,10);
             argsds = sdsnewlen(SDS_NOINIT,len);
             if (len && fread(argsds,len,1,fp) == 0) {
