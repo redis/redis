@@ -7,7 +7,7 @@ if [ -n "$SOURCE_DATE_EPOCH" ]; then
 fi
 test -f release.h || touch release.h
 (cat release.h | grep SHA1 | grep $GIT_SHA1) && \
-(cat release.h | grep DIRTY | grep $GIT_DIRTY) && exit 0 # Already up-to-date
+(cat release.h | grep DIRTY | grep \"$GIT_DIRTY\") && exit 0 # Already up-to-date
 echo "#define REDIS_GIT_SHA1 \"$GIT_SHA1\"" > release.h
 echo "#define REDIS_GIT_DIRTY \"$GIT_DIRTY\"" >> release.h
 echo "#define REDIS_BUILD_ID \"$BUILD_ID\"" >> release.h
