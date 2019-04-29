@@ -363,7 +363,7 @@ void clusterSaveConfigOrDie(int do_fsync) {
     }
 }
 
-/* Lock the cluster config using flock(), and leaks the file descritor used to
+/* Lock the cluster config using flock(), and leaks the file descriptor used to
  * acquire the lock so that the file will be locked forever.
  *
  * This works because we always update nodes.conf with a new version
@@ -640,7 +640,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         serverLog(LL_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
         /* Create a link object we use to handle the connection.
          * It gets passed to the readable handler when data is available.
-         * Initiallly the link->node pointer is set to NULL as we don't know
+         * Initially the link->node pointer is set to NULL as we don't know
          * which node is, but the right node is references once we know the
          * node identity. */
         link = createClusterLink(NULL);
