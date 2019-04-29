@@ -1304,7 +1304,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
  * produces a NAN condition, or when the 'score' value is NAN since the
  * start.
  *
- * The commad as a side effect of adding a new element may convert the sorted
+ * The command as a side effect of adding a new element may convert the sorted
  * set internal encoding from ziplist to hashtable+skiplist.
  *
  * Memory managemnet of 'ele':
