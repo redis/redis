@@ -144,7 +144,7 @@ double extractUnitOrReply(client *c, robj *unit) {
 
 /* Input Argument Helper.
  * Extract the dinstance from the specified two arguments starting at 'argv'
- * that shouldbe in the form: <number> <unit> and return the dinstance in the
+ * that should be in the form: <number> <unit> and return the dinstance in the
  * specified unit on success. *conversions is populated with the coefficient
  * to use in order to convert meters to the unit.
  *
@@ -298,7 +298,7 @@ void scoresOfGeoHashBox(GeoHashBits hash, GeoHashFix52Bits *min, GeoHashFix52Bit
      *
      * To get the min score we just use the initial hash value left
      * shifted enough to get the 52 bit value. Later we increment the
-     * 6 bit prefis (see the hash.bits++ statement), and get the new
+     * 6 bit prefix (see the hash.bits++ statement), and get the new
      * prefix: 101011, which we align again to 52 bits to get the maximum
      * value (which is excluded from the search). So we get everything
      * between the two following scores (represented in binary):
