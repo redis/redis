@@ -86,7 +86,7 @@ void processGopherRequest(client *c) {
      *
      * 2. Redis does not know if it's serving a text file or a binary file:
      *    at the same time clients will not remove the ".<CR><LF>" bytes at
-     *    tne end when downloading a binary file from the server, so adding
+     *    the end when downloading a binary file from the server, so adding
      *    the "Lastline" terminator without knowing the content is just
      *    dangerous.
      *
