@@ -1,6 +1,6 @@
-/* 
+/*
  * Active memory defragmentation
- * Try to find key / value allocations that need to be re-allocated in order 
+ * Try to find key / value allocations that need to be re-allocated in order
  * to reduce external fragmentation.
  * We do that by scanning the keyspace and for each pointer we have, we can try to
  * ask the allocator if moving it to a new address will help reduce fragmentation.
@@ -51,7 +51,7 @@ dictEntry* replaceSateliteDictKeyPtrAndOrDefragDictEntry(dict *d, sds oldkey, sd
 
 /* Defrag helper for generic allocations.
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 void* activeDefragAlloc(void *ptr) {
@@ -81,7 +81,7 @@ void* activeDefragAlloc(void *ptr) {
 
 /*Defrag helper for sds strings
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocating wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 sds activeDefragSds(sds sdsptr) {
@@ -97,7 +97,7 @@ sds activeDefragSds(sds sdsptr) {
 
 /* Defrag helper for robj and/or string objects
  *
- * returns NULL in case the allocatoin wasn't moved.
+ * returns NULL in case the allocating wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob, long *defragged) {
@@ -137,11 +137,11 @@ robj *activeDefragStringOb(robj* ob, long *defragged) {
 }
 
 /* Defrag helper for dictEntries to be used during dict iteration (called on
- * each step). Teturns a stat of how many pointers were moved. */
+ * each step). Returns a stat of how many pointers were moved. */
 long dictIterDefragEntry(dictIterator *iter) {
     /* This function is a little bit dirty since it messes with the internals
      * of the dict and it's iterator, but the benefit is that it is very easy
-     * to use, and require no other chagnes in the dict. */
+     * to use, and require no other changes in the dict. */
     long defragged = 0;
     dictht *ht;
     /* Handle the next entry (if there is one), and update the pointer in the
@@ -387,7 +387,7 @@ long activeDefragSdsListAndDict(list *l, dict *d, int dict_val_type) {
 
 /* Utility function that replaces an old key pointer in the dictionary with a
  * new pointer. Additionally, we try to defrag the dictEntry in that dict.
- * Oldkey mey be a dead pointer and should not be accessed (we get a
+ * Oldkey may be a dead pointer and should not be accessed (we get a
  * pre-calculated hash value). Newkey may be null if the key pointer wasn't
  * moved. Return value is the the dictEntry if found, or NULL if not found.
  * NOTE: this is very ugly code, but it let's us avoid the complication of
@@ -433,7 +433,7 @@ long activeDefragQuickListNodes(quicklist *ql) {
 }
 
 /* when the value has lots of elements, we want to handle it later and not as
- * oart of the main dictionary scan. this is needed in order to prevent latency
+ * part of the main dictionary scan. this is needed in order to prevent latency
  * spikes when handling large items */
 void defragLater(redisDb *db, dictEntry *kde) {
     sds key = sdsdup(dictGetKey(kde));
@@ -847,7 +847,7 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
     server.stat_active_defrag_scanned++;
 }
 
-/* Defrag scan callback for each hash table bicket,
+/* Defrag scan callback for each hash table bucket,
  * used in order to defrag the dictEntry allocations. */
 void defragDictBucketCallback(void *privdata, dictEntry **bucketref) {
     UNUSED(privdata); /* NOTE: this function is also used by both activeDefragCycle and scanLaterHash, etc. don't use privdata */
@@ -881,7 +881,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
     return frag_pct;
 }
 
-/* We may need to defrag other globals, one small allcation can hold a full allocator run.
+/* We may need to defrag other globals, one small allocation can hold a full allocator run.
  * so although small, it is still important to defrag these */
 long defragOtherGlobals() {
     long defragged = 0;
@@ -1042,7 +1042,7 @@ void activeDefragCycle(void) {
     if (server.aof_child_pid!=-1 || server.rdb_child_pid!=-1)
         return; /* Defragging memory while there's a fork will just do damage. */
 
-    /* Once a second, check if we the fragmentation justfies starting a scan
+    /* Once a second, check if we the fragmentation justifies starting a scan
      * or making it more aggressive. */
     run_with_period(1000) {
         computeDefragCycles();
