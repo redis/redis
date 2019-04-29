@@ -2608,7 +2608,7 @@ void initThreadedIO(void) {
 }
 
 void startThreadedIO(void) {
-    if (tio_debug) printf("S"); fflush(stdout);
+    if (tio_debug) { printf("S"); fflush(stdout); }
     if (tio_debug) printf("--- STARTING THREADED IO ---\n");
     serverAssert(io_threads_active == 0);
     for (int j = 0; j < server.io_threads_num; j++)
@@ -2620,7 +2620,7 @@ void stopThreadedIO(void) {
     /* We may have still clients with pending reads when this function
      * is called: handle them before stopping the threads. */
     handleClientsWithPendingReadsUsingThreads();
-    if (tio_debug) printf("E"); fflush(stdout);
+    if (tio_debug) { printf("E"); fflush(stdout); }
     if (tio_debug) printf("--- STOPPING THREADED IO [R%d] [W%d] ---\n",
         (int) listLength(server.clients_pending_read),
         (int) listLength(server.clients_pending_write));
