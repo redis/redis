@@ -197,6 +197,12 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * AOF file implementation
  * ------------------------------------------------------------------------- */
 
+/* Return true if an AOf fsync is currently already in progress in a
+ * BIO thread. */
+int aofFsyncInProgress(void) {
+    return bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+}
+
 /* Starts a background task that performs fsync() against the specified
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
@@ -333,10 +339,24 @@ void flushAppendOnlyFile(int force) {
     int sync_in_progress = 0;
     mstime_t latency;
 
-    if (sdslen(server.aof_buf) == 0) return;
+    if (sdslen(server.aof_buf) == 0) {
+        /* Check if we need to do fsync even the aof buffer is empty,
+         * because previously in AOF_FSYNC_EVERYSEC mode, fsync is
+         * called only when aof buffer is not empty, so if users
+         * stop write commands before fsync called in one second,
+         * the data in page cache cannot be flushed in time. */
+        if (server.aof_fsync == AOF_FSYNC_EVERYSEC &&
+            server.aof_fsync_offset != server.aof_current_size &&
+            server.unixtime > server.aof_last_fsync &&
+            !(sync_in_progress = aofFsyncInProgress())) {
+            goto try_fsync;
+        } else {
+            return;
+        }
+    }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
-        sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
+        sync_in_progress = aofFsyncInProgress();
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC && !force) {
         /* With this append fsync policy we do background fsyncing.
@@ -468,6 +488,7 @@ void flushAppendOnlyFile(int force) {
         server.aof_buf = sdsempty();
     }
 
+try_fsync:
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
     if (server.aof_no_fsync_on_rewrite &&
@@ -482,10 +503,14 @@ void flushAppendOnlyFile(int force) {
         redis_fsync(server.aof_fd); /* Let's try to get this data on the disk */
         latencyEndMonitor(latency);
         latencyAddSampleIfNeeded("aof-fsync-always",latency);
+        server.aof_fsync_offset = server.aof_current_size;
         server.aof_last_fsync = server.unixtime;
     } else if ((server.aof_fsync == AOF_FSYNC_EVERYSEC &&
                 server.unixtime > server.aof_last_fsync)) {
-        if (!sync_in_progress) aof_background_fsync(server.aof_fd);
+        if (!sync_in_progress) {
+            aof_background_fsync(server.aof_fd);
+            server.aof_fsync_offset = server.aof_current_size;
+        }
         server.aof_last_fsync = server.unixtime;
     }
 }
@@ -690,6 +715,7 @@ int loadAppendOnlyFile(char *filename) {
      * operation is received. */
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
+        server.aof_fsync_offset = server.aof_current_size;
         fclose(fp);
         return C_ERR;
     }
@@ -828,6 +854,7 @@ loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
     stopLoading();
     aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
+    server.aof_fsync_offset = server.aof_current_size;
     return C_OK;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -1734,6 +1761,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.aof_rewrite_base_size = server.aof_current_size;
+            server.aof_current_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to
              * the new AOF from the background rewrite buffer. */
