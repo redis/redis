@@ -2734,6 +2734,12 @@ int postponeClientRead(client *c) {
     }
 }
 
+/* When threaded I/O is also enabled for the reading + parsing side, the
+ * readable handler will just put normal clients into a queue of clients to
+ * process (instead of serving them synchronously). This function runs
+ * the queue using the I/O threads, and process them in order to accumulate
+ * the reads in the buffers, and also parse the first command available
+ * rendering it in the client structures. */
 int handleClientsWithPendingReadsUsingThreads(void) {
     if (!io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
