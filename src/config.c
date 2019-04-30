@@ -172,7 +172,8 @@ void queueLoadModule(sds path, sds *argv, int argc) {
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
-    int slaveof_linenum = 0;
+    int slaveof_linenum = 0, repl_backlog_size_linenum = 0;
+    long long repl_backlog_size = 0;
     sds *lines;
 
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
@@ -387,12 +388,12 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
-            long long size = memtoll(argv[1],NULL);
-            if (size <= 0) {
+            repl_backlog_size_linenum = linenum;
+            repl_backlog_size = memtoll(argv[1],NULL);
+            if (repl_backlog_size <= 0) {
                 err = "repl-backlog-size must be 1 or greater.";
                 goto loaderr;
             }
-            resizeReplicationBacklog(size);
         } else if (!strcasecmp(argv[0],"repl-backlog-ttl") && argc == 2) {
             server.repl_backlog_time_limit = atoi(argv[1]);
             if (server.repl_backlog_time_limit < 0) {
@@ -836,6 +837,15 @@ void loadServerConfigFromString(char *config) {
         i = linenum-1;
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
+    }
+    if (repl_backlog_size > 0) {
+        if (server.maxmemory != 0 && repl_backlog_size > (long long)server.maxmemory) {
+            linenum = repl_backlog_size_linenum;
+            i = linenum-1;
+            err = "repl-backlog-size should not larger than maxmemory";
+            goto loaderr;
+        }
+        resizeReplicationBacklog(repl_backlog_size);
     }
 
     sdsfreesplitres(lines,totlines);
@@ -1289,6 +1299,11 @@ void configSetCommand(client *c) {
     } config_set_memory_field(
       "client-query-buffer-limit",server.client_max_querybuf_len) {
     } config_set_memory_field("repl-backlog-size",ll) {
+        if (server.maxmemory != 0 && ll > (long long)server.maxmemory) {
+            addReplyErrorFormat(c,"repl-backlog-size shouldn't larger than maxmemory: %llu",
+                    server.maxmemory);
+            return;
+        }
         resizeReplicationBacklog(ll);
     } config_set_memory_field("auto-aof-rewrite-min-size",ll) {
         server.aof_rewrite_min_size = ll;
