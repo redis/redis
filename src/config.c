@@ -318,6 +318,10 @@ void loadServerConfigFromString(char *config) {
             if (server.io_threads_num < 1 || server.io_threads_num > 512) {
                 err = "Invalid number of I/O threads"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"io-threads-do-reads") && argc == 2) {
+            if ((server.io_threads_do_reads = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
@@ -1485,6 +1489,7 @@ void configGetCommand(client *c) {
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
     config_get_bool_field("protected-mode", server.protected_mode);
     config_get_bool_field("gopher-enabled", server.gopher_enabled);
+    config_get_bool_field("io-threads-do-reads", server.io_threads_do_reads);
     config_get_bool_field("repl-disable-tcp-nodelay",
             server.repl_disable_tcp_nodelay);
     config_get_bool_field("repl-diskless-sync",
@@ -2316,6 +2321,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigYesNoOption(state,"protected-mode",server.protected_mode,CONFIG_DEFAULT_PROTECTED_MODE);
     rewriteConfigYesNoOption(state,"gopher-enabled",server.gopher_enabled,CONFIG_DEFAULT_GOPHER_ENABLED);
+    rewriteConfigYesNoOption(state,"io-threads-do-reads",server.io_threads_do_reads,CONFIG_DEFAULT_IO_THREADS_DO_READS);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
