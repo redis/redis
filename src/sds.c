@@ -377,8 +377,10 @@ sds sdsgrowzero(sds s, size_t len) {
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
 sds sdscatlen(sds s, const void *t, size_t len) {
-    size_t curlen = sdslen(s);
-
+    size_t curlen 
+ 
+    if (s == NULL) return NULL;
+    curlen = sdslen(s);
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
     memcpy(s+curlen, t, len);
