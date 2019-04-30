@@ -2723,6 +2723,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
  * pending read clients and flagged as such. */
 int postponeClientRead(client *c) {
     if (io_threads_active &&
+        server.io_threads_do_reads &&
         !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
     {
         c->flags |= CLIENT_PENDING_READ;
@@ -2734,7 +2735,7 @@ int postponeClientRead(client *c) {
 }
 
 int handleClientsWithPendingReadsUsingThreads(void) {
-    if (!io_threads_active) return 0;
+    if (!io_threads_active || !server.io_threads_do_reads) return 0;
     int processed = listLength(server.clients_pending_read);
     if (processed == 0) return 0;
 

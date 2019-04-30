@@ -2315,6 +2315,7 @@ void initServerConfig(void) {
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
     server.io_threads_num = CONFIG_DEFAULT_IO_THREADS_NUM;
+    server.io_threads_do_reads = CONFIG_DEFAULT_IO_THREADS_DO_READS;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
