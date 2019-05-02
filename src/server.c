@@ -2348,6 +2348,7 @@ void initServerConfig(void) {
     server.slave_announce_ip = CONFIG_DEFAULT_SLAVE_ANNOUNCE_IP;
     server.slave_announce_port = CONFIG_DEFAULT_SLAVE_ANNOUNCE_PORT;
     server.master_repl_offset = 0;
+    server.max_send_bulk_rate = CONFIG_DEFAULT_MAX_SEND_BULK_RATE;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
