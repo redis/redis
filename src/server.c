@@ -1794,6 +1794,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 server.stat_net_input_bytes);
         trackInstantaneousMetric(STATS_METRIC_NET_OUTPUT,
                 server.stat_net_output_bytes);
+        trackInstantaneousMetric(STATS_METRIC_REPL_BYTES,
+                server.master_repl_offset);
+        trackInstantaneousMetric(STATS_METRIC_REPL_TOUCH,
+                server.stat_repl_touch_bytes);
     }
 
     /* We have just LRU_BITS bits per object for LRU information.
@@ -2235,6 +2239,9 @@ void initServerConfig(void) {
     server.active_defrag_cycle_min = CONFIG_DEFAULT_DEFRAG_CYCLE_MIN;
     server.active_defrag_cycle_max = CONFIG_DEFAULT_DEFRAG_CYCLE_MAX;
     server.active_defrag_max_scan_fields = CONFIG_DEFAULT_DEFRAG_MAX_SCAN_FIELDS;
+    server.repl_touch_cmd_ratio = CONFIG_DEFAULT_REPL_TOUCH_CMD_RATIO;
+    server.repl_touch_max_rate = CONFIG_DEFAULT_REPL_TOUCH_MAX_RATE;
+    server.force_repl_lru = 0;
     server.proto_max_bulk_len = CONFIG_DEFAULT_PROTO_MAX_BULK_LEN;
     server.client_max_querybuf_len = PROTO_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
@@ -2670,6 +2677,8 @@ void resetServerStats(void) {
     server.stat_evictedkeys = 0;
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
+    server.stat_repl_touch_keys = 0;
+    server.stat_repl_touch_bytes = 0;
     server.stat_active_defrag_hits = 0;
     server.stat_active_defrag_misses = 0;
     server.stat_active_defrag_key_hits = 0;
@@ -3101,6 +3110,116 @@ void preventCommandReplication(client *c) {
     c->flags |= CLIENT_PREVENT_REPL_PROP;
 }
 
+/* Send TOUCH commands to slaves for read keys */
+void maybePropagateTouch(int dirty, long long time, int dbid,
+                         struct redisCommand *cmd, robj **argv, int argc) {
+    static int next_repl_touch = 1;
+    listIter li;
+    listNode *ln;
+    int numkeys = 0, j;
+    int *keys;
+
+    /* Check if the TOUCH mechanism isn't disabled */
+    if (!server.repl_touch_cmd_ratio || server.repl_touch_max_rate <= 0)
+        return;
+
+    /* If the eviction policy isn't LRU/LFU, the this is most likely isn't needed */
+    if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LRU) &&
+        !(server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
+        !server.force_repl_lru)
+       return;
+
+    /* Continue only if we're a master with slaves */
+    if (!listLength(server.slaves) || server.masterhost)
+        return;
+
+    /* Skip TYPE and OBJECT, since they don't "touch" the LRU */
+    if (cmd->proc==typeCommand || cmd->proc==objectCommand)
+        return;
+    /* Skip administrative and pubsub, they don't touch keys */
+    if (cmd->flags & (CMD_ADMIN|CMD_PUBSUB))
+        return;
+
+    /* We wanna propagate TOUCH on:
+     * - Read-only commands (such as GET, EXISTS, STRLEN.
+     * - But also on write commands that didn't do any change
+     *   (e.g. SREM that failed to find the field) */
+    int touch_it = (cmd->flags & CMD_READONLY) || ((cmd->flags & CMD_WRITE) && !dirty);
+
+    /* Module commands may be missing the READONLY/WRITE flags, so trust the dirty flag */
+    if (!touch_it && (cmd->flags & CMD_MODULE) &&
+        !(cmd->flags & (CMD_WRITE|CMD_READONLY)) && !dirty)
+            touch_it = 1;
+
+    if (!touch_it)
+        return;
+
+    /* We prefer to skip commands that don't access keys before applying
+     * the selective mechanism, which increments a counter. */
+    if (cmd->firstkey==0 && cmd->getkeys_proc==NULL && !(cmd->flags&CMD_MODULE_GETKEYS))
+        return;
+
+    /* If we got here, it means the read command may need propagation as TOUCH */
+    next_repl_touch--;
+    /* But we don't propagate all, just a sample of them, according to configured ratio.
+     * we still leave some filtering to be done below that point, for the heavier checks */
+    if (next_repl_touch > 0)
+        return;
+
+    /* Try to avoid blowing off the slave buffers:
+     * Don't replicate any touch command if:
+     * - There's a slave currently waiting on bgsave to complete,
+     * - There's a slave with slave buffers over 50% utilized. */
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (getClientType(slave) != CLIENT_TYPE_SLAVE)
+            continue;
+        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END)
+            return;
+        unsigned long used_mem = getClientOutputBufferMemoryUsage(slave);
+        if (used_mem > server.client_obuf_limits[CLIENT_TYPE_SLAVE].hard_limit_bytes / 2)
+            return;
+    }
+
+    /* Use the internals of the instantaneous metrics for replicated touch bytes
+     * in order to limit the rate of replicated touch bytes per second. */
+    long long msec = (time / 1000) -
+        server.inst_metric[STATS_METRIC_REPL_TOUCH].last_sample_time;
+    long long bytes = server.stat_repl_touch_bytes -
+        server.inst_metric[STATS_METRIC_REPL_TOUCH].last_sample_count;
+    if (msec && bytes * 1000 / msec > server.repl_touch_max_rate)
+        return;
+
+    /* Get the keys (if any) that the command uses.
+     * We rather do that after repl_touch_ratio since getKeysFromCommand may be an overhead. */
+    keys = getKeysFromCommand(cmd,argv,argc,&numkeys);
+    if (!keys)
+        return;
+
+    /* Send TOUCH command to slaves */
+    robj **touch_argv = zmalloc(sizeof(robj*) * (numkeys+1));
+    touch_argv[0] = createStringObject("TOUCH",5);
+    for (j=0; j<numkeys; j++)
+        touch_argv[1+j] = argv[keys[j]];
+    unsigned long long prev_offset = server.master_repl_offset;
+    if (numkeys)
+        replicationFeedSlaves(server.slaves, dbid, touch_argv, 1+numkeys);
+    getKeysFreeResult(keys);
+    decrRefCount(touch_argv[0]);
+    zfree(touch_argv);
+
+    /* Compute some stats */
+    server.stat_repl_touch_keys += numkeys;
+    server.stat_repl_touch_bytes += server.master_repl_offset - prev_offset;
+
+    /* Decide when we wanna replicate the next touch.
+     * It is important to use a random element, since if the user always uses
+     * the same pattern like: GET X; GET Y;
+     * If we have a ratio of 2, we may always hit X, and never Y */
+    next_repl_touch = 1 + random() % (server.repl_touch_cmd_ratio * 2 - 1);
+}
+
 /* Call() is the core of Redis execution of a command.
  *
  * The following flags can be passed:
@@ -3227,6 +3346,8 @@ void call(client *c, int flags) {
          * in an explicit way, so we never replicate them automatically. */
         if (propagate_flags != PROPAGATE_NONE && !(c->cmd->flags & CMD_MODULE))
             propagate(c->cmd,c->db->id,c->argv,c->argc,propagate_flags);
+        else
+            maybePropagateTouch(dirty,start,c->db->id,c->cmd,c->argv,c->argc);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -4091,6 +4212,8 @@ sds genRedisInfoString(char *section) {
 
     /* Stats */
     if (allsections || defsections || !strcasecmp(section,"stats")) {
+        float repl_bytes = (float)getInstantaneousMetric(STATS_METRIC_REPL_BYTES)/1024;
+        float repl_touch = (float)getInstantaneousMetric(STATS_METRIC_REPL_TOUCH)/1024;
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
@@ -4116,6 +4239,11 @@ sds genRedisInfoString(char *section) {
             "latest_fork_usec:%lld\r\n"
             "migrate_cached_sockets:%ld\r\n"
             "slave_expires_tracked_keys:%zu\r\n"
+            "repl_touch_keys:%llu\r\n"
+            "repl_touch_bytes:%llu\r\n"
+            "instantaneous_repl_kbps:%.2f\r\n"
+            "instantaneous_repl_touch_kbps:%.2f\r\n"
+            "instantaneous_repl_touch_pct:%.2f\r\n"
             "active_defrag_hits:%lld\r\n"
             "active_defrag_misses:%lld\r\n"
             "active_defrag_key_hits:%lld\r\n"
@@ -4142,6 +4270,11 @@ sds genRedisInfoString(char *section) {
             server.stat_fork_time,
             dictSize(server.migrate_cached_sockets),
             getSlaveKeyWithExpireCount(),
+            server.stat_repl_touch_keys,
+            server.stat_repl_touch_bytes,
+            repl_bytes,
+            repl_touch,
+            repl_touch/repl_bytes*100,
             server.stat_active_defrag_hits,
             server.stat_active_defrag_misses,
             server.stat_active_defrag_key_hits,
