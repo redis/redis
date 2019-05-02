@@ -824,6 +824,12 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"dtrace_id") && argc >= 2) {
+            server.dtrace_id = atoi(argv[1]);
+            if (server.dtrace_id <= 0)
+            {
+                err = "Invalid DTrace id"; goto loaderr;
+            }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

@@ -2649,6 +2649,8 @@ int listenToPort(int port, int *fds, int *count) {
                     errno == EAFNOSUPPORT    || errno == EADDRNOTAVAIL)
                     continue;
             return C_ERR;
+        } else {
+            anetTrace(server.neterr,fds[*count],server.dtrace_id);
         }
         anetNonBlock(NULL,fds[*count]);
         (*count)++;
@@ -2721,6 +2723,7 @@ void initServer(void) {
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
+    server.dtrace_id = -1;
 
     createSharedObjects();
     adjustOpenFilesLimit();
