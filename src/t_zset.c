@@ -142,6 +142,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
                     (x->level[i].forward->score == score &&
+                    !server.zset_fifo_order &&
                     sdscmp(x->level[i].forward->ele,ele) < 0)))
         {
             rank[i] += x->level[i].span;
@@ -1066,7 +1067,7 @@ unsigned char *zzlInsert(unsigned char *zl, sds ele, double score) {
              * maintain ordering. */
             zl = zzlInsertAt(zl,eptr,ele,score);
             break;
-        } else if (s == score) {
+        } else if (s == score && !server.zset_fifo_order) {
             /* Ensure lexicographical ordering for elements. */
             if (zzlCompareElements(eptr,(unsigned char*)ele,sdslen(ele)) > 0) {
                 zl = zzlInsertAt(zl,eptr,ele,score);

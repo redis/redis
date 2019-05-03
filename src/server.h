@@ -1287,6 +1287,7 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
+    int zset_fifo_order;
     size_t hll_sparse_max_bytes;
     size_t stream_node_max_bytes;
     int64_t stream_node_max_entries;
