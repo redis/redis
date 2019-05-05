@@ -79,6 +79,32 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond diskless rec
                 stop_bg_complex_data $load_handle0
                 stop_bg_complex_data $load_handle1
                 stop_bg_complex_data $load_handle2
+
+                # Wait for the slave to reach the "online"
+                # state from the POV of the master.
+                set retry 5000
+                while {$retry} {
+                    set info [$master info]
+                    if {[string match {*slave0:*state=online*} $info]} {
+                        break
+                    } else {
+                        incr retry -1
+                        after 100
+                    }
+                }
+                if {$retry == 0} {
+                    error "assertion:Slave not correctly synchronized"
+                }
+
+                # Wait that slave acknowledge it is online so
+                # we are sure that DBSIZE and DEBUG DIGEST will not
+                # fail because of timing issues. (-LOADING error)
+                wait_for_condition 5000 100 {
+                    [lindex [$slave role] 3] eq {connected}
+                } else {
+                    fail "Slave still not connected after some time"
+                }  
+
                 set retry 10
                 while {$retry && ([$master debug digest] ne [$slave debug digest])}\
                 {
