@@ -3824,7 +3824,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * in order to keep things like the currently selected database and similar
      * things. */
     ctx->client = createClient(-1);
-    if (bc) selectDb(ctx->client,bc->dbid);
+    if (bc) {
+        selectDb(ctx->client,bc->dbid);
+        ctx->client->id = bc->client->id;
+    }
     return ctx;
 }
 
