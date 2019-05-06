@@ -4021,8 +4021,6 @@ int main(int argc, char **argv) {
             return sha1Test(argc, argv);
         } else if (!strcasecmp(argv[2], "util")) {
             return utilTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "sds")) {
-            return sdsTest(argc, argv);
         } else if (!strcasecmp(argv[2], "endianconv")) {
             return endianconvTest(argc, argv);
         } else if (!strcasecmp(argv[2], "crc64")) {
