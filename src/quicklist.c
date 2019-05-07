@@ -378,6 +378,8 @@ REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
         quicklist->head = quicklist->tail = new_node;
     }
 
+    /* Should try to compress new_node, it may be not at head or tail */
+    quicklistCompress(quicklist, new_node);
     if (old_node)
         quicklistCompress(quicklist, old_node);
 
@@ -841,8 +843,9 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         D("No node given!");
         new_node = quicklistCreateNode();
         new_node->zl = ziplistPush(ziplistNew(), value, sz, ZIPLIST_HEAD);
-        __quicklistInsertNode(quicklist, NULL, new_node, after);
+        __quicklistInsertNode(quicklist, quicklist->tail, new_node, after);
         new_node->count++;
+        quicklistNodeUpdateSz(new_node);
         quicklist->count++;
         return;
     }
@@ -854,7 +857,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         full = 1;
     }
 
-    if (after && (entry->offset == node->count)) {
+    if (full && after && (entry->offset == node->count - 1)) {
         D("At Tail of current ziplist");
         at_tail = 1;
         if (!_quicklistNodeAllowInsert(node->next, fill, sz)) {
@@ -863,7 +866,7 @@ REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
         }
     }
 
-    if (!after && (entry->offset == 0)) {
+    if (full && !after && (entry->offset == 0)) {
         D("At Head");
         at_head = 1;
         if (!_quicklistNodeAllowInsert(node->prev, fill, sz)) {
@@ -1126,7 +1129,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     entry->node = iter->current;
 
     if (!iter->current) {
-        D("Returning because current node is NULL")
+        D("Returning because current node is NULL");
         return 0;
     }
 
@@ -1160,7 +1163,10 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     } else {
         /* We ran out of ziplist entries.
          * Pick next node, update offset, then re-run retrieval. */
+        /* Should use quicklistRecompressOnly, if don't want to change compress mode */
+        // quicklistRecompressOnly(iter->quicklist, iter->current);
         quicklistCompress(iter->quicklist, iter->current);
+
         if (iter->direction == AL_START_HEAD) {
             /* Forward traversal */
             D("Jumping to start of next node");
@@ -1530,6 +1536,8 @@ static int _ql_verify(quicklist *ql, uint32_t len, uint32_t count,
         errors++;
     }
 
+    /* itrprintr Call quicklistNext, that may change raw node to lzf,
+     * may cause verify compress inaccuracy later */
     int loopr = itrprintr(ql, 0);
     if (loopr != (int)ql->count) {
         yell("quicklist cached count not match actual count: expected %lu, got "
