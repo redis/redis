@@ -1374,18 +1374,9 @@ struct redisServer {
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
     /* System hardware info */
     size_t system_memory_size;  /* Total memory in system as reported by OS */
-<<<<<<< HEAD
-=======
-
-    /* Mutexes used to protect atomic variables when atomic builtins are
-     * not available. */
-    pthread_mutex_t lruclock_mutex;
-    pthread_mutex_t next_client_id_mutex;
-    pthread_mutex_t unixtime_mutex;
-
+    
     struct rdbSaveInfo * master_replication_rdb_save_info; /* Used to store the save info for after ssl handshake */
     ssl_t ssl_config; /* SSL configuration */
->>>>>>> 4caaee0c9... SSL implementation on all channels
 };
 
 typedef struct pubsubPattern {
