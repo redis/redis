@@ -2012,6 +2012,7 @@ typedef int (*clusterManagerOnReplyError)(redisReply *reply,
 
 static clusterManagerNode *clusterManagerNewNode(char *ip, int port);
 static clusterManagerNode *clusterManagerNodeByName(const char *name);
+static clusterManagerNode *clusterManagerByIpPort(const char* ip, int port);
 static clusterManagerNode *clusterManagerNodeByAbbreviatedName(const char *n);
 static void clusterManagerNodeResetSlots(clusterManagerNode *node);
 static int clusterManagerNodeIsCluster(clusterManagerNode *node, char **err);
@@ -2058,6 +2059,7 @@ static int clusterManagerCommandImport(int argc, char **argv);
 static int clusterManagerCommandCall(int argc, char **argv);
 static int clusterManagerCommandHelp(int argc, char **argv);
 static int clusterManagerCommandBackup(int argc, char **argv);
+static int clusterManagerCommandMoveSlot(int argc, char **argv);
 
 typedef struct clusterManagerCommandDef {
     char *name;
@@ -2092,6 +2094,8 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "from <arg>,copy,replace"},
     {"backup", clusterManagerCommandBackup, 2,  "host:port backup_directory",
      NULL},
+    {"move-slot", clusterManagerCommandMoveSlot, 3, 
+     "from-host:from-port to-host:to-port slotNo", NULL},
     {"help", clusterManagerCommandHelp, 0, NULL, NULL}
 };
 
@@ -2389,6 +2393,28 @@ static clusterManagerNode *clusterManagerNodeByName(const char *name) {
         }
     }
     sdsfree(lcname);
+    return found;
+}
+
+/* Return the node with the specified ip and port or NULL. */
+clusterManagerNode *clusterManagerByIpPort(const char* ip, int port)
+{
+    if (cluster_manager.nodes == NULL) return NULL;
+    clusterManagerNode *found = NULL;
+    sds lcip = sdsempty();
+    lcip = sdscpy(lcip, ip);
+    sdstolower(lcip);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        if (n->ip && !sdscmp(n->ip, lcip) && (n->port == port)) {
+            found = n;
+            break;
+        }
+    }
+    sdsfree(lcip);
     return found;
 }
 
@@ -6202,6 +6228,85 @@ cleanup:
                             config.cluster_manager_command.backup_dir);
     } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
     return success;
+invalid_args:
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+}
+
+static int clusterManagerCommandMoveSlot(int argc, char **argv) {
+    assert(argc == 3);
+
+    char *to_ip = NULL, *from_ip = NULL;
+    int to_port = 0, from_port = 0;
+    if (!getClusterHostFromCmdArgs(1, argv + 1, &to_ip, &to_port))
+        goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &from_ip, &from_port))
+        goto invalid_args;
+    char *end = NULL;
+    char *slotStr = argv[2];
+    int slotNo = strtol(slotStr, &end, 10);
+    if ((size_t)(end - slotStr) != strlen(slotStr)) {
+        clusterManagerLogErr("*** the slotNo should be number.\n");
+        return 0;
+    }
+    clusterManagerLogInfo("Moving slot number: %d from node %s:%d to node %s:%d\n",
+            slotNo, from_ip, from_port, to_ip, to_port);
+
+    clusterManagerNode *tonode = clusterManagerNewNode(to_ip, to_port);
+    if (!clusterManagerLoadInfoFromNode(tonode, 0)) return 0;
+
+    clusterManagerCheckCluster(0);
+    if (cluster_manager.errors && listLength(cluster_manager.errors) > 0) {
+        fflush(stdout);
+        fprintf(stderr,
+                "*** Please fix your cluster problems before moving slot\n");
+        return 0;
+    }
+
+    clusterManagerNode *fromnode = clusterManagerByIpPort(from_ip, from_port);
+    // check fromnode and tonode is valid
+    const char *invalid_node_msg = "*** The specified node (%s:%d) is not known "
+                                   "or not a master, please retry.\n";
+
+    if (!fromnode || (fromnode->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
+        clusterManagerLogErr(invalid_node_msg, from_ip, from_port);
+        return 0;
+    } else if (!tonode || (tonode->flags & CLUSTER_MANAGER_FLAG_SLAVE)) {
+        clusterManagerLogErr(invalid_node_msg, to_ip, to_port);
+        return 0;
+    } else if (!strcmp(fromnode->name, tonode->name) && (fromnode->port == tonode->port)){
+            clusterManagerLogErr( "*** It is not possible to use "
+                                  "the target node as "
+                                  "source node.\n");
+            return 0;
+    }
+
+    // check fromnode has the slot
+    if (slotNo < 0 || slotNo >= CLUSTER_MANAGER_SLOTS) {
+        // Don't give a range hint for using it when someone is familiar with redis
+        clusterManagerLogErr("*** The slotNo is invalid, slotNo: %d\n", slotNo);
+        return 0;
+    } else if (fromnode->slots[slotNo] == (uint8_t)(0)) {
+        clusterManagerLogErr("*** From node don't have the slot: %d\n", slotNo);
+        return 0;
+    }
+
+    int opts = CLUSTER_MANAGER_OPT_VERBOSE | CLUSTER_MANAGER_OPT_UPDATE;
+    char *err = NULL;
+    int result = clusterManagerMoveSlot(fromnode, tonode, slotNo,
+                                    opts, &err);
+    if (!result) {
+        if (err != NULL) {
+            //clusterManagerLogErr("\n%s\n", err);
+            zfree(err);
+        }
+    } else {
+        clusterManagerLogInfo("Moving finished with success.\n");
+    }
+
+
+    return result;
+
 invalid_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
     return 0;
