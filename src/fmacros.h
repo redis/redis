@@ -55,7 +55,12 @@
 #define _POSIX_C_SOURCE 199506L
 #endif
 
+#ifndef _LARGEFILE_SOURCE
 #define _LARGEFILE_SOURCE
+#endif
+
+#ifndef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
+#endif
 
 #endif
