@@ -77,6 +77,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define C_OK                    0
 #define C_ERR                   -1
 
+/* _Atomic Macro for old gcc without __STDC_NO_ATOMICS__ */
+#ifndef __STDC_NO_ATOMICS__
+#define _Atomic
+#endif
+
 /* Static server configuration */
 #define CONFIG_DEFAULT_DYNAMIC_HZ 1             /* Adapt hz to # of clients.*/
 #define CONFIG_DEFAULT_HZ        10             /* Time interrupt calls/sec. */
