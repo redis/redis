@@ -2021,15 +2021,8 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
 }
 
-/* This function returns the number of bytes that Redis is virtually
+/* This function returns the number of bytes that Redis is
  * using to store the reply still not read by the client.
- * It is "virtual" since the reply output list may contain objects that
- * are shared and are not really using additional memory.
- *
- * The function returns the total sum of the length of all the objects
- * stored in the output list, plus the memory used to allocate every
- * list node. The static reply buffer is not taken into account since it
- * is allocated anyway.
  *
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
