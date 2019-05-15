@@ -30,6 +30,7 @@
 
 
 #include "server.h"
+#include "cluster.h"
 
 #include <sys/time.h>
 #include <unistd.h>
@@ -2591,12 +2592,23 @@ void replicationCron(void) {
 
     /* First, send PING according to ping_slave_period. */
     if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
-        listLength(server.slaves) && !clientsArePaused())
+        listLength(server.slaves))
     {
-        ping_argv[0] = createStringObject("PING",4);
-        replicationFeedSlaves(server.slaves, server.slaveseldb,
-            ping_argv, 1);
-        decrRefCount(ping_argv[0]);
+        /* Note that we don't send the PING if the clients are paused during
+         * a Redis Cluster manual failover: the PING we send will otherwise
+         * alter the replication offsets of master and slave, and will no longer
+         * match the one stored into 'mf_master_offset' state. */
+        int manual_failover_in_progress =
+            server.cluster_enabled &&
+            server.cluster->mf_end &&
+            clientsArePaused();
+
+        if (!manual_failover_in_progress) {
+            ping_argv[0] = createStringObject("PING",4);
+            replicationFeedSlaves(server.slaves, server.slaveseldb,
+                ping_argv, 1);
+            decrRefCount(ping_argv[0]);
+        }
     }
 
     /* Second, send a newline to all the slaves in pre-synchronization
