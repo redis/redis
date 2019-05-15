@@ -12,6 +12,231 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 5.0.5     Released Wed May 15 17:57:41 CEST 2019
+================================================================================
+
+Upgrade urgency CRITICAL: This release fixes an important AOF fysnc bug
+                          and other less critical issues.
+
+
+Dear user,
+
+Redis 5.0.5 fixes an important issue with AOF and adds multiple very useful
+modules APIs. Moreover smaller bugs in other parts of Redis are fixed in
+this release.
+
+The AOF bug
+-----------
+
+The AOF bug happens when the fsync policy is set to "everysec", which is the
+default: if the write load in the server drops immediately, the commands
+executed in the latest second may not be fsync-ed to disk as it should.
+This may lead to data loss in case the write load drops immediately and
+successively a server crash happens.
+
+Other things in this release
+----------------------------
+
+* Streams: a bug in the iterator could prevent certain items to be returned in
+           range queries under specific conditions.
+* Memleak in bitfieldCommand fixed.
+* Modules API: Preserve client->id for blocked clients.
+* Fix memory leak when rewriting config file in case of write errors.
+* New modules API: RedisModule_GetKeyNameFromIO().
+* Fix non critical bugs in diskless replication.
+* New mdouels API: command filtering. See RedisModule_RegisterCommandFilter();
+* Tests improved to be more deterministic.
+* Fix a Redis Cluster bug, manual failover may abort because of the master
+  sending PINGs to the replicas.
+
+The following is the full list of commmits.
+
+Regards,
+Salvatore
+
+Christian Zeller in commit 1cac9b4b:
+ Typo fixes in CONTRIBUTING
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+antirez in commit f63c5c7b:
+ Update CONTRIBUTING with present info.
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+antirez in commit 668661da:
+ Narrow the effects of PR #6029 to the exact state.
+ 1 file changed, 17 insertions(+), 5 deletions(-)
+
+chendianqiang in commit 3c2800e3:
+ stop ping when client pause
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+antirez in commit 7ac7ffd5:
+ Test: fix slowlog test false positive.
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+antirez in commit cc101721:
+ Make comment in getClientOutputBufferMemoryUsage() describing the present.
+ 1 file changed, 1 insertion(+), 8 deletions(-)
+
+WuYunlong in commit 72420b0d:
+ Do not active expire keys in the background when the switch is off.
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+liaotonglang in commit 33a50d24:
+ delete sdsTest() from REDIS_TEST
+ 1 file changed, 2 deletions(-)
+
+zhaozhao.zz in commit 6a92836f:
+ test cases: skiptill -> skip-till
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Oran Agra in commit f179f71e:
+ make replication tests more stable on slow machines
+ 3 files changed, 34 insertions(+), 4 deletions(-)
+
+Yossi Gottlieb in commit 1825a4ec:
+ Add runtest-moduleapi with commandfilter coverage.
+ 5 files changed, 63 insertions(+), 28 deletions(-)
+
+Yossi Gottlieb in commit 9d20fdb4:
+ fix: missing initialization.
+ 3 files changed, 1 insertion(+)
+
+antirez in commit ded1980e:
+ Test: disable module testing for now.
+ 1 file changed, 1 deletion(-)
+
+Yossi Gottlieb in commit c3df78c2:
+ CommandFilter API: REDISMODULE_CMDFILTER_NOSELF.
+ 4 files changed, 62 insertions(+), 15 deletions(-)
+
+Yossi Gottlieb in commit 8d38ef20:
+ CommandFilter API: fix UnregisterCommandFilter.
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+Yossi Gottlieb in commit 9b7009b1:
+ CommandFilter API: Add unregister option.
+ 4 files changed, 126 insertions(+), 32 deletions(-)
+
+Yossi Gottlieb in commit 05802442:
+ CommandFilter API: Extend documentation.
+ 1 file changed, 43 insertions(+), 5 deletions(-)
+
+Yossi Gottlieb in commit d5194daf:
+ CommandFilter API: hellofilter and tests.
+ 2 files changed, 47 insertions(+), 5 deletions(-)
+
+Yossi Gottlieb in commit 8897c154:
+ CommandFilter API: Support Lua and RM_call() flows.
+ 2 files changed, 18 insertions(+), 7 deletions(-)
+
+Yossi Gottlieb in commit 6dd5bad4:
+ CommandFilter API: More cleanup.
+ 2 files changed, 10 insertions(+), 29 deletions(-)
+
+Yossi Gottlieb in commit 83026101:
+ Add command filter Module API tests.
+ 2 files changed, 28 insertions(+)
+
+Yossi Gottlieb in commit dc5edc7b:
+ Add command filtering argument handling API.
+ 3 files changed, 132 insertions(+), 13 deletions(-)
+
+Yossi Gottlieb in commit 5f29e2e2:
+ Initial command filter experiment.
+ 6 files changed, 161 insertions(+), 2 deletions(-)
+
+Oran Agra in commit e1839ab3:
+ diskless fork kept streaming RDB to a disconnected slave
+ 1 file changed, 10 insertions(+)
+
+Oran Agra in commit 3b207b89:
+ diskless replication - notify slave when rdb transfer failed
+ 1 file changed, 1 insertion(+)
+
+antirez in commit 7e350b09:
+ More sensible name for function: restartAOFAfterSYNC().
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+antirez in commit 91238a60:
+ Mostly aesthetic changes to restartAOF().
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+oranagra in commit ee2da67c:
+ bugfix to restartAOF, exit will never happen since retry will get negative.
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+Oran Agra in commit 78022492:
+ Add log when server dies of SIGTERM during loading
+ 1 file changed, 1 insertion(+)
+
+Yossi Gottlieb in commit 232dca7f:
+ Add RedisModule_GetKeyNameFromIO().
+ 8 files changed, 30 insertions(+), 17 deletions(-)
+
+antirez in commit 7f98129a:
+ MANIFESTO: simplicity and lock-in.
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+antirez in commit 71265fe3:
+ MANIFESTO v2.
+ 1 file changed, 41 insertions(+), 6 deletions(-)
+
+yongman in commit 8115be6e:
+ Fix uint64_t hash value in active defrag
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Angus Pearson in commit 90e7b5a9:
+ Enlarge error buffer in redis-check-aof.c to remove compiler warning of output truncation through snprintf format string
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+zhaozhao.zz in commit 43151baf:
+ fix memory leak when rewrite config file
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+唐权 in commit d3c17c9d:
+ Update ziplist.c
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+stan011 in commit 296bd097:
+ change the comments there may have a mis type
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Yossi Gottlieb in commit e08c9c15:
+ Preserve client->id for blocked clients.
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+zhaozhao.zz in commit c6b1252f:
+ aof: enhance AOF_FSYNC_EVERYSEC, more details in #5985
+ 2 files changed, 32 insertions(+), 3 deletions(-)
+
+David Carlier in commit ce54e299:
+ build fix
+ 1 file changed, 1 insertion(+)
+
+yongman in commit c9274498:
+ Fix memleak in bitfieldCommand
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+James Rouzier in commit 635d8d83:
+ Fix start and end key initialize
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Salvatore Sanfilippo in commit 7c23e534:
+ Merge pull request #6047 from abhaynahar/removed-obsolete-warning-5.0
+abhay in commit 9ea8ec42:
+ removed obsolete warning as per - https://github.com/antirez/redis/issues/5291
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+antirez in commit 1b7407fa:
+ Aesthetic change to #5962 to conform to Redis style.
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+Oran Agra in commit 3bbf9747:
+ slave corrupts replication stream when module blocked client uses large reply (or POSTPONED_ARRAY)
+ 3 files changed, 15 insertions(+), 6 deletions(-)
+
+================================================================================
 Redis 5.0.4     Released Mon Mar 18 17:12:53 CET 2019
 ================================================================================
 
