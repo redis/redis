@@ -14,7 +14,7 @@ each source file that you contribute.
 
   PLEASE DO NOT POST GENERAL QUESTIONS that are not about bugs or suspected
   bugs in the Github issues system. We'll be very happy to help you and provide
-  all the support in the mainling list.
+  all the support in the mailing list.
 
   There is also an active community of Redis users at Stack Overflow:
 
@@ -25,7 +25,7 @@ each source file that you contribute.
 1. If it is a major feature or a semantical change, please don't start coding
 straight away: if your feature is not a conceptual fit you'll lose a lot of
 time writing the code without any reason. Start by posting in the mailing list
-and creating an issue at Github with the description of, excatly, what you want
+and creating an issue at Github with the description of, exactly, what you want
 to accomplish and why. Use cases are important for features to be accepted.
 Here you'll see if there is consensus about your idea.
 
