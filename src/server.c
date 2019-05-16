@@ -2065,6 +2065,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (listLength(server.clients_waiting_acks))
         processClientsWaitingReplicas();
 
+    handleConnWaitingToCreateClient();
+
     /* Check if there are clients unblocked by modules that implement
      * blocking commands. */
     moduleHandleBlockedClients();
@@ -2711,6 +2713,7 @@ void initServer(void) {
     server.hz = server.config_hz;
     server.pid = getpid();
     server.current_client = NULL;
+    server.clients_pending_create = listCreate();
     server.clients = listCreate();
     server.clients_index = raxNew();
     server.clients_to_close = listCreate();
@@ -2728,6 +2731,15 @@ void initServer(void) {
 
     createSharedObjects();
     adjustOpenFilesLimit();
+
+    server.cel = aeCreateEventLoop(32);
+    if (server.cel == NULL) {
+        serverLog(LL_WARNING,
+            "Failed creating the conn event loop. Error message: '%s'",
+            strerror(errno));
+        exit(1);
+    }
+
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2818,14 +2830,14 @@ void initServer(void) {
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
     for (j = 0; j < server.ipfd_count; j++) {
-        if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
+        if (aeCreateFileEvent(server.cel, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
             {
                 serverPanic(
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
-    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
+    if (server.sofd > 0 && aeCreateFileEvent(server.cel,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) serverPanic("Unrecoverable error creating server.sofd file event.");
 
 
@@ -2865,6 +2877,7 @@ void initServer(void) {
     slowlogInit();
     latencyMonitorInit();
     bioInit();
+    initThreadedConn();
     initThreadedIO();
     server.initial_memory_usage = zmalloc_used_memory();
 }
