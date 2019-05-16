@@ -2535,6 +2535,7 @@ int popConnToCreateClient() {
         Jobs* job = listNodeValue(ln);
         int fd = job->fd;
         int flags = job->flags;
+        zfree(job);
         if ((c = createClient(fd)) == NULL) {
             serverLog(LL_WARNING,
                 "Error registering fd event for the new client: %s (fd=%d)",
@@ -2545,7 +2546,6 @@ int popConnToCreateClient() {
         server.stat_numconnections++;
         c->flags |= flags;
         count++;
-        zfree(job);
     }
     listEmpty(server.clients_pending_create);
     pthread_mutex_unlock(&conn_thread_mutex);
