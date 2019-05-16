@@ -36,6 +36,7 @@
 
 static void setProtocolError(const char *errstr, client *c);
 int postponeClientRead(client *c);
+void pushConnToCreateClient(int fd, int flags);
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -778,7 +779,6 @@ int clientHasPendingReplies(client *c) {
 
 #define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags, char *ip) {
-    client *c;
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
@@ -2508,7 +2508,7 @@ int processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 pthread_t conn_thread;
-pthread_mutex_t conn_thread_mutex
+pthread_mutex_t conn_thread_mutex;
 
 typedef struct {
     int fd;
@@ -2520,7 +2520,7 @@ void pushConnToCreateClient(int fd, int flags) {
     Jobs* job = zmalloc(sizeof(Jobs));
     job->fd = fd;
     job->flags = flags;
-    listAddNodeTail(server.clients_pending_create, job)
+    listAddNodeTail(server.clients_pending_create, job);
     pthread_mutex_unlock(&conn_thread_mutex);
 }
 
@@ -2540,7 +2540,7 @@ int popConnToCreateClient() {
                 "Error registering fd event for the new client: %s (fd=%d)",
                 strerror(errno),fd);
             close(fd); /* May be already closed, just ignore errors */
-            return;
+            continue;
         }
         server.stat_numconnections++;
         c->flags |= flags;
