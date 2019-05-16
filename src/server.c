@@ -2181,6 +2181,8 @@ void createSharedObjects(void) {
     shared.rpoplpush = createStringObject("RPOPLPUSH",9);
     shared.zpopmin = createStringObject("ZPOPMIN",7);
     shared.zpopmax = createStringObject("ZPOPMAX",7);
+    shared.multi = createStringObject("MULTI",5);
+    shared.exec = createStringObject("EXEC",4);
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
             makeObjectShared(createObject(OBJ_STRING,(void*)(long)j));

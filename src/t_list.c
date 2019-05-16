@@ -653,6 +653,12 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
         if (!(dstobj &&
              checkType(receiver,dstobj,OBJ_LIST)))
         {
+            /* Propagate the rpop and lpush together in a multiexec 
+             * to preserve atomicity of rpoplpush. */
+            propagate(server.multiCommand,
+                db->id,&shared.multi,1,
+                PROPAGATE_AOF|
+                PROPAGATE_REPL);
             /* Propagate the RPOP operation. */
             argv[0] = shared.rpop;
             argv[1] = key;
@@ -670,7 +676,10 @@ int serveClientBlockedOnList(client *receiver, robj *key, robj *dstkey, redisDb 
                 db->id,argv,3,
                 PROPAGATE_AOF|
                 PROPAGATE_REPL);
-
+            propagate(server.execCommand,
+                db->id,&shared.exec,1,
+                PROPAGATE_AOF|
+                PROPAGATE_REPL);
             /* Notify event ("lpush" was notified by rpoplpushHandlePush). */
             notifyKeyspaceEvent(NOTIFY_LIST,"rpop",key,receiver->db->id);
         } else {

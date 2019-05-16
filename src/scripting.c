@@ -1450,11 +1450,8 @@ void evalGenericCommand(client *c, int evalsha) {
     if (server.lua_replicate_commands) {
         preventCommandPropagation(c);
         if (server.lua_multi_emitted) {
-            robj *propargv[1];
-            propargv[0] = createStringObject("EXEC",4);
-            alsoPropagate(server.execCommand,c->db->id,propargv,1,
+            alsoPropagate(server.execCommand,c->db->id,&shared.exec,1,
                 PROPAGATE_AOF|PROPAGATE_REPL);
-            decrRefCount(propargv[0]);
         }
     }
 

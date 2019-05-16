@@ -457,6 +457,13 @@ void spopWithCountCommand(client *c) {
     propargv[1] = c->argv[1];
     addReplySetLen(c,count);
 
+    /* Execute in a multi-exec to prevent
+     * partial replication of the SPOP command */
+    alsoPropagate(server.multiCommand,
+        c->db->id,&shared.multi,1,
+        PROPAGATE_AOF|
+        PROPAGATE_REPL);
+
     /* Common iteration vars. */
     sds sdsele;
     robj *objele;
@@ -540,6 +547,10 @@ void spopWithCountCommand(client *c) {
         dbOverwrite(c->db,c->argv[1],newset);
     }
 
+    alsoPropagate(server.execCommand,
+        c->db->id,&shared.exec,1,
+        PROPAGATE_AOF|
+        PROPAGATE_REPL);
     /* Don't propagate the command itself even if we incremented the
      * dirty counter. We don't want to propagate an SPOP command since
      * we propagated the command as a set of SREMs operations using
