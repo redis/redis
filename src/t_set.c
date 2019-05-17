@@ -269,12 +269,8 @@ void saddCommand(client *c) {
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);
         dbAdd(c->db,c->argv[1],set);
-    } else {
-        if (set->type != OBJ_SET) {
-            addReply(c,shared.wrongtypeerr);
-            return;
-        }
-    }
+    } else if(checkType(c, set, OBJ_SET))
+        return;
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
