@@ -257,9 +257,10 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
     aeTimeEvent *nearest = NULL;
 
     while(te) {
-        if (!nearest || te->when_sec < nearest->when_sec ||
+        if ((!nearest || te->when_sec < nearest->when_sec ||
                 (te->when_sec == nearest->when_sec &&
-                 te->when_ms < nearest->when_ms))
+                 te->when_ms < nearest->when_ms)) &&
+            te->id != AE_DELETED_EVENT_ID)
             nearest = te;
         te = te->next;
     }
