@@ -313,6 +313,15 @@ void loadServerConfigFromString(char *config) {
             if (server.dbnum < 1) {
                 err = "Invalid number of databases"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"io-threads") && argc == 2) {
+            server.io_threads_num = atoi(argv[1]);
+            if (server.io_threads_num < 1 || server.io_threads_num > 512) {
+                err = "Invalid number of I/O threads"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"io-threads-do-reads") && argc == 2) {
+            if ((server.io_threads_do_reads = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
@@ -1426,6 +1435,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-announce-bus-port",server.cluster_announce_bus_port);
     config_get_numerical_field("tcp-backlog",server.tcp_backlog);
     config_get_numerical_field("databases",server.dbnum);
+    config_get_numerical_field("io-threads",server.io_threads_num);
     config_get_numerical_field("repl-ping-slave-period",server.repl_ping_slave_period);
     config_get_numerical_field("repl-ping-replica-period",server.repl_ping_slave_period);
     config_get_numerical_field("repl-timeout",server.repl_timeout);
@@ -1479,6 +1489,7 @@ void configGetCommand(client *c) {
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
     config_get_bool_field("protected-mode", server.protected_mode);
     config_get_bool_field("gopher-enabled", server.gopher_enabled);
+    config_get_bool_field("io-threads-do-reads", server.io_threads_do_reads);
     config_get_bool_field("repl-disable-tcp-nodelay",
             server.repl_disable_tcp_nodelay);
     config_get_bool_field("repl-diskless-sync",
@@ -1700,12 +1711,11 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *
  * If the old file does not exist at all, an empty state is returned. */
 struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
-    struct rewriteConfigState *state = zmalloc(sizeof(*state));
-    char buf[CONFIG_MAX_LINE+1];
-    int linenum = -1;
-
     if (fp == NULL && errno != ENOENT) return NULL;
 
+    char buf[CONFIG_MAX_LINE+1];
+    int linenum = -1;
+    struct rewriteConfigState *state = zmalloc(sizeof(*state));
     state->option_to_line = dictCreate(&optionToLineDictType,NULL);
     state->rewritten = dictCreate(&optionSetDictType,NULL);
     state->numlines = 0;
@@ -2239,6 +2249,7 @@ int rewriteConfig(char *path) {
     rewriteConfigSaveOption(state);
     rewriteConfigUserOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
+    rewriteConfigNumericalOption(state,"io-threads",server.dbnum,CONFIG_DEFAULT_IO_THREADS_NUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);
     rewriteConfigYesNoOption(state,"rdbcompression",server.rdb_compression,CONFIG_DEFAULT_RDB_COMPRESSION);
     rewriteConfigYesNoOption(state,"rdbchecksum",server.rdb_checksum,CONFIG_DEFAULT_RDB_CHECKSUM);
@@ -2309,6 +2320,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
     rewriteConfigYesNoOption(state,"protected-mode",server.protected_mode,CONFIG_DEFAULT_PROTECTED_MODE);
     rewriteConfigYesNoOption(state,"gopher-enabled",server.gopher_enabled,CONFIG_DEFAULT_GOPHER_ENABLED);
+    rewriteConfigYesNoOption(state,"io-threads-do-reads",server.io_threads_do_reads,CONFIG_DEFAULT_IO_THREADS_DO_READS);
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigNumericalOption(state,"hz",server.config_hz,CONFIG_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,CONFIG_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);

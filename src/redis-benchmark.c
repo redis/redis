@@ -254,6 +254,19 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         else fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto fail;
     }
+
+    if(config.auth){
+        void *authReply = NULL;
+        redisAppendCommand(c, "AUTH %s", config.auth);
+        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
+        if (reply) freeReplyObject(reply);
+        reply = ((redisReply *) authReply);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "ERROR: %s\n", reply->str);
+            goto fail;
+        }
+    }
+
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -1294,7 +1307,7 @@ int parseOptions(int argc, const char **argv) {
                 if (*p < '0' || *p > '9') goto invalid;
             }
             config.randomkeys = 1;
-            config.randomkeys_keyspacelen = atoi(argv[++i]);
+            config.randomkeys_keyspacelen = atoi(next);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
