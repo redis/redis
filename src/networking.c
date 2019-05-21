@@ -2755,7 +2755,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     int item_id = 0;
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-        int target_id = item_id % server.io_threads_num;
+        int target_id = item_id % (server.io_threads_num+1);
         listAddNodeTail(io_threads_list[target_id],c);
         item_id++;
     }
@@ -2767,6 +2767,13 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         io_threads_pending[j] = count;
     }
+
+    listRewind(io_threads_list[server.io_threads_num],&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        readQueryFromClient(NULL,c->fd,c,0);
+    }
+    listEmpty(io_threads_list[server.io_threads_num]);
 
     /* Wait for all threads to end their work. */
     while(1) {
