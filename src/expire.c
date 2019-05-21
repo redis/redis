@@ -330,7 +330,7 @@ void expireSlaveKeys(void) {
         else
             dictDelete(slaveKeysWithExpire,keyname);
 
-        /* Stop conditions: found 3 keys we cna't expire in a row or
+        /* Stop conditions: found 3 keys we can't expire in a row or
          * time limit was reached. */
         cycles++;
         if (noexpire > 3) break;
