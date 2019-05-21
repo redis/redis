@@ -2525,7 +2525,7 @@ pthread_mutex_t io_threads_mutex[IO_THREADS_MAX_NUM];
 _Atomic unsigned long io_threads_pending[IO_THREADS_MAX_NUM];
 int io_threads_active;  /* Are the threads currently spinning waiting I/O? */
 int io_threads_op;      /* IO_THREADS_OP_WRITE or IO_THREADS_OP_READ. */
-list *io_threads_list[IO_THREADS_MAX_NUM];
+list *io_threads_list[IO_THREADS_MAX_NUM+1];
 
 void *IOThreadMain(void *myid) {
     /* The ID is the thread number (from 0 to server.iothreads_num-1), and is
@@ -2598,6 +2598,7 @@ void initThreadedIO(void) {
         }
         io_threads[i] = tid;
     }
+    io_threads_list[server.io_threads_num] = listCreate();
 }
 
 void startThreadedIO(void) {
@@ -2669,7 +2670,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        int target_id = item_id % server.io_threads_num;
+        int target_id = item_id % (server.io_threads_num+1);
         listAddNodeTail(io_threads_list[target_id],c);
         item_id++;
     }
@@ -2681,6 +2682,13 @@ int handleClientsWithPendingWritesUsingThreads(void) {
         int count = listLength(io_threads_list[j]);
         io_threads_pending[j] = count;
     }
+
+    listRewind(io_threads_list[server.io_threads_num],&li);
+    while((ln = listNext(&li))) {
+        client *c = listNodeValue(ln);
+        writeToClient(c->fd,c,0);
+    }
+    listEmpty(io_threads_list[server.io_threads_num]);
 
     /* Wait for all threads to end their work. */
     while(1) {
