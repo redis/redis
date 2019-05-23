@@ -129,7 +129,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                 pattern++;
                 patternLen--;
             }
-            if ((match && not) || (!match && !not))
+            if (match == not)
                 return 0; /* no match */
             string++;
             stringLen--;
