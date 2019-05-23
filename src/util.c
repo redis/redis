@@ -84,7 +84,10 @@ int stringmatchlen(const char *pattern, int patternLen,
                 patternLen--;
             }
             match = 0;
-            while(1) {
+            /* Exit "while(!match)" when match = 1 
+             * or pattern[0] == ']'
+             * or patternLen == 0 */
+            while(!match) {
                 if (pattern[0] == '\\' && patternLen >= 2) {
                     pattern++;
                     patternLen--;
@@ -126,9 +129,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                 pattern++;
                 patternLen--;
             }
-            if (not)
-                match = !match;
-            if (!match)
+            if ((match && not) || (!match && !not))
                 return 0; /* no match */
             string++;
             stringLen--;
