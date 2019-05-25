@@ -29,6 +29,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#define _GNU_SOURCE
 #include <dlfcn.h>
 
 #define REDISMODULE_CORE 1
@@ -5143,7 +5144,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc) {
     void *handle;
     RedisModuleCtx ctx = REDISMODULE_CTX_INIT;
 
-    handle = dlopen(path,RTLD_NOW|RTLD_LOCAL);
+    handle = dlmopen(LM_ID_NEWLM,path,RTLD_NOW|RTLD_LOCAL);
     if (handle == NULL) {
         serverLog(LL_WARNING, "Module %s failed to load: %s", path, dlerror());
         return C_ERR;
