@@ -78,7 +78,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define C_ERR                   -1
 
 /* _Atomic Macro for old gcc without __STDC_NO_ATOMICS__ */
-#ifdef __STDC_NO_ATOMICS__
+#if (__GNUC__ < 5)
 #define _Atomic
 #define COMPILED_WITHOUT_ATOMIC_SUPPORT 1
 #else

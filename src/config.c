@@ -320,12 +320,17 @@ void loadServerConfigFromString(char *config) {
             }
             if(COMPILED_WITHOUT_ATOMIC_SUPPORT && server.io_threads_num > 1){
                 err = "The redis is compiled without atomic support. "
-                      "Need to recompile with gcc 4.9 version or newer.";
+                      "Need to recompile with gcc 5 version or newer.";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"io-threads-do-reads") && argc == 2) {
             if ((server.io_threads_do_reads = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+            if(COMPILED_WITHOUT_ATOMIC_SUPPORT && server.io_threads_do_reads == 1){
+                err = "The redis is compiled without atomic support. "
+                      "Need to recompile with gcc 5 version or newer.";
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
