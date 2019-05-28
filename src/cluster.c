@@ -3403,6 +3403,20 @@ void clusterCron(void) {
             link = createClusterLink(node);
             link->fd = fd;
             node->link = link;
+
+            if (server.refreshIP == 0) 
+            {
+                char ip[NET_IP_STR_LEN];
+                if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
+                    strcmp(ip,myself->ip))
+                {
+                    memcpy(myself->ip,ip,NET_IP_STR_LEN);
+                    serverLog(LL_WARNING,"crontab:IP address for this node updated to %s",
+                        myself->ip);
+                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                }
+                server.refreshIP = 1;
+            }
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
                     clusterReadHandler,link);
             /* Queue a PING in the new connection ASAP: this is crucial
