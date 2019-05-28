@@ -1745,6 +1745,17 @@ int clusterProcessPacket(clusterLink *link) {
          * However if we don't have an address at all, we update the address
          * even with a normal PING packet. If it's wrong it will be fixed
          * by MEET later. */
+
+        if (type == CLUSTERMSG_TYPE_MEET) {
+            uint32_t cName =  ntohl(hdr->cName);
+
+            serverLog(LL_DEBUG, "respon check cName :%d %d",cName,server.cName);
+
+            //if (cName != server.cName) {
+            if (cName != server.cName) {
+                return 1;
+            }
+        }
         if ((type == CLUSTERMSG_TYPE_MEET || myself->ip[0] == '\0') &&
             server.cluster_announce_ip == NULL)
         {
@@ -2263,6 +2274,8 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     hdr->sig[2] = 'm';
     hdr->sig[3] = 'b';
     hdr->type = htons(type);
+
+    hdr->cName = htonl(server.cName);
     memcpy(hdr->sender,myself->name,CLUSTER_NAMELEN);
 
     /* If cluster-announce-ip option is enabled, force the receivers of our

@@ -169,6 +169,28 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     listAddNodeTail(server.loadmodule_queue,loadmod);
 }
 
+
+unsigned int APHash(char *str)
+{
+    unsigned int hash = 0;
+    int i;
+ 
+    for (i=0; *str; i++)
+    {
+        if ((i & 1) == 0)
+        {
+            hash ^= ((hash << 7) ^ (*str++) ^ (hash >> 3));
+        }
+        else
+        {
+            hash ^= (~((hash << 11) ^ (*str++) ^ (hash >> 5)));
+        }
+    }
+ 
+    return (hash & 0x7FFFFFFF);
+}
+
+
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -833,6 +855,9 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-name") && argc == 2) {
+            server.cName = APHash(argv[1]);
+            fprintf(stderr,"read cluster name :%d name:%s\n",server.cName,argv[1]);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
