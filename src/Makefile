@@ -254,12 +254,17 @@ clean:
 
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
+	-(cd modules && $(MAKE) clean)
+	-(cd ../tests/modules && $(MAKE) clean)
 	-(rm -f .make-*)
 
 .PHONY: distclean
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
+
+test-modules: $(REDIS_SERVER_NAME)
+	@(cd ..; ./runtest-moduleapi)
 
 test-sentinel: $(REDIS_SENTINEL_NAME)
 	@(cd ..; ./runtest-sentinel)

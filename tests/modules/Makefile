@@ -22,3 +22,6 @@ commandfilter.xo: ../../src/redismodule.h
 
 commandfilter.so: commandfilter.xo
 	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+clean:
+	rm -rf *.xo *.so

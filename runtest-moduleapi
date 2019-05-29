@@ -14,3 +14,6 @@ fi
 
 make -C tests/modules && \
 $TCLSH tests/test_helper.tcl --single unit/moduleapi/commandfilter "${@}"
+
+make -C src/modules && \
+$TCLSH tests/test_helper.tcl --single unit/moduleapi/testmodule "${@}"

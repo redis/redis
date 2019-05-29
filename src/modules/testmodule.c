@@ -469,7 +469,7 @@ int TestIt(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 fail:
     RedisModule_ReplyWithSimpleString(ctx,
-        "SOME TEST NOT PASSED! Check server logs");
+        "SOME TEST DID NOT PASS! Check server logs");
     return REDISMODULE_OK;
 }
 
