@@ -5595,8 +5595,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
-    /* Cluster is globally down but we got keys? We can't serve the request. */
-    if (server.cluster->state != CLUSTER_OK) {
+    /* Cluster is globally down but we got keys? We only serve the request
+     * if it is a read command and when allow_reads_when_down is enabled. */
+    if ((server.cluster->state != CLUSTER_OK) &&
+        !(server.cluster_allow_reads_when_down && ((cmd->flags & CMD_READONLY)
+        || (cmd->proc == evalCommand) || (cmd->proc == evalShaCommand)))) 
+    {
         if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
         return NULL;
     }
@@ -5701,7 +5705,10 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
         dictEntry *de;
         dictIterator *di;
 
-        /* If the cluster is down, unblock the client with the right error. */
+        /* If the cluster is down, unblock the client with the right error.
+         * If the cluster is configured to allow reads on cluster down, we
+         * still want to emit this error since a write will be required
+         * to unblock them which may never come.  */
         if (server.cluster->state == CLUSTER_FAIL) {
             clusterRedirectClient(c,NULL,0,CLUSTER_REDIR_DOWN_STATE);
             return 1;
