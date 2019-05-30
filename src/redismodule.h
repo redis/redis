@@ -138,6 +138,17 @@ typedef uint64_t RedisModuleTimerID;
 /* Do filter RedisModule_Call() commands initiated by module itself. */
 #define REDISMODULE_CMDFILTER_NOSELF    (1<<0)
 
+/* I/O Filter Functions */
+enum MODULE_FD_EVENT
+{
+    MODULE_FD_ACCEPT,
+    MODULE_FD_CLOSE,
+    MODULE_FD_OPEN,
+};
+typedef int (*fn_module_fdevt)(int fd, enum MODULE_FD_EVENT evt, void (*after)(int, uint64_t), uint64_t arg);
+typedef int (*fn_module_fdrd)(int fd, void *buf, size_t cb, ssize_t *pccbRead);
+typedef int (*fn_module_fdwr)(int fd, const void *buf, size_t cb, ssize_t *pccbWritten);
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -354,6 +365,10 @@ const RedisModuleString *REDISMODULE_API_FUNC(RedisModule_CommandFilterArgGet)(R
 int REDISMODULE_API_FUNC(RedisModule_CommandFilterArgInsert)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg);
 int REDISMODULE_API_FUNC(RedisModule_CommandFilterArgReplace)(RedisModuleCommandFilterCtx *fctx, int pos, RedisModuleString *arg);
 int REDISMODULE_API_FUNC(RedisModule_CommandFilterArgDelete)(RedisModuleCommandFilterCtx *fctx, int pos);
+
+int REDISMODULE_API_FUNC(RedisModule_RegisterFdEventFilter)(fn_module_fdevt fn);
+int REDISMODULE_API_FUNC(RedisModule_RegisterFdRdFilter)(int fd, fn_module_fdrd fn);
+int REDISMODULE_API_FUNC(RedisModule_RegisterFdWrFilter)(int fd, fn_module_fdwr fn);
 #endif
 
 /* This is included inline inside each Redis module. */
@@ -524,6 +539,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CommandFilterArgInsert);
     REDISMODULE_GET_API(CommandFilterArgReplace);
     REDISMODULE_GET_API(CommandFilterArgDelete);
+    REDISMODULE_GET_API(RegisterFdEventFilter);
+    REDISMODULE_GET_API(RegisterFdRdFilter);
+    REDISMODULE_GET_API(RegisterFdWrFilter);
 #endif
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;

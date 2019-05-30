@@ -335,7 +335,7 @@ int clusterSaveConfig(int do_fsync) {
             memset(ci+content_size,'\n',sb.st_size-content_size);
         }
     }
-    if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
+    if (writeNoFilter(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) {
         server.cluster->todo_before_sleep &= ~CLUSTER_TODO_FSYNC_CONFIG;
         fsync(fd);
@@ -346,12 +346,12 @@ int clusterSaveConfig(int do_fsync) {
     if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
         /* ftruncate() failing is not a critical error. */
     }
-    close(fd);
+    closeNoFilter(fd);
     sdsfree(ci);
     return 0;
 
 err:
-    if (fd != -1) close(fd);
+    if (fd != -1) closeNoFilter(fd);
     sdsfree(ci);
     return -1;
 }
@@ -400,7 +400,7 @@ int clusterLockConfig(char *filename) {
             serverLog(LL_WARNING,
                 "Impossible to lock %s: %s", filename, strerror(errno));
         }
-        close(fd);
+        closeNoFilter(fd);
         return C_ERR;
     }
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
@@ -607,7 +607,7 @@ void freeClusterLink(clusterLink *link) {
     sdsfree(link->rcvbuf);
     if (link->node)
         link->node->link = NULL;
-    close(link->fd);
+    closeWithFilters(link->fd);
     zfree(link);
 }
 
@@ -2123,7 +2123,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
 
-    nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
+    nwritten = writeWithFilters(fd, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         serverLog(LL_DEBUG,"I/O error writing to node link: %s",
             (nwritten == -1) ? strerror(errno) : "short write");
@@ -2173,7 +2173,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
 
-        nread = read(fd,buf,readlen);
+        nread = readWithFilters(fd,buf,readlen);
         if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
 
         if (nread <= 0) {
@@ -4983,7 +4983,7 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
         /* Too many items, drop one at random. */
         dictEntry *de = dictGetRandomKey(server.migrate_cached_sockets);
         cs = dictGetVal(de);
-        close(cs->fd);
+        closeWithFilters(cs->fd);
         zfree(cs);
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
@@ -5004,7 +5004,7 @@ migrateCachedSocket* migrateGetSocket(client *c, robj *host, robj *port, long ti
         sdsfree(name);
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
-        close(fd);
+        closeWithFilters(fd);
         return NULL;
     }
 
@@ -5031,7 +5031,7 @@ void migrateCloseSocket(robj *host, robj *port) {
         return;
     }
 
-    close(cs->fd);
+    closeWithFilters(cs->fd);
     zfree(cs);
     dictDelete(server.migrate_cached_sockets,name);
     sdsfree(name);
@@ -5045,7 +5045,7 @@ void migrateCloseTimedoutSockets(void) {
         migrateCachedSocket *cs = dictGetVal(de);
 
         if ((server.unixtime - cs->last_use_time) > MIGRATE_SOCKET_CACHE_TTL) {
-            close(cs->fd);
+            closeWithFilters(cs->fd);
             zfree(cs);
             dictDelete(server.migrate_cached_sockets,dictGetKey(de));
         }

@@ -290,6 +290,7 @@ typedef long long mstime_t; /* millisecond time type. */
                                        in the list of clients we can read
                                        from. */
 #define CLIENT_PENDING_COMMAND (1<<30) /* */
+#define CLIENT_LOOPBACK_SOCKET (1 << 31)
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -489,6 +490,28 @@ typedef long long mstime_t; /* millisecond time type. */
 #define serverAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define serverAssert(_e) ((_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),_exit(1)
+
+/*-----------------------------------------------------------------------------
+ * Filtered I/O Overrides
+ *----------------------------------------------------------------------------*/
+static inline ssize_t readNoFilter(int fd, void *buf, size_t cb) {
+    return read(fd, buf, cb);
+}
+static inline ssize_t writeNoFilter(int fd, const void *buf, size_t cb) {
+    return write(fd, buf, cb);
+}
+static inline int closeNoFilter(int fd)
+{
+    return close(fd);
+}
+#if defined(__GNUC__)
+/* Fixing a deprecated warning?  As a rule sockets should be filtered, pipes
+ *    and files should not. 
+ * When in doubt use the Filter version. */
+ssize_t read(int fd, void *buf, size_t cb) __attribute__ ((deprecated));
+ssize_t write(int fd, const void *buf, size_t cb) __attribute__ ((deprecated));
+int close(int fd) __attribute__ ((deprecated));
+#endif
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -1499,6 +1522,12 @@ void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
 
+int ModuleTryRead(int fd, void *buf, size_t cb, ssize_t *pccbRead);
+int ModuleTryWrite(int fd, const void *buf, size_t cb, ssize_t *pccbWrite);
+int ModuleOnAccept(int fd, uint64_t flags, void (*afterAccept)(int, uint64_t));
+int ModuleOnOpen(int fd, uint64_t flags, void (*afterOpen)(int, uint64_t));
+int ModuleOnClose(int fd);
+
 /* Utils */
 long long ustime(void);
 long long mstime(void);
@@ -1591,6 +1620,9 @@ void linkClient(client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
+ssize_t readWithFilters(int fd, void *buf, size_t cb);
+ssize_t writeWithFilters(int fd, const void *buf, size_t cb);
+int closeWithFilters(int fd);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)

@@ -1670,7 +1670,7 @@ void ldbSendLogs(void) {
         proto = sdscatlen(proto,"\r\n",2);
         listDelNode(ldb.logs,ln);
     }
-    if (write(ldb.fd,proto,sdslen(proto)) == -1) {
+    if (writeNoFilter(ldb.fd,proto,sdslen(proto)) == -1) {
         /* Avoid warning. We don't check the return value of write()
          * since the next read() will catch the I/O error and will
          * close the debugging session. */
@@ -2332,7 +2332,7 @@ int ldbRepl(lua_State *lua) {
     while(1) {
         while((argv = ldbReplParseCommand(&argc)) == NULL) {
             char buf[1024];
-            int nread = read(ldb.fd,buf,sizeof(buf));
+            int nread = readNoFilter(ldb.fd,buf,sizeof(buf));
             if (nread <= 0) {
                 /* Make sure the script runs without user input since the
                  * client is no longer connected. */

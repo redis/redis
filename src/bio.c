@@ -185,7 +185,7 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Process the job accordingly to its type. */
         if (type == BIO_CLOSE_FILE) {
-            close((long)job->arg1);
+            closeNoFilter((long)job->arg1);
         } else if (type == BIO_AOF_FSYNC) {
             redis_fsync((long)job->arg1);
         } else if (type == BIO_LAZY_FREE) {

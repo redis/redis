@@ -50,8 +50,8 @@ void closeChildInfoPipe(void) {
     if (server.child_info_pipe[0] != -1 ||
         server.child_info_pipe[1] != -1)
     {
-        close(server.child_info_pipe[0]);
-        close(server.child_info_pipe[1]);
+        closeNoFilter(server.child_info_pipe[0]);
+        closeNoFilter(server.child_info_pipe[1]);
         server.child_info_pipe[0] = -1;
         server.child_info_pipe[1] = -1;
     }
@@ -64,7 +64,7 @@ void sendChildInfo(int ptype) {
     server.child_info_data.magic = CHILD_INFO_MAGIC;
     server.child_info_data.process_type = ptype;
     ssize_t wlen = sizeof(server.child_info_data);
-    if (write(server.child_info_pipe[1],&server.child_info_data,wlen) != wlen) {
+    if (writeNoFilter(server.child_info_pipe[1],&server.child_info_data,wlen) != wlen) {
         /* Nothing to do on error, this will be detected by the other side. */
     }
 }
@@ -73,7 +73,7 @@ void sendChildInfo(int ptype) {
 void receiveChildInfo(void) {
     if (server.child_info_pipe[0] == -1) return;
     ssize_t wlen = sizeof(server.child_info_data);
-    if (read(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
+    if (readNoFilter(server.child_info_pipe[0],&server.child_info_data,wlen) == wlen &&
         server.child_info_data.magic == CHILD_INFO_MAGIC)
     {
         if (server.child_info_data.process_type == CHILD_INFO_TYPE_RDB) {

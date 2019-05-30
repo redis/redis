@@ -99,7 +99,7 @@ client *createClient(int fd) {
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
-            close(fd);
+            closeWithFilters(fd);
             zfree(c);
             return NULL;
         }
@@ -777,13 +777,13 @@ int clientHasPendingReplies(client *c) {
 }
 
 #define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(int fd, int flags, char *ip) {
+static void acceptCommonHandlerCore(int fd, uint64_t flags) {
     client *c;
     if ((c = createClient(fd)) == NULL) {
         serverLog(LL_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
-        close(fd); /* May be already closed, just ignore errors */
+        closeWithFilters(fd); /* May be already closed, just ignore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
@@ -794,7 +794,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
-        if (write(c->fd,err,strlen(err)) == -1) {
+        if (writeWithFilters(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
         server.stat_rejected_conn++;
@@ -809,10 +809,9 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
     if (server.protected_mode &&
         server.bindaddr_count == 0 &&
         DefaultUser->flags & USER_FLAG_NOPASS &&
-        !(flags & CLIENT_UNIX_SOCKET) &&
-        ip != NULL)
+        !(flags & CLIENT_UNIX_SOCKET))
     {
-        if (strcmp(ip,"127.0.0.1") && strcmp(ip,"::1")) {
+        if (!(flags & CLIENT_LOOPBACK_SOCKET)) {
             char *err =
                 "-DENIED Redis is running in protected mode because protected "
                 "mode is enabled, no bind address was specified, no "
@@ -834,7 +833,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
                 "4) Setup a bind address or an authentication password. "
                 "NOTE: You only need to do one of the above things in order for "
                 "the server to start accepting connections from the outside.\r\n";
-            if (write(c->fd,err,strlen(err)) == -1) {
+            if (writeWithFilters(c->fd,err,strlen(err)) == -1) {
                 /* Nothing to do, Just to avoid the warning... */
             }
             server.stat_rejected_conn++;
@@ -845,6 +844,12 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
 
     server.stat_numconnections++;
     c->flags |= flags;
+}
+
+static void acceptCommonHandler(int fd, uint64_t flags)
+{
+    if (!ModuleOnAccept(fd, flags, acceptCommonHandlerCore))
+        acceptCommonHandlerCore(fd, flags);
 }
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -863,7 +868,8 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(cfd,0,cip);
+        uint64_t flags = (strcmp(cip,"127.0.0.1") && strcmp(cip,"::1")) ? 0 : CLIENT_LOOPBACK_SOCKET;
+        acceptCommonHandler(cfd,flags);
     }
 }
 
@@ -882,7 +888,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         serverLog(LL_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(cfd,CLIENT_UNIX_SOCKET,NULL);
+        acceptCommonHandler(cfd,CLIENT_UNIX_SOCKET);
     }
 }
 
@@ -938,7 +944,7 @@ void unlinkClient(client *c) {
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
-        close(c->fd);
+        closeWithFilters(c->fd);
         c->fd = -1;
     }
 
@@ -1032,7 +1038,7 @@ void freeClient(client *c) {
      * we lost the connection with a slave. */
     if (c->flags & CLIENT_SLAVE) {
         if (c->replstate == SLAVE_STATE_SEND_BULK) {
-            if (c->repldbfd != -1) close(c->repldbfd);
+            if (c->repldbfd != -1) closeWithFilters(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
         list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
@@ -1120,7 +1126,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
 
     while(clientHasPendingReplies(c)) {
         if (c->bufpos > 0) {
-            nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+            nwritten = writeWithFilters(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -1141,7 +1147,7 @@ int writeToClient(int fd, client *c, int handler_installed) {
                 continue;
             }
 
-            nwritten = write(fd, o->buf + c->sentlen, objlen - c->sentlen);
+            nwritten = writeWithFilters(fd, o->buf + c->sentlen, objlen - c->sentlen);
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -1717,65 +1723,68 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * the event loop. This is the case if threaded I/O is enabled. */
     if (postponeClientRead(c)) return;
 
-    readlen = PROTO_IOBUF_LEN;
-    /* If this is a multi bulk request, and we are processing a bulk reply
-     * that is large enough, try to maximize the probability that the query
-     * buffer contains exactly the SDS string representing the object, even
-     * at the risk of requiring more read(2) calls. This way the function
-     * processMultiBulkBuffer() can avoid copying buffers to create the
-     * Redis Object representing the argument. */
-    if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
-        && c->bulklen >= PROTO_MBULK_BIG_ARG)
+    for (;;)    // read from socket until EAGAIN is returned
     {
-        ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
+        readlen = PROTO_IOBUF_LEN;
+        /* If this is a multi bulk request, and we are processing a bulk reply
+        * that is large enough, try to maximize the probability that the query
+        * buffer contains exactly the SDS string representing the object, even
+        * at the risk of requiring more read(2) calls. This way the function
+        * processMultiBulkBuffer() can avoid copying buffers to create the
+        * Redis Object representing the argument. */
+        if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
+            && c->bulklen >= PROTO_MBULK_BIG_ARG)
+        {
+            ssize_t remaining = (size_t)(c->bulklen+2)-sdslen(c->querybuf);
 
-        /* Note that the 'remaining' variable may be zero in some edge case,
-         * for example once we resume a blocked client after CLIENT PAUSE. */
-        if (remaining > 0 && remaining < readlen) readlen = remaining;
-    }
+            /* Note that the 'remaining' variable may be zero in some edge case,
+            * for example once we resume a blocked client after CLIENT PAUSE. */
+            if (remaining > 0 && remaining < readlen) readlen = remaining;
+        }
 
-    qblen = sdslen(c->querybuf);
-    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
-    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    nread = read(fd, c->querybuf+qblen, readlen);
-    if (nread == -1) {
-        if (errno == EAGAIN) {
+        qblen = sdslen(c->querybuf);
+        if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
+        c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+        nread = readWithFilters(fd, c->querybuf+qblen, readlen);
+        if (nread == -1) {
+            if (errno == EAGAIN) {
+                return;
+            } else {
+                serverLog(LL_VERBOSE, "Reading from client: %s",strerror(errno));
+                freeClientAsync(c);
+                return;
+            }
+        } else if (nread == 0) {
+            serverLog(LL_VERBOSE, "Client closed connection");
+            freeClientAsync(c);
             return;
-        } else {
-            serverLog(LL_VERBOSE, "Reading from client: %s",strerror(errno));
+        } else if (c->flags & CLIENT_MASTER) {
+            /* Append the query buffer to the pending (not applied) buffer
+            * of the master. We'll use this buffer later in order to have a
+            * copy of the string applied by the last command executed. */
+            c->pending_querybuf = sdscatlen(c->pending_querybuf,
+                                            c->querybuf+qblen,nread);
+        }
+
+        sdsIncrLen(c->querybuf,nread);
+        c->lastinteraction = server.unixtime;
+        if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
+        server.stat_net_input_bytes += nread;
+        if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
+            sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
+
+            bytes = sdscatrepr(bytes,c->querybuf,64);
+            serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
+            sdsfree(ci);
+            sdsfree(bytes);
             freeClientAsync(c);
             return;
         }
-    } else if (nread == 0) {
-        serverLog(LL_VERBOSE, "Client closed connection");
-        freeClientAsync(c);
-        return;
-    } else if (c->flags & CLIENT_MASTER) {
-        /* Append the query buffer to the pending (not applied) buffer
-         * of the master. We'll use this buffer later in order to have a
-         * copy of the string applied by the last command executed. */
-        c->pending_querybuf = sdscatlen(c->pending_querybuf,
-                                        c->querybuf+qblen,nread);
+
+        /* There is more data in the client input buffer, continue parsing it
+        * in case to check if there is a full command to execute. */
+        processInputBufferAndReplicate(c);
     }
-
-    sdsIncrLen(c->querybuf,nread);
-    c->lastinteraction = server.unixtime;
-    if (c->flags & CLIENT_MASTER) c->read_reploff += nread;
-    server.stat_net_input_bytes += nread;
-    if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
-        sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
-
-        bytes = sdscatrepr(bytes,c->querybuf,64);
-        serverLog(LL_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
-        sdsfree(ci);
-        sdsfree(bytes);
-        freeClientAsync(c);
-        return;
-    }
-
-    /* There is more data in the client input buffer, continue parsing it
-     * in case to check if there is a full command to execute. */
-     processInputBufferAndReplicate(c);
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -2782,4 +2791,30 @@ int handleClientsWithPendingReadsUsingThreads(void) {
     }
     listEmpty(server.clients_pending_read);
     return processed;
+}
+
+/* ==========================================================================
+ * I/O filters
+ * ========================================================================== */
+
+ssize_t readWithFilters(int fd, void *buf, size_t cb)
+{
+    ssize_t rval;
+    if (ModuleTryRead(fd, buf, cb, &rval))
+        return rval;
+    return readNoFilter(fd, buf, cb);
+}
+
+ssize_t writeWithFilters(int fd, const void *buf, size_t cb)
+{
+    ssize_t rval;
+    if (ModuleTryWrite(fd, buf, cb, &rval))
+        return rval;
+    return writeNoFilter(fd, buf, cb);
+}
+
+int closeWithFilters(int fd)
+{
+    ModuleOnClose(fd);
+    return closeNoFilter(fd);
 }

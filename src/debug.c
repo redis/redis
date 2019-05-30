@@ -1133,7 +1133,7 @@ int openDirectLogFiledes(void) {
 /* Used to close what closeDirectLogFiledes() returns. */
 void closeDirectLogFiledes(int fd) {
     int log_to_stdout = server.logfile[0] == '\0';
-    if (!log_to_stdout) close(fd);
+    if (!log_to_stdout) closeNoFilter(fd);
 }
 
 /* Logs the stack trace using the backtrace() call. This function is designed
@@ -1150,10 +1150,10 @@ void logStackTrace(ucontext_t *uc) {
     if (getMcontextEip(uc) != NULL) {
         char *msg1 = "EIP:\n";
         char *msg2 = "\nBacktrace:\n";
-        if (write(fd,msg1,strlen(msg1)) == -1) {/* Avoid warning. */};
+        if (writeNoFilter(fd,msg1,strlen(msg1)) == -1) {/* Avoid warning. */};
         trace[0] = getMcontextEip(uc);
         backtrace_symbols_fd(trace, 1, fd);
-        if (write(fd,msg2,strlen(msg2)) == -1) {/* Avoid warning. */};
+        if (writeNoFilter(fd,msg2,strlen(msg2)) == -1) {/* Avoid warning. */};
     }
 
     /* Write symbols to log file */
@@ -1248,17 +1248,17 @@ int memtest_test_linux_anonymous_maps(void) {
             "*** Preparing to test memory region %lx (%lu bytes)\n",
                 (unsigned long) start_vect[regions],
                 (unsigned long) size_vect[regions]);
-        if (write(fd,logbuf,strlen(logbuf)) == -1) { /* Nothing to do. */ }
+        if (writeNoFilter(fd,logbuf,strlen(logbuf)) == -1) { /* Nothing to do. */ }
         regions++;
     }
 
     int errors = 0;
     for (j = 0; j < regions; j++) {
-        if (write(fd,".",1) == -1) { /* Nothing to do. */ }
+        if (writeNoFilter(fd,".",1) == -1) { /* Nothing to do. */ }
         errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
-        if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
+        if (writeNoFilter(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
     }
-    if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
+    if (writeNoFilter(fd,"\n",1) == -1) { /* Nothing to do. */ }
 
     /* NOTE: It is very important to close the file descriptor only now
      * because closing it before may result into unmapping of some memory

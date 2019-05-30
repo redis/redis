@@ -58,7 +58,7 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
-        nwritten = write(fd,ptr,size);
+        nwritten = writeWithFilters(fd,ptr,size);
         if (nwritten == -1) {
             if (errno != EAGAIN) return -1;
         } else {
@@ -95,7 +95,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
-        nread = read(fd,ptr,size);
+        nread = readWithFilters(fd,ptr,size);
         if (nread == 0) return -1; /* short read. */
         if (nread == -1) {
             if (errno != EAGAIN) return -1;

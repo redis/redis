@@ -2163,7 +2163,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         int readlen = sizeof(uint64_t);
 
-        if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
+        if (readNoFilter(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
             readlen = ok_slaves[0]*sizeof(uint64_t)*2;
@@ -2172,7 +2172,7 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
              * uint64_t element in the array. */
             ok_slaves = zrealloc(ok_slaves,sizeof(uint64_t)+readlen);
             if (readlen &&
-                read(server.rdb_pipe_read_result_from_child, ok_slaves+1,
+                readNoFilter(server.rdb_pipe_read_result_from_child, ok_slaves+1,
                      readlen) != readlen)
             {
                 ok_slaves[0] = 0;
@@ -2180,8 +2180,8 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         }
     }
 
-    close(server.rdb_pipe_read_result_from_child);
-    close(server.rdb_pipe_write_result_to_parent);
+    closeNoFilter(server.rdb_pipe_read_result_from_child);
+    closeNoFilter(server.rdb_pipe_write_result_to_parent);
 
     /* We can continue the replication process with all the slaves that
      * correctly received the full payload. Others are terminated. */
@@ -2360,7 +2360,7 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
              * process with all the childre that were waiting. */
             msglen = sizeof(uint64_t)*(1+2*numfds);
             if (*len == 0 ||
-                write(server.rdb_pipe_write_result_to_parent,msg,msglen)
+                writeNoFilter(server.rdb_pipe_write_result_to_parent,msg,msglen)
                 != msglen)
             {
                 retval = C_ERR;
@@ -2391,8 +2391,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
                     }
                 }
             }
-            close(pipefds[0]);
-            close(pipefds[1]);
+            closeNoFilter(pipefds[0]);
+            closeNoFilter(pipefds[1]);
             closeChildInfoPipe();
         } else {
             server.stat_fork_time = ustime()-start;

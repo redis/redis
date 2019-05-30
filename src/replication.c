@@ -432,7 +432,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
         buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
                           server.replid,offset);
-        if (write(slave->fd,buf,buflen) != buflen) {
+        if (writeWithFilters(slave->fd,buf,buflen) != buflen) {
             freeClientAsync(slave);
             return C_ERR;
         }
@@ -519,7 +519,7 @@ int masterTryPartialResynchronization(client *c) {
     } else {
         buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
     }
-    if (write(c->fd,buf,buflen) != buflen) {
+    if (writeWithFilters(c->fd,buf,buflen) != buflen) {
         freeClientAsync(c);
         return C_OK;
     }
@@ -880,7 +880,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
      * replication process. Currently the preamble is just the bulk count of
      * the file in the form "$<length>\r\n". */
     if (slave->replpreamble) {
-        nwritten = write(fd,slave->replpreamble,sdslen(slave->replpreamble));
+        nwritten = writeWithFilters(fd,slave->replpreamble,sdslen(slave->replpreamble));
         if (nwritten == -1) {
             serverLog(LL_VERBOSE,"Write error sending RDB preamble to replica: %s",
                 strerror(errno));
@@ -900,14 +900,14 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
-    buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
+    buflen = readWithFilters(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
             (buflen == 0) ? "premature EOF" : strerror(errno));
         freeClient(slave);
         return;
     }
-    if ((nwritten = write(fd,buf,buflen)) == -1) {
+    if ((nwritten = writeWithFilters(fd,buf,buflen)) == -1) {
         if (errno != EAGAIN) {
             serverLog(LL_WARNING,"Write error sending DB to replica: %s",
                 strerror(errno));
@@ -918,7 +918,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
     if (slave->repldboff == slave->repldbsize) {
-        close(slave->repldbfd);
+        closeWithFilters(slave->repldbfd);
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
         putSlaveOnline(slave);
@@ -1060,7 +1060,7 @@ void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
     if (time(NULL) != newline_sent) {
         newline_sent = time(NULL);
-        if (write(server.repl_transfer_s,"\n",1) == -1) {
+        if (writeWithFilters(server.repl_transfer_s,"\n",1) == -1) {
             /* Pinging back in this stage is best-effort. */
         }
     }
@@ -1192,7 +1192,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
     }
 
-    nread = read(fd,buf,readlen);
+    nread = readWithFilters(fd,buf,readlen);
     if (nread <= 0) {
         serverLog(LL_WARNING,"I/O error trying to sync with MASTER: %s",
             (nread == -1) ? strerror(errno) : "connection lost");
@@ -1218,7 +1218,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     server.repl_transfer_lastio = server.unixtime;
-    if ((nwritten = write(server.repl_transfer_fd,buf,nread)) != nread) {
+    if ((nwritten = writeWithFilters(server.repl_transfer_fd,buf,nread)) != nread) {
         serverLog(LL_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> REPLICA synchronization: %s", 
             (nwritten == -1) ? strerror(errno) : "short write");
         goto error;
@@ -1300,7 +1300,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
-        close(server.repl_transfer_fd);
+        closeWithFilters(server.repl_transfer_fd);
         replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
         server.repl_state = REPL_STATE_CONNECTED;
         server.repl_down_since = 0;
@@ -1618,7 +1618,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
     if (server.repl_state == REPL_STATE_NONE) {
-        close(fd);
+        closeWithFilters(fd);
         return;
     }
 
@@ -1878,8 +1878,8 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 error:
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
-    if (dfd != -1) close(dfd);
-    close(fd);
+    if (dfd != -1) closeWithFilters(dfd);
+    closeWithFilters(fd);
     server.repl_transfer_s = -1;
     server.repl_state = REPL_STATE_CONNECT;
     return;
@@ -1904,7 +1904,7 @@ int connectWithMaster(void) {
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
-        close(fd);
+        closeWithFilters(fd);
         serverLog(LL_WARNING,"Can't create readable event for SYNC");
         return C_ERR;
     }
@@ -1923,7 +1923,7 @@ void undoConnectWithMaster(void) {
     int fd = server.repl_transfer_s;
 
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
-    close(fd);
+    closeWithFilters(fd);
     server.repl_transfer_s = -1;
 }
 
@@ -1933,7 +1933,7 @@ void undoConnectWithMaster(void) {
 void replicationAbortSyncTransfer(void) {
     serverAssert(server.repl_state == REPL_STATE_TRANSFER);
     undoConnectWithMaster();
-    close(server.repl_transfer_fd);
+    closeWithFilters(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
 }
@@ -2645,7 +2645,7 @@ void replicationCron(void) {
              server.rdb_child_type != RDB_CHILD_TYPE_SOCKET));
 
         if (is_presync) {
-            if (write(slave->fd, "\n", 1) == -1) {
+            if (writeWithFilters(slave->fd, "\n", 1) == -1) {
                 /* Don't worry about socket errors, it's just a ping. */
             }
         }
