@@ -306,6 +306,7 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 #if defined(USE_JEMALLOC)
+
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
                                size_t *resident) {
@@ -327,13 +328,46 @@ int zmalloc_get_allocator_info(size_t *allocated,
     je_mallctl("stats.allocated", allocated, &sz, NULL, 0);
     return 1;
 }
+
+void set_jemalloc_bg_thread(int enable) {
+    /* let jemalloc do purging asynchronously, required when there's no traffic 
+     * after flushdb */
+    if (enable) {
+        char val = 1;
+        je_mallctl("background_thread", NULL, 0, &val, 1);
+    }
+}
+
+int jemalloc_purge() {
+    /* return all unused (reserved) pages to the OS */
+    char tmp[32];
+    unsigned narenas = 0;
+    size_t sz = sizeof(unsigned);
+    if (!je_mallctl("arenas.narenas", &narenas, &sz, NULL, 0)) {
+        sprintf(tmp, "arena.%d.purge", narenas);
+        if (!je_mallctl(tmp, NULL, 0, NULL, 0))
+            return 0;
+    }
+    return -1;
+}
+
 #else
+
 int zmalloc_get_allocator_info(size_t *allocated,
                                size_t *active,
                                size_t *resident) {
     *allocated = *resident = *active = 0;
     return 1;
 }
+
+void set_jemalloc_bg_thread(int enable) {
+    ((void)(enable));
+}
+
+int jemalloc_purge() {
+    return 0;
+}
+
 #endif
 
 /* Get the sum of the specified field (converted form kb to bytes) in

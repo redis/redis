@@ -474,6 +474,10 @@ void loadServerConfigFromString(char *config) {
                 err = "active defrag can't be enabled without proper jemalloc support"; goto loaderr;
 #endif
             }
+        } else if (!strcasecmp(argv[0],"jemalloc-bg-thread") && argc == 2) {
+            if ((server.jemalloc_bg_thread = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -1153,6 +1157,9 @@ void configSetCommand(client *c) {
         }
 #endif
     } config_set_bool_field(
+      "jemalloc-bg-thread",server.jemalloc_bg_thread) {
+          set_jemalloc_bg_thread(server.jemalloc_bg_thread);
+    } config_set_bool_field(
       "protected-mode",server.protected_mode) {
     } config_set_bool_field(
       "gopher-enabled",server.gopher_enabled) {
@@ -1487,6 +1494,7 @@ void configGetCommand(client *c) {
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
     config_get_bool_field("activedefrag", server.active_defrag_enabled);
+    config_get_bool_field("jemalloc-bg-thread", server.jemalloc_bg_thread);
     config_get_bool_field("protected-mode", server.protected_mode);
     config_get_bool_field("gopher-enabled", server.gopher_enabled);
     config_get_bool_field("io-threads-do-reads", server.io_threads_do_reads);
@@ -2318,6 +2326,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hll-sparse-max-bytes",server.hll_sparse_max_bytes,CONFIG_DEFAULT_HLL_SPARSE_MAX_BYTES);
     rewriteConfigYesNoOption(state,"activerehashing",server.activerehashing,CONFIG_DEFAULT_ACTIVE_REHASHING);
     rewriteConfigYesNoOption(state,"activedefrag",server.active_defrag_enabled,CONFIG_DEFAULT_ACTIVE_DEFRAG);
+    rewriteConfigYesNoOption(state,"jemalloc-bg-thread",server.jemalloc_bg_thread,1);
     rewriteConfigYesNoOption(state,"protected-mode",server.protected_mode,CONFIG_DEFAULT_PROTECTED_MODE);
     rewriteConfigYesNoOption(state,"gopher-enabled",server.gopher_enabled,CONFIG_DEFAULT_GOPHER_ENABLED);
     rewriteConfigYesNoOption(state,"io-threads-do-reads",server.io_threads_do_reads,CONFIG_DEFAULT_IO_THREADS_DO_READS);

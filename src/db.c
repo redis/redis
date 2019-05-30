@@ -441,6 +441,13 @@ void flushdbCommand(client *c) {
     signalFlushedDb(c->db->id);
     server.dirty += emptyDb(c->db->id,flags,NULL);
     addReply(c,shared.ok);
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchroneus. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
 }
 
 /* FLUSHALL [ASYNC]
@@ -464,6 +471,13 @@ void flushallCommand(client *c) {
         server.dirty = saved_dirty;
     }
     server.dirty++;
+#if defined(USE_JEMALLOC)
+    /* jemalloc 5 doesn't release pages back to the OS when there's no traffic.
+     * for large databases, flushdb blocks for long anyway, so a bit more won't
+     * harm and this way the flush and purge will be synchroneus. */
+    if (!(flags & EMPTYDB_ASYNC))
+        jemalloc_purge();
+#endif
 }
 
 /* This command implements DEL and LAZYDEL. */

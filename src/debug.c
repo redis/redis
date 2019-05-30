@@ -297,6 +297,56 @@ void computeDatasetDigest(unsigned char *final) {
     }
 }
 
+#ifdef USE_JEMALLOC
+void mallctl_int(client *c, robj **argv, int argc) {
+    int ret;
+    /* start with the biggest size (int64), and if that fails, try smaller sizes (int32, bool) */
+    int64_t old = 0, val;
+    if (argc > 1) {
+        long long ll;
+        if (getLongLongFromObjectOrReply(c, argv[1], &ll, NULL) != C_OK)
+            return;
+        val = ll;
+    }
+    size_t sz = sizeof(old);
+    while (sz > 0) {
+        if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, argc > 1? &val: NULL, argc > 1?sz: 0))) {
+            if (ret==EINVAL) {
+                /* size might be wrong, try a smaller one */
+                sz /= 2;
+#if BYTE_ORDER == BIG_ENDIAN
+                val <<= 8*sz;
+#endif
+                continue;
+            }
+            addReplyErrorFormat(c,"%s", strerror(ret));
+            return;
+        } else {
+#if BYTE_ORDER == BIG_ENDIAN
+            old >>= 64 - 8*sz;
+#endif
+            addReplyLongLong(c, old);
+            return;
+        }
+    }
+    addReplyErrorFormat(c,"%s", strerror(EINVAL));
+}
+
+void mallctl_string(client *c, robj **argv, int argc) {
+    int ret;
+    char *old;
+    size_t sz = sizeof(old);
+    /* for strings, it seems we need to first get the old value, before overriding it. */
+    if ((ret=je_mallctl(argv[0]->ptr, &old, &sz, NULL, 0))) {
+        addReplyErrorFormat(c,"%s", strerror(ret));
+        return;
+    }
+    addReplyBulkCString(c, old);
+    if(argc > 1)
+        je_mallctl(argv[0]->ptr, NULL, 0, &argv[1]->ptr, sizeof(char*));
+}
+#endif
+
 void debugCommand(client *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
@@ -323,6 +373,10 @@ void debugCommand(client *c) {
 "STRUCTSIZE -- Return the size of different Redis core C structures.",
 "ZIPLIST <key> -- Show low level info about the ziplist encoding.",
 "STRINGMATCH-TEST -- Run a fuzz tester against the stringmatchlen() function.",
+#ifdef USE_JEMALLOC
+"MALLCTL <key> [<val>] -- Get or set a malloc tunning integer.",
+"MALLCTL-STR <key> [<val>] -- Get or set a malloc tunning string.",
+#endif
 NULL
         };
         addReplyHelp(c, help);
@@ -676,6 +730,14 @@ NULL
     {
         stringmatchlen_fuzz_test();
         addReplyStatus(c,"Apparently Redis did not crash: test passed");
+#ifdef USE_JEMALLOC
+    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl") && c->argc >= 3) {
+        mallctl_int(c, c->argv+2, c->argc-2);
+        return;
+    } else if(!strcasecmp(c->argv[1]->ptr,"mallctl-str") && c->argc >= 3) {
+        mallctl_string(c, c->argv+2, c->argc-2);
+        return;
+#endif
     } else {
         addReplySubcommandSyntaxError(c);
         return;
