@@ -55,7 +55,6 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
-#include <dlfcn.h>
 
 /* Our shared "common" objects */
 
@@ -4876,37 +4875,16 @@ int redisSupervisedUpstart(void) {
 
 int redisCommunicateSystemd(const char *sd_notify_msg) {
     const char *notify_socket = getenv("NOTIFY_SOCKET");
-    int (*dl_sd_notify)(int unset_environment, const char *state);
-    char *error;
-    void *handle;
-
     if (!notify_socket) {
         serverLog(LL_WARNING,
                 "systemd supervision requested, but NOTIFY_SOCKET not found");
-        return 0;
     }
 
-    handle = dlopen("libsystemd.so.0", RTLD_LAZY);
-    if (!handle) {
-        serverLog(LL_WARNING,
-                "systemd supervision requested, but could not dlopen() libsystemd.so");
-        (void) dlerror();
-        return 0;
-    }
-    (void) dlerror();
-
-    *(void **)(&dl_sd_notify) = dlsym(handle, "sd_notify");
-    error = dlerror();
-
-    if (error != NULL) {
-        serverLog(LL_WARNING,
-                "systemd supervision requested, but could not load sd_notify(3) from libsystemd.so");
-        dlclose(handle);
-        return 0;
-    }
-
-    (void) (*dl_sd_notify)(0, sd_notify_msg);
-    dlclose(handle);
+    #ifdef HAVE_LIBSYSTEMD
+    (void) sd_notify(0, sd_notify_msg);
+    #else
+    UNUSED(sd_notify_msg);
+    #endif
     return 0;
 }
 
