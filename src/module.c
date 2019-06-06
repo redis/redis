@@ -1842,6 +1842,12 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
          flags |= REDISMODULE_CTX_FLAGS_REPLICATED;
     }
 
+    /* For DIRTY flags, we need the blocked client if used */
+    client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
+    if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
+        flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+    }
+
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
 

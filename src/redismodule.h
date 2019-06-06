@@ -110,6 +110,8 @@
 #define REDISMODULE_CTX_FLAGS_REPLICA_IS_ONLINE (1<<17)
 /* There is currently some background process active. */
 #define REDISMODULE_CTX_FLAGS_ACTIVE_CHILD (1<<18)
+/* The next EXEC will fail due to dirty CAS (touched keys). */
+#define REDISMODULE_CTX_FLAGS_MULTI_DIRTY (1<<19)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
