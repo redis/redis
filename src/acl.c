@@ -1321,12 +1321,12 @@ int ACLSaveToFile(const char *filename) {
     }
 
     /* Write it. */
-    if (write(fd,acl,sdslen(acl)) != (ssize_t)sdslen(acl)) {
+    if (writeNoFilter(fd,acl,sdslen(acl)) != (ssize_t)sdslen(acl)) {
         serverLog(LL_WARNING,"Writing ACL file for ACL SAVE: %s",
             strerror(errno));
         goto cleanup;
     }
-    close(fd); fd = -1;
+    closeNoFilter(fd); fd = -1;
 
     /* Let's replace the new file with the old one. */
     if (rename(tmpfilename,filename) == -1) {
@@ -1338,7 +1338,7 @@ int ACLSaveToFile(const char *filename) {
     retval = C_OK; /* If we reached this point, everything is fine. */
 
 cleanup:
-    if (fd != -1) close(fd);
+    if (fd != -1) closeNoFilter(fd);
     if (tmpfilename) unlink(tmpfilename);
     sdsfree(tmpfilename);
     sdsfree(acl);

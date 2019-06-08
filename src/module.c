@@ -291,6 +291,13 @@ typedef struct RedisModuleCommandFilter {
 /* Registered filters */
 static list *moduleCommandFilters;
 
+typedef struct RedisModuleFdFilter {
+    fn_module_fdrd fnrd;
+    fn_module_fdwr fnwr;
+} RedisModuleFdFilter;
+
+static rax *raxFdFilters;
+
 /* --------------------------------------------------------------------------
  * Prototypes
  * -------------------------------------------------------------------------- */
@@ -3655,7 +3662,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
     pthread_mutex_lock(&moduleUnblockedClientsMutex);
     bc->privdata = privdata;
     listAddNodeTail(moduleUnblockedClients,bc);
-    if (write(server.module_blocked_pipe[1],"A",1) != 1) {
+    if (writeNoFilter(server.module_blocked_pipe[1],"A",1) != 1) {
         /* Ignore the error, this is best-effort. */
     }
     pthread_mutex_unlock(&moduleUnblockedClientsMutex);
@@ -3706,7 +3713,7 @@ void moduleHandleBlockedClients(void) {
     /* Here we unblock all the pending clients blocked in modules operations
      * so we can read every pending "awake byte" in the pipe. */
     char buf[1];
-    while (read(server.module_blocked_pipe[0],buf,1) == 1);
+    while (readNoFilter(server.module_blocked_pipe[0],buf,1) == 1);
     while (listLength(moduleUnblockedClients)) {
         ln = listFirst(moduleUnblockedClients);
         bc = ln->value;
@@ -5015,6 +5022,104 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 }
 
 /* --------------------------------------------------------------------------
+ * I/O Filter API
+ * -------------------------------------------------------------------------- */
+
+static RedisModuleFdFilter *filterFromFd(int fd, int fCreate)
+{
+    RedisModuleFdFilter *filter = (RedisModuleFdFilter*)raxFind(raxFdFilters, (unsigned char*) &fd, sizeof(fd));
+    if (filter == raxNotFound && fCreate)
+    {
+        filter = (RedisModuleFdFilter*) zcalloc(sizeof(RedisModuleFdFilter));
+        raxInsert(raxFdFilters, (unsigned char*) &fd, sizeof(fd), filter, NULL);
+    }
+    return (filter == raxNotFound) ? NULL : filter;
+}
+
+static fn_module_fdevt fnFdEvt = NULL;
+int RM_RegisterFdEventFilter(fn_module_fdevt fn)
+{
+    if (fnFdEvt != NULL) {
+        serverLog(LL_WARNING, "DEBUG: attempted to register multiple FD Event Handlers.");
+        return 0;
+    }
+    fnFdEvt = fn;
+    return 1;
+}
+
+int RM_RegisterFdRdFilter(int fd, fn_module_fdrd fn)
+{
+    RedisModuleFdFilter *filter = filterFromFd(fd, 1);
+    if (filter->fnrd != NULL) {
+        serverLog(LL_WARNING, "DEBUG: Module attempted to register multiple FD Read Handlers.");
+        return 0;
+    }
+    filter->fnrd = fn;
+    return 1;
+}
+
+int RM_RegisterFdWrFilter(int fd, fn_module_fdwr fn)
+{
+    RedisModuleFdFilter *filter = filterFromFd(fd, 1);
+    if (filter->fnwr != NULL) {
+        serverLog(LL_WARNING, "DEBUG: Module attempted to register multiple FD Write Handlers.");
+        return 0;
+    }
+    filter->fnwr = fn;
+    return 1;
+}
+
+int ModuleOnAccept(int fd, uint64_t flags, void (*afterAccept)(int, uint64_t))
+{
+    if (fnFdEvt == NULL)
+        return 0;
+
+    return fnFdEvt(fd, MODULE_FD_ACCEPT, afterAccept, flags);
+}
+
+int ModuleOnOpen(int fd, uint64_t flags, void (*afterOpen)(int, uint64_t))
+{
+    if (fnFdEvt == NULL)
+        return 0;
+
+    return fnFdEvt(fd, MODULE_FD_OPEN, afterOpen, flags);
+}
+
+int ModuleOnClose(int fd)
+{
+    if (fnFdEvt == NULL)
+        return 0;
+
+    int rval = fnFdEvt(fd, MODULE_FD_CLOSE, NULL, 0);
+
+    /* Cleanup any remaining event handlers */
+    RedisModuleFdFilter *filter = NULL;
+    raxRemove(raxFdFilters, (unsigned char*)&fd, sizeof(fd), (void**)&filter);
+    if (filter != NULL && filter != raxNotFound)
+        zfree(filter);
+
+    return rval;
+}
+
+int ModuleTryRead(int fd, void *buf, size_t cb, ssize_t *pccbRead)
+{
+    RedisModuleFdFilter *filter = filterFromFd(fd, 0);
+    if (filter == NULL || filter->fnrd == NULL)
+        return 0;
+
+    return filter->fnrd(fd, buf, cb, pccbRead);
+}
+
+int ModuleTryWrite(int fd, const void *buf, size_t cb, ssize_t *pccbWrite)
+{
+    RedisModuleFdFilter *filter = filterFromFd(fd, 0);
+    if (filter == NULL || filter->fnwr == NULL)
+        return 0;
+    
+    return filter->fnwr(fd, buf, cb, pccbWrite);
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -5062,6 +5167,8 @@ void moduleInitModulesSystem(void) {
 
     /* Set up filter list */
     moduleCommandFilters = listCreate();
+
+    raxFdFilters = raxNew();
 
     moduleRegisterCoreAPI();
     if (pipe(server.module_blocked_pipe) == -1) {
@@ -5476,4 +5583,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(RegisterFdEventFilter);
+    REGISTER_API(RegisterFdRdFilter);
+    REGISTER_API(RegisterFdWrFilter);
 }

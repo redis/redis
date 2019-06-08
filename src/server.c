@@ -1085,15 +1085,15 @@ void serverLogFromHandler(int level, const char *msg) {
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,":signal-handler (",17) == -1) goto err;
+    if (writeNoFilter(fd,buf,strlen(buf)) == -1) goto err;
+    if (writeNoFilter(fd,":signal-handler (",17) == -1) goto err;
     ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
-    if (write(fd,msg,strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
+    if (writeNoFilter(fd,buf,strlen(buf)) == -1) goto err;
+    if (writeNoFilter(fd,") ",2) == -1) goto err;
+    if (writeNoFilter(fd,msg,strlen(msg)) == -1) goto err;
+    if (writeNoFilter(fd,"\n",1) == -1) goto err;
 err:
-    if (!log_to_stdout) close(fd);
+    if (!log_to_stdout) closeNoFilter(fd);
 }
 
 /* Return the UNIX time in microseconds */
@@ -2463,7 +2463,7 @@ int restartServer(int flags, mstime_t delay) {
     for (j = 3; j < (int)server.maxclients + 1024; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
-        if (fcntl(j,F_GETFD) != -1) close(j);
+        if (fcntl(j,F_GETFD) != -1) closeWithFilters(j);
     }
 
     /* Execute the server with the original command line. */
@@ -3498,10 +3498,10 @@ int processCommand(client *c) {
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
-    for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
-    if (server.sofd != -1) close(server.sofd);
+    for (j = 0; j < server.ipfd_count; j++) closeWithFilters(server.ipfd[j]);
+    if (server.sofd != -1) closeWithFilters(server.sofd);
     if (server.cluster_enabled)
-        for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
+        for (j = 0; j < server.cfd_count; j++) closeWithFilters(server.cfd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */
@@ -4414,7 +4414,7 @@ void daemonize(void) {
         dup2(fd, STDIN_FILENO);
         dup2(fd, STDOUT_FILENO);
         dup2(fd, STDERR_FILENO);
-        if (fd > STDERR_FILENO) close(fd);
+        if (fd > STDERR_FILENO) closeNoFilter(fd);
     }
 }
 
@@ -4676,10 +4676,10 @@ int redisSupervisedSystemd(void) {
 #endif
     if (sendmsg(fd, &hdr, sendto_flags) < 0) {
         serverLog(LL_WARNING, "Can't send notification to systemd");
-        close(fd);
+        closeNoFilter(fd);
         return 0;
     }
-    close(fd);
+    closeNoFilter(fd);
     return 1;
 }
 

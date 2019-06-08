@@ -2175,7 +2175,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
      *    exist), get the size. */
     if (fd == -1) return -1; /* errno set by open(). */
     if (fstat(fd,&sb) == -1) {
-        close(fd);
+        closeNoFilter(fd);
         return -1; /* errno set by fstat(). */
     }
 
@@ -2191,7 +2191,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     }
 
     /* 3) Write the new content using a single write(2). */
-    if (write(fd,content_padded,strlen(content_padded)) == -1) {
+    if (writeNoFilter(fd,content_padded,strlen(content_padded)) == -1) {
         retval = -1;
         goto cleanup;
     }
@@ -2205,7 +2205,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 
 cleanup:
     sdsfree(content_padded);
-    close(fd);
+    closeNoFilter(fd);
     return retval;
 }
 
