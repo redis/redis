@@ -646,6 +646,12 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
+/* The 'cannonical' name for a type as enumerated above is given by the
+ * below function. Native types are checked against the OBJ_STRING,
+ * OBJ_LIST, OBJ_* defines, and Module types have their registered name
+ * returned.*/
+char* typeNameCanonicalize(robj*);
+
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
  * we'll update it when the structure is changed, to avoid bugs like
