@@ -56,7 +56,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_NOADDR   64  /* We don't know the address of this node */
 #define CLUSTER_NODE_MEET 128     /* Send a MEET message to this node */
 #define CLUSTER_NODE_MIGRATE_TO 256 /* Master elegible for replica migration. */
-#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failver. */
+#define CLUSTER_NODE_NOFAILOVER 512 /* Slave will not try to failover. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
