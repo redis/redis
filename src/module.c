@@ -1455,6 +1455,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     if (server.cluster_enabled)
         flags |= REDISMODULE_CTX_FLAGS_CLUSTER;
 
+    if (server.loading)
+        flags |= REDISMODULE_CTX_FLAGS_LOADING;
+
     /* Maxmemory and eviction policy */
     if (server.maxmemory > 0) {
         flags |= REDISMODULE_CTX_FLAGS_MAXMEMORY;

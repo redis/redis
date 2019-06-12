@@ -87,6 +87,8 @@
 #define REDISMODULE_CTX_FLAGS_OOM_WARNING (1<<11)
 /* The command was sent over the replication link. */
 #define REDISMODULE_CTX_FLAGS_REPLICATED (1<<12)
+/* Redis is currently loading either from AOF or RDB. */
+#define REDISMODULE_CTX_FLAGS_LOADING (1<<13)
 
 
 #define REDISMODULE_NOTIFY_GENERIC (1<<2)     /* g */
