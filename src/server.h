@@ -646,7 +646,7 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
-/* The 'cannonical' name for a type as enumerated above is given by the
+/* The 'canonical' name for a type as enumerated above is given by the
  * below function. Native types are checked against the OBJ_STRING,
  * OBJ_LIST, OBJ_* defines, and Module types have their registered name
  * returned.*/
