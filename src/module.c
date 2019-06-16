@@ -3844,7 +3844,7 @@ int RM_BlockedClientDisconnected(RedisModuleCtx *ctx) {
  *
  *     RedisModule_ThreadSafeCallStart(ctx);
  *     ... make your call here ...
- *     RedisModule_ThreadSafeCallStop(ctx);
+ *     RedisModule_FreeThreadSafeContext(ctx);
  *
  * This is not needed when using `RedisModule_Reply*` functions, assuming
  * that a blocked client was used when the context was created, otherwise
