@@ -228,6 +228,7 @@ static struct config {
     int enable_ldb_on_eval; /* Handle manual SCRIPT DEBUG + EVAL commands. */
     int last_cmd_type;
     int verbose;
+    int confirm;
     clusterManagerCommand cluster_manager_command;
     int no_auth_warning;
 } config;
@@ -1365,6 +1366,8 @@ static int parseOptions(int argc, char **argv) {
             config.mb_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--verbose")) {
             config.verbose = 1;
+        } else if (!strcmp(argv[i],"--confirm")) {
+            config.confirm = 1;
         } else if (!strcmp(argv[i],"--cluster") && !lastarg) {
             if (CLUSTER_MANAGER_MODE()) usage();
             char *cmd = argv[++i];
@@ -1563,6 +1566,7 @@ static void usage(void) {
 "  --cluster <command> [args...] [opts...]\n"
 "                     Cluster Manager command and arguments (see below).\n"
 "  --verbose          Verbose mode.\n"
+"  --confirm          Automatically confirm choice, no prompting.\n"
 "  --no-auth-warning  Don't show warning message when using password on command\n"
 "                     line interface.\n"
 "  --help             Output this help and exit.\n"
@@ -1593,12 +1597,18 @@ static void usage(void) {
 }
 
 static int confirmWithYes(char *msg) {
-    printf("%s (type 'yes' to accept): ", msg);
-    fflush(stdout);
-    char buf[4];
-    int nread = read(fileno(stdin),buf,4);
-    buf[3] = '\0';
-    return (nread != 0 && !strcmp("yes", buf));
+    if (!config.confirm) {
+        printf("%s (type 'yes' to accept): ", msg);
+        fflush(stdout);
+        char buf[4];
+        int nread = read(fileno(stdin),buf,4);
+        buf[3] = '\0';
+        return (nread != 0 && !strcmp("yes", buf));
+    }
+    else
+    {
+        return 1;
+    }
 }
 
 /* Turn the plain C strings into Sds strings */
@@ -7678,6 +7688,7 @@ int main(int argc, char **argv) {
     config.enable_ldb_on_eval = 0;
     config.last_cmd_type = -1;
     config.verbose = 0;
+    config.confirm = 0;
     config.no_auth_warning = 0;
     config.cluster_manager_command.name = NULL;
     config.cluster_manager_command.argc = 0;
