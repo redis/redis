@@ -1604,9 +1604,7 @@ static int confirmWithYes(char *msg) {
         int nread = read(fileno(stdin),buf,4);
         buf[3] = '\0';
         return (nread != 0 && !strcmp("yes", buf));
-    }
-    else
-    {
+    } else {
         return 1;
     }
 }
