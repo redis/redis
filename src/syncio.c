@@ -136,10 +136,10 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
             return nread;
         } else {
             *ptr++ = c;
-            *ptr = '\0';
             nread++;
         }
         size--;
     }
+    *ptr = '\0';
     return nread;
 }
