@@ -2906,7 +2906,10 @@ void genericZrangebylexCommand(client *c, int reverse) {
         while (remaining) {
             if (remaining >= 3 && !strcasecmp(c->argv[pos]->ptr,"limit")) {
                 if ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL) != C_OK) ||
-                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) return;
+                    (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != C_OK)) {
+                    zslFreeLexRange(&range);
+                    return;
+                }
                 pos += 3; remaining -= 3;
             } else {
                 zslFreeLexRange(&range);
@@ -3140,7 +3143,10 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     if (countarg) {
         if (getLongFromObjectOrReply(c,countarg,&count,NULL) != C_OK)
             return;
-        if (count < 0) count = 1;
+        if (count <= 0) {
+            addReply(c,shared.emptyarray);
+            return;
+        }
     }
 
     /* Check type and break on the first error, otherwise identify candidate. */

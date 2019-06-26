@@ -31,6 +31,7 @@
 
 #include "fmacros.h"
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #ifndef _MSC_VER
 #include <unistd.h>

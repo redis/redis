@@ -2268,7 +2268,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port) {
 static sds clusterManagerGetNodeRDBFilename(clusterManagerNode *node) {
     assert(config.cluster_manager_command.backup_dir);
     sds filename = sdsnew(config.cluster_manager_command.backup_dir);
-    if (filename[sdslen(filename)] - 1 != '/')
+    if (filename[sdslen(filename) - 1] != '/')
         filename = sdscat(filename, "/");
     filename = sdscatprintf(filename, "redis-node-%s-%d-%s.rdb", node->ip,
                             node->port, node->name);
@@ -2726,11 +2726,41 @@ static sds clusterManagerNodeGetJSON(clusterManagerNode *node,
         slots,
         node->slots_count,
         flags,
-        node->current_epoch
+        (unsigned long long)node->current_epoch
     );
     if (error_count > 0) {
         json = sdscatprintf(json, ",\n    \"cluster_errors\": %lu",
                             error_count);
+    }
+    if (node->migrating_count > 0 && node->migrating != NULL) {
+        int i = 0;
+        sds migrating = sdsempty();
+        for (; i < node->migrating_count; i += 2) {
+            sds slot = node->migrating[i];
+            sds dest = node->migrating[i + 1];
+            if (slot && dest) {
+                if (sdslen(migrating) > 0) migrating = sdscat(migrating, ",");
+                migrating = sdscatfmt(migrating, "\"%S\": \"%S\"", slot, dest);
+            }
+        }
+        if (sdslen(migrating) > 0)
+            json = sdscatfmt(json, ",\n    \"migrating\": {%S}", migrating);
+        sdsfree(migrating);
+    }
+    if (node->importing_count > 0 && node->importing != NULL) {
+        int i = 0;
+        sds importing = sdsempty();
+        for (; i < node->importing_count; i += 2) {
+            sds slot = node->importing[i];
+            sds from = node->importing[i + 1];
+            if (slot && from) {
+                if (sdslen(importing) > 0) importing = sdscat(importing, ",");
+                importing = sdscatfmt(importing, "\"%S\": \"%S\"", slot, from);
+            }
+        }
+        if (sdslen(importing) > 0)
+            json = sdscatfmt(json, ",\n    \"importing\": {%S}", importing);
+        sdsfree(importing);
     }
     json = sdscat(json, "\n  }");
     sdsfree(replicate);
@@ -2841,7 +2871,7 @@ static void clusterManagerShowClusterInfo(void) {
                     replicas++;
             }
             redisReply *reply = CLUSTER_MANAGER_COMMAND(node, "DBSIZE");
-            if (reply != NULL || reply->type == REDIS_REPLY_INTEGER)
+            if (reply != NULL && reply->type == REDIS_REPLY_INTEGER)
                 dbsize = reply->integer;
             if (dbsize < 0) {
                 char *err = "";

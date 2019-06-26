@@ -247,13 +247,26 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         c = redisConnect(ip, port);
     else
         c = redisConnectUnix(hostsocket);
-    if (c->err) {
+    if (c == NULL || c->err) {
         fprintf(stderr,"Could not connect to Redis at ");
-        if (hostsocket == NULL)
-            fprintf(stderr,"%s:%d: %s\n",ip,port,c->errstr);
-        else fprintf(stderr,"%s: %s\n",hostsocket,c->errstr);
+        char *err = (c != NULL ? c->errstr : "");
+        if (hostsocket == NULL) fprintf(stderr,"%s:%d: %s\n",ip,port,err);
+        else fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto fail;
     }
+
+    if(config.auth){
+        void *authReply = NULL;
+        redisAppendCommand(c, "AUTH %s", config.auth);
+        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
+        if (reply) freeReplyObject(reply);
+        reply = ((redisReply *) authReply);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "ERROR: %s\n", reply->str);
+            goto fail;
+        }
+    }
+
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -276,18 +289,16 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         case 1: cfg->appendonly = sdsnew(value); break;
         }
     }
-    if (reply) freeReplyObject(reply);
-    if (c) redisFree(c);
+    freeReplyObject(reply);
+    redisFree(c);
     return cfg;
 fail:
-    if (reply) freeReplyObject(reply);
-    if (c) redisFree(c);
-    zfree(cfg);
     fprintf(stderr, "ERROR: failed to fetch CONFIG from ");
-    if (c->connection_type == REDIS_CONN_TCP)
-        fprintf(stderr, "%s:%d\n", c->tcp.host, c->tcp.port);
-    else if (c->connection_type == REDIS_CONN_UNIX)
-        fprintf(stderr, "%s\n", c->unix_sock.path);
+    if (hostsocket == NULL) fprintf(stderr, "%s:%d\n", ip, port);
+    else fprintf(stderr, "%s\n", hostsocket);
+    freeReplyObject(reply);
+    redisFree(c);
+    zfree(cfg);
     return NULL;
 }
 static void freeRedisConfig(redisConfig *cfg) {
@@ -345,7 +356,9 @@ static void randomizeClientKey(client c) {
 
     for (i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
-        size_t r = random() % config.randomkeys_keyspacelen;
+        size_t r = 0;
+        if (config.randomkeys_keyspacelen != 0)
+            r = random() % config.randomkeys_keyspacelen;
         size_t j;
 
         for (j = 0; j < 12; j++) {
@@ -447,27 +460,27 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     }
                 }
 
-                if (config.cluster_mode && is_err && c->cluster_node &&
-                    (!strncmp(r->str,"MOVED",5) ||
-                     !strcmp(r->str,"ASK")))
-                {
-                    /* Try to update slots configuration if the key of the
-                     * command is using the slot hash tag. */
-                    if (c->staglen && !fetchClusterSlotsConfiguration(c))
-                        exit(1);
-                    /*
-                    clusterNode *node = c->cluster_node;
-                    assert(node);
-                    if (++node->current_slot_index >= node->slots_count) {
-                        if (config.showerrors) {
-                            fprintf(stderr, "WARN: No more available slots in "
-                                    "node %s:%d\n", node->ip, node->port);
-                        }
-                        freeReplyObject(reply);
-                        freeClient(c);
-                        return;
+                /* Try to update slots configuration if reply error is
+                 * MOVED/ASK/CLUSTERDOWN and the key(s) used by the command
+                 * contain(s) the slot hash tag. */
+                if (is_err && c->cluster_node && c->staglen) {
+                    int fetch_slots = 0, do_wait = 0;
+                    if (!strncmp(r->str,"MOVED",5) || !strncmp(r->str,"ASK",3))
+                        fetch_slots = 1;
+                    else if (!strncmp(r->str,"CLUSTERDOWN",11)) {
+                        /* Usually the cluster is able to recover itself after
+                         * a CLUSTERDOWN error, so try to sleep one second
+                         * before requesting the new configuration. */
+                        fetch_slots = 1;
+                        do_wait = 1;
+                        printf("Error from server %s:%d: %s\n",
+                               c->cluster_node->ip,
+                               c->cluster_node->port,
+                               r->str);
                     }
-                    */
+                    if (do_wait) sleep(1);
+                    if (fetch_slots && !fetchClusterSlotsConfiguration(c))
+                        exit(1);
                 }
 
                 freeReplyObject(reply);
@@ -817,22 +830,37 @@ static void showLatencyReport(void) {
     }
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void initBenchmarkThreads() {
     int i;
+    if (config.threads) freeBenchmarkThreads();
+    config.threads = zmalloc(config.num_threads * sizeof(benchmarkThread*));
+    for (i = 0; i < config.num_threads; i++) {
+        benchmarkThread *thread = createBenchmarkThread(i);
+        config.threads[i] = thread;
+    }
+}
+
+static void startBenchmarkThreads() {
+    int i;
+    for (i = 0; i < config.num_threads; i++) {
+        benchmarkThread *t = config.threads[i];
+        if (pthread_create(&(t->thread), NULL, execBenchmarkThread, t)){
+            fprintf(stderr, "FATAL: Failed to start thread %d.\n", i);
+            exit(1);
+        }
+    }
+    for (i = 0; i < config.num_threads; i++)
+        pthread_join(config.threads[i]->thread, NULL);
+}
+
+static void benchmark(char *title, char *cmd, int len) {
     client c;
 
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
 
-    if (config.num_threads) {
-        if (config.threads) freeBenchmarkThreads();
-        config.threads = zmalloc(config.num_threads * sizeof(benchmarkThread*));
-        for (i = 0; i < config.num_threads; i++) {
-            benchmarkThread *thread = createBenchmarkThread(i);
-            config.threads[i] = thread;
-        }
-    }
+    if (config.num_threads) initBenchmarkThreads();
 
     int thread_id = config.num_threads > 0 ? 0 : -1;
     c = createClient(cmd,len,NULL,thread_id);
@@ -840,17 +868,7 @@ static void benchmark(char *title, char *cmd, int len) {
 
     config.start = mstime();
     if (!config.num_threads) aeMain(config.el);
-    else {
-        for (i = 0; i < config.num_threads; i++) {
-            benchmarkThread *t = config.threads[i];
-            if (pthread_create(&(t->thread), NULL, execBenchmarkThread, t)){
-                fprintf(stderr, "FATAL: Failed to start thread %d.\n", i);
-                exit(1);
-            }
-        }
-        for (i = 0; i < config.num_threads; i++)
-            pthread_join(config.threads[i]->thread, NULL);
-    }
+    else startBenchmarkThreads();
     config.totlatency = mstime()-config.start;
 
     showLatencyReport();
@@ -1187,7 +1205,7 @@ static int fetchClusterSlotsConfiguration(client c) {
     assert(reply->type == REDIS_REPLY_ARRAY);
     for (i = 0; i < reply->elements; i++) {
         redisReply *r = reply->element[i];
-        assert(r->type = REDIS_REPLY_ARRAY);
+        assert(r->type == REDIS_REPLY_ARRAY);
         assert(r->elements >= 3);
         int from, to, slot;
         from = r->element[0]->integer;
@@ -1283,8 +1301,13 @@ int parseOptions(int argc, const char **argv) {
             if (config.pipeline <= 0) config.pipeline=1;
         } else if (!strcmp(argv[i],"-r")) {
             if (lastarg) goto invalid;
+            const char *next = argv[++i], *p = next;
+            if (*p == '-') {
+                p++;
+                if (*p < '0' || *p > '9') goto invalid;
+            }
             config.randomkeys = 1;
-            config.randomkeys_keyspacelen = atoi(argv[++i]);
+            config.randomkeys_keyspacelen = atoi(next);
             if (config.randomkeys_keyspacelen < 0)
                 config.randomkeys_keyspacelen = 0;
         } else if (!strcmp(argv[i],"-q")) {
@@ -1517,7 +1540,10 @@ int main(int argc, const char **argv) {
             if (node->name) printf("%s ", node->name);
             printf("%s:%d\n", node->ip, node->port);
             node->redis_config = getRedisConfig(node->ip, node->port, NULL);
-            if (node->redis_config == NULL) exit(1);
+            if (node->redis_config == NULL) {
+                fprintf(stderr, "WARN: could not fetch node CONFIG %s:%d\n",
+                        node->ip, node->port);
+            }
         }
         printf("\n");
         /* Automatically set thread number to node count if not specified
@@ -1527,7 +1553,8 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL) exit(1);
+        if (config.redis_config == NULL)
+            fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
 
     if (config.num_threads > 0) {
@@ -1546,9 +1573,15 @@ int main(int argc, const char **argv) {
 
     if (config.idlemode) {
         printf("Creating %d idle connections and waiting forever (Ctrl+C when done)\n", config.numclients);
-        c = createClient("",0,NULL,-1); /* will never receive a reply */
+        int thread_id = -1, use_threads = (config.num_threads > 0);
+        if (use_threads) {
+            thread_id = 0;
+            initBenchmarkThreads();
+        }
+        c = createClient("",0,NULL,thread_id); /* will never receive a reply */
         createMissingClients(c);
-        aeMain(config.el);
+        if (use_threads) startBenchmarkThreads();
+        else aeMain(config.el);
         /* and will wait for every */
     }
 

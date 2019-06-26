@@ -161,7 +161,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             }
 
             # make sure master doesn't disconnect slave because of timeout
-            $master config set repl-timeout 300 ;# 5 minutes
+            $master config set repl-timeout 1200 ;# 20 minutes (for valgrind and slow machines)
             $master config set maxmemory-policy allkeys-random
             $master config set client-output-buffer-limit "replica 100000000 100000000 300"
             $master config set repl-backlog-size [expr {10*1024}]
@@ -212,7 +212,8 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 
             assert {[$master dbsize] == 100}
             assert {$slave_buf > 2*1024*1024} ;# some of the data may have been pushed to the OS buffers
-            assert {$delta < 50*1024 && $delta > -50*1024} ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            set delta_max [expr {$cmd_count / 2}] ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            assert {$delta < $delta_max && $delta > -$delta_max}
 
             $master client kill type slave
             set killed_used [s -1 used_memory]
@@ -221,7 +222,7 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             set killed_used_no_repl [expr {$killed_used - $killed_mem_not_counted_for_evict}]
             set delta_no_repl [expr {$killed_used_no_repl - $used_no_repl}]
             assert {$killed_slave_buf == 0}
-            assert {$delta_no_repl > -50*1024 && $delta_no_repl < 50*1024} ;# 1 byte unaccounted for, with 1M commands will consume some 1MB
+            assert {$delta_no_repl > -$delta_max && $delta_no_repl < $delta_max}
 
         }
         # unfreeze slave process (after the 'test' succeeded or failed, but before we attempt to terminate the server
