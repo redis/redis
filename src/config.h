@@ -226,4 +226,16 @@ void setproctitle(const char *fmt, ...);
 #define USE_ALIGNED_ACCESS
 #endif
 
+/* Test for pthread naming. */
+#if defined(__linux)
+#define REDIS_PTHREAD_SETNAME_MAX_LEN 15
+#define REDIS_PTHREAD_SETNAME_MAX_LEN_STR "15"
+#define redis_pthread_setname(tid, name) pthread_setname_np(tid, name)
+#else
+/* pthread_setname is not supported, allow the configuration, but skip setting */
+#define REDIS_PTHREAD_SETNAME_MAX_LEN 15
+#define REDIS_PTHREAD_SETNAME_MAX_LEN_STR "15"
+#define redis_pthread_setname(tid, name) 0
+#endif
+
 #endif

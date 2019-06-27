@@ -2647,6 +2647,9 @@ void initThreadedIO(void) {
             serverLog(LL_WARNING,"Fatal: Can't initialize IO thread.");
             exit(1);
         }
+        if (redis_pthread_setname(tid, server.io_threads_name) != 0) {
+            serverLog(LL_WARNING,"Unable to set name of IO thread.");
+        }
         io_threads[i] = tid;
     }
 }

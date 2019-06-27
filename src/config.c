@@ -375,6 +375,17 @@ void loadServerConfigFromString(char *config) {
             if (server.io_threads_num < 1 || server.io_threads_num > 512) {
                 err = "Invalid number of I/O threads"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"io-threads-do-reads") && argc == 2) {
+            if ((server.io_threads_do_reads = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"io-threads-name") && argc == 2) {
+            if (strlen(argv[1]) > REDIS_PTHREAD_SETNAME_MAX_LEN) {
+                err = "io-threads-name is longer than " REDIS_PTHREAD_SETNAME_MAX_LEN_STR;
+                goto loaderr;
+            }
+            zfree(server.io_threads_name);
+            server.io_threads_name = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
@@ -1294,6 +1305,7 @@ void configGetCommand(client *c) {
     config_get_string_field("pidfile",server.pidfile);
     config_get_string_field("slave-announce-ip",server.slave_announce_ip);
     config_get_string_field("replica-announce-ip",server.slave_announce_ip);
+    config_get_string_field("io-threads-name",server.io_threads_name);
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
@@ -2122,6 +2134,7 @@ int rewriteConfig(char *path) {
     rewriteConfigUserOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,CONFIG_DEFAULT_DBNUM);
     rewriteConfigNumericalOption(state,"io-threads",server.io_threads_num,CONFIG_DEFAULT_IO_THREADS_NUM);
+    rewriteConfigStringOption(state,"io-threads-name",server.io_threads_name,CONFIG_DEFAULT_IO_THREADS_NAME);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,CONFIG_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);
     rewriteConfigYesNoOption(state,"rdbcompression",server.rdb_compression,CONFIG_DEFAULT_RDB_COMPRESSION);
     rewriteConfigYesNoOption(state,"rdbchecksum",server.rdb_checksum,CONFIG_DEFAULT_RDB_CHECKSUM);

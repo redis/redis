@@ -2319,6 +2319,7 @@ void initServerConfig(void) {
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
     server.io_threads_num = CONFIG_DEFAULT_IO_THREADS_NUM;
     server.io_threads_do_reads = CONFIG_DEFAULT_IO_THREADS_DO_READS;
+    server.io_threads_name = zstrdup(CONFIG_DEFAULT_IO_THREADS_NAME);
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();

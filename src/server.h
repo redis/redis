@@ -89,6 +89,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CONFIG_DEFAULT_DBNUM     16
 #define CONFIG_DEFAULT_IO_THREADS_NUM 1         /* Single threaded by default */
 #define CONFIG_DEFAULT_IO_THREADS_DO_READS 0    /* Read + parse from threads? */
+#define CONFIG_DEFAULT_IO_THREADS_NAME "redis-server-io"
 #define CONFIG_MAX_LINE    1024
 #define CRON_DBS_PER_CALL 16
 #define NET_MAX_WRITES_PER_EVENT (1024*64)
@@ -1094,6 +1095,7 @@ struct redisServer {
                                    queries. Will still serve RESP2 queries. */
     int io_threads_num;         /* Number of IO threads to use. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
+    char *io_threads_name;      /* Name assigned to IO pthreads */
 
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
