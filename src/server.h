@@ -254,8 +254,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
-#define CLIENT_SLAVE (1<<0)   /* This client is a slave server */
-#define CLIENT_MASTER (1<<1)  /* This client is a master server */
+#define CLIENT_SLAVE (1<<0)   /* This client is a repliaca */
+#define CLIENT_MASTER (1<<1)  /* This client is a master */
 #define CLIENT_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
 #define CLIENT_MULTI (1<<3)   /* This client is in a MULTI context */
 #define CLIENT_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
@@ -289,7 +289,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define CLIENT_PENDING_READ (1<<29) /* The client has pending reads and was put
                                        in the list of clients we can read
                                        from. */
-#define CLIENT_PENDING_COMMAND (1<<30) /* */
+#define CLIENT_PENDING_COMMAND (1<<30) /* Used in threaded I/O to signal after
+                                          we return single threaded that the
+                                          client has already pending commands
+                                          to be executed. */
+#define CLIENT_TRACKING (1<<31) /* Client enabled keys tracking in order to
+                                   perform client side caching. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -845,6 +850,11 @@ typedef struct client {
     sds peerid;             /* Cached peer ID. */
     listNode *client_list_node; /* list node in client list */
 
+    /* If this client is in tracking mode and this field is non zero,
+     * invalidation messages for keys fetched by this client will be send to
+     * the specified client ID. */
+    uint64_t client_tracking_redirection;
+
     /* Response buffer */
     int bufpos;
     char buf[PROTO_REPLY_CHUNK_BYTES];
@@ -1286,6 +1296,8 @@ struct redisServer {
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
     list *unblocked_clients; /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
+    /* Client side caching. */
+    unsigned int tracking_clients;  /* # of clients with tracking enabled.*/
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -1601,6 +1613,9 @@ void addReplyStatusFormat(client *c, const char *fmt, ...)
 void addReplyErrorFormat(client *c, const char *fmt, ...);
 void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
+
+/* Client side caching (tracking mode) */
+void disableTracking(client *c);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);

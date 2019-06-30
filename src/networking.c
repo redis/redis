@@ -158,6 +158,7 @@ client *createClient(int fd) {
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
     c->client_list_node = NULL;
+    c->client_tracking_redirection = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) linkClient(c);
@@ -966,6 +967,9 @@ void unlinkClient(client *c) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
     }
+
+    /* Clear the tracking status. */
+    if (c->flags & CLIENT_TRACKING) disableTracking(c);
 }
 
 void freeClient(client *c) {
@@ -1849,6 +1853,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
+    if (client->flags & CLIENT_TRACKING) *p++ = 't';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
     if (client->flags & CLIENT_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & CLIENT_UNBLOCKED) *p++ = 'u';
