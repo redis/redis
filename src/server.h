@@ -1615,6 +1615,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 #endif
 
 /* Client side caching (tracking mode) */
+void enableTracking(client *c, uint64_t redirect_to);
 void disableTracking(client *c);
 
 /* List data type */
