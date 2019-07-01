@@ -383,6 +383,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define SUPERVISED_SYSTEMD 2
 #define SUPERVISED_UPSTART 3
 
+#define DISKLESS_LOAD_BGSAVE_NEVER 0
+#define DISKLESS_LOAD_BGSAVE_WHEN_OLD 1
+#define DISKLESS_LOAD_BGSAVE_ALWAYS 2
+#define CONFIG_DEFAULT_DISKLESS_LOAD_BGSAVE DISKLESS_LOAD_BGSAVE_WHEN_OLD
+
 /* Anti-warning macro... */
 #define UNUSED(V) ((void) V)
 
@@ -1262,6 +1267,8 @@ struct redisServer {
     int repl_diskless_sync;         /* Master send RDB to slaves sockets directly. */
     int repl_diskless_load;         /* Slave parse RDB directly from the socket.
                                      * see REPL_DISKLESS_LOAD_* enum */
+    int repl_diskless_load_bgsave;  /* When snapshots ('save') are enabled,
+                                     * see DISKLESS_LOAD_BGSAVE_ */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
     char *masteruser;               /* AUTH with this user and masterauth with master */

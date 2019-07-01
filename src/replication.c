@@ -1397,6 +1397,39 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         rioFreeFd(&rdb, NULL);
         anetNonBlock(NULL,fd);
         anetRecvTimeout(NULL,fd,0);
+
+        /* If our server is configured to create rdb snapshots, in diskless load we may need a bgsave */
+        if (server.saveparamslen && server.repl_diskless_load_bgsave != DISKLESS_LOAD_BGSAVE_NEVER) {
+            time_t now = time(NULL);
+
+            /* Find the saveparam with the lowest time */
+            struct saveparam *sp = server.saveparams;
+            int sp_num = 0;
+            for (sp_num = 1; sp_num < server.saveparamslen; sp_num++)
+                if (server.saveparams[sp_num].seconds < sp->seconds)
+                    sp = &server.saveparams[sp_num];
+
+            if (server.repl_diskless_load_bgsave == DISKLESS_LOAD_BGSAVE_ALWAYS) {
+                serverLog(LL_NOTICE,"Asking for bgsave after diskless load.");
+                server.dirty = sp->changes;
+                server.lastsave = now - sp->seconds;
+            } else if (server.repl_diskless_load_bgsave == DISKLESS_LOAD_BGSAVE_WHEN_OLD) {
+                struct redis_stat buf;
+                /* Compare to the existing file on disk if any, trigger an
+                 * immediate bgsave if old or missing. Otherwise, set lastsave
+                 * to file timestamp, so that the next periodic backup will
+                 * happen at the right interval. (if enough changes are made) */
+                int file_missing = redis_stat(server.rdb_filename,&buf) == -1;
+                if (file_missing || buf.st_mtime < now - sp->seconds) {
+                    serverLog(LL_NOTICE,"Asking for bgsave after diskless load.");
+                    server.dirty = sp->changes;
+                    server.lastsave = file_missing? now - sp->seconds: buf.st_mtime;
+                } else {
+                    serverLog(LL_NOTICE,"Setting lastsave to match pre-existing rdb file.");
+                    server.lastsave = buf.st_mtime;
+                }
+            }
+        }
     } else {
         /* Ensure background save doesn't overwrite synced data */
         if (server.rdb_child_pid != -1) {

@@ -98,6 +98,13 @@ configEnum repl_diskless_load_enum[] = {
     {NULL, 0}
 };
 
+configEnum diskless_load_bgsave[] = {
+    {"never", DISKLESS_LOAD_BGSAVE_NEVER},
+    {"when-old", DISKLESS_LOAD_BGSAVE_WHEN_OLD},
+    {"always", DISKLESS_LOAD_BGSAVE_ALWAYS},
+    {NULL, 0}
+};
+
 /* Output buffer limits presets. */
 clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUNT] = {
     {0, 0, 0}, /* normal */
@@ -493,6 +500,12 @@ void loadServerConfigFromString(char *config) {
             server.aof_fsync = configEnumGetValue(aof_fsync_enum,argv[1]);
             if (server.aof_fsync == INT_MIN) {
                 err = "argument must be 'no', 'always' or 'everysec'";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"repl-diskless-load-bgsave") && argc == 2) {
+            server.repl_diskless_load_bgsave = configEnumGetValue(diskless_load_bgsave,argv[1]);
+            if (server.repl_diskless_load_bgsave == INT_MIN) {
+                err = "argument must be 'never', 'always' or 'when-old'";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
@@ -1220,6 +1233,8 @@ void configSetCommand(client *c) {
       "appendfsync",server.aof_fsync,aof_fsync_enum) {
     } config_set_enum_field(
       "repl-diskless-load",server.repl_diskless_load,repl_diskless_load_enum) {
+    } config_set_enum_field(
+      "repl-diskless-load-bgsave",server.repl_diskless_load_bgsave,diskless_load_bgsave) {
 
     /* Everyhing else is an error... */
     } config_set_else {
@@ -1390,6 +1405,8 @@ void configGetCommand(client *c) {
             server.supervised_mode,supervised_mode_enum);
     config_get_enum_field("appendfsync",
             server.aof_fsync,aof_fsync_enum);
+    config_get_enum_field("repl-diskless-load-bgsave",
+            server.repl_diskless_load_bgsave,diskless_load_bgsave);
     config_get_enum_field("syslog-facility",
             server.syslog_facility,syslog_facility_enum);
     config_get_enum_field("repl-diskless-load",
@@ -2156,6 +2173,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"appendonly",server.aof_enabled,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
+    rewriteConfigEnumOption(state,"repl-diskless-load-bgsave",server.repl_diskless_load_bgsave,diskless_load_bgsave,CONFIG_DEFAULT_DISKLESS_LOAD_BGSAVE);
     rewriteConfigNumericalOption(state,"auto-aof-rewrite-percentage",server.aof_rewrite_perc,AOF_REWRITE_PERC);
     rewriteConfigBytesOption(state,"auto-aof-rewrite-min-size",server.aof_rewrite_min_size,AOF_REWRITE_MIN_SIZE);
     rewriteConfigNumericalOption(state,"lua-time-limit",server.lua_time_limit,LUA_SCRIPT_TIME_LIMIT);
