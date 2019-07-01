@@ -202,7 +202,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     expiretime = -1;
-    startLoading(fp);
+    startLoadingFile(fp, rdbfilename);
     while(1) {
         robj *key, *val;
 
@@ -314,6 +314,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     if (closefile) fclose(fp);
+    stopLoading();
     return 0;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
@@ -324,6 +325,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     }
 err:
     if (closefile) fclose(fp);
+    stopLoading();
     return 1;
 }
 
