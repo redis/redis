@@ -506,7 +506,7 @@ void addReplyDouble(client *c, double d) {
         if (c->resp == 2) {
             addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
         } else {
-            addReplyProto(c, d > 0 ? ",inf\r\n" : "-inf\r\n",
+            addReplyProto(c, d > 0 ? ",inf\r\n" : ",-inf\r\n",
                               d > 0 ? 6 : 7);
         }
     } else {
