@@ -1854,6 +1854,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
     if (client->flags & CLIENT_TRACKING) *p++ = 't';
+    if (client->flags & CLIENT_TRACKING_BROKEN_REDIR) *p++ = 'R';
     if (client->flags & CLIENT_DIRTY_CAS) *p++ = 'd';
     if (client->flags & CLIENT_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & CLIENT_UNBLOCKED) *p++ = 'u';

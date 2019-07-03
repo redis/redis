@@ -295,6 +295,7 @@ typedef long long mstime_t; /* millisecond time type. */
                                           to be executed. */
 #define CLIENT_TRACKING (1<<31) /* Client enabled keys tracking in order to
                                    perform client side caching. */
+#define CLIENT_TRACKING_BROKEN_REDIR (1ULL<<32) /* Target client is invalid. */
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -821,7 +822,7 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
-    int flags;              /* Client flags: CLIENT_* macros. */
+    uint64_t flags;         /* Client flags: CLIENT_* macros. */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
@@ -1603,6 +1604,7 @@ void linkClient(client *c);
 void protectClient(client *c);
 void unprotectClient(client *c);
 void initThreadedIO(void);
+client *lookupClientByID(uint64_t id);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(client *c, const char *fmt, ...)
@@ -1618,6 +1620,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 void enableTracking(client *c, uint64_t redirect_to);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
+void trackingInvalidateKey(robj *keyobj);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);

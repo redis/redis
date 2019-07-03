@@ -399,6 +399,7 @@ int selectDb(client *c, int id) {
 
 void signalModifiedKey(redisDb *db, robj *key) {
     touchWatchedKey(db,key);
+    if (server.tracking_clients) trackingInvalidateKey(key);
 }
 
 void signalFlushedDb(int dbid) {
