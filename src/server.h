@@ -1617,6 +1617,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 /* Client side caching (tracking mode) */
 void enableTracking(client *c, uint64_t redirect_to);
 void disableTracking(client *c);
+void trackingRememberKeys(client *c);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
