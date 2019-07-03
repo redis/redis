@@ -1966,6 +1966,7 @@ void clientCommand(client *c) {
 "reply (on|off|skip)    -- Control the replies sent to the current connection.",
 "setname <name>         -- Assign the name <name> to the current connection.",
 "unblock <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
+"tracking (on|off) [REDIRECT <id>] -- Enable client keys tracking for client side caching.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2122,19 +2123,55 @@ NULL
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+        /* CLIENT SETNAME */
         if (clientSetNameOrReply(c,c->argv[2]) == C_OK)
             addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
+        /* CLIENT GETNAME */
         if (c->name)
             addReplyBulk(c,c->name);
         else
             addReplyNull(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"pause") && c->argc == 3) {
+        /* CLIENT PAUSE */
         long long duration;
 
-        if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,UNIT_MILLISECONDS)
-                                        != C_OK) return;
+        if (getTimeoutFromObjectOrReply(c,c->argv[2],&duration,
+                UNIT_MILLISECONDS) != C_OK) return;
         pauseClients(duration);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"tracking") &&
+               (c->argc == 3 || c->argc == 5))
+    {
+        /* CLIENT TRACKING (on|off) [REDIRECT <id>] */
+        long long redir = 0;
+
+        /* Parse the redirection option: we'll require the client with
+         * the specified ID to exist right now, even if it is possible
+         * it will get disconnected later. */
+        if (c->argc == 5) {
+            if (strcasecmp(c->argv[3]->ptr,"redirect") != 0) {
+                addReply(c,shared.syntaxerr);
+                return;
+            } else {
+                if (getLongLongFromObjectOrReply(c,c->argv[4],&redir,NULL) !=
+                    C_OK) return;
+                if (lookupClientByID(redir) == NULL) {
+                    addReplyError(c,"The client ID you want redirect to "
+                                    "does not exist");
+                    return;
+                }
+            }
+        }
+
+        if (!strcasecmp(c->argv[2]->ptr,"on")) {
+            enableTracking(c,redir);
+        } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
+            disableTracking(c);
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
         addReply(c,shared.ok);
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
