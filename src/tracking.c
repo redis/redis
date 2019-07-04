@@ -148,9 +148,9 @@ void trackingInvalidateKey(robj *keyobj) {
 
         /* Only send such info for clients in RESP version 3 or more. */
         if (c->resp > 2) {
-            addReplyPushLen(c,3);
+            addReplyPushLen(c,2);
             addReplyBulkCBuffer(c,"invalidate",10);
-            addReplyBulk(c,keyobj);
+            addReplyLongLong(c,hash);
         }
     }
     raxStop(&ri);
