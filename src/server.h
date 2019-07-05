@@ -1946,6 +1946,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
+void addReplyPubsubMessage(client *c, robj *channel, robj *msg);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
