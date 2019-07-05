@@ -254,6 +254,19 @@ static redisConfig *getRedisConfig(const char *ip, int port,
         else fprintf(stderr,"%s: %s\n",hostsocket,err);
         goto fail;
     }
+
+    if(config.auth){
+        void *authReply = NULL;
+        redisAppendCommand(c, "AUTH %s", config.auth);
+        if (REDIS_OK != redisGetReply(c, &authReply)) goto fail;
+        if (reply) freeReplyObject(reply);
+        reply = ((redisReply *) authReply);
+        if (reply->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "ERROR: %s\n", reply->str);
+            goto fail;
+        }
+    }
+
     redisAppendCommand(c, "CONFIG GET %s", "save");
     redisAppendCommand(c, "CONFIG GET %s", "appendonly");
     int i = 0;
@@ -1527,7 +1540,10 @@ int main(int argc, const char **argv) {
             if (node->name) printf("%s ", node->name);
             printf("%s:%d\n", node->ip, node->port);
             node->redis_config = getRedisConfig(node->ip, node->port, NULL);
-            if (node->redis_config == NULL) exit(1);
+            if (node->redis_config == NULL) {
+                fprintf(stderr, "WARN: could not fetch node CONFIG %s:%d\n",
+                        node->ip, node->port);
+            }
         }
         printf("\n");
         /* Automatically set thread number to node count if not specified
@@ -1537,7 +1553,8 @@ int main(int argc, const char **argv) {
     } else {
         config.redis_config =
             getRedisConfig(config.hostip, config.hostport, config.hostsocket);
-        if (config.redis_config == NULL) exit(1);
+        if (config.redis_config == NULL)
+            fprintf(stderr, "WARN: could not fetch server CONFIG\n");
     }
 
     if (config.num_threads > 0) {

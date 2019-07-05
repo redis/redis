@@ -166,12 +166,15 @@ start_server {} {
         # Pick a random slave
         set slave_id [expr {($master_id+1)%5}]
         set sync_count [status $R($master_id) sync_full]
+        set sync_partial [status $R($master_id) sync_partial_ok]
         catch {
             $R($slave_id) config rewrite
             $R($slave_id) debug restart
         }
+        # note: just waiting for connected_slaves==4 has a race condition since
+        # we might do the check before the master realized that the slave disconnected
         wait_for_condition 50 1000 {
-            [status $R($master_id) connected_slaves] == 4
+            [status $R($master_id) sync_partial_ok] == $sync_partial + 1
         } else {
             fail "Replica not reconnecting"
         }
