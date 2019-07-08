@@ -173,13 +173,13 @@ static size_t rioFdRead(rio *r, void *buf, size_t len) {
     /* if the buffer is too small for the entire request: realloc */
     if (sdslen(r->io.fd.buf) + sdsavail(r->io.fd.buf) < len)
         r->io.fd.buf = sdsMakeRoomFor(r->io.fd.buf, len - sdslen(r->io.fd.buf));
-        
+
     /* if the remaining unused buffer is not large enough: memmove so that we can read the rest */
     if (len > avail && sdsavail(r->io.fd.buf) < len - avail) {
         sdsrange(r->io.fd.buf, r->io.fd.pos, -1);
         r->io.fd.pos = 0;
     }
-    
+
     /* if we don't already have all the data in the sds, read more */
     while (len > sdslen(r->io.fd.buf) - r->io.fd.pos) {
         size_t buffered = sdslen(r->io.fd.buf) - r->io.fd.pos;
@@ -251,8 +251,10 @@ void rioInitWithFd(rio *r, int fd, size_t read_limit) {
 
 /* release the rio stream.
  * optionally returns the unread buffered data. */
-void rioFreeFd(rio *r, sds* out_remainingBufferedData) {
-    if(out_remainingBufferedData && (size_t)r->io.fd.pos < sdslen(r->io.fd.buf)) {
+void rioFreeFd(rio *r, sds *out_remainingBufferedData) {
+    if (out_remainingBufferedData &&
+        (size_t)r->io.fd.pos < sdslen(r->io.fd.buf))
+    {
         if (r->io.fd.pos > 0)
             sdsrange(r->io.fd.buf, r->io.fd.pos, -1);
         *out_remainingBufferedData = r->io.fd.buf;
@@ -264,7 +266,7 @@ void rioFreeFd(rio *r, sds* out_remainingBufferedData) {
     r->io.fd.buf = NULL;
 }
 
-/* ------------------- File descriptors set implementation ------------------- */
+/* ------------------- File descriptors set implementation ------------------ */
 
 /* Returns 1 or 0 for success/failure.
  * The function returns success as long as we are able to correctly write
