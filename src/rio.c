@@ -258,13 +258,13 @@ void rioInitWithFd(rio *r, int fd, size_t read_limit) {
 
 /* Release the RIO tream. Optionally returns the unread buffered data
  * when the SDS pointer 'remaining' is passed. */
-void rioFreeFd(rio *r, sds *remaining) {
-    if (remaining && (size_t)r->io.fd.pos < sdslen(r->io.fd.buf)) {
+void rioFreeFd(rio *r, sds *out_remainingBufferedData) {
+    if (out_remainingBufferedData && (size_t)r->io.fd.pos < sdslen(r->io.fd.buf)) {
         if (r->io.fd.pos > 0) sdsrange(r->io.fd.buf, r->io.fd.pos, -1);
-        *remaining = r->io.fd.buf;
+        *out_remainingBufferedData = r->io.fd.buf;
     } else {
         sdsfree(r->io.fd.buf);
-        if (out_remainingBufferedData) *remaining = NULL;
+        if (out_remainingBufferedData) *out_remainingBufferedData = NULL;
     }
     r->io.fd.buf = NULL;
 }
