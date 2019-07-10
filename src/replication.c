@@ -1138,16 +1138,16 @@ redisDb *disklessLoadMakeBackups(void) {
  *
  * If the socket loading went wrong, we want to restore the old backups
  * into the server databases. This function does just that in the case
- * the 'count' argument (the number of DBs to replace) is non-zero.
+ * the 'restore' argument (the number of DBs to replace) is non-zero.
  *
  * When instead the loading succeeded we want just to free our old backups,
- * in that case the funciton will do just that when 'count' is 0. */
-void disklessLoadRestoreBackups(redisDb *backup, int count, int empty_db_flags)
+ * in that case the funciton will do just that when 'restore' is 0. */
+void disklessLoadRestoreBackups(redisDb *backup, int restore, int empty_db_flags)
 {
-    if (count) {
+    if (restore) {
         /* Restore. */
         emptyDbGeneric(server.db,-1,empty_db_flags,replicationEmptyDbCallback);
-        for (int i=0; i<count; i++) {
+        for (int i=0; i<server.dbnum; i++) {
             dictRelease(server.db[i].dict);
             dictRelease(server.db[i].expires);
             server.db[i] = backup[i];
@@ -1155,7 +1155,7 @@ void disklessLoadRestoreBackups(redisDb *backup, int count, int empty_db_flags)
     } else {
         /* Delete. */
         emptyDbGeneric(backup,-1,empty_db_flags,replicationEmptyDbCallback);
-        for (int i=0; i<count; i++) {
+        for (int i=0; i<server.dbnum; i++) {
             dictRelease(backup[i].dict);
             dictRelease(backup[i].expires);
         }
@@ -1382,7 +1382,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             rioFreeFd(&rdb, NULL);
             if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
                 /* Restore the backed up databases. */
-                disklessLoadRestoreBackups(diskless_load_backup,server.dbnum,
+                disklessLoadRestoreBackups(diskless_load_backup,1,
                                            empty_db_flags);
             } else {
                 /* Remove the half-loaded data in case we started with
