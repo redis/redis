@@ -1954,20 +1954,21 @@ void clientCommand(client *c) {
 
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
-"id                     -- Return the ID of the current connection.",
-"getname                -- Return the name of the current connection.",
-"kill <ip:port>         -- Kill connection made from <ip:port>.",
-"kill <option> <value> [option value ...] -- Kill connections. Options are:",
-"     addr <ip:port>                      -- Kill connection made from <ip:port>",
-"     type (normal|master|replica|pubsub) -- Kill connections by type.",
-"     skipme (yes|no)   -- Skip killing current connection (default: yes).",
-"list [options ...]     -- Return information about client connections. Options:",
-"     type (normal|master|replica|pubsub) -- Return clients of specified type.",
-"pause <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
-"reply (on|off|skip)    -- Control the replies sent to the current connection.",
-"setname <name>         -- Assign the name <name> to the current connection.",
-"unblock <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
-"tracking (on|off) [REDIRECT <id>] -- Enable client keys tracking for client side caching.",
+"ID                     -- Return the ID of the current connection.",
+"GETNAME                -- Return the name of the current connection.",
+"KILL <ip:port>         -- Kill connection made from <ip:port>.",
+"KILL <option> <value> [option value ...] -- Kill connections. Options are:",
+"     ADDR <ip:port>                      -- Kill connection made from <ip:port>",
+"     TYPE (normal|master|replica|pubsub) -- Kill connections by type.",
+"     SKIPME (yes|no)   -- Skip killing current connection (default: yes).",
+"LIST [options ...]     -- Return information about client connections. Options:",
+"     TYPE (normal|master|replica|pubsub) -- Return clients of specified type.",
+"PAUSE <timeout>        -- Suspend all Redis clients for <timout> milliseconds.",
+"REPLY (on|off|skip)    -- Control the replies sent to the current connection.",
+"SETNAME <name>         -- Assign the name <name> to the current connection.",
+"UNBLOCK <clientid> [TIMEOUT|ERROR] -- Unblock the specified blocked client.",
+"TRACKING (on|off) [REDIRECT <id>] -- Enable client keys tracking for client side caching.",
+"GETREDIR               -- Return the client ID we are redirecting to when tracking is enabled.",
 NULL
         };
         addReplyHelp(c, help);
@@ -2174,6 +2175,13 @@ NULL
             return;
         }
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getredir") && c->argc == 2) {
+        /* CLIENT GETREDIR */
+        if (c->flags & CLIENT_TRACKING) {
+            addReplyLongLong(c,c->client_tracking_redirection);
+        } else {
+            addReplyLongLong(c,-1);
+        }
     } else {
         addReplyErrorFormat(c, "Unknown subcommand or wrong number of arguments for '%s'. Try CLIENT HELP", (char*)c->argv[1]->ptr);
     }
