@@ -264,7 +264,7 @@ void rioFreeFd(rio *r, sds *remaining) {
         *remaining = r->io.fd.buf;
     } else {
         sdsfree(r->io.fd.buf);
-        if (out_remainingBufferedData) *remaining = NULL;
+        if (remaining) *remaining = NULL;
     }
     r->io.fd.buf = NULL;
 }
