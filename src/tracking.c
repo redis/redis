@@ -133,6 +133,7 @@ void trackingInvalidateKey(robj *keyobj) {
         uint64_t id;
         memcpy(&id,ri.key,ri.key_len);
         client *c = lookupClientByID(id);
+        if (c == NULL) continue;
         int using_redirection = 0;
         if (c->client_tracking_redirection) {
             client *redir = lookupClientByID(c->client_tracking_redirection);
