@@ -3895,10 +3895,12 @@ sds genRedisInfoString(char *section) {
             "connected_clients:%lu\r\n"
             "client_recent_max_input_buffer:%zu\r\n"
             "client_recent_max_output_buffer:%zu\r\n"
-            "blocked_clients:%d\r\n",
+            "blocked_clients:%d\r\n"
+            "tracking_clients:%d\r\n",
             listLength(server.clients)-listLength(server.slaves),
             maxin, maxout,
-            server.blocked_clients);
+            server.blocked_clients,
+            server.tracking_clients);
     }
 
     /* Memory */
