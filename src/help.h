@@ -1034,7 +1034,7 @@ struct commandHelp {
     14,
     "5.0.0" },
     { "XREADGROUP",
-    "GROUP group consumer [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] ID [ID ...]",
+    "GROUP group consumer [COUNT count] [BLOCK milliseconds] [NOACK] STREAMS key [key ...] ID [ID ...]",
     "Return new entries from a stream using a consumer group, or access the history of the pending entries for a given consumer. Can block.",
     14,
     "5.0.0" },
