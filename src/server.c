@@ -456,7 +456,7 @@ struct redisCommand redisCommandTable[] = {
      "read-only fast @sortedset",
      0,NULL,1,1,1,0,0,0},
 
-    {"zscore",zscoreCommand,3,
+    {"zscore",zscoreCommand,-3,
      "read-only fast @sortedset",
      0,NULL,1,1,1,0,0,0},
 
