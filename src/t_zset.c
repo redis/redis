@@ -3079,10 +3079,14 @@ void zscoreCommand(client *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
-    if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
-        addReplyNull(c);
-    } else {
-        addReplyDouble(c,score);
+    if (c->argc > 3) addReplyArrayLen(c, c->argc-2);
+
+    for (i=2; i < c->argc; i++) {
+        if (zsetScore(zobj,c->argv[i]->ptr,&score) == C_ERR) {
+            addReplyNull(c);
+        } else {
+            addReplyDouble(c,score);
+        }
     }
 }
 
