@@ -303,9 +303,7 @@ ssize_t aofWrite(int fd, const char *buf, size_t len) {
         nwritten = write(fd, buf, len);
 
         if (nwritten < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+            if (errno == EINTR) continue;
             return totwritten ? totwritten : -1;
         }
 
