@@ -3139,9 +3139,14 @@ void *RM_ModuleTypeGetValue(RedisModuleKey *key) {
  * RDB loading and saving functions
  * -------------------------------------------------------------------------- */
 
-/* Called when there is a load error in the context of a module. This cannot
- * be recovered like for the built-in types. */
+/* Called when there is a load error in the context of a module. On some
+ * modules this cannot be recovered, but if the module declared capability
+ * to handle errors, we'll raise a flag rather than exiting. */
 void moduleRDBLoadError(RedisModuleIO *io) {
+    if (io->flags & REDISMODULE_HANDLE_IO_ERRORS) {
+        io->error = 1;
+        return;
+    }
     serverLog(LL_WARNING,
         "Error loading data from RDB (short read or EOF). "
         "Read performed by module '%s' about type '%s' "
@@ -3150,6 +3155,23 @@ void moduleRDBLoadError(RedisModuleIO *io) {
         io->type->name,
         (unsigned long long)io->bytes);
     exit(1);
+}
+
+/* Set flags defining capabilities or behavior */
+void RM_SetIOFlags(RedisModuleIO *io, int flags) {
+    io->flags = flags;
+}
+
+/* Get flags which were set by RedisModule_SetIOFlags */
+int RM_GetIOFlags(RedisModuleIO *io) {
+    return io->flags;
+}
+
+/* Returns true if any previous IO API failed.
+ * for Load* APIs the REDISMODULE_HANDLE_IO_ERRORS flag must be set with
+ * RediModule_SetIOFlags first. */
+int RM_IsIOError(RedisModuleIO *io) {
+    return io->error;
 }
 
 /* Save an unsigned 64 bit value into the RDB file. This function should only
@@ -3175,6 +3197,7 @@ saveerr:
  * be called in the context of the rdb_load method of modules implementing
  * new data types. */
 uint64_t RM_LoadUnsigned(RedisModuleIO *io) {
+    if (io->error) return 0;
     if (io->ver == 2) {
         uint64_t opcode = rdbLoadLen(io->rio,NULL);
         if (opcode != RDB_MODULE_OPCODE_UINT) goto loaderr;
@@ -3186,7 +3209,7 @@ uint64_t RM_LoadUnsigned(RedisModuleIO *io) {
 
 loaderr:
     moduleRDBLoadError(io);
-    return 0; /* Never reached. */
+    return 0;
 }
 
 /* Like RedisModule_SaveUnsigned() but for signed 64 bit values. */
@@ -3245,6 +3268,7 @@ saveerr:
 
 /* Implements RM_LoadString() and RM_LoadStringBuffer() */
 void *moduleLoadString(RedisModuleIO *io, int plain, size_t *lenptr) {
+    if (io->error) return NULL;
     if (io->ver == 2) {
         uint64_t opcode = rdbLoadLen(io->rio,NULL);
         if (opcode != RDB_MODULE_OPCODE_STRING) goto loaderr;
@@ -3256,7 +3280,7 @@ void *moduleLoadString(RedisModuleIO *io, int plain, size_t *lenptr) {
 
 loaderr:
     moduleRDBLoadError(io);
-    return NULL; /* Never reached. */
+    return NULL;
 }
 
 /* In the context of the rdb_load method of a module data type, loads a string
@@ -3305,6 +3329,7 @@ saveerr:
 /* In the context of the rdb_save method of a module data type, loads back the
  * double value saved by RedisModule_SaveDouble(). */
 double RM_LoadDouble(RedisModuleIO *io) {
+    if (io->error) return 0;
     if (io->ver == 2) {
         uint64_t opcode = rdbLoadLen(io->rio,NULL);
         if (opcode != RDB_MODULE_OPCODE_DOUBLE) goto loaderr;
@@ -3316,7 +3341,7 @@ double RM_LoadDouble(RedisModuleIO *io) {
 
 loaderr:
     moduleRDBLoadError(io);
-    return 0; /* Never reached. */
+    return 0;
 }
 
 /* In the context of the rdb_save method of a module data type, saves a float
@@ -3341,6 +3366,7 @@ saveerr:
 /* In the context of the rdb_save method of a module data type, loads back the
  * float value saved by RedisModule_SaveFloat(). */
 float RM_LoadFloat(RedisModuleIO *io) {
+    if (io->error) return 0;
     if (io->ver == 2) {
         uint64_t opcode = rdbLoadLen(io->rio,NULL);
         if (opcode != RDB_MODULE_OPCODE_FLOAT) goto loaderr;
@@ -3352,7 +3378,7 @@ float RM_LoadFloat(RedisModuleIO *io) {
 
 loaderr:
     moduleRDBLoadError(io);
-    return 0; /* Never reached. */
+    return 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -5408,6 +5434,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeSetValue);
     REGISTER_API(ModuleTypeGetType);
     REGISTER_API(ModuleTypeGetValue);
+    REGISTER_API(GetIOFlags);
+    REGISTER_API(SetIOFlags);
+    REGISTER_API(IsIOError);
     REGISTER_API(SaveUnsigned);
     REGISTER_API(LoadUnsigned);
     REGISTER_API(SaveSigned);

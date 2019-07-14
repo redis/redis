@@ -140,6 +140,9 @@ typedef uint64_t RedisModuleTimerID;
 /* Do filter RedisModule_Call() commands initiated by module itself. */
 #define REDISMODULE_CMDFILTER_NOSELF    (1<<0)
 
+/* Declare that the module can handle errors with RedisModule_SetIOFlags */
+#define REDISMODULE_HANDLE_IO_ERRORS    (1<<0)
+
 /* ------------------------- End of common defines ------------------------ */
 
 #ifndef REDISMODULE_CORE
@@ -271,6 +274,9 @@ RedisModuleType *REDISMODULE_API_FUNC(RedisModule_CreateDataType)(RedisModuleCtx
 int REDISMODULE_API_FUNC(RedisModule_ModuleTypeSetValue)(RedisModuleKey *key, RedisModuleType *mt, void *value);
 RedisModuleType *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetType)(RedisModuleKey *key);
 void *REDISMODULE_API_FUNC(RedisModule_ModuleTypeGetValue)(RedisModuleKey *key);
+void REDISMODULE_API_FUNC(RedisModule_SetIOFlags)(RedisModuleIO *io, int flags);
+int REDISMODULE_API_FUNC(RedisModule_GetIOFlags)(RedisModuleIO *io);
+int REDISMODULE_API_FUNC(RedisModule_IsIOError)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t value);
 uint64_t REDISMODULE_API_FUNC(RedisModule_LoadUnsigned)(RedisModuleIO *io);
 void REDISMODULE_API_FUNC(RedisModule_SaveSigned)(RedisModuleIO *io, int64_t value);
@@ -444,6 +450,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeSetValue);
     REDISMODULE_GET_API(ModuleTypeGetType);
     REDISMODULE_GET_API(ModuleTypeGetValue);
+    REDISMODULE_GET_API(SetIOFlags);
+    REDISMODULE_GET_API(GetIOFlags);
+    REDISMODULE_GET_API(IsIOError);
     REDISMODULE_GET_API(SaveUnsigned);
     REDISMODULE_GET_API(LoadUnsigned);
     REDISMODULE_GET_API(SaveSigned);
