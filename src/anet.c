@@ -58,7 +58,7 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
-int anetSetBlock(char *err, int fd, int non_block) {
+static int anetSetBlock(char *err, int fd, int non_block) {
     int flags;
 
     /* Set the socket blocking (if non_block is zero) or non-blocking.
@@ -159,7 +159,7 @@ int anetDisableTcpNoDelay(char *err, int fd)
 }
 
 
-int anetSetSendBuffer(char *err, int fd, int buffsize)
+static int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
     {
