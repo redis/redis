@@ -212,18 +212,19 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
 
         /* Handle special types. */
         if (type == RDB_OPCODE_EXPIRETIME) {
+            time_t t;
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
             /* EXPIRETIME: load an expire associated with the next key
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
-            if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
-            expiretime *= 1000;
+            if (rdbLoadTime(&rdb, &t) == C_ERR) goto eoferr;
+            expiretime = t * 1000;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             rdbstate.doing = RDB_CHECK_DOING_READ_EXPIRE;
-            if ((expiretime = rdbLoadMillisecondTime(&rdb, rdbver)) == -1) goto eoferr;
+            if (rdbLoadMillisecondTime(&rdb, &expiretime, rdbver) == C_ERR) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
             /* FREQ: LFU frequency. */
