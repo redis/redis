@@ -102,6 +102,7 @@ typedef struct _rio rio;
  * if needed. */
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
+    if (r->flags & RIO_FLAG_WRITE_ERROR) return 0;
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
@@ -117,6 +118,7 @@ static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
 }
 
 static inline size_t rioRead(rio *r, void *buf, size_t len) {
+    if (r->flags & RIO_FLAG_READ_ERROR) return 0;
     while (len) {
         size_t bytes_to_read = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->read(r,buf,bytes_to_read) == 0) {
