@@ -43,16 +43,16 @@
 #include <sys/param.h>
 
 /* This macro is called when the internal RDB stracture is corrupt */
-#define rdbExitReportCorruptRDB(...) rdbReportReadError(0, __LINE__,__VA_ARGS__)
+#define rdbExitReportCorruptRDB(...) rdbReportError(1, __LINE__,__VA_ARGS__)
 /* This macro is called when RDB read failed (possibly a short read) */
-#define rdbReportReadError(...) rdbReportError(1, __LINE__,__VA_ARGS__)
+#define rdbReportReadError(...) rdbReportError(0, __LINE__,__VA_ARGS__)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
 
-void rdbReportError(int read_error, int linenum, char *reason, ...) {
+void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
     va_list ap;
     char msg[1024];
     int len;
@@ -65,7 +65,7 @@ void rdbReportError(int read_error, int linenum, char *reason, ...) {
     va_end(ap);
 
     if (!rdbCheckMode) {
-        if (rdbFileBeingLoaded || !read_error) {
+        if (rdbFileBeingLoaded || corruption_error) {
             serverLog(LL_WARNING, "%s", msg);
             char *argv[2] = {"",rdbFileBeingLoaded};
             redis_check_rdb_main(2,argv,NULL);
