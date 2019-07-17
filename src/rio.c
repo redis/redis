@@ -92,6 +92,7 @@ static const rio rioBufferIO = {
     rioBufferFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -145,6 +146,7 @@ static const rio rioFileIO = {
     rioFileFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -239,6 +241,7 @@ static const rio rioFdIO = {
     rioFdFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
@@ -374,6 +377,7 @@ static const rio rioFdsetIO = {
     rioFdsetFlush,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* flags */
     0,              /* bytes read or written */
     0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */

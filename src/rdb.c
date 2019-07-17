@@ -2168,7 +2168,6 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
 eoferr: /* unexpected end of file is handled here with a fatal exit */
     serverLog(LL_WARNING,"Short read or OOM loading DB. Unrecoverable error, aborting now.");
     rdbReportReadError("Unexpected EOF reading RDB file");
-err:
     return C_ERR;
 }
 
