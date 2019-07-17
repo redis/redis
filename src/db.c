@@ -417,6 +417,7 @@ void signalModifiedKey(redisDb *db, robj *key) {
 
 void signalFlushedDb(int dbid) {
     touchWatchedKeysOnFlush(dbid);
+    if (server.tracking_clients) trackingInvalidateKeysOnFlush(dbid);
 }
 
 /*-----------------------------------------------------------------------------
