@@ -751,11 +751,11 @@ void syncCommand(client *c) {
             /* Target is disk (or the slave is not capable of supporting
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
-            if (server.aof_child_pid == -1) {
+            if (!hasForkChild()) {
                 startBgsaveForReplication(c->slave_capa);
             } else {
                 serverLog(LL_NOTICE,
-                    "No BGSAVE in progress, but an AOF rewrite is active. "
+                    "No BGSAVE in progress, but another BG operation is active. "
                     "BGSAVE for replication delayed");
             }
         }
@@ -2899,7 +2899,7 @@ void replicationCron(void) {
      * In case of diskless replication, we make sure to wait the specified
      * number of seconds (according to configuration) so that other slaves
      * have the time to arrive before we start streaming. */
-    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
+    if (!hasForkChild()) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         int mincapa = -1;

@@ -30,6 +30,7 @@
 #include "server.h"
 #include "cluster.h"
 #include <dlfcn.h>
+#include <wait.h>
 
 #define REDISMODULE_CORE 1
 #include "redismodule.h"
@@ -290,6 +291,14 @@ typedef struct RedisModuleCommandFilter {
 
 /* Registered filters */
 static list *moduleCommandFilters;
+
+typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
+
+static struct RedisModuleForkInfo {
+    RedisModuleForkDoneHandler done_handler;
+    void* done_handler_user_data;
+} moduleForkInfo = {0};
+
 
 /* --------------------------------------------------------------------------
  * Prototypes
@@ -5029,6 +5038,94 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
 }
 
 /* --------------------------------------------------------------------------
+ * Module fork API
+ * -------------------------------------------------------------------------- */
+
+/* Create a background child process with the current frozen snaphost of the
+ * main process where you can do some processing in the background without
+ * affecting / freezing the traffic and no need for threads and GIL locking.
+ * Note that Redis allows for only one concurrent fork.
+ * When the child wants to exit, it should call RedisModule_ExitFromChild.
+ * If the parent wants to kill the child it should call RedisModule_KillForkChild
+ * The done handler callback will be executed on the parent process when the
+ * child existed (but not when killed)
+ * Return: -1 on failure, on success the parent process will get a positive PID
+ * of the child, and the child process will get 0.
+ */
+int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data)
+{
+    pid_t childpid;
+    if (hasForkChild()) {
+        return -1;
+    }
+
+    openChildInfoPipe();
+    if ((childpid = redisFork()) == 0) {
+        /* Child */
+        redisSetProcTitle("redis-module-fork");
+    } else if (childpid == -1) {
+        closeChildInfoPipe();
+        serverLog(LL_WARNING,"Can't fork for module: %s", strerror(errno));
+    } else {
+        /* Parent */
+        server.module_child_pid = childpid;
+        moduleForkInfo.done_handler = cb;
+        moduleForkInfo.done_handler_user_data = user_data;
+        serverLog(LL_NOTICE, "Module fork started pid: %d ", childpid);
+    }
+    return childpid;
+}
+
+/* Call from the child process when you want to terminate it.
+ * retcode will be provided to the done handler executed on the parent process.
+ */
+int RM_ExitFromChild(int retcode)
+{
+    sendChildCOWInfo(CHILD_INFO_TYPE_MODULE, "Module fork");
+    exitFromChild(retcode);
+    return REDISMODULE_OK;
+}
+
+/* Can be used to kill the forked child process from the parent process.
+ * child_pid whould be the return value of RedisModule_Fork. */
+int RM_KillForkChild(int child_pid)
+{
+    int statloc;
+    /* No module child? return. */
+    if (server.module_child_pid == -1) return REDISMODULE_ERR;
+    /* Make sure the module knows the pid it wants to kill (not trying to
+     * randomly kill other module's forks) */
+    if (server.module_child_pid != child_pid) return REDISMODULE_ERR;
+    /* Kill module child, wait for child exit. */
+    serverLog(LL_NOTICE,"Killing running module fork child: %ld",
+        (long) server.module_child_pid);
+    if (kill(server.module_child_pid,SIGUSR1) != -1) {
+        while(wait3(&statloc,0,NULL) != server.module_child_pid);
+    }
+    /* Reset the buffer accumulating changes while the child saves. */
+    server.module_child_pid = -1;
+    moduleForkInfo.done_handler = NULL;
+    moduleForkInfo.done_handler_user_data = NULL;
+    closeChildInfoPipe();
+    updateDictResizePolicy();
+    return REDISMODULE_OK;
+}
+
+void ModuleForkDoneHandler(int exitcode, int bysignal)
+{
+    serverLog(LL_NOTICE,
+        "Module fork exited pid: %d, retcode: %d, bysignal: %d",
+        server.module_child_pid, exitcode, bysignal);
+    if (moduleForkInfo.done_handler) {
+        moduleForkInfo.done_handler(exitcode, bysignal,
+            moduleForkInfo.done_handler_user_data);
+    }
+    server.module_child_pid = -1;
+    moduleForkInfo.done_handler = NULL;
+    moduleForkInfo.done_handler_user_data = NULL;
+}
+
+/* --------------------------------------------------------------------------
  * Modules API internals
  * -------------------------------------------------------------------------- */
 
@@ -5490,4 +5587,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CommandFilterArgInsert);
     REGISTER_API(CommandFilterArgReplace);
     REGISTER_API(CommandFilterArgDelete);
+    REGISTER_API(Fork);
+    REGISTER_API(ExitFromChild);
+    REGISTER_API(KillForkChild);
 }

@@ -1039,7 +1039,7 @@ void activeDefragCycle(void) {
     mstime_t latency;
     int quit = 0;
 
-    if (server.aof_child_pid!=-1 || server.rdb_child_pid!=-1)
+    if (hasForkChild())
         return; /* Defragging memory while there's a fork will just do damage. */
 
     /* Once a second, check if we the fragmentation justfies starting a scan

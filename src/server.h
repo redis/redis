@@ -1030,6 +1030,7 @@ struct clusterState;
 #define CHILD_INFO_MAGIC 0xC17DDA7A12345678LL
 #define CHILD_INFO_TYPE_RDB 0
 #define CHILD_INFO_TYPE_AOF 1
+#define CHILD_INFO_TYPE_MODULE 3
 
 struct redisServer {
     /* General */
@@ -1065,6 +1066,7 @@ struct redisServer {
     int module_blocked_pipe[2]; /* Pipe used to awake the event loop if a
                                    client blocked on a module command needs
                                    to be processed. */
+    pid_t module_child_pid;     /* PID of module child */
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
@@ -1138,6 +1140,7 @@ struct redisServer {
     _Atomic long long stat_net_output_bytes; /* Bytes written to network. */
     size_t stat_rdb_cow_bytes;      /* Copy on write bytes during RDB saving. */
     size_t stat_aof_cow_bytes;      /* Copy on write bytes during AOF rewrite. */
+    size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -1528,6 +1531,7 @@ void moduleAcquireGIL(void);
 void moduleReleaseGIL(void);
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 void moduleCallCommandFilters(client *c);
+void ModuleForkDoneHandler(int exitcode, int bysignal);
 
 /* Utils */
 long long ustime(void);
@@ -1785,6 +1789,11 @@ void openChildInfoPipe(void);
 void closeChildInfoPipe(void);
 void sendChildInfo(int process_type);
 void receiveChildInfo(void);
+
+/* Fork helpers */
+int redisFork();
+int hasForkChild();
+void sendChildCOWInfo(int ptype, char *pname);
 
 /* acl.c -- Authentication related prototypes. */
 extern rax *Users;

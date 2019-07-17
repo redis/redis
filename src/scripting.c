@@ -1693,7 +1693,7 @@ void ldbSendLogs(void) {
 int ldbStartSession(client *c) {
     ldb.forked = (c->flags & CLIENT_LUA_DEBUG_SYNC) == 0;
     if (ldb.forked) {
-        pid_t cp = fork();
+        pid_t cp = redisFork();
         if (cp == -1) {
             addReplyError(c,"Fork() failed: can't run EVAL in debugging mode.");
             return 0;
@@ -1710,7 +1710,6 @@ int ldbStartSession(client *c) {
              * socket to make sure if the parent crashes a reset is sent
              * to the clients. */
             serverLog(LL_WARNING,"Redis forked for debugging eval");
-            closeListeningSockets(0);
         } else {
             /* Parent */
             listAddNodeTail(ldb.children,(void*)(unsigned long)cp);
