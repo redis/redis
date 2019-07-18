@@ -2169,8 +2169,13 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
     }
     return C_OK;
 
-eoferr: /* unexpected end of file is handled here with a fatal exit */
-    serverLog(LL_WARNING,"Short read or OOM loading DB. Unrecoverable error, aborting now.");
+    /* Unexpected end of file is handled here calling rdbReportReadError():
+     * this will in turn either abort Redis in most cases, or if we are loading
+     * the RDB file from a socket during initial SYNC (diskless replica mode),
+     * we'll report the error to the caller, so that we can retry. */
+eoferr:
+    serverLog(LL_WARNING,
+        "Short read or OOM loading DB. Unrecoverable error, aborting now.");
     rdbReportReadError("Unexpected EOF reading RDB file");
     return C_ERR;
 }
