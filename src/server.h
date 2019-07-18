@@ -1638,6 +1638,7 @@ void enableTracking(client *c, uint64_t redirect_to);
 void disableTracking(client *c);
 void trackingRememberKeys(client *c);
 void trackingInvalidateKey(robj *keyobj);
+void trackingInvalidateKeysOnFlush(int dbid);
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
