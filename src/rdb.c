@@ -214,8 +214,9 @@ int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr) {
         if (rioRead(rdb,&len,8) == 0) return -1;
         *lenptr = ntohu64(len);
     } else {
-        serverLog(LL_WARNING, "Unknown length encoding %d in rdbLoadLen()",type);
-        return -1;
+        rdbExitReportCorruptRDB(
+            "Unknown length encoding %d in rdbLoadLen()",type);
+        return -1; /* Never reached. */
     }
     return 0;
 }
@@ -281,8 +282,8 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
         val = (int32_t)v;
     } else {
-        serverLog(LL_WARNING, "Unknown RDB integer encoding type %d", enctype);
-        return NULL;
+        rdbExitReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
+        return NULL; /* Never reached. */
     }
     if (plain || sds) {
         char buf[LONG_STR_SIZE], *p;
@@ -499,8 +500,8 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
         default:
-            serverLog(LL_WARNING, "Unknown RDB encoding type %llu", (unsigned long long)len);
-            return NULL;
+            rdbExitReportCorruptRDB("Unknown RDB string encoding type %d",len);
+            return NULL; /* Never reached. */
         }
     }
 
