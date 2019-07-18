@@ -167,7 +167,7 @@ void trackingInvalidateKey(robj *keyobj) {
         uint64_t id;
         memcpy(&id,ri.key,ri.key_len);
         client *c = lookupClientByID(id);
-        if (c == NULL) continue;
+        if (c == NULL || !(c->flags & CLIENT_TRACKING)) continue;
         sendTrackingMessage(c,hash);
     }
     raxStop(&ri);
