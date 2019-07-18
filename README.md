@@ -1,5 +1,7 @@
 [![Windows Status](http://img.shields.io/appveyor/ci/MSOpenTech-lab/redis.svg?style=flat-square)](https://ci.appveyor.com/project/MSOpenTech-lab/redis) [![NuGet version](http://img.shields.io/nuget/v/redis-64.svg?style=flat-square)](http://www.nuget.org/packages/redis-64/) [![Chocolatey version](http://img.shields.io/chocolatey/v/redis-64.svg?style=flat-square)](http://www.chocolatey.org/packages/redis-64/) [![Chocolatey downloads](http://img.shields.io/chocolatey/dt/redis-64.svg?style=flat-square)](http://www.chocolatey.org/packages/redis-64/)
 
+Please note that this project is no longer being actively maintained. If you are looking for a Windows version of Redis, you may want to check out [Memurai](https://www.memurai.com/).
+
 ## Redis on Windows 
 
 - This is a port for Windows based on [Redis](https://github.com/antirez/redis).
