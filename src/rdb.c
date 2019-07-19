@@ -2116,6 +2116,7 @@ int rdbLoadRio(rio *rdb, rdbSaveInfo *rsi, int loading_aof) {
                 /* RDB check mode. */
                 robj *aux = rdbLoadCheckModuleValue(rdb,name);
                 decrRefCount(aux);
+                continue; /* Read next opcode. */
             }
         }
 
